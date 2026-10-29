@@ -259,6 +259,17 @@ public:
     }
 };
 
+class IcebergTableReaderAnnotateTestHelper final
+        : public doris::format::iceberg::IcebergTableReader {
+public:
+    Status annotate(std::vector<ColumnDefinition>* file_schema, TFileScanRangeParams* scan_params,
+                    FileFormat format = FileFormat::PARQUET) {
+        _scan_params = scan_params;
+        _format = format;
+        return annotate_file_schema(file_schema);
+    }
+};
+
 std::shared_ptr<arrow::Array> finish_array(arrow::ArrayBuilder* builder) {
     std::shared_ptr<arrow::Array> array;
     EXPECT_TRUE(builder->Finish(&array).ok());
@@ -1025,20 +1036,25 @@ void write_nested_key_value_orc_file(const std::string& file_path, const std::ve
 
 // Writes the adjusted-UTC `event_time` (field id 0) and `id` (field id 1). With `int96`,
 // `event_time` is stored as INT96, as Spark and Hive write timestamps, which drops the annotation.
+// Without `field_ids` the file looks like one Spark wrote and `add_files` attached to a table.
 void write_timestamp_int_parquet_file(const std::string& file_path,
                                       const std::vector<int64_t>& timestamps,
-                                      const std::vector<int32_t>& ids, bool int96 = false) {
+                                      const std::vector<int32_t>& ids, bool int96 = false,
+                                      bool field_ids = true) {
     ASSERT_EQ(timestamps.size(), ids.size());
-    const auto timestamp_metadata = arrow::key_value_metadata({"PARQUET:field_id"}, {"0"});
-    const auto id_metadata = arrow::key_value_metadata({"PARQUET:field_id"}, {"1"});
     const auto timestamp_type = arrow::timestamp(arrow::TimeUnit::MICRO, "UTC");
     arrow::TimestampBuilder timestamp_builder(timestamp_type, arrow::default_memory_pool());
     ASSERT_TRUE(timestamp_builder.AppendValues(timestamps).ok());
     auto timestamp_result = timestamp_builder.Finish();
     ASSERT_TRUE(timestamp_result.ok()) << timestamp_result.status();
-    auto schema = arrow::schema(
-            {arrow::field("event_time", timestamp_type, false)->WithMetadata(timestamp_metadata),
-             arrow::field("id", arrow::int32(), false)->WithMetadata(id_metadata)});
+    auto timestamp_field = arrow::field("event_time", timestamp_type, false);
+    auto id_field = arrow::field("id", arrow::int32(), false);
+    if (field_ids) {
+        timestamp_field = timestamp_field->WithMetadata(
+                arrow::key_value_metadata({"PARQUET:field_id"}, {"0"}));
+        id_field = id_field->WithMetadata(arrow::key_value_metadata({"PARQUET:field_id"}, {"1"}));
+    }
+    auto schema = arrow::schema({timestamp_field, id_field});
     auto table = arrow::Table::Make(schema, {*timestamp_result, build_int32_array(ids)});
 
     auto file_result = arrow::io::FileOutputStream::Open(file_path);
@@ -1055,6 +1071,41 @@ void write_timestamp_int_parquet_file(const std::string& file_path,
     PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
                                                       static_cast<int64_t>(timestamps.size()),
                                                       builder.build(), arrow_builder.build()));
+}
+
+// Writes `id` (field id 1), `info` STRUCT<tz (3), wall (4)> (2) and `tzs` LIST<element (6)> (5)
+// with every timestamp stored as INT96, as Spark writes nested timestamps.
+void write_nested_int96_parquet_file(const std::string& file_path, int64_t timestamp) {
+    const auto field_id = [](int32_t id) {
+        return arrow::key_value_metadata({"PARQUET:field_id"}, {std::to_string(id)});
+    };
+    const auto timestamp_type = arrow::timestamp(arrow::TimeUnit::MICRO, "UTC");
+    arrow::TimestampBuilder timestamp_builder(timestamp_type, arrow::default_memory_pool());
+    ASSERT_TRUE(timestamp_builder.Append(timestamp).ok());
+    auto timestamps = timestamp_builder.Finish();
+    ASSERT_TRUE(timestamps.ok()) << timestamps.status();
+    auto tz_field = arrow::field("tz", timestamp_type)->WithMetadata(field_id(3));
+    auto wall_field = arrow::field("wall", timestamp_type)->WithMetadata(field_id(4));
+    auto info = arrow::StructArray::Make({*timestamps, *timestamps}, {tz_field, wall_field});
+    ASSERT_TRUE(info.ok()) << info.status();
+    auto tzs_type = arrow::list(arrow::field("element", timestamp_type)->WithMetadata(field_id(6)));
+    auto tzs = arrow::ListArray::FromArrays(tzs_type, *build_int32_array({0, 1}), **timestamps);
+    ASSERT_TRUE(tzs.ok()) << tzs.status();
+    auto schema = arrow::schema({
+            arrow::field("id", arrow::int32(), false)->WithMetadata(field_id(1)),
+            arrow::field("info", (*info)->type())->WithMetadata(field_id(2)),
+            arrow::field("tzs", tzs_type)->WithMetadata(field_id(5)),
+    });
+    auto table = arrow::Table::Make(schema, {build_int32_array({1}), *info, *tzs});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+    ::parquet::ArrowWriterProperties::Builder arrow_builder;
+    arrow_builder.enable_force_write_int96_timestamps();
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(
+            *table, arrow::default_memory_pool(), out, 1,
+            ::parquet::WriterProperties::Builder().build(), arrow_builder.build()));
 }
 
 void write_iceberg_equality_delete_bigint_parquet_file(const std::string& file_path,
@@ -6386,6 +6437,451 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteComparesInt96DataKeyAsTimestampTz
             // The projection converts the INT96 value back in the same zone, giving T2.
             EXPECT_EQ(event_times, std::vector<std::string>({"2024-01-01 00:00:01.123456+00:00"}));
         }
+        ASSERT_TRUE(reader.close().ok());
+    }
+    std::filesystem::remove_all(test_dir);
+}
+
+// FE marks every Iceberg timestamptz field with timestamp_is_adjusted_to_utc. The marker lands on
+// the file leaf the mapper selects for the field, by field id at every nesting level: a DATETIMEV2
+// leaf becomes TIMESTAMPTZ with its precision and nullability, its containers are rebuilt around
+// it, and an unmarked timestamp field stays a wall clock. A TIMESTAMP_NS leaf (INT64 NANOS without
+// the UTC annotation) keeps its type and takes no marker; the Parquet reader rewrites every marked
+// timestamp leaf, so a marker there would make it decode TIMESTAMPTZ under a TIMESTAMP_NS file
+// schema. ORC files keep their types, since ORC's file type already separates the two semantics.
+TEST(IcebergV2ReaderTest, IcebergAnnotatesTimestampTzMarkerOnMatchedParquetLeaves) {
+    const auto marked = [](schema::external::TFieldPtr field) {
+        field.field_ptr->__set_timestamp_is_adjusted_to_utc(true);
+        return field;
+    };
+    auto info = external_struct_schema_field(
+            "info", 4, {marked(external_schema_field("tz", 5)), external_schema_field("wall", 6)});
+    auto tzs = external_schema_field("tzs", 7);
+    schema::external::TArrayField array_field;
+    array_field.__set_item_field(marked(external_schema_field("element", 8)));
+    tzs.field_ptr->nestedField.__set_array_field(std::move(array_field));
+    tzs.field_ptr->__isset.nestedField = true;
+    auto by_tz = external_schema_field("by_tz", 9);
+    schema::external::TMapField map_field;
+    map_field.__set_key_field(marked(external_schema_field("key", 10)));
+    map_field.__set_value_field(external_schema_field("value", 11));
+    by_tz.field_ptr->nestedField.__set_map_field(std::move(map_field));
+    by_tz.field_ptr->__isset.nestedField = true;
+
+    TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info({external_schema(
+            100, {marked(external_schema_field("tz", 1)), external_schema_field("wall", 2),
+                  marked(external_schema_field("ns", 3)), info, tzs, by_tz})});
+
+    const auto datetime = std::make_shared<DataTypeDateTimeV2>(6);
+    const auto build_file_schema = [&]() {
+        auto info_column =
+                make_file_column(4, "info",
+                                 std::make_shared<DataTypeStruct>(DataTypes {datetime, datetime},
+                                                                  Strings {"tz", "wall"}));
+        info_column.children = {make_file_column(5, "tz", datetime),
+                                make_file_column(6, "wall", datetime)};
+        auto tzs_column = make_file_column(7, "tzs", std::make_shared<DataTypeArray>(datetime));
+        tzs_column.children = {make_file_column(8, "element", datetime)};
+        auto by_tz_column =
+                make_file_column(9, "by_tz", std::make_shared<DataTypeMap>(datetime, datetime));
+        by_tz_column.children = {make_file_column(10, "key", datetime),
+                                 make_file_column(11, "value", datetime)};
+        return std::vector<ColumnDefinition> {
+                make_file_column(1, "tz", datetime),
+                make_file_column(2, "wall", datetime),
+                make_file_column(3, "ns", std::make_shared<DataTypeTimeStampNs>()),
+                std::move(info_column),
+                std::move(tzs_column),
+                std::move(by_tz_column)};
+    };
+    const auto primitive = [](const DataTypePtr& type) {
+        return remove_nullable(type)->get_primitive_type();
+    };
+
+    auto file_schema = build_file_schema();
+    IcebergTableReaderAnnotateTestHelper reader;
+    ASSERT_TRUE(reader.annotate(&file_schema, &scan_params).ok());
+    ASSERT_EQ(file_schema[0].timestamp_is_adjusted_to_utc, std::optional<bool>(true));
+    EXPECT_EQ(primitive(file_schema[0].type), TYPE_TIMESTAMPTZ);
+    EXPECT_EQ(file_schema[0].type->get_scale(), 6);
+    EXPECT_TRUE(file_schema[0].type->is_nullable());
+    EXPECT_FALSE(file_schema[1].timestamp_is_adjusted_to_utc.has_value());
+    EXPECT_EQ(primitive(file_schema[1].type), TYPE_DATETIMEV2);
+    EXPECT_FALSE(file_schema[2].timestamp_is_adjusted_to_utc.has_value());
+    EXPECT_EQ(primitive(file_schema[2].type), TYPE_TIMESTAMP_NS);
+
+    const auto& struct_type =
+            assert_cast<const DataTypeStruct&>(*remove_nullable(file_schema[3].type));
+    EXPECT_EQ(primitive(struct_type.get_element(0)), TYPE_TIMESTAMPTZ);
+    EXPECT_EQ(primitive(struct_type.get_element(1)), TYPE_DATETIMEV2);
+    EXPECT_EQ(file_schema[3].children[0].timestamp_is_adjusted_to_utc, std::optional<bool>(true));
+    EXPECT_FALSE(file_schema[3].children[1].timestamp_is_adjusted_to_utc.has_value());
+
+    const auto& array_type =
+            assert_cast<const DataTypeArray&>(*remove_nullable(file_schema[4].type));
+    EXPECT_EQ(primitive(array_type.get_nested_type()), TYPE_TIMESTAMPTZ);
+    EXPECT_EQ(file_schema[4].children[0].timestamp_is_adjusted_to_utc, std::optional<bool>(true));
+
+    const auto& map_type = assert_cast<const DataTypeMap&>(*remove_nullable(file_schema[5].type));
+    EXPECT_EQ(primitive(map_type.get_key_type()), TYPE_TIMESTAMPTZ);
+    EXPECT_EQ(primitive(map_type.get_value_type()), TYPE_DATETIMEV2);
+    EXPECT_EQ(file_schema[5].children[0].timestamp_is_adjusted_to_utc, std::optional<bool>(true));
+    EXPECT_FALSE(file_schema[5].children[1].timestamp_is_adjusted_to_utc.has_value());
+
+    auto orc_schema = build_file_schema();
+    ASSERT_TRUE(reader.annotate(&orc_schema, &scan_params, FileFormat::ORC).ok());
+    EXPECT_FALSE(orc_schema[0].timestamp_is_adjusted_to_utc.has_value());
+    EXPECT_EQ(primitive(orc_schema[0].type), TYPE_DATETIMEV2);
+    EXPECT_EQ(primitive(assert_cast<const DataTypeArray&>(*remove_nullable(orc_schema[4].type))
+                                .get_nested_type()),
+              TYPE_DATETIMEV2);
+}
+
+// Spark and Hive store an Iceberg timestamptz as INT96, which carries no instant annotation, and FE
+// always sends Parquet timestamp-semantics version 1, under which INT96 decodes as a UTC wall
+// clock. Without FE's timestamptz marker the projection then casts that wall clock to TIMESTAMPTZ
+// in the session time zone, so in Asia/Shanghai 2024-01-01T00:00:00.123456Z reads as
+// 2023-12-31 16:00:00.123456 UTC, eight hours early. With the marker the column reads as the
+// instant whether the file has field ids, relies on the table's name mapping (an `add_files`
+// import), or falls back to positional ids, and whatever the catalog's timestamp mapping flag is.
+// A plan from an older FE carries no marker and keeps the previous result.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): one file per match rule, two plans.
+TEST(IcebergV2ReaderTest, IcebergInt96TimestampTzReadsInstantWithTableMarker) {
+    TimezoneUtils::load_timezones_to_cache();
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_iceberg_int96_timestamp_tz_marker_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    // 2024-01-01 00:00:00.123456 UTC and 2024-07-01 12:34:56.654321 UTC.
+    constexpr int64_t T1_MICROS = 1'704'067'200'123'456L;
+    constexpr int64_t T2_MICROS = 1'719'837'296'654'321L;
+
+    enum class Match { FIELD_ID, NAME_MAPPING, POSITION };
+    for (const auto match : {Match::FIELD_ID, Match::NAME_MAPPING, Match::POSITION}) {
+        const auto file_path =
+                (test_dir / ("split_" + std::to_string(static_cast<int>(match)) + ".parquet"))
+                        .string();
+        write_timestamp_int_parquet_file(file_path, {T1_MICROS, T2_MICROS}, {1, 2}, true,
+                                         match == Match::FIELD_ID);
+        // The positional fallback numbers the physical top-level columns from 1.
+        const int32_t event_time_id = match == Match::POSITION ? 1 : 0;
+        const int32_t id_id = match == Match::POSITION ? 2 : 1;
+        for (const bool marked : {true, false}) {
+            for (const bool mapping_timestamp_tz : {true, false}) {
+                SCOPED_TRACE("match=" + std::to_string(static_cast<int>(match)) +
+                             " marked=" + std::to_string(marked) +
+                             " mapping_timestamp_tz=" + std::to_string(mapping_timestamp_tz));
+                auto event_time = external_schema_field(
+                        "event_time", event_time_id, {}, std::nullopt,
+                        external_primitive_type(TPrimitiveType::TIMESTAMPTZ, -1, 6));
+                auto id = external_schema_field("id", id_id);
+                if (marked) {
+                    event_time.field_ptr->__set_timestamp_is_adjusted_to_utc(true);
+                }
+                std::vector<ColumnDefinition> projected_columns {
+                        make_table_column(id_id, "id", std::make_shared<DataTypeInt32>()),
+                        make_table_column(event_time_id, "event_time",
+                                          std::make_shared<DataTypeTimeStampTz>(6))};
+                if (match == Match::NAME_MAPPING) {
+                    for (auto* field : {&event_time, &id}) {
+                        field->field_ptr->__set_name_mapping({field->field_ptr->name});
+                        field->field_ptr->__set_name_mapping_is_authoritative(true);
+                    }
+                    for (auto& column : projected_columns) {
+                        column.name_mapping = {column.name};
+                        column.has_name_mapping = true;
+                    }
+                }
+                auto scan_params = make_local_parquet_scan_params();
+                scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+                scan_params.__set_parquet_timestamp_semantics_version(1);
+                scan_params.__set_enable_mapping_timestamp_tz(mapping_timestamp_tz);
+                scan_params.__set_current_schema_id(100);
+                scan_params.__set_history_schema_info({external_schema(100, {event_time, id})});
+
+                RuntimeProfile profile("test_profile");
+                RuntimeState state {TQueryOptions(), TQueryGlobals()};
+                state.set_timezone("Asia/Shanghai");
+                io::FileReaderStats file_reader_stats;
+                io::FileCacheStatistics file_cache_stats;
+                auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+                ShardedKVCache cache(1);
+                doris::format::iceberg::IcebergTableReader reader;
+                init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state,
+                                    &profile);
+                auto split_options = build_split_options(file_path);
+                split_options.cache = &cache;
+                split_options.current_range.__set_table_format_params(
+                        make_iceberg_table_format_desc(file_path, {}));
+                ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+                std::vector<std::string> event_times;
+                bool eos = false;
+                while (!eos) {
+                    Block block = build_table_block(projected_columns);
+                    const auto status = reader.get_block(&block, &eos);
+                    ASSERT_TRUE(status.ok()) << status;
+                    for (size_t row = 0; row < block.rows(); ++row) {
+                        event_times.push_back(projected_columns[1].type->to_string(
+                                *block.get_by_position(1).column, row));
+                    }
+                }
+                EXPECT_EQ(event_times,
+                          marked ? std::vector<std::string>({"2024-01-01 00:00:00.123456+00:00",
+                                                             "2024-07-01 12:34:56.654321+00:00"})
+                                 : std::vector<std::string>({"2023-12-31 16:00:00.123456+00:00",
+                                                             "2024-07-01 04:34:56.654321+00:00"}));
+                ASSERT_TRUE(reader.close().ok());
+            }
+        }
+    }
+    std::filesystem::remove_all(test_dir);
+}
+
+// The marker also reaches INT96 leaves inside a STRUCT and a LIST, while a timestamp sibling in the
+// same struct keeps reading as the UTC wall clock Iceberg gives a timestamp field.
+TEST(IcebergV2ReaderTest, IcebergNestedInt96TimestampTzReadsInstantWithTableMarker) {
+    TimezoneUtils::load_timezones_to_cache();
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_nested_int96_timestamp_tz_marker_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto file_path = (test_dir / "split.parquet").string();
+    // 2024-01-01 00:00:00.123456 UTC.
+    write_nested_int96_parquet_file(file_path, 1'704'067'200'123'456L);
+    auto physical_reader = ::parquet::ParquetFileReader::OpenFile(file_path, false);
+    for (int leaf = 1; leaf < 4; ++leaf) {
+        ASSERT_EQ(::parquet::Type::INT96,
+                  physical_reader->metadata()->schema()->Column(leaf)->physical_type());
+    }
+    physical_reader->Close();
+
+    const auto tz_type = std::make_shared<DataTypeTimeStampTz>(6);
+    const auto wall_type = std::make_shared<DataTypeDateTimeV2>(6);
+    auto info = make_table_column(2, "info",
+                                  std::make_shared<DataTypeStruct>(DataTypes {tz_type, wall_type},
+                                                                   Strings {"tz", "wall"}));
+    info.children = {make_table_column(3, "tz", tz_type), make_table_column(4, "wall", wall_type)};
+    auto tzs = make_table_column(5, "tzs", std::make_shared<DataTypeArray>(tz_type));
+    tzs.children = {make_table_column(6, "element", tz_type)};
+    std::vector<ColumnDefinition> projected_columns {
+            make_table_column(1, "id", std::make_shared<DataTypeInt32>()), info, tzs};
+
+    auto tz_field = external_schema_field("tz", 3);
+    tz_field.field_ptr->__set_timestamp_is_adjusted_to_utc(true);
+    auto element_field = external_schema_field("element", 6);
+    element_field.field_ptr->__set_timestamp_is_adjusted_to_utc(true);
+    auto tzs_field = external_schema_field("tzs", 5);
+    schema::external::TArrayField array_field;
+    array_field.__set_item_field(std::move(element_field));
+    tzs_field.field_ptr->nestedField.__set_array_field(std::move(array_field));
+    tzs_field.field_ptr->__isset.nestedField = true;
+    auto scan_params = make_local_parquet_scan_params();
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    scan_params.__set_parquet_timestamp_semantics_version(1);
+    scan_params.__set_enable_mapping_timestamp_tz(true);
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info({external_schema(
+            100, {external_schema_field("id", 1),
+                  external_struct_schema_field(
+                          "info", 2, {std::move(tz_field), external_schema_field("wall", 4)}),
+                  std::move(tzs_field)})});
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    state.set_timezone("Asia/Shanghai");
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(
+            make_iceberg_table_format_desc(file_path, {}));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    // Table children are nullable, as in an external scan descriptor.
+    const auto nullable_tz_type = make_nullable(tz_type);
+    const auto nullable_wall_type = make_nullable(wall_type);
+    std::vector<std::string> values;
+    bool eos = false;
+    while (!eos) {
+        Block block = build_table_block(projected_columns);
+        const auto status = reader.get_block(&block, &eos);
+        ASSERT_TRUE(status.ok()) << status;
+        if (block.rows() == 0) {
+            continue;
+        }
+        ASSERT_EQ(block.rows(), 1);
+        const auto& info_column =
+                assert_cast<const ColumnStruct&>(expect_not_null_table_column(block, 1));
+        values.push_back(nullable_tz_type->to_string(info_column.get_column(0), 0));
+        values.push_back(nullable_wall_type->to_string(info_column.get_column(1), 0));
+        const auto& tzs_column =
+                assert_cast<const ColumnArray&>(expect_not_null_table_column(block, 2));
+        ASSERT_EQ(tzs_column.get_offsets()[0], 1);
+        values.push_back(nullable_tz_type->to_string(tzs_column.get_data(), 0));
+    }
+    EXPECT_EQ(values, std::vector<std::string>({"2024-01-01 00:00:00.123456+00:00",
+                                                "2024-01-01 00:00:00.123456",
+                                                "2024-01-01 00:00:00.123456+00:00"}));
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+// A Spark INT96 key and the adjusted-UTC tombstone an Iceberg writer stores for the same
+// timestamptz instant decode to the same TIMESTAMPTZ once FE marks the field, in both the data file
+// and the delete file. Under timestamp-semantics version 1 the data key used to read as a UTC wall
+// clock and was converted back in the session time zone, so in Asia/Shanghai the tombstone T1 missed
+// the row holding T1 by eight hours; with enable_mapping_timestamp_tz=false the tombstone also read
+// as a Shanghai wall clock, and the two wall clocks never matched.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): projection and mapping-flag matrix.
+TEST(IcebergV2ReaderTest, IcebergEqualityDeleteMatchesInt96TimestampTzKeyWithTableMarker) {
+    TimezoneUtils::load_timezones_to_cache();
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_equality_delete_int96_marker_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto delete_file_path = (test_dir / "equality-delete.parquet").string();
+    // 2024-01-01 00:00:00.123456 UTC and one second later.
+    constexpr int64_t T1_MICROS = 1'704'067'200'123'456L;
+    constexpr int64_t T2_MICROS = T1_MICROS + 1'000'000L;
+    write_timestamp_int_parquet_file(file_path, {T1_MICROS, T2_MICROS}, {1, 2}, true);
+    write_iceberg_timestamp_equality_delete_parquet_file(delete_file_path, 0, T1_MICROS,
+                                                         "event_time", true);
+
+    for (const bool project_key : {false, true}) {
+        for (const bool mapping_timestamp_tz : {true, false}) {
+            SCOPED_TRACE("project_key=" + std::to_string(project_key) +
+                         " mapping_timestamp_tz=" + std::to_string(mapping_timestamp_tz));
+            std::vector<ColumnDefinition> projected_columns {
+                    make_table_column(1, "id", std::make_shared<DataTypeInt32>())};
+            if (project_key) {
+                projected_columns.push_back(make_table_column(
+                        0, "event_time", std::make_shared<DataTypeTimeStampTz>(6)));
+            }
+            auto event_time = external_schema_field(
+                    "event_time", 0, {}, std::nullopt,
+                    external_primitive_type(TPrimitiveType::TIMESTAMPTZ, -1, 6));
+            event_time.field_ptr->__set_timestamp_is_adjusted_to_utc(true);
+            auto scan_params = make_local_parquet_scan_params();
+            scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+            scan_params.__set_parquet_timestamp_semantics_version(1);
+            scan_params.__set_enable_mapping_timestamp_tz(mapping_timestamp_tz);
+            scan_params.__set_current_schema_id(100);
+            scan_params.__set_history_schema_info(
+                    {external_schema(100, {event_time, external_schema_field("id", 1)})});
+
+            RuntimeProfile profile("test_profile");
+            RuntimeState state {TQueryOptions(), TQueryGlobals()};
+            state.set_timezone("Asia/Shanghai");
+            io::FileReaderStats file_reader_stats;
+            io::FileCacheStatistics file_cache_stats;
+            auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+            ShardedKVCache cache(1);
+            doris::format::iceberg::IcebergTableReader reader;
+            init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
+            auto split_options = build_split_options(file_path);
+            split_options.cache = &cache;
+            split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+                    file_path, {make_iceberg_equality_delete_file(delete_file_path, {0})}));
+            ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+            std::vector<int32_t> ids;
+            std::vector<std::string> event_times;
+            bool eos = false;
+            while (!eos) {
+                Block block = build_table_block(projected_columns);
+                const auto status = reader.get_block(&block, &eos);
+                ASSERT_TRUE(status.ok()) << status;
+                if (block.rows() == 0) {
+                    continue;
+                }
+                const auto& id_column =
+                        assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 0));
+                for (size_t row = 0; row < block.rows(); ++row) {
+                    ids.push_back(id_column.get_element(row));
+                    if (project_key) {
+                        event_times.push_back(projected_columns[1].type->to_string(
+                                *block.get_by_position(1).column, row));
+                    }
+                }
+            }
+            EXPECT_EQ(ids, std::vector<int32_t>({2}));
+            if (project_key) {
+                EXPECT_EQ(event_times,
+                          std::vector<std::string>({"2024-01-01 00:00:01.123456+00:00"}));
+            }
+            ASSERT_TRUE(reader.close().ok());
+        }
+    }
+    std::filesystem::remove_all(test_dir);
+}
+
+// A catalog with enable_mapping_timestamp_tz=false used to read both sides of a timestamptz equality
+// delete as session-local wall clocks. During the 2024 New York fall-back 01:30 happens twice, so
+// either tombstone deleted both rows. Once FE marks the field, data keys and tombstones both decode
+// as instants and each tombstone deletes only its own row. Decoding only the data keys as instants
+// is not enough: the tombstone's wall clock maps back to one of the two instants, so one of these
+// two cases would delete the wrong row.
+TEST(IcebergV2ReaderTest, IcebergEqualityDeleteKeepsDstFoldInstantsApartWithTableMarker) {
+    TimezoneUtils::load_timezones_to_cache();
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_equality_delete_dst_fold_marker_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto file_path = (test_dir / "split.parquet").string();
+    // These instants are the two occurrences of 01:30 during the 2024 New York DST fall-back.
+    constexpr int64_t FIRST_0130_MICROS = 1'730'611'800'000'000L;
+    constexpr int64_t SECOND_0130_MICROS = 1'730'615'400'000'000L;
+    write_timestamp_int_parquet_file(file_path, {FIRST_0130_MICROS, SECOND_0130_MICROS}, {1, 2});
+
+    for (const auto& [tombstone, remaining_id] :
+         {std::pair {FIRST_0130_MICROS, 2}, std::pair {SECOND_0130_MICROS, 1}}) {
+        SCOPED_TRACE(tombstone);
+        // Same size and second-granularity mtime: one path for both files could serve the first
+        // tombstone from the Parquet caches.
+        const auto delete_file_path =
+                (test_dir / ("equality-delete-" + std::to_string(remaining_id) + ".parquet"))
+                        .string();
+        write_iceberg_timestamp_equality_delete_parquet_file(delete_file_path, 0, tombstone,
+                                                             "event_time", true);
+        std::vector<ColumnDefinition> projected_columns {
+                make_table_column(1, "id", std::make_shared<DataTypeInt32>())};
+        auto event_time =
+                external_schema_field("event_time", 0, {}, std::nullopt,
+                                      external_primitive_type(TPrimitiveType::TIMESTAMPTZ, -1, 6));
+        event_time.field_ptr->__set_timestamp_is_adjusted_to_utc(true);
+        auto scan_params = make_local_parquet_scan_params();
+        scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+        scan_params.__set_parquet_timestamp_semantics_version(1);
+        scan_params.__set_enable_mapping_timestamp_tz(false);
+        scan_params.__set_current_schema_id(100);
+        scan_params.__set_history_schema_info(
+                {external_schema(100, {event_time, external_schema_field("id", 1)})});
+
+        RuntimeProfile profile("test_profile");
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        state.set_timezone("America/New_York");
+        io::FileReaderStats file_reader_stats;
+        io::FileCacheStatistics file_cache_stats;
+        auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+        ShardedKVCache cache(1);
+        doris::format::iceberg::IcebergTableReader reader;
+        init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
+        auto split_options = build_split_options(file_path);
+        split_options.cache = &cache;
+        split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+                file_path, {make_iceberg_equality_delete_file(delete_file_path, {0})}));
+        ASSERT_TRUE(reader.prepare_split(split_options).ok());
+        EXPECT_EQ(read_iceberg_ids(&reader, projected_columns),
+                  std::vector<int32_t>({remaining_id}));
         ASSERT_TRUE(reader.close().ok());
     }
     std::filesystem::remove_all(test_dir);

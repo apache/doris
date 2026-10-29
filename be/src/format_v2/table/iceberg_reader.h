@@ -68,19 +68,7 @@ public:
                                      format::ColumnDefinition* column) const override;
     std::string debug_string() const override;
     format::TableColumnMappingMode mapping_mode() const override {
-        const bool has_field_ids = supports_iceberg_scan_semantics_v1(_scan_params)
-                                           ? schema_has_any_field_id(_data_reader.file_schema)
-                                           : schema_has_all_field_ids(_data_reader.file_schema);
-        if (!_data_reader.file_schema.empty() && has_field_ids) {
-            return format::TableColumnMappingMode::BY_FIELD_ID;
-        }
-        if (!_data_reader.file_schema.empty() && supports_iceberg_scan_semantics_v2(_scan_params) &&
-            !_scan_has_any_authoritative_name_mapping()) {
-            // ID-less migrated files are name-readable only while Iceberg's explicit default name
-            // mapping exists; current names must not resurrect file fields after it is removed.
-            return format::TableColumnMappingMode::BY_FIELD_ID;
-        }
-        return format::TableColumnMappingMode::BY_NAME;
+        return _mapping_mode(_data_reader.file_schema);
     }
 
 protected:
@@ -149,6 +137,27 @@ private:
     static constexpr size_t ICEBERG_ROW_POS_BLOCK_POSITION = 1;
 
     bool _scan_has_any_authoritative_name_mapping() const;
+    // annotate_file_schema() runs before TableReader stores the file schema, so the mode is also
+    // computable from the schema being annotated.
+    format::TableColumnMappingMode _mapping_mode(
+            const std::vector<format::ColumnDefinition>& file_schema) const {
+        const bool has_field_ids = supports_iceberg_scan_semantics_v1(_scan_params)
+                                           ? schema_has_any_field_id(file_schema)
+                                           : schema_has_all_field_ids(file_schema);
+        if (!file_schema.empty() && has_field_ids) {
+            return format::TableColumnMappingMode::BY_FIELD_ID;
+        }
+        if (!file_schema.empty() && supports_iceberg_scan_semantics_v2(_scan_params) &&
+            !_scan_has_any_authoritative_name_mapping()) {
+            // ID-less migrated files are name-readable only while Iceberg's explicit default name
+            // mapping exists; current names must not resurrect file fields after it is removed.
+            return format::TableColumnMappingMode::BY_FIELD_ID;
+        }
+        return format::TableColumnMappingMode::BY_NAME;
+    }
+    void _apply_positional_id_fallback(std::vector<format::ColumnDefinition>* file_schema);
+    Status _apply_table_timestamp_semantics(std::vector<format::ColumnDefinition>* file_schema,
+                                            format::TableColumnMappingMode mode) const;
 
     class PositionDeleteRowsCollector final {
     public:
