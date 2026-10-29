@@ -96,13 +96,17 @@ public class PluginDrivenSysExternalTable extends PluginDrivenExternalTable {
     @Override
     public Optional<ConnectorTableHandle> resolveConnectorTableHandle(
             ConnectorSession session, ConnectorMetadata metadata) {
-        String dbName = db != null ? db.getRemoteName() : "";
-        Optional<ConnectorTableHandle> baseHandle =
-                metadata.getTableHandle(session, dbName, sourceTable.getRemoteName());
+        MetadataRead read = observeConnectorMetadata(session, metadata);
+        Optional<ConnectorTableHandle> baseHandle = sourceTable.resolveConnectorTableHandle(session, metadata);
         if (!baseHandle.isPresent()) {
             return Optional.empty();
         }
-        return metadata.getSysTableHandle(session, baseHandle.get(), sysTableName);
+        return read.execute(() -> metadata.getSysTableHandle(session, baseHandle.get(), sysTableName));
+    }
+
+    @Override
+    protected PluginDrivenExternalTable lookupRepairSource() {
+        return sourceTable;
     }
 
     /**
