@@ -53,6 +53,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 public class TableStreamManagerKeepAliveTest extends TestWithFeService {
     private static final long TTL_SECONDS = 10;
@@ -89,7 +91,7 @@ public class TableStreamManagerKeepAliveTest extends TestWithFeService {
         Assertions.assertEquals(1, logged.size());
         TableStreamCleanupInfo replayed = TableStreamCleanupInfo.read(roundTrip(logged.get(0)));
         Deencapsulation.setField(context.stream, "partitionKeepAlive",
-                new HashMap<Long, OlapTableStream.PartitionKeepAlive>());
+                new ConcurrentHashMap<Long, OlapTableStream.PartitionKeepAlive>());
         Env.getCurrentEnv().getTableStreamManager().replayTableStreamCleanup(replayed);
         Assertions.assertEquals(keepAliveTso, keepAliveTso(context, context.partition("p1").getId()));
         Assertions.assertNull(keepAliveTso(context, context.partition("p2").getId()));
@@ -140,8 +142,9 @@ public class TableStreamManagerKeepAliveTest extends TestWithFeService {
         Assertions.assertEquals(freshKeepAliveTso, keepAliveTso(context, partitionId));
 
         // Six seconds old: less than half the TTL is left, and it is renewed.
-        Deencapsulation.setField(context.stream, "partitionKeepAlive", new HashMap<>(Collections.singletonMap(
-                partitionId, new OlapTableStream.PartitionKeepAlive(offset, tsoSecondsAgo(6)))));
+        Deencapsulation.setField(context.stream, "partitionKeepAlive", new ConcurrentHashMap<>(
+                Collections.singletonMap(partitionId,
+                        new OlapTableStream.PartitionKeepAlive(offset, tsoSecondsAgo(6)))));
         long renewed = tsoSecondsAgo(0);
         keepAlive(context, renewed, new ArrayList<>());
         Assertions.assertEquals(renewed, keepAliveTso(context, partitionId));
@@ -206,6 +209,24 @@ public class TableStreamManagerKeepAliveTest extends TestWithFeService {
         TableStreamCleanupInfo oldInfo = GsonUtils.GSON.fromJson(
                 "{\"entries\":[],\"staleDbIds\":[],\"staleStreamIds\":[]}", TableStreamCleanupInfo.class);
         Assertions.assertTrue(oldInfo.getKeepAliveEntries().isEmpty());
+    }
+
+    @Test
+    public void testKeepAliveTsoReadsBackFromTheImage() throws Exception {
+        StreamContext context = createStreamContext("image");
+        long partitionId = context.partition("p1").getId();
+        long offset = tsoSecondsAgo(60);
+        setIdle(context, "p1", offset);
+        long keepAliveTso = tsoSecondsAgo(1);
+        keepAliveDirectly(context, partitionId, offset, keepAliveTso);
+
+        OlapTableStream read = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(context.stream), OlapTableStream.class);
+        OlapTableStream.PartitionKeepAlive keepAlive = read.getKeepAlive(partitionId);
+        Assertions.assertNotNull(keepAlive);
+        Assertions.assertEquals(offset, keepAlive.getOffset());
+        Assertions.assertEquals(keepAliveTso, keepAlive.getKeepAliveTso());
+        // An IVM refresh reads it without the stream lock, so it stays a concurrent map once read from an image.
+        Assertions.assertInstanceOf(ConcurrentMap.class, Deencapsulation.getField(read, "partitionKeepAlive"));
     }
 
     @Test
@@ -287,7 +308,7 @@ public class TableStreamManagerKeepAliveTest extends TestWithFeService {
         Assertions.assertEquals(1, logged.size());
         TableStreamCleanupInfo replayed = TableStreamCleanupInfo.read(roundTrip(logged.get(0)));
         Deencapsulation.setField(context.stream, "partitionKeepAlive",
-                new HashMap<Long, OlapTableStream.PartitionKeepAlive>());
+                new ConcurrentHashMap<Long, OlapTableStream.PartitionKeepAlive>());
         Env.getCurrentEnv().getTableStreamManager().replayTableStreamCleanup(replayed);
         assertKeepAlive(context, p1, offset, committedTso);
         Assertions.assertNull(context.stream.getKeepAlive(p2));

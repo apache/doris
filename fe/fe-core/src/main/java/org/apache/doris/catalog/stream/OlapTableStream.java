@@ -32,6 +32,7 @@ import org.apache.doris.thrift.TRow;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
@@ -43,6 +44,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentMap;
 import java.util.function.Predicate;
 
 public class OlapTableStream extends BaseTableStream {
@@ -59,14 +61,16 @@ public class OlapTableStream extends BaseTableStream {
     // The keep-alive TSO K of a partition, with the offset C it was taken against: the partition is known to hold
     // no change in (C, K], so the changelog a read from C needs is only the part after K. It counts only for a
     // read from C, so an offset that moved, or one that is not what it was taken against (a cloud offset lives in
-    // MetaService), leaves it out. Only the partitions of an IVM stream have one (IvmStreamKeepAliveDaemon).
+    // MetaService), leaves it out. Only the partitions of an IVM stream have one (IvmStreamKeepAliveDaemon). It is
+    // written under the stream write lock but read without it: an IVM refresh reads the stream through a scan it
+    // creates after the statement has locked its tables (OlapTableStreamWrapper), so it is a concurrent map.
     @SerializedName("pka")
-    private Map<Long, PartitionKeepAlive> partitionKeepAlive;
+    private ConcurrentMap<Long, PartitionKeepAlive> partitionKeepAlive;
 
     // for persist; an image written before the keep-alive TSO has no "pka"
     public OlapTableStream() {
         super();
-        this.partitionKeepAlive = new HashMap<>();
+        this.partitionKeepAlive = Maps.newConcurrentMap();
     }
 
     public OlapTableStream(long id, String streamName, TableIf baseTable) {
@@ -75,7 +79,7 @@ public class OlapTableStream extends BaseTableStream {
         this.partitionOffset = new HashMap<>();
         this.partitionConsumptionTime = new HashMap<>();
         this.historicalPartitionTSO = new HashMap<>();
-        this.partitionKeepAlive = new HashMap<>();
+        this.partitionKeepAlive = Maps.newConcurrentMap();
     }
 
     public OlapTableStream(String streamName, TableIf baseTable) {
