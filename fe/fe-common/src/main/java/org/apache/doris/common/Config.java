@@ -3184,7 +3184,12 @@ public class Config extends ConfigBase {
     public static boolean enable_ivm_stream_keepalive = true;
 
     @ConfField(mutable = true, masterOnly = true, description = "The interval at which FE checks the idle partitions "
-            + "of IVM streams for a keep-alive TSO, in seconds.",
+            + "of IVM streams for a keep-alive TSO, in seconds. A partition is renewed once less than half of its "
+            + "base table's changelog.ttl_seconds is left, so keep this at most half the shortest "
+            + "changelog.ttl_seconds of the IVM base tables: with a longer interval, the keep-alive TSO of such a "
+            + "table expires between two checks, and a refresh after its partitions have been idle falls back to "
+            + "COMPLETE, as it does without the keep-alive. A shorter interval costs more checks, not more edit "
+            + "logs. A change applies within a second.",
             varType = VariableAnnotation.EXPERIMENTAL)
     public static int ivm_stream_keepalive_interval_second = 600;
 
