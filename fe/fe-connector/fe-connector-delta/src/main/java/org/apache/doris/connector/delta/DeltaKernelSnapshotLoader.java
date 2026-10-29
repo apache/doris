@@ -29,6 +29,8 @@ import io.delta.kernel.internal.SnapshotImpl;
 import io.delta.kernel.internal.actions.AddFile;
 import io.delta.kernel.internal.actions.DeletionVectorDescriptor;
 import io.delta.kernel.internal.actions.Protocol;
+import io.delta.kernel.internal.util.ColumnMapping;
+import io.delta.kernel.types.StructType;
 import io.delta.kernel.utils.CloseableIterator;
 import io.delta.kernel.utils.FileStatus;
 
@@ -106,6 +108,15 @@ public class DeltaKernelSnapshotLoader {
         List<DeltaScanFile> activeFiles = new ArrayList<>();
         List<DeltaRemoveFile> activeRemoveFiles = new ArrayList<>();
         List<String> partitionColumns = snapshot.getPartitionColumnNames();
+        // Delta log maps use physical names; scans and pruning use the pinned logical names.
+        Map<String, String> partitionPhysicalNames = new LinkedHashMap<>();
+        StructType schema = snapshot.getSchema();
+        boolean columnMappingEnabled = ColumnMapping.isColumnMappingModeEnabled(
+                ColumnMapping.getColumnMappingMode(snapshot.getTableProperties()));
+        for (String column : partitionColumns) {
+            partitionPhysicalNames.put(column, columnMappingEnabled
+                    ? ColumnMapping.getPhysicalName(schema.get(column)) : column);
+        }
 
         try (CloseableIterator<FilteredColumnarBatch> batches =
                 ((ScanImpl) scan).getScanFiles(engine, true)) {
@@ -128,7 +139,7 @@ public class DeltaKernelSnapshotLoader {
                                 InternalScanFileUtils.getPartitionValues(row);
                         activeFiles.add(new DeltaScanFile(
                                 file.getPath(), file.getSize(), file.getModificationTime(),
-                                orderedPartitionValues(partitionValues, partitionColumns),
+                                orderedPartitionValues(partitionValues, partitionPhysicalNames),
                                 toDeletionVector(deletionVector), snapshot.getPath()));
                         activeRemoveFiles.add(new DeltaRemoveFile(
                                 InternalScanFileUtils.getFilePath(row), file.getSize(),
@@ -150,14 +161,14 @@ public class DeltaKernelSnapshotLoader {
     }
 
     private static Map<String, String> orderedPartitionValues(Map<String, String> values,
-            List<String> partitionColumns) {
+            Map<String, String> partitionPhysicalNames) {
         Map<String, String> orderedValues = new LinkedHashMap<>();
-        for (String column : partitionColumns) {
-            if (!values.containsKey(column)) {
+        for (Map.Entry<String, String> column : partitionPhysicalNames.entrySet()) {
+            if (!values.containsKey(column.getValue())) {
                 throw new IllegalArgumentException(
-                        "Delta add-file is missing partition value for column " + column);
+                        "Delta add-file is missing partition value for column " + column.getKey());
             }
-            orderedValues.put(column, values.get(column));
+            orderedValues.put(column.getKey(), values.get(column.getValue()));
         }
         return orderedValues;
     }

@@ -136,7 +136,7 @@ Status VHiveTableWriter::write(RuntimeState* state, Block& block) {
                     int file_name_index = writer_iter->second->file_name_index();
                     {
                         SCOPED_RAW_TIMER(&_close_ns);
-                        static_cast<void>(writer_iter->second->close(Status::OK()));
+                        RETURN_IF_ERROR(writer_iter->second->close(Status::OK()));
                     }
                     _partitions_to_writers.erase(writer_iter);
                     try {
@@ -214,7 +214,7 @@ Status VHiveTableWriter::write(RuntimeState* state, Block& block) {
                     int file_name_index = writer_iter->second->file_name_index();
                     {
                         SCOPED_RAW_TIMER(&_close_ns);
-                        static_cast<void>(writer_iter->second->close(Status::OK()));
+                        RETURN_IF_ERROR(writer_iter->second->close(Status::OK()));
                     }
                     writer_positions.erase(writer_iter->second);
                     _partitions_to_writers.erase(writer_iter);

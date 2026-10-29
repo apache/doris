@@ -22,12 +22,18 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 import org.apache.doris.thrift.schema.external.TField;
 import org.apache.doris.thrift.schema.external.TSchema;
 
+import io.delta.kernel.data.Row;
 import io.delta.kernel.defaults.engine.DefaultEngine;
+import io.delta.kernel.internal.actions.RemoveFile;
+import io.delta.kernel.internal.actions.SingleAction;
+import io.delta.kernel.internal.util.VectorUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.thrift.TDeserializer;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.net.URL;
 import java.nio.file.Files;
@@ -37,6 +43,7 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.FileTime;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
@@ -119,6 +126,48 @@ public class DeltaKernelSnapshotLoaderTest {
                 field.getNameMapping());
         Assertions.assertTrue(field.isNameMappingIsAuthoritative());
         Assertions.assertEquals(1, field.getId());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"name", "id"})
+    public void testMappedPartitionValuesAndHistoricalNames(String mode) throws Exception {
+        Path fixture = Paths.get(Objects.requireNonNull(getClass().getClassLoader()
+                .getResource("delta/mapped_partition_table/_delta_log")).toURI());
+        DeltaKernelSnapshotLoader loader = new DeltaKernelSnapshotLoader(
+                DefaultEngine.create(new Configuration()));
+        Path log = Files.createDirectories(tempDirectory.resolve(mode).resolve("_delta_log"));
+        for (String version : List.of("00000000000000000000.json", "00000000000000000001.json")) {
+            Files.writeString(log.resolve(version), Files.readString(fixture.resolve(version))
+                    .replace("\"delta.columnMapping.mode\":\"name\"",
+                            "\"delta.columnMapping.mode\":\"" + mode + "\""));
+        }
+        String tablePath = log.getParent().toUri().toString();
+        assertMappedPartitionValues(loader.loadLatest(tablePath), "area");
+        assertMappedPartitionValues(loader.loadVersion(tablePath, 0), "region");
+    }
+
+    private static void assertMappedPartitionValues(DeltaKernelSnapshot snapshot, String partitionName) {
+        Assertions.assertEquals(List.of("day", partitionName), snapshot.getPartitionColumnNames());
+        Assertions.assertEquals(1, snapshot.getActiveFiles().size());
+        DeltaScanFile file = snapshot.getActiveFiles().get(0);
+        Assertions.assertEquals(List.of("day", partitionName), List.copyOf(file.getPartitionValues().keySet()));
+        Assertions.assertTrue(file.getPartitionValues().containsKey("day"));
+        Assertions.assertNull(file.getPartitionValues().get("day"));
+        Assertions.assertEquals("west", file.getPartitionValues().get(partitionName));
+
+        TFileRangeDesc range = new TFileRangeDesc();
+        new DeltaScanRange(file).populateRangeParams(new TTableFormatFileDesc(), range);
+        Assertions.assertEquals(List.of("day", partitionName), range.getColumnsFromPathKeys());
+        Assertions.assertEquals(List.of("\\N", "west"), range.getColumnsFromPath());
+        Assertions.assertEquals(List.of(true, false), range.getColumnsFromPathIsNull());
+
+        Row action = snapshot.getActiveRemoveFiles().get(0).toSingleAction(1);
+        RemoveFile remove = new RemoveFile(action.getStruct(SingleAction.FULL_SCHEMA.indexOf("remove")));
+        Map<String, String> physicalValues = VectorUtils.toJavaMap(remove.getPartitionValues().orElseThrow());
+        Assertions.assertEquals(2, physicalValues.size());
+        Assertions.assertTrue(physicalValues.containsKey("col-day"));
+        Assertions.assertNull(physicalValues.get("col-day"));
+        Assertions.assertEquals("west", physicalValues.get("col-region"));
     }
 
     @Test

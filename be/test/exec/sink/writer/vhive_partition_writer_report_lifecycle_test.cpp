@@ -125,8 +125,9 @@ std::unique_ptr<VHivePartitionWriter> create_closed_hive_writer(
     static const std::map<std::string, std::string> hadoop_conf;
     auto writer = std::make_unique<VHivePartitionWriter>(
             sink, "", TUpdateMode::APPEND, output_exprs, std::vector<std::string> {},
-            std::move(write_info), "part", 0, TFileFormatType::FORMAT_PARQUET,
-            TFileCompressType::PLAIN, nullptr, hadoop_conf);
+            std::move(write_info), std::map<std::string, std::string> {}, std::set<std::string> {},
+            "part", 0, TFileFormatType::FORMAT_PARQUET, TFileCompressType::PLAIN, nullptr,
+            hadoop_conf);
 
     S3ClientConf client_conf;
     client_conf.provider = provider;

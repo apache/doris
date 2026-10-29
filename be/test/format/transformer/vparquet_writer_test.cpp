@@ -545,7 +545,7 @@ TEST_F(VParquetWriterTest, HiveInt96HonorsCatalogTimezoneContract) {
                                      .target_path = ".",
                                      .file_type = TFileType::FILE_LOCAL,
                                      .broker_addresses = {}},
-                                    file_name, 0, TFileFormatType::FORMAT_PARQUET,
+                                    {}, {}, file_name, 0, TFileFormatType::FORMAT_PARQUET,
                                     TFileCompressType::PLAIN, nullptr, hadoop_conf);
         _file_path = "./" + file_name + "-0.parquet";
         ASSERT_TRUE(writer.open(&state, nullptr).ok());
