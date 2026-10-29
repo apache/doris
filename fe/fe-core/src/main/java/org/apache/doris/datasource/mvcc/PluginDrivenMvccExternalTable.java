@@ -161,6 +161,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         }
         ConnectorSession session = pluginCatalog.buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        MetadataRead read = observeConnectorMetadata(session, metadata);
 
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
@@ -173,19 +174,21 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
 
         // An empty (no-snapshot) connector still pins: fall back to a snapshot id of -1.
         ConnectorMvccSnapshot connectorSnapshot = existingFence.orElseGet(
-                () -> metadata.beginQuerySnapshot(session, handle).orElseGet(this::emptySnapshot));
+                () -> read.execute(() -> metadata.beginQuerySnapshot(session, handle)).orElseGet(this::emptySnapshot));
 
         // Range-view path (e.g. iceberg): thread the query's pin onto the handle FIRST (applySnapshot), so
         // the partition/freshness enumeration stays consistent with the data-scan pin, then ask the connector
         // for its range-aware view. A connector without a range view returns empty -> fall through to the
         // legacy listPartitions/LIST/timestamp path below (byte-unchanged; the no-op applySnapshot for the
         // latest pin is side-effect-free for both paimon and iceberg).
-        ConnectorTableHandle pinnedHandle = metadata.applySnapshot(session, handle, connectorSnapshot);
+        ConnectorTableHandle pinnedHandle =
+                read.execute(() -> metadata.applySnapshot(session, handle, connectorSnapshot));
         PluginDrivenSchemaCacheValue pinnedSchema = null;
         if (connectorSnapshot.isSchemaRetained() && connectorSnapshot.getSchemaId() >= 0) {
             // A schema coordinate alone is not permission to replace the ordinary schema. Only
             // connectors that own the complete statement schema opt into this publication path.
-            ConnectorTableSchema atSchema = metadata.getTableSchema(session, pinnedHandle, connectorSnapshot);
+            ConnectorTableSchema atSchema =
+                    read.execute(() -> metadata.getTableSchema(session, pinnedHandle, connectorSnapshot));
             pinnedSchema = toSchemaCacheValue(metadata, session,
                     db != null ? db.getRemoteName() : "", getRemoteName(), atSchema);
             // Eager pins bypass the schema cache loader, so preserve its mapped-column validation.
@@ -196,12 +199,12 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
                     : (PluginDrivenSchemaCacheValue) getLatestSchemaCacheValue().orElseThrow(
                             () -> new IllegalStateException("Missing schema for pinned table " + getName()));
             return new PluginDrivenMvccSnapshot(connectorSnapshot, schema,
-                    () -> materializePartitionView(metadata, session, pinnedHandle, connectorSnapshot, schema,
+                    () -> materializePartitionView(read, metadata, session, pinnedHandle, connectorSnapshot, schema,
                             schema.getPartitionColumns()));
         }
         List<Column> partitionColumns = pinnedSchema == null
                 ? getPartitionColumns() : pinnedSchema.getPartitionColumns();
-        return materializePartitionView(metadata, session, pinnedHandle, connectorSnapshot,
+        return materializePartitionView(read, metadata, session, pinnedHandle, connectorSnapshot,
                 pinnedSchema, partitionColumns);
     }
 
@@ -216,15 +219,17 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
                 && !ctx.getEnv().getSqlBlockRuleMgr().hasPartitionMetadataRules();
     }
 
-    private PluginDrivenMvccSnapshot materializePartitionView(ConnectorMetadata metadata, ConnectorSession session,
+    private PluginDrivenMvccSnapshot materializePartitionView(MetadataRead read, ConnectorMetadata metadata,
+            ConnectorSession session,
             ConnectorTableHandle pinnedHandle, ConnectorMvccSnapshot connectorSnapshot,
             PluginDrivenSchemaCacheValue pinnedSchema, List<Column> partitionColumns) {
         // Partition-aware consumers must enumerate the same pinned generation that the data scan reads,
         // whether this view is requested during binding or loaded later.
         ConnectorTableHandle partitionHandle = pinnedHandle;
-        Optional<String> partitionViewVersion = metadata.getPartitionViewVersion(session, pinnedHandle);
+        Optional<String> partitionViewVersion =
+                read.execute(() -> metadata.getPartitionViewVersion(session, pinnedHandle));
         Optional<ConnectorMvccPartitionView> viewOpt =
-                metadata.getMvccPartitionView(session, pinnedHandle);
+                read.execute(() -> metadata.getMvccPartitionView(session, pinnedHandle));
         if (viewOpt.isPresent()) {
             ConnectorMvccPartitionView view = viewOpt.get();
             if (connectorSnapshot.getSnapshotId() < 0) {
@@ -244,7 +249,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             // unaffected. Freshness matches the legacy LIST path (timestamps / 0), harmless here because the
             // UNPARTITIONED verdict keeps this table out of the snapshot-id MTMV path.
             if (view.getStyle() != ConnectorMvccPartitionView.Style.RANGE && !partitionColumns.isEmpty()) {
-                PluginDrivenPartitionView viewItems = listPartitions(metadata, session, partitionHandle,
+                PluginDrivenPartitionView viewItems = listPartitions(read, metadata, session, partitionHandle,
                         partitionColumns);
                 return new PluginDrivenMvccSnapshot(connectorSnapshot, viewItems,
                         pinnedSchema, PartitionType.UNPARTITIONED, false, 0L, 0L);
@@ -252,7 +257,8 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             return buildFromRangeView(connectorSnapshot, view, pinnedSchema, partitionColumns, partitionViewVersion);
         }
 
-        PluginDrivenPartitionView viewItems = listPartitions(metadata, session, partitionHandle, partitionColumns);
+        PluginDrivenPartitionView viewItems =
+                listPartitions(read, metadata, session, partitionHandle, partitionColumns);
         return new PluginDrivenMvccSnapshot(connectorSnapshot, viewItems, pinnedSchema);
     }
 
@@ -345,18 +351,19 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
      * Both an opted-in latest pin and explicit time travel must use their retained schema here.
      * Unparseable partitions remain logged and skipped so the snapshot can fall back to scan-all.
      */
-    private PluginDrivenPartitionView listPartitions(ConnectorMetadata metadata, ConnectorSession session,
+    private PluginDrivenPartitionView listPartitions(MetadataRead read, ConnectorMetadata metadata,
+            ConnectorSession session,
             ConnectorTableHandle handle, List<Column> partitionColumns) {
         List<Type> types = partitionColumns.stream().map(Column::getType).collect(Collectors.toList());
-        Optional<String> version = metadata.getPartitionViewVersion(session, handle);
+        Optional<String> version = read.execute(() -> metadata.getPartitionViewVersion(session, handle));
         if (version.isPresent()) {
             PluginDrivenPartitionView.Key key = PluginDrivenPartitionView.Key.versioned(
                     getId(), getDbName(), getName(), version.get(), types, false);
             return cachedPartitionView(key, k -> buildListPartitionView(
-                    metadata.listPartitions(session, handle, Optional.empty()), k.frozenTypes(),
+                    read.execute(() -> metadata.listPartitions(session, handle, Optional.empty())), k.frozenTypes(),
                     k.buildSortedRanges()));
         }
-        return partitionView(metadata.listPartitions(session, handle, Optional.empty()), types);
+        return partitionView(read.execute(() -> metadata.listPartitions(session, handle, Optional.empty())), types);
     }
 
     PluginDrivenPartitionView partitionView(List<ConnectorPartitionInfo> parts, List<Type> types) {
@@ -483,9 +490,10 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         }
         ConnectorSession session = pluginCatalog.buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        MetadataRead read = observeConnectorMetadata(session, metadata);
         Optional<ConnectorTableHandle> handle = resolveConnectorTableHandle(session, metadata);
         ConnectorMvccSnapshot fence = handle.isPresent()
-                ? metadata.beginQuerySnapshot(session, handle.get()).orElseGet(this::emptySnapshot)
+                ? read.execute(() -> metadata.beginQuerySnapshot(session, handle.get())).orElseGet(this::emptySnapshot)
                 : emptySnapshot();
         // A fence carries version identity only; raw partitions may be invalid for relation options.
         return new PluginDrivenMvccSnapshot(fence, Collections.emptyMap(), Collections.emptyMap());
@@ -505,9 +513,10 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         }
         ConnectorSession session = pluginCatalog.buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        MetadataRead read = observeConnectorMetadata(session, metadata);
         Optional<ConnectorTableHandle> handle = resolveConnectorTableHandle(session, metadata);
-        return handle.isPresent() && metadata.usesStatementSnapshotForOptions(
-                session, handle.get(), scanParams.get().getMapParams());
+        return handle.isPresent() && read.execute(() -> metadata.usesStatementSnapshotForOptions(
+                session, handle.get(), scanParams.get().getMapParams()));
     }
 
     @Override
@@ -540,6 +549,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         Connector connector = pluginCatalog.getConnector();
         ConnectorSession session = pluginCatalog.buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        MetadataRead read = observeConnectorMetadata(session, metadata);
         String dbName = db != null ? db.getRemoteName() : "";
         String tableName = getRemoteName();
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
@@ -552,7 +562,8 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         // tag/branch resolution, incremental-window validation). It returns empty when the target is
         // not found; a DorisConnectorException (TZ-alias / incremental-validation) propagates as-is
         // (fail-loud — a degraded result would read wrong rows for a time-travel query).
-        Optional<ConnectorMvccSnapshot> resolved = metadata.resolveTimeTravel(session, handle, spec);
+        Optional<ConnectorMvccSnapshot> resolved =
+                read.execute(() -> metadata.resolveTimeTravel(session, handle, spec));
         if (!resolved.isPresent()) {
             throw new RuntimeException(notFoundMessage(spec));
         }
@@ -567,7 +578,8 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             // pin (connectorSnapshot.getProperties()); the scan node's applySnapshot threads them onto the handle.
             // Partitions are listed on the BASE handle at latest — the full latest set, identical to the
             // normal-read materializeLatest path — NOT a snapshot-pinned handle.
-            PluginDrivenPartitionView viewItems = listPartitions(metadata, session, handle, getPartitionColumns());
+            PluginDrivenPartitionView viewItems =
+                    listPartitions(read, metadata, session, handle, getPartitionColumns());
             return new PluginDrivenMvccSnapshot(connectorSnapshot, viewItems, null);
         }
 
@@ -577,8 +589,10 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         // that getTableSchema ignores, so passing the pinned handle is harmless. (Apply-before-
         // getTableSchema is REQUIRED for branch — using the base handle would resolve the branch
         // schemaId against the base table's schemaManager = wrong schema.)
-        ConnectorTableHandle pinnedHandle = metadata.applySnapshot(session, handle, connectorSnapshot);
-        ConnectorTableSchema atSchema = metadata.getTableSchema(session, pinnedHandle, connectorSnapshot);
+        ConnectorTableHandle pinnedHandle =
+                read.execute(() -> metadata.applySnapshot(session, handle, connectorSnapshot));
+        ConnectorTableSchema atSchema =
+                read.execute(() -> metadata.getTableSchema(session, pinnedHandle, connectorSnapshot));
         PluginDrivenSchemaCacheValue pinnedSchema =
                 toSchemaCacheValue(metadata, session, dbName, tableName, atSchema);
 
@@ -598,7 +612,8 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         if (metadata.listsPartitionsAtSnapshot(session, pinnedHandle)) {
             // Typed by the PINNED schema, which is the one this snapshot publishes: see listPartitions.
             Supplier<PluginDrivenMvccSnapshot> loader = () -> new PluginDrivenMvccSnapshot(connectorSnapshot,
-                    listPartitions(metadata, session, pinnedHandle, pinnedSchema.getPartitionColumns()), pinnedSchema);
+                    listPartitions(read, metadata, session, pinnedHandle, pinnedSchema.getPartitionColumns()),
+                    pinnedSchema);
             return canDeferPartitionView(metadata, session, pinnedHandle)
                     ? new PluginDrivenMvccSnapshot(connectorSnapshot, pinnedSchema, loader) : loader.get();
         }
@@ -1008,7 +1023,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             return Optional.empty();
         }
         FreshnessProbe p = probe.get();
-        return p.metadata.getTableFreshness(p.session, p.handle);
+        return p.read.execute(() -> p.metadata.getTableFreshness(p.session, p.handle));
     }
 
     /**
@@ -1022,7 +1037,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             return OptionalLong.empty();
         }
         FreshnessProbe p = probe.get();
-        return p.metadata.getPartitionFreshnessMillis(p.session, p.handle, partitionName);
+        return p.read.execute(() -> p.metadata.getPartitionFreshnessMillis(p.session, p.handle, partitionName));
     }
 
     private Map<String, Long> queryPartitionFreshnessMillis(List<String> partitionNames) {
@@ -1031,7 +1046,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             return Collections.emptyMap();
         }
         FreshnessProbe p = probe.get();
-        return p.metadata.getPartitionsFreshnessMillis(p.session, p.handle, partitionNames);
+        return p.read.execute(() -> p.metadata.getPartitionsFreshnessMillis(p.session, p.handle, partitionNames));
     }
 
     /**
@@ -1048,8 +1063,9 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         }
         ConnectorSession session = pluginCatalog.buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        MetadataRead read = observeConnectorMetadata(session, metadata);
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
-        return handleOpt.map(handle -> new FreshnessProbe(session, metadata, handle));
+        return handleOpt.map(handle -> new FreshnessProbe(session, metadata, handle, read));
     }
 
     /** Bundles the (session, metadata, handle) an on-demand freshness probe needs. */
@@ -1057,9 +1073,11 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         private final ConnectorSession session;
         private final ConnectorMetadata metadata;
         private final ConnectorTableHandle handle;
+        private final MetadataRead read;
 
         private FreshnessProbe(ConnectorSession session, ConnectorMetadata metadata,
-                ConnectorTableHandle handle) {
+                ConnectorTableHandle handle, MetadataRead read) {
+            this.read = read;
             this.session = session;
             this.metadata = metadata;
             this.handle = handle;
@@ -1075,9 +1093,10 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         FreshnessProbe p = probe.get();
         ConnectorMvccSnapshot pin = snapshot
                 .map(value -> ((PluginDrivenMvccSnapshot) value).getConnectorSnapshot())
-                .orElseGet(() -> p.metadata.beginQuerySnapshot(p.session, p.handle).orElseGet(this::emptySnapshot));
-        ConnectorTableHandle pinnedHandle = p.metadata.applySnapshot(p.session, p.handle, pin);
-        return p.metadata.getSqlCacheVersion(p.session, pinnedHandle);
+                .orElseGet(() -> p.read.execute(() -> p.metadata.beginQuerySnapshot(p.session, p.handle))
+                        .orElseGet(this::emptySnapshot));
+        ConnectorTableHandle pinnedHandle = p.read.execute(() -> p.metadata.applySnapshot(p.session, p.handle, pin));
+        return p.read.execute(() -> p.metadata.getSqlCacheVersion(p.session, pinnedHandle));
     }
 
     @Override

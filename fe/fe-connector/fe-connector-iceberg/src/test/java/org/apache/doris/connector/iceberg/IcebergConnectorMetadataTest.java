@@ -171,6 +171,20 @@ public class IcebergConnectorMetadataTest {
     }
 
     @Test
+    public void noTableCacheSnapshotReadCanDiscoverDropAfterHandleResolution() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.tableExists = true;
+        IcebergConnectorMetadata metadata = metadataWith(ops);
+        org.apache.doris.connector.spi.handle.ConnectorTableHandle handle =
+                metadata.getTableHandle(null, "db", "t").get();
+        ops.loadTableFailure = new NoSuchTableException("dropped after handle resolution");
+        ConnectorTableNotFoundException missing = Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                () -> metadata.beginQuerySnapshot(null, handle));
+        Assertions.assertEquals("db", missing.getDatabaseName());
+        Assertions.assertEquals("t", missing.getTableName());
+    }
+
+    @Test
     public void missingViewDefinitionCarriesTheRequestedIdentity() {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.loadViewFailure = new org.apache.iceberg.exceptions.NoSuchViewException("gone");
