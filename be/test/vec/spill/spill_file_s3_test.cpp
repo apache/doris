@@ -51,6 +51,7 @@
 #include "exec/spill/spill_file_manager.h"
 #include "exec/spill/spill_file_reader.h"
 #include "exec/spill/spill_file_writer.h"
+#include "exec/spill/spill_s3_file_reader.h"
 #include "exec/spill/spill_s3_file_writer.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
@@ -816,6 +817,23 @@ TEST_F(SpillFileS3Test, WriterFactoryUsesS3Subclass) {
     spill_file.reset();
 }
 
+TEST_F(SpillFileS3Test, ReaderFactoryUsesS3Subclass) {
+    _create_manager();
+    Status st;
+    auto spill_file = _write_blocks("query_reader_factory/sort-1", {}, &st);
+    ASSERT_TRUE(st.ok()) << st;
+    auto reader = spill_file->create_reader(_runtime_state.get(), _profile.get());
+    ASSERT_NE(dynamic_cast<SpillS3FileReader*>(reader.get()), nullptr);
+    ASSERT_TRUE(reader->open().ok());
+    Block block;
+    bool eos = false;
+    ASSERT_TRUE(reader->read(&block, &eos).ok());
+    ASSERT_TRUE(eos);
+    ASSERT_TRUE(reader->close().ok());
+    ASSERT_EQ(mock_store().get_requests, 0);
+    ASSERT_EQ(_counter(profile::SPILL_REMOTE_READ_REQUESTS), 0);
+}
+
 TEST_F(SpillFileS3Test, ImplicitClosePreservesRemoteAccounting) {
     _create_manager();
     SpillFileSPtr spill_file;
@@ -1465,6 +1483,39 @@ TEST_F(SpillFileS3Test, ReadCoalescesAdjacentBlocks) {
             ASSERT_EQ(total, object.size() + probe - footer_size);
         }
     }
+}
+
+TEST_F(SpillFileS3Test, ReadCoalesceClampedBySpillBufferSize) {
+    constexpr int64_t kWindow = 1024 * 1024;
+    config::spill_file_part_size_bytes = 8 * kWindow;
+    config::spill_s3_read_coalesce_bytes = 8 * kWindow;
+    auto query_options = _runtime_state->query_options();
+    query_options.__set_spill_buffer_size_bytes(kWindow);
+    _runtime_state->set_query_options(query_options);
+    _create_manager();
+    std::mt19937 rng(61);
+    std::vector<Block> blocks;
+    for (int i = 0; i < 8; ++i) {
+        blocks.push_back(_random_string_block(rng, 256, 1024));
+    }
+    Status st;
+    auto spill_file = _write_blocks("query_read_buffer_limit/sort-1", blocks, &st);
+    ASSERT_TRUE(st.ok()) << st;
+    auto keys = mock_store().keys_with_prefix(kBucket, spill_root() + "/query_read_buffer_limit/");
+    ASSERT_EQ(keys.size(), 1);
+    const std::string object = _object(keys[0]);
+    ASSERT_GT(object.size(), kWindow);
+    const auto offsets = _block_offsets(object);
+    std::vector<size_t> expected_gets {64 * 1024};
+    auto reads = _coalesced_reads(offsets, kWindow);
+    expected_gets.insert(expected_gets.end(), reads.begin(), reads.end());
+
+    _reset_get_stats();
+    ASSERT_EQ(_read_all(spill_file), _values_of(blocks));
+    ASSERT_EQ(_get_sizes(), expected_gets);
+    ASSERT_EQ(_counter(profile::SPILL_REMOTE_READ_REQUESTS), expected_gets.size());
+    auto* io_ctx = _runtime_state->get_query_ctx()->resource_ctx()->io_context();
+    ASSERT_EQ(io_ctx->spill_read_bytes_from_local_storage(), 0);
 }
 
 // A read size smaller than the block offset array: the probe reads only its tail and one

@@ -46,6 +46,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_profile.h"
+#include "runtime/workload_management/io_context.h"
 #include "storage/olap_define.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_query_context.h"
@@ -225,6 +226,8 @@ TEST_F(SpillFileTest, CreateWriterAndReader) {
     // Create reader on empty file (0 parts)
     auto reader = spill_file->create_reader(_runtime_state.get(), _profile.get());
     ASSERT_TRUE(reader != nullptr);
+    SpillFileReader* raw_reader = reader.get();
+    ASSERT_EQ(typeid(*raw_reader), typeid(SpillFileReader));
 
     st = reader->open();
     ASSERT_TRUE(st.ok()) << st.to_string();
@@ -1897,6 +1900,11 @@ TEST_F(SpillFileTest, ReadCounters) {
     auto* read_file_size = _custom_profile->get_counter("SpillReadFileBytes");
     ASSERT_TRUE(read_file_size != nullptr);
     ASSERT_GT(read_file_size->value(), 0);
+    auto* io_ctx = _runtime_state->get_query_ctx()->resource_ctx()->io_context();
+    ASSERT_EQ(io_ctx->spill_read_bytes_from_local_storage(), read_file_size->value());
+    ASSERT_EQ(io_ctx->spill_read_bytes_from_remote_storage(), 0);
+    ASSERT_EQ(io_ctx->spill_remote_read_requests(), 0);
+    ASSERT_EQ(_custom_profile->get_counter(profile::SPILL_REMOTE_READ_REQUESTS)->value(), 0);
 }
 
 // Regression test: SpillFileReader used to look up the deserialize timer under a
