@@ -78,11 +78,11 @@ using ReadSource = TabletReadSource;
 OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& params)
         : Scanner(params.state, parent, params.limit, params.profile),
           _key_ranges(std::move(params.key_ranges)),
+          _aggregation(params.aggregation),
           _tablet_reader_params({.tablet = std::move(params.tablet),
                                  .tablet_schema {},
                                  .reader_type = ReaderType::READER_QUERY,
                                  .read_changelog = params.read_changelog,
-                                 .aggregation = params.aggregation,
                                  .version = {0, params.version},
                                  .start_key {},
                                  .end_key {},
@@ -400,10 +400,11 @@ Status OlapScanner::_init_tablet_reader_params(
                            olap_local_state->olap_scan_node().read_mor_as_dup;
     if (_state->skip_storage_engine_merge() || read_mor_as_dup) {
         _tablet_reader_params.direct_mode = true;
-        _tablet_reader_params.aggregation = true;
     } else {
+        // The scanner's own aggregation, a single version, or a pushed-down aggregate: the
+        // storage layer does not fold the rows.
         auto push_down_agg_type = _local_state->get_push_down_agg_type();
-        _tablet_reader_params.direct_mode = _tablet_reader_params.aggregation || single_version ||
+        _tablet_reader_params.direct_mode = _aggregation || single_version ||
                                             (push_down_agg_type != TPushAggOp::NONE &&
                                              push_down_agg_type != TPushAggOp::COUNT_ON_INDEX);
     }
@@ -457,26 +458,21 @@ Status OlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.profile = _local_state->custom_profile();
     _tablet_reader_params.runtime_state = _state;
 
-    const bool is_changelog_merge_scan =
-            _tablet_reader_params.changelog_scan_type == TChangelogScanType::MIN_DELTA ||
-            _tablet_reader_params.changelog_scan_type == TChangelogScanType::DETAIL;
     RETURN_IF_ERROR(_init_tso_predicates());
 
     // Changelog scans must not be re-ordered or truncated by ORDER BY / TopN pushdowns,
     // so reset every reorder-related param for all changelog scan types.
     //
-    // Only MIN_DELTA / DETAIL additionally force the storage layer to deliver rows strictly
-    // in primary-key order, so the BlockReader can group consecutive same-key changes
-    // (MIN_DELTA) or emit BEFORE/AFTER pairs in deterministic order (DETAIL). Their FE scan
-    // tuples include the storage columns needed by the key-ordered merge.
+    // Only MIN_DELTA / DETAIL are read in primary-key order (TabletReader::_decide_merge),
+    // so the BlockReader can group consecutive same-key changes (MIN_DELTA) or emit
+    // BEFORE/AFTER pairs in deterministic order (DETAIL). Their FE scan tuples include the
+    // storage columns needed by the key-ordered merge.
     //
     // APPEND_ONLY does no key grouping and keeps the raw SQL projection, which may omit
     // some or even all key columns. Forcing a key-ordered merge would make the fallback
     // comparator read key positions that do not exist in the projected blocks and crash
     // the BE (issue #66390), so it reads unordered like a plain scan.
     if (_tablet_reader_params.changelog_scan_type != TChangelogScanType::NONE) {
-        _tablet_reader_params.read_orderby_key = is_changelog_merge_scan;
-        _tablet_reader_params.force_key_ordered_read = is_changelog_merge_scan;
         _tablet_reader_params.read_orderby_key_reverse = false;
         _tablet_reader_params.read_orderby_key_num_prefix_columns = 0;
         _tablet_reader_params.read_orderby_key_limit = 0;
@@ -526,7 +522,7 @@ Status OlapScanner::_init_tablet_reader_params(
                 storage_no_merge && (!has_key_topn || storage_topn_supported);
         if (can_push_down_segment_limit) {
             if (has_key_topn) {
-                _tablet_reader_params.read_orderby_key = true;
+                _tablet_reader_params.force_key_order = true;
                 if (!olap_scan_node.sort_info.is_asc_order[0]) {
                     _tablet_reader_params.read_orderby_key_reverse = true;
                 }
@@ -721,13 +717,11 @@ doris::TabletStorageType OlapScanner::get_storage_type() {
 }
 
 Status OlapScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
-    // Read one block from block reader
-    // ATTN: Here we need to let the _get_block_impl method guarantee the semantics of the interface,
-    // that is, eof can be set to true only when the returned block is empty.
+    // Read one block from block reader; the reader sets eof only with an empty block.
     RETURN_IF_ERROR(_tablet_reader->next_block_with_aggregation(block, eof));
+    DCHECK(!*eof || block->rows() == 0);
     if (block->rows() > 0) {
         _tablet_reader_params.tablet->read_block_count.fetch_add(1, std::memory_order_relaxed);
-        *eof = false;
     }
 #ifndef NDEBUG
     RETURN_IF_ERROR(_check_ann_cache_hit_debug_points(_tablet_reader->stats()));

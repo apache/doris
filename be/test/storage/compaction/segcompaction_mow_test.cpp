@@ -243,7 +243,7 @@ protected:
         RowsetReaderContext reader_context;
         // use this type to avoid cache from other ut
         reader_context.reader_type = ReaderType::READER_QUERY;
-        reader_context.need_ordered_result = true;
+        reader_context.merge.key_ordered = true;
         std::vector<uint32_t> return_columns = {0, 1, 2};
         auto read_schema = std::make_shared<ReadSchema>(
                 project_columns_by_ordinal(tablet_schema->columns(), return_columns));
@@ -267,13 +267,11 @@ protected:
             bool eof = false;
             while (!eof) {
                 auto output_block = std::make_shared<Block>(read_schema->create_read_block());
-                std::vector<bool> row_is_same;
-                BlockWithSameBit block_with_same_bit {.block = output_block.get(),
-                                                      .same_bit = row_is_same};
-                s = rowset_reader->next_batch(&block_with_same_bit);
-                if (s != Status::OK()) {
-                    eof = true;
+                s = rowset_reader->next_batch(output_block.get());
+                if (s.is<ErrorCode::END_OF_FILE>()) {
+                    break;
                 }
+                EXPECT_TRUE(s.ok()) << s;
                 EXPECT_EQ(return_columns.size(), output_block->columns());
                 for (int i = 0; i < output_block->rows(); ++i) {
                     ColumnPtr col0 = output_block->get_by_position(0).column;

@@ -36,7 +36,8 @@
 #include "runtime/runtime_profile.h"
 #include "storage/changelog.h"
 #include "storage/delete/delete_handler.h"
-#include "storage/iterator/vgeneric_iterators.h"
+#include "storage/iterator/heap_merge_iterator.h"
+#include "storage/iterator/union_iterator.h"
 #include "storage/olap_define.h"
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/column_predicate.h"
@@ -78,7 +79,7 @@ void BetaRowsetReader::update_profile(RuntimeProfile* profile) {
     }
 }
 
-Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context,
+Status BetaRowsetReader::get_segment_iterators(const RowsetReaderContext* read_context,
                                                std::vector<RowwiseIteratorUPtr>* out_iters,
                                                bool use_cache) {
     _read_context = read_context;
@@ -113,10 +114,17 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.score_runtime = _read_context->score_runtime;
     _read_options.collection_statistics = _read_context->collection_statistics;
     _read_options.rowset_id = _rowset->rowset_id();
-    _read_options.version = _rowset->version();
+    _read_options.rowset_version = _rowset->version();
     _read_options.commit_tso = _rowset->rowset_meta()->commit_tso();
     _read_options.tablet_id = _rowset->rowset_meta()->tablet_id();
-    _read_options.read_limit = _topn_limit;
+    // ORDER BY key LIMIT n and plain LIMIT n reads stop every segment after its first
+    // read_limit rows; the TopN rows are then picked from those of every rowset.
+    _read_options.read_limit = 0;
+    if (_read_context->read_orderby_key_limit > 0) {
+        _read_options.read_limit = _read_context->read_orderby_key_limit;
+    } else if (_read_context->general_read_limit > 0) {
+        _read_options.read_limit = static_cast<size_t>(_read_context->general_read_limit);
+    }
     if (_read_context->lower_bound_keys != nullptr) {
         DORIS_CHECK(_read_context->upper_bound_keys != nullptr);
         DORIS_CHECK_EQ(_read_context->lower_bound_keys->size(),
@@ -141,7 +149,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         _read_options.delete_condition_predicates->get_all_column_ids(delete_columns);
     }
     // Disable condition cache if you have delete condition.
-    _read_context->condition_cache_digest =
+    uint64_t condition_cache_digest =
             delete_columns.empty() ? _read_context->condition_cache_digest : 0;
     // create segment iterators
     VLOG_NOTICE << "read columns size: " << read_schema->num_read_columns();
@@ -204,16 +212,8 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.enable_unique_key_merge_on_write =
             _read_context->enable_unique_key_merge_on_write;
     _read_options.topn_filter_source_node_ids = _read_context->topn_filter_source_node_ids;
-    _read_options.read_orderby_key_reverse = _read_context->read_orderby_key_reverse;
-    _read_options.use_insert_order_when_same = _read_context->use_insert_order_when_same;
+    _read_options.read_orderby_key_reverse = _read_context->merge.reverse;
     _read_options.read_changelog = _read_context->read_changelog;
-    // Changelog TSO drives the merge tie-break and is therefore part of the exact
-    // read schema shared by the rowset merge.
-    if (int32_t tso_ordinal = read_schema->tso_ordinal(); tso_ordinal >= 0) {
-        _read_options.changelog_tso_idx = tso_ordinal;
-    }
-    _read_options.read_orderby_key_columns = _read_context->read_orderby_key_columns;
-    _read_options.io_ctx.reader_type = _read_context->reader_type;
     _read_options.io_ctx.file_cache_stats = &_stats->file_cache_stats;
     _read_options.runtime_state = _read_context->runtime_state;
     _read_options.output_columns = _read_context->output_columns;
@@ -238,12 +238,11 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         }
     }
 
-    if (_read_context->condition_cache_digest) {
+    if (condition_cache_digest != 0) {
         for (const auto& key_range : _read_options.key_ranges) {
-            _read_context->condition_cache_digest =
-                    key_range.get_digest(_read_context->condition_cache_digest);
+            condition_cache_digest = key_range.get_digest(condition_cache_digest);
         }
-        _read_options.condition_cache_digest = _read_context->condition_cache_digest;
+        _read_options.condition_cache_digest = condition_cache_digest;
     }
 
     _read_options.io_ctx.expiration_time = read_context->file_cache_expiration_time;
@@ -281,89 +280,84 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
                 rowset()->rowset_id(), segment_ids, segment_rows));
     }
 
+    // One options object for every segment of this rowset; a segment that reads a split of its
+    // rows (segment_row_ranges) gets its own copy with that split when it is opened.
+    _read_options.row_ranges.clear();
+    _segment_options = std::make_shared<const StorageReadOptions>(_read_options);
     for (int64_t i = seg_start; i < seg_end; i++) {
         const auto pos = cast_set<size_t>(i);
         const auto seg = _rowset->segment(pos).ref();
         SCOPED_RAW_TIMER(&_stats->rowset_reader_create_iterators_timer_ns);
-        std::unique_ptr<RowwiseIterator> iter;
-
         /// For iterators, we don't need to initialize them all at once when creating them.
         /// Instead, we should initialize each iterator separately when really using them.
         /// This optimization minimizes the lifecycle of resources like column readers
         /// and prevents excessive memory consumption, especially for wide tables.
-        if (_segment_row_ranges.empty()) {
-            _read_options.row_ranges.clear();
-            iter = std::make_unique<LazyInitSegmentIterator>(_rowset, seg, should_use_cache,
-                                                             read_schema, _read_options);
-        } else {
+        RowRanges row_ranges;
+        if (!_segment_row_ranges.empty()) {
             DCHECK_EQ(seg_end - seg_start, _segment_row_ranges.size());
-            auto local_options = _read_options;
-            local_options.row_ranges = _segment_row_ranges[i - seg_start];
-            if (local_options.condition_cache_digest) {
-                local_options.condition_cache_digest =
-                        local_options.row_ranges.get_digest(local_options.condition_cache_digest);
-            }
-            iter = std::make_unique<LazyInitSegmentIterator>(_rowset, seg, should_use_cache,
-                                                             read_schema, local_options);
+            row_ranges = _segment_row_ranges[i - seg_start];
         }
-
-        if (iter->empty()) {
-            continue;
-        }
-        out_iters->push_back(std::move(iter));
+        out_iters->push_back(std::make_unique<LazyInitSegmentIterator>(
+                _rowset, seg, should_use_cache, read_schema, _segment_options,
+                std::move(row_ranges)));
     }
 
     return Status::OK();
 }
 
-Status BetaRowsetReader::init(RowsetReaderContext* read_context, const RowSetSplits& rs_splits) {
+Status BetaRowsetReader::init(const RowsetReaderContext* read_context,
+                              const RowSetSplits& rs_splits) {
     _read_context = read_context;
-    _read_context->rowset_id = _rowset->rowset_id();
     _segment_offsets = rs_splits.segment_offsets;
     _segment_row_ranges = rs_splits.segment_row_ranges;
     return Status::OK();
 }
 
-Status BetaRowsetReader::_init_iterator_once() {
-    return _init_iter_once.call([this] { return _init_iterator(); });
+bool BetaRowsetReader::_needs_segment_merge() const {
+    return _read_context->merge.key_ordered && _get_segment_num() > 1 &&
+           _rowset->rowset_meta()->is_segments_overlapping();
 }
 
-Status BetaRowsetReader::_init_iterator() {
+Status BetaRowsetReader::new_iterator(const RowsetReaderContext* read_context,
+                                      RowwiseIteratorUPtr* out_iter) {
     std::vector<RowwiseIteratorUPtr> iterators;
-    RETURN_IF_ERROR(get_segment_iterators(_read_context, &iterators));
+    RETURN_IF_ERROR(get_segment_iterators(read_context, &iterators));
 
     SCOPED_RAW_TIMER(&_stats->rowset_reader_init_iterators_timer_ns);
-
-    if (_read_context->merged_rows == nullptr) {
-        _read_context->merged_rows = &_merged_rows;
-    }
-    // merge or union segment iterator
-    if (is_merge_iterator()) {
-        int32_t sequence_loc = _read_context->use_sequence_column_for_merge_order
-                                       ? _read_context->read_schema->sequence_ordinal()
-                                       : -1;
-        if (_read_options.changelog_tso_idx != -1) {
-            sequence_loc = _read_options.changelog_tso_idx;
-        }
-        _iterator = new_merge_iterator(std::move(iterators), sequence_loc, _read_context->is_unique,
-                                       _read_context->read_orderby_key_reverse,
-                                       _read_context->merged_rows, _read_context->read_schema,
-                                       _read_options.changelog_tso_idx != -1);
+    if (_needs_segment_merge()) {
+        *out_iter = new_heap_merge_iterator(std::move(iterators), _read_context->read_schema,
+                                            _read_context->merge);
     } else {
-        if (_read_context->read_orderby_key_reverse) {
+        if (_read_context->merge.reverse) {
             // reverse iterators to read backward for ORDER BY key DESC
-            std::reverse(iterators.begin(), iterators.end());
+            std::ranges::reverse(iterators);
         }
-        _iterator = new_union_iterator(std::move(iterators), _read_context->read_schema);
-    }
-
-    auto s = _iterator->init(_read_options);
-    if (!s.ok()) {
-        LOG(WARNING) << "failed to init iterator: " << s.to_string();
-        _iterator.reset();
-        return Status::Error<ROWSET_READER_INIT>(s.to_string());
+        *out_iter = new_union_iterator(std::move(iterators), _read_context->read_schema);
     }
     return Status::OK();
+}
+
+Status BetaRowsetReader::next_batch(Block* block) {
+    RETURN_IF_ERROR(_init_iter_once.call([this] {
+        RETURN_IF_ERROR(new_iterator(_read_context, &_iterator));
+        auto s = _iterator->init(_read_options);
+        if (!s.ok()) {
+            LOG(WARNING) << "failed to init iterator: " << s.to_string();
+            _iterator.reset();
+            return Status::Error<ROWSET_READER_INIT>(s.to_string());
+        }
+        return Status::OK();
+    }));
+    SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
+    if (_read_context->runtime_state != nullptr && _read_context->runtime_state->is_cancelled())
+            [[unlikely]] {
+        return _read_context->runtime_state->cancel_reason();
+    }
+    Status s = _iterator->next_batch(block);
+    if (!s.ok() && !s.is<ErrorCode::END_OF_FILE>()) {
+        LOG(WARNING) << "failed to read next block: " << s.to_string();
+    }
+    return s;
 }
 
 bool BetaRowsetReader::_should_push_down_value_predicates() const {

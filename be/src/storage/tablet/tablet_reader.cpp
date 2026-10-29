@@ -129,47 +129,14 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
         return Status::EndOfFile("reach end of scan range. tablet={}", _tablet->tablet_id());
     }
 
-    bool need_ordered_result = true;
-    if (read_params.reader_type == ReaderType::READER_QUERY) {
-        if (_tablet_schema->keys_type() == DUP_KEYS) {
-            // duplicated keys are allowed, no need to merge sort keys in rowset
-            need_ordered_result = false;
-        }
-        if (_tablet_schema->keys_type() == UNIQUE_KEYS &&
-            _tablet->enable_unique_key_merge_on_write()) {
-            // unique keys with merge on write, no need to merge sort keys in rowset
-            need_ordered_result = false;
-        }
-        if (_aggregation) {
-            // compute engine will aggregate rows with the same key,
-            // it's ok for rowset to return unordered result
-            need_ordered_result = false;
-        }
-
-        if (_direct_mode) {
-            // direct mode indicates that the storage layer does not need to merge,
-            // it's ok for rowset to return unordered result
-            need_ordered_result = false;
-        }
-
-        if (read_params.read_orderby_key) {
-            need_ordered_result = true;
-        }
-    }
-
     _reader_context.reader_type = read_params.reader_type;
     _reader_context.read_changelog = read_params.read_changelog;
     _reader_context.version = read_params.version;
     _reader_context.variant_compaction_paths = read_params.variant_compaction_paths;
-    _reader_context.need_ordered_result = need_ordered_result || read_params.force_key_ordered_read;
     _reader_context.topn_filter_source_node_ids = read_params.topn_filter_source_node_ids;
-    _reader_context.read_orderby_key_reverse = read_params.read_orderby_key_reverse;
-    _reader_context.use_insert_order_when_same =
-            read_params.use_insert_order_when_same || read_params.read_changelog;
+    _reader_context.merge = _decide_merge(read_params);
     _reader_context.read_orderby_key_limit = read_params.read_orderby_key_limit;
     _reader_context.read_schema = _read_schema;
-    _reader_context.read_orderby_key_columns =
-            !_orderby_key_columns.empty() ? &_orderby_key_columns : nullptr;
     _reader_context.predicates = &_col_predicates;
     _reader_context.value_predicates = &_value_col_predicates;
     _reader_context.lower_bound_keys = &_keys_param.start_keys;
@@ -179,14 +146,11 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.delete_handler = &_delete_handler;
     _reader_context.stats = &_stats;
     _reader_context.use_page_cache = read_params.use_page_cache;
-    _reader_context.is_unique = tablet()->keys_type() == UNIQUE_KEYS;
-    _reader_context.merged_rows = &_merged_rows;
     _reader_context.delete_bitmap = read_params.delete_bitmap;
     _reader_context.enable_unique_key_merge_on_write = tablet()->enable_unique_key_merge_on_write();
     _reader_context.enable_mor_value_predicate_pushdown =
             read_params.enable_mor_value_predicate_pushdown;
     _reader_context.rowid_conversion = read_params.rowid_conversion;
-    _reader_context.is_key_column_group = read_params.is_key_column_group;
     _reader_context.common_expr_ctxs_push_down = read_params.common_expr_ctxs_push_down;
     _reader_context.output_columns = &read_params.output_columns;
     _reader_context.extra_columns = read_params.extra_columns;
@@ -216,11 +180,65 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     return Status::OK();
 }
 
+MergeDecision TabletReader::_decide_merge(const ReaderParams& read_params) const {
+    const bool changelog_merge_scan =
+            read_params.changelog_scan_type == TChangelogScanType::MIN_DELTA ||
+            read_params.changelog_scan_type == TChangelogScanType::DETAIL;
+    bool key_ordered = true;
+    if (read_params.force_key_order || changelog_merge_scan) {
+        // ORDER BY key LIMIT n, the compaction of a changelog tablet, and the changelog scans
+        // that group the changes of a key: key order whatever the table model.
+    } else if (read_params.reader_type != ReaderType::READER_QUERY) {
+        // Compactions, schema changes and the checksum fold the rows of a key themselves.
+    } else if (read_params.read_changelog) {
+        // An APPEND_ONLY changelog scan reads the changes unordered, like a DUP_KEYS table.
+        key_ordered = false;
+    } else if (_direct_mode || _tablet_schema->keys_type() == KeysType::DUP_KEYS ||
+               (_tablet_schema->keys_type() == KeysType::UNIQUE_KEYS &&
+                _tablet->enable_unique_key_merge_on_write())) {
+        // DUP_KEYS keeps every row; merge-on-write resolved the versions of a key when
+        // writing; direct mode means the scanner folds (or does not need to fold) the rows.
+        key_ordered = false;
+    }
+    // Rows of one key: the changelog keeps them in insertion order, every other read puts the
+    // newest one first.
+    const bool older_first = read_params.use_insert_order_when_same || read_params.read_changelog;
+    return decide_merge(*_tablet_schema, *_read_schema, _orderby_key_columns, key_ordered,
+                        read_params.read_orderby_key_reverse, older_first);
+}
+
+MergeDecision TabletReader::decide_merge(const TabletSchema& tablet_schema,
+                                         const ReadSchema& read_schema,
+                                         std::vector<uint32_t> compare_ordinals, bool key_ordered,
+                                         bool reverse, bool older_first) {
+    MergeDecision decision;
+    decision.key_ordered = key_ordered;
+    decision.reverse = reverse;
+    decision.older_first = older_first;
+    decision.compare_whole_key = compare_ordinals.empty();
+    if (decision.compare_whole_key) {
+        for (size_t ordinal = 0; ordinal < read_schema.num_key_columns(); ++ordinal) {
+            compare_ordinals.push_back(cast_set<uint32_t>(ordinal));
+        }
+    }
+    decision.compare_ordinals = std::move(compare_ordinals);
+    if (tablet_schema.cluster_key_uids().empty()) {
+        if (const int tso_ordinal = read_schema.tso_ordinal(); tso_ordinal >= 0) {
+            decision.sequence_ordinal = tso_ordinal;
+            decision.small_sequence_first = true;
+        } else {
+            decision.sequence_ordinal = read_schema.sequence_ordinal();
+        }
+    }
+    decision.drop_older_versions = tablet_schema.keys_type() == KeysType::UNIQUE_KEYS &&
+                                   !tablet_schema.has_seq_map() && decision.compare_whole_key;
+    return decision;
+}
+
 Status TabletReader::_init_params(const ReaderParams& read_params) {
     read_params.check_validation();
 
     _direct_mode = read_params.direct_mode;
-    _aggregation = read_params.aggregation;
     _reader_type = read_params.reader_type;
     _tablet = read_params.tablet;
     _tablet_schema = read_params.tablet_schema;
@@ -390,7 +408,7 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
     }
 
     // Storage TopN sorts rows by these columns, and only DUP and merge-on-write tablets set
-    // them up. Without them, fail the scan here instead of aborting later in VCollectIterator.
+    // them up. Without them, fail the scan here instead of aborting later in the TopN read.
     if (read_params.read_orderby_key_limit > 0 && _orderby_key_columns.empty()) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
                 "storage TopN needs order-by key columns, but none are set up: keys_type={}, "

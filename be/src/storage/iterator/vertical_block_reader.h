@@ -18,7 +18,6 @@
 #pragma once
 
 #include <glog/logging.h>
-#include <parallel_hashmap/phmap.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -31,7 +30,6 @@
 #include "core/block/block.h"
 #include "core/column/column.h"
 #include "core/data_type/data_type.h"
-#include "exprs/aggregate/aggregate_function.h"
 #include "storage/iterators.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_reader.h"
@@ -39,6 +37,7 @@
 #pragma once
 
 namespace doris {
+class AggKeyBlockIterator;
 class RowSourcesBuffer;
 class RowsetMeta;
 struct RowBatch;
@@ -48,10 +47,7 @@ class VerticalBlockReaderTestAccessor;
 class VerticalBlockReader final : public TabletReader {
 public:
     VerticalBlockReader(RowSourcesBuffer* row_sources_buffer,
-                        VerticalCompactionContextStats* context_stats = nullptr)
-            : _row_sources_buffer(row_sources_buffer), _context_stats(context_stats) {
-        _id = nextId++;
-    }
+                        VerticalCompactionContextStats* context_stats = nullptr);
 
     ~VerticalBlockReader() override;
 
@@ -71,15 +67,18 @@ public:
 private:
     friend class VerticalBlockReaderTestAccessor;
 
-    static void _append_grouped_iterator_init_flags(const RowsetMeta& rowset_meta,
+    // The number of segments of each group among the `num_segment_iters` segments
+    // [start, end) of `segment_offsets` (the whole rowset when start == end) of a rowset whose
+    // segments are ordered within each group (NONOVERLAPPING_WITHIN_GROUP), in segment order.
+    static std::vector<size_t> _segment_group_sizes(const RowsetMeta& rowset_meta,
                                                     std::pair<int64_t, int64_t> segment_offsets,
-                                                    size_t added_iterators,
-                                                    std::vector<bool>* iterator_init_flag);
+                                                    size_t num_segment_iters);
 
     // Directly read row from rowset and pass to upper caller. No need to do aggregation.
     // This is usually used for DUPLICATE KEY tables
     Status _direct_next_block(Block* block, bool* eof);
-    // For normal AGGREGATE KEY tables, read data by a merge heap.
+    // AGGREGATE KEY tables: the key group keeps the first row of every key, the value groups
+    // fold the rows of every key.
     Status _agg_key_next_block(Block* block, bool* eof);
     // For UNIQUE KEY tables, read data by a merge heap.
     // The difference from _agg_key_next_block is that it will read the data from high version to low version,
@@ -88,15 +87,14 @@ private:
 
     Status _init_collect_iter(const ReaderParams& read_params, CompactionSampleInfo* sample_info);
 
-    Status _get_segment_iterators(const ReaderParams& read_params,
-                                  std::vector<RowwiseIteratorUPtr>* segment_iters,
-                                  std::vector<bool>* iterator_init_flag);
-
-    void _init_agg_state(const ReaderParams& read_params);
-    void _append_agg_data(MutableColumns& columns);
-    void _update_agg_data(MutableColumns& columns);
-    size_t _copy_agg_data();
-    void _update_agg_value(MutableColumns& columns, int begin, int end, bool is_close = true);
+    // The sources the key group merges and the value groups replay, in (rowset version,
+    // segment) order. Every group builds the same sources, so that a row source names the same
+    // one in all of them.
+    Status _get_sources(const ReaderParams& read_params, std::vector<RowwiseIteratorUPtr>* sources);
+    // Append the segments read one after another as one source.
+    void _append_source(std::vector<RowwiseIteratorUPtr> segment_iters,
+                        std::vector<RowwiseIteratorUPtr>* sources) const;
+    MergeDecision _key_group_merge(const ReaderParams& read_params) const;
 
     // Helper functions for sparse column optimization
     void _prepare_sparse_columns(MutableColumns& columns, size_t actual_rows,
@@ -110,6 +108,7 @@ private:
 
 private:
     size_t _id;
+    bool _is_key_column_group = false;
     std::shared_ptr<RowwiseIterator> _vcollect_iter;
     IteratorRowRef _next_row {{}, -1, false};
 
@@ -121,21 +120,10 @@ private:
     VerticalCompactionContextStats* _context_stats;
     ColumnPtr _delete_filter_column;
 
-    // for agg mode
-    std::vector<AggregateFunctionPtr> _agg_functions;
-    std::vector<AggregateDataPtr> _agg_places;
-    Arena _arena;
-
-    std::vector<int> _agg_data_counters;
-    int _last_agg_data_counter = 0;
-
-    MutableColumns _stored_data_columns;
-    std::vector<IteratorRowRef> _stored_row_ref;
-
-    std::vector<bool> _stored_has_null_tag;
-    std::vector<bool> _stored_has_variable_length_tag;
-
-    phmap::flat_hash_map<const Block*, std::vector<std::pair<int, int>>> _temp_ref_map;
+    // The value groups of an AGGREGATE KEY table: the fold over `_vcollect_iter`, and the rows
+    // it folded into an earlier row of their key.
+    std::unique_ptr<AggKeyBlockIterator> _agg_block_iter;
+    uint64_t _folded_rows = 0;
 
     // For sparse column compaction optimization
     // Set from reader_params.enable_sparse_optimization (calculated in Merger::vertical_merge_rowsets)

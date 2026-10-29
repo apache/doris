@@ -304,7 +304,7 @@ Status collect_hidden_docs(const RowsetSharedPtr& rowset, const RowsetSegmentVie
         const TabletColumn& delete_sign = tablet_schema.column(tablet_schema.delete_sign_idx());
 
         StorageReadOptions read_options(stats);
-        read_options.version = rowset->version();
+        read_options.rowset_version = rowset->version();
         read_options.io_ctx = data_io_ctx;
         std::shared_ptr<segment_v2::ColumnReader> column_reader;
         RETURN_IF_ERROR(

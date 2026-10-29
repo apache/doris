@@ -81,7 +81,6 @@ public:
     [[nodiscard]] Status next_batch(Block* block) override;
 
     const ReadSchema& schema() const override { return *_schema; }
-    uint64_t data_id() const override { return _segment->id(); }
 
     void update_profile(RuntimeProfile* profile) override {
         _update_profile(profile, _short_cir_eval_predicate, "ShortCircuitPredicates");
@@ -100,6 +99,8 @@ public:
     }
 
 private:
+    // One batch of next_batch(); OK with zero rows when a predicate filtered the whole batch.
+    Status _next_batch_once(Block* block);
     Status _next_batch_internal(Block* block);
 
     Status _check_output_block(Block* block);
@@ -417,9 +418,12 @@ private:
     // metadata for the projected output columns. Returns nullptr if the feature is
     // disabled or the byte budget is non-positive.
     std::unique_ptr<AdaptiveBlockSizePredictor> _make_block_size_predictor() const;
-    // Snapshot of _opts.block_row_max at init time; used as the hard upper bound so that
-    // dynamic adjustments never exceed the capacity of pre-allocated buffers.
-    uint32_t _initial_block_row_max = 0;
+    // Rows the next batch reads: _opts.block_row_max, or fewer when the adaptive batch size
+    // predictor asks for fewer, never more since the buffers are sized by the ceiling.
+    uint32_t _batch_rows = 0;
+    // Set once next_batch() returned EndOfFile; the column iterators are released then, so
+    // no further batch can be read.
+    bool _eof_returned = false;
     // make a copy of `_opts.column_predicates` in order to make local changes
     std::vector<std::shared_ptr<ColumnPredicate>> _col_predicates;
     VExprContextSPtrs _common_expr_ctxs_push_down;
