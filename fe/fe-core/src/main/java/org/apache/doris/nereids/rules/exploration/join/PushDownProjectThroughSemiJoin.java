@@ -21,6 +21,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.CBOUtils;
 import org.apache.doris.nereids.rules.exploration.ExplorationRuleFactory;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -66,6 +67,9 @@ public class PushDownProjectThroughSemiJoin implements ExplorationRuleFactory {
                             return null;
                         }
                         Plan newLeft = pushdownProject(project);
+                        if (newLeft == null) {
+                            return null;
+                        }
                         return topJoin.withChildren(newLeft, topJoin.right());
                     }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_SEMI_JOIN_LEFT),
 
@@ -80,6 +84,9 @@ public class PushDownProjectThroughSemiJoin implements ExplorationRuleFactory {
                             return null;
                         }
                         Plan newRight = pushdownProject(project);
+                        if (newRight == null) {
+                            return null;
+                        }
                         return topJoin.withChildren(topJoin.left(), newRight);
                     }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_SEMI_JOIN_RIGHT)
                 );
@@ -99,16 +106,33 @@ public class PushDownProjectThroughSemiJoin implements ExplorationRuleFactory {
 
     private Plan pushdownProject(LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project) {
         LogicalJoin<GroupPlan, GroupPlan> join = project.child();
+        // A project item which reads no input, e.g. the constant materialized by constant propagation, now() or
+        // 1 + 1, must not be pushed into the join: the join condition may refer to such an item, and pushing it
+        // into the child while the condition keeps referring to it from the other side makes both children of the
+        // join output the same exprId. Keeping the item above the join while the condition refers to it is also
+        // invalid, so the pushdown is rejected for this branch.
+        Set<ExprId> noInputProjectItemIds = CBOUtils.collectNoInputProjectItemIds(project.getProjects());
+        if (CBOUtils.joinConditionRefersTo(join, noInputProjectItemIds)) {
+            return null;
+        }
         Set<Slot> conditionLeftSlots = CBOUtils.joinChildConditionSlots(join, true);
 
-        List<NamedExpression> newProject = new ArrayList<>(project.getProjects());
-        Set<Slot> projectUsedSlots = project.getProjects().stream().map(NamedExpression::toSlot)
+        List<NamedExpression> newProject = new ArrayList<>();
+        for (NamedExpression expr : project.getProjects()) {
+            if (!noInputProjectItemIds.contains(expr.getExprId())) {
+                newProject.add(expr);
+            }
+        }
+        if (newProject.isEmpty()) {
+            return null;
+        }
+        Set<Slot> projectUsedSlots = newProject.stream().map(NamedExpression::toSlot)
                 .collect(Collectors.toSet());
         conditionLeftSlots.stream().filter(slot -> !projectUsedSlots.contains(slot))
                 .forEach(newProject::add);
         Plan newLeft = new LogicalProject<>(newProject, join.left());
 
         Plan newJoin = join.withChildren(newLeft, join.right());
-        return new LogicalProject<>(ImmutableList.copyOf(project.getOutput()), newJoin);
+        return new LogicalProject<>(CBOUtils.projectAboveJoin(project, noInputProjectItemIds), newJoin);
     }
 }

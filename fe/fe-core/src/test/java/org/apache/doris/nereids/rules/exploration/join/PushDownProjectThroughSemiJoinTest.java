@@ -33,6 +33,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -41,6 +42,26 @@ class PushDownProjectThroughSemiJoinTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
     private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
     private final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
+
+    @Test
+    public void rejectPushdownWhenProjectItemReadsNoSlotAndIsUsedByJoinCondition() {
+        // project '014' AS `id`#t1.id, t1.name
+        // the constant reads no slot and reuses the exprId of t1.id, and the semi join below refers to t1.id:
+        // pushing the project into the semi join would make both children of the join output t1.id
+        List<NamedExpression> projectExprs = ImmutableList.of(
+                new Alias(scan1.getOutput().get(0).getExprId(), Literal.of(14), scan1.getOutput().get(0).getName()),
+                scan1.getOutput().get(1)
+        );
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
+                .projectExprs(projectExprs)
+                .join(scan3, JoinType.INNER_JOIN, Pair.of(1, 1))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyExploration(PushDownProjectThroughSemiJoin.INSTANCE.buildRules())
+                .checkMemo(memo -> Assertions.assertEquals(1, memo.getRoot().getLogicalExpressions().size()));
+    }
 
     @Test
     public void pushdownProject() {
