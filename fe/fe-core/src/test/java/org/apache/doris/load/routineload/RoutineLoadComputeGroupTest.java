@@ -30,11 +30,13 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.kafka.KafkaUtil;
+import org.apache.doris.datasource.kinesis.KinesisUtil;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.kafka.KafkaTaskInfo;
+import org.apache.doris.load.routineload.kinesis.KinesisRoutineLoadJob;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
@@ -63,6 +65,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.LockSupport;
 import java.util.stream.Collectors;
 
 /**
@@ -608,6 +614,93 @@ public class RoutineLoadComputeGroupTest {
                 "a revoked privilege must not be auto resumed");
     }
 
+    /**
+     * update() refreshes the partitions before it takes the job lock, which a SQL STOP holds while it
+     * runs. A pause found by the refresh has to wait for that lock and look at the state again: a STOP
+     * that completed in between must stay STOPPED, as replay rejects STOPPED -> PAUSED.
+     */
+    @Test
+    public void testRevokedUsagePauseInPartitionRefreshKeepsCompletedStop() throws Exception {
+        // the group exists and its metadata request would succeed; only the owner's USAGE is gone
+        enterCloudMode(false, Lists.newArrayList("cg_pinned"));
+
+        RecordingKafkaRoutineLoadJob job = new RecordingKafkaRoutineLoadJob();
+        Deencapsulation.setField(job, "state", RoutineLoadJob.JobState.NEED_SCHEDULE);
+        Deencapsulation.setField(job, "userIdentity", UserIdentity.ADMIN);
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(RoutineLoadJob.COMPUTE_GROUP, "cg_pinned");
+        Deencapsulation.setField(job, "jobProperties", jobProperties);
+
+        Assertions.assertFalse(refreshWhileStopHoldsJobLock(job));
+
+        Assertions.assertNull(job.newState, "a completed STOP must not be turned back into PAUSED");
+        Assertions.assertEquals(RoutineLoadJob.JobState.STOPPED, job.getState());
+    }
+
+    @Test
+    public void testKafkaMetadataPauseInPartitionRefreshKeepsCompletedStop() throws Exception {
+        RecordingKafkaRoutineLoadJob job = new RecordingKafkaRoutineLoadJob();
+        Deencapsulation.setField(job, "state", RoutineLoadJob.JobState.NEED_SCHEDULE);
+
+        try (MockedStatic<KafkaUtil> kafkaUtil = Mockito.mockStatic(KafkaUtil.class)) {
+            kafkaUtil.when(() -> KafkaUtil.getAllKafkaPartitions(Mockito.any(), Mockito.any(), Mockito.any(),
+                    Mockito.any())).thenThrow(new LoadException("failed to get info"));
+
+            Assertions.assertFalse(refreshWhileStopHoldsJobLock(job));
+        }
+
+        Assertions.assertNull(job.newState, "a completed STOP must not be turned back into PAUSED");
+        Assertions.assertEquals(RoutineLoadJob.JobState.STOPPED, job.getState());
+    }
+
+    @Test
+    public void testKinesisShardPauseInRefreshKeepsCompletedStop() throws Exception {
+        RecordingKinesisRoutineLoadJob job = new RecordingKinesisRoutineLoadJob();
+        Deencapsulation.setField(job, "state", RoutineLoadJob.JobState.NEED_SCHEDULE);
+
+        try (MockedStatic<KinesisUtil> kinesisUtil = Mockito.mockStatic(KinesisUtil.class)) {
+            kinesisUtil.when(() -> KinesisUtil.getAllKinesisShards(Mockito.any(), Mockito.any(), Mockito.any(),
+                    Mockito.any())).thenThrow(new LoadException("failed to list shards"));
+
+            Assertions.assertFalse(refreshWhileStopHoldsJobLock(job));
+        }
+
+        Assertions.assertNull(job.newState, "a completed STOP must not be turned back into PAUSED");
+        Assertions.assertEquals(RoutineLoadJob.JobState.STOPPED, job.getState());
+    }
+
+    /**
+     * Runs the partition refresh on this thread while another thread holds the job lock, as a SQL STOP
+     * does, and completes that STOP once the refresh waits for the lock. A refresh that changes the
+     * state without the lock never waits for it, and the STOP gives up after ten seconds.
+     */
+    private static boolean refreshWhileStopHoldsJobLock(RoutineLoadJob job) throws Exception {
+        Thread refresher = Thread.currentThread();
+        CountDownLatch stopHoldsLock = new CountDownLatch(1);
+        AtomicBoolean refreshWaitedForLock = new AtomicBoolean();
+        Thread stop = new Thread(() -> {
+            job.writeLock();
+            try {
+                stopHoldsLock.countDown();
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+                while (!job.lock.hasQueuedThread(refresher) && System.nanoTime() < deadline) {
+                    LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(1));
+                }
+                refreshWaitedForLock.set(job.lock.hasQueuedThread(refresher));
+                // what executeStop() leaves behind
+                job.state = RoutineLoadJob.JobState.STOPPED;
+            } finally {
+                job.writeUnlock();
+            }
+        });
+        stop.start();
+        stopHoldsLock.await();
+        boolean refreshed = job.refreshKafkaPartitions(false);
+        stop.join();
+        Assertions.assertTrue(refreshWaitedForLock.get(), "the pause must wait for the job lock");
+        return refreshed;
+    }
+
     private CreateRoutineLoadInfo newCreateInfo(String declaredComputeGroup) {
         return newCreateInfo(declaredComputeGroup, null);
     }
@@ -669,10 +762,24 @@ public class RoutineLoadComputeGroupTest {
             this.pauseReason = reason;
         }
 
-        // the partition refresh changes the state without the write lock wrapper
+        // the partition refresh changes the state under a lock it takes itself
         @Override
         protected void unprotectUpdateState(JobState jobState, ErrorReason reason, boolean isReplay) {
             updateState(jobState, reason, isReplay);
+        }
+    }
+
+    private static class RecordingKinesisRoutineLoadJob extends KinesisRoutineLoadJob {
+        private JobState newState;
+
+        private RecordingKinesisRoutineLoadJob() {
+            super(1L, "kinesis_routine_load_job", 1L, 1L, "ap-southeast-1", "stream-1", UserIdentity.ADMIN);
+        }
+
+        @Override
+        protected void unprotectUpdateState(JobState jobState, ErrorReason reason, boolean isReplay) {
+            this.newState = jobState;
+            this.state = jobState;
         }
     }
 

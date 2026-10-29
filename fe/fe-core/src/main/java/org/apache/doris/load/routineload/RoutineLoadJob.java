@@ -1509,6 +1509,20 @@ public abstract class RoutineLoadJob
                 .build());
     }
 
+    // For failures found by refreshKafkaPartitions(), which update() runs before it takes the job lock.
+    // The state is checked again under the lock: a STOP that completed in between must not be turned
+    // back into PAUSED, as replay rejects STOPPED -> PAUSED.
+    protected void pauseIfNeedSchedule(ErrorReason reason) throws UserException {
+        writeLock();
+        try {
+            if (state == JobState.NEED_SCHEDULE) {
+                unprotectUpdateState(JobState.PAUSED, reason, false /* not replay */);
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
     protected void unprotectUpdateState(JobState jobState, ErrorReason reason, boolean isReplay) throws UserException {
         checkStateTransform(jobState);
         switch (jobState) {

@@ -366,11 +366,7 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
             LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
                     .add("error_msg", msg)
                     .build(), e);
-            if (this.state == JobState.NEED_SCHEDULE) {
-                unprotectUpdateState(JobState.PAUSED,
-                        new ErrorReason(InternalErrorCode.PARTITIONS_ERR, msg),
-                        false /* not replay */);
-            }
+            pauseIfNeedSchedule(new ErrorReason(InternalErrorCode.PARTITIONS_ERR, msg));
             return false;
         }
         return true;
