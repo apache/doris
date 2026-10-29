@@ -74,6 +74,7 @@
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
 #include "io/fs/err_utils.h"
+#include "io/fs/s3_file_reader.h"
 #include "io/fs/s3_file_system.h"
 #include "runtime/exec_env.h"
 #include "testutil/container_credentials_endpoint.h"
@@ -331,7 +332,33 @@ TEST_F(S3ClientFactoryTest, FailedHolderUpdatePreservesClientAndConfiguration) {
     EXPECT_EQ(holder.s3_client_conf(), original);
 }
 
-TEST_F(S3ClientFactoryTest, PartialExecEnvTeardownPreservesFactoryCache) {
+TEST_F(S3ClientFactoryTest, ReaderDestructionReleasesRealSdkClient) {
+    CloudModeConfigGuard cloud_mode(true);
+    auto conf = make_factory_conf("sdk-lifetime.example.com", false);
+    auto holder = std::make_shared<io::ObjClientHolder>(conf);
+    ASSERT_TRUE(holder->init().ok());
+    auto other_holder = std::make_shared<io::ObjClientHolder>(conf);
+    ASSERT_TRUE(other_holder->init().ok());
+    EXPECT_EQ(holder->get(), other_holder->get());
+    other_holder.reset();
+    std::weak_ptr<ObjStorageClient> client = holder->get();
+    std::weak_ptr<Aws::S3::S3Client> sdk =
+            std::static_pointer_cast<S3ObjStorageClient>(holder->get())->_client;
+    auto result = io::S3FileReader::create(holder, "bucket", "file", 0, nullptr);
+    ASSERT_TRUE(result.has_value()) << result.error();
+    auto reader = std::move(result).value();
+    holder.reset();
+    EXPECT_FALSE(client.expired());
+    EXPECT_FALSE(sdk.expired());
+    ASSERT_TRUE(reader->close().ok());
+    // close() is not object destruction. The reader still owns its holder.
+    EXPECT_FALSE(sdk.expired());
+    reader.reset();
+    EXPECT_TRUE(client.expired());
+    EXPECT_TRUE(sdk.expired());
+}
+
+TEST_F(S3ClientFactoryTest, PartialExecEnvTeardownPreservesFactory) {
     auto& factory = S3ClientFactory::instance();
     auto conf = make_factory_conf("partial-exec-env.example.com", false);
     auto before = factory.create(conf);
@@ -342,7 +369,7 @@ TEST_F(S3ClientFactoryTest, PartialExecEnvTeardownPreservesFactoryCache) {
     ExecEnv partial_env;
     partial_env.set_ready();
     // ExternalScanContextMgrTest also tears down a partial environment. It never
-    // initializes the factory's cache policy, so later S3 users must still work.
+    // owns process-wide SDK shutdown, so later S3 users must still work.
     partial_env.destroy();
 
     auto after = factory.create(conf);
