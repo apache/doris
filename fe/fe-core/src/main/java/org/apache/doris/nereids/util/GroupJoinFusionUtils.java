@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
@@ -83,7 +84,9 @@ public final class GroupJoinFusionUtils {
      * null-safe equal conjuncts, no aggregate
      * functions, aggregates with an internal ORDER BY, an aggregate
      * that is not the final one-phase node (GLOBAL + INPUT_TO_RESULT, per function and node), an
-     * unsupported intermediate Project, volatile expressions, or intermediate project slots) or when the
+     * unsupported intermediate Project, volatile expressions, session-var-guarded expressions
+     * (view/MV outputs bound under different result-affecting session variables), or intermediate
+     * project slots) or when the
      * group-by keys cannot be mapped one-to-one onto the conjuncts. Session-level gates
      * (enable_group_join_fusion, enable_spill) are checked by the callers, not here.
      *
@@ -179,6 +182,19 @@ public final class GroupJoinFusionUtils {
             }
             if (outputExpr.containsNondeterministic()
                     || outputExpr.containsType(NoneMovableFunction.class)) {
+                return null;
+            }
+            // A SessionVarGuardExpr marks an expression of a view/MV (or a generated column /
+            // alias function) created under result-affecting session variables that differ from
+            // the caller's, e.g. enable_decimal256. Its type must be computed with the creation
+            // time variables, so the guard has to survive translation: the regular aggregate
+            // path translates guard(AggregateExpression) and therefore keeps them, while the
+            // fused path extracts the bare AggregateExpression and would serialize an aggregate
+            // signature computed under the caller's variables. The output slot (bound with the
+            // creation-time type) and the serialized function could then disagree, changing
+            // precision or failing the BE result-type check. Keep such aggregates on the regular
+            // HashJoin + Aggregate path instead of translating the guard in two places.
+            if (outputExpr.containsType(SessionVarGuardExpr.class)) {
                 return null;
             }
         }
