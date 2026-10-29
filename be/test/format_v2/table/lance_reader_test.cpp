@@ -1654,6 +1654,26 @@ TEST(LanceTableReaderVectorSearchTest, RejectsInvalidQueryParallelismBeforeOpeni
     EXPECT_NE(std::string::npos, status.to_string().find("query_parallelism"));
 }
 
+TEST(LanceTableReaderVectorSearchTest, ValidatesApproxModeBeforeOpeningDataset) {
+    TQueryGlobals globals;
+    RuntimeState state(globals);
+    const Columns columns {projected_column("_distance", TYPE_FLOAT, true)};
+    for (const int value : {0, 1, 2, 3}) {
+        SCOPED_TRACE(value);
+        RuntimeProfile profile("lance_approx_mode_validation");
+        auto params = make_float32_vector_search_params({0.0F, 0.0F, 0.0F}, 2, 0);
+        params.lance_scan_params.external_search_request.vector_search_options.__set_approx_mode(
+                static_cast<TVectorApproxMode::type>(value));
+        LanceTableReader reader;
+        const auto status = init_reader(&reader, columns, &state, &profile, &params);
+        const bool valid = value >= 0 && value <= 2;
+        EXPECT_EQ(valid, status.ok()) << status.to_string();
+        if (!valid) {
+            EXPECT_NE(std::string::npos, status.to_string().find("approx_mode"));
+        }
+    }
+}
+
 TEST(LanceTableReaderVectorSearchTest, ValidatesDistanceRangeBeforeDatasetAccess) {
     TQueryGlobals globals;
     RuntimeState state(globals);

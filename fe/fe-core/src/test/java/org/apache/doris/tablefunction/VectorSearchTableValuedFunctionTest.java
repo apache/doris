@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.lance.metadata.LanceTableAccess;
 import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
+import org.apache.doris.thrift.TVectorApproxMode;
 import org.apache.doris.thrift.TVectorSearchOptions;
 import org.apache.doris.thrift.TVectorSearchParams;
 
@@ -42,6 +43,48 @@ import java.util.Map;
 public class VectorSearchTableValuedFunctionTest {
     private TVectorSearchOptions parseOptions(Map<String, String> params) throws Exception {
         return VectorSearchTableValuedFunction.buildVectorSearchOptions(params, true);
+    }
+
+    @Test
+    public void testApproxModeIsIncludedInSearchOptions() throws Exception {
+        for (String value : new String[] {"fast", "normal", "accurate", " FAST ", "Normal", "ACCURATE"}) {
+            TVectorSearchOptions options = parseOptions(Collections.singletonMap("approx_mode", value));
+            Assert.assertNotNull("approx_mode must be serialized: " + value, options);
+            TVectorSearchOptions decoded = new TVectorSearchOptions();
+            new TDeserializer().deserialize(decoded, new TSerializer().serialize(options));
+            Assert.assertTrue(decoded.isSetApproxMode());
+            Assert.assertEquals(TVectorApproxMode.valueOf(value.trim().toUpperCase(java.util.Locale.ROOT)),
+                    decoded.getApproxMode());
+            Assert.assertFalse(decoded.isSetNprobes());
+        }
+    }
+
+    @Test
+    public void testOmittedApproxModePreservesNativeDefault() throws Exception {
+        Assert.assertNull(parseOptions(Collections.emptyMap()));
+        TVectorSearchOptions options = parseOptions(ImmutableMap.of(
+                "nprobes", "4", "refine_factor", "2", "query_parallelism", "1"));
+        Assert.assertFalse(options.isSetApproxMode());
+        Assert.assertEquals(4, options.getNprobes());
+        Assert.assertEquals(2, options.getRefineFactor());
+        Assert.assertEquals(1, options.getQueryParallelism());
+    }
+
+    @Test
+    public void testRejectInvalidApproxMode() {
+        for (String value : new String[] {null, "", " ", "invalid", "0", "1", "2", "fastest"}) {
+            AnalysisException error = Assert.assertThrows(AnalysisException.class,
+                    () -> parseOptions(Collections.singletonMap("approx_mode", value)));
+            Assert.assertTrue(error.getMessage(), error.getMessage().contains("approx_mode"));
+        }
+    }
+
+    @Test
+    public void testRejectInvalidApproxModeBeforeMetadataAccess() {
+        AnalysisException error = Assert.assertThrows(AnalysisException.class,
+                () -> new VectorSearchTableValuedFunction(
+                        Collections.singletonMap("approx_mode", "invalid")));
+        Assert.assertTrue(error.getMessage(), error.getMessage().contains("approx_mode"));
     }
 
     @Test

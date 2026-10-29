@@ -54,6 +54,7 @@ import org.apache.doris.thrift.TFtsQueryType;
 import org.apache.doris.thrift.TFullTextSearchParams;
 import org.apache.doris.thrift.TLanceFileDesc;
 import org.apache.doris.thrift.TPushAggOp;
+import org.apache.doris.thrift.TVectorApproxMode;
 import org.apache.doris.thrift.TVectorMetric;
 import org.apache.doris.thrift.TVectorSearchOptions;
 import org.apache.doris.thrift.TVectorSearchParams;
@@ -669,13 +670,16 @@ public class LanceScanNodeTest {
                                 Collections.singletonList(9), Arrays.asList(3L, 4L),
                                 IndexType.VECTOR, "L2")));
         TExternalSearchRequest request = vectorSearchRequest(5, 0);
-        request.setVectorSearchOptions(new TVectorSearchOptions().setQueryParallelism(4));
+        request.setVectorSearchOptions(new TVectorSearchOptions()
+                .setQueryParallelism(4).setApproxMode(TVectorApproxMode.ACCURATE));
         LanceScanNode node = newSearchNode(metadata, request);
 
         List<Split> splits = node.getSplits(3);
 
         Assert.assertTrue(node.getNodeExplainString("", TExplainLevel.NORMAL)
                 .contains("lanceQueryParallelism=4"));
+        Assert.assertTrue(node.getNodeExplainString("", TExplainLevel.NORMAL)
+                .contains("lanceApproxMode=ACCURATE"));
         Assert.assertTrue(node.getNodeExplainString("", TExplainLevel.NORMAL)
                 .contains("lanceVectorIndexStatus=USED"));
 
