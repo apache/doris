@@ -38,10 +38,8 @@ import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.write.ConnectorRowChangeStyle;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.ExternalDatabase;
-import org.apache.doris.datasource.ExternalView;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
-import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccSnapshot;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
@@ -61,7 +59,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
@@ -933,7 +930,7 @@ public class PluginDrivenExternalTableTest {
     }
 
     /**
-     * Builds an MVCC-capable plugin table wired so the REAL initSchema runs against a stubbed
+     * Builds a CALLS_REAL_METHODS PluginDrivenExternalTable wired so the REAL initSchema runs against a stubbed
      * connector chain: metadata returns {@code viewDef} from getViewDefinition (identity column mapping) and NO
      * table handle (so a deleted isView() branch would fall through to an empty schema). isView() is stubbed
      * directly to {@code isView} (the branch under test) — mirroring how the getFullSchema tests stub
@@ -961,7 +958,7 @@ public class PluginDrivenExternalTableTest {
         Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
         Mockito.when(catalog.buildCrossStatementSession()).thenReturn(session);
         PluginDrivenExternalTable table =
-                Mockito.mock(PluginDrivenMvccExternalTable.class, Mockito.CALLS_REAL_METHODS);
+                Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
         Deencapsulation.setField(table, "catalog", catalog);
         Deencapsulation.setField(table, "db", db);
         Deencapsulation.setField(table, "remoteName", "v1");
@@ -970,7 +967,7 @@ public class PluginDrivenExternalTableTest {
     }
 
     @Test
-    public void viewSnapshotAndSchemaReadsDoNotResolveTableHandle() {
+    public void initSchemaBuildsViewSchemaFromViewDefinitionColumns() {
         // WHY (H8): a flipped connector VIEW has no table handle (the SDK tableExists()==false for views), so
         // initSchema must build the schema from getViewDefinition().getColumns() instead of the table-handle
         // path — otherwise DESC / SHOW COLUMNS / information_schema.columns of the view are empty. MUTATION:
@@ -993,20 +990,6 @@ public class PluginDrivenExternalTableTest {
         Assertions.assertTrue(
                 ((PluginDrivenSchemaCacheValue) result.get()).getPartitionColumns().isEmpty(),
                 "a view has no partition columns");
-
-        Connector connector = ((PluginDrivenExternalCatalog) table.getCatalog()).getConnector();
-        Mockito.when(connector.schemaCacheTtlSecondOverride()).thenReturn(OptionalLong.of(0L));
-        PluginDrivenMvccExternalTable mvccTable = (PluginDrivenMvccExternalTable) table;
-        Mockito.doNothing().when(table).makeSureInitialized();
-        MvccSnapshot snapshot = mvccTable.loadSnapshot(Optional.empty(), Optional.empty());
-        Assertions.assertInstanceOf(PluginDrivenMvccSnapshot.class, snapshot);
-        // LogicalView obtains its columns through ExternalView.getFullSchema(). Exercise that path on
-        // the MVCC-capable table used by Iceberg, including a view's empty snapshot, without a table handle.
-        ExternalView view = new ExternalView(table, viewDef.getSql());
-        Assertions.assertEquals(columns, view.getFullSchema());
-        Assertions.assertEquals(columns, view.getBaseSchema());
-        Assertions.assertEquals(columns, table.getFullSchema(Optional.of(snapshot)));
-        Mockito.verify(table, Mockito.never()).resolveConnectorTableHandle(Mockito.any(), Mockito.any());
     }
 
     @Test

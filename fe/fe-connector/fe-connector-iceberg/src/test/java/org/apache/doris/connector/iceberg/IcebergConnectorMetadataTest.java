@@ -732,10 +732,10 @@ public class IcebergConnectorMetadataTest {
     }
 
     @Test
-    public void getViewDefinitionPrefersDorisRepresentation() {
+    public void getViewDefinitionPrefersDorisWhenEngineNameIsMissing() {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ViewVersion version = ImmutableViewVersion.builder()
-                .from(viewVersionWith("Spark", "spark", "SELECT 1 AS spark_value"))
+                .from(viewVersionWith(null, "spark", "SELECT 1 AS spark_value"))
                 .addRepresentations(ImmutableSQLViewRepresentation.builder()
                         .sql("SELECT 1 AS doris_value").dialect("DoRiS").build())
                 .build();
@@ -748,10 +748,42 @@ public class IcebergConnectorMetadataTest {
     }
 
     @Test
-    public void getViewDefinitionUsesFirstSqlRepresentationWhenDorisIsAbsent() {
+    public void getViewDefinitionKeepsEngineDialectWhenDorisIsAbsent() {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ViewVersion version = ImmutableViewVersion.builder()
                 .from(viewVersionWith("Trino", "spark", "SELECT 1 AS spark_value"))
+                .addRepresentations(ImmutableSQLViewRepresentation.builder()
+                        .sql("SELECT 1 AS trino_value").dialect("trino").build())
+                .build();
+        ops.view = viewWithMetadata(version, idNameSchema());
+
+        ConnectorViewDefinition definition = metadataWith(ops).getViewDefinition(null, "db1", "v1");
+
+        Assertions.assertEquals("SELECT 1 AS trino_value", definition.getSql());
+        Assertions.assertEquals("trino", definition.getDialect());
+    }
+
+    @Test
+    public void getViewDefinitionKeepsEngineDialectWhenDorisIsAvailable() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ViewVersion version = ImmutableViewVersion.builder()
+                .from(viewVersionWith("Spark", "spark", "SELECT 1 AS spark_value"))
+                .addRepresentations(ImmutableSQLViewRepresentation.builder()
+                        .sql("SELECT 1 AS doris_value").dialect("doris").build())
+                .build();
+        ops.view = viewWithMetadata(version, idNameSchema());
+
+        ConnectorViewDefinition definition = metadataWith(ops).getViewDefinition(null, "db1", "v1");
+
+        Assertions.assertEquals("SELECT 1 AS spark_value", definition.getSql());
+        Assertions.assertEquals("spark", definition.getDialect());
+    }
+
+    @Test
+    public void getViewDefinitionUsesFirstSqlWhenEngineNameAndDorisAreAbsent() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ViewVersion version = ImmutableViewVersion.builder()
+                .from(viewVersionWith(null, "spark", "SELECT 1 AS spark_value"))
                 .addRepresentations(ImmutableSQLViewRepresentation.builder()
                         .sql("SELECT 1 AS trino_value").dialect("trino").build())
                 .build();

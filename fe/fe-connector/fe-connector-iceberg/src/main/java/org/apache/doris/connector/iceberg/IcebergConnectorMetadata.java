@@ -394,9 +394,16 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                     throw new DorisConnectorException(
                             String.format("Cannot get view version for view '%s'", icebergView));
                 }
-                // engine-name is optional writer metadata, not the SQL dialect. Prefer Doris SQL and use
-                // Iceberg's first-SQL fallback for views authored by other engines.
-                SQLViewRepresentation sqlViewRepresentation = icebergView.sqlFor("doris");
+                Map<String, String> summary = viewVersion.summary();
+                if (summary == null) {
+                    throw new DorisConnectorException(String.format("Cannot get summary for view '%s'", icebergView));
+                }
+                String engineName = summary.get("engine-name");
+                // Preserve engine-based SQL selection for existing views. Only a missing/empty engine-name
+                // uses Doris as the preference; Iceberg falls back to the first SQL if it has no match.
+                String preferredDialect = engineName == null || engineName.isEmpty()
+                        ? "doris" : engineName.toLowerCase(Locale.ROOT);
+                SQLViewRepresentation sqlViewRepresentation = icebergView.sqlFor(preferredDialect);
                 if (sqlViewRepresentation == null) {
                     throw new DorisConnectorException(String.format(
                             "Cannot get SQL representation for Iceberg view '%s.%s'", dbName, viewName));
