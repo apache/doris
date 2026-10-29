@@ -18,9 +18,13 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ColumnToProtobuf;
+import org.apache.doris.catalog.ColumnToThrift;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.HllType;
@@ -28,7 +32,10 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.QuantileStateType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TimeStampNsType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.UuidType;
+import org.apache.doris.proto.OlapFile;
+import org.apache.doris.thrift.TColumn;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -37,6 +44,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.Optional;
 
 public class ColumnDefinitionTest {
@@ -64,6 +73,41 @@ public class ColumnDefinitionTest {
             column.validate(false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS);
             Assertions.assertEquals(value[1], column.translateToCatalogStyle().getDefaultValue());
             Assertions.assertEquals(value[1], column.translateToCatalogStyleForSchemaChange().getDefaultValue());
+        }
+    }
+
+    @Test
+    public void testTimestampTzSchemaChangeCurrentTimestampDefaults() throws Exception {
+        TimeStampTzType type = TimeStampTzType.of(6);
+        DefaultValue[] defaults = {
+                DefaultValue.CURRENT_TIMESTAMP_DEFAULT_VALUE,
+                DefaultValue.currentTimeStampDefaultValueWithPrecision(0L, type),
+                DefaultValue.currentTimeStampDefaultValueWithPrecision(3L, type),
+                DefaultValue.currentTimeStampDefaultValueWithPrecision(6L, type)
+        };
+        for (DefaultValue defaultValue : defaults) {
+            ColumnDefinition definition = new ColumnDefinition("ts", type,
+                    false, null, true, Optional.of(defaultValue), "");
+            definition.validate(false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS);
+            LocalDateTime before = LocalDateTime.now(ZoneOffset.UTC).withNano(0);
+            Column column = definition.translateToCatalogStyleForSchemaChange();
+            LocalDateTime after = LocalDateTime.now(ZoneOffset.UTC);
+
+            Assertions.assertEquals(defaultValue.getValue(), column.getDefaultValue());
+            Assertions.assertNotNull(column.getDefaultValueExprDef());
+            String rawValue = column.getRealDefaultValue();
+            Assertions.assertTrue(rawValue.endsWith("+00:00"));
+            TColumn thriftColumn = ColumnToThrift.toThrift(column);
+            Assertions.assertEquals(rawValue, thriftColumn.getDefaultValue());
+            Assertions.assertEquals(defaultValue.getValue(), thriftColumn.getDefaultValueExpr());
+            OlapFile.ColumnPB protobufColumn = ColumnToProtobuf.toPb(column, null, null);
+            Assertions.assertEquals(rawValue, protobufColumn.getDefaultValue().toStringUtf8());
+            Assertions.assertEquals(defaultValue.getValue(), protobufColumn.getDefaultValueExpr().toStringUtf8());
+            LocalDateTime instant = new TimestampTzLiteral(type, rawValue).toJavaDateType();
+            Assertions.assertFalse(instant.isBefore(before));
+            Assertions.assertFalse(instant.isAfter(after));
+            int precision = (int) defaultValue.getCurrentTimeStampPrecision();
+            Assertions.assertEquals(0, instant.getNano() % (int) Math.pow(10, 9 - precision));
         }
     }
 
