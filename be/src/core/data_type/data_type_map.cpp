@@ -173,6 +173,8 @@ const char* DataTypeMap::deserialize(const char* buf, const char* end, MutableCo
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Malformed map column: offsets exceed input");
     }
     auto* data_column = assert_cast<ColumnMap*>(origin_column);
+    // mutate() is const&&-qualified; the cast selects the copy-on-write API.
+    // NOLINTNEXTLINE(performance-move-const-arg)
     auto offsets_column = std::move(*data_column->get_offsets_ptr()).mutate();
     auto& offsets = assert_cast<ColumnMap::COffsets&>(*offsets_column).get_data();
     offsets.resize(rows);

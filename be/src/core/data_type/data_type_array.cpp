@@ -164,6 +164,8 @@ const char* DataTypeArray::deserialize(const char* buf, const char* end, Mutable
                         "Malformed array column: offsets exceed input");
     }
     auto* data_column = assert_cast<ColumnArray*>(origin_column);
+    // mutate() is const&&-qualified; the cast selects the copy-on-write API.
+    // NOLINTNEXTLINE(performance-move-const-arg)
     auto offsets_column = std::move(*data_column->get_offsets_ptr()).mutate();
     auto& offsets = assert_cast<ColumnArray::ColumnOffsets&>(*offsets_column).get_data();
     offsets.resize(rows);

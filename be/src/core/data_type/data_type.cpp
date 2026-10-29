@@ -215,17 +215,17 @@ const char* deserialize_const_flag_and_row_num(const char* buf, const char* end,
                                                size_t* real_have_saved_num) {
     if (end != nullptr) {
         constexpr size_t header_size = sizeof(bool) + 2 * sizeof(size_t);
-        if (end < buf || static_cast<size_t>(end - buf) < header_size) {
+        if (end < buf || std::cmp_less(end - buf, header_size)) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
                             "Malformed column: missing serialized header");
         }
-        uint8_t flag = unaligned_load<uint8_t>(buf);
+        auto flag = unaligned_load<uint8_t>(buf);
         if (flag > 1) {
             throw Exception(ErrorCode::INVALID_ARGUMENT, "Malformed column: invalid const flag {}",
                             flag);
         }
-        size_t rows = unaligned_load<size_t>(buf + sizeof(bool));
-        size_t saved = unaligned_load<size_t>(buf + sizeof(bool) + sizeof(size_t));
+        auto rows = unaligned_load<size_t>(buf + sizeof(bool));
+        auto saved = unaligned_load<size_t>(buf + sizeof(bool) + sizeof(size_t));
         if (saved != (flag != 0 ? 1 : rows)) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
                             "Malformed column: inconsistent row count {}, saved count {}", rows,
