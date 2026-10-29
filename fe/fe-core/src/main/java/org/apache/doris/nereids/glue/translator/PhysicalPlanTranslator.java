@@ -3427,10 +3427,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     private PlanFragment maybeTranslateToGroupJoin(
             Plan aggregate,
             PlanTranslatorContext context) {
-        // Gate: session variable
+        // Gate: session variable. Fusion requires the Nereids distribute planner. The legacy
+        // Coordinator assigns fragments with BucketShuffleJoinController, whose detector only
+        // recognizes HashJoinNode, so a fused BUCKET_SHUFFLE GroupJoin would get generic scan
+        // assignment and then fail its bucket-shuffle sink check. Forcing the legacy distributor
+        // therefore falls back to the ordinary hash join + aggregation plan.
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext == null
-                || !connectContext.getSessionVariable().isEnableGroupJoinFusion()) {
+                || !connectContext.getSessionVariable().isEnableGroupJoinFusion()
+                || !connectContext.getSessionVariable().isEnableNereidsDistributePlanner()) {
             return null;
         }
         // Gate: spill not supported
