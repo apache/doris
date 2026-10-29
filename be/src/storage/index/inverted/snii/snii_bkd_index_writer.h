@@ -27,6 +27,7 @@
 #include "storage/index/inverted/snii/bkd/bkd_builder.h"
 #include "storage/index/inverted/snii/bkd/staged_blob_file.h"
 #include "storage/index/inverted/snii/encoding/byte_sink.h"
+#include "storage/index/inverted/snii/writer/memory_reporter.h"
 #include "storage/olap_common.h"
 
 namespace doris {
@@ -84,9 +85,19 @@ private:
     uint32_t _value_size = 0;
     const KeyCoder* _value_key_coder = nullptr;
 
+    // Reserves room for `count` more NULL docids, charging the larger capacity to the reporter first.
+    Status _reserve_null_docids_for_append(size_t count);
+
+    // Build-time RAM accounting, shared with the builder: the NULL docids below and the builder's
+    // point buffer show up in the process-wide SNII build tracker while they are held. Declared
+    // before everything that holds a Reservation on it, so it is destroyed last.
+    std::unique_ptr<::doris::snii::writer::MemoryReporter> _memory_reporter;
+
     // Segment-local row id of the NEXT row to arrive. Advanced by both value
     // runs and null runs, so it is the row count once the column is exhausted.
     uint32_t _rid = 0;
+    // Declared before the vector it charges for, so the vector is freed before its charge is returned.
+    ::doris::snii::writer::MemoryReporter::Reservation _null_docids_reservation;
     std::vector<uint32_t> _null_docids;
 
     std::unique_ptr<::doris::snii::bkd::BkdBuilder> _builder;
