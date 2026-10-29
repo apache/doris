@@ -236,6 +236,7 @@ public class CoordinatorTest extends TestWithFeService {
         context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
         context.setBackendId(Env.getCurrentSystemInfo().getAllBackendsByAllCluster().keySet().iterator().next());
         context.getSessionVariable().groupCommit = groupCommitMode;
+        context.getSessionVariable().setPipelineTaskNum("8");
         context.setThreadLocalInfo();
         try {
             StmtExecutor executor = new StmtExecutor(context,
@@ -249,7 +250,7 @@ public class CoordinatorTest extends TestWithFeService {
             Assertions.assertEquals(groupCommitMode.isEmpty()
                             ? TDataSinkType.OLAP_TABLE_SINK : TDataSinkType.GROUP_COMMIT_BLOCK_SINK,
                     params.getFragment().getOutputSink().getType());
-            Assertions.assertFalse(params.getLocalParams().isEmpty());
+            Assertions.assertEquals(1, params.getLocalParamsSize());
         } finally {
             connectContext.setThreadLocalInfo();
         }

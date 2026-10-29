@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
@@ -28,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.utframe.UtFrameUtils;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -106,12 +106,7 @@ public class MemoTestUtils {
      */
     public static ConnectContext createCtx(UserIdentity user, String host) {
         try {
-            ConnectContext ctx = new ConnectContext();
-            ctx.setCurrentUserIdentity(user);
-            ctx.setRemoteIP(host);
-            ctx.setEnv(Env.getCurrentEnv());
-            ctx.setThreadLocalInfo();
-            return ctx;
+            return UtFrameUtils.createDefaultCtx(user, host);
         } catch (Throwable t) {
             throw new IllegalStateException("can not create test connect context", t);
         }

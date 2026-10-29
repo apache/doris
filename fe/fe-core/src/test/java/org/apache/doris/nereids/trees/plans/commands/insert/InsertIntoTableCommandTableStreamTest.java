@@ -44,6 +44,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.CloudTableStreamReadStateHook;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.distribute.worker.BackendDistributedPlanWorkerManager;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -59,7 +60,9 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.AdditionalAnswers;
 import org.mockito.ArgumentCaptor;
+import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -560,6 +563,8 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
         for (Backend backend : previousSystemInfo.getAllClusterBackends(false)) {
             cloudSystemInfo.addBackend(backend);
         }
+        BackendDistributedPlanWorkerManager workers =
+                new BackendDistributedPlanWorkerManager(connectContext, false, false);
         MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
         AbstractInsertExecutor p1Executor = null;
         try {
@@ -568,7 +573,11 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
             Config.meta_service_endpoint = "127.0.0.1:20121";
             Deencapsulation.setField(Env.getCurrentEnv(), "systemInfo", cloudSystemInfo);
             try (MockedStatic<MetaServiceProxy> mockedProxy = Mockito.mockStatic(MetaServiceProxy.class);
-                    MockedStatic<MasterTsoProvider> mockedTso = Mockito.mockStatic(MasterTsoProvider.class)) {
+                    MockedStatic<MasterTsoProvider> mockedTso = Mockito.mockStatic(MasterTsoProvider.class);
+                    MockedConstruction<BackendDistributedPlanWorkerManager> mockedWorkers = Mockito.mockConstruction(
+                            BackendDistributedPlanWorkerManager.class,
+                            Mockito.withSettings().defaultAnswer(AdditionalAnswers.delegatesTo(workers)))) {
+                // The fixture mocks cloud metadata while distributing on the local test backends.
                 // The read-state fixture uses offsets 100..130; keep the TTL reference in the same clock.
                 mockedTso.when(() -> MasterTsoProvider.getCurrentTso(connectContext)).thenReturn(130L);
                 mockedProxy.when(MetaServiceProxy::getInstance).thenReturn(proxy);

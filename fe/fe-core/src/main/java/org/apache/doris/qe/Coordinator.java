@@ -303,7 +303,9 @@ public class Coordinator implements CoordInterface {
         Preconditions.checkState(plans.size() == 1, "HTTP stream load must use one backend");
         TPipelineFragmentParamsList fragments = plans.values().iterator().next();
         Preconditions.checkState(fragments.getParamsListSize() == 1, "HTTP stream load must use one fragment");
-        return fragments.getParamsList().get(0);
+        TPipelineFragmentParams fragment = fragments.getParamsList().get(0);
+        Preconditions.checkState(fragment.getLocalParamsSize() == 1, "HTTP stream load must use one instance");
+        return fragment;
     }
 
     public boolean isEos() {

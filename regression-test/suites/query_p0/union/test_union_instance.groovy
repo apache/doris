@@ -63,7 +63,6 @@ suite("test_union_instance") {
             
             set parallel_pipeline_task_num=1;
             set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
-            set enable_nereids_distribute_planner=false;
     	"""
 	explain {
                 sql """
@@ -82,8 +81,8 @@ suite("test_union_instance") {
                 """
     	        contains "3:VNESTED LOOP JOIN"
 		contains "4:VEXCHANGE"
-		contains "8:VEXCHANGE"
-		contains "6:VEXCHANGE"
+		contains "10:VEXCHANGE"
+		contains "join op: INNER JOIN(BUCKET_SHUFFLE)"
 		contains "11:VUNION"
         }
 }
