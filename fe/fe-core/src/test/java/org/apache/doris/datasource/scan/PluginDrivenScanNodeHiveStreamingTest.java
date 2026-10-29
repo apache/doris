@@ -112,6 +112,21 @@ class PluginDrivenScanNodeHiveStreamingTest {
 
     @Test
     @Timeout(30)
+    void partitionBatchUpperBoundStillStartsIndependentListingSources() throws Exception {
+        try (Fixture fixture = new Fixture(Collections.emptySet())) {
+            ConnectorSession session = Deencapsulation.getField(fixture.node, "connectorSession");
+            Mockito.when(session.getProperty("split_partition_batch_size", Integer.class)).thenReturn(16);
+            fixture.start();
+            Assertions.assertTrue(fixture.entered.await(10, TimeUnit.SECONDS));
+            Assertions.assertEquals(2, fixture.listings.get());
+            fixture.release.countDown();
+            Assertions.assertEquals(expectedRanges(Collections.emptySet()), new HashSet<>(fixture.drain()));
+            Assertions.assertEquals(2, fixture.peakListings.get());
+        }
+    }
+
+    @Test
+    @Timeout(30)
     void fileCountStreamingDrainsThroughTheSharedProducerFinalizer() throws Exception {
         Set<Integer> emptyPartitions = new HashSet<>(Arrays.asList(0, 4, 7));
         try (Fixture fixture = new Fixture(emptyPartitions)) {
@@ -240,11 +255,11 @@ class PluginDrivenScanNodeHiveStreamingTest {
             Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
             FairTaskExecutor.Group group = executor.newGroup(1);
             ConnectorTaskScheduler scheduler = Mockito.mock(ConnectorTaskScheduler.class, Mockito.CALLS_REAL_METHODS);
-            Mockito.when(scheduler.tryExecute(Mockito.any(), Mockito.any(), Mockito.any()))
-                    .thenAnswer(call -> group.tryExecute(call.getArgument(0), call.getArgument(1), call.getArgument(2)));
-            Mockito.when(scheduler.tryExecuteContinuation(Mockito.any(), Mockito.any(), Mockito.any()))
-                    .thenAnswer(call -> group.tryExecuteContinuation(
-                            call.getArgument(0), call.getArgument(1), call.getArgument(2)));
+            Mockito.doAnswer(call -> group.tryExecute(call.getArgument(0), call.getArgument(1), call.getArgument(2)))
+                    .when(scheduler).tryExecute(Mockito.any(), Mockito.any(), Mockito.any());
+            Mockito.doAnswer(call -> group.tryExecuteContinuation(
+                    call.getArgument(0), call.getArgument(1), call.getArgument(2)))
+                    .when(scheduler).tryExecuteContinuation(Mockito.any(), Mockito.any(), Mockito.any());
             Mockito.doAnswer(call -> {
                 group.removeSpaceListener(call.getArgument(0));
                 return null;
@@ -252,6 +267,7 @@ class PluginDrivenScanNodeHiveStreamingTest {
             Mockito.when(session.getTaskScheduler(ConnectorTaskScheduler.Stage.SPLIT)).thenReturn(scheduler);
             Mockito.when(session.getProperty("file_split_size", String.class)).thenReturn("1");
             Mockito.when(session.getProperty("num_partitions_in_batch_mode", Integer.class)).thenReturn(2);
+            Mockito.when(session.getProperty("split_partition_batch_size", Integer.class)).thenReturn(2);
             // The old implementation chooses its single-source streaming path for this same Hive scan.
             Assertions.assertTrue(provider.streamingSplitEstimate(session, handle, Optional.empty(), false) >= 0);
 

@@ -20,6 +20,7 @@ package org.apache.doris.mtmv.ivm;
 /** Reasons IVM analysis or execution can fail. */
 public enum IvmFailureReason {
     // ATTN(changelog-rename): formerly "BINLOG_BROKEN"
+    /** The changelog a stream has to read from is outside the retention: changelog.ttl_seconds expired its offset. */
     CHANGELOG_BROKEN,
     // ATTN(changelog-rename): formerly "BINLOG_NOT_ENABLED"
     CHANGELOG_NOT_ENABLED,

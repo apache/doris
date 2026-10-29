@@ -83,6 +83,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     /** Maximum number of partitions to list from HMS. */
     private static final int MAX_PARTITIONS = 100000;
     private static final int DEFAULT_BATCH_THRESHOLD = 1024;
+    private static final int DEFAULT_PARTITION_BATCH_SIZE = 16;
 
     /**
      * Session variable gating the OpenX-JSON "read the whole JSON row into one CSV column" mode (legacy
@@ -214,6 +215,12 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     @Override
+    public int partitionBatchSize(ConnectorSession session, int partitionCount, int parallelism) {
+        int configured = sessionInt(session, "split_partition_batch_size", DEFAULT_PARTITION_BATCH_SIZE);
+        return Math.min(configured, (partitionCount - 1) / parallelism + 1);
+    }
+
+    @Override
     public long streamingSplitEstimate(ConnectorSession session, ConnectorTableHandle handle,
             Optional<ConnectorExpression> filter, boolean countPushdown) {
         HiveTableHandle hiveHandle = (HiveTableHandle) handle;
@@ -303,7 +310,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             this.splittable = tableFormat.isSplittable() && !isLzo;
             this.targetSplitSize = getTargetSplitSize(session);
             this.partitionBatchSize = Math.max(1,
-                    sessionInt(session, "num_partitions_in_batch_mode", DEFAULT_BATCH_THRESHOLD));
+                    sessionInt(session, "split_partition_batch_size", DEFAULT_PARTITION_BATCH_SIZE));
             recordPruningProfile(handle);
         }
 

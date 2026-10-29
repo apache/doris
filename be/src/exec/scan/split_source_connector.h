@@ -18,6 +18,7 @@
 #pragma once
 
 #include <algorithm>
+#include <atomic>
 
 #include "common/config.h"
 #include "core/custom_allocator.h"
@@ -40,8 +41,10 @@ public:
      * Get the next scan range. has_next should be to true to fetch the next scan range.
      * @param has_next whether exists the next scan range
      * @param range the obtained next scan range
+     * @param scanner_stop the caller's local stop signal, which can be set without query cancellation
      */
-    virtual Status get_next(bool* has_next, TFileRangeDesc* range) = 0;
+    virtual Status get_next(bool* has_next, TFileRangeDesc* range,
+                            const std::atomic_bool* scanner_stop) = 0;
 
     virtual int num_scan_ranges() = 0;
 
@@ -116,7 +119,8 @@ public:
         _merge_ranges<TScanRangeParams>(_scan_ranges, scan_ranges);
     }
 
-    Status get_next(bool* has_next, TFileRangeDesc* range) override;
+    Status get_next(bool* has_next, TFileRangeDesc* range,
+                    const std::atomic_bool* scanner_stop) override;
 
     int num_scan_ranges() override { return static_cast<int>(_scan_ranges.size()); }
 
@@ -174,7 +178,8 @@ public:
         _max_scanners = max_scanners;
     }
 
-    Status get_next(bool* has_next, TFileRangeDesc* range) override;
+    Status get_next(bool* has_next, TFileRangeDesc* range,
+                    const std::atomic_bool* scanner_stop) override;
 
     /*
      * Remote split source is fetched in batch mode, and the splits are generated while scanning,

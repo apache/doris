@@ -1119,6 +1119,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setSplits(locations);
             result.status = new TStatus(TStatusCode.OK);
             return result;
+        } catch (SplitSource.SplitPendingException e) {
+            // The backend will retry; an empty OK batch would incorrectly mean EOF.
+            result.status = new TStatus(TStatusCode.INCOMPLETE);
+            return result;
         } catch (Exception e) {
             LOG.warn("failed to fetch split batch with source id {}", request.getSplitSourceId(), e);
             result.status = new TStatus(TStatusCode.INTERNAL_ERROR);

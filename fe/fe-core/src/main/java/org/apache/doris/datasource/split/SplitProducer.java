@@ -71,7 +71,8 @@ public class SplitProducer implements Runnable, Closeable {
     private volatile boolean cancelled;
     private Iterator<Map.Entry<Backend, Collection<Split>>> pending = Collections.emptyIterator();
     private Backend pendingBackend;
-    private Collection<TScanRangeLocations> pendingRanges;
+    private List<TScanRangeLocations> pendingRanges;
+    private int pendingRangeOffset;
 
     public SplitProducer(SplitAssignment assignment, Executor executor, BatchSource source,
             Consumer<Exception> completion) {
@@ -180,14 +181,19 @@ public class SplitProducer implements Runnable, Closeable {
                 Map.Entry<Backend, Collection<Split>> entry = pending.next();
                 pendingBackend = entry.getKey();
                 pendingRanges = assignment.createScanRanges(pendingBackend, entry.getValue());
+                pendingRangeOffset = 0;
             }
-            if (!assignment.offerBatch(pendingBackend, pendingRanges, resume)) {
+            int accepted = assignment.offerBatch(pendingBackend, pendingRanges, pendingRangeOffset, resume);
+            if (accepted == 0) {
                 if (cancelled || !assignment.needMoreSplit()) {
                     complete(null);
                 }
                 return false;
             }
-            pendingRanges = null;
+            pendingRangeOffset += accepted;
+            if (pendingRangeOffset == pendingRanges.size()) {
+                pendingRanges = null;
+            }
         }
         complete(null);
         return false;

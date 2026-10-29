@@ -178,7 +178,8 @@ Status IndexFileReader::_init_snii(const io::IOContext* io_ctx) {
     const bool direct_remote_io = opts.cache_type == io::FileCachePolicy::NO_CACHE &&
                                   _fs->type() != io::FileSystemType::LOCAL;
     _snii_file_reader = std::make_shared<snii_doris::DorisSniiFileReader>(
-            std::move(reader), /*io_ctx=*/nullptr, direct_remote_io);
+            std::move(reader), /*io_ctx=*/nullptr, direct_remote_io,
+            /*local_fs=*/_fs->type() == io::FileSystemType::LOCAL);
     _snii_segment_reader = std::make_unique<doris::snii::reader::SniiSegmentReader>();
     io::IOContext meta_io_ctx;
     if (io_ctx != nullptr) {

@@ -596,6 +596,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String NUM_PARTITIONS_IN_BATCH_MODE = "num_partitions_in_batch_mode";
 
+    public static final String SPLIT_PARTITION_BATCH_SIZE = "split_partition_batch_size";
+
     public static final String NUM_FILES_IN_BATCH_MODE = "num_files_in_batch_mode";
 
     public static final String SPLIT_BATCH_SIZE = "split_batch_size";
@@ -2622,22 +2624,27 @@ public class SessionVariable implements Serializable, Writable {
             description = "If the number of partitions exceeds the threshold, scan ranges will be got through batch "
                     + "mode.",
             needForward = true)
-    public int numPartitionsInBatchMode = 1024;
+    public int numPartitionsInBatchMode = 1;
+
+    @VarAttrDef.VarAttr(name = SPLIT_PARTITION_BATCH_SIZE, checker = "checkSplitPartitionBatchSize",
+            needForward = true, description = "Maximum number of Hive partitions resolved per split producer "
+                    + "batch. This does not control when batch mode is enabled.")
+    public int splitPartitionBatchSize = 16;
 
     @VarAttrDef.VarAttr(
             name = NUM_FILES_IN_BATCH_MODE,
             fuzzy = true,
             description = "If the number of files exceeds the threshold, scan ranges will be got through batch mode.",
             needForward = true)
-    public int numFilesInBatchMode = 1024;
+    public int numFilesInBatchMode = 1;
 
     @VarAttrDef.VarAttr(name = SPLIT_BATCH_SIZE, checker = "checkSplitBatchSize", needForward = true,
             description = "Maximum number of splits in a producer batch.")
-    public int splitBatchSize = 128;
+    public int splitBatchSize = 8;
 
     @VarAttrDef.VarAttr(name = SPLIT_QUEUE_CAPACITY, checker = "checkSplitQueueCapacity", needForward = true,
-            description = "Maximum number of queued split batches per backend.")
-    public int splitQueueCapacity = 32;
+            description = "Maximum number of queued splits per backend.")
+    public int splitQueueCapacity = 1024;
 
     @VarAttrDef.VarAttr(name = SPLIT_INITIAL_BATCH_SIZE, checker = "checkSplitInitialBatchSize", needForward = true,
             description = "Maximum number of splits returned by the first fetch per backend; "
@@ -2652,15 +2659,25 @@ public class SessionVariable implements Serializable, Writable {
         checkFieldValue(SPLIT_BATCH_SIZE, 1, value);
     }
 
+    public void checkSplitPartitionBatchSize(String value) throws Exception {
+        checkFieldValue(SPLIT_PARTITION_BATCH_SIZE, 1, value);
+    }
+
     public void checkSplitQueueCapacity(String value) throws Exception {
         checkFieldValue(SPLIT_QUEUE_CAPACITY, 1, value);
     }
 
     @VarAttrDef.VarAttr(
             name = FETCH_SPLITS_MAX_WAIT_TIME,
-            description = "The max wait time of getting splits in batch mode.",
+            checker = "checkFetchSplitsMaxWaitTime",
+            description = "Maximum wait time per split-fetch RPC in batch mode. A running producer can be retried "
+                    + "after this interval; completion, cancellation and production errors are reported separately.",
             needForward = true)
     public long fetchSplitsMaxWaitTime = 1000;
+
+    public void checkFetchSplitsMaxWaitTime(String value) throws Exception {
+        checkFieldLongValue(FETCH_SPLITS_MAX_WAIT_TIME, 1, value);
+    }
 
     @VarAttrDef.VarAttr(
             name = ENABLE_PARQUET_LAZY_MAT,
@@ -5016,6 +5033,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getNumPartitionsInBatchMode() {
         return numPartitionsInBatchMode;
+    }
+
+    public int getSplitPartitionBatchSize() {
+        return splitPartitionBatchSize;
     }
 
     public int getNumFilesInBatchMode() {
