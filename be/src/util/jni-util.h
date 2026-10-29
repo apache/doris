@@ -27,6 +27,7 @@
 #include <cstdlib>
 #include <optional>
 #include <string>
+#include <string_view>
 
 #include "common/status.h"
 #include "jni_md.h"
@@ -784,11 +785,15 @@ using ByteArrayBufferGuard = BufferGuard<ByteArray, Ref>;
 using LocalByteArrayBufferGuard = BufferGuard<ByteArray, Local>;
 using GlobalByteArrayBufferGuard = BufferGuard<ByteArray, Global>;
 
+// Reads a borrowed Java String as standard UTF-8 without taking ownership of the reference.
+Status get_string_utf8(JNIEnv* env, jstring value, std::string* result);
+
 template <RefType Ref>
 class String : public Object<Ref> {
 public:
     String() = default;
 
+    // Accepts JNI modified UTF-8. Use new_string_utf8 for standard UTF-8, e.g. scanner SQL.
     static Status new_string(JNIEnv* env, const char* utf_chars, String<Ref>* result) {
         DCHECK(result->uninitialized());
 
@@ -796,23 +801,39 @@ public:
             result->_obj = env->NewStringUTF(utf_chars);
             RETURN_ERROR_IF_EXC(env);
         } else if constexpr (Ref == Global) {
-            String local_result;
-            local_result->_obj = env->NewStringUTF(utf_chars);
-            RETURN_ERROR_IF_EXC(env);
+            String<Local> local_result;
+            RETURN_IF_ERROR(String<Local>::new_string(env, utf_chars, &local_result));
             RETURN_IF_ERROR(local_to_global_ref(env, local_result, result));
         } else {
             static_assert(false);
         }
+        // JNI allocation may return null without a pending exception.
+        if (result->uninitialized()) {
+            return Status::JniError("Failed to allocate modified UTF-8 Java string reference");
+        }
         return Status::OK();
     }
+
+    // Decodes standard UTF-8, including supplementary characters and embedded NULs.
+    static Status new_string_utf8(JNIEnv* env, std::string_view utf_chars, String<Ref>* result);
 
     Status get_string_chars(JNIEnv* env, StringBufferGuard<Ref>* jni_chars) const {
         return StringBufferGuard<Ref>::create(env, *this, jni_chars, nullptr);
     }
 
+    // Unlike get_string_chars (JNI modified UTF-8), preserves standard UTF-8 and embedded NULs.
+    // Rejects unpaired UTF-16 surrogates instead of replacing them.
+    Status get_string_utf8(JNIEnv* env, std::string* result) const {
+        DCHECK(!this->uninitialized());
+        return Jni::get_string_utf8(env, static_cast<jstring>(this->_obj), result);
+    }
+
 private:
     DISALLOW_COPY_AND_ASSIGN(String);
 };
+
+extern template Status String<Local>::new_string_utf8(JNIEnv*, std::string_view, String<Local>*);
+extern template Status String<Global>::new_string_utf8(JNIEnv*, std::string_view, String<Global>*);
 
 template <RefType Ref>
 class Array : public Object<Ref> {
@@ -1169,10 +1190,10 @@ public:
 
         for (const auto& it : map) {
             LocalString key;
-            RETURN_IF_ERROR(String<Local>::new_string(env, it.first.c_str(), &key));
+            RETURN_IF_ERROR(String<Local>::new_string_utf8(env, it.first, &key));
 
             LocalString value;
-            RETURN_IF_ERROR(String<Local>::new_string(env, it.second.c_str(), &value));
+            RETURN_IF_ERROR(String<Local>::new_string_utf8(env, it.second, &value));
 
             LocalObject result;
             RETURN_IF_ERROR(hashmap_object->call_object_method(env, hashmap_put)
@@ -1210,14 +1231,14 @@ public:
             LocalString javaValue;
             RETURN_IF_ERROR(entry.call_object_method(env, getEntryValueMethod).call(&javaValue));
 
-            LocalStringBufferGuard key;
-            RETURN_IF_ERROR(javaKey.get_string_chars(env, &key));
+            std::string key;
+            RETURN_IF_ERROR(javaKey.get_string_utf8(env, &key));
 
-            LocalStringBufferGuard value;
-            RETURN_IF_ERROR(javaValue.get_string_chars(env, &value));
+            std::string value;
+            RETURN_IF_ERROR(javaValue.get_string_utf8(env, &value));
 
             // Store the key-value pair in the map
-            (*resultMap)[key.get()] = value.get();
+            (*resultMap)[std::move(key)] = std::move(value);
         }
         return Status::OK();
     }

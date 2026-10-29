@@ -20,7 +20,9 @@
 #include <glog/logging.h>
 #include <jni.h>
 #include <jni_md.h>
+#include <simdutf.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <limits>
 #include <mutex>
@@ -30,6 +32,7 @@
 
 #include "absl/strings/substitute.h"
 #include "common/config.h"
+#include "core/custom_allocator.h"
 #include "util/jni_native_method.h"
 #include "util/jvm_launcher.h"
 
@@ -41,6 +44,66 @@ __thread JNIEnv* Env::tls_env_ = nullptr;
 jclass Env::jni_util_cl_ = nullptr;
 jmethodID Env::throwable_to_string_id_ = nullptr;
 jmethodID Env::throwable_to_stack_trace_id_ = nullptr;
+
+template <RefType Ref>
+Status String<Ref>::new_string_utf8(JNIEnv* env, std::string_view utf_chars, String<Ref>* result) {
+    DCHECK(result->uninitialized());
+    if constexpr (Ref == Global) {
+        String<Local> local_result;
+        RETURN_IF_ERROR(String<Local>::new_string_utf8(env, utf_chars, &local_result));
+        RETURN_IF_ERROR(local_to_global_ref(env, local_result, result));
+    } else {
+        static_assert(Ref == Local);
+        // JNI lengths are signed 32-bit integers; reject before narrowing or allocating.
+        if (utf_chars.size() > static_cast<size_t>(std::numeric_limits<jsize>::max())) {
+            return Status::InvalidArgument("UTF-8 string exceeds JNI allocation bound");
+        }
+        // One UTF-8 byte per UTF-16 unit is an upper bound: e.g. an emoji uses 4 bytes, 2 units.
+        // Keep one unit for empty input so both simdutf and JNI receive a non-null buffer.
+        DorisVector<char16_t> utf16(std::max<size_t>(utf_chars.size(), 1));
+        // A default-constructed empty string_view has a null data pointer.
+        const auto* input = utf_chars.empty() ? "" : utf_chars.data();
+        const auto converted =
+                simdutf::convert_utf8_to_utf16_with_errors(input, utf_chars.size(), utf16.data());
+        // Reject malformed UTF-8 (e.g. a truncated emoji) instead of silently changing SQL.
+        if (converted.error != simdutf::SUCCESS) {
+            return Status::InvalidArgument("Invalid UTF-8 in JNI string at byte {}",
+                                           converted.count);
+        }
+        result->_obj = env->NewString(reinterpret_cast<const jchar*>(utf16.data()),
+                                      static_cast<jsize>(converted.count));
+        RETURN_ERROR_IF_EXC(env);
+    }
+    // NewString/NewGlobalRef may return null on allocation failure without a pending exception.
+    if (result->uninitialized()) {
+        return Status::JniError("Failed to allocate UTF-16 Java string reference");
+    }
+    return Status::OK();
+}
+
+template Status String<Local>::new_string_utf8(JNIEnv*, std::string_view, String<Local>*);
+template Status String<Global>::new_string_utf8(JNIEnv*, std::string_view, String<Global>*);
+
+Status get_string_utf8(JNIEnv* env, jstring value, std::string* result) {
+    DCHECK(value != nullptr);
+    const auto length = env->GetStringLength(value);
+    RETURN_ERROR_IF_EXC(env);
+    // Read UTF-16 directly: GetStringUTFChars would encode emoji as six modified UTF-8 bytes.
+    DorisVector<char16_t> utf16(std::max<size_t>(length, 1));
+    env->GetStringRegion(value, 0, length, reinterpret_cast<jchar*>(utf16.data()));
+    RETURN_ERROR_IF_EXC(env);
+    // A UTF-16 unit needs at most three UTF-8 bytes; a surrogate pair needs four in total.
+    DorisVector<char> utf8(std::max<size_t>(static_cast<size_t>(length) * 3, 1));
+    const auto converted =
+            simdutf::convert_utf16_to_utf8_with_errors(utf16.data(), length, utf8.data());
+    // Java permits unpaired surrogates, e.g. a lone 0xD800, which standard UTF-8 cannot encode.
+    if (converted.error != simdutf::SUCCESS) {
+        return Status::InvalidArgument("Invalid UTF-16 in JNI string at code unit {}",
+                                       converted.count);
+    }
+    result->assign(utf8.data(), converted.count);
+    return Status::OK();
+}
 
 Status Env::GetJNIEnvSlowPath(JNIEnv** env) {
     DCHECK(!tls_env_) << "Call GetJNIEnv() fast path";

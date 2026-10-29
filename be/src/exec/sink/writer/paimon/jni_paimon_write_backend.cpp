@@ -26,6 +26,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <limits>
 #include <map>
 #include <mutex>
 #include <string_view>
@@ -48,86 +49,139 @@ namespace doris {
 
 namespace {
 constexpr std::string_view PAIMON_JNI_WRITER_IO_TMP_DIR = "paimon_jni_writer_io_tmp";
+} // namespace
 
-void throw_java_io_exception(JNIEnv* env, const std::string& message) {
-    jclass exception_class = env->FindClass("java/io/IOException");
-    env->ThrowNew(exception_class, message.c_str());
-    env->DeleteLocalRef(exception_class);
+Status JniPaimonWriteBackend::_create_string_array(JNIEnv* env,
+                                                   const std::vector<std::string>& values,
+                                                   jobjectArray* result) {
+    DCHECK(*result == nullptr);
+    // JNI array lengths are signed 32-bit integers, unlike the native vector size.
+    if (values.size() > static_cast<size_t>(std::numeric_limits<jsize>::max())) {
+        return Status::InvalidArgument("Paimon string array exceeds JNI allocation bound");
+    }
+    Jni::LocalClass string_class;
+    RETURN_IF_ERROR(Jni::Util::find_class(env, "java/lang/String", &string_class));
+    // Class resolution can also fail on allocation without leaving a pending exception.
+    if (string_class.uninitialized()) {
+        return Status::JniError("Failed to resolve Paimon string array element class");
+    }
+    jobjectArray array = env->NewObjectArray(static_cast<jsize>(values.size()),
+                                             static_cast<jclass>(string_class.get()), nullptr);
+    RETURN_ERROR_IF_EXC(env);
+    // Allocation may return null without a pending exception.
+    if (array == nullptr) {
+        return Status::JniError("Failed to allocate Paimon string array");
+    }
+    // On success transfer this local reference to the caller; on partial failure release it.
+    DEFER(env->DeleteLocalRef(array));
+    for (size_t i = 0; i < values.size(); ++i) {
+        Jni::LocalString value;
+        RETURN_IF_ERROR(Jni::LocalString::new_string_utf8(env, values[i], &value));
+        env->SetObjectArrayElement(array, static_cast<jsize>(i), value.get());
+        RETURN_ERROR_IF_EXC(env);
+    }
+    *result = array;
+    array = nullptr;
+    return Status::OK();
 }
 
-jobjectArray get_paimon_spill_directories(JNIEnv* env, jclass, jlong spill_session_handle) {
+void JniPaimonWriteBackend::_throw_java_io_exception(JNIEnv* env, const std::string& message) {
+    jclass exception_class = env->FindClass("java/io/IOException");
+    // Class resolution can fail with a pending exception; leave it for the Java caller.
+    if (exception_class == nullptr) {
+        return;
+    }
+    DEFER(env->DeleteLocalRef(exception_class));
+    Jni::LocalString java_message;
+    Status st = Jni::LocalString::new_string_utf8(env, message, &java_message);
+    // An invalid native message or allocation failure cannot be passed to ThrowNew as UTF-8.
+    if (!st.ok()) {
+        env->ThrowNew(exception_class, "Failed to convert Paimon JNI exception message to UTF-16");
+        return;
+    }
+    jmethodID constructor = env->GetMethodID(exception_class, "<init>", "(Ljava/lang/String;)V");
+    // A failed lookup leaves a pending exception; do not make another JNI call using a null ID.
+    if (constructor == nullptr) {
+        return;
+    }
+    auto* exception = static_cast<jthrowable>(
+            env->NewObject(exception_class, constructor, java_message.get()));
+    // The constructor can throw (e.g. while allocating the stack trace); preserve that exception.
+    if (env->ExceptionCheck()) {
+        return;
+    }
+    // Allocation can also return null without a pending exception.
+    if (exception == nullptr) {
+        env->ThrowNew(exception_class, "Failed to allocate Paimon JNI IOException");
+        return;
+    }
+    env->Throw(exception);
+    env->DeleteLocalRef(exception);
+}
+
+jobjectArray JniPaimonWriteBackend::_get_spill_directories(JNIEnv* env, jclass,
+                                                           jlong spill_session_handle) {
     auto* spill_session = reinterpret_cast<ExternalSpillSession*>(spill_session_handle);
     if (spill_session == nullptr) {
-        throw_java_io_exception(env, "Paimon external spill session is null");
+        _throw_java_io_exception(env, "Paimon external spill session is null");
         return nullptr;
     }
 
     std::vector<std::string> paths;
     Status st = spill_session->get_paths(&paths);
     if (!st.ok()) {
-        throw_java_io_exception(env, st.to_string());
+        _throw_java_io_exception(env, st.to_string());
         return nullptr;
     }
-    jclass string_class = env->FindClass("java/lang/String");
-    if (string_class == nullptr) {
+    jobjectArray result = nullptr;
+    st = _create_string_array(env, paths, &result);
+    // Invalid UTF-8 must fail the callback instead of returning a truncated directory list.
+    if (!st.ok()) {
+        _throw_java_io_exception(env, st.to_string());
         return nullptr;
-    }
-    jobjectArray result =
-            env->NewObjectArray(static_cast<jsize>(paths.size()), string_class, nullptr);
-    env->DeleteLocalRef(string_class);
-    if (result == nullptr) {
-        return nullptr;
-    }
-    for (jsize i = 0; i < static_cast<jsize>(paths.size()); ++i) {
-        jstring path = env->NewStringUTF(paths[i].c_str());
-        if (path == nullptr) {
-            return nullptr;
-        }
-        env->SetObjectArrayElement(result, i, path);
-        env->DeleteLocalRef(path);
-        if (env->ExceptionCheck()) {
-            return nullptr;
-        }
     }
     return result;
 }
 
-void reserve_paimon_spill(JNIEnv* env, jclass, jlong spill_session_handle, jstring path,
-                          jlong bytes) {
+void JniPaimonWriteBackend::_reserve_spill(JNIEnv* env, jclass, jlong spill_session_handle,
+                                           jstring path, jlong bytes) {
     auto* spill_session = reinterpret_cast<ExternalSpillSession*>(spill_session_handle);
     if (spill_session == nullptr || path == nullptr) {
-        throw_java_io_exception(env, "Paimon external spill session or path is null");
+        _throw_java_io_exception(env, "Paimon external spill session or path is null");
         return;
     }
-    const char* path_chars = env->GetStringUTFChars(path, nullptr);
-    if (path_chars == nullptr) {
-        return;
-    }
-    std::string native_path(path_chars);
-    env->ReleaseStringUTFChars(path, path_chars);
-    Status st = spill_session->reserve(native_path, bytes);
+    std::string native_path;
+    Status st = Jni::get_string_utf8(env, path, &native_path);
+    // Unpaired surrogates cannot name a standard UTF-8 spill path.
     if (!st.ok()) {
-        throw_java_io_exception(env, st.to_string());
+        _throw_java_io_exception(env, st.to_string());
+        return;
+    }
+    st = spill_session->reserve(native_path, bytes);
+    if (!st.ok()) {
+        _throw_java_io_exception(env, st.to_string());
     }
 }
 
-void update_paimon_spill_accounting(JNIEnv* env, jclass, jlong spill_session_handle, jstring path,
-                                    jlong current_bytes_delta, jlong write_bytes,
-                                    jlong read_bytes) {
+void JniPaimonWriteBackend::_update_spill_accounting(JNIEnv* env, jclass,
+                                                     jlong spill_session_handle, jstring path,
+                                                     jlong current_bytes_delta, jlong write_bytes,
+                                                     jlong read_bytes) {
     auto* spill_session = reinterpret_cast<ExternalSpillSession*>(spill_session_handle);
     if (spill_session == nullptr || path == nullptr) {
         return;
     }
-    const char* path_chars = env->GetStringUTFChars(path, nullptr);
-    if (path_chars == nullptr) {
+    std::string native_path;
+    Status st = Jni::get_string_utf8(env, path, &native_path);
+    // Do not silently discard accounting updates for an unencodable Java path.
+    if (!st.ok()) {
+        _throw_java_io_exception(env, st.to_string());
         return;
     }
-    std::string native_path(path_chars);
-    env->ReleaseStringUTFChars(path, path_chars);
     spill_session->update_accounting(native_path, current_bytes_delta, write_bytes, read_bytes);
 }
 
-Status register_paimon_spill_natives(JNIEnv* env, jclass writer_class) {
+Status JniPaimonWriteBackend::_register_spill_natives(JNIEnv* env, jclass writer_class) {
     static char get_spill_directories_name[] = "getPaimonSpillDirectories";
     static char get_spill_directories_signature[] = "(J)[Ljava/lang/String;";
     static char reserve_spill_name[] = "reservePaimonSpill";
@@ -136,11 +190,10 @@ Status register_paimon_spill_natives(JNIEnv* env, jclass writer_class) {
     static char update_spill_signature[] = "(JLjava/lang/String;JJJ)V";
     static ::JNINativeMethod methods[] = {
             {get_spill_directories_name, get_spill_directories_signature,
-             reinterpret_cast<void*>(&get_paimon_spill_directories)},
-            {reserve_spill_name, reserve_spill_signature,
-             reinterpret_cast<void*>(&reserve_paimon_spill)},
+             reinterpret_cast<void*>(&_get_spill_directories)},
+            {reserve_spill_name, reserve_spill_signature, reinterpret_cast<void*>(&_reserve_spill)},
             {update_spill_name, update_spill_signature,
-             reinterpret_cast<void*>(&update_paimon_spill_accounting)},
+             reinterpret_cast<void*>(&_update_spill_accounting)},
     };
     if (env->RegisterNatives(writer_class, methods,
                              static_cast<jint>(sizeof(methods) / sizeof(methods[0]))) != JNI_OK) {
@@ -151,6 +204,7 @@ Status register_paimon_spill_natives(JNIEnv* env, jclass writer_class) {
     return Status::OK();
 }
 
+namespace {
 std::atomic<bool>& paimon_jni_close_failed() {
     static std::atomic<bool> failed {false};
     return failed;
@@ -371,7 +425,7 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     RETURN_IF_ERROR(Jni::Util::get_object_class(env, _jni_writer_obj, &writer_class));
     auto raw_writer_class = static_cast<jclass>(writer_class.get());
     RETURN_IF_ERROR(PaimonJniMemoryManager::register_natives(env, raw_writer_class));
-    RETURN_IF_ERROR(register_paimon_spill_natives(env, raw_writer_class));
+    RETURN_IF_ERROR(_register_spill_natives(env, raw_writer_class));
 
     // Step 2: Cache the Paimon-specific method IDs. The common close method comes from WriterApi.
     jmethodID open_id =
@@ -396,28 +450,26 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
 
     // Step 4: Build Java arguments and call PaimonJniWriter.open().
     const std::map<std::string, std::string> empty_config;
-    jstring j_serialized_table = env->NewStringUTF(sink.serialized_table.c_str());
+    Jni::LocalString j_serialized_table;
+    RETURN_IF_ERROR(
+            Jni::LocalString::new_string_utf8(env, sink.serialized_table, &j_serialized_table));
     Jni::LocalObject j_hadoop_config;
     RETURN_IF_ERROR(Jni::Util::convert_to_java_map(
             env, sink.__isset.hadoop_config ? sink.hadoop_config : empty_config, &j_hadoop_config));
-    jstring j_commit_user = env->NewStringUTF(sink.commit_user.c_str());
-    jstring j_time_zone = env->NewStringUTF(state->timezone().c_str());
+    Jni::LocalString j_commit_user;
+    RETURN_IF_ERROR(Jni::LocalString::new_string_utf8(env, sink.commit_user, &j_commit_user));
+    Jni::LocalString j_time_zone;
+    RETURN_IF_ERROR(Jni::LocalString::new_string_utf8(env, state->timezone(), &j_time_zone));
 
-    jclass string_cls = env->FindClass("java/lang/String");
-    jobjectArray j_cols =
-            env->NewObjectArray(static_cast<jsize>(sink.column_names.size()), string_cls, nullptr);
-    for (size_t i = 0; i < sink.column_names.size(); ++i) {
-        jstring column_name = env->NewStringUTF(sink.column_names[i].c_str());
-        env->SetObjectArrayElement(j_cols, static_cast<jsize>(i), column_name);
-        env->DeleteLocalRef(column_name);
-    }
-    RETURN_IF_ERROR(_check_jni_exception(env, "build PaimonJniWriter open arguments"));
+    jobjectArray j_cols = nullptr;
+    RETURN_IF_ERROR(_create_string_array(env, sink.column_names, &j_cols));
 
     PaimonJniWriterOpenMode open_mode = PaimonJniWriterOpenMode::from_write_mode(sink.write_mode);
     env->CallVoidMethod(
-            _jni_writer_obj.get(), open_id, j_serialized_table, j_hadoop_config.get(), j_cols,
-            static_cast<jlong>(sink.transaction_id), j_commit_user, open_mode.overwrite,
-            open_mode.changelog, j_time_zone, static_cast<jlong>(_memory_manager->memory_limit()),
+            _jni_writer_obj.get(), open_id, j_serialized_table.get(), j_hadoop_config.get(), j_cols,
+            static_cast<jlong>(sink.transaction_id), j_commit_user.get(), open_mode.overwrite,
+            open_mode.changelog, j_time_zone.get(),
+            static_cast<jlong>(_memory_manager->memory_limit()),
             reinterpret_cast<jlong>(_memory_manager.get()),
             _spill_session == nullptr ? 0 : reinterpret_cast<jlong>(_spill_session.get()));
     Status st = _check_jni_exception(env, "open PaimonJniWriter");
