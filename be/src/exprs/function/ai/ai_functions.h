@@ -58,6 +58,23 @@ namespace doris {
 template <typename Derived>
 class AIFunction : public IFunction {
 public:
+    static const char* batch_system_prompt(bool structured_batch) {
+        // Cache both complete prompts per function. Requests only select an immutable string;
+        // changing task wording does not depend on finding/replacing an exact sentence.
+        static const std::string structured_prompt =
+                std::string(Derived::system_prompt) +
+                " Return exactly one JSON object with a single field `results`, an array of "
+                "strings. The results array must have the same length and order as the input "
+                "array. Do not return input objects or indexes. Two-row output format example "
+                "(replace placeholders with actual results): {\"results\":[\"row1\",\"row2\"]}.";
+        static const std::string legacy_prompt =
+                std::string(Derived::system_prompt) +
+                " Return exactly one JSON array of strings, with the same length and order as "
+                "the input array. Do not return input objects or indexes. Two-row output format "
+                "example (replace placeholders with actual results): [\"row1\",\"row2\"].";
+        return structured_batch ? structured_prompt.c_str() : legacy_prompt.c_str();
+    }
+
     std::string get_name() const override { return assert_cast<const Derived&>(*this).name; }
 
     // If the user doesn't provide the first arg, `resource_name`
@@ -275,8 +292,10 @@ protected:
         std::vector<std::string> parsed_response;
 
         std::string request_body;
+        // Disabling provider format constraints keeps batching and the output protocol intact.
         RETURN_IF_ERROR(adapter->build_request_payload(
-                inputs, assert_cast<const Derived&>(*this).system_prompt, request_body));
+                inputs, batch_system_prompt(adapter->supports_structured_batch()), request_body,
+                config.enable_structured_output && adapter->supports_structured_batch()));
 
         std::string response;
         RETURN_IF_ERROR(send_request_to_llm(request_body, response, config, adapter, context));
@@ -288,7 +307,7 @@ protected:
                 statistics->record_parse(MonotonicNanos() - parse_start, parse_failed);
             }
         });
-        RETURN_IF_ERROR(adapter->parse_response(response, parsed_response));
+        RETURN_IF_ERROR(adapter->parse_batch_response(response, parsed_response));
         if (parsed_response.empty()) {
             return Status::InternalError("AI returned empty result");
         }
