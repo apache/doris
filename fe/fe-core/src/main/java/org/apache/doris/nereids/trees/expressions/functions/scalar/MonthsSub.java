@@ -19,8 +19,8 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.CalendarAddSubMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.ComputeSignatureForDateArithmetic;
-import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
@@ -40,7 +40,7 @@ import java.util.List;
  * ScalarFunction 'months_sub'.
  */
 public class MonthsSub extends ScalarFunction implements BinaryExpression, ExplicitlyCastableSignature,
-        ComputeSignatureForDateArithmetic, PropagateNullable, DateAddSubMonotonic {
+        ComputeSignatureForDateArithmetic, PropagateNullable, CalendarAddSubMonotonic {
 
     //ATTN: must place Datetime before Date, because for castring from string like literal, date and datetime has
     // the same precedence, but we prefer datetime to avoid data loss. for string literal which could cast to Date
