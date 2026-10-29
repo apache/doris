@@ -38,6 +38,20 @@ public class Password {
         this.password = password;
     }
 
+    /**
+     * A new Password holding the same two slots. Every copy of an account's
+     * credentials (the resolved-IP entries the DomainResolver derives from a
+     * domain account, and their immediate refresh after an ALTER) must carry
+     * the retained secondary password as well: a copy built from the primary
+     * alone stops authenticating the old password on that entry right after
+     * a rotation with RETAIN CURRENT PASSWORD.
+     */
+    public static Password copyOf(Password source) {
+        Password copy = new Password(source.getPassword());
+        copy.setSecondaryPassword(source.getSecondaryPassword());
+        return copy;
+    }
+
     public byte[] getPassword() {
         return password;
     }

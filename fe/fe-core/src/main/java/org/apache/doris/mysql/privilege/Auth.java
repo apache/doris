@@ -1214,12 +1214,22 @@ public class Auth implements Writable {
         writeLock();
         try {
             User user = userManager.getUserByUserIdentity(userIdent);
-            if (!isReplay && !replaceBinding && user != null && user.isAuthenticationBound()) {
+            boolean wasBound = user != null && user.isAuthenticationBound();
+            if (!isReplay && !replaceBinding && wasBound) {
                 throw new DdlException("SET PASSWORD is not supported for authentication-bound users; "
                         + "use ALTER USER ... IDENTIFIED BY");
             }
             if (!isReplay && authIntegration != null) {
                 userManager.checkDomainAuthenticationBinding(userIdent);
+            }
+            if (!isReplay && retainCurrent && (wasBound || authIntegration != null)) {
+                // The "current password" of an authentication-bound account is a
+                // generated placeholder nobody holds: there is nothing to retain
+                // on the way out of a binding, and nothing worth keeping on the
+                // way in (native authentication is refused while bound).
+                throw new DdlException("Current password cannot be retained for user " + userIdent
+                        + (wasBound ? " because the account is bound to an authentication integration"
+                                : " while binding it to an authentication integration"));
             }
             if (!isReplay && authIntegration == null) {
                 if (!passwdPolicyManager.checkPasswordHistory(userIdent, password)) {
@@ -1244,7 +1254,18 @@ public class Auth implements Writable {
                     }
                 }
             }
-            userManager.setPassword(userIdent, password, errOnNonExist, retainCurrent);
+            // An authentication-binding transition (into, out of or between
+            // integrations) retires the retained secondary password instead of
+            // carrying it: MySQL discards the secondary password when the
+            // authentication plugin changes, and the bound-user guard refuses
+            // native logins only WHILE the account is bound, so a password
+            // retained before the external-authentication period would
+            // otherwise come back to life beside the new one once the account
+            // returns to native authentication. Derived from the account's
+            // state and the journal's binding, so a follower replays the same
+            // outcome.
+            boolean bindingChanges = wasBound || authIntegration != null;
+            userManager.setPassword(userIdent, password, errOnNonExist, retainCurrent, bindingChanges);
             if (replaceBinding && user != null) {
                 user.setAuthenticationBinding(authIntegration, authIdentity);
             }

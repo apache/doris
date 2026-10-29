@@ -453,6 +453,21 @@ public class UserManager implements Writable {
      */
     public void setPassword(UserIdentity userIdentity, byte[] password, boolean errOnNonExist,
             boolean retainCurrent) throws DdlException {
+        setPassword(userIdentity, password, errOnNonExist, retainCurrent, false);
+    }
+
+    /**
+     * As above; with {@code discardSecondary} the retained secondary password
+     * is dropped instead of carried, whatever {@code retainCurrent} says. Used
+     * for an authentication-binding transition (into, out of or between
+     * authentication integrations): MySQL discards the secondary password
+     * when the authentication plugin changes, and a password retained before
+     * an external-authentication period must not come back to life beside
+     * the new one when the account returns to native authentication (the
+     * bound-user guard refuses native logins only WHILE the account is bound).
+     */
+    public void setPassword(UserIdentity userIdentity, byte[] password, boolean errOnNonExist,
+            boolean retainCurrent, boolean discardSecondary) throws DdlException {
         User user = getUserByUserIdentity(userIdentity);
         if (user == null) {
             if (errOnNonExist) {
@@ -462,9 +477,10 @@ public class UserManager implements Writable {
         }
         Password oldPassword = user.getPassword();
         byte[] carried;
-        if (password == null || password.length == 0) {
-            // an empty new password empties the secondary as well, even with
-            // RETAIN CURRENT PASSWORD (MySQL semantics)
+        if (discardSecondary || password == null || password.length == 0) {
+            // a binding transition retires the secondary; an empty new password
+            // empties it as well, even with RETAIN CURRENT PASSWORD (MySQL
+            // semantics)
             carried = null;
         } else if (retainCurrent) {
             carried = oldPassword == null ? null : oldPassword.getPassword();
@@ -520,7 +536,12 @@ public class UserManager implements Writable {
             for (User user : nameToUsers.get(identity.getQualifiedUser())) {
                 if (user.isSetByDomainResolver() && identity.equals(user.getDomainUserIdentity())) {
                     user.setAuthenticationBinding(domain.getAuthIntegration(), domain.getAuthIdentity());
-                    user.setPassword(domain.getPassword().getPassword());
+                    // both slots: a primary-only copy would stop authenticating the
+                    // retained password on every resolved-IP entry right after a
+                    // rotation with RETAIN CURRENT PASSWORD (and after an
+                    // ACCOUNT_UNLOCK or REQUIRE change), until the DomainResolver's
+                    // next periodic pass rebuilt them
+                    user.setPassword(Password.copyOf(domain.getPassword()));
                     user.setUserIdentity(createResolvedUserIdentity(identity.getQualifiedUser(),
                             user.getUserIdentity().getHost(), domain.getUserIdentity()));
                     user.setDomainUserIdentity(domain.getUserIdentity());
@@ -593,8 +614,7 @@ public class UserManager implements Writable {
                         // the retained secondary password (dual password) on
                         // every resolver refresh after a rotation with
                         // RETAIN CURRENT PASSWORD
-                        Password ipPassword = new Password(domainPassword.getPassword());
-                        ipPassword.setSecondaryPassword(domainPassword.getSecondaryPassword());
+                        Password ipPassword = Password.copyOf(domainPassword);
                         try {
                             User resolved = createUserWithoutLock(userIdent, ipPassword,
                                     domainUser.getUserIdentity(), true, "");

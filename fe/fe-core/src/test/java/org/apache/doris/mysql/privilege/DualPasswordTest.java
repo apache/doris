@@ -23,6 +23,7 @@ import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.authentication.AuthenticationIntegrationMgr;
+import org.apache.doris.authentication.AuthenticationIntegrationRuntime;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
@@ -55,6 +56,7 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -71,6 +73,8 @@ public class DualPasswordTest {
     private EditLog editLog = Mockito.mock(EditLog.class);
     private AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
     private InternalCatalog internalCatalog = Mockito.mock(InternalCatalog.class);
+    private AuthenticationIntegrationMgr integrations = new AuthenticationIntegrationMgr();
+    private AuthenticationIntegrationRuntime runtime = Mockito.mock(AuthenticationIntegrationRuntime.class);
     private MockedStatic<Env> mockedEnvStatic;
 
     @BeforeEach
@@ -80,7 +84,11 @@ public class DualPasswordTest {
         mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
         Mockito.when(env.getAuth()).thenReturn(auth);
         // createUser / alterUser take the authentication-integration read lock
-        Mockito.when(env.getAuthenticationIntegrationMgr()).thenReturn(new AuthenticationIntegrationMgr());
+        Mockito.when(env.getAuthenticationIntegrationMgr()).thenReturn(integrations);
+        // binding an account normalizes its AS identity through the runtime
+        Mockito.when(env.getAuthenticationIntegrationRuntime()).thenReturn(runtime);
+        Mockito.when(runtime.normalizeBoundIdentity(Mockito.any(), Mockito.any()))
+                .thenAnswer(invocation -> invocation.getArgument(1));
         Mockito.when(env.getEditLog()).thenReturn(editLog);
         Mockito.when(env.getAccessManager()).thenReturn(accessManager);
         // ConnectContext.setEnv reads the internal catalog name
@@ -123,6 +131,21 @@ public class DualPasswordTest {
         } catch (AuthenticationException e) {
             return false;
         }
+    }
+
+    /** An authentication integration accounts can be bound to (IDENTIFIED WITH AUTHENTICATION INTEGRATION). */
+    private void createIntegration(String name) throws DdlException {
+        integrations.createAuthenticationIntegration(name, false,
+                Collections.singletonMap("type", "dual_password_test"), "", "root");
+    }
+
+    private void alterUser(ConnectContext ctx, String sql) throws Exception {
+        AlterUserCommand cmd = (AlterUserCommand) new NereidsParser().parseSingle(sql);
+        cmd.doRun(ctx, null);
+    }
+
+    private User userOf(UserIdentity identity) {
+        return auth.getUserManager().getUserByUserIdentity(identity);
     }
 
     @Test
@@ -596,6 +619,126 @@ public class DualPasswordTest {
         Assertions.assertEquals("Yes (dual)", passwordColumnOf(user));
         auth.replayAlterUser(AlterUserOperationLog.discardOldPassword(user));
         Assertions.assertEquals("Yes", passwordColumnOf(user));
+    }
+
+    @Test
+    public void testBindingTransitionDiscardsRetainedPassword() throws Exception {
+        // MySQL discards the secondary password when the authentication
+        // plugin changes. Here the bound-user guard refuses native logins only
+        // WHILE the account is bound, so a password retained before the
+        // binding would otherwise come back to life, beside the new one, when
+        // the account returns to native authentication.
+        createIntegration("bound");
+        UserIdentity admin = createUser("adm4");
+        UserIdentity user = createUser("rebound");
+        auth.setPassword(user, MysqlPassword.makeScrambledPassword("p1"));
+        auth.setPassword(user, MysqlPassword.makeScrambledPassword("p2"), true /* retain */);
+        ConnectContext ctx = ctxFor(admin);
+        grantPriv(true);
+        Assertions.assertTrue(canLogin("rebound", "p1"));
+        Assertions.assertEquals("Yes (dual)", passwordColumnOf(user));
+
+        // into the binding: the retained password is dropped, not parked
+        alterUser(ctx, "ALTER USER 'rebound'@'%' IDENTIFIED WITH AUTHENTICATION INTEGRATION bound AS 'external'");
+        Assertions.assertTrue(userOf(user).isAuthenticationBound());
+        Assertions.assertFalse(userOf(user).getPassword().hasSecondaryPassword());
+        Assertions.assertFalse(canLogin("rebound", "p1"));
+        Assertions.assertFalse(canLogin("rebound", "p2"));
+
+        // out of the binding: only the new password authenticates
+        alterUser(ctx, "ALTER USER 'rebound'@'%' IDENTIFIED BY 'p3'");
+        Assertions.assertFalse(userOf(user).isAuthenticationBound());
+        Assertions.assertTrue(canLogin("rebound", "p3"));
+        Assertions.assertFalse(canLogin("rebound", "p1"));
+        Assertions.assertFalse(canLogin("rebound", "p2"));
+        Assertions.assertEquals("Yes", passwordColumnOf(user));
+    }
+
+    @Test
+    public void testRetainIsRefusedAcrossBindingTransitions() throws Exception {
+        // the "current password" of a bound account is a generated placeholder
+        // nobody holds: nothing to retain on the way out of a binding, nothing
+        // worth keeping on the way in
+        createIntegration("bound");
+        UserIdentity admin = createUser("adm5");
+        UserIdentity user = createUser("placeholder");
+        auth.setPassword(user, MysqlPassword.makeScrambledPassword("p1"));
+        ConnectContext ctx = ctxFor(admin);
+        grantPriv(true);
+
+        // into a binding: RETAIN needs a password change (rejected at validation)
+        Assertions.assertThrows(AnalysisException.class, () -> alterUser(ctx,
+                "ALTER USER 'placeholder'@'%' IDENTIFIED WITH AUTHENTICATION INTEGRATION bound"
+                        + " RETAIN CURRENT PASSWORD"));
+        Assertions.assertFalse(userOf(user).isAuthenticationBound());
+        Assertions.assertTrue(canLogin("placeholder", "p1"));
+
+        // out of a binding: the placeholder is not a credential to keep
+        alterUser(ctx, "ALTER USER 'placeholder'@'%' IDENTIFIED WITH AUTHENTICATION INTEGRATION bound");
+        Assertions.assertThrows(DdlException.class, () -> alterUser(ctx,
+                "ALTER USER 'placeholder'@'%' IDENTIFIED BY 'p2' RETAIN CURRENT PASSWORD"));
+        Assertions.assertTrue(userOf(user).isAuthenticationBound());
+        Assertions.assertFalse(canLogin("placeholder", "p2"));
+        Assertions.assertFalse(canLogin("placeholder", "p1"));
+    }
+
+    @Test
+    public void testBindingTransitionReplayDiscardsRetainedPassword() throws Exception {
+        // a follower replays the bind and the unbind from their journals and
+        // must reach the same single-password state as the master
+        UserIdentity user = createUser("rebound_replay");
+        auth.setPassword(user, MysqlPassword.makeScrambledPassword("p1"));
+        auth.replaySetPassword(new PrivInfo(user, null,
+                MysqlPassword.makeScrambledPassword("p2"), null, null, true /* retain */));
+        Assertions.assertTrue(canLogin("rebound_replay", "p1"));
+
+        // the bind journals the generated placeholder plus the binding
+        PrivInfo bind = new PrivInfo(user, null, MysqlPassword.makeScrambledPassword("placeholder"), null, null);
+        bind.setAuthenticationBinding("bound", "external");
+        auth.replaySetPassword(bind);
+        Assertions.assertTrue(userOf(user).isAuthenticationBound());
+        Assertions.assertFalse(userOf(user).getPassword().hasSecondaryPassword());
+
+        // the unbind journals a plain password change without a binding
+        auth.replaySetPassword(new PrivInfo(user, null, MysqlPassword.makeScrambledPassword("p3"), null, null));
+        Assertions.assertFalse(userOf(user).isAuthenticationBound());
+        Assertions.assertTrue(canLogin("rebound_replay", "p3"));
+        Assertions.assertFalse(canLogin("rebound_replay", "p1"));
+        Assertions.assertFalse(canLogin("rebound_replay", "p2"));
+    }
+
+    @Test
+    public void testDomainRetainAuthenticatesBothSlotsBeforeTheResolverTick() throws Exception {
+        // the resolved-IP entries of a domain account are rebuilt at once by
+        // UserManager.refreshAuthenticationBinding, long before the
+        // DomainResolver's periodic pass: that copy must carry both slots too,
+        // or the retained password is refused for up to a resolver tick right
+        // after the rotation (and again after an ACCOUNT_UNLOCK or REQUIRE
+        // change)
+        UserIdentity admin = createUser("adm6");
+        UserIdentity domainIdent = new UserIdentity("domuser2", "mydomain.example", true);
+        domainIdent.setIsAnalyzed();
+        auth.createUser(new CreateUserCommand(new CreateUserInfo(new UserDesc(domainIdent))).getInfo());
+        auth.setPassword(domainIdent, MysqlPassword.makeScrambledPassword("p1"));
+        auth.refreshUserPrivEntriesByResovledIPs(
+                ImmutableMap.of("mydomain.example", Sets.newHashSet("192.168.1.1")));
+        Assertions.assertTrue(canLogin("domuser2", "p1"));
+
+        // rotate with RETAIN and check at once: no periodic refresh in between
+        auth.setPasswordInternal(domainIdent, MysqlPassword.makeScrambledPassword("p2"), null,
+                true, false, true /* retain */, false);
+        Assertions.assertTrue(canLogin("domuser2", "p2"));
+        Assertions.assertTrue(canLogin("domuser2", "p1"));
+
+        // the same immediate refresh runs on ACCOUNT_UNLOCK and REQUIRE changes
+        ConnectContext ctx = ctxFor(admin);
+        grantPriv(true);
+        alterUser(ctx, "ALTER USER 'domuser2'@('mydomain.example') ACCOUNT_UNLOCK");
+        Assertions.assertTrue(canLogin("domuser2", "p1"));
+        alterUser(ctx, "ALTER USER 'domuser2'@('mydomain.example') REQUIRE NONE");
+        Assertions.assertTrue(canLogin("domuser2", "p2"));
+        Assertions.assertTrue(canLogin("domuser2", "p1"));
+        Assertions.assertFalse(canLogin("domuser2", "p0"));
     }
 
     private String passwordColumnOf(UserIdentity user) {
