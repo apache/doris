@@ -57,6 +57,7 @@ import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.encryption.EncryptionManager;
+import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.io.CloseableIterable;
@@ -690,9 +691,18 @@ public class IcebergTransaction implements Transaction {
                 }
                 transaction.commitTransaction();
             });
+        } catch (CommitStateUnknownException e) {
+            // The metadata commit may have succeeded. A later rollback must not delete files
+            // that could already be referenced by a published snapshot.
+            synchronized (this) {
+                commitDataList.clear();
+            }
+            throw e;
         } catch (RuntimeException e) {
+            cleanupReportedFiles();
             throw e;
         } catch (Exception e) {
+            cleanupReportedFiles();
             throw new UserException("Failed to commit Iceberg transaction: " + e.getMessage(), e);
         } finally {
             releaseWritableTableLease();
@@ -829,6 +839,7 @@ public class IcebergTransaction implements Transaction {
     @Override
     public void rollback() {
         try {
+            cleanupReportedFiles();
             if (isRewriteMode) {
                 // Clear the collected files for rewrite mode
                 synchronized (filesToDelete) {
@@ -839,9 +850,48 @@ public class IcebergTransaction implements Transaction {
                 }
                 LOG.info("Rewrite transaction rolled back");
             }
-            // For insert mode, do nothing as original implementation
         } finally {
             releaseWritableTableLease();
+        }
+    }
+
+    private void cleanupReportedFiles() {
+        List<TIcebergCommitData> pending;
+        synchronized (this) {
+            pending = new ArrayList<>(commitDataList);
+            commitDataList.clear();
+        }
+        Table rollbackTable = table;
+        if (rollbackTable == null || pending.isEmpty()) {
+            return;
+        }
+        Set<String> paths = new HashSet<>();
+        for (TIcebergCommitData data : pending) {
+            if (data != null && data.isSetFilePath() && data.getFilePath() != null
+                    && !data.getFilePath().isEmpty()) {
+                paths.add(data.getFilePath());
+            }
+        }
+        if (paths.isEmpty()) {
+            return;
+        }
+        try {
+            // Cleanup must finish before releasing the lease and its generation's FileIO.
+            // If begin failed before acquiring a lease, use the retained metadata ops' credentials.
+            ExecutionAuthenticator authenticator = writableTableLease == null
+                    ? ops.getExecutionAuthenticator() : writableAuthenticator();
+            authenticator.execute(() -> {
+                for (String path : paths) {
+                    try {
+                        rollbackTable.io().deleteFile(path);
+                    } catch (Exception e) {
+                        // Keep the original query failure; log cleanup failures for orphan maintenance.
+                        LOG.warn("Failed to delete uncommitted Iceberg file {}: {}", path, e.getMessage());
+                    }
+                }
+            });
+        } catch (Exception e) {
+            LOG.warn("Failed to clean reported Iceberg files: {}", e.getMessage());
         }
     }
 

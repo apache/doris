@@ -70,7 +70,9 @@ public:
 
     inline int file_name_index() const override { return _file_name_index; }
 
-    inline size_t written_len() const override { return _file_format_transformer->written_len(); }
+    inline size_t written_len() const override {
+        return _file_format_transformer == nullptr ? 0 : _file_format_transformer->written_len();
+    }
 
 private:
     friend class VIcebergPartitionWriterTest;
@@ -78,6 +80,8 @@ private:
     std::string _get_target_file_name();
 
     Status _build_iceberg_commit_data(TIcebergCommitData* commit_data);
+
+    void _defer_file_cleanup();
 
     std::string _get_file_extension(TFileFormatType::type file_format_type,
                                     TFileCompressType::type write_compress_type);
@@ -100,6 +104,8 @@ private:
     TFileCompressType::type _compress_type;
     const std::map<std::string, std::string>& _hadoop_conf;
     ClosedFileCallback _closed_file_callback;
+    bool _file_cleanup_deferred = false;
+    Status _terminal_close_status = Status::OK();
     bool _collect_column_stats = true;
 
     std::shared_ptr<io::FileSystem> _fs = nullptr;
