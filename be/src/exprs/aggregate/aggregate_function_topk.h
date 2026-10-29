@@ -53,81 +53,34 @@
 
 namespace doris {
 
-/// The values of one group, in arrival order, one entry per slot.
-///
-/// They deliberately do not live in a Doris column: a column's container allocates a 4 KiB initial
-/// chunk (PaddedPODArray) as soon as it holds one value, so one column per group costs ~4 KiB per
-/// group regardless of k. That dominates the memory of a GROUP BY with millions of groups, while
-/// these stores grow with the number of values actually retained.
-template <typename T>
-struct FixedTopKValueStore {
-    DorisVector<T> values;
-
-    size_t size() const { return values.size(); }
-    void reserve(size_t n) { values.reserve(n); }
-    void clear() { values.clear(); }
-    const T& at(size_t slot) const { return values[slot]; }
-    void append(const T& value) { values.push_back(value); }
-    // The payload is proportional to the slot count, which the caller already compares.
-    size_t live_bytes() const { return 0; }
-    size_t dead_bytes() const { return 0; }
-    void on_evict(size_t /*slot*/) {}
-    void swap(FixedTopKValueStore& other) noexcept { values.swap(other.values); }
+/// A string payload's position in its state's arena.
+struct StringSpan {
+    size_t offset = 0;
+    size_t length = 0;
 };
 
-/// A StringRef cannot be stored: the arena reallocates and would invalidate the pointers. A slot
-/// keeps an offset/length into the bytes instead and materializes a view on access.
-struct StringTopKValueStore {
-    struct Span {
-        size_t offset = 0;
-        size_t length = 0;
-    };
-
-    /// The initial allocation is small on purpose; see the comment on FixedTopKValueStore.
-    /// PaddedPODArray, not PODArray: comparisons go through
-    /// memcmp_small_allow_overflow15, which loads a full 16-byte vector even for a one-byte
-    /// string, the same tail allowance ColumnString's chars buffer provides.
+/// The bytes of one group's string values. A StringRef cannot be stored in a slot: the arena
+/// reallocates and would invalidate the pointers, so a slot keeps a span instead and materializes a
+/// view on access. Fixed-width value types inherit EmptyTopKArena instead, so this costs them
+/// nothing.
+struct StringTopKArena {
+    /// The initial allocation is small on purpose: the arena grows with the bytes actually retained,
+    /// unlike a Doris column's container, whose PaddedPODArray allocates a 4 KiB initial chunk as
+    /// soon as it holds one value.
+    /// PaddedPODArray, not PODArray: comparisons go through memcmp_small_allow_overflow15, which
+    /// loads a full 16-byte vector even for a one-byte string, the same tail allowance
+    /// ColumnString's chars buffer provides.
     PaddedPODArray<char, 32> bytes;
-    DorisVector<Span> spans;
     // Sum of the live slots' payload and of the payload evicted since the last compaction. The
     // slot counters alone cannot bound the memory: replacing 1024 1 MiB strings with short ones
     // leaves dead == live by slot count while ~1 GiB of discarded bytes stay in the arena.
     size_t live_payload_bytes = 0;
     size_t dead_payload_bytes = 0;
-
-    size_t size() const { return spans.size(); }
-    size_t live_bytes() const { return live_payload_bytes; }
-    size_t dead_bytes() const { return dead_payload_bytes; }
-    void reserve(size_t n) { spans.reserve(n); }
-    void clear() {
-        bytes.clear();
-        spans.clear();
-        live_payload_bytes = 0;
-        dead_payload_bytes = 0;
-    }
-    StringRef at(size_t slot) const {
-        const Span& span = spans[slot];
-        return StringRef(bytes.data() + span.offset, span.length);
-    }
-    void append(StringRef value) {
-        spans.push_back({bytes.size(), value.size});
-        live_payload_bytes += value.size;
-        if (value.size != 0) {
-            bytes.insert(value.data, value.data + value.size);
-        }
-    }
-    /// Called when `slot` is evicted: its payload stays in the arena until the next compaction.
-    void on_evict(size_t slot) {
-        live_payload_bytes -= spans[slot].length;
-        dead_payload_bytes += spans[slot].length;
-    }
-    void swap(StringTopKValueStore& other) noexcept {
-        bytes.swap(other.bytes);
-        spans.swap(other.spans);
-        std::swap(live_payload_bytes, other.live_payload_bytes);
-        std::swap(dead_payload_bytes, other.dead_payload_bytes);
-    }
 };
+
+/// The payload holder of a fixed-width value type: its values live in their slots, so its states
+/// own no arena at all.
+struct EmptyTopKArena {};
 
 /// A per-state seed for the treap priorities. A fixed sequence is predictable from the input: an
 /// adversarial input can feed the n-th generated priority as the n-th smallest value, making the
@@ -167,29 +120,42 @@ inline uint64_t next_topk_priority_seed() {
  * derives truncation from the list length, so the state carries no separate bound.
  */
 template <PrimitiveType T>
-struct AggregateTopKCountData {
+struct AggregateTopKCountData
+        : std::conditional_t<is_string_type(T), StringTopKArena, EmptyTopKArena> {
     using CppType = typename PrimitiveTypeTraits<T>::CppType;
     static constexpr bool IS_STRING = is_string_type(T);
-    using ValueStore =
-            std::conditional_t<IS_STRING, StringTopKValueStore, FixedTopKValueStore<CppType>>;
+    /// A value as the state stores it: the value itself for fixed-width types, the span of its
+    /// bytes in the arena for strings.
+    using Payload = std::conditional_t<IS_STRING, StringSpan, CppType>;
+    /// A value read out of a state: a view valid until that state's arena changes.
     using ValueRef = std::conditional_t<IS_STRING, StringRef, const CppType&>;
+    /// A value copied out of a state, for building the sorted list a rebuild starts from.
+    using ValueCopy = std::conditional_t<IS_STRING, StringRef, CppType>;
 
     static constexpr int32_t NO_SLOT = -1;
     // Row counts are never negative, so this cannot collide with a live entry.
     static constexpr int64_t DEAD_COUNT = -1;
 
-    /// One slot's metadata; the value itself lives in `values` at the same index.
+    /// One running value: its count, its payload and its treap links. Keeping the payload in the
+    /// slot is what makes a group cost one heap allocation instead of two: the slot array carries
+    /// the values with it.
     struct Slot {
         int64_t count = 0;
         int32_t left = NO_SLOT;
         int32_t right = NO_SLOT;
         uint32_t priority = 0;
+        Payload payload {};
+    };
+
+    /// One (value, count) entry of the sorted list a state is rebuilt from.
+    struct Entry {
+        ValueCopy value {};
+        int64_t count = 0;
     };
 
     bool has_k = false;
     int64_t k = 0;
     // Indexed by slot; an evicted slot stays as a dead entry until compaction.
-    ValueStore values;
     DorisVector<Slot> slots;
     int32_t root = NO_SLOT;
     // The last live slot in the aggregate's order: the value an incoming row has to beat to enter
@@ -227,8 +193,10 @@ public:
     using State = AggregateTopKCountData<T>;
     using Base = IAggregateFunctionDataHelper<State, AggregateFunctionTopK<T, IsMin>, false>;
     using Slot = typename State::Slot;
-    using ValueStore = typename State::ValueStore;
+    using Payload = typename State::Payload;
     using ValueRef = typename State::ValueRef;
+    using ValueCopy = typename State::ValueCopy;
+    using Entry = typename State::Entry;
     using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
     static constexpr bool IS_STRING = State::IS_STRING;
     static constexpr int32_t NO_SLOT = State::NO_SLOT;
@@ -298,7 +266,7 @@ public:
         DorisVector<int64_t> sorted_counts;
         sorted_counts.reserve(order.size());
         for (int32_t slot : order) {
-            insert_value(*sorted_values, state.values.at(slot));
+            insert_value(*sorted_values, value_of(state, slot));
             sorted_counts.push_back(state.slots[slot].count);
         }
         auto size = static_cast<int64_t>(sorted_counts.size());
@@ -325,12 +293,12 @@ public:
         if (size != 0) {
             buf.read(reinterpret_cast<char*>(counts.data()), size * sizeof(int64_t));
         }
-        ValueStore value_store;
-        value_store.reserve(static_cast<size_t>(size));
+        DorisVector<Entry> entries;
+        entries.reserve(static_cast<size_t>(size));
         for (int64_t row = 0; row != size; ++row) {
-            value_store.append(value_at(*values, static_cast<size_t>(row)));
+            entries.push_back(Entry {value_at(*values, static_cast<size_t>(row)), counts[row]});
         }
-        assign_sorted(state, std::move(value_store), std::move(counts));
+        assign_sorted(state, std::move(entries));
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
@@ -345,7 +313,7 @@ public:
         DorisVector<int32_t> order;
         collect_in_order(state, order);
         for (int32_t slot : order) {
-            insert_value(value_column.get_nested_column(), state.values.at(slot));
+            insert_value(value_column.get_nested_column(), value_of(state, slot));
             value_column.get_null_map_data().push_back(0);
             assert_cast<ColumnInt64&>(count_column.get_nested_column())
                     .get_data()
@@ -394,6 +362,66 @@ private:
         }
     }
 
+    /// The value stored in `slot`.
+    static ValueRef value_of(const State& state, int32_t slot) {
+        const Payload& payload = state.slots[slot].payload;
+        if constexpr (IS_STRING) {
+            return StringRef(state.bytes.data() + payload.offset, payload.length);
+        } else {
+            return payload;
+        }
+    }
+
+    /// Copies `value` into `slot`'s payload, appending its bytes to the arena for strings.
+    static void set_value(State& state, int32_t slot, ValueRef value) {
+        if constexpr (IS_STRING) {
+            Payload& payload = state.slots[slot].payload;
+            payload.offset = state.bytes.size();
+            payload.length = value.size;
+            if (value.size != 0) {
+                state.bytes.insert(value.data, value.data + value.size);
+            }
+            state.live_payload_bytes += value.size;
+        } else {
+            state.slots[slot].payload = value;
+        }
+    }
+
+    /// Replaces the state's only stored value (the k == 0 replace path). A string's arena is reset
+    /// with it, so the discarded bytes do not accumulate across replacements.
+    static void replace_value(State& state, int32_t slot, ValueRef value) {
+        if constexpr (IS_STRING) {
+            state.bytes.clear();
+            state.live_payload_bytes = 0;
+            state.dead_payload_bytes = 0;
+        }
+        set_value(state, slot, value);
+    }
+
+    /// Called when `slot` is evicted: a string's bytes stay in the arena until the next compaction.
+    static void evict_value(State& state, int32_t slot) {
+        if constexpr (IS_STRING) {
+            const size_t length = state.slots[slot].payload.length;
+            state.live_payload_bytes -= length;
+            state.dead_payload_bytes += length;
+        }
+    }
+
+    /// Whether the discarded string payload outgrew the live one and a compaction should reclaim it.
+    static bool evicted_payload_exceeds_live(const State& state) {
+        if constexpr (IS_STRING) {
+            return state.dead_payload_bytes > state.live_payload_bytes;
+        }
+        return false;
+    }
+
+    static Slot make_slot(int64_t count, uint32_t priority) {
+        Slot slot;
+        slot.count = count;
+        slot.priority = priority;
+        return slot;
+    }
+
     static void insert_value(IColumn& column, ValueRef value) {
         if constexpr (IS_STRING) {
             assert_cast<ColumnString&>(column).insert_data(value.data, value.size);
@@ -419,7 +447,7 @@ private:
     }
 
     static int compare_slots(const State& state, int32_t lhs, int32_t rhs) {
-        return compare_values(state.values.at(lhs), state.values.at(rhs));
+        return compare_values(value_of(state, lhs), value_of(state, rhs));
     }
 
     /// The treap links are int32_t, so a state can index at most INT32_MAX + 1 slots.
@@ -441,8 +469,8 @@ private:
     static int32_t append_slot(State& state, ValueRef value, int64_t count) {
         check_slot_capacity(state.slots.size() + 1);
         auto slot = static_cast<int32_t>(state.slots.size());
-        state.values.append(value);
-        state.slots.push_back(Slot {count, State::NO_SLOT, State::NO_SLOT, next_priority(state)});
+        state.slots.push_back(make_slot(count, next_priority(state)));
+        set_value(state, slot, value);
         ++state.live;
         return slot;
     }
@@ -478,7 +506,7 @@ private:
             *inserted_slot = append_slot(state, value, count);
             return *inserted_slot;
         }
-        int cmp = compare_values(state.values.at(node), value);
+        int cmp = compare_values(value_of(state, node), value);
         if (cmp == 0) {
             state.slots[node].count = checked_add(state.slots[node].count, count);
             return node;
@@ -550,15 +578,37 @@ private:
         DCHECK_EQ(static_cast<int64_t>(slots.size()), state.live);
     }
 
-    /// Rebuilds the tree from `values`, already in the aggregate's order, and the matching counts.
+    /// Rebuilds the tree from `values`, already in the aggregate's order.
     /// The treap is built in O(size) as a Cartesian tree over the fresh priorities.
-    static void assign_sorted(State& state, ValueStore values, DorisVector<int64_t> counts) {
-        const size_t size = counts.size();
-        DCHECK_EQ(values.size(), size);
-        state.values.swap(values);
+    static void assign_sorted(State& state, DorisVector<Entry> values) {
+        const size_t size = values.size();
+        check_slot_capacity(size);
         state.slots.assign(size, Slot {});
         for (size_t slot = 0; slot != size; ++slot) {
-            state.slots[slot].count = counts[slot];
+            state.slots[slot].count = values[slot].count;
+        }
+        if constexpr (IS_STRING) {
+            // The entries may point into this state's own arena, so the new arena is built aside
+            // and swapped in before the old one is dropped.
+            PaddedPODArray<char, 32> bytes;
+            size_t live_bytes = 0;
+            for (size_t slot = 0; slot != size; ++slot) {
+                const StringRef value = values[slot].value;
+                Payload& payload = state.slots[slot].payload;
+                payload.offset = bytes.size();
+                payload.length = value.size;
+                if (value.size != 0) {
+                    bytes.insert(value.data, value.data + value.size);
+                }
+                live_bytes += value.size;
+            }
+            state.bytes.swap(bytes);
+            state.live_payload_bytes = live_bytes;
+            state.dead_payload_bytes = 0;
+        } else {
+            for (size_t slot = 0; slot != size; ++slot) {
+                state.slots[slot].payload = values[slot].value;
+            }
         }
         state.live = static_cast<int64_t>(size);
         state.dead = 0;
@@ -587,22 +637,19 @@ private:
     static void compact(State& state) {
         DorisVector<int32_t> slots;
         collect_in_order(state, slots);
-        ValueStore values;
+        DorisVector<Entry> values;
         values.reserve(slots.size());
-        DorisVector<int64_t> counts;
-        counts.reserve(slots.size());
         for (int32_t slot : slots) {
-            values.append(state.values.at(slot));
-            counts.push_back(state.slots[slot].count);
+            values.push_back(Entry {value_of(state, slot), state.slots[slot].count});
         }
-        assign_sorted(state, std::move(values), std::move(counts));
+        assign_sorted(state, std::move(values));
     }
 
     /// Reclaims the dead slots or the evicted payload once it outnumbers the live one. Checked
     /// right after an eviction as well, so the last eviction of a group does not keep a large
     /// discarded payload until the next row arrives.
     static void maybe_compact(State& state) {
-        if (state.dead > state.live || state.values.dead_bytes() > state.values.live_bytes()) {
+        if (state.dead > state.live || evicted_payload_exceeds_live(state)) {
             compact(state);
         }
     }
@@ -651,14 +698,13 @@ private:
                 state.worst = state.root;
                 return;
             }
-            int cmp = compare_values(value_at(column, row_num), state.values.at(0));
+            int cmp = compare_values(value_at(column, row_num), value_of(state, 0));
             if (cmp == 0) {
                 state.slots[0].count = checked_add(state.slots[0].count, 1);
             } else if (comes_before(cmp)) {
                 // The new value is better: replace the tracked extreme. The slot and the
                 // single-node tree stay in place, only the stored value changes.
-                state.values.clear();
-                state.values.append(value_at(column, row_num));
+                replace_value(state, 0, value_at(column, row_num));
                 state.slots[0].count = 1;
             }
             return;
@@ -670,7 +716,7 @@ private:
         if (state.live >= state.k) {
             // A full list rejects or absorbs most rows: comparing with the eviction candidate
             // costs one comparison, while the tree descent would cost log2(k).
-            int cmp = compare_values(value_at(column, row_num), state.values.at(state.worst));
+            int cmp = compare_values(value_at(column, row_num), value_of(state, state.worst));
             if (cmp == 0) {
                 state.slots[state.worst].count = checked_add(state.slots[state.worst].count, 1);
                 return;
@@ -699,7 +745,7 @@ private:
         int32_t removed = State::NO_SLOT;
         state.root = erase_worst(state, state.root, &removed);
         DCHECK_EQ(removed, state.worst);
-        state.values.on_evict(static_cast<size_t>(removed));
+        evict_value(state, removed);
         state.slots[removed].count = State::DEAD_COUNT;
         --state.live;
         ++state.dead;
@@ -713,16 +759,15 @@ private:
             return;
         }
         if (state.live == 0) {
-            state.root = append_slot(state, other.values.at(0), other.slots[0].count);
+            state.root = append_slot(state, value_of(other, 0), other.slots[0].count);
             state.worst = state.root;
             return;
         }
-        int cmp = compare_values(state.values.at(0), other.values.at(0));
+        int cmp = compare_values(value_of(state, 0), value_of(other, 0));
         if (cmp == 0) {
             state.slots[0].count = checked_add(state.slots[0].count, other.slots[0].count);
         } else if (is_worse(cmp)) {
-            state.values.clear();
-            state.values.append(other.values.at(0));
+            replace_value(state, 0, value_of(other, 0));
             state.slots[0].count = other.slots[0].count;
         }
     }
@@ -745,9 +790,9 @@ private:
         // tree.
         if (other.live == 1) {
             const int32_t other_only = other.root;
-            ValueRef value = other.values.at(other_only);
+            ValueRef value = value_of(other, other_only);
             if (state.live >= state.k &&
-                is_worse(compare_values(value, state.values.at(state.worst)))) {
+                is_worse(compare_values(value, value_of(state, state.worst)))) {
                 // A full list rejects a worse value without touching the tree.
                 return;
             }
@@ -771,7 +816,7 @@ private:
             int32_t removed = State::NO_SLOT;
             state.root = erase_worst(state, state.root, &removed);
             DCHECK_EQ(removed, state.worst);
-            state.values.on_evict(static_cast<size_t>(removed));
+            evict_value(state, removed);
             state.slots[removed].count = State::DEAD_COUNT;
             --state.live;
             ++state.dead;
@@ -784,7 +829,7 @@ private:
             // worse than the worst one retained here, the merge cannot change the result, so skip
             // the collect/rebuild.
             const int32_t other_best = best_slot(other);
-            int cmp = compare_values(other.values.at(other_best), state.values.at(state.worst));
+            int cmp = compare_values(value_of(other, other_best), value_of(state, state.worst));
             if (is_worse(cmp)) {
                 return;
             }
@@ -801,49 +846,54 @@ private:
         DorisVector<int32_t> rhs_slots;
         collect_in_order(state, lhs_slots);
         collect_in_order(other, rhs_slots);
-        const auto limit = static_cast<size_t>(state.k);
-        ValueStore merged_values;
-        merged_values.reserve(std::min(limit, lhs_slots.size() + rhs_slots.size()));
-        DorisVector<int64_t> merged_counts;
-        merged_counts.reserve(std::min(limit, lhs_slots.size() + rhs_slots.size()));
+        DorisVector<Entry> merged;
+        merge_sorted_slots(state, lhs_slots, other, rhs_slots, static_cast<size_t>(state.k),
+                           merged);
+        check_slot_capacity(merged.size());
+        assign_sorted(state, std::move(merged));
+    }
+
+    /// Merges two best-first slot lists into at most `limit` entries in the aggregate's order,
+    /// summing the counts of equal values. Both inputs hold distinct values, so a value appears at
+    /// most twice.
+    static void merge_sorted_slots(const State& state, const DorisVector<int32_t>& lhs_slots,
+                                   const State& other, const DorisVector<int32_t>& rhs_slots,
+                                   size_t limit, DorisVector<Entry>& merged) {
+        merged.reserve(std::min(limit, lhs_slots.size() + rhs_slots.size()));
         size_t lhs_index = 0;
         size_t rhs_index = 0;
-        while (merged_counts.size() < limit &&
+        while (merged.size() < limit &&
                (lhs_index < lhs_slots.size() || rhs_index < rhs_slots.size())) {
             if (rhs_index == rhs_slots.size()) {
-                merged_values.append(state.values.at(lhs_slots[lhs_index]));
-                merged_counts.push_back(state.slots[lhs_slots[lhs_index]].count);
+                merged.push_back(Entry {value_of(state, lhs_slots[lhs_index]),
+                                        state.slots[lhs_slots[lhs_index]].count});
                 ++lhs_index;
             } else if (lhs_index == lhs_slots.size()) {
-                merged_values.append(other.values.at(rhs_slots[rhs_index]));
-                merged_counts.push_back(other.slots[rhs_slots[rhs_index]].count);
+                merged.push_back(Entry {value_of(other, rhs_slots[rhs_index]),
+                                        other.slots[rhs_slots[rhs_index]].count});
                 ++rhs_index;
             } else {
-                ValueRef lhs_value = state.values.at(lhs_slots[lhs_index]);
-                ValueRef rhs_value = other.values.at(rhs_slots[rhs_index]);
+                ValueRef lhs_value = value_of(state, lhs_slots[lhs_index]);
+                ValueRef rhs_value = value_of(other, rhs_slots[rhs_index]);
                 int cmp = compare_values(lhs_value, rhs_value);
                 // Both lists are ordered best-first (ascending for MIN, descending for MAX).
                 const bool lhs_is_better = comes_before(cmp);
                 if (lhs_is_better) {
-                    merged_values.append(lhs_value);
-                    merged_counts.push_back(state.slots[lhs_slots[lhs_index]].count);
+                    merged.push_back(Entry {lhs_value, state.slots[lhs_slots[lhs_index]].count});
                     ++lhs_index;
                 } else if (cmp != 0) {
                     // Not better and not equal: the right-hand value is better.
-                    merged_values.append(rhs_value);
-                    merged_counts.push_back(other.slots[rhs_slots[rhs_index]].count);
+                    merged.push_back(Entry {rhs_value, other.slots[rhs_slots[rhs_index]].count});
                     ++rhs_index;
                 } else {
-                    merged_values.append(lhs_value);
-                    merged_counts.push_back(checked_add(state.slots[lhs_slots[lhs_index]].count,
-                                                        other.slots[rhs_slots[rhs_index]].count));
+                    merged.push_back(Entry {lhs_value,
+                                            checked_add(state.slots[lhs_slots[lhs_index]].count,
+                                                        other.slots[rhs_slots[rhs_index]].count)});
                     ++lhs_index;
                     ++rhs_index;
                 }
             }
         }
-        check_slot_capacity(merged_counts.size());
-        assign_sorted(state, std::move(merged_values), std::move(merged_counts));
     }
 
     /// Writes a length-prefixed column blob. The declared length is
