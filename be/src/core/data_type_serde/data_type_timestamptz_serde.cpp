@@ -103,7 +103,13 @@ Status append_timestamptz_from_utc_epoch_micros(ColumnTimeStampTz::Container& da
     TimestampTzValue timestamp_tz;
     timestamp_tz.from_unixtime(epoch_seconds, UTC);
     timestamp_tz.set_microsecond(static_cast<uint32_t>(micros_of_second));
-    DCHECK(timestamp_tz.is_valid_date());
+    // The range check does not make every instant inside it a Doris date: cctz counts year 0 as a
+    // leap year and Doris does not (is_leap(0) is false), so 0000-02-29 UTC, timestamp(us)
+    // -62162121600000000, passes the range and packs into an invalid value.
+    if (!timestamp_tz.is_valid_date()) {
+        return Status::DataQualityError("Decoded TIMESTAMPTZ is not a valid Doris date: micros={}",
+                                        timestamp_micros);
+    }
     data.push_back(timestamp_tz);
     return Status::OK();
 }

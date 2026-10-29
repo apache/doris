@@ -739,6 +739,13 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
                     static_cast<uint16_t>(civil.year()), static_cast<uint8_t>(civil.month()),
                     static_cast<uint8_t>(civil.day()), static_cast<uint8_t>(civil.hour()),
                     static_cast<uint8_t>(civil.minute()), static_cast<uint16_t>(civil.second()), 0);
+            // cctz counts year 0 as a leap year and Doris does not (is_leap(0) is false), so the
+            // civil date 0000-02-29 passes the year check but is not a DATETIMEV2 value.
+            if (!v.is_valid_date()) {
+                return Status::DataQualityError(
+                        "Arrow timestamp {} of type {} is not a valid DATETIMEV2 value", date_value,
+                        type->ToString());
+            }
             // Get the fractional part.
             // add 0 on the right to make it 6 digits. DateTimeV2Value microsecond is 6 digits,
             // the scale decides to keep the first few digits, so the valid digits should be kept at the front.

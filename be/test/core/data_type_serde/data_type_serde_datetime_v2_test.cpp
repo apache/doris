@@ -626,6 +626,11 @@ TEST_F(DataTypeDateTimeV2SerDeTest, RejectsArrowTimestampsOutsideDateTimeV2Range
         EXPECT_NE(std::string::npos, status.to_string().find("is outside the DATETIMEV2 range"))
                 << status.to_string();
     }
+    // 0000-02-29 is inside the year range, but year 0 is not a leap year in Doris.
+    const auto leap_day = read(naive, -62162121600000000, utc, &result);
+    EXPECT_FALSE(leap_day.ok());
+    EXPECT_NE(std::string::npos, leap_day.to_string().find("is not a valid DATETIMEV2 value"))
+            << leap_day.to_string();
 
     // 9999-12-31 15:59:59.999999 UTC is 9999-12-31 23:59:59.999999 at +08:00, and one microsecond
     // later is 10000-01-01 there.

@@ -428,5 +428,10 @@ TEST_F(DataTypeTimeStampTzSerDeTest, RejectsArrowTimestampsOutsideTimestampTzRan
         EXPECT_NE(std::string::npos, status.to_string().find("outside the Doris 0000-9999 range"))
                 << status.to_string();
     }
+    // 0000-02-29 UTC is inside the range, but year 0 is not a leap year in Doris.
+    const auto leap_day = read(-62162121600000000, &result);
+    EXPECT_FALSE(leap_day.ok());
+    EXPECT_NE(std::string::npos, leap_day.to_string().find("not a valid Doris date"))
+            << leap_day.to_string();
 }
 } // namespace doris
