@@ -32,12 +32,13 @@ class RecordingShareConsumer : public KafkaShareConsumer {
 public:
     std::vector<std::tuple<int32_t, int64_t, bool>> acknowledgements;
     bool fail_record = false;
+    int64_t fail_offset = -1;
     bool fail_commit = false;
     int commits = 0;
 
 protected:
     Status acknowledge_record(int32_t partition, int64_t offset, bool accept) override {
-        if (fail_record) {
+        if (fail_record || offset == fail_offset) {
             return Status::InternalError("expired acquisition");
         }
         acknowledgements.emplace_back(partition, offset, accept);
@@ -102,6 +103,32 @@ TEST(KafkaShareConsumerTest, ExpiredAcquisitionCannotBeReused) {
     consumer.fail_record = true;
     EXPECT_FALSE(consumer.acknowledge_committed().ok());
     EXPECT_EQ(consumer.commits, 0);
+    EXPECT_FALSE(consumer.reset().ok());
+}
+
+TEST(KafkaShareConsumerTest, ExpiredAcquisitionDoesNotStrandCommittedRecords) {
+    RecordingShareConsumer consumer;
+    consumer.reserve_records(3);
+    consumer._records = {{0, 100}, {1, 50}, {2, 75}};
+    consumer._processed = 2;
+    consumer.fail_offset = 100;
+    EXPECT_FALSE(consumer.acknowledge_committed().ok());
+    EXPECT_EQ(consumer.acknowledgements,
+              (std::vector<std::tuple<int32_t, int64_t, bool>> {{1, 50, true}, {2, 75, false}}));
+    EXPECT_EQ(consumer.commits, 1);
+    EXPECT_FALSE(consumer.reset().ok());
+}
+
+TEST(KafkaShareConsumerTest, ExpiredAcquisitionDoesNotStrandReleasedRecords) {
+    RecordingShareConsumer consumer;
+    consumer.reserve_records(3);
+    consumer._records = {{0, 100}, {1, 50}, {2, 75}};
+    consumer._processed = 2;
+    consumer.fail_offset = 100;
+    EXPECT_FALSE(consumer.cancel(nullptr).ok());
+    EXPECT_EQ(consumer.acknowledgements,
+              (std::vector<std::tuple<int32_t, int64_t, bool>> {{1, 50, false}, {2, 75, false}}));
+    EXPECT_EQ(consumer.commits, 1);
     EXPECT_FALSE(consumer.reset().ok());
 }
 

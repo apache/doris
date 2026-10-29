@@ -186,13 +186,26 @@ Status KafkaShareConsumer::acknowledge(bool committed) {
         _records.clear();
         _processed = 0;
     }};
+    Status status;
+    bool staged = false;
     for (size_t i = 0; i < _records.size(); ++i) {
-        RETURN_IF_ERROR(acknowledge_record(_records[i].first, _records[i].second,
-                                           committed && i < _processed));
+        auto st = acknowledge_record(_records[i].first, _records[i].second,
+                                     committed && i < _processed);
+        if (st.ok()) {
+            staged = true;
+        } else if (status.ok()) {
+            status = st;
+        }
     }
-    RETURN_IF_ERROR(commit_acknowledgements());
-    _reusable = true;
-    return Status::OK();
+    // An expired acquisition must not strand acknowledgements for the remaining records.
+    if (staged) {
+        auto st = commit_acknowledgements();
+        if (status.ok()) {
+            status = st;
+        }
+    }
+    _reusable = status.ok();
+    return status;
 }
 
 Status KafkaShareConsumer::acknowledge_record(int32_t partition, int64_t offset, bool accept) {

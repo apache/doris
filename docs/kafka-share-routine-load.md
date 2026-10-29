@@ -25,6 +25,11 @@ separate group for each logical destination: members of one group divide records
 Initial position and replay are managed by the broker's share-group configuration.
 
 Delivery is **at least once**: records are accepted only after Doris commits.
+Failed tasks attempt to release their acquired batch for retry. A successful
+transaction accepts only the records fed into its load pipeline and releases the unprocessed
+remainder. An expired acquisition does not prevent acknowledgements for other
+records; any acknowledgement failure discards that consumer instead of pooling it.
+If release fails or the BE dies, retry depends on broker-side acquisition expiry.
 A crash after commit but before acknowledgement, an expired acquisition, or an
 acknowledgement failure can duplicate rows. There is no destination replay
 suppression in this phase. Retention and delivery-attempt limits can prevent
@@ -45,5 +50,23 @@ Polling consumers count consumers in the receive/append phase, not assigned part
 
 For crash testing, `RoutineLoadTaskExecutor.before_share_ack` blocks after Doris
 commit and before Kafka acknowledgement. Terminating that BE exercises redelivery.
-Exactly-once completion tracking and paired performance dashboards are subsequent
-phases; this implementation makes no exactly-once or performance claim.
+This implementation makes no exactly-once or performance claim.
+
+## Kafka trunk regression
+
+Use a disposable non-cloud Doris cluster with debug points enabled, a Kafka trunk
+broker with share groups enabled, and a built checkout of that same Kafka revision.
+Set `enableKafkaTest = "true"`, `kafkaTrunkHome`, `externalEnvIp`, and `kafka_port`
+in the regression configuration's `otherConfigs`, then run:
+
+```bash
+./run-regression-test.sh --run -d load_p0/routine_load -s test_kafka_share_at_least_once
+```
+
+The suite uses Kafka trunk's `kafka-configs.sh` to configure a fresh share group
+with `earliest` and `read_committed`, then tests transaction failure/retry and
+pause/resume with more readers than partitions. Its Duplicate Key table preserves
+duplicates while the checks require every input ID and its payload to arrive.
+The suite skips explicitly unless Kafka tests and `kafkaTrunkHome` are configured.
+It uses ordinary share acknowledgements and requires no transactional
+acknowledgement extension.

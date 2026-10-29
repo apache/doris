@@ -443,6 +443,15 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
     // create data consumer group
     std::shared_ptr<DataConsumerGroup> consumer_grp;
     std::shared_ptr<KafkaShareConsumer> share_consumer;
+    Defer release_share_batch {[&] {
+        if (share_consumer) {
+            auto st = share_consumer->cancel(ctx);
+            if (!st.ok()) {
+                LOG(WARNING) << "Failed to release Kafka share batch: " << ctx->brief() << ", "
+                             << st;
+            }
+        }
+    }};
     if (ctx->kafka_info && ctx->kafka_info->use_share_consumer) {
         if (ctx->is_multi_table || !ctx->kafka_info->begin_offset.empty()) {
             HANDLE_ERROR(Status::InvalidArgument("PAUSE: Invalid Kafka share task"),
@@ -581,7 +590,7 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
         telemetry.timing(st.ok() ? "task_ack_ok" : "task_ack_failed", MonotonicNanos() - ack_start,
                          ctx->number_loaded_rows);
         if (st.ok()) {
-            consumer_pool->return_consumer(share_consumer);
+            consumer_pool->return_consumer(std::move(share_consumer));
         } else {
             LOG(WARNING) << "Doris committed but Kafka share acknowledgement failed; redelivery "
                             "may duplicate rows: "
