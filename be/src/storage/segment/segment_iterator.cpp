@@ -114,6 +114,7 @@
 #include "util/concurrency_stats.h"
 #include "util/defer_op.h"
 #include "util/simd/bits.h"
+#include "util/simd/selection.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -2705,11 +2706,20 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
                 sel_rowid_idx[new_size++] = sel_pos + i;
             }
         } else {
-            simd::iterate_through_bits_mask(
-                    [&](const int bit_pos) {
-                        sel_rowid_idx[new_size++] = sel_pos + (uint16_t)bit_pos;
-                    },
-                    mask);
+#if defined(__x86_64__)
+            // Sparse masks need fewer stores with the original bit iteration.
+            if (__builtin_popcount(mask) > 2) {
+                // Fixed-width stores fit: new_size <= sel_pos and a complete SIMD block remains.
+                new_size += simd::append_selected_indices(mask, sel_pos, sel_rowid_idx + new_size);
+            } else
+#endif
+            {
+                simd::iterate_through_bits_mask(
+                        [&](const int bit_pos) {
+                            sel_rowid_idx[new_size++] = sel_pos + static_cast<uint16_t>(bit_pos);
+                        },
+                        mask);
+            }
         }
         sel_pos += SIMD_BYTES;
     }
