@@ -32,6 +32,10 @@ true	false	true	true	true
 -- !geography_cardinal_bearings --
 0	3.14159265359	1.570796326795	3.14159265359
 
+-- !geography_diagonal_bearings --
+0	0.955316618125	0.955316618125
+1	5.327868689055	5.327868689055
+
 -- !default_geography_crs_case --
 0	POINT (1 2)
 

@@ -44,6 +44,17 @@ suite("test_spatial_wkb_compatibility") {
         round(ST_Azimuth(ST_GeogFromWKB('010100000000000000000024400000000000804640'), ST_GeogFromWKB('010100000000000000000024400000000000004640')), 12),
         round(ST_Azimuth(ST_GeogFromWKB('010100000000000000000000000000000000000000'), ST_GeogFromWKB('0101000000000000000000f03f0000000000000000')), 12),
         round(ST_Angle(ST_GeogFromWKB('010100000000000000000024400000000000004740'), ST_GeogFromWKB('010100000000000000000024400000000000804640'), ST_GeogFromWKB('010100000000000000000024400000000000004640')), 12)"""
+    // At latitude 45 and a 90-degree longitude difference, the bearing is atan2(sqrt(2), 1).
+    // A north reference gives the same clockwise angle; the west endpoint checks normalization.
+    order_qt_geography_diagonal_bearings """select id,
+        round(ST_Azimuth(a, b), 12), round(ST_Angle(n, a, b), 12)
+        from (select number as id,
+            ST_GeogFromWKB('010100000000000000000000000000000000804640') a,
+            ST_GeogFromWKB(case number when 0
+                then '010100000000000000008056400000000000804640'
+                else '010100000000000000008056c00000000000804640' end) b,
+            ST_GeogFromWKB('010100000000000000000000000000000000004740') n
+            from numbers("number" = "2")) shapes"""
     // Recognized default CRS case aliases retain the same calculation and write identity.
     qt_default_geography_crs_case """select
         ST_Distance(cast(ST_GeogFromWKB('0101000000000000000000F03F0000000000000040')
