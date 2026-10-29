@@ -23,6 +23,10 @@
 
 #include "common/status.h"
 
+namespace doris::snii {
+class ZstdDecompressor;
+} // namespace doris::snii
+
 namespace doris::snii::format {
 
 // Optional allocation seam for full CSR decode callers that must gate every
@@ -73,6 +77,9 @@ struct PrxDecodeContext {
     PrxDecodeStats* stats = nullptr;
     PrxDecodedShape* shape = nullptr;
     PrxCsrAllocationGate* allocation_gate = nullptr;
+    // Optional: a reader that decodes many windows in a row passes its own decompressor, so the
+    // zstd windows reuse one context and one buffer. An allocation gate takes precedence.
+    ZstdDecompressor* zstd = nullptr;
 };
 
 } // namespace doris::snii::format
