@@ -17,11 +17,14 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <random>
+#include <thread>
 
 #include "core/field.h"
 #include "cpp/sync_point.h"
 #include "io/cache/remote_scan_cache_write_limiter.h"
+#include "runtime/thread_context.h"
 #include "storage/cache/page_cache.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/vertical_segment_writer.h"
@@ -164,6 +167,57 @@ TEST_F(SegmentFooterCacheTest, TestGetSegmentFooter) {
         Status st = segment_ptr->_get_segment_footer(footer, nullptr);
         ASSERT_TRUE(st.ok());
     }
+}
+
+// Segment::_footer_pb is a weak_ptr to the footer owned by the index page cache. After the cache
+// entry is evicted every caller re-parses the footer and re-assigns _footer_pb while other threads
+// are lock()ing it (variant sub-path readers call _get_segment_footer() once per path). The two
+// must be serialized, otherwise the weak_ptr control block counts get corrupted and the footer is
+// freed or destroyed twice. Run under TSAN/ASAN to see the original race; with the fix every
+// caller must get a valid, identical footer.
+TEST_F(SegmentFooterCacheTest, ConcurrentGetSegmentFooterWithEviction) {
+    auto segment_ptr = _segments.front();
+    auto* segment_footer_cache = ExecEnv::GetInstance()->get_storage_page_cache();
+    ASSERT_NE(segment_footer_cache, nullptr);
+    const auto cache_key = segment_ptr->get_segment_footer_cache_key();
+
+    std::shared_ptr<segment_v2::SegmentFooterPB> baseline;
+    ASSERT_TRUE(segment_ptr->_get_segment_footer(baseline, nullptr).ok());
+    ASSERT_NE(baseline, nullptr);
+    const auto expected_num_rows = baseline->num_rows();
+    const auto expected_size = baseline->ByteSizeLong();
+    baseline.reset();
+
+    constexpr int kThreads = 8;
+    constexpr int kIterations = 2000;
+    std::atomic<int> failures {0};
+    std::vector<std::thread> threads;
+    for (int t = 0; t < kThreads; ++t) {
+        threads.emplace_back([&, t] {
+            // Reading the footer from the file needs the thread context a scanner thread has.
+            SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
+            for (int i = 0; i < kIterations; ++i) {
+                if (t % 2 == 0) {
+                    // simulate the LRU eviction of the footer page
+                    segment_footer_cache->erase(cache_key, segment_v2::PageTypePB::INDEX_PAGE);
+                }
+                std::shared_ptr<segment_v2::SegmentFooterPB> footer;
+                Status st = segment_ptr->_get_segment_footer(footer, nullptr);
+                if (!st.ok() || footer == nullptr || footer->num_rows() != expected_num_rows ||
+                    footer->ByteSizeLong() != expected_size) {
+                    ++failures;
+                }
+                // reads _footer_pb as well
+                if (segment_ptr->get_metadata_size() <= 0) {
+                    ++failures;
+                }
+            }
+        });
+    }
+    for (auto& th : threads) {
+        th.join();
+    }
+    EXPECT_EQ(failures.load(), 0);
 }
 
 TEST_F(SegmentFooterCacheTest, GetSegmentFooterPropagatesIoContext) {

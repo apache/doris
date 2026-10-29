@@ -318,6 +318,10 @@ private:
 
     StoragePageCache::CacheKey get_segment_footer_cache_key() const;
 
+    // The only accessors of _footer_pb; they serialize lock() against re-assignment.
+    std::shared_ptr<SegmentFooterPB> _lock_footer_pb() const;
+    void _store_footer_pb(const std::shared_ptr<SegmentFooterPB>& footer_pb);
+
     friend class SegmentIterator;
     friend class ColumnReaderCache;
     friend class MockSegment;
@@ -362,7 +366,12 @@ private:
 
     DorisCallOnce<Status> _create_column_meta_once_call;
 
+    // Weak reference to the footer owned by the index page cache. A Segment is shared by every
+    // reader of its rowset (queries, compaction, statistics), and ColumnReaderCache re-enters
+    // _get_segment_footer() for each variant sub-path, so lock() and the re-assignment after a
+    // cache eviction can run concurrently. std::weak_ptr is not safe for that, hence the mutex.
     std::weak_ptr<SegmentFooterPB> _footer_pb;
+    mutable std::mutex _footer_pb_mutex;
 
     // Cached raw_data_bytes per column unique id, populated once in _create_column_meta().
     std::unordered_map<int32_t, uint64_t> _column_uid_to_raw_bytes;
