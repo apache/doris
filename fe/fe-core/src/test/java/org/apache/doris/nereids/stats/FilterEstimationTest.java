@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -58,6 +59,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 class FilterEstimationTest {
@@ -1074,6 +1076,175 @@ class FilterEstimationTest {
     }
 
     /**
+     * `ss_customer_sk is null and ss_sold_date_sk is not null`
+     *
+     * <p>The first predicate keeps the rows whose `ss_customer_sk` is null, the second one keeps the rows
+     * whose `ss_sold_date_sk` is not null among them. The null count of `ss_sold_date_sk` must be scaled
+     * down together with the row count, otherwise the two almost equal base-table null counts cancel each
+     * other and the filter is estimated to output only a few rows.
+     */
+    @Test
+    public void testIsNullAndIsNotNull() {
+        double rowCount = 28_799_983_563D;
+        SlotReference customer = new SlotReference("ss_customer_sk", IntegerType.INSTANCE);
+        SlotReference soldDate = new SlotReference("ss_sold_date_sk", IntegerType.INSTANCE);
+        ColumnStatistic customerStats = new ColumnStatisticBuilder(rowCount)
+                .setNdv(66_253_740).setAvgSizeByte(4).setNumNulls(1_296_000_270D)
+                .setMinValue(1).setMaxValue(65_000_000).build();
+        ColumnStatistic soldDateStats = new ColumnStatisticBuilder(rowCount)
+                .setNdv(1_829).setAvgSizeByte(4).setNumNulls(1_296_010_052D)
+                .setMinValue(2_450_816).setMaxValue(2_452_642).build();
+        Statistics inputStats = new StatisticsBuilder()
+                .setRowCount(rowCount)
+                .putColumnStatistics(customer, customerStats)
+                .putColumnStatistics(soldDate, soldDateStats)
+                .build();
+
+        Expression predicate = new And(new IsNull(customer), new Not(new IsNull(soldDate)));
+        Statistics outputStats = new FilterEstimation().estimate(predicate, inputStats);
+
+        double rowsAfterIsNull = customerStats.numNulls;
+        double expected = rowsAfterIsNull * (1 - soldDateStats.numNulls / rowCount);
+        Assertions.assertEquals(expected, outputStats.getRowCount(), expected * 0.001);
+    }
+
+    /**
+     * `a in (1, ..., 10) and b is null`
+     *
+     * <p>The in predicate keeps 10% of the rows, so the null count of `b` must be scaled by the same ratio
+     * before the is-null predicate uses it. Otherwise `b is null` is estimated with the null count of the
+     * base relation and is 10x too large.
+     */
+    @Test
+    public void testInPredicateScalesNumNulls() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        ColumnStatistic aStats = new ColumnStatisticBuilder(10_000)
+                .setNdv(100).setAvgSizeByte(4).setNumNulls(0)
+                .setMinValue(1).setMaxValue(100).build();
+        ColumnStatistic bStats = new ColumnStatisticBuilder(10_000)
+                .setNdv(100).setAvgSizeByte(4).setNumNulls(500)
+                .setMinValue(1).setMaxValue(1_000).build();
+        Statistics inputStats = new StatisticsBuilder()
+                .setRowCount(10_000)
+                .putColumnStatistics(a, aStats)
+                .putColumnStatistics(b, bStats)
+                .build();
+
+        List<Expression> options = new ArrayList<>();
+        for (int i = 1; i <= 10; i++) {
+            options.add(new IntegerLiteral(i));
+        }
+        Statistics inStats = new FilterEstimation().estimate(new InPredicate(a, options), inputStats);
+        Assertions.assertEquals(1_000, inStats.getRowCount(), 0.01);
+        // only 10% of the 500 nulls are expected within the rows kept by the in predicate
+        Assertions.assertEquals(50, inStats.findColumnStatistics(b).numNulls, 0.01);
+
+        Statistics result = new FilterEstimation().estimate(new IsNull(b), inStats);
+        Assertions.assertEquals(50, result.getRowCount(), 0.01);
+    }
+
+    /**
+     * `not (a in (1, ..., 90)) and b is null`
+     *
+     * <p>The not predicate keeps 10% of the rows, so the null count of `b` must be scaled by the same
+     * ratio before the is-null predicate uses it.
+     */
+    @Test
+    public void testNotPredicateScalesNumNulls() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        ColumnStatistic aStats = new ColumnStatisticBuilder(10_000)
+                .setNdv(100).setAvgSizeByte(4).setNumNulls(0)
+                .setMinValue(1).setMaxValue(100).build();
+        ColumnStatistic bStats = new ColumnStatisticBuilder(10_000)
+                .setNdv(100).setAvgSizeByte(4).setNumNulls(500)
+                .setMinValue(1).setMaxValue(1_000).build();
+        Statistics inputStats = new StatisticsBuilder()
+                .setRowCount(10_000)
+                .putColumnStatistics(a, aStats)
+                .putColumnStatistics(b, bStats)
+                .build();
+
+        List<Expression> options = new ArrayList<>();
+        for (int i = 1; i <= 90; i++) {
+            options.add(new IntegerLiteral(i));
+        }
+        Statistics notStats = new FilterEstimation().estimate(
+                new Not(new InPredicate(a, options)), inputStats);
+        Assertions.assertEquals(1_000, notStats.getRowCount(), 0.01);
+        Assertions.assertEquals(50, notStats.findColumnStatistics(b).numNulls, 0.01);
+
+        Statistics result = new FilterEstimation().estimate(new IsNull(b), notStats);
+        Assertions.assertEquals(50, result.getRowCount(), 0.01);
+    }
+
+    /**
+     * `a like 'x%' and b is null`
+     *
+     * <p>The like predicate keeps 20% of the rows, so the null count of `b` must be scaled by the same
+     * ratio before the is-null predicate uses it.
+     */
+    @Test
+    public void testLikePredicateScalesNumNulls() {
+        SlotReference a = new SlotReference("a", new VarcharType(10));
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        ColumnStatistic aStats = new ColumnStatisticBuilder(10_000)
+                .setNdv(100).setAvgSizeByte(8).setNumNulls(0).build();
+        ColumnStatistic bStats = new ColumnStatisticBuilder(10_000)
+                .setNdv(100).setAvgSizeByte(4).setNumNulls(500)
+                .setMinValue(1).setMaxValue(1_000).build();
+        Statistics inputStats = new StatisticsBuilder()
+                .setRowCount(10_000)
+                .putColumnStatistics(a, aStats)
+                .putColumnStatistics(b, bStats)
+                .build();
+
+        Statistics likeStats = new FilterEstimation().estimate(
+                new Like(a, new StringLiteral("x%")), inputStats);
+        Assertions.assertEquals(2_000, likeStats.getRowCount(), 0.01);
+        Assertions.assertEquals(100, likeStats.findColumnStatistics(b).numNulls, 0.01);
+
+        Statistics result = new FilterEstimation().estimate(new IsNull(b), likeStats);
+        Assertions.assertEquals(100, result.getRowCount(), 0.01);
+    }
+
+    /**
+     * `a = b and c is null`
+     *
+     * <p>The equality of two columns keeps only `1 / max(ndv)` of the rows, so the null count of `c` must
+     * be scaled by the same ratio before the is-null predicate uses it.
+     */
+    @Test
+    public void testColumnToColumnScalesNumNulls() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE);
+        ColumnStatistic aStats = new ColumnStatisticBuilder(10_000)
+                .setNdv(100).setAvgSizeByte(4).setNumNulls(0)
+                .setMinValue(1).setMaxValue(100).build();
+        ColumnStatistic bStats = new ColumnStatisticBuilder(10_000)
+                .setNdv(100).setAvgSizeByte(4).setNumNulls(0)
+                .setMinValue(1).setMaxValue(100).build();
+        ColumnStatistic cStats = new ColumnStatisticBuilder(10_000)
+                .setNdv(10).setAvgSizeByte(4).setNumNulls(500)
+                .setMinValue(1).setMaxValue(1_000).build();
+        Statistics inputStats = new StatisticsBuilder()
+                .setRowCount(10_000)
+                .putColumnStatistics(a, aStats)
+                .putColumnStatistics(b, bStats)
+                .putColumnStatistics(c, cStats)
+                .build();
+
+        Statistics equalStats = new FilterEstimation().estimate(new EqualTo(a, b), inputStats);
+        Assertions.assertEquals(100, equalStats.getRowCount(), 0.01);
+        Assertions.assertEquals(5, equalStats.findColumnStatistics(c).numNulls, 0.01);
+
+        Statistics result = new FilterEstimation().estimate(new IsNull(c), equalStats);
+        Assertions.assertEquals(5, result.getRowCount(), 0.01);
+    }
+
+    /**
      * a = 1
      */
     @Test
@@ -1695,7 +1866,7 @@ class FilterEstimationTest {
      * estimated output rows is zero.
      * But after 2020-01-01, some rows are inserted, called delta rows.
      * we will estimate output based on deltaRows, and assume all column stats are unknown.
-     * after estimation, we will put col stats back except A, and run Statistics.normalizeColumnStatistics().
+     * after estimation, we will put col stats back except A, and run Statistics.enforceValid().
      */
     @Test
     void testDeltaRow() {
