@@ -28,7 +28,7 @@ from urllib.parse import parse_qs, urlsplit
 
 PHASES = ("limit", "cancel", "planning_cancel", "timeout", "planning_timeout",
           "first_split_timeout_1000", "first_split_timeout_2500")
-COUNTERS = ("queue_batches", "queued_ranges", "listeners", "resources", "active_runs", "live_producers")
+COUNTERS = ("nonempty_queues", "queued_ranges", "listeners", "resources", "active_runs", "live_producers")
 
 
 def require(condition, message):

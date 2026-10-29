@@ -26,6 +26,7 @@ import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.NameSpaceContext;
 import org.apache.doris.catalog.OlapChangelogTableWrapper;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -47,6 +48,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalView;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
+import org.apache.doris.datasource.mvcc.MvccReadSelector;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenSysExternalTable;
 import org.apache.doris.datasource.systable.SysTableResolver;
@@ -88,8 +90,10 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.QuantileUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.RowTtlIsVisible;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -323,6 +327,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     partIds, tabletIds, cascadesContext);
         }
         if (cascadesContext.getStatementContext().isHintForcePreAggOn()) {
+            if (((OlapTable) table).hasRowTtl()) {
+                throw new AnalysisException(
+                        "PREAGGOPEN hint is not supported on tables with row TTL: " + table.getName());
+            }
             return scan.withPreAggStatus(PreAggStatus.on());
         }
         if (needGenerateLogicalAggForRandomDistAggTable(scan)) {
@@ -331,8 +339,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
             return preAggForRandomDistribution(scan);
         } else {
             // it's a duplicate, unique or hash distribution agg table
-            // add delete sign filter on olap scan if needed
-            return checkAndAddDeleteSignFilter(scan, ConnectContext.get(), (OlapTable) table);
+            // add post-merge row visibility conditions on olap scan if needed
+            return addRowVisibilityFilters(scan, ConnectContext.get(), (OlapTable) table);
         }
     }
 
@@ -479,9 +487,41 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
     }
 
-    /**
-     * Add delete sign filter on olap scan if need.
-     */
+    /** Add the ordinary row-visibility conditions after storage merge. */
+    public static LogicalPlan addRowVisibilityFilters(LogicalOlapScan scan, ConnectContext connectContext,
+            OlapTable olapTable) {
+        if (!olapTable.hasRowTtl()) {
+            return checkAndAddDeleteSignFilter(scan, connectContext, olapTable, false);
+        }
+        if (olapTable.isMorTable()) {
+            scan = scan.withPreAggStatus(PreAggStatus.off(
+                    Column.TTL_COL + " is used as conjuncts."));
+        }
+        LogicalPlan plan = checkAndAddDeleteSignFilter(scan, connectContext, olapTable, false);
+        Slot ttlSlot = plan.getOutput().stream()
+                .filter(slot -> slot.getName().equalsIgnoreCase(Column.TTL_COL))
+                .findFirst()
+                .orElseThrow(() -> new AnalysisException(
+                        "row ttl hidden column is missing from table " + olapTable.getName()));
+        Expression rowTtlIsVisible;
+        if (ttlSlot.getDataType().isDateLikeType()) {
+            String rowTtlCol = olapTable.getRowTtlCol();
+            Column sourceColumn = rowTtlCol == null ? null : olapTable.getColumn(rowTtlCol);
+            if (sourceColumn == null) {
+                throw new AnalysisException("row ttl column does not exist: " + rowTtlCol);
+            }
+            if (sourceColumn.isGeneratedColumn()) {
+                throw new AnalysisException("row ttl column does not support generated columns: " + rowTtlCol);
+            }
+            int timeZoneOffsetSeconds = olapTable.getRowTtlTimeZoneOffsetSeconds();
+            rowTtlIsVisible = new RowTtlIsVisible(ttlSlot, new BigIntLiteral(olapTable.getRowTtlDurationMicros()),
+                    new IntegerLiteral(timeZoneOffsetSeconds));
+        } else {
+            rowTtlIsVisible = new RowTtlIsVisible(ttlSlot);
+        }
+        return new LogicalFilter<>(ImmutableSet.of(rowTtlIsVisible), plan);
+    }
+
     public static LogicalPlan checkAndAddDeleteSignFilter(LogicalOlapScan scan, ConnectContext connectContext,
             OlapTable olapTable) {
         return checkAndAddDeleteSignFilter(scan, connectContext, olapTable, false);
@@ -540,6 +580,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
      * and (for mow) historical value recorded in changelog for the union right branch.
      */
     private void validateTimeTravel(OlapTable olapTable) {
+        if (olapTable.hasRowTtl()) {
+            throw new AnalysisException("FOR VERSION/TIME AS OF is not supported on tables with row TTL. Table "
+                    + olapTable.getQualifiedName() + ".");
+        }
         if (!olapTable.enableTso()) {
             throw new AnalysisException("FOR VERSION/TIME AS OF requires changelog "
                     + "(PROPERTIES('changelog.enable'='true')) on table "
@@ -600,6 +644,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     ? TSOTimestamp.UNBOUNDED_TSO
                     : TSOTimestamp.nextTso(version);
         }
+
         long ms = OlapScanNode.parseChangeTimestamp(snapshot.getValue());
         return TSOTimestamp.nextTso(TSOTimestamp.composePhysicalTimestamp(ms));
     }
@@ -710,6 +755,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
             throws AnalysisException {
         if (scanParams == null || !scanParams.incrementalRead()) {
             return null;
+        }
+        if (olapTable.hasRowTtl()) {
+            throw new AnalysisException("INCR query is not supported on tables with row TTL. Table "
+                    + olapTable.getQualifiedName() + ".");
         }
         if (!olapTable.hasChangelog()) {
             throw new AnalysisException("INCR query requires changelog enabled on base table.");
@@ -937,11 +986,20 @@ public class BindRelation extends OneAnalysisRuleFactory {
                             sqlCacheContext.addUsedTable(table);
                         } else if (table instanceof ExternalTable && table instanceof MTMVRelatedTableIf
                                 && cascadesContext.getConnectContext().getSessionVariable().enableHiveSqlCache) {
-                            // Any external lakehouse plugin table that exposes a stable data-version token
-                            // (MTMVRelatedTableIf#getNewestUpdateVersionOrTime) is cacheable; addUsedTable
-                            // records the token and fails safe if it is unavailable. Gated by the (default
-                            // false) enable_hive_sql_cache switch so behavior is unchanged unless opted in.
-                            sqlCacheContext.addUsedTable(table);
+                            // Record a connector's lightweight SQL-cache version when available, otherwise
+                            // retain the legacy freshness path. The external cache opt-in applies to both.
+                            // Incremental/options scans need their own cache identity contract; point-in-time
+                            // references use the same selector and snapshot as ordinary analysis and scanning.
+                            TableScanParams params = unboundRelation.getScanParams();
+                            if (params != null && !params.isBranch() && !params.isTag()) {
+                                sqlCacheContext.setHasUnsupportedTables(true);
+                            } else {
+                                MvccReadSelector selector = MvccReadSelector.of(unboundRelation.getTableSnapshot(),
+                                        Optional.ofNullable(params));
+                                sqlCacheContext.addUsedTable(table, cascadesContext.getStatementContext()
+                                        .getSnapshot(table, selector.getTableSnapshot(), selector.getScanParams()),
+                                        selector);
+                            }
                         } else {
                             sqlCacheContext.setHasUnsupportedTables(true);
                         }
@@ -977,20 +1035,18 @@ public class BindRelation extends OneAnalysisRuleFactory {
             ExternalTable table, String externalCatalog, String externalDb,
             String ddlSql, CascadesContext cascadesContext) {
         ConnectContext ctx = cascadesContext.getConnectContext();
-        String previousCatalog = ctx.getCurrentCatalog().getName();
-        String previousDb = ctx.getDatabase();
+        NameSpaceContext previousNamespace = ctx.getNameSpaceContext();
         String convertedSql = SqlDialectHelper.convertSqlByDialect(ddlSql, ctx.getSessionVariable());
         // change catalog and db to external catalog and db,
         // so that we can parse and analyze the view sql in external context.
-        ctx.changeDefaultCatalog(externalCatalog);
-        ctx.setDatabase(externalDb);
         try {
+            ctx.changeDefaultCatalog(externalCatalog);
+            ctx.setDatabase(externalDb);
             return new LogicalView<>(new ExternalView(table, ddlSql),
                     parseAndAnalyzeView(table, convertedSql, cascadesContext));
         } finally {
-            // restore catalog and db in connect context
-            ctx.changeDefaultCatalog(previousCatalog);
-            ctx.setDatabase(previousDb);
+            // Also restore failed namespace entry without masking analysis errors with metadata IO.
+            ctx.restoreNameSpaceContext(previousNamespace);
         }
     }
 

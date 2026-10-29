@@ -26,11 +26,14 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <chrono>
 #include <memory>
 #include <ostream>
+#include <thread>
 #include <utility>
 #include <vector>
 
+#include "common/status.h"
 #include "gtest/gtest_pred_impl.h"
 #include "runtime/record_batch_queue.h"
 
@@ -132,6 +135,58 @@ TEST_F(ResultQueueMgrTest, fetch_result_end) {
     EXPECT_TRUE(queue_mgr.fetch_result(query_id, &result, &eos).ok());
     EXPECT_TRUE(eos);
     EXPECT_TRUE(result == nullptr);
+}
+
+// MemoryScratchSink puts the sentinel when its task closes, also after a failure. A successful
+// close records OK, which must leave the sentinel a normal end of the scan.
+TEST_F(ResultQueueMgrTest, fetch_result_end_after_ok_status) {
+    ResultQueueMgr queue_mgr;
+    TUniqueId query_id;
+    query_id.lo = 10;
+    query_id.hi = 100;
+
+    BlockQueueSharedPtr block_queue_t;
+    queue_mgr.create_queue(query_id, &block_queue_t);
+    block_queue_t->update_status(Status::OK());
+    block_queue_t->blocking_put(nullptr);
+
+    std::shared_ptr<arrow::RecordBatch> result;
+    bool eos = false;
+    EXPECT_TRUE(queue_mgr.fetch_result(query_id, &result, &eos).ok());
+    EXPECT_TRUE(eos);
+}
+
+// A failed scan (for example a batch the Arrow Flight convertor rejects) also ends with the
+// sentinel. The failure is recorded before it, and must reach the external scanner instead of a
+// successful end with the rows fetched so far, also when its fetch already waits for data: that
+// fetch passed the status check before the failure happened.
+TEST_F(ResultQueueMgrTest, fetch_result_reports_failure_recorded_before_sentinel) {
+    ResultQueueMgr queue_mgr;
+    TUniqueId query_id;
+    query_id.lo = 10;
+    query_id.hi = 100;
+
+    BlockQueueSharedPtr block_queue_t;
+    queue_mgr.create_queue(query_id, &block_queue_t);
+
+    std::shared_ptr<arrow::RecordBatch> waiting_result;
+    bool waiting_eos = false;
+    Status waiting_status;
+    std::thread waiting_fetch([&]() {
+        waiting_status = queue_mgr.fetch_result(query_id, &waiting_result, &waiting_eos);
+    });
+    // Let the fetch pass its first status check and block on the empty queue.
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    block_queue_t->update_status(Status::InvalidArgument("rejected Arrow batch"));
+    block_queue_t->blocking_put(nullptr);
+    waiting_fetch.join();
+    EXPECT_TRUE(waiting_status.is<ErrorCode::INVALID_ARGUMENT>()) << waiting_status;
+
+    // Later fetches keep reporting the failure instead of the end of the scan.
+    std::shared_ptr<arrow::RecordBatch> result;
+    bool eos = false;
+    const auto status = queue_mgr.fetch_result(query_id, &result, &eos);
+    EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
 }
 
 TEST_F(ResultQueueMgrTest, normal_cancel) {

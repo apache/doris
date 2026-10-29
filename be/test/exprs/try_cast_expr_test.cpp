@@ -37,7 +37,7 @@
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/field.h"
 #include "core/types.h"
-#include "exprs/function/simple_function_factory.h"
+#include "exprs/function/cast/cast_base.h"
 #include "exprs/function_context.h"
 #include "exprs/vcast_expr.h"
 #include "exprs/vexpr_context.h"
@@ -45,53 +45,27 @@
 
 namespace doris {
 
-template <class Impl>
-class try_cast_test_function : public IFunction {
-public:
-    static constexpr auto name = "";
-    static FunctionPtr create() { return std::make_shared<try_cast_test_function>(); }
-    String get_name() const override { return name; }
-    bool skip_return_type_check() const override { return true; }
-    bool use_default_implementation_for_constants() const override { return false; }
-
-    size_t get_number_of_arguments() const override { return 0; }
-
-    bool is_variadic() const override { return true; }
-
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeFloat64>();
-    }
-
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count) const override {
-        return Impl::execute_impl(context, block, arguments, result, input_rows_count);
-    }
-};
-
 struct TryCastTestNoErrorImpl {
-    static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, uint32_t result,
-                               size_t input_rows_count) {
-        auto column = block.get_by_position(arguments[0]).type->create_column();
+    static Status execute_impl(RuntimeState* state, const ColumnWithTypeAndName& source,
+                               ColumnWithTypeAndName& target, size_t input_rows_count) {
+        auto column = source.type->create_column();
         column->insert_many_defaults(input_rows_count);
-        block.get_by_position(result).column = std::move(column);
+        target.column = std::move(column);
         return Status::OK();
     }
 };
 
 struct TryCastTestReturnErrorImpl {
-    static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, uint32_t result,
-                               size_t input_rows_count) {
+    static Status execute_impl(RuntimeState* state, const ColumnWithTypeAndName& source,
+                               ColumnWithTypeAndName& target, size_t input_rows_count) {
         return Status::InternalError("try_cast test error");
     }
 };
 
 struct TryCastTestRowExecReturnNotNullImpl {
-    static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, uint32_t result,
-                               size_t input_rows_count) {
-        auto column = block.get_by_position(arguments[0]).column;
+    static Status execute_impl(RuntimeState* state, const ColumnWithTypeAndName& source,
+                               ColumnWithTypeAndName& target, size_t input_rows_count) {
+        auto column = source.column;
         if (column->size() > 1) {
             return Status::InvalidArgument("input column size > 1");
         }
@@ -101,16 +75,15 @@ struct TryCastTestRowExecReturnNotNullImpl {
         }
         auto ret_col = ColumnInt32::create();
         ret_col->insert_value(x);
-        block.get_by_position(result).column = std::move(ret_col);
+        target.column = std::move(ret_col);
         return Status::OK();
     }
 };
 
 struct TryCastTestRowExecReturnNullImpl {
-    static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, uint32_t result,
-                               size_t input_rows_count) {
-        auto column = block.get_by_position(arguments[0]).column;
+    static Status execute_impl(RuntimeState* state, const ColumnWithTypeAndName& source,
+                               ColumnWithTypeAndName& target, size_t input_rows_count) {
+        auto column = source.column;
         if (column->size() > 1) {
             return Status::InvalidArgument("input column size > 1");
         }
@@ -122,16 +95,15 @@ struct TryCastTestRowExecReturnNullImpl {
         ret_col->insert_value(x);
         auto col =
                 ColumnNullable::create(std::move(ret_col), ColumnUInt8::create(1, x == 0 ? 0 : 1));
-        block.get_by_position(result).column = std::move(col);
+        target.column = std::move(col);
         return Status::OK();
     }
 };
 
 struct TryCastTestRowExecReturnErrorImpl {
-    static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, uint32_t result,
-                               size_t input_rows_count) {
-        auto column = block.get_by_position(arguments[0]).column;
+    static Status execute_impl(RuntimeState* state, const ColumnWithTypeAndName& source,
+                               ColumnWithTypeAndName& target, size_t input_rows_count) {
+        auto column = source.column;
         if (column->size() > 1) {
             return Status::InvalidArgument("input column size > 1");
         }
@@ -141,9 +113,8 @@ struct TryCastTestRowExecReturnErrorImpl {
 
 template <int error_code, bool retry, bool throw_error>
 struct TryCastTestExecutionErrorImpl {
-    static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, uint32_t result,
-                               size_t input_rows_count) {
+    static Status execute_impl(RuntimeState* state, const ColumnWithTypeAndName& source,
+                               ColumnWithTypeAndName& target, size_t input_rows_count) {
         if constexpr (retry) {
             if (input_rows_count > 1) {
                 return Status::InvalidArgument("retry the failed conversion batch");
@@ -160,10 +131,9 @@ struct TryCastTestExecutionErrorImpl {
 
 template <bool nullable>
 struct TryCastTestOverflowImpl {
-    static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, uint32_t result,
-                               size_t input_rows_count) {
-        const auto& column = block.get_by_position(arguments[0]).column;
+    static Status execute_impl(RuntimeState* state, const ColumnWithTypeAndName& source,
+                               ColumnWithTypeAndName& target, size_t input_rows_count) {
+        const auto& column = source.column;
         auto ret_col = ColumnInt32::create();
         for (size_t row = 0; row < input_rows_count; ++row) {
             auto value = column->get_int(row);
@@ -173,10 +143,10 @@ struct TryCastTestOverflowImpl {
             ret_col->insert_value(value);
         }
         if constexpr (nullable) {
-            block.get_by_position(result).column = ColumnNullable::create(
-                    std::move(ret_col), ColumnUInt8::create(input_rows_count, 0));
+            target.column = ColumnNullable::create(std::move(ret_col),
+                                                   ColumnUInt8::create(input_rows_count, 0));
         } else {
-            block.get_by_position(result).column = std::move(ret_col);
+            target.column = std::move(ret_col);
         }
         return Status::OK();
     }
@@ -283,11 +253,17 @@ struct TryCastExprTest : public ::testing::Test {
         context->_fn_contexts[0] =
                 FunctionContext::create_context(state, result_type, {input_type, result_type});
         context->fn_context(0)->set_enable_strict_mode(strict);
+        try_cast_expr._runtime_state = state;
         ColumnsWithTypeAndName arguments {{input_column->get_ptr(), input_type, "input"},
                                           {nullptr, result_type, "target"}};
-        try_cast_expr._function =
-                SimpleFunctionFactory::instance().get_function("CAST", arguments, result_type);
-        ASSERT_NE(try_cast_expr._function, nullptr);
+        const auto* function_context = context->fn_context(0);
+        const CastOptions cast_options {
+                .strict_mode = function_context->enable_strict_mode(),
+                .check_overflow_for_decimal = function_context->check_overflow_for_decimal(),
+                .string_as_jsonb_string = function_context->string_as_jsonb_string(),
+                .jsonb_string_as_string = function_context->jsonb_string_as_string()};
+        try_cast_expr._cast_executor =
+                CastWrapper::bind_cast_executor(cast_options, input_type, result_type);
 
         Block block {arguments[0]};
         ColumnPtr result;
@@ -302,15 +278,22 @@ struct TryCastExprTest : public ::testing::Test {
         }
     }
 
+    template <typename Impl>
+    void bind_test_cast() {
+        try_cast_expr._cast_executor = [](RuntimeState* state, const ColumnWithTypeAndName& source,
+                                          ColumnWithTypeAndName& target, size_t rows,
+                                          const NullMap::value_type*) {
+            return Impl::execute_impl(state, source, target, rows);
+        };
+    }
+
     TryCastExpr try_cast_expr;
 
     std::unique_ptr<VExprContext> context;
 };
 
 TEST_F(TryCastExprTest, BasicTest1) {
-    try_cast_expr._function = std::make_shared<DefaultFunction>(
-            try_cast_test_function<TryCastTestNoErrorImpl>::create(),
-            DataTypes {std::make_shared<DataTypeInt32>()}, std::make_shared<DataTypeInt32>());
+    bind_test_cast<TryCastTestNoErrorImpl>();
 
     Block block;
     block.insert(ColumnWithTypeAndName {ColumnNothing::create(3), std::make_shared<DataTypeInt32>(),
@@ -322,9 +305,7 @@ TEST_F(TryCastExprTest, BasicTest1) {
 }
 
 TEST_F(TryCastExprTest, BasicTest2) {
-    try_cast_expr._function = std::make_shared<DefaultFunction>(
-            try_cast_test_function<TryCastTestNoErrorImpl>::create(),
-            DataTypes {std::make_shared<DataTypeInt32>()}, std::make_shared<DataTypeInt32>());
+    bind_test_cast<TryCastTestNoErrorImpl>();
 
     Block block;
     block.insert(ColumnWithTypeAndName {ColumnNothing::create(3), std::make_shared<DataTypeInt32>(),
@@ -336,9 +317,7 @@ TEST_F(TryCastExprTest, BasicTest2) {
 }
 
 TEST_F(TryCastExprTest, return_error) {
-    try_cast_expr._function = std::make_shared<DefaultFunction>(
-            try_cast_test_function<TryCastTestReturnErrorImpl>::create(),
-            DataTypes {std::make_shared<DataTypeInt32>()}, std::make_shared<DataTypeInt32>());
+    bind_test_cast<TryCastTestReturnErrorImpl>();
 
     Block block;
     block.insert(ColumnWithTypeAndName {ColumnNothing::create(3), std::make_shared<DataTypeInt32>(),
@@ -350,9 +329,7 @@ TEST_F(TryCastExprTest, return_error) {
 }
 
 TEST_F(TryCastExprTest, row_exec1) {
-    try_cast_expr._function = std::make_shared<DefaultFunction>(
-            try_cast_test_function<TryCastTestRowExecReturnNotNullImpl>::create(),
-            DataTypes {std::make_shared<DataTypeInt32>()}, std::make_shared<DataTypeInt32>());
+    bind_test_cast<TryCastTestRowExecReturnNotNullImpl>();
 
     Block block;
     int result_column_id = -1;
@@ -371,9 +348,7 @@ TEST_F(TryCastExprTest, row_exec1) {
 }
 
 TEST_F(TryCastExprTest, row_exec2) {
-    try_cast_expr._function = std::make_shared<DefaultFunction>(
-            try_cast_test_function<TryCastTestRowExecReturnNullImpl>::create(),
-            DataTypes {std::make_shared<DataTypeInt32>()}, std::make_shared<DataTypeInt32>());
+    bind_test_cast<TryCastTestRowExecReturnNullImpl>();
 
     Block block;
     int result_column_id = -1;
@@ -392,9 +367,7 @@ TEST_F(TryCastExprTest, row_exec2) {
 }
 
 TEST_F(TryCastExprTest, row_exec3) {
-    try_cast_expr._function = std::make_shared<DefaultFunction>(
-            try_cast_test_function<TryCastTestRowExecReturnErrorImpl>::create(),
-            DataTypes {std::make_shared<DataTypeInt32>()}, std::make_shared<DataTypeInt32>());
+    bind_test_cast<TryCastTestRowExecReturnErrorImpl>();
 
     Block block;
     int result_column_id = -1;
@@ -407,9 +380,7 @@ TEST_F(TryCastExprTest, row_exec3) {
 
 TEST_F(TryCastExprTest, arithmetic_overflow) {
     auto check_overflow = [&]<bool nullable>() {
-        try_cast_expr._function = std::make_shared<DefaultFunction>(
-                try_cast_test_function<TryCastTestOverflowImpl<nullable>>::create(),
-                DataTypes {std::make_shared<DataTypeInt32>()}, std::make_shared<DataTypeInt32>());
+        bind_test_cast<TryCastTestOverflowImpl<nullable>>();
         try_cast_expr._original_cast_return_is_nullable = nullable;
         for (size_t rows : {1, 3}) {
             ColumnPtr result;
@@ -446,17 +417,14 @@ TEST_F(TryCastExprTest, child_arithmetic_overflow) {
 TEST_F(TryCastExprTest, execution_errors_are_not_conversion_failures) {
     try_cast_expr._original_cast_return_is_nullable = false;
     auto check_error = [&]<int error_code, bool retry, bool throw_error>() {
-        try_cast_expr._function = std::make_shared<DefaultFunction>(
-                try_cast_test_function<
-                        TryCastTestExecutionErrorImpl<error_code, retry, throw_error>>::create(),
-                DataTypes {std::make_shared<DataTypeInt32>()}, std::make_shared<DataTypeInt32>());
+        bind_test_cast<TryCastTestExecutionErrorImpl<error_code, retry, throw_error>>();
         ColumnPtr result;
         auto status = try_cast_expr.execute_column_impl(context.get(), nullptr, nullptr, 3, result);
         EXPECT_EQ(status.code(), error_code) << status;
         EXPECT_EQ(status.msg(), "cast execution failed");
     };
     auto check_paths = [&]<int error_code>() {
-        // Exercise both direct Status returns and the function exception boundary,
+        // Exercise both direct Status returns and the CAST exception boundary,
         // before retry and during single-row retry, without exhausting real resources.
         check_error.template operator()<error_code, false, false>();
         check_error.template operator()<error_code, false, true>();

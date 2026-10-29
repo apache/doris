@@ -311,7 +311,7 @@ suite("test_ivm_append_only_dup_mv_3") {
 
     test {
         sql """REFRESH MATERIALIZED VIEW dup_mv_premise INCREMENTAL WITH DRY RUN"""
-        exception "can only be built over duplicate-key detail tables"
+        exception "does not provide an append-only changelog"
     }
 
     // A rebuild would normalize the same way and fail the same way, so the MV is left in the state that

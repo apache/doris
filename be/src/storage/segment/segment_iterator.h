@@ -191,6 +191,7 @@ private:
     void _init_column_states();
     void _rebuild_scan_predicate_states();
     void _mark_common_expr_states(const VExprSPtr& expr, bool runtime_generated);
+    void _mark_common_expr_column(ColumnId ordinal, bool runtime_generated);
     Status _vec_init_lazy_materialization();
 
     uint32_t segment_id() const { return _segment->id(); }
@@ -367,6 +368,8 @@ private:
     std::vector<std::unique_ptr<IndexIterator>> _index_iterators;
     // after init(), `_row_bitmap` contains all rowid to scan
     roaring::Roaring _row_bitmap;
+    // Cardinality cached after all row bitmap filters are applied in _lazy_init().
+    uint64_t _row_bitmap_cardinality = 0;
     // an iterator for `_row_bitmap` that can be used to extract row range to scan
     std::unique_ptr<BitmapRangeIterator> _range_iter;
     // the next rowid to read

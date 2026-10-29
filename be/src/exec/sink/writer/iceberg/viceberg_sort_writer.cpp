@@ -274,6 +274,9 @@ Status VIcebergSortWriter::_do_spill() {
         RETURN_IF_ERROR(writer->write_block(_runtime_state, block));
         block.clear_column_data();
     }
+    // On object storage close() uploads the tail of the file; a failure must fail the spill
+    // instead of being logged by the destructor.
+    RETURN_IF_ERROR(writer->close());
     // Reset the sorter to free memory and accept new data
     _sorter->reset();
     return Status::OK();
@@ -337,6 +340,8 @@ Status VIcebergSortWriter::_do_intermediate_merge() {
         RETURN_IF_ERROR(_merger->get_next(&merge_sorted_block, &eos));
         RETURN_IF_ERROR(tmp_spill_writer->write_block(_runtime_state, merge_sorted_block));
     }
+    // The merged output must be complete before its inputs are deleted.
+    RETURN_IF_ERROR(tmp_spill_writer->close());
 
     // Clean up the files that were consumed during this intermediate merge
     for (auto& file : _current_merging_spill_files) {
@@ -383,8 +388,12 @@ Status VIcebergSortWriter::_create_merger(bool is_final_merge, size_t batch_size
 }
 
 Status VIcebergSortWriter::_create_final_merger() {
-    // Final merger uses the runtime batch size and merges all remaining streams
-    return _create_merger(true, _runtime_state->batch_size(), 1);
+    // Keep the final output within both the normal runtime batch and the spill-buffer estimate.
+    return _create_merger(true, _final_merge_batch_row_count(), 1);
+}
+
+size_t VIcebergSortWriter::_final_merge_batch_row_count() const {
+    return std::min<size_t>(_runtime_state->batch_size(), _spill_block_batch_row_count);
 }
 
 void VIcebergSortWriter::_cleanup_spill_streams() {

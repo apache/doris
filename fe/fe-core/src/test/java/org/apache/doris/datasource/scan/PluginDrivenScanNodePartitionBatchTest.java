@@ -57,7 +57,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 class PluginDrivenScanNodePartitionBatchTest {
     @Test
     void initialBatchRetainsConfiguredSizeAcrossPartitions() throws Exception {
-        Fixture fixture = new Fixture(128, Collections.emptySet(), 100);
+        Fixture fixture = new Fixture(128, Collections.emptySet(), 100, 128);
         try (SplitProducer.BatchSource source = fixture.sources(3, 1, 1).get(0)) {
             List<Split> first = source.getNextBatch();
             Assertions.assertEquals(128, first.size());
@@ -86,7 +86,7 @@ class PluginDrivenScanNodePartitionBatchTest {
 
     @Test
     void firstBatchRetainsConfiguredSizeWithinALargePartitionBatch() throws Exception {
-        Fixture fixture = new Fixture(128, Collections.emptySet(), 100);
+        Fixture fixture = new Fixture(128, Collections.emptySet(), 100, 128);
         try (SplitProducer.BatchSource source = fixture.sources(3, 1024, 1).get(0)) {
             Assertions.assertEquals(128, source.getNextBatch().size());
             Assertions.assertEquals(128, source.getNextBatch().size());
@@ -97,7 +97,7 @@ class PluginDrivenScanNodePartitionBatchTest {
 
     @Test
     void wholeScanStreamingRetainsConfiguredBatchSize() throws Exception {
-        Fixture fixture = new Fixture(128, Collections.emptySet(), 200);
+        Fixture fixture = new Fixture(128, Collections.emptySet(), 200, 128);
         ConnectorScanRequest request = ConnectorScanRequest.builder(new ConnectorTableHandle() {
         }, Collections.emptyList()).build();
         Iterator<ConnectorScanRange> ranges = fixture.provider.planScanForPartitionBatch(
@@ -122,7 +122,7 @@ class PluginDrivenScanNodePartitionBatchTest {
         Mockito.doReturn(connectorSource).when(fixture.provider).streamSplits(Mockito.any(), Mockito.any());
         SessionVariable variables = Mockito.mock(SessionVariable.class);
         Mockito.when(variables.getSplitBatchSize()).thenReturn(128);
-        Mockito.when(variables.getSplitQueueCapacity()).thenReturn(1);
+        Mockito.when(variables.getSplitQueueCapacity()).thenReturn(128);
         Deencapsulation.setField(fixture.node, "sessionVariable", variables);
         try (SplitProducer.BatchSource source = Deencapsulation.invoke(
                 fixture.node, "createStreamingBatchSource", fixture.provider, request, SummaryProfile.class)) {
@@ -139,7 +139,6 @@ class PluginDrivenScanNodePartitionBatchTest {
         fixture.start(100, 1, 2);
         fixture.executor.runUntilIdle();
         Assertions.assertEquals(2, fixture.loaded.size(), "Paused producers must retain only two partition lists");
-        Assertions.assertEquals(1, fixture.assignment.getAssignedSplits(fixture.backend).size());
         Assertions.assertEquals(0, fixture.finished.get());
 
         List<Long> actual = fixture.drain();
@@ -248,6 +247,10 @@ class PluginDrivenScanNodePartitionBatchTest {
         }
 
         Fixture(int batchSize, Set<String> emptyPartitions, int splitsPerPartition) throws Exception {
+            this(batchSize, emptyPartitions, splitsPerPartition, 1);
+        }
+
+        Fixture(int batchSize, Set<String> emptyPartitions, int splitsPerPartition, int queueCapacity) throws Exception {
             FederationBackendPolicy policy = Mockito.mock(FederationBackendPolicy.class);
             Mockito.when(policy.computeScanRangeAssignment(Mockito.any())).thenAnswer(call -> {
                 Multimap<Backend, Split> result = ArrayListMultimap.create();
@@ -257,7 +260,7 @@ class PluginDrivenScanNodePartitionBatchTest {
             assignment = new SplitAssignment(policy, Mockito.mock(SplitGenerator.class),
                     (be, properties, split, keys, admission) -> new TScanRangeLocations().setLocations(
                             Collections.singletonList(new TScanRangeLocation().setBackendId(split.getStart()))),
-                    Collections.emptyMap(), Collections.emptyList(), true, batchSize, 1);
+                    Collections.emptyMap(), Collections.emptyList(), true, batchSize, queueCapacity);
             node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
             Deencapsulation.setField(node, "splitAssignment", assignment);
             Deencapsulation.setField(node, "sessionVariable", variables);

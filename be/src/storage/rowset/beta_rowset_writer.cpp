@@ -973,6 +973,9 @@ Status BaseBetaRowsetWriter::_close_file_writers() {
     // Flush and close segment files
     RETURN_NOT_OK_STATUS_WITH_WARN(_segment_creator.close(),
                                    "failed to close segment creator when build new rowset");
+    // Deferred compaction indexes are absent from the per-segment flush statistics.
+    // Other writes close each index file at flush time and leave this collection total at zero.
+    _total_index_size += _idx_files.get_total_index_size();
     return Status::OK();
 }
 
@@ -1272,9 +1275,11 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
     writer_options.write_type = DataWriteType::TYPE_COMPACTION;
     writer_options.max_rows_per_segment = _context.max_rows_per_segment;
 
-    *writer = std::make_unique<segment_v2::VerticalSegmentWriter>(
-            file_writer.get(), _num_segcompacted, _context.tablet_schema, _context.tablet,
-            _context.data_dir, writer_options, index_file_writer.get());
+    RETURN_IF_CATCH_EXCEPTION({
+        *writer = std::make_unique<segment_v2::VerticalSegmentWriter>(
+                file_writer.get(), _num_segcompacted, _context.tablet_schema, _context.tablet,
+                _context.data_dir, writer_options, index_file_writer.get());
+    });
     if (auto& seg_writer = _segcompaction_worker->get_file_writer();
         seg_writer != nullptr && seg_writer->state() != io::FileWriter::State::CLOSED) {
         RETURN_IF_ERROR(_segcompaction_worker->get_file_writer()->close());

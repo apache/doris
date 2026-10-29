@@ -78,6 +78,7 @@ struct TFinishTaskRequest {
     19: optional map<i64, map<i64, i64>> table_id_to_tablet_id_to_delta_num_rows
     // for Cloud mow table only, used by FE to check if the response is for the latest request
     20: optional list<AgentService.TCalcDeleteBitmapPartitionInfo> resp_partitions;
+    21: optional i64 row_ttl_config_version
 }
 
 struct TTablet {
@@ -123,6 +124,9 @@ struct TReportRequest {
     15: optional list<AgentService.TIndexPolicy> index_policy
     // Running query/loading tasks
     16: optional i64 running_tasks
+    // Bytes of query spill the BE currently holds in object storage (cloud mode,
+    // spill_storage_type=s3), sent with the disk report and kept by the master FE for SHOW DATA.
+    17: optional i64 remote_spill_bytes
 }
 
 struct TMasterResult {

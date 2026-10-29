@@ -26,11 +26,6 @@ import org.apache.commons.pool2.PooledObject;
 import org.apache.commons.pool2.impl.DefaultPooledObject;
 import org.apache.commons.pool2.impl.GenericObjectPool;
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
-import org.apache.hadoop.hive.common.ValidReadTxnList;
-import org.apache.hadoop.hive.common.ValidReaderWriteIdList;
-import org.apache.hadoop.hive.common.ValidTxnList;
-import org.apache.hadoop.hive.common.ValidTxnWriteIdList;
-import org.apache.hadoop.hive.common.ValidWriteIdList;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.HiveMetaHookLoader;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
@@ -47,7 +42,6 @@ import org.apache.hadoop.hive.metastore.api.DateColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.DecimalColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.DoubleColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
-import org.apache.hadoop.hive.metastore.api.LockComponent;
 import org.apache.hadoop.hive.metastore.api.LockRequest;
 import org.apache.hadoop.hive.metastore.api.LockResponse;
 import org.apache.hadoop.hive.metastore.api.LockState;
@@ -61,15 +55,12 @@ import org.apache.hadoop.hive.metastore.api.SQLDefaultConstraint;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.StringColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.Table;
-import org.apache.hadoop.hive.metastore.api.TableValidWriteIds;
-import org.apache.hadoop.hive.metastore.txn.TxnUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import shade.doris.hive.org.apache.thrift.TApplicationException;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.BitSet;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -557,85 +548,6 @@ public class ThriftHmsClient implements HmsClient {
         });
     }
 
-    // ========== Phase 4: ACID transactions ==========
-
-    @Override
-    public long openTxn(String user) {
-        return execute(client -> client.openTxn(user));
-    }
-
-    @Override
-    public void commitTxn(long txnId) {
-        execute(client -> {
-            client.commitTxn(txnId);
-            return null;
-        });
-    }
-
-    @Override
-    public Map<String, String> getValidWriteIds(String fullTableName, long currentTransactionId) {
-        Map<String, String> conf = new HashMap<>();
-        try {
-            return execute(client -> {
-                // Use the recent snapshot of valid transactions (no currentTxn arg): passing
-                // currentTransactionId here would break Hive's delta-directory listing if a major
-                // compaction removed deltas for transactions that were valid when this txn opened.
-                ValidTxnList validTransactions = client.getValidTxns();
-                List<TableValidWriteIds> tableValidWriteIdsList = client.getValidWriteIds(
-                        Collections.singletonList(fullTableName), validTransactions.toString());
-                if (tableValidWriteIdsList.size() != 1) {
-                    throw new HmsClientException("tableValidWriteIdsList's size should be 1");
-                }
-                ValidTxnWriteIdList validTxnWriteIdList = TxnUtils.createValidTxnWriteIdList(
-                        currentTransactionId, tableValidWriteIdsList);
-                ValidWriteIdList writeIdList =
-                        validTxnWriteIdList.getTableValidWriteIdList(fullTableName);
-                conf.put(HmsAcidConstants.VALID_TXNS_KEY, validTransactions.writeToString());
-                conf.put(HmsAcidConstants.VALID_WRITEIDS_KEY, writeIdList.writeToString());
-                return conf;
-            });
-        } catch (Exception e) {
-            // Older / incompatible metastores may lack these APIs; degrade to a max watermark
-            // instead of failing the scan (mirrors legacy ThriftHMSCachedClient).
-            LOG.warn("failed to get valid write ids for {}, transaction {}",
-                    fullTableName, currentTransactionId, e);
-            ValidTxnList validTransactions = new ValidReadTxnList(
-                    new long[0], new BitSet(), Long.MAX_VALUE, Long.MAX_VALUE);
-            ValidWriteIdList writeIdList = new ValidReaderWriteIdList(
-                    fullTableName, new long[0], new BitSet(), Long.MAX_VALUE);
-            conf.put(HmsAcidConstants.VALID_TXNS_KEY, validTransactions.writeToString());
-            conf.put(HmsAcidConstants.VALID_WRITEIDS_KEY, writeIdList.writeToString());
-            return conf;
-        }
-    }
-
-    @Override
-    public void acquireSharedLock(String queryId, long txnId, String user, String dbName,
-            String tableName, List<String> partitionNames, long timeoutMs) {
-        LockRequestBuilder requestBuilder = new LockRequestBuilder(queryId)
-                .setTransactionId(txnId)
-                .setUser(user);
-        for (LockComponent component
-                : createLockComponentsForRead(dbName, tableName, partitionNames)) {
-            requestBuilder.addLockComponent(component);
-        }
-        LockRequest lockRequest = requestBuilder.build();
-        LockResponse response = execute(client -> client.lock(lockRequest));
-        long start = System.currentTimeMillis();
-        while (response.getState() == LockState.WAITING) {
-            if (System.currentTimeMillis() - start > timeoutMs) {
-                throw new HmsClientException("acquire lock timeout for txn " + txnId
-                        + " of query " + queryId + ", timeout(ms): " + timeoutMs);
-            }
-            long lockId = response.getLockid();
-            response = execute(client -> client.checkLock(lockId));
-        }
-        if (response.getState() != LockState.ACQUIRED) {
-            throw new HmsClientException(
-                    "failed to acquire lock, lock in state " + response.getState());
-        }
-    }
-
     @Override
     public long acquireExclusiveTableLock(String queryId, String user, String dbName,
             String tableName, long timeoutMs) {
@@ -723,34 +635,6 @@ public class ThriftHmsClient implements HmsClient {
             }
             return events;
         });
-    }
-
-    private static List<LockComponent> createLockComponentsForRead(String dbName, String tableName,
-            List<String> partitionNames) {
-        List<LockComponent> components = new ArrayList<>(
-                partitionNames.isEmpty() ? 1 : partitionNames.size());
-        if (partitionNames.isEmpty()) {
-            components.add(createLockComponentForRead(dbName, tableName, null));
-        } else {
-            for (String partitionName : partitionNames) {
-                components.add(createLockComponentForRead(dbName, tableName, partitionName));
-            }
-        }
-        return components;
-    }
-
-    private static LockComponent createLockComponentForRead(String dbName, String tableName,
-            String partitionName) {
-        LockComponentBuilder builder = new LockComponentBuilder();
-        builder.setShared();
-        builder.setOperationType(DataOperationType.SELECT);
-        builder.setDbName(dbName);
-        builder.setTableName(tableName);
-        if (partitionName != null) {
-            builder.setPartitionName(partitionName);
-        }
-        builder.setIsTransactional(true);
-        return builder.build();
     }
 
     @Override

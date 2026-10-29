@@ -27,7 +27,9 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
@@ -57,7 +59,8 @@ public class ConnectorStatementScopeImpl implements ConnectorStatementScope {
     private final ConcurrentHashMap<String, Object> cache = new ConcurrentHashMap<>();
     // Keys of the values only planning reads; endPlanning drops them.
     private final Set<String> planningKeys = ConcurrentHashMap.newKeySet();
-    private boolean closed;
+    // Read without the lock by the off-thread pumps, which can still be loading when the statement ends.
+    private volatile boolean closed;
     private boolean closeRequested;
     private int users;
     private final List<CompletableFuture<Void>> splitTasks = new ArrayList<>();
@@ -91,10 +94,42 @@ public class ConnectorStatementScopeImpl implements ConnectorStatementScope {
         }
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Once {@link #closeAll} disposes the scope, the loader does not run and a
+     * {@link CancellationException} is thrown: a pump that outlives its statement (stopping a split producer only
+     * flags it, and closing the query's task groups does not interrupt metadata IO) would otherwise load a value,
+     * such as a borrowed table, that nothing closes any more. A value whose load raced the close is released here,
+     * because closeAll may not have seen it.</p>
+     */
     @Override
     @SuppressWarnings("unchecked")
     public <T> T computeIfAbsent(String key, Supplier<T> loader) {
-        return (T) cache.computeIfAbsent(key, k -> loader.get());
+        checkOpen(key);
+        Object value = cache.computeIfAbsent(key, k -> {
+            checkOpen(k);
+            return loader.get();
+        });
+        if (closed) {
+            // Whoever removes the entry, closeAll or this caller, releases the value, so it is released once.
+            if (cache.remove(key, value)) {
+                release(value);
+            }
+            throw closedScope(key);
+        }
+        return (T) value;
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public <T> T getIfPresent(String key) {
+        return closed ? null : (T) cache.get(key);
+    }
+
+    /** Whether the scope refuses lookups; retained producers delay this transition until their cleanup exits. */
+    public boolean isClosed() {
+        return closed;
     }
 
     @Override
@@ -123,47 +158,62 @@ public class ConnectorStatementScopeImpl implements ConnectorStatementScope {
      * Idempotent: guarded by {@code closed} so a second trigger (the query-finish callback vs. a reused prepared
      * statement's per-execution reset) is a harmless no-op and no value is double-closed. Best-effort per value —
      * a failure on one does not abort the rest — mirroring the isolation of the engine's query-finish callback
-     * registry. A reset may request closure while old split producers are running; disposal waits for their
-     * retained users (including cleanup) to release the scope, so it does not race their {@code computeIfAbsent}.
+     * registry. Retained split work defers disposal until it exits. Other loaders may still be running: each
+     * entry is removed before its value is released, and a
+     * pump that loads concurrently releases what it loaded itself (see {@link #computeIfAbsent}), so every value
+     * is released exactly once and none is left behind.
      */
     @Override
     public void closeAll() {
-        List<Object> values;
         synchronized (this) {
             closeRequested = true;
             if (closed || users != 0) {
                 return;
             }
             closed = true;
-            values = new ArrayList<>(cache.values());
-            cache.clear();
             splitTasks.clear();
         }
         // Pass 1: finalize the statement's write transaction(s) first, so a transaction aborted mid-flight is
         // rolled back / released before pass 2 closes the shared metadata instance it was minted from. On every
         // normal path the executor already finished the transaction, so this is a no-op.
-        for (Object value : values) {
-            if (value instanceof CatalogStatementTransaction) {
-                try {
-                    ((CatalogStatementTransaction) value).finalizeAtStatementEnd();
-                } catch (Exception e) {
-                    LOG.warn("failed to finalize per-statement transaction; continuing", e);
-                }
+        for (Map.Entry<String, Object> entry : cache.entrySet()) {
+            if (entry.getValue() instanceof CatalogStatementTransaction
+                    && cache.remove(entry.getKey(), entry.getValue())) {
+                release(entry.getValue());
             }
         }
-        // Pass 2: close every remaining AutoCloseable value once (the transaction holders handled above are
-        // skipped here).
-        for (Object value : values) {
-            if (value instanceof CatalogStatementTransaction) {
-                continue;
+        // Pass 2: close every remaining AutoCloseable value once.
+        for (Map.Entry<String, Object> entry : cache.entrySet()) {
+            if (cache.remove(entry.getKey(), entry.getValue())) {
+                release(entry.getValue());
             }
-            if (value instanceof AutoCloseable) {
-                try {
-                    ((AutoCloseable) value).close();
-                } catch (Exception e) {
-                    LOG.warn("failed to close per-statement scope value of type {}; continuing",
-                            value.getClass().getName(), e);
-                }
+        }
+    }
+
+    private void checkOpen(String key) {
+        if (closed) {
+            throw closedScope(key);
+        }
+    }
+
+    private static CancellationException closedScope(String key) {
+        return new CancellationException("the statement has ended, its connector scope cannot load " + key);
+    }
+
+    // Finalizes a transaction and closes any other AutoCloseable value; a plain value holds nothing to release.
+    private static void release(Object value) {
+        if (value instanceof CatalogStatementTransaction) {
+            try {
+                ((CatalogStatementTransaction) value).finalizeAtStatementEnd();
+            } catch (Exception e) {
+                LOG.warn("failed to finalize per-statement transaction; continuing", e);
+            }
+        } else if (value instanceof AutoCloseable) {
+            try {
+                ((AutoCloseable) value).close();
+            } catch (Exception e) {
+                LOG.warn("failed to close per-statement scope value of type {}; continuing",
+                        value.getClass().getName(), e);
             }
         }
     }

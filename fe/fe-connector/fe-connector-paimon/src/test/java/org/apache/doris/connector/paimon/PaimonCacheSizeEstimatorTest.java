@@ -29,8 +29,8 @@ import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.rest.RESTToken;
 import org.apache.paimon.rest.RESTTokenFileIO;
+import org.apache.paimon.schema.FileSystemSchemaManager;
 import org.apache.paimon.schema.Schema;
-import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.table.CatalogEnvironment;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.FileStoreTableFactory;
@@ -107,6 +107,16 @@ class PaimonCacheSizeEstimatorTest {
                 table("options_many", 10, 0, 100, 0, null));
         assertGrownDelta("nested fields", table("nested_one", 0, 0, 0, 1, null),
                 table("nested_many", 0, 0, 0, 200, null));
+    }
+
+    @Test
+    void wideSchemasAreWeighedCompletely() throws Exception {
+        // A walk of the whole schema ran out of the 10,000-visit budget at about 2,500 INT or 900 ROW columns, so a
+        // wider table never entered a weighted cache. MUTATION: estimating the schema as one graph -> incomplete
+        // -> red.
+        assertGrownDelta("wide fields", table("wide_fields_2000", 2_000, 0, 0, 0, null),
+                table("wide_fields_4000", 4_000, 0, 0, 0, null));
+        weight(rowColumnsTable("wide_rows_4000", 4_000));
     }
 
     @Test
@@ -222,7 +232,7 @@ class PaimonCacheSizeEstimatorTest {
         }
         LocalFileIO fileIO = LocalFileIO.create();
         Path path = new Path(warehouse.resolve(name).toUri());
-        new SchemaManager(fileIO, path).createTable(builder.build());
+        new FileSystemSchemaManager(fileIO, path).createTable(builder.build());
         return FileStoreTableFactory.create(fileIO, path);
     }
 
@@ -285,7 +295,20 @@ class PaimonCacheSizeEstimatorTest {
         }
         LocalFileIO fileIO = LocalFileIO.create();
         Path path = new Path(warehouse.resolve(name).toUri());
-        new SchemaManager(fileIO, path).createTable(builder.build());
+        new FileSystemSchemaManager(fileIO, path).createTable(builder.build());
+        return FileStoreTableFactory.create(fileIO, path);
+    }
+
+    private FileStoreTable rowColumnsTable(String name, int columns) throws Exception {
+        Schema.Builder builder = Schema.newBuilder().column("part", DataTypes.INT());
+        for (int i = 0; i < columns; i++) {
+            builder.column("row_" + i, DataTypes.ROW(DataTypes.FIELD(0, "a", DataTypes.INT()),
+                    DataTypes.FIELD(1, "b", DataTypes.STRING())));
+        }
+        builder.partitionKeys("part");
+        LocalFileIO fileIO = LocalFileIO.create();
+        Path path = new Path(warehouse.resolve(name).toUri());
+        new FileSystemSchemaManager(fileIO, path).createTable(builder.build());
         return FileStoreTableFactory.create(fileIO, path);
     }
 

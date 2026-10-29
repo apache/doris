@@ -28,12 +28,10 @@ import org.apache.doris.filesystem.Location;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.FileAlreadyExistsException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -56,8 +54,6 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
 
     // Object stores do not have real directories; use a zero-byte marker with trailing slash.
     private static final String DIR_MARKER_SUFFIX = "/";
-    private static final int MAX_EXPANDED_GLOB_LIST_PREFIXES = 256;
-    private static final Comparator<String> UTF8_BINARY_ORDER = S3CompatibleFileSystem::compareUtf8Binary;
 
     private final boolean usePathStyle;
     private final Set<String> supportedSchemes;
@@ -856,29 +852,11 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
      * ({@code * ? [ { \}).  Used as the {@code prefix} parameter for object storage {@code ListObjectsV2}.
      */
     protected static String longestNonGlobPrefix(String globPattern) {
-        int earliest = globPattern.length();
-        for (char c : new char[]{'*', '?', '[', '{', '\\'}) {
-            int idx = globPattern.indexOf(c);
-            if (idx >= 0 && idx < earliest) {
-                earliest = idx;
-            }
-        }
-        return globPattern.substring(0, earliest);
+        return ObjectStorageGlob.longestNonGlobPrefix(globPattern);
     }
 
-    /**
-     * Returns object-store list prefixes that are safe to push down for a glob pattern.
-     *
-     * <p>Unlike {@link #longestNonGlobPrefix(String)}, this expands bounded glob constructs
-     * ({@code {...}} alternation and positive {@code [...]} character classes) before the first
-     * unbounded wildcard. That lets patterns such as
-     * {@code date=2025-{0[3-9],1[0-2]}-01/mp_id=8/*} list the concrete date/mp prefixes instead
-     * of scanning everything under {@code date=2025-}. If expansion would be too large or a glob
-     * construct is not safely enumerable, it falls back to the conservative longest static prefix.
-     */
     protected static List<String> expandedGlobListPrefixes(String globPattern) {
-        List<String> prefixes = expandGlobListPrefixes(globPattern, true);
-        return prefixes == null ? List.of(longestNonGlobPrefix(globPattern)) : prefixes;
+        return ObjectStorageGlob.expandedGlobListPrefixes(globPattern);
     }
 
     protected String globListPrefix(String globPattern) {
@@ -889,264 +867,9 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         return expandedGlobListPrefixes(globPattern);
     }
 
-    private static List<String> expandGlobListPrefixes(String globPattern, boolean allowPartialPrefix) {
-        List<String> prefixes = new ArrayList<>();
-        prefixes.add("");
-        int i = 0;
-        while (i < globPattern.length()) {
-            char c = globPattern.charAt(i);
-            if (c == '*' || c == '?') {
-                return allowPartialPrefix ? compactPrefixes(prefixes) : null;
-            }
-            if (c == '\\') {
-                if (i + 1 < globPattern.length()) {
-                    appendLiteral(prefixes, globPattern.charAt(i + 1));
-                    i += 2;
-                } else {
-                    appendLiteral(prefixes, c);
-                    i++;
-                }
-                continue;
-            }
-            if (c == '[') {
-                PrefixExpansion charClass = expandCharacterClass(globPattern, i);
-                if (charClass == null) {
-                    return allowPartialPrefix ? compactPrefixes(prefixes) : null;
-                }
-                prefixes = appendAlternatives(prefixes, charClass.values);
-                if (prefixes == null) {
-                    return null;
-                }
-                i = charClass.nextIndex;
-                continue;
-            }
-            if (c == '{') {
-                PrefixExpansion brace = expandBraceGroup(globPattern, i);
-                if (brace == null) {
-                    return allowPartialPrefix ? compactPrefixes(prefixes) : null;
-                }
-                prefixes = appendAlternatives(prefixes, brace.values);
-                if (prefixes == null) {
-                    return null;
-                }
-                i = brace.nextIndex;
-                continue;
-            }
-            appendLiteral(prefixes, c);
-            i++;
-        }
-        // A complete brace arm is not yet a listing prefix: a later suffix can distinguish
-        // "1.csv" from "101.csv". Compact only after the surrounding expression is expanded.
-        return allowPartialPrefix ? compactPrefixes(prefixes) : prefixes;
-    }
-
-    private static void appendLiteral(List<String> prefixes, char c) {
-        for (int i = 0; i < prefixes.size(); i++) {
-            prefixes.set(i, prefixes.get(i) + c);
-        }
-    }
-
-    private static List<String> appendAlternatives(List<String> prefixes, List<String> alternatives) {
-        long expandedSize = (long) prefixes.size() * alternatives.size();
-        if (expandedSize > MAX_EXPANDED_GLOB_LIST_PREFIXES) {
-            return null;
-        }
-        List<String> expanded = new ArrayList<>((int) expandedSize);
-        for (String prefix : prefixes) {
-            for (String alternative : alternatives) {
-                expanded.add(prefix + alternative);
-            }
-        }
-        return expanded;
-    }
-
-    private static PrefixExpansion expandCharacterClass(String globPattern, int openIndex) {
-        int closeIndex = findClosingBracket(globPattern, openIndex);
-        if (closeIndex < 0 || closeIndex == openIndex + 1) {
-            return null;
-        }
-        int i = openIndex + 1;
-        char first = globPattern.charAt(i);
-        if (first == '!' || first == '^') {
-            return null;
-        }
-        if (containsSurrogate(globPattern, i, closeIndex)) {
-            return null;
-        }
-        List<String> values = new ArrayList<>();
-        while (i < closeIndex) {
-            char current = globPattern.charAt(i);
-            if (current == '\\') {
-                if (i + 1 >= closeIndex) {
-                    return null;
-                }
-                values.add(String.valueOf(globPattern.charAt(i + 1)));
-                i += 2;
-                continue;
-            }
-            if (i + 2 < closeIndex && globPattern.charAt(i + 1) == '-') {
-                char rangeEnd = globPattern.charAt(i + 2);
-                int step = current <= rangeEnd ? 1 : -1;
-                for (char ch = current; step > 0 ? ch <= rangeEnd : ch >= rangeEnd; ch += step) {
-                    values.add(String.valueOf(ch));
-                    if (values.size() > MAX_EXPANDED_GLOB_LIST_PREFIXES) {
-                        return null;
-                    }
-                }
-                i += 3;
-                continue;
-            }
-            values.add(String.valueOf(current));
-            i++;
-        }
-        return new PrefixExpansion(values, closeIndex + 1);
-    }
-
-    private static int findClosingBracket(String globPattern, int openIndex) {
-        for (int i = openIndex + 1; i < globPattern.length(); i++) {
-            char c = globPattern.charAt(i);
-            if (c == '\\') {
-                i++;
-                continue;
-            }
-            if (c == ']') {
-                return i;
-            }
-        }
-        return -1;
-    }
-
-    private static boolean containsSurrogate(String text, int start, int end) {
-        for (int i = start; i < end; i++) {
-            if (Character.isSurrogate(text.charAt(i))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static PrefixExpansion expandBraceGroup(String globPattern, int openIndex) {
-        int closeIndex = findClosingBrace(globPattern, openIndex);
-        if (closeIndex < 0) {
-            return null;
-        }
-        List<String> alternatives = splitBraceAlternatives(
-                globPattern.substring(openIndex + 1, closeIndex));
-        if (alternatives.isEmpty()) {
-            return null;
-        }
-        List<String> values = new ArrayList<>();
-        for (String alternative : alternatives) {
-            List<String> expandedAlternative = expandGlobListPrefixes(alternative, false);
-            if (expandedAlternative == null) {
-                return null;
-            }
-            values.addAll(expandedAlternative);
-            if (values.size() > MAX_EXPANDED_GLOB_LIST_PREFIXES) {
-                return null;
-            }
-        }
-        return new PrefixExpansion(values, closeIndex + 1);
-    }
-
-    private static int findClosingBrace(String globPattern, int openIndex) {
-        int depth = 0;
-        for (int i = openIndex; i < globPattern.length(); i++) {
-            char c = globPattern.charAt(i);
-            if (c == '\\') {
-                i++;
-                continue;
-            }
-            if (c == '{') {
-                depth++;
-            } else if (c == '}') {
-                depth--;
-                if (depth == 0) {
-                    return i;
-                }
-            }
-        }
-        return -1;
-    }
-
-    private static List<String> splitBraceAlternatives(String content) {
-        List<String> alternatives = new ArrayList<>();
-        int depth = 0;
-        int start = 0;
-        for (int i = 0; i < content.length(); i++) {
-            char c = content.charAt(i);
-            if (c == '\\') {
-                i++;
-                continue;
-            }
-            if (c == '{') {
-                depth++;
-            } else if (c == '}') {
-                if (depth == 0) {
-                    return Collections.emptyList();
-                }
-                depth--;
-            } else if (c == ',' && depth == 0) {
-                alternatives.add(content.substring(start, i));
-                start = i + 1;
-            }
-        }
-        if (depth != 0) {
-            return Collections.emptyList();
-        }
-        alternatives.add(content.substring(start));
-        return alternatives;
-    }
-
-    private static List<String> compactPrefixes(List<String> prefixes) {
-        List<String> sorted = new ArrayList<>(prefixes);
-        sorted.sort(UTF8_BINARY_ORDER);
-        List<String> compact = new ArrayList<>();
-        for (String prefix : sorted) {
-            if (prefix.isEmpty()) {
-                return List.of("");
-            }
-            boolean covered = false;
-            for (String existing : compact) {
-                if (prefix.startsWith(existing)) {
-                    covered = true;
-                    break;
-                }
-            }
-            if (!covered) {
-                compact.add(prefix);
-            }
-        }
-        return compact;
-    }
-
-    private static int compareUtf8Binary(String left, String right) {
-        byte[] leftBytes = left.getBytes(StandardCharsets.UTF_8);
-        byte[] rightBytes = right.getBytes(StandardCharsets.UTF_8);
-        int commonLength = Math.min(leftBytes.length, rightBytes.length);
-        for (int i = 0; i < commonLength; i++) {
-            int result = Integer.compare(
-                    Byte.toUnsignedInt(leftBytes[i]), Byte.toUnsignedInt(rightBytes[i]));
-            if (result != 0) {
-                return result;
-            }
-        }
-        return Integer.compare(leftBytes.length, rightBytes.length);
-    }
-
-    private static class PrefixExpansion {
-        private final List<String> values;
-        private final int nextIndex;
-
-        private PrefixExpansion(List<String> values, int nextIndex) {
-            this.values = values;
-            this.nextIndex = nextIndex;
-        }
-    }
-
     /** Compiles the same numeric-range and glob syntax used by LIST for matching raw object keys. */
     public static Pattern compileGlobPattern(String keyPattern) {
-        return Pattern.compile(globToRegex(GlobPattern.expandNumericRanges(keyPattern)));
+        return Pattern.compile(globToRegex(ObjectStorageGlob.expandNumericRanges(keyPattern)));
     }
 
     @Override
@@ -1159,7 +882,7 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         String keyPattern = parsed.key();
         String base = uriBase(uri, parsed);
 
-        String expandedKeyPattern = GlobPattern.expandNumericRanges(keyPattern);
+        String expandedKeyPattern = ObjectStorageGlob.expandNumericRanges(keyPattern);
         // Translate the glob to a regex and match against the raw object storage key. We do NOT
         // route through java.nio.file.Paths because (a) on Windows the filesystem
         // separator is '\' which would corrupt object storage keys, and (b) Paths.get rejects keys
@@ -1253,87 +976,6 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
      * a single {@code *} does not cross directory levels.
      */
     protected static String globToRegex(String glob) {
-        StringBuilder sb = new StringBuilder("^");
-        boolean inClass = false;
-        int groupDepth = 0;
-        int i = 0;
-        while (i < glob.length()) {
-            char c = glob.charAt(i);
-            if (c == '\\') {
-                if (i + 1 < glob.length()) {
-                    sb.append(Pattern.quote(String.valueOf(glob.charAt(i + 1))));
-                    i += 2;
-                } else {
-                    sb.append("\\\\");
-                    i++;
-                }
-                continue;
-            }
-            if (inClass) {
-                if (c == ']') {
-                    inClass = false;
-                    sb.append(']');
-                } else if (c == '\\' || c == '[') {
-                    sb.append('\\').append(c);
-                } else {
-                    sb.append(c);
-                }
-                i++;
-                continue;
-            }
-            switch (c) {
-                case '*':
-                    if (i + 1 < glob.length() && glob.charAt(i + 1) == '*') {
-                        sb.append(".*");
-                        i += 2;
-                    } else {
-                        sb.append("[^/]*");
-                        i++;
-                    }
-                    break;
-                case '?':
-                    sb.append("[^/]");
-                    i++;
-                    break;
-                case '[':
-                    inClass = true;
-                    sb.append('[');
-                    i++;
-                    if (i < glob.length() && glob.charAt(i) == '!') {
-                        sb.append('^');
-                        i++;
-                    }
-                    break;
-                case '{':
-                    groupDepth++;
-                    sb.append("(?:");
-                    i++;
-                    break;
-                case '}':
-                    groupDepth--;
-                    sb.append(')');
-                    i++;
-                    break;
-                case ',':
-                    // Closing an inner group must not turn the outer group's alternatives into literals.
-                    if (groupDepth > 0) {
-                        sb.append('|');
-                    } else {
-                        sb.append(',');
-                    }
-                    i++;
-                    break;
-                default:
-                    if ("\\.^$|+()".indexOf(c) >= 0) {
-                        sb.append('\\').append(c);
-                    } else {
-                        sb.append(c);
-                    }
-                    i++;
-                    break;
-            }
-        }
-        sb.append('$');
-        return sb.toString();
+        return ObjectStorageGlob.globToRegex(glob);
     }
 }

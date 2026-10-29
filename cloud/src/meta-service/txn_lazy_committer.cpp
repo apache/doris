@@ -918,7 +918,7 @@ std::pair<MetaServiceCode, std::string> TxnLazyCommitTask::commit_partition(
             LOG(INFO) << "remove tmp_rowset_key=" << hex(tmp_rowset_key) << " txn_id=" << txn_id_;
         }
 
-        TEST_SYNC_POINT_CALLBACK("TxnLazyCommitter::commit");
+        TEST_SYNC_POINT_CALLBACK("TxnLazyCommitter::commit", &partition_id);
         err = txn->commit();
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::COMMIT>(err);
@@ -927,6 +927,7 @@ std::pair<MetaServiceCode, std::string> TxnLazyCommitTask::commit_partition(
             return {code, msg};
         }
     }
+    TEST_SYNC_POINT_CALLBACK("TxnLazyCommitTask::commit_partition::finish", &partition_id);
     return {MetaServiceCode::OK, ""};
 }
 

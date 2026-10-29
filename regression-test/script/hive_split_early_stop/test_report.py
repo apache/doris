@@ -15,6 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
+import csv
 import json
 import subprocess
 import sys
@@ -22,7 +23,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from report import COUNTERS, analyze, analyze_concurrent
+from report import COUNTERS, analyze, analyze_concurrent, read_samples
 
 
 class ReportTest(unittest.TestCase):
@@ -61,6 +62,20 @@ class ReportTest(unittest.TestCase):
                 samples[1][-1][counter] = 1
                 with self.assertRaisesRegex(ValueError, "never became quiescent"):
                     analyze(log, samples, events, ("limit",))
+
+    def test_old_batch_queue_samples_cannot_claim_success(self):
+        _, samples, _ = self.inputs()
+        rows = [dict(row, queue_batches=row["nonempty_queues"]) for row in samples[1]]
+        for row in rows:
+            del row["nonempty_queues"]
+        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[3] / "output") as directory:
+            path = Path(directory) / "old-probe.csv"
+            with path.open("w") as output:
+                writer = csv.DictWriter(output, fieldnames=rows[0].keys())
+                writer.writeheader()
+                writer.writerows(rows)
+            with self.assertRaises(KeyError):
+                read_samples(path)
 
     def test_late_file_requests_fail_even_after_producer_termination(self):
         log, samples, events = self.inputs()

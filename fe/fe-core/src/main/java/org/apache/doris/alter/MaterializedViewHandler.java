@@ -193,6 +193,10 @@ public class MaterializedViewHandler extends AlterHandler {
      */
     public void processCreateMaterializedView(CreateMaterializedViewCommand createMvCommand, Database db,
             OlapTable olapTable) throws DdlException, AnalysisException {
+        if (olapTable.hasRowTtl()) {
+            throw new DdlException(
+                    "Synchronous materialized views do not support tables with row ttl: " + olapTable.getName());
+        }
         // wait wal delete
         Env.getCurrentEnv().getGroupCommitManager().blockTable(olapTable.getId());
         Env.getCurrentEnv().getGroupCommitManager().waitWalFinished(olapTable.getId());
@@ -204,6 +208,12 @@ public class MaterializedViewHandler extends AlterHandler {
             }
             if (olapTable.hasColumnSeqMapping()) {
                 throw new DdlException("Can not add materialized view when table use column sequence mapping");
+            }
+            if (createMvCommand.isIfNotExists()
+                    && olapTable.hasMaterializedIndex(createMvCommand.getMVName())) {
+                LOG.info("materialized view[{}] already exists on table[{}], skip creating it",
+                        createMvCommand.getMVName(), olapTable.getName());
+                return;
             }
             // check no duplicate column name in full schema
             Set<String> allColumnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
@@ -921,6 +931,10 @@ public class MaterializedViewHandler extends AlterHandler {
                         + "duplicate table is useless.");
                 }
             }
+        }
+        if (olapTable.hasRowTtl()
+                && rollupSchema.stream().noneMatch(Column::isTtlColumn)) {
+            rollupSchema.add(new Column(olapTable.getTtlColumn()));
         }
         if (olapTable.getEnableLightSchemaChange()) {
             int nextColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE + 1;

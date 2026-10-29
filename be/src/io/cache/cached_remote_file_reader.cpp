@@ -104,6 +104,7 @@ bvar::PassiveStatus<int> g_active_peer_races_bvar(
 bvar::Adder<uint64_t> g_peer_race_peer_win("peer_race_peer_win");
 bvar::Adder<uint64_t> g_peer_race_s3_win("peer_race_s3_win");
 bvar::Adder<uint64_t> g_peer_race_both_fail("peer_race_both_fail");
+bvar::Adder<uint64_t> g_peer_race_s3_skipped_after_queue("peer_race_s3_skipped_after_queue");
 bvar::Adder<uint64_t> g_peer_cross_compute_group_read("peer_cross_compute_group_read");
 bvar::Adder<uint64_t> g_peer_same_compute_group_read("peer_same_compute_group_read");
 bvar::Adder<uint64_t> g_peer_lazy_fetch_triggered("peer_lazy_fetch_triggered");
@@ -137,7 +138,9 @@ void CachedRemoteFileReader::_init_doris_table_cache() {
     _cache = FileCacheFactory::instance()->get_by_path(_cache_hash);
     if (_can_read_cache_file_directly()) {
         // this is designed for and test in doris table, external table need extra tests
-        _cache_file_readers = _cache->get_blocks_by_key(_cache_hash);
+        for (auto& [offset, block] : _cache->get_blocks_by_key(_cache_hash)) {
+            _cache_file_readers.emplace(offset, block);
+        }
     }
 }
 
@@ -179,15 +182,13 @@ void CachedRemoteFileReader::_insert_file_reader(FileBlockSPtr file_block) {
     if (_can_read_cache_file_directly()) {
         std::lock_guard lock(_mtx);
         DCHECK(file_block->state() == FileBlock::State::DOWNLOADED);
-        file_block->_owned_by_cached_reader = true;
-        _cache_file_readers.emplace(file_block->offset(), std::move(file_block));
+        // Overwrite rather than emplace: an older entry at this offset may point to a block the
+        // cache has already dropped, and keeping it would disable direct reads of this range.
+        _cache_file_readers.insert_or_assign(file_block->offset(), std::move(file_block));
     }
 }
 
 CachedRemoteFileReader::~CachedRemoteFileReader() {
-    for (auto& it : _cache_file_readers) {
-        it.second->_owned_by_cached_reader = false;
-    }
     static_cast<void>(close());
 }
 
@@ -468,6 +469,20 @@ void launch_s3_race(std::shared_ptr<RaceState> race, size_t empty_start, size_t 
     // peer wins; passing nullptr is safe because S3FileReader::read_at_impl ignores it.
     auto do_s3_read = [race, empty_start, span_size, remote_reader, owner]() {
         (void)owner;
+        TEST_SYNC_POINT("CachedRemoteFileReader::_execute_winner_race::s3_task_start");
+        {
+            // The peer may win while this task waits in PeerRaceS3ThreadPool. Skip the GET
+            // before allocating the span buffer or counting an S3 read.
+            std::unique_lock<bthread::Mutex> lk(race->mtx);
+            if (race->winner == 0) {
+                race->s3_done = true;
+                race->s3_status =
+                        Status::InternalError<false>("skipped: peer won before s3 task started");
+                race->cv.notify_all();
+                g_peer_race_s3_skipped_after_queue << 1;
+                return;
+            }
+        }
         auto s3_buf = std::make_unique<char[]>(span_size);
         size_t read_size = span_size;
         s3_read_counter << 1;
@@ -777,27 +792,33 @@ bool CachedRemoteFileReader::_try_read_from_cached_files_directly(
 
     size_t current_offset = offset;
     while (need_read_size != 0 && iter != _cache_file_readers.end()) {
-        if (iter->second->offset() > current_offset ||
-            iter->second->range().right < current_offset) {
+        // Holding the block while reading it makes the cache treat it as busy, so its file is not
+        // deleted mid-read. If the block is marked deleting meanwhile, run_background_gc()
+        // reclaims it once this reference is gone.
+        FileBlockSPtr block = iter->second.lock();
+        if (block == nullptr) {
+            // The cache has dropped this block. Read the range through the cache instead.
+            break;
+        }
+        if (block->offset() > current_offset || block->range().right < current_offset) {
             break;
         }
 
-        size_t file_offset = current_offset - iter->second->offset();
-        size_t reserve_bytes = std::min(need_read_size, iter->second->range().size() - file_offset);
+        size_t file_offset = current_offset - block->offset();
+        size_t reserve_bytes = std::min(need_read_size, block->range().size() - file_offset);
         if (is_dryrun) [[unlikely]] {
             g_skip_local_cache_io_sum_bytes << reserve_bytes;
         } else {
             SCOPED_RAW_TIMER(&stats.local_read_timer);
-            if (!iter->second
-                         ->read(Slice(result.data + (current_offset - offset), reserve_bytes),
-                                file_offset)
+            if (!block->read(Slice(result.data + (current_offset - offset), reserve_bytes),
+                             file_offset)
                          .ok()) { // TODO: maybe read failed because block evict, should handle error
                 break;
             }
             source_read_breakdown.local_bytes += reserve_bytes;
         }
 
-        _cache->add_need_update_lru_block(iter->second);
+        _cache->add_need_update_lru_block(std::move(block));
         need_read_size -= reserve_bytes;
         current_offset += reserve_bytes;
         already_read += reserve_bytes;

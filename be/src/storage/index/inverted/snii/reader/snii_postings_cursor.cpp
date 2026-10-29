@@ -98,7 +98,8 @@ uint64_t SniiReadWave::held_bytes() const {
 SniiPostingsCursor::SniiPostingsCursor(const LogicalIndexReader& idx, format::DictEntry entry,
                                        uint64_t frq_base, uint64_t prx_base, bool positions,
                                        bool scoring, const format::NormsPodReader* norms,
-                                       SniiReadWave* wave, format::PrxDecodeStats* prx_stats)
+                                       SniiReadWave* wave, format::PrxDecodeStats* prx_stats,
+                                       ZstdDecompressor* zstd)
         : _idx(idx),
           _entry(std::move(entry)),
           _frq_base(frq_base),
@@ -108,6 +109,7 @@ SniiPostingsCursor::SniiPostingsCursor(const LogicalIndexReader& idx, format::Di
           _norms(norms),
           _wave(wave),
           _prx_stats(prx_stats),
+          _zstd(zstd),
           _kind(_posting_kind(_entry)) {
     if (_wave == nullptr) {
         _own_wave = std::make_unique<SniiReadWave>(_idx.reader());
@@ -533,7 +535,7 @@ Status SniiPostingsCursor::_ensure_positions(std::span<const uint32_t> ordinals)
     const uint32_t window = _current_window;
     RETURN_IF_ERROR(_ensure_prx(window));
     ByteSource source(_windows[window].prx);
-    format::PrxDecodeContext context {.stats = _prx_stats};
+    format::PrxDecodeContext context {.stats = _prx_stats, .zstd = _zstd};
     if (ordinals.empty() || ordinals.size() == _doc_count) {
         RETURN_IF_ERROR(format::read_prx_window_csr(&source, &_pos_flat, &_pos_off, &context));
     } else {
@@ -795,7 +797,7 @@ Status SniiPostingsCursor::_decode_selected(std::span<const uint32_t> ordinals,
     RETURN_IF_ERROR(_ensure_prx(_current_window));
     ByteSource source(_windows[_current_window].prx);
     format::PrxDecodedShape shape;
-    format::PrxDecodeContext context {.stats = _prx_stats, .shape = &shape};
+    format::PrxDecodeContext context {.stats = _prx_stats, .shape = &shape, .zstd = _zstd};
     RETURN_IF_ERROR(format::read_prx_window_csr_selective(&source, ordinals, &_selected_flat,
                                                           &_selected_off, &context));
     if (!source.eof()) {

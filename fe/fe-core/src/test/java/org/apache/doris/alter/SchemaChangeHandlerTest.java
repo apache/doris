@@ -37,6 +37,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.indexpolicy.DropIndexPolicyLog;
 import org.apache.doris.indexpolicy.IndexPolicy;
 import org.apache.doris.indexpolicy.IndexPolicyMgr;
@@ -1294,6 +1295,260 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
     }
 
     @Test
+    public void testDropIndexRejectedByIndexChangeJobKeepsMetadata() throws Exception {
+        String tableName = "sc_drop_index_conflict";
+        dropTable("test." + tableName, false);
+        createTable("CREATE TABLE test." + tableName + " (\n"
+                + "k1 INT,\n"
+                + "v1 STRING,\n"
+                + "v2 STRING,\n"
+                + "INDEX idx_v1 (v1) USING INVERTED\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true', "
+                + "'bloom_filter_columns' = 'v2');");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        SchemaChangeHandler handler = Env.getCurrentEnv().getSchemaChangeHandler();
+        Index index = tbl.getIndexes().stream()
+                .filter(idx -> idx.getIndexName().equals("idx_v1"))
+                .findFirst().get();
+        int schemaVersion = tbl.getIndexMetaByIndexId(tbl.getBaseIndexId()).getSchemaVersion();
+
+        // An unfinished drop job on the same index, e.g. left by DROP INDEX ... PARTITION.
+        // It is only registered in indexChangeJobs so that the job scheduler does not run or cancel it.
+        long jobId = Env.getCurrentEnv().getNextId();
+        IndexChangeJob job = new IndexChangeJob(jobId, db.getId(), tbl.getId(), tbl.getName(), 1000L, 0,
+                Lists.newArrayList(), Lists.newArrayList());
+        job.setOriginIndexId(tbl.getBaseIndexId());
+        job.setPartitionName(tbl.getPartitionNames().iterator().next());
+        job.setAlterInvertedIndexInfo(true, Lists.newArrayList(index));
+        handler.getIndexChangeJobs().put(jobId, job);
+        try {
+            String dropIndexStmt = "ALTER TABLE test." + tableName + " DROP INDEX idx_v1";
+            Exception e = Assertions.assertThrows(Exception.class, () -> alterTable(dropIndexStmt, connectContext));
+            Assertions.assertTrue(e.getMessage().contains("has an unfinished index change job"), e.getMessage());
+            Assertions.assertTrue(tbl.getIndexes().stream().anyMatch(idx -> idx.getIndexName().equals("idx_v1")));
+            Assertions.assertEquals(schemaVersion, tbl.getIndexMetaByIndexId(tbl.getBaseIndexId()).getSchemaVersion());
+
+            // The check must run before DROP COLUMN updates the bloom filter columns in place.
+            String dropColumnAndIndexStmt = "ALTER TABLE test." + tableName + " DROP COLUMN v2, DROP INDEX idx_v1";
+            e = Assertions.assertThrows(Exception.class, () -> alterTable(dropColumnAndIndexStmt, connectContext));
+            Assertions.assertTrue(e.getMessage().contains("has an unfinished index change job"), e.getMessage());
+            Assertions.assertEquals(Sets.newHashSet("v2"), tbl.getCopiedBfColumns());
+            Assertions.assertNotNull(tbl.getColumn("v2"));
+
+            job.setJobState(IndexChangeJob.JobState.FINISHED);
+            alterTable(dropIndexStmt, connectContext);
+            jobSize++;
+            Assertions.assertTrue(tbl.getIndexes().stream().noneMatch(idx -> idx.getIndexName().equals("idx_v1")));
+        } finally {
+            handler.getIndexChangeJobs().remove(jobId);
+        }
+    }
+
+    @Test
+    public void testLightAddAndDropIndexInOneStatementRejected() throws Exception {
+        String tableName = "sc_light_add_and_drop_index";
+        dropTable("test." + tableName, false);
+        createTable("CREATE TABLE test." + tableName + " (\n"
+                + "k1 INT,\n"
+                + "v1 STRING,\n"
+                + "v2 STRING,\n"
+                + "INDEX idx_v1 (v1) USING INVERTED\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true');");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        SchemaChangeHandler handler = Env.getCurrentEnv().getSchemaChangeHandler();
+        int schemaVersion = tbl.getIndexMetaByIndexId(tbl.getBaseIndexId()).getSchemaVersion();
+        int indexChangeJobCount = handler.getIndexChangeJobs().size();
+
+        // Both clauses take the light index change path, whose delete jobs carry a single direction.
+        for (String clauses : Lists.newArrayList(
+                "DROP INDEX idx_v1, ADD INDEX idx_v2 (v2) USING INVERTED",
+                "ADD INDEX idx_v2 (v2) USING INVERTED, DROP INDEX idx_v1")) {
+            String sql = "ALTER TABLE test." + tableName + " " + clauses;
+            Exception e = Assertions.assertThrows(Exception.class, () -> alterTable(sql, connectContext));
+            Assertions.assertTrue(e.getMessage().contains("Can not add and drop indexes in one ALTER statement"),
+                    e.getMessage());
+        }
+        Assertions.assertEquals(Lists.newArrayList("idx_v1"),
+                tbl.getIndexes().stream().map(Index::getIndexName).collect(Collectors.toList()));
+        Assertions.assertEquals(schemaVersion, tbl.getIndexMetaByIndexId(tbl.getBaseIndexId()).getSchemaVersion());
+        Assertions.assertEquals(indexChangeJobCount, handler.getIndexChangeJobs().size());
+    }
+
+    @Test
+    public void testDropIndexRejectedByPendingBuildOfSameIndex() throws Exception {
+        String tableName = "sc_drop_index_pending_build";
+        dropTable("test." + tableName, false);
+        createTable("CREATE TABLE test." + tableName + " (\n"
+                + "k1 INT,\n"
+                + "v1 STRING,\n"
+                + "INDEX idx_v1 (v1) USING INVERTED\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "PARTITION BY RANGE(k1) (PARTITION p1 VALUES LESS THAN (\"10\"),"
+                + " PARTITION p2 VALUES LESS THAN (\"20\"))\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true');");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        SchemaChangeHandler handler = Env.getCurrentEnv().getSchemaChangeHandler();
+        Index index = tbl.getIndexes().stream()
+                .filter(idx -> idx.getIndexName().equals("idx_v1"))
+                .findFirst().get();
+
+        // An unfinished BUILD INDEX idx_v1 on p1. Build and drop jobs of one index are not ordered, so a
+        // build running after the drop would add the dropped index back to the rowsets.
+        // It is only registered in indexChangeJobs so that the job scheduler does not run or cancel it.
+        long jobId = Env.getCurrentEnv().getNextId();
+        IndexChangeJob job = new IndexChangeJob(jobId, db.getId(), tbl.getId(), tbl.getName(), 1000L, 0,
+                Lists.newArrayList(), Lists.newArrayList());
+        job.setOriginIndexId(tbl.getBaseIndexId());
+        job.setPartitionName("p1");
+        job.setAlterInvertedIndexInfo(false, Lists.newArrayList(index));
+        handler.getIndexChangeJobs().put(jobId, job);
+        try {
+            String[][] clauseAndError = {
+                    {"DROP INDEX idx_v1", "has an unfinished index change job"},
+                    {"DROP INDEX idx_v1 PARTITION (p1)", "has been built specified index"}};
+            for (String[] ce : clauseAndError) {
+                String sql = "ALTER TABLE test." + tableName + " " + ce[0];
+                Exception e = Assertions.assertThrows(Exception.class, () -> alterTable(sql, connectContext));
+                Assertions.assertTrue(e.getMessage().contains(ce[1]), e.getMessage());
+            }
+            Assertions.assertTrue(tbl.getIndexes().stream().anyMatch(idx -> idx.getIndexName().equals("idx_v1")));
+
+            job.setJobState(IndexChangeJob.JobState.FINISHED);
+            alterTable("ALTER TABLE test." + tableName + " DROP INDEX idx_v1", connectContext);
+            jobSize++;
+            Assertions.assertTrue(tbl.getIndexes().stream().noneMatch(idx -> idx.getIndexName().equals("idx_v1")));
+        } finally {
+            handler.getIndexChangeJobs().remove(jobId);
+        }
+    }
+
+    @Test
+    public void testDropIndexOnPartitionsMustBeTheOnlyClause() throws Exception {
+        String tableName = "sc_drop_index_on_partitions_alone";
+        dropTable("test." + tableName, false);
+        createTable("CREATE TABLE test." + tableName + " (\n"
+                + "k1 INT,\n"
+                + "vi INT,\n"
+                + "v1 STRING,\n"
+                + "v2 STRING,\n"
+                + "INDEX idx_v1 (v1) USING INVERTED,\n"
+                + "INDEX idx_v2 (v2) USING INVERTED\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "PARTITION BY RANGE(k1) (PARTITION p1 VALUES LESS THAN (\"10\"),"
+                + " PARTITION p2 VALUES LESS THAN (\"20\"))\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true');");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        SchemaChangeHandler handler = Env.getCurrentEnv().getSchemaChangeHandler();
+        int schemaVersion = tbl.getIndexMetaByIndexId(tbl.getBaseIndexId()).getSchemaVersion();
+        int indexChangeJobCount = handler.getIndexChangeJobs().size();
+
+        // The partition scoped index job path would drop the column change and the added column, the light
+        // index path would apply idx_v1 to every partition, and partition scoped drops would merge partitions.
+        for (String clauses : Lists.newArrayList(
+                "MODIFY COLUMN vi BIGINT NULL, DROP INDEX idx_v1 PARTITION (p1)",
+                "ADD COLUMN x INT, DROP INDEX idx_v1 PARTITION (p1)",
+                "DROP INDEX idx_v1 PARTITION (p1), DROP INDEX idx_v2",
+                "DROP INDEX idx_v1 PARTITION (p1), DROP INDEX idx_v2 PARTITION (p2)")) {
+            String sql = "ALTER TABLE test." + tableName + " " + clauses;
+            Exception e = Assertions.assertThrows(Exception.class, () -> alterTable(sql, connectContext));
+            Assertions.assertTrue(e.getMessage().contains("DROP INDEX on partitions can not be combined"),
+                    e.getMessage());
+        }
+        Assertions.assertEquals(PrimitiveType.INT, tbl.getColumn("vi").getType().getPrimitiveType());
+        Assertions.assertNull(tbl.getColumn("x"));
+        Assertions.assertEquals(Lists.newArrayList("idx_v1", "idx_v2"),
+                tbl.getIndexes().stream().map(Index::getIndexName).collect(Collectors.toList()));
+        Assertions.assertEquals(schemaVersion, tbl.getIndexMetaByIndexId(tbl.getBaseIndexId()).getSchemaVersion());
+        Assertions.assertEquals(indexChangeJobCount, handler.getIndexChangeJobs().size());
+
+        // Alone, it still submits an index job for the partition and keeps the index in the table metadata.
+        alterTable("ALTER TABLE test." + tableName + " DROP INDEX idx_v1 PARTITION (p1)", connectContext);
+        Assertions.assertEquals(indexChangeJobCount + 1, handler.getIndexChangeJobs().size());
+        Assertions.assertEquals(Lists.newArrayList("idx_v1", "idx_v2"),
+                tbl.getIndexes().stream().map(Index::getIndexName).collect(Collectors.toList()));
+    }
+
+    @Test
+    public void testLightIndexChangeWithHeavyWorkRunsHeavySchemaChange() throws Exception {
+        String tableName = "sc_light_index_with_heavy_work";
+        dropTable("test." + tableName, false);
+        createTable("CREATE TABLE test." + tableName + " (\n"
+                + "k1 INT,\n"
+                + "vi INT,\n"
+                + "v1 STRING,\n"
+                + "v2 STRING,\n"
+                + "v3 STRING,\n"
+                + "INDEX idx_v1 (v1) USING INVERTED,\n"
+                + "INDEX idx_v3 (v3) USING INVERTED\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true');");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        SchemaChangeHandler handler = Env.getCurrentEnv().getSchemaChangeHandler();
+        String alterPrefix = "ALTER TABLE test." + tableName + " ";
+
+        // A type change needs a BE conversion job, so the light DROP INDEX must not publish the shadow schema.
+        assertRunsHeavySchemaChange(handler, tbl, alterPrefix + "MODIFY COLUMN vi BIGINT NULL, DROP INDEX idx_v1");
+        Assertions.assertEquals(PrimitiveType.BIGINT, tbl.getColumn("vi").getType().getPrimitiveType());
+        Assertions.assertTrue(tbl.getBaseSchema(true).stream()
+                .noneMatch(column -> column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)));
+        Assertions.assertTrue(tbl.getIndexes().stream().noneMatch(idx -> idx.getIndexName().equals("idx_v1")));
+
+        // Without new-data-only indexing, the BLOOMFILTER index has to be built for the existing data too.
+        boolean enableAddIndexForNewData = connectContext.getSessionVariable().isEnableAddIndexForNewData();
+        connectContext.getSessionVariable().setEnableAddIndexForNewData(false);
+        try {
+            assertRunsHeavySchemaChange(handler, tbl,
+                    alterPrefix + "ADD INDEX bf_v2 (v2) USING BLOOMFILTER, DROP INDEX idx_v3");
+        } finally {
+            connectContext.getSessionVariable().setEnableAddIndexForNewData(enableAddIndexForNewData);
+        }
+        Assertions.assertEquals(Lists.newArrayList("bf_v2"),
+                tbl.getIndexes().stream().map(Index::getIndexName).collect(Collectors.toList()));
+    }
+
+    // Runs the statement and checks it ran as a heavy schema change job, not as a light index change that
+    // publishes the schema at once and submits index delete jobs.
+    private void assertRunsHeavySchemaChange(SchemaChangeHandler handler, OlapTable tbl, String sql)
+            throws Exception {
+        Set<Long> alterJobIdsBefore = Sets.newHashSet(handler.getAlterJobsV2().keySet());
+        long indexChangeJobsOfTable = handler.getIndexChangeJobs().values().stream()
+                .filter(job -> job.getTableId() == tbl.getId()).count();
+
+        alterTable(sql, connectContext);
+        jobSize++;
+
+        List<AlterJobV2> newJobs = handler.getAlterJobsV2().values().stream()
+                .filter(job -> job.getTableId() == tbl.getId() && !alterJobIdsBefore.contains(job.getJobId()))
+                .collect(Collectors.toList());
+        Assertions.assertEquals(1, newJobs.size());
+        Assertions.assertEquals(indexChangeJobsOfTable, handler.getIndexChangeJobs().values().stream()
+                .filter(job -> job.getTableId() == tbl.getId()).count());
+        waitAlterJobDone(handler.getAlterJobsV2());
+    }
+
+    @Test
     public void testAddInvertedIndexStoresCanonicalBuiltinAnalyzer() throws Exception {
         createAnalyzerAliasTable("sc_ik_alias");
         alterTable("alter table test.sc_ik_alias add index idx_upper(c1) using inverted "
@@ -2082,6 +2337,25 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         }
         alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
         waitAlterJobDone(alterJobs);
+    }
+
+    @Test
+    public void testRejectAddSequenceMappingForRowTtl() throws Exception {
+        createTable("CREATE TABLE test.sc_row_ttl_sequence_mapping ("
+                + "k BIGINT, event_time DATETIMEV2(6), v VARCHAR(20)) "
+                + "UNIQUE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true', "
+                + "'enable_unique_key_merge_on_write' = 'false', 'function_column.enable_row_ttl' = 'true', "
+                + "'function_column.ttl_col' = 'event_time', 'function_column.ttl' = '1 day', "
+                + "'function_column.ttl_time_zone' = '+08:00')");
+
+        Exception exception = Assertions.assertThrows(Exception.class,
+                () -> alterTable("ALTER TABLE test.sc_row_ttl_sequence_mapping "
+                        + "ADD COLUMN (sequence_time BIGINT, extra VARCHAR(20)) "
+                        + "PROPERTIES ('sequence_mapping.sequence_time' = 'extra')",
+                        connectContext));
+        Assertions.assertTrue(exception.getMessage()
+                .contains(PropertyAnalyzer.ROW_TTL_SEQUENCE_COLUMN_CONFLICT));
     }
 
 }

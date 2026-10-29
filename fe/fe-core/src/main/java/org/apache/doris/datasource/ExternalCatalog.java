@@ -40,7 +40,8 @@ import org.apache.doris.common.Version;
 import org.apache.doris.common.util.ExceptionDiagnosticUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.cache.CacheSpec;
-import org.apache.doris.connector.cache.MetaCacheBudgetManager;
+import org.apache.doris.connector.cache.MetaCacheCleanup;
+import org.apache.doris.connector.cache.MetaCacheGovernance;
 import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
@@ -74,11 +75,13 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -168,6 +171,7 @@ public abstract class ExternalCatalog
     private String errorMsg = "";
 
     private boolean objectCreated = false;
+    private transient boolean closed;
     protected TransactionManager transactionManager;
     protected FeMetaCacheEntry<String, NameCacheValue> databaseNames;
     protected FeMetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> databases;
@@ -332,6 +336,7 @@ public abstract class ExternalCatalog
      * So you have to make sure the client of third system is initialized before any method was called.
      */
     public final synchronized void makeSureInitialized() {
+        Preconditions.checkState(!closed, "Catalog %s has been removed", name);
         if (LOG.isDebugEnabled()) {
             LOG.debug("start to init catalog {}:{}", name, id);
         }
@@ -479,7 +484,34 @@ public abstract class ExternalCatalog
 
     /** Strict CREATE/ALTER validation for the core metadata-cache namespace owned by this catalog. */
     protected void checkMetaCacheWeightProperties(Map<String, String> properties) {
-        CacheSpec.checkWeightProperties(properties, "default", "schema");
+        CacheSpec.checkWeightProperties(properties, coreMetaCacheEngine(), "schema");
+    }
+
+    /** The engine of the core metadata-cache namespace that fe-core owns for this catalog. */
+    protected String coreMetaCacheEngine() {
+        return "default";
+    }
+
+    /**
+     * CREATE / ALTER CATALOG only, never on replay: the meta cache keys this statement submits for the engine of the
+     * core metadata-cache namespace must be well formed, and the weights it submits must not exceed the FE-global
+     * limit. A connector checks the keys of its own engines when it validates the statement's properties.
+     */
+    public void checkSubmittedMetaCacheProperties(Map<String, String> effectiveProperties,
+            Map<String, String> submittedProperties) throws DdlException {
+        checkSubmittedMetaCacheProperties(effectiveProperties, submittedProperties,
+                MetaCacheGovernance.globalMaxWeight());
+    }
+
+    void checkSubmittedMetaCacheProperties(Map<String, String> effectiveProperties,
+            Map<String, String> submittedProperties, OptionalLong globalMaxWeight) throws DdlException {
+        try {
+            CacheSpec.checkSubmittedEngineProperties(submittedProperties, coreMetaCacheEngine());
+            CacheSpec.checkSubmittedWeightsAgainstGlobal(
+                    effectiveProperties, submittedProperties, globalMaxWeight, coreMetaCacheEngine());
+        } catch (IllegalArgumentException e) {
+            throw new DdlException(e.getMessage());
+        }
     }
 
     /**
@@ -614,54 +646,41 @@ public abstract class ExternalCatalog
     }
 
     /**
-     * Resets the Catalog state to uninitialized, releases resources held by {@code initLocalObjectsImpl()}
-     * <p>
-     * This method is typically invoked during operations such as {@code CREATE CATALOG}
-     * and {@code MODIFY CATALOG}. It marks the object as uninitialized, clears cached
-     * configurations, and ensures that resources allocated during {@link #initLocalObjectsImpl()}
-     * are properly released via {@link #onClose()}
-     * </p>
-     * <p>
-     * The {@code onClose()} method is responsible for cleaning up resources that were initialized
-     * in {@code initLocalObjectsImpl()}, preventing potential resource leaks.
-     * </p>
+     * Resets local state, retires metadata caches and detaches the current runtime under the catalog monitor.
+     * Physical resource/controller close is registered with the background reclaimer. The next access builds
+     * the replacement from current properties; background work never reads the catalog's live resource fields.
      *
-     * @param invalidCache if {@code true}, the catalog cache will be invalidated
-     *                     and reloaded during the refresh process.
+     * @param invalidCache whether the refresh also invalidates connector caches
      */
     public void resetToUninitialized(boolean invalidCache) {
         resetToUninitialized(invalidCache, false);
     }
 
-    private Runnable resetToUninitialized(boolean invalidCache, boolean deferAccessControllerCleanup) {
-        return resetToUninitialized(invalidCache, deferAccessControllerCleanup, () -> { });
+    private Runnable resetToUninitialized(boolean invalidCache, boolean deferResourceCleanup) {
+        return resetToUninitialized(invalidCache, deferResourceCleanup, () -> { });
     }
 
-    private Runnable resetToUninitialized(boolean invalidCache, boolean deferAccessControllerCleanup,
-            Runnable retireCaches) {
-        Runnable accessControllerCleanup = () -> { };
+    private Runnable resetToUninitialized(boolean invalidCache, boolean deferResourceCleanup,
+            Runnable updateProperties) {
+        Runnable resourceCleanup;
+        synchronized (this) {
+            this.objectCreated = false;
+            this.initialized = false;
+            this.closed = false;
+            resourceCleanup = detachRuntimeAndRetireCaches(updateProperties);
+        }
         try {
-            synchronized (this) {
-                this.objectCreated = false;
-                this.initialized = false;
-                accessControllerCleanup = detachAccessController();
-                try {
-                    closeResourcesQuietly("resetting catalog");
-                } finally {
-                    // Retire core and connector budgets before lazy initialization can publish a new limit.
-                    retireCaches.run();
-                }
-            }
             onRefreshCache(invalidCache);
         } catch (RuntimeException | Error e) {
-            accessControllerCleanup.run();
+            reclaimResources(resourceCleanup);
             throw e;
         }
-        if (!deferAccessControllerCleanup) {
-            accessControllerCleanup.run();
+        Runnable scheduleCleanup = () -> reclaimResources(resourceCleanup);
+        if (!deferResourceCleanup) {
+            scheduleCleanup.run();
             return () -> { };
         }
-        return accessControllerCleanup;
+        return scheduleCleanup;
     }
 
     /**
@@ -779,17 +798,8 @@ public abstract class ExternalCatalog
         if (StringUtils.isEmpty(dbName)) {
             return null;
         }
-        try {
-            makeSureInitialized();
-        } catch (Exception e) {
-            String diagnosticTrace = initErrorStackTrace(e);
-            if (diagnosticTrace != null) {
-                LOG.warn("failed to get db {} in catalog {}: {}", dbName, name, diagnosticTrace);
-            } else {
-                LOG.warn("failed to get db {} in catalog {}", dbName, name, e);
-            }
-            return null;
-        }
+        // Initialization errors do not establish that the requested database is absent.
+        makeSureInitialized();
 
         SessionContext sessionContext = SessionContext.current();
         if (shouldBypassDbNameCache(sessionContext)) {
@@ -907,10 +917,10 @@ public abstract class ExternalCatalog
     }
 
     /**
-     * Apply property changes while atomically detaching the old access controller, but return its potentially
-     * blocking close operation to CatalogMgr so it can run after releasing the global catalog write lock.
+     * Apply properties and detach the old runtime under the catalog monitor. The returned action registers
+     * background resource/controller cleanup after CatalogMgr releases its write lock.
      */
-    public Runnable modifyCatalogPropsWithDeferredAccessControllerCleanup(Map<String, String> props) {
+    public Runnable modifyCatalogPropsWithDeferredResourceCleanup(Map<String, String> props) {
         return resetAfterPropertyUpdate(props, true);
     }
 
@@ -918,40 +928,15 @@ public abstract class ExternalCatalog
         catalogProperty.modifyCatalogProps(props);
     }
 
-    private void invalidateCachesAfterPropertyUpdate(Map<String, String> updatedProps) {
-        ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
-        if (updatedProps.get(SCHEMA_CACHE_TTL_SECOND) != null
-                || updatedProps.containsKey(MetaCacheBudgetManager.CATALOG_MAX_WEIGHT_PROPERTY)) {
-            cacheMgr.removeCatalog(id);
-            return;
-        }
-        Set<String> removedEngines = Sets.newHashSet();
-        for (String key : updatedProps.keySet()) {
-            if (key == null || !key.startsWith("meta.cache.")) {
-                continue;
-            }
-            String remainder = key.substring("meta.cache.".length());
-            int separator = remainder.indexOf('.');
-            if (separator <= 0) {
-                continue;
-            }
-            String engine = remainder.substring(0, separator);
-            if (cacheMgr.isEngineRegistered(engine) && removedEngines.add(engine)) {
-                cacheMgr.removeCatalogByEngine(id, engine);
-            }
-        }
-        // Scoped removal does not clear other engines or row counts. ALTER may also change the endpoint,
-        // including when a tolerated cache property names an engine that this catalog does not use.
-        cacheMgr.invalidateCatalog(id);
+    private Runnable resetAfterPropertyUpdate(Map<String, String> updatedProps,
+            boolean deferResourceCleanup) {
+        return resetToUninitialized(false, deferResourceCleanup,
+                () -> catalogProperty.modifyCatalogProps(updatedProps));
     }
 
-    private Runnable resetAfterPropertyUpdate(Map<String, String> updatedProps,
-            boolean deferAccessControllerCleanup) {
-        return resetToUninitialized(false, deferAccessControllerCleanup,
-                () -> {
-                    catalogProperty.modifyCatalogProps(updatedProps);
-                    invalidateCachesAfterPropertyUpdate(updatedProps);
-                });
+    private void retireMetadataCaches() {
+        // Remove this Env's FE runtime containers, rather than closing owners found by global catalog ID.
+        Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalog(id);
     }
 
     public void rollBackCatalogProps(Map<String, String> props) {
@@ -968,37 +953,94 @@ public abstract class ExternalCatalog
 
     @Override
     public final void onClose() {
-        Runnable accessControllerCleanup = detachAccessController();
-        try {
-            closeResourcesQuietly("registered catalog");
-        } finally {
-            accessControllerCleanup.run();
+        Runnable cleanup;
+        synchronized (this) {
+            closed = true;
+            objectCreated = false;
+            initialized = false;
+            cleanup = detachRuntimeAndRetireCaches(() -> { });
         }
+        reclaimResources(cleanup);
+    }
+
+    // Caller holds this catalog's monitor. Child FileIO cleanup must precede connector/context close.
+    private Runnable detachRuntimeAndRetireCaches(Runnable updateProperties) {
+        Runnable accessControllerCleanup = detachAccessController();
+        Runnable retireConnectorCaches = captureConnectorCacheRetirement();
+        Runnable detachedResources = detachResources();
+        List<Runnable> cleanupStages = new ArrayList<>();
+        Runnable cleanup = () -> {
+            Throwable failure = null;
+            List<Runnable> stages = new ArrayList<>(cleanupStages);
+            stages.add(detachedResources);
+            stages.add(accessControllerCleanup);
+            for (Runnable stage : stages) {
+                try {
+                    stage.run();
+                } catch (Throwable e) {
+                    if (failure == null) {
+                        failure = e;
+                    } else if (failure != e) {
+                        failure.addSuppressed(e);
+                    }
+                }
+            }
+            if (failure != null) {
+                throw new IllegalStateException("Failed to reclaim detached catalog resources", failure);
+            }
+        };
+        try {
+            MetaCacheCleanup.runWithResourceReclaimer((description, child) -> cleanupStages.add(child), () -> {
+                // New connector construction must not see old catalog/group cache limits.
+                retireConnectorCaches.run();
+                retireMetadataCaches();
+                updateProperties.run();
+            });
+        } catch (RuntimeException | Error e) {
+            reclaimResources(cleanup);
+            throw e;
+        }
+        return cleanup;
     }
 
     @Override
     public final void onCreateFailure() {
-        closeResourcesQuietly("unregistered catalog");
-    }
-
-    private void closeResourcesQuietly(String lifecycleStage) {
+        // The unpublished instance cannot be reused by a query. Preserve synchronous creation-failure cleanup.
         try {
             closeResources();
         } catch (Throwable t) {
-            LOG.warn("Failed to close resources for {} {}", lifecycleStage, name, t);
+            LOG.warn("Failed to close resources for unregistered catalog {}", name, t);
         }
     }
 
+    private void reclaimResources(Runnable cleanup) {
+        ExternalResourceReclaimer.getInstance().submit("catalog " + id + " (" + name + ")", cleanup);
+    }
+
+    /** Capture before detaching fields; the default catalog has no connector-owned caches. */
+    protected Runnable captureConnectorCacheRetirement() {
+        return () -> { };
+    }
+
+    /** Detach under this catalog's monitor; the returned action must only touch the captured old instances. */
+    protected Runnable detachResources() {
+        ThreadPoolExecutor oldThreadPool = threadPoolWithPreAuth;
+        threadPoolWithPreAuth = null;
+        executionAuthenticator = null;
+        transactionManager = null;
+        return () -> {
+            if (oldThreadPool != null) {
+                ThreadPoolManager.shutdownExecutorService(oldThreadPool);
+            }
+        };
+    }
+
     protected void closeResources() {
-        if (threadPoolWithPreAuth != null) {
-            ThreadPoolManager.shutdownExecutorService(threadPoolWithPreAuth);
+        Runnable cleanup;
+        synchronized (this) {
+            cleanup = detachResources();
         }
-        if (null != executionAuthenticator) {
-            executionAuthenticator = null;
-        }
-        if (null != transactionManager) {
-            transactionManager = null;
-        }
+        cleanup.run();
     }
 
     private Runnable detachAccessController() {
@@ -1098,42 +1140,14 @@ public abstract class ExternalCatalog
         // When running ut, disable this check to make ut pass.
         // Because in ut, the database is not created in remote system.
         if (checkExists && (!FeConstants.runningUnitTest || this instanceof TestExternalCatalog)) {
-            try {
-                final String lookupLocalDbName = localDbName;
-                // Reuse the shared names lookup helper so existence checks follow the same miss-refresh policy.
-                Boolean exists = resolveDatabaseNameFromSnapshot(lookupLocalDbName, false,
-                        namesValue -> namesValue.containsLocalName(lookupLocalDbName) ? Boolean.TRUE : null);
-                if (!Boolean.TRUE.equals(exists)) {
-                    LOG.warn("Database {} does not exist in the remote system. Skipping initialization.",
-                            localDbName);
-                    return null;
-                }
-            } catch (RuntimeException e) {
-                // Handle "Found conflicting" exception explicitly
-                if (e.getMessage().contains(FOUND_CONFLICTING)) {
-                    LOG.error(e.getMessage());
-                    throw e; // Rethrow to let the caller handle this critical issue
-                } else {
-                    // Any errors other than name conflicts, we default to not finding the database
-                    String diagnosticTrace = initErrorStackTrace(e);
-                    if (diagnosticTrace != null) {
-                        LOG.warn("Failed to check db {} exist in remote system, ignore it: {}",
-                                localDbName, diagnosticTrace);
-                    } else {
-                        LOG.warn("Failed to check db {} exist in remote system, ignore it.", localDbName, e);
-                    }
-                    return null;
-                }
-            } catch (Exception e) {
-                // If connection failed, it will throw exception.
-                // ignore it and treat it as not exist.
-                String diagnosticTrace = initErrorStackTrace(e);
-                if (diagnosticTrace != null) {
-                    LOG.warn("Failed to check db {} exist in remote system, ignore it: {}",
-                            localDbName, diagnosticTrace);
-                } else {
-                    LOG.warn("Failed to check db {} exist in remote system, ignore it.", localDbName, e);
-                }
+            // Authentication and connection failures must propagate; only a successful lookup can prove absence.
+            final String lookupLocalDbName = localDbName;
+            // Reuse the shared names lookup helper so existence checks follow the same miss-refresh policy.
+            Boolean exists = resolveDatabaseNameFromSnapshot(lookupLocalDbName, false,
+                    namesValue -> namesValue.containsLocalName(lookupLocalDbName) ? Boolean.TRUE : null);
+            if (!Boolean.TRUE.equals(exists)) {
+                LOG.warn("Database {} does not exist in the remote system. Skipping initialization.",
+                        localDbName);
                 return null;
             }
         }
@@ -1225,6 +1239,14 @@ public abstract class ExternalCatalog
             tableAutoAnalyzePolicy = Maps.newHashMap();
         }
         this.dbIdNameIndex = new IdNameIndex("external database");
+    }
+
+    /** Cache-only identity fence for a read through a retained database instance. */
+    public Optional<FeMetaCacheEntry.Observation> observeDatabase(ExternalDatabase<?> database) {
+        if (!initialized || databases == null) {
+            return Optional.empty();
+        }
+        return databases.observe(database.getFullName(), database);
     }
 
     public void addDatabaseForTest(ExternalDatabase<? extends ExternalTable> db) {

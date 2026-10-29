@@ -94,7 +94,7 @@ public class SplitProbe {
 
     public static void premain(String file, Instrumentation instrumentation) throws Exception {
         output = new PrintWriter(new FileOutputStream(file), true);
-        output.println("time_ms,assignment_id,query_id,stopped,finished,queue_batches,queued_ranges,"
+        output.println("time_ms,assignment_id,query_id,stopped,finished,nonempty_queues,queued_ranges,"
                 + "listeners,resources,active_runs,live_producers,terminated");
         instrumentation.addTransformer(new ClassFileTransformer() {
             @Override
@@ -163,27 +163,30 @@ public class SplitProbe {
                 }
                 for (Record record : snapshot) {
                     String row;
-                    synchronized (field(record.assignment, "assignLock")) {
-                        int batches = 0;
+                    synchronized (field(record.assignment, "readinessLock")) {
+                        int nonemptyQueues = 0;
                         int ranges = 0;
                         Map<?, ?> queues = (Map<?, ?>) field(record.assignment, "assignment");
                         for (Object value : queues.values()) {
-                            Collection<?> queue = (Collection<?>) value;
-                            batches += queue.size();
-                            for (Object batch : queue) {
-                                ranges += ((Collection<?>) batch).size();
+                            synchronized (value) {
+                                Collection<?> queue = (Collection<?>) field(value, "splits");
+                                int size = queue.size();
+                                nonemptyQueues += size == 0 ? 0 : 1;
+                                ranges += size;
                             }
                         }
                         int waiters = 0;
                         Map<?, ?> listeners = (Map<?, ?>) field(record.assignment, "queueSpaceListeners");
-                        for (Object value : listeners.values()) {
-                            waiters += ((Set<?>) value).size();
+                        synchronized (listeners) {
+                            for (Object value : listeners.values()) {
+                                waiters += ((Set<?>) value).size();
+                            }
                         }
                         int resources = ((List<?>) field(record.assignment, "closeableResources")).size();
                         boolean terminated = ((CompletableFuture<?>) field(record.assignment, "termination")).isDone();
                         row = String.format("%d,%d,%s,%s,%s,%d,%d,%d,%d,%d,%s,%s", System.currentTimeMillis(),
                                 record.id, record.query, field(record.assignment, "isStopped"),
-                                field(record.assignment, "scheduleFinished"), batches, ranges, waiters, resources,
+                                field(record.assignment, "scheduleFinished"), nonemptyQueues, ranges, waiters, resources,
                                 record.running.get(), field(record.assignment, "liveProducers"), terminated);
                     }
                     output.println(row);

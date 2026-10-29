@@ -185,6 +185,10 @@ public class ReportHandler extends Daemon {
             reportType = ReportType.DISK;
         }
 
+        if (request.isSetRemoteSpillBytes()) {
+            backend.setRemoteSpillBytes(request.getRemoteSpillBytes());
+        }
+
         if (request.isSetTablets()) {
             tablets = request.getTablets();
             reportVersion = request.getReportVersion();
@@ -1099,7 +1103,9 @@ public class ReportHandler extends Daemon {
                                             olapTable.storagePageSize(), olapTable.getTDEAlgorithm(),
                                             olapTable.storageDictPageSize(),
                                             olapTable.getColumnSeqMapping(),
-                                            olapTable.getVerticalCompactionNumColumnsPerGroup());
+                                            olapTable.getVerticalCompactionNumColumnsPerGroup(),
+                                            olapTable.getRowTtlConfig(),
+                                            olapTable.getRowTtlTimeZoneOffsetSeconds());
                                     createReplicaTask.setIsRecoverTask(true);
                                     createReplicaTask.setInvertedIndexFileStorageFormat(olapTable
                                                                 .getInvertedIndexFileStorageFormat());

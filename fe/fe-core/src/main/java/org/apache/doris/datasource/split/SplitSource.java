@@ -24,15 +24,11 @@ import org.apache.doris.thrift.TScanRangeLocations;
 import com.google.common.base.Preconditions;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.List;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * If there are many files, splitting these files into scan ranges will consume a lot of time.
@@ -45,30 +41,38 @@ import java.util.concurrent.atomic.AtomicReference;
  * the split source when its related scan node is GC.
  */
 public class SplitSource {
+    /** The producer is still running, but this fetch did not receive a split within its RPC wait window. */
+    public static class SplitPendingException extends UserException {
+        public SplitPendingException(long maxWaitTime) {
+            super("Timeout waiting for the next split after " + maxWaitTime + " ms; production is still running",
+                    null, false, false);
+        }
+    }
+
     private static final AtomicLong UNIQUE_ID_GENERATOR = new AtomicLong(0);
-    private static final long WAIT_TIME_OUT = 100; // 100ms
 
     private final long uniqueId;
     private final Backend backend;
     private final SplitAssignment splitAssignment;
     private final AtomicBoolean isLastBatch;
+    private final AtomicBoolean firstBatchRequested = new AtomicBoolean();
     private final long maxWaitTime;
-    private final AtomicReference<Iterator<TScanRangeLocations>> pendingSplits =
-            new AtomicReference<>(Collections.emptyIterator());
+    private final int initialBatchSize;
 
     public SplitSource(Backend backend, SplitAssignment splitAssignment, long maxWaitTime) {
+        this(backend, splitAssignment, maxWaitTime, Integer.MAX_VALUE);
+    }
+
+    public SplitSource(Backend backend, SplitAssignment splitAssignment, long maxWaitTime, int initialBatchSize) {
+        Preconditions.checkArgument(maxWaitTime > 0, "Split fetch wait time must be positive");
+        Preconditions.checkArgument(initialBatchSize > 0, "Initial split batch size must be positive");
+        this.initialBatchSize = initialBatchSize;
         this.uniqueId = UNIQUE_ID_GENERATOR.getAndIncrement();
         this.backend = backend;
         this.splitAssignment = splitAssignment;
         this.maxWaitTime = maxWaitTime;
         this.isLastBatch = new AtomicBoolean(false);
         splitAssignment.registerSource(uniqueId);
-        splitAssignment.registerConsumer(this);
-    }
-
-    /** Drop buffered ranges without waiting for an in-flight fetch RPC's monitor. */
-    public void close() {
-        pendingSplits.set(Collections.emptyIterator());
     }
 
     public long getUniqueId() {
@@ -83,37 +87,38 @@ public class SplitSource {
         if (isLastBatch.get()) {
             return Collections.emptyList();
         }
+        if (firstBatchRequested.compareAndSet(false, true)) {
+            // Limit startup RPC work independently of producer batches and buffered lookahead.
+            maxBatchSize = Math.min(maxBatchSize, initialBatchSize);
+        } else {
+            splitAssignment.onMoreSplitsRequested();
+        }
         List<TScanRangeLocations> scanRanges = new ArrayList<>(
                 Math.min(maxBatchSize, splitAssignment.getSplitBatchSize()));
         long startTime = System.nanoTime();
         long waitNanos = TimeUnit.MILLISECONDS.toNanos(maxWaitTime);
         while (scanRanges.size() < maxBatchSize) {
             // Check producer errors even while draining a previously fetched batch.
-            BlockingQueue<Collection<TScanRangeLocations>> splits = splitAssignment.getAssignedSplits(backend);
+            SplitAssignment.AssignmentQueue splits = splitAssignment.getAssignedSplits(backend);
             if (splitAssignment.isStop()) {
-                pendingSplits.set(Collections.emptyIterator());
+                scanRanges.clear();
                 isLastBatch.set(true);
                 break;
             }
-            Iterator<TScanRangeLocations> pending = pendingSplits.get();
-            while (!splitAssignment.isStop() && pending.hasNext() && scanRanges.size() < maxBatchSize) {
-                scanRanges.add(pending.next());
-            }
-            if (scanRanges.size() == maxBatchSize) {
-                return scanRanges;
-            }
-            pendingSplits.set(Collections.emptyIterator());
-            // A finished, empty queue is EOF only after the pending batch has been drained.
             if (splits == null) {
                 isLastBatch.set(true);
                 break;
             }
-            Collection<TScanRangeLocations> batch = splits.poll();
-            if (batch != null) {
+            // Drain only the requested amount; the queue stores individual splits, but takes the lock once.
+            int drained = splits.drainTo(scanRanges, Math.min(64, maxBatchSize - scanRanges.size()));
+            if (drained > 0) {
                 splitAssignment.notifyQueueSpace(backend);
-                pendingSplits.set(batch.iterator());
+                // Resuming a producer may publish an error or cancellation before we return.
+                splitAssignment.getAssignedSplits(backend);
                 if (splitAssignment.isStop()) {
-                    pendingSplits.set(Collections.emptyIterator());
+                    scanRanges.clear();
+                    isLastBatch.set(true);
+                    break;
                 }
                 continue;
             }
@@ -122,23 +127,37 @@ public class SplitSource {
             }
             long remainingNanos = waitNanos - (System.nanoTime() - startTime);
             if (remainingNanos <= 0) {
-                throw new UserException("Timeout. Max wait time(ms): " + maxWaitTime);
+                // A temporary gap between producer batches is neither EOF nor a query failure.
+                // Let the BE retry after this bounded long poll rather than failing a slow listing.
+                SplitAssignment.AssignmentQueue pending = splitAssignment.getAssignedSplits(backend);
+                if (splitAssignment.isStop()) {
+                    isLastBatch.set(true);
+                    break;
+                }
+                if (pending == null) {
+                    isLastBatch.set(true);
+                    break;
+                }
+                throw new SplitPendingException(maxWaitTime);
             }
             try {
-                batch = splits.poll(Math.min(remainingNanos, TimeUnit.MILLISECONDS.toNanos(WAIT_TIME_OUT)),
-                        TimeUnit.NANOSECONDS);
-                if (batch != null) {
+                TScanRangeLocations split = splitAssignment.awaitSplit(backend, remainingNanos);
+                if (split != null) {
                     splitAssignment.notifyQueueSpace(backend);
-                    pendingSplits.set(batch.iterator());
+                    // The awakened producer may fail or stop before this one-split fetch returns.
+                    splitAssignment.getAssignedSplits(backend);
                     if (splitAssignment.isStop()) {
-                        pendingSplits.set(Collections.emptyIterator());
+                        scanRanges.clear();
+                        isLastBatch.set(true);
+                        break;
                     }
+                    scanRanges.add(split);
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new UserException(e.getMessage(), e);
             }
         }
-        return scanRanges;
+        return FileScanRangeCompactor.compactSplitBatch(scanRanges);
     }
 }

@@ -27,14 +27,14 @@
 namespace doris {
 
 class ColumnVariantV2;
-class FunctionContext;
+class RuntimeState;
 struct VariantJsonFormatOptions;
 
 namespace CastWrapper::variant_v2_internal {
 
 using ForcedNulls = std::span<const NullMap::value_type>;
 
-VariantJsonFormatOptions variant_json_options(FunctionContext* context);
+VariantJsonFormatOptions variant_json_options(RuntimeState* state);
 
 bool is_supported_scalar_source(const DataTypePtr& type);
 bool is_supported_scalar_target(const DataTypePtr& type);
@@ -46,28 +46,28 @@ Status cast_jsonb_to_variant(const ColumnPtr& source, size_t rows, ForcedNulls f
 Status cast_array_to_variant(const ColumnPtr& source, const DataTypePtr& source_type, size_t rows,
                              ForcedNulls forced_nulls, ColumnPtr* output);
 
-Status cast_typed_variant_to_scalar(FunctionContext* context, const ColumnVariantV2& source,
+Status cast_typed_variant_to_scalar(RuntimeState* state, const ColumnVariantV2& source,
                                     const DataTypePtr& target_type, size_t rows,
                                     ForcedNulls forced_nulls, ColumnPtr* output);
-Status cast_variant_refs_to_scalar(FunctionContext* context, std::span<const VariantRef> values,
+Status cast_variant_refs_to_scalar(RuntimeState* state, std::span<const VariantRef> values,
                                    const DataTypePtr& target_type, ForcedNulls forced_nulls,
                                    ColumnPtr* output);
-Status cast_encoded_variant_to_scalar(FunctionContext* context, const ColumnVariantV2& source,
+Status cast_encoded_variant_to_scalar(RuntimeState* state, const ColumnVariantV2& source,
                                       const DataTypePtr& target_type, size_t rows,
                                       ForcedNulls forced_nulls, ColumnPtr* output);
-Status cast_variant_values_to_scalar(FunctionContext* context, const ColumnVariantV2& source,
+Status cast_variant_values_to_scalar(RuntimeState* state, const ColumnVariantV2& source,
                                      const DataTypePtr& target_type, size_t rows,
                                      ForcedNulls forced_nulls, ColumnPtr* output);
-Status cast_variant_to_array(FunctionContext* context, const ColumnVariantV2& source,
+Status cast_variant_to_array(RuntimeState* state, const ColumnVariantV2& source,
                              const DataTypePtr& target_type, size_t rows, ForcedNulls forced_nulls,
                              ColumnPtr* output);
-Status cast_variant_to_string(FunctionContext* context, const ColumnVariantV2& source, size_t rows,
+Status cast_variant_to_string(RuntimeState* state, const ColumnVariantV2& source, size_t rows,
                               ForcedNulls forced_nulls, ColumnPtr* output);
-Status cast_variant_refs_to_string(FunctionContext* context, std::span<const VariantRef> values,
+Status cast_variant_refs_to_string(RuntimeState* state, std::span<const VariantRef> values,
                                    ForcedNulls forced_nulls, ColumnPtr* output);
-Status cast_variant_to_jsonb(FunctionContext* context, const ColumnVariantV2& source, size_t rows,
+Status cast_variant_to_jsonb(RuntimeState* state, const ColumnVariantV2& source, size_t rows,
                              ForcedNulls forced_nulls, ColumnPtr* output);
-Status cast_variant_refs_to_jsonb(FunctionContext* context, std::span<const VariantRef> values,
+Status cast_variant_refs_to_jsonb(RuntimeState* state, std::span<const VariantRef> values,
                                   ForcedNulls forced_nulls, ColumnPtr* output);
 
 ColumnPtr make_all_null_column(const DataTypePtr& nested_type, size_t rows);

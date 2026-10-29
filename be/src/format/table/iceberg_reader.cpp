@@ -29,6 +29,7 @@
 #include <cstring>
 #include <functional>
 #include <memory>
+#include <optional>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/consts.h"
@@ -42,9 +43,11 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
 #include "core/string_ref.h"
+#include "core/typeid_cast.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "format/format_common.h"
 #include "format/generic_reader.h"
@@ -372,6 +375,131 @@ bool find_orc_equality_field_prefix_by_name_path(
     return true;
 }
 
+struct ProjectedIcebergStructChild {
+    size_t index;
+    const schema::external::TField* field;
+};
+
+std::optional<ProjectedIcebergStructChild> find_projected_iceberg_struct_child(
+        const schema::external::TField& parent, const schema::external::TField& target,
+        const DataTypeStruct& projected_type) {
+    DORIS_CHECK(parent.__isset.nestedField);
+    DORIS_CHECK(parent.nestedField.__isset.struct_field);
+    DORIS_CHECK(parent.nestedField.struct_field.__isset.fields);
+    DORIS_CHECK(target.__isset.name);
+    DORIS_CHECK(target.__isset.id);
+
+    // FE keeps current children first and appends historical equality fields to the schema carrier
+    // by field ID. A dropped and re-added field may therefore appear twice with the same name,
+    // while the query's DataTypeStruct contains only the current occurrence.
+    size_t schema_name_ordinal = 0;
+    const schema::external::TField* schema_child = nullptr;
+    for (const auto& child_ptr : parent.nestedField.struct_field.fields) {
+        DORIS_CHECK(child_ptr.__isset.field_ptr && child_ptr.field_ptr != nullptr);
+        const auto& child = child_ptr.field_ptr;
+        DORIS_CHECK(child->__isset.name);
+        DORIS_CHECK(child->__isset.id);
+        if (child->name != target.name) {
+            continue;
+        }
+        if (child->id == target.id) {
+            schema_child = child.get();
+            break;
+        }
+        ++schema_name_ordinal;
+    }
+    if (schema_child == nullptr) {
+        return std::nullopt;
+    }
+
+    size_t projected_name_ordinal = 0;
+    for (size_t index = 0; index < projected_type.get_elements().size(); ++index) {
+        if (projected_type.get_element_name(index) != target.name) {
+            continue;
+        }
+        if (projected_name_ordinal == schema_name_ordinal) {
+            return ProjectedIcebergStructChild {.index = index, .field = schema_child};
+        }
+        ++projected_name_ordinal;
+    }
+    return std::nullopt;
+}
+
+// Resolves a nested equality key inside the projected root column. That column has the table's
+// projected struct type, not the file's physical struct, so the child indexes come from the
+// projected type. `found` stays false when the projected type does not hold the key, e.g. when the
+// key was dropped from the table or the struct was pruned.
+Status find_projected_equality_key_path(
+        const schema::external::TField& projected_root,
+        const std::vector<const schema::external::TField*>& key_path, const DataTypePtr& root_type,
+        std::vector<size_t>* child_indexes, DataTypePtr* leaf_type, bool* found) {
+    DORIS_CHECK(!key_path.empty());
+    DORIS_CHECK(child_indexes != nullptr);
+    DORIS_CHECK(leaf_type != nullptr);
+    DORIS_CHECK(found != nullptr);
+    child_indexes->clear();
+    *found = false;
+    const auto* projected_parent = &projected_root;
+    DataTypePtr current_type = root_type;
+    for (size_t path_index = 1; path_index < key_path.size(); ++path_index) {
+        const auto* child = key_path[path_index];
+        DORIS_CHECK(child != nullptr);
+        if (!projected_parent->__isset.nestedField ||
+            !projected_parent->nestedField.__isset.struct_field ||
+            !projected_parent->nestedField.struct_field.__isset.fields) {
+            return Status::NotSupported(
+                    "Iceberg equality-delete field {} has a non-struct projected-schema parent",
+                    child->name);
+        }
+        const auto* struct_type =
+                typeid_cast<const DataTypeStruct*>(remove_nullable(current_type).get());
+        if (struct_type == nullptr) {
+            return Status::OK();
+        }
+        const auto projected_child =
+                find_projected_iceberg_struct_child(*projected_parent, *child, *struct_type);
+        if (!projected_child.has_value()) {
+            return Status::OK();
+        }
+        child_indexes->push_back(projected_child->index);
+        current_type = struct_type->get_element(projected_child->index);
+        projected_parent = projected_child->field;
+    }
+    *leaf_type = current_type;
+    *found = true;
+    return Status::OK();
+}
+
+// A projected column is read through its own schema mapping, as the struct reader resolves each
+// child (`children_file_column_name`), while a hidden key is located in the file by field ID or by
+// its name path. The two can bind different file fields: a plan without the Iceberg scan semantics
+// marker maps a struct level by name when not all of its file children carry field IDs. The key
+// can therefore come from the projected column only when that mapping reads the same file field at
+// every level of the key's physical path.
+bool projected_root_reads_physical_path(const TableSchemaChangeHelper::Node& root_node,
+                                        const std::string& root_name, const DataTypePtr& root_type,
+                                        const std::vector<size_t>& child_indexes,
+                                        const ParquetEqualityFieldPath& file_path) {
+    if (child_indexes.size() + 1 != file_path.fields.size() ||
+        !root_node.children_column_exists(root_name) ||
+        root_node.children_file_column_name(root_name) != file_path.fields.front()->name) {
+        return false;
+    }
+    auto node = root_node.get_children_node(root_name);
+    DataTypePtr type = root_type;
+    for (size_t level = 0; level < child_indexes.size(); ++level) {
+        const auto& struct_type = assert_cast<const DataTypeStruct&>(*remove_nullable(type));
+        const auto& child_name = struct_type.get_element_name(child_indexes[level]);
+        if (!node->children_column_exists(child_name) ||
+            node->children_file_column_name(child_name) != file_path.fields[level + 1]->name) {
+            return false;
+        }
+        node = node->get_children_node(child_name);
+        type = struct_type.get_element(child_indexes[level]);
+    }
+    return true;
+}
+
 } // namespace
 
 const std::string IcebergOrcReader::ICEBERG_ORC_ATTRIBUTE = kIcebergOrcAttribute;
@@ -570,6 +698,49 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
         }
         return nullptr;
     };
+    std::unordered_map<int32_t, const SlotDescriptor*> projected_slots;
+    for (const auto* slot : ctx->tuple_descriptor->slots()) {
+        projected_slots.emplace(slot->col_unique_id(), slot);
+    }
+    // Finds a nested key inside its root struct when the query projects that root, so the key is
+    // taken from the projected column instead of reading the root a second time.
+    const auto find_projected_root = [&](int32_t field_id, const DataTypePtr& key_type,
+                                         const ParquetEqualityFieldPath& file_path,
+                                         std::string* root_name,
+                                         std::vector<size_t>* child_indexes) -> Status {
+        const auto key_path = _find_schema_field_path(field_id);
+        if (key_path.empty()) {
+            return Status::OK();
+        }
+        DORIS_CHECK(key_path.front()->__isset.id);
+        const auto slot = projected_slots.find(key_path.front()->id);
+        if (slot == projected_slots.end()) {
+            return Status::OK();
+        }
+        std::vector<const schema::external::TField*> root_path;
+        if (!_find_schema_field_path_in_root(_current_schema_root(), key_path.front()->id,
+                                             &root_path)) {
+            return Status::OK();
+        }
+        DORIS_CHECK(root_path.size() == 1);
+        DataTypePtr leaf_type;
+        bool found = false;
+        RETURN_IF_ERROR(find_projected_equality_key_path(*root_path.front(), key_path,
+                                                         slot->second->type(), child_indexes,
+                                                         &leaf_type, &found));
+        // The projected leaf has the table's current type, which is the type a key is compared in
+        // (equality_delete_key_type) even when the key was written before a type promotion. Only a
+        // STRING / VARBINARY key keeps its delete file's type: a STRING key under a VARBINARY
+        // projected leaf still reads the physical root, where the leaf is read as STRING too.
+        if (found && remove_nullable(leaf_type)->equals(*remove_nullable(key_type)) &&
+            projected_root_reads_physical_path(*ctx->table_info_node, slot->second->col_name(),
+                                               slot->second->type(), *child_indexes, file_path)) {
+            *root_name = slot->second->col_name();
+        }
+        return Status::OK();
+    };
+    // Physical root struct -> the carrier that reads it for every hidden key under that root.
+    std::unordered_map<std::string, std::string> physical_root_carriers;
 
     // Rebuild _expand_col_names with proper file-column-based names
     std::vector<std::string> new_expand_col_names;
@@ -629,45 +800,89 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
         if (file_column == nullptr) {
             RETURN_IF_ERROR(_register_missing_equality_delete_column(field_id, table_col_name,
                                                                      _expand_columns[i].type));
-            // The old data file predates this equality key. Keep it in the expand block so the
-            // synthesized-column hook can materialize its logical initial default before reader
-            // filtering, but do not advertise it to Parquet as a physical child.
+            // The old data file predates this equality key. Its logical initial default is appended
+            // after the read; do not advertise it to Parquet as a physical child.
             new_expand_col_names.push_back(table_col_name);
             continue;
         }
 
         new_expand_col_names.push_back(table_col_name);
 
-        if (!complete_file_path) {
+        // A hidden nested key is read through its containing top-level struct. V1 column IDs are
+        // pre-order ranges, so include the complete subtree before extracting the primitive leaf.
+        // A projected root that serves as the key's source then reads the key's leaf as well.
+        for (uint64_t column_id = file_column->get_column_id();
+             column_id <= file_column->get_max_column_id(); ++column_id) {
+            ctx->column_ids.insert(column_id);
+        }
+
+        if (!complete_file_path || !file_path.child_indexes.empty()) {
+            // Parquet reads each table column through its own column reader. Without the two
+            // branches below, a projected root and a carrier, or two carriers of keys under one
+            // root, all named the same file column, and only one of them was read. Example:
+            // `SELECT id, payload` with an equality delete on payload.existing returned an empty
+            // payload, or no rows at all when payload was listed first.
+            std::string projected_root_name;
+            std::vector<size_t> projected_child_indexes;
+            if (complete_file_path) {
+                RETURN_IF_ERROR(find_projected_root(field_id, _expand_columns[i].type, file_path,
+                                                    &projected_root_name,
+                                                    &projected_child_indexes));
+            }
+            if (!projected_root_name.empty()) {
+                // The query projects payload and the file has payload.existing: extract the key
+                // from the projected payload column.
+                _nested_equality_delete_columns.push_back({
+                        .field_id = field_id,
+                        .block_name = table_col_name,
+                        .leaf_type = _expand_columns[i].type,
+                        .source_leaf_type = _expand_columns[i].type,
+                        .child_indexes = std::move(projected_child_indexes),
+                        .missing_value = nullptr,
+                        .source_block_name = std::move(projected_root_name),
+                });
+                continue;
+            }
             ColumnPtr missing_value;
-            RETURN_IF_ERROR(_create_missing_equality_delete_value(
-                    field_id, _expand_columns[i].type, file_path.fields.size(), &missing_value));
+            if (!complete_file_path) {
+                RETURN_IF_ERROR(_create_missing_equality_delete_value(
+                        field_id, _expand_columns[i].type, file_path.fields.size(),
+                        &missing_value));
+            }
+            // The physical root holds the leaf in the data file's own type, which is narrower than
+            // the compared type when the file was written before a type promotion: payload.existing
+            // promoted from INT to BIGINT is INT in older files, and copying those INT values into a
+            // BIGINT column read the wrong bytes. A leaf the file lacks is the missing default,
+            // which is built in the compared type.
+            const DataTypePtr source_leaf_type =
+                    complete_file_path ? make_nullable(file_path.fields.back()->data_type)
+                                       : _expand_columns[i].type;
+            const auto root_carrier = physical_root_carriers.find(file_column->name);
+            if (root_carrier != physical_root_carriers.end()) {
+                // Keys payload.a and payload.b: the carrier of payload.a reads payload, and
+                // payload.b is extracted from that carrier's column.
+                _nested_equality_delete_columns.push_back({
+                        .field_id = field_id,
+                        .block_name = table_col_name,
+                        .leaf_type = _expand_columns[i].type,
+                        .source_leaf_type = source_leaf_type,
+                        .child_indexes = file_path.child_indexes,
+                        .missing_value = std::move(missing_value),
+                        .source_block_name = root_carrier->second,
+                });
+                continue;
+            }
+            physical_root_carriers.emplace(file_column->name, table_col_name);
             _nested_equality_delete_columns.push_back({
                     .field_id = field_id,
                     .block_name = table_col_name,
                     .leaf_type = _expand_columns[i].type,
+                    .source_leaf_type = source_leaf_type,
                     .child_indexes = file_path.child_indexes,
                     .missing_value = std::move(missing_value),
             });
             _expand_columns[i].type = make_nullable(file_column->data_type);
             _expand_columns[i].column = _expand_columns[i].type->create_column();
-        } else if (!file_path.child_indexes.empty()) {
-            _nested_equality_delete_columns.push_back({
-                    .field_id = field_id,
-                    .block_name = table_col_name,
-                    .leaf_type = _expand_columns[i].type,
-                    .child_indexes = file_path.child_indexes,
-                    .missing_value = nullptr,
-            });
-            _expand_columns[i].type = make_nullable(file_column->data_type);
-            _expand_columns[i].column = _expand_columns[i].type->create_column();
-        }
-
-        // A hidden nested key is read through its containing top-level struct. V1 column IDs are
-        // pre-order ranges, so include the complete subtree before extracting the primitive leaf.
-        for (uint64_t column_id = file_column->get_column_id();
-             column_id <= file_column->get_max_column_id(); ++column_id) {
-            ctx->column_ids.insert(column_id);
         }
 
         // Register in table_info_node: table_col_name → file_col_name
@@ -1016,9 +1231,8 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
         if (file_column == nullptr) {
             RETURN_IF_ERROR(_register_missing_equality_delete_column(field_id, table_col_name,
                                                                      _expand_columns[i].type));
-            // The old data file predates this equality key. Keep it in the expand block so the
-            // synthesized-column hook can materialize its logical initial default before ORC's
-            // block-size checks. Adding it to column_names/table_info_node would mark it as an
+            // The old data file predates this equality key. Its logical initial default is appended
+            // after the read. Adding it to column_names/table_info_node would mark it as an
             // existing ORC child and make OrcReader read a column that is not present in the file.
             new_expand_col_names.push_back(table_col_name);
             continue;
@@ -1033,16 +1247,21 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
                     .field_id = field_id,
                     .block_name = table_col_name,
                     .leaf_type = _expand_columns[i].type,
+                    .source_leaf_type = _expand_columns[i].type,
                     .child_indexes = file_path.child_indexes,
                     .missing_value = std::move(missing_value),
             });
             _expand_columns[i].type = make_nullable(convert_to_doris_type(file_column));
             _expand_columns[i].column = _expand_columns[i].type->create_column();
         } else if (!file_path.child_indexes.empty()) {
+            // The root is read in the data file's own types; a leaf written before a type
+            // promotion (INT payload.existing of a column now BIGINT) is widened after extraction.
             _nested_equality_delete_columns.push_back({
                     .field_id = field_id,
                     .block_name = table_col_name,
                     .leaf_type = _expand_columns[i].type,
+                    .source_leaf_type =
+                            make_nullable(convert_to_doris_type(file_path.fields.back())),
                     .child_indexes = file_path.child_indexes,
                     .missing_value = nullptr,
             });

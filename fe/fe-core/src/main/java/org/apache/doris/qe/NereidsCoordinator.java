@@ -74,6 +74,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -544,6 +545,7 @@ public class NereidsCoordinator extends Coordinator {
         if (dataSink instanceof ResultSink || dataSink instanceof ResultFileSink) {
             // The client pulls the result from the backend (Arrow Flight SQL); register where.
             if (connectContext != null && !connectContext.isReturnResultFromLocal()) {
+                Set<Long> resultBackendIds = new HashSet<>();
                 for (AssignedJob instance : topPlan.getInstanceJobs()) {
                     BackendWorker worker = (BackendWorker) instance.getAssignedWorker();
                     Backend backend = worker.getBackend();
@@ -552,6 +554,11 @@ public class NereidsCoordinator extends Coordinator {
                     }
                     TUniqueId finstId;
                     if (connectContext.getSessionVariable().enableParallelResultSink()) {
+                        // Parallel instances on a BE share one query-id buffer, so their tickets
+                        // cannot be published as independently consumable result partitions.
+                        if (!resultBackendIds.add(worker.id())) {
+                            continue;
+                        }
                         finstId = getQueryId();
                     } else {
                         finstId = instance.instanceId();

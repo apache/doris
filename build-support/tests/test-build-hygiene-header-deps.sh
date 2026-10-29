@@ -127,6 +127,16 @@ echo "${OUT}" | grep -q -- "--reach runtime/workload_group/workload_group.h" \
     || fail "reverse budget failure lacks the --reach fix pointer"
 cp "${BACKUP}/be/src/util/pretty_printer.h" "${ROOT}/be/src/util/pretty_printer.h"
 
+# ---- RED: threadpool reach remains bounded after its baseline increase ----
+printf '#include "util/threadpool.h"\n' >> "${ROOT}/be/src/common/logging.h"
+OUT="$(run_gate)"; EC=$?
+[ "${EC}" -eq 1 ] || fail "threadpool reach injection expected exit 1, got ${EC}"
+echo "${OUT}" | grep -q "util/threadpool.h now reaches" \
+    || fail "threadpool reverse budget breach not reported"
+echo "${OUT}" | grep -q -- "--reach util/threadpool.h" \
+    || fail "threadpool reach failure lacks the --reach fix pointer"
+cp "${BACKUP}/be/src/common/logging.h" "${ROOT}/be/src/common/logging.h"
+
 # ---- RED: pch whitelist (quoted include added to pch.h) ----
 printf '#include "common/logging.h"\n' >> "${ROOT}/be/src/pch/pch.h"
 OUT="$(run_gate)"; EC=$?

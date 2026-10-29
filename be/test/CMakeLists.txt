@@ -145,6 +145,11 @@ endif()
 target_compile_definitions(doris_be_test PRIVATE
     KUROMOJI_SOURCE_DICT_DIR="${BASE_DIR}/dict/kuromoji")
 
+# The unit-test runner sets DORIS_HOME to the build directory, outside the source corpus.
+set_property(SOURCE storage/index/inverted/snii/snii_golden_corpus_test.cpp APPEND PROPERTY
+    COMPILE_DEFINITIONS
+    SNII_GOLDEN_CORPUS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/storage/index/inverted/snii/testdata/compatibility_corpus")
+
 # -force_load takes a file path rather than a target, so unlike --whole-archive <target> below it
 # propagates no usage requirements. Link ann_index explicitly: it exports the faiss include
 # directories PUBLIC, and the test TUs that include faiss headers (function_array_distance.h and

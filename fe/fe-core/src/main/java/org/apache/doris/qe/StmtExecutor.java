@@ -164,8 +164,10 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -210,6 +212,21 @@ public class StmtExecutor {
     // retain their existing cancellation contracts.
     private final AtomicReference<Status> pendingCoordinatorCancelReason = new AtomicReference<>();
     private volatile Coordinator externalDmlAuditCoordinator = null;
+    // The coordinator may be cleared after a post-dispatch exception or closed before audit.
+    // Pair the snapshot with its query id atomically so a retried attempt cannot inherit
+    // stale BEs even when audit and query retry run on different threads.
+    private volatile AuditBackendSnapshot dispatchedAuditBackends;
+
+    private static final class AuditBackendSnapshot {
+        private final TUniqueId queryId;
+        private final Set<Long> backendIds;
+
+        private AuditBackendSnapshot(TUniqueId queryId, Set<Long> backendIds) {
+            this.queryId = queryId;
+            this.backendIds = backendIds;
+        }
+    }
+
     // Arrow Flight SQL: when true, this query's coordinator is kept alive past GetFlightInfo and
     // is finalized later by ConnectContext (see #62259), so the eager close in executeAndSendResult
     // is skipped. From that moment the executor is a closed object (see FlightProtocolAdapter): it
@@ -233,6 +250,7 @@ public class StmtExecutor {
     // queries) register it here so Ctrl+C / KILL QUERY / statement timeout on the outer
     // statement also cancel the inner work, which those paths cannot address directly.
     private volatile Consumer<Status> cancelDelegate = null;
+    private final List<Runnable> queryCancelCallbacks = new CopyOnWriteArrayList<>();
     private RedirectStatus redirectStatus = null;
     private Planner planner;
     private boolean isProxy;
@@ -571,6 +589,29 @@ public class StmtExecutor {
                 ? Collections.emptySet() : externalDmlAuditCoordinator.getDispatchedBackendIdsForAudit();
     }
 
+    public Set<Long> getAuditStatisticsBackendIds() {
+        if (masterOpExecutor != null) {
+            return masterOpExecutor.getAuditStatisticsBackendIds();
+        }
+        Set<Long> backendIds = Sets.newHashSet(getExternalDmlAuditBackendIds());
+        AuditBackendSnapshot snapshot = dispatchedAuditBackends;
+        if (snapshot != null && Objects.equals(snapshot.queryId, context.queryId())) {
+            backendIds.addAll(snapshot.backendIds);
+        }
+        if (coord != null) {
+            backendIds.addAll(coord.getDispatchedBackendIdsForAudit());
+        }
+        return backendIds;
+    }
+
+    private void rememberDispatchedAuditBackends(Coordinator executedCoordinator) {
+        Set<Long> backendIds = executedCoordinator.getDispatchedBackendIdsForAudit();
+        if (!backendIds.isEmpty()) {
+            dispatchedAuditBackends = new AuditBackendSnapshot(context.queryId().deepCopy(),
+                    Set.copyOf(backendIds));
+        }
+    }
+
     public ShowResultSet getProxyShowResultSet() {
         return proxyShowResultSet;
     }
@@ -733,6 +774,11 @@ public class StmtExecutor {
                 if (finishProfileInQueryRetry) {
                     profile.clearExecutionProfiles();
                 }
+                // QueryFinishCleanup closed the failed attempt's scope. Replanning must not register
+                // fresh task groups in that closed scope, whose closeAll() is already complete.
+                if (context.getStatementContext() != null) {
+                    context.getStatementContext().resetConnectorStatementScope();
+                }
                 // Drop the old execution state before replanning.
                 planner = null;
                 setCoord(null);
@@ -860,6 +906,22 @@ public class StmtExecutor {
             } finally {
                 sessionVariable.setIsSingleSetVar(false);
                 sessionVariable.clearSessionOriginValue();
+                // Planning can register scan cleanup before a coordinator exists. EXPLAIN and
+                // planning errors never reach unregisterQuery(), but still finish this attempt.
+                // A deferred Flight query owns its resources until its later finalization.
+                if (!deferredForArrowFlight) {
+                    try {
+                        QeProcessorImpl.INSTANCE.finishQueryCallbacks(queryId);
+                    } finally {
+                        try {
+                            if (context.getStatementContext() != null) {
+                                context.getStatementContext().closeConnectorStatementScope();
+                            }
+                        } finally {
+                            queryCancelCallbacks.clear();
+                        }
+                    }
+                }
             }
         }
     }
@@ -1218,6 +1280,7 @@ public class StmtExecutor {
         }
         scanTaskScope.close();
         QeProcessorImpl.INSTANCE.unregisterQuery(queryId());
+        queryCancelCallbacks.clear();
     }
 
     // The id this query runs under: the context's, until the query is deferred for Arrow Flight and
@@ -1564,8 +1627,31 @@ public class StmtExecutor {
         this.cancelDelegate = null;
     }
 
+    /** Register before starting asynchronous query work. A concurrent or earlier cancellation runs it once. */
+    public void registerQueryCancellationCallback(Runnable callback) {
+        queryCancelCallbacks.add(callback);
+        if (pendingCoordinatorCancelReason.get() != null && queryCancelCallbacks.remove(callback)) {
+            runQueryCancellationCallback(callback);
+        }
+    }
+
+    private void runQueryCancellationCallback(Runnable callback) {
+        try {
+            callback.run();
+        } catch (Exception e) {
+            LOG.warn("Query cancellation callback failed", e);
+        }
+    }
+
     public void cancel(Status cancelReason, boolean needWaitCancelComplete) {
         pendingCoordinatorCancelReason.compareAndSet(null, cancelReason);
+        // Query-owned work may already exist during planning, before there is a coordinator to cancel.
+        // Remove before invoking: registration and repeated cancellation must not run it twice.
+        for (Runnable callback : queryCancelCallbacks) {
+            if (queryCancelCallbacks.remove(callback)) {
+                runQueryCancellationCallback(callback);
+            }
+        }
         Status coordinatorCancelReason = pendingCoordinatorCancelReason.get();
         scanTaskScope.cancel(coordinatorCancelReason);
         Consumer<Status> delegate = cancelDelegate;
@@ -1974,6 +2060,9 @@ public class StmtExecutor {
             setCoord(null);
             throw e;
         } finally {
+            if (coordBase instanceof Coordinator) {
+                rememberDispatchedAuditBackends((Coordinator) coordBase);
+            }
             // For deferred Arrow Flight queries the coordinator is closed later by ConnectContext
             // (next query / connection teardown), so the BE can still fetch splits during DoGet.
             // See #62259.

@@ -43,6 +43,7 @@ import java.util.OptionalLong;
 import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executor;
@@ -91,6 +92,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
     private final LongAdder loadFailureCount = new LongAdder();
     private final LongAdder totalLoadTimeNanos = new LongAdder();
     private final LongAdder evictionCount = new LongAdder();
+    private final AtomicLong evictionWeight = new AtomicLong();
     private final LongAdder invalidateCount = new LongAdder();
     private final AtomicReference<Long> lastLoadSuccessTimeMs = new AtomicReference<>(-1L);
     private final AtomicReference<Long> lastLoadFailureTimeMs = new AtomicReference<>(-1L);
@@ -180,7 +182,18 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
 
     public V getWithPublicationAction(K key, ScopePath path, Function<K, V> loader,
             BiConsumer<V, Consumer<Runnable>> publicationCoordinator) {
-        return getWithPublicationAction(key, path, loader, publicationCoordinator, null);
+        return getWithPublicationAction(key, path, loader, publicationCoordinator,
+                Function.identity(), this::awaitLoad, null);
+    }
+
+    /**
+     * Runs an elected loader on the caller, but returns without waiting when another caller owns the load.
+     * The returned stage cannot complete or cancel the shared load. Completion callbacks must stay short:
+     * they may execute on the elected loader before its publication lease is released.
+     */
+    public CompletionStage<V> getOrLoadFuture(K key, ScopePath path, Function<K, V> loader) {
+        return getWithPublicationAction(key, path, loader, (loaded, commit) -> commit.accept(NO_OP),
+                CompletableFuture::completedFuture, CompletableFuture::minimalCompletionStage, null);
     }
 
     public V getForLoadScope(K key, ScopePath path, Object loadScope, Function<K, V> loader) {
@@ -188,11 +201,13 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         if (refreshAfterWriteNanos != 0) {
             throw new IllegalStateException("Request-owned loads require a cache without automatic refresh");
         }
-        return getWithPublicationAction(key, path, loader, (loaded, commit) -> commit.accept(NO_OP), loadScope);
+        return getWithPublicationAction(key, path, loader, (loaded, commit) -> commit.accept(NO_OP),
+                Function.identity(), this::awaitLoad, loadScope);
     }
 
-    private V getWithPublicationAction(K key, ScopePath path, Function<K, V> loader,
-            BiConsumer<V, Consumer<Runnable>> publicationCoordinator, Object loadScope) {
+    private <R> R getWithPublicationAction(K key, ScopePath path, Function<K, V> loader,
+            BiConsumer<V, Consumer<Runnable>> publicationCoordinator, Function<V, R> loadedResult,
+            Function<CompletableFuture<V>, R> sharedResult, Object loadScope) {
         Objects.requireNonNull(key, "key can not be null");
         Objects.requireNonNull(path, "path can not be null");
         Function<K, V> loadFunction = Objects.requireNonNull(loader, "loader can not be null");
@@ -218,14 +233,14 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                     notifyDiscarded(key, loaded);
                 }
             }
-            return loaded;
+            return loadedResult.apply(loaded);
         }
 
         VersionedValue<K, V> presentVersioned = currentVersionedValue(key, path);
         if (presentVersioned != null) {
             recordAccess(true);
             scheduleRefresh(key, path, loader, presentVersioned);
-            return presentVersioned.value;
+            return loadedResult.apply(presentVersioned.value);
         }
         recordAccess(false);
         try (PublicationLease<K, V> lease = acquirePublicationLease(key, path, true)) {
@@ -233,7 +248,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             CompletableFuture<V> ownLoad = new CompletableFuture<>();
             CompletableFuture<V> existingLoad = inFlightLoads.putIfAbsent(loadAddress, ownLoad);
             if (existingLoad != null) {
-                return awaitLoad(existingLoad);
+                return sharedResult.apply(existingLoad);
             }
             try {
                 afterLoadElection.run();
@@ -249,7 +264,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                 if (electedValuePresent) {
                     VersionedValue<K, V> present = electedValue.get();
                     ownLoad.complete(present.value);
-                    return present.value;
+                    return loadedResult.apply(present.value);
                 }
                 V loaded = loadAndRecord(key, loadFunction);
                 if (loaded != null) {
@@ -273,7 +288,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                     }
                 }
                 ownLoad.complete(loaded);
-                return loaded;
+                return loadedResult.apply(loaded);
             } catch (RuntimeException | Error throwable) {
                 ownLoad.completeExceptionally(throwable);
                 throw throwable;
@@ -281,6 +296,45 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                 inFlightLoads.remove(loadAddress, ownLoad);
             }
         }
+    }
+
+    Optional<MetaCache.Observation> observe(K key, ScopePath path, Object expectedValue) {
+        VersionedValue<K, V> value = currentVersionedValue(key, path);
+        if (value == null || value.value != expectedValue) {
+            return Optional.empty();
+        }
+        ScopedMetaCacheRegistry.ScopeObservation scope = registry.observe(value.scopeSnapshot);
+        return Optional.of(new MetaCache.Observation((invalidate, action, afterInvalidation) -> deferRemovals(() -> {
+            BooleanSupplier commit = () -> scope.runIfCurrent(() -> {
+                synchronized (value.keyNode) {
+                    if (closed.get() || data.getIfPresent(key) != value || !value.isCurrent(registry, keyNodes)) {
+                        return false;
+                    }
+                    boolean invalidateValue = invalidate;
+                    try {
+                        if (!action.getAsBoolean()) {
+                            invalidateValue = false;
+                            return false;
+                        }
+                        return true;
+                    } finally {
+                        // Once authorized, a throwing dependency cleanup must not retain this stale value.
+                        if (invalidateValue) {
+                            exactInvalidationSequence = exactInvalidationSequence.add(BigInteger.ONE);
+                            if (!activeBulkStarts.isEmpty()) {
+                                exactInvalidations.put(key, exactInvalidationSequence);
+                            }
+                            replaceKeyState(value.keyNode);
+                            value.keyNode.loadPublicationState.set(new Object());
+                            removeCurrentVersion(key, value);
+                            afterInvalidation.run();
+                        }
+                    }
+                }
+            });
+            return invalidate ? bulkInvalidationGate.write(commit::getAsBoolean)
+                    : bulkInvalidationGate.readBoolean(commit);
+        })));
     }
 
     public V getIfPresent(K key, ScopePath path) {
@@ -589,8 +643,13 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                     lastError.get(),
                     weightBounded,
                     entryBudget == null ? -1L : entryBudget.getEffectiveMaxWeight(),
-                    entryBudget == null ? 0L : entryBudget.getUsedWeight(),
-                    weightRejectCount.sum(),
+                    entryBudget == null ? -1L : entryBudget.getUsedWeight(),
+                    entryBudget == null ? -1L : evictionWeight.get(),
+                    entryBudget == null ? -1L : weightRejectCount.sum(),
+                    entryBudget == null ? -1L : entryBudget.getCatalogMaxWeight(),
+                    entryBudget == null ? -1L : entryBudget.getCatalogUsedWeight(),
+                    entryBudget == null ? -1L : entryBudget.getGlobalMaxWeight(),
+                    entryBudget == null ? -1L : entryBudget.getGlobalUsedWeight(),
                     lastWeightRejectReason.get()));
     }
 
@@ -839,7 +898,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         for (Map.Entry<K, VersionedValue<K, V>> candidate : coldest.entrySet()) {
             VersionedValue<K, V> current = data.getIfPresent(candidate.getKey());
             if (current == candidate.getValue()) {
-                long weight = current.registration.reservation.getBytes();
+                long weight = current.registration.admittedBytes;
                 budgetEvictionRegistration.set(current.registration);
                 try {
                     if (data.asMap().remove(candidate.getKey(), current)) {
@@ -1131,7 +1190,9 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             DeferredRemoval<K, V> removal;
             while ((removal = removalDeferral.removals.pollFirst()) != null) {
                 try {
-                    completeRemoval(removal.versioned, removal.cause, removal.budgetEviction);
+                    DeferredRemoval<K, V> detached = removal;
+                    MetaCacheCleanup.execute(() ->
+                            completeRemoval(detached.versioned, detached.cause, detached.budgetEviction));
                 } catch (RuntimeException | Error e) {
                     if (failure == null) {
                         failure = e;
@@ -1157,6 +1218,11 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             VersionedValue<K, V> versioned, RemovalCause cause, boolean budgetEviction) {
         if (cause.wasEvicted() || budgetEviction) {
             evictionCount.increment();
+            if (weightBounded) {
+                // Releasing a reservation zeroes it, and an exact invalidation can release the evicted generation
+                // before this deferred removal runs, so count the bytes the generation was admitted with.
+                evictionWeight.accumulateAndGet(versioned.registration.admittedBytes, JvmSizeUtils::saturatedAdd);
+            }
         } else if (cause == RemovalCause.EXPLICIT) {
             invalidateCount.increment();
         }
@@ -1311,7 +1377,12 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         private final boolean weightBounded;
         private final long maxWeight;
         private final long estimatedWeight;
+        private final long evictionWeight;
         private final long weightRejectCount;
+        private final long catalogMaxWeight;
+        private final long catalogEstimatedWeight;
+        private final long globalMaxWeight;
+        private final long globalEstimatedWeight;
         private final String lastWeightRejectReason;
 
         private CacheMetrics(
@@ -1335,7 +1406,12 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                 boolean weightBounded,
                 long maxWeight,
                 long estimatedWeight,
+                long evictionWeight,
                 long weightRejectCount,
+                long catalogMaxWeight,
+                long catalogEstimatedWeight,
+                long globalMaxWeight,
+                long globalEstimatedWeight,
                 String lastWeightRejectReason) {
             this.physicalEntryCount = physicalEntryCount;
             this.keyNodeCount = keyNodeCount;
@@ -1357,7 +1433,12 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             this.weightBounded = weightBounded;
             this.maxWeight = maxWeight;
             this.estimatedWeight = estimatedWeight;
+            this.evictionWeight = evictionWeight;
             this.weightRejectCount = weightRejectCount;
+            this.catalogMaxWeight = catalogMaxWeight;
+            this.catalogEstimatedWeight = catalogEstimatedWeight;
+            this.globalMaxWeight = globalMaxWeight;
+            this.globalEstimatedWeight = globalEstimatedWeight;
             this.lastWeightRejectReason = lastWeightRejectReason;
         }
 
@@ -1441,8 +1522,29 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             return estimatedWeight;
         }
 
+        /** Bytes of the values removed by eviction, by Caffeine or to make room in the budget; -1 if unbounded. */
+        public long getEvictionWeight() {
+            return evictionWeight;
+        }
+
         public long getWeightRejectCount() {
             return weightRejectCount;
+        }
+
+        public long getCatalogMaxWeight() {
+            return catalogMaxWeight;
+        }
+
+        public long getCatalogEstimatedWeight() {
+            return catalogEstimatedWeight;
+        }
+
+        public long getGlobalMaxWeight() {
+            return globalMaxWeight;
+        }
+
+        public long getGlobalEstimatedWeight() {
+            return globalEstimatedWeight;
         }
 
         public String getLastWeightRejectReason() {
@@ -1570,6 +1672,9 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
     /** Lightweight ownership token: deliberately does not retain the cached value. */
     private static final class Registration {
         private final MetaCacheBudgetManager.AdmissionReservation reservation;
+        // Read when the generation is created, right after its reservation is admitted: releasing the
+        // reservation zeroes its bytes, while eviction accounting still needs them.
+        private final long admittedBytes;
         private final CacheAddress address;
         private final ScopeSnapshot scopeSnapshot;
         private final AtomicBoolean released = new AtomicBoolean(false);
@@ -1577,6 +1682,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         private Registration(MetaCacheBudgetManager.AdmissionReservation reservation,
                 CacheAddress address, ScopeSnapshot scopeSnapshot) {
             this.reservation = reservation;
+            this.admittedBytes = reservation == null ? 0L : reservation.getBytes();
             this.address = address;
             this.scopeSnapshot = scopeSnapshot;
         }

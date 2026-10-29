@@ -152,7 +152,7 @@ enum THdfsFileFormat {
   LZO_TEXT = 1,
   RC_FILE = 2,
   SEQUENCE_FILE =3,
-  AVRO = 4,
+  AVRO = 4, // Deprecated: reading this format is no longer supported.
   PARQUET = 5
 }
 
@@ -380,6 +380,9 @@ struct TOlapTableSchemaParam {
     16: optional TPartialUpdateNewRowPolicy partial_update_new_key_policy
     // ATTN(changelog-rename): formerly "row_binlog_index_schemas"
     17: optional list<TOlapTableIndexSchema> changelog_index_schemas
+    // Unused: row TTL tables reject partial updates. Keep these field IDs for compatibility.
+    18: optional i32 row_ttl_source_column_unique_id = -1
+    19: optional TColumn row_ttl_source_column
 }
 
 struct TTabletLocation {
@@ -499,6 +502,7 @@ struct TTrinoConnectorTable {
   3: optional map<string, string> properties
 }
 
+// Deprecated: the associated external table read support has been removed.
 struct TLakeSoulTable {
   1: optional string db_name
   2: optional string table_name
@@ -538,7 +542,7 @@ struct TTableDescriptor {
   20: optional TJdbcTable jdbcTable
   21: optional TMCTable mcTable
   22: optional TTrinoConnectorTable trinoConnectorTable
-  23: optional TLakeSoulTable lakesoulTable
+  23: optional TLakeSoulTable lakesoulTable // Deprecated: reading this format is no longer supported.
   24: optional TDictionaryTable dictionaryTable
   25: optional TRemoteDorisTable remoteDorisTable
 }

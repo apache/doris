@@ -576,7 +576,7 @@ public class HiveFileListingCacheTest {
         lister.error = new HiveDirectoryListingException("dir gone", new IOException("boom"));
         lister.errorLocation = "loc/dt=1";
         HiveScanPlanProvider provider = new HiveScanPlanProvider(null, HiveTestProperties.minimal(),
-                new FakeConnectorContext(), new HiveReadTransactionManager(),
+                new FakeConnectorContext(),
                 new HiveFileListingCache(HiveTestProperties.minimal(), lister));
 
         List<ConnectorScanRange> ranges = provider.planScan(new FakeSession(),
@@ -599,7 +599,7 @@ public class HiveFileListingCacheTest {
         CountingLister lister = new CountingLister();
         lister.error = new DorisConnectorException("bad storage config");
         HiveScanPlanProvider provider = new HiveScanPlanProvider(null, HiveTestProperties.minimal(),
-                new FakeConnectorContext(), new HiveReadTransactionManager(),
+                new FakeConnectorContext(),
                 new HiveFileListingCache(HiveTestProperties.minimal(), lister));
 
         Assertions.assertThrows(DorisConnectorException.class, () -> provider.planScan(new FakeSession(),
@@ -636,7 +636,7 @@ public class HiveFileListingCacheTest {
         HiveFileListingCache cache = new HiveFileListingCache(HiveTestProperties.minimal(), lister);
         // hmsClient is null: with pruned partitions on the handle the scan never calls the metastore.
         HiveScanPlanProvider provider = new HiveScanPlanProvider(
-                null, HiveTestProperties.minimal(), new FakeConnectorContext(), new HiveReadTransactionManager(), cache);
+                null, HiveTestProperties.minimal(), new FakeConnectorContext(), cache);
 
         HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
                 .inputFormat("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat")

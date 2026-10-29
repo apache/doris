@@ -42,6 +42,72 @@ TEST(ColumnConstTest, TestCreate) {
     EXPECT_TRUE(!is_column_const(column_const2->get_data_column()));
 }
 
+TEST(ConstantExprResultTest, StoresSingleRowDataColumn) {
+    auto data_column = ColumnHelper::create_column<DataTypeInt64>({7});
+
+    ConstantExprResult data_wrapper(data_column);
+    EXPECT_EQ(data_wrapper.column_ptr().get(), data_column.get());
+    EXPECT_EQ(data_wrapper.column().get_int(0), 7);
+    EXPECT_FALSE(is_column_const(data_wrapper.column()));
+
+    auto const_column = ColumnConst::create(data_column, 3);
+    ConstantExprResult const_wrapper(std::move(const_column));
+    EXPECT_EQ(const_wrapper.column_ptr().get(), data_column.get());
+    EXPECT_EQ(const_wrapper.column().get_int(0), 7);
+    EXPECT_FALSE(is_column_const(const_wrapper.column()));
+}
+
+TEST(ConstantExprResultTest, RejectsNonConstMultiRowColumn) {
+    auto column = ColumnHelper::create_column<DataTypeInt64>({7, 8});
+#ifdef NDEBUG
+    EXPECT_THROW(static_cast<void>(ConstantExprResult(column)), Exception);
+#elif DCHECK_IS_ON()
+    EXPECT_DEATH(static_cast<void>(ConstantExprResult(column)), "Check failed");
+#endif
+}
+
+static void check_nullable_constant_result(uint8_t is_null) {
+    auto data_column = ColumnHelper::create_nullable_column<DataTypeInt64>({7}, {is_null});
+    const auto* original = data_column.get();
+    ConstantExprResult direct_wrapper(data_column);
+    ConstantExprResult const_wrapper(ColumnConst::create(data_column, 3));
+    data_column.reset();
+
+    EXPECT_EQ(direct_wrapper.column_ptr().get(), original);
+    EXPECT_EQ(const_wrapper.column_ptr().get(), original);
+    EXPECT_TRUE(const_wrapper.column().is_nullable());
+    EXPECT_EQ(const_wrapper.column().is_null_at(0), is_null != 0);
+    auto broadcast = ColumnConst::create(const_wrapper.column_ptr(), 5);
+    EXPECT_EQ(broadcast->get_data_column_ptr().get(), original);
+    EXPECT_EQ(broadcast->size(), 5);
+    EXPECT_EQ(broadcast->is_null_at(4), is_null != 0);
+    if (!is_null) {
+        EXPECT_EQ((*broadcast)[4].get<TYPE_BIGINT>(), 7);
+    }
+}
+
+TEST(ConstantExprResultTest, PreservesNullableValuesAndOwnership) {
+    check_nullable_constant_result(0);
+    check_nullable_constant_result(1);
+}
+
+TEST(ConstantExprResultTest, PreservesArrayRowAndNestedNulls) {
+    auto elements = ColumnHelper::create_nullable_column<DataTypeInt64>({7, 8}, {0, 1});
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->insert_value(2);
+    ColumnPtr array = ColumnArray::create(elements, std::move(offsets));
+    ConstantExprResult wrapper(ColumnConst::create(array, 3));
+    EXPECT_EQ(wrapper.column_ptr().get(), array.get());
+    auto broadcast = ColumnConst::create(wrapper.column_ptr(), 5);
+    EXPECT_EQ(broadcast->size(), 5);
+    EXPECT_EQ(broadcast->get_data_column().compare_at(0, 0, *array, 1), 0);
+
+    const auto& data = assert_cast<const ColumnArray&>(wrapper.column());
+    EXPECT_EQ(data.get_data_ptr().get(), elements.get());
+    EXPECT_EQ(data.get_data()[0].get<TYPE_BIGINT>(), 7);
+    EXPECT_TRUE(data.get_data().is_null_at(1));
+}
+
 TEST(ColumnConstTest, IsExclusiveChecksNestedColumn) {
     auto column_data = ColumnHelper::create_column<DataTypeInt64>({7});
     auto column_const = ColumnConst::create(column_data, 3);
