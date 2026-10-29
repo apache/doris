@@ -1210,7 +1210,16 @@ Status IcebergReaderMixin<BaseReader>::_create_missing_equality_delete_value(
 
     if (!supports_iceberg_scan_semantics_v2(&this->get_scan_params()) &&
         !missing_field->__isset.initial_default_value) {
-        *value = delete_key_type->create_column_const(1, Field());
+        // An FE without scan semantics v2 sends no initial defaults, so the key reads as NULL. Build
+        // the NULL as a one-row column, like an initial default: repeat_initial_default_column keeps
+        // a ColumnConst constant, and the repeated key is read row by row. As a ColumnConst, a key
+        // (id INT, added INT) failed MultiEqualityDelete with "update_hashes_with_value is not
+        // supported for Const(Nullable(INT))", and payload.k missing under a present payload was
+        // copied out of the ColumnConst as if it were the INT leaf column.
+        DORIS_CHECK(delete_key_type->is_nullable());
+        auto null_value = delete_key_type->create_column();
+        null_value->insert(Field());
+        *value = std::move(null_value);
         return Status::OK();
     }
 

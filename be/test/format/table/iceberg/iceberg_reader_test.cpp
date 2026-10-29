@@ -2732,6 +2732,89 @@ TEST_F(IcebergReaderTest, v1_multi_equality_delete_hashes_materialized_missing_d
     EXPECT_EQ(filter, IColumn::Filter({1, 0, 1}));
 }
 
+// An FE that sends no Iceberg scan semantics version sends no initial defaults either, so a key the
+// data file lacks reads as NULL. That NULL used to be a single ColumnConst for every row: an INT key
+// failed with "update_hashes_with_value is not supported for Const(Nullable(INT))", and a STRING
+// key matched only because the byte-key path unwrapped the ColumnConst.
+TEST_F(IcebergReaderTest, v1_legacy_plan_multi_equality_delete_matches_missing_key_as_null) {
+    auto string_field = make_external_int_field("added_string", 2, std::nullopt);
+    TColumnType string_thrift_type;
+    string_thrift_type.__set_type(TPrimitiveType::STRING);
+    string_field.field_ptr->__set_type(string_thrift_type);
+    schema::external::TStructField root_field;
+    root_field.__set_fields({make_external_int_field("id", 0, std::nullopt),
+                             make_external_int_field("added_int", 1, std::nullopt),
+                             std::move(string_field)});
+    schema::external::TSchema current_schema;
+    current_schema.__set_schema_id(-1);
+    current_schema.__set_root_field(root_field);
+
+    TFileScanRangeParams old_fe_scan_params;
+    old_fe_scan_params.__set_current_schema_id(-1);
+    old_fe_scan_params.__set_history_schema_info({current_schema});
+    TFileRangeDesc scan_range;
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
+    cctz::time_zone ctz;
+    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    io::IOContext io_ctx;
+    ShardedKVCache kv_cache(8);
+    IcebergParquetReader reader(&kv_cache, &profile, old_fe_scan_params, scan_range, 1024, &ctz,
+                                &io_ctx, &runtime_state, cache.get());
+
+    const auto int_type = make_nullable(std::make_shared<DataTypeInt32>());
+    const auto string_type = make_nullable(std::make_shared<DataTypeString>());
+    auto id_column = int_type->create_column();
+    id_column->insert(Field::create_field<TYPE_INT>(1));
+    id_column->insert(Field::create_field<TYPE_INT>(2));
+    id_column->insert(Field::create_field<TYPE_INT>(3));
+    Block data_block;
+    data_block.insert({std::move(id_column), int_type, "id"});
+    data_block.insert({int_type->create_column(), int_type, "added_int"});
+    data_block.insert({string_type->create_column(), string_type, "added_string"});
+    std::unordered_map<std::string, uint32_t> positions = {
+            {"id", 0}, {"added_int", 1}, {"added_string", 2}};
+    reader.TEST_set_column_name_to_block_index(&positions);
+    ASSERT_TRUE(reader.TEST_register_missing_equality_delete_column(1, "added_int", int_type).ok());
+    ASSERT_TRUE(reader.TEST_register_missing_equality_delete_column(2, "added_string", string_type)
+                        .ok());
+    ASSERT_TRUE(reader.TEST_materialize_missing_equality_delete_columns(&data_block, 3).ok());
+    ASSERT_EQ(data_block.rows(), 3);
+    for (size_t position = 1; position < data_block.columns(); ++position) {
+        const auto& column = data_block.get_by_position(position).column;
+        ASSERT_FALSE(is_column_const(*column)) << column->get_name();
+        for (size_t row = 0; row < column->size(); ++row) {
+            EXPECT_TRUE(column->is_null_at(row));
+        }
+    }
+
+    // Delete keys (2, NULL) and (3, non-NULL): row 2 is deleted, and row 3 is kept because its
+    // missing key is NULL, not 7 or the empty string.
+    const auto check_delete = [&](int32_t field_id, const std::string& name,
+                                  const DataTypePtr& type, const Field& non_null_value) {
+        SCOPED_TRACE(name);
+        auto delete_id_column = int_type->create_column();
+        delete_id_column->insert(Field::create_field<TYPE_INT>(2));
+        delete_id_column->insert(Field::create_field<TYPE_INT>(3));
+        auto delete_key_column = type->create_column();
+        delete_key_column->insert(Field());
+        delete_key_column->insert(non_null_value);
+        Block delete_block;
+        delete_block.insert({std::move(delete_id_column), int_type, "id"});
+        delete_block.insert({std::move(delete_key_column), type, name});
+        MultiEqualityDelete equality_delete(&delete_block, {0, field_id});
+        ASSERT_TRUE(equality_delete.init(&profile).ok());
+
+        std::unordered_map<int, std::string> id_to_name = {{0, "id"}, {field_id, name}};
+        IColumn::Filter filter(3, 1);
+        ASSERT_TRUE(equality_delete.filter_data_block(&data_block, &positions, id_to_name, filter)
+                            .ok());
+        EXPECT_EQ(filter, IColumn::Filter({1, 0, 1}));
+    };
+    check_delete(1, "added_int", int_type, Field::create_field<TYPE_INT>(7));
+    check_delete(2, "added_string", string_type, Field::create_field<TYPE_STRING>(std::string()));
+}
+
 TEST_F(IcebergReaderTest, v2_recovers_dropped_equality_key_default_from_historical_schema) {
     schema::external::TStructField current_root;
     current_root.__set_fields({make_external_int_field("id", 0, std::nullopt)});
@@ -3600,17 +3683,21 @@ TEST_F(IcebergReaderTest,
 
 // Reads `data_file` through the V1 Iceberg reader with the equality deletes `delete_files` (path and
 // key field ids) applied, under the scan schema `current_root`. `block` holds the projected slots of
-// `tuple_descriptor` in order; all rows fit in one batch.
+// `tuple_descriptor` in order; all rows fit in one batch. `semantics_version` is the Iceberg scan
+// semantics version the FE sends, std::nullopt for an FE that sends none.
 Status read_v1_with_equality_deletes(
         TFileFormatType::type file_format, const std::string& data_file,
         const std::vector<std::pair<std::string, std::vector<int32_t>>>& delete_files,
         schema::external::TStructField current_root, const TupleDescriptor* tuple_descriptor,
-        Block* block, const cctz::time_zone* timezone, FileMetaCache* meta_cache) {
+        Block* block, const cctz::time_zone* timezone, FileMetaCache* meta_cache,
+        std::optional<int32_t> semantics_version = ICEBERG_SCAN_SEMANTICS_VERSION_2) {
     schema::external::TSchema current_schema;
     current_schema.__set_schema_id(100);
     current_schema.__set_root_field(std::move(current_root));
     TFileScanRangeParams scan_params;
-    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    if (semantics_version.has_value()) {
+        scan_params.__set_iceberg_scan_semantics_version(*semantics_version);
+    }
     scan_params.__set_file_type(TFileType::FILE_LOCAL);
     scan_params.__set_format_type(file_format);
     scan_params.__set_current_schema_id(100);
@@ -4079,16 +4166,21 @@ TEST_F(IcebergReaderTest,
 // Data `id INT, v INT, unused INT` holds (1,10,0), (2,20,0) and (3,30,0). The table also has
 // added_column (field 3) with initial default 7, which the file predates. An equality delete on
 // (id, v, added_column) with the row (2, 20, 7) removes id 2, so the key that the reader has no
-// column for must still carry its default; the filter, when set, removes id 1.
+// column for must still carry its default; the filter, when set, removes id 1. A `legacy_plan` comes
+// from an FE that sends neither a scan semantics version nor initial defaults: added_column then
+// reads as NULL for every row, the delete row does not match it, and id 2 stays.
 // NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
 void check_missing_equality_key_delete(TFileFormatType::type file_format, bool filter_out_first_id,
-                                       const cctz::time_zone* timezone, FileMetaCache* meta_cache) {
+                                       bool legacy_plan, const cctz::time_zone* timezone,
+                                       FileMetaCache* meta_cache) {
     const bool is_parquet = file_format == TFileFormatType::FORMAT_PARQUET;
     const std::string format_name = is_parquet ? "parquet" : "orc";
     const std::string filter_name = filter_out_first_id ? "_filtered" : "";
-    SCOPED_TRACE(format_name + filter_name);
-    const auto test_dir = std::filesystem::temp_directory_path() /
-                          ("doris_v1_missing_equality_key_" + format_name + filter_name);
+    const std::string plan_name = legacy_plan ? "_legacy" : "";
+    SCOPED_TRACE(format_name + filter_name + plan_name);
+    const auto test_dir =
+            std::filesystem::temp_directory_path() /
+            ("doris_v1_missing_equality_key_" + format_name + filter_name + plan_name);
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
     const auto data_file = (test_dir / ("data." + format_name)).string();
@@ -4106,16 +4198,21 @@ void check_missing_equality_key_delete(TFileFormatType::type file_format, bool f
     }
 
     schema::external::TStructField current_root;
-    current_root.__set_fields({make_external_int_field("id", 0, std::nullopt),
-                               make_external_int_field("v", 1, std::nullopt),
-                               make_external_int_field("unused", 2, std::nullopt),
-                               make_external_int_field("added_column", 3, "7")});
+    current_root.__set_fields(
+            {make_external_int_field("id", 0, std::nullopt),
+             make_external_int_field("v", 1, std::nullopt),
+             make_external_int_field("unused", 2, std::nullopt),
+             make_external_int_field(
+                     "added_column", 3,
+                     legacy_plan ? std::nullopt : std::optional<std::string>("7"))});
     schema::external::TSchema current_schema;
     current_schema.__set_schema_id(100);
     current_schema.__set_root_field(std::move(current_root));
 
     TFileScanRangeParams scan_params;
-    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    if (!legacy_plan) {
+        scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    }
     scan_params.__set_file_type(TFileType::FILE_LOCAL);
     scan_params.__set_format_type(file_format);
     scan_params.__set_current_schema_id(100);
@@ -4206,10 +4303,14 @@ void check_missing_equality_key_delete(TFileFormatType::type file_format, bool f
     }
 
     ASSERT_TRUE(status.ok()) << status;
-    const std::vector<std::pair<std::string, std::string>> expected_rows =
-            filter_out_first_id
-                    ? std::vector<std::pair<std::string, std::string>> {{"3", "30"}}
-                    : std::vector<std::pair<std::string, std::string>> {{"1", "10"}, {"3", "30"}};
+    std::vector<std::pair<std::string, std::string>> expected_rows = {
+            {"1", "10"}, {"2", "20"}, {"3", "30"}};
+    if (!legacy_plan) {
+        expected_rows.erase(expected_rows.begin() + 1);
+    }
+    if (filter_out_first_id) {
+        expected_rows.erase(expected_rows.begin());
+    }
     ASSERT_EQ(read_rows, expected_rows.size());
     ASSERT_EQ(block.columns(), 2);
     ASSERT_EQ(block.rows(), expected_rows.size());
@@ -4223,24 +4324,38 @@ void check_missing_equality_key_delete(TFileFormatType::type file_format, bool f
 }
 
 TEST_F(IcebergReaderTest, v1_parquet_missing_equality_key_matches_initial_default) {
-    check_missing_equality_key_delete(TFileFormatType::FORMAT_PARQUET, false, &timezone_obj,
+    check_missing_equality_key_delete(TFileFormatType::FORMAT_PARQUET, false, false, &timezone_obj,
                                       cache.get());
 }
 
 TEST_F(IcebergReaderTest,
        v1_parquet_missing_equality_key_matches_initial_default_after_lazy_filter) {
-    check_missing_equality_key_delete(TFileFormatType::FORMAT_PARQUET, true, &timezone_obj,
+    check_missing_equality_key_delete(TFileFormatType::FORMAT_PARQUET, true, false, &timezone_obj,
                                       cache.get());
 }
 
 TEST_F(IcebergReaderTest, v1_orc_missing_equality_key_matches_initial_default) {
-    check_missing_equality_key_delete(TFileFormatType::FORMAT_ORC, false, &timezone_obj,
+    check_missing_equality_key_delete(TFileFormatType::FORMAT_ORC, false, false, &timezone_obj,
                                       cache.get());
 }
 
 TEST_F(IcebergReaderTest, v1_orc_missing_equality_key_matches_initial_default_after_lazy_filter) {
-    check_missing_equality_key_delete(TFileFormatType::FORMAT_ORC, true, &timezone_obj,
+    check_missing_equality_key_delete(TFileFormatType::FORMAT_ORC, true, false, &timezone_obj,
                                       cache.get());
+}
+
+TEST_F(IcebergReaderTest, v1_parquet_legacy_plan_missing_equality_key_reads_null) {
+    for (const bool filter_out_first_id : {false, true}) {
+        check_missing_equality_key_delete(TFileFormatType::FORMAT_PARQUET, filter_out_first_id,
+                                          true, &timezone_obj, cache.get());
+    }
+}
+
+TEST_F(IcebergReaderTest, v1_orc_legacy_plan_missing_equality_key_reads_null) {
+    for (const bool filter_out_first_id : {false, true}) {
+        check_missing_equality_key_delete(TFileFormatType::FORMAT_ORC, filter_out_first_id, true,
+                                          &timezone_obj, cache.get());
+    }
 }
 
 // Keep the shared V1 Parquet/ORC reader setup together so both rolling-upgrade scan-semantics
@@ -4508,6 +4623,66 @@ TEST_F(IcebergReaderTest, missing_nested_equality_key_under_idless_wrapper_prese
 
     for (const auto file_format : {TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_ORC}) {
         run_case(file_format);
+    }
+}
+
+// The same ID-less wrapper under an FE that sends no scan semantics version, and so no initial
+// defaults: payload.k is resolved by name, the file has payload but not payload.k, and the key reads
+// as NULL wherever payload is present. That NULL used to be a ColumnConst, which the extraction then
+// copied row by row as if it were the INT leaf column: a failed assert_cast in debug builds, and in
+// release builds the ColumnConst object's own bytes read as key values.
+TEST_F(IcebergReaderTest, v1_legacy_plan_missing_nested_equality_key_reads_null) {
+    for (const auto file_format : {TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_ORC}) {
+        const bool is_parquet = file_format == TFileFormatType::FORMAT_PARQUET;
+        const std::string format_name = is_parquet ? "parquet" : "orc";
+        SCOPED_TRACE(format_name);
+        const auto test_dir = std::filesystem::temp_directory_path() /
+                              ("doris_v1_legacy_missing_nested_equality_key_" + format_name);
+        std::filesystem::remove_all(test_dir);
+        std::filesystem::create_directories(test_dir);
+        const auto data_file = (test_dir / ("data." + format_name)).string();
+        const auto delete_file = (test_dir / ("equality-delete." + format_name)).string();
+        // Data (id, payload): (1, {existing 10}), (2, NULL), (3, {existing 30}). Deletes on
+        // (id, payload.k): (1, NULL), written as a NULL payload, and (3, 7).
+        if (is_parquet) {
+            write_iceberg_idless_nested_struct_parquet_file(data_file, {1, 2, 3}, {10, 20, 30},
+                                                            {false, true, false}, "payload",
+                                                            "existing", 2, 0);
+            write_iceberg_id_and_nested_struct_parquet_file(delete_file, {1, 3}, {0, 7},
+                                                            {true, false}, "k", 3);
+        } else {
+            write_iceberg_idless_nested_struct_orc_file(data_file, {1, 2, 3}, {10, 20, 30},
+                                                        {false, true, false}, "payload", "existing",
+                                                        2, 0);
+            write_iceberg_id_and_nested_struct_orc_file(delete_file, {1, 3}, {0, 7}, {true, false},
+                                                        "k", 3);
+        }
+
+        schema::external::TStructField current_root;
+        current_root.__set_fields(
+                {make_external_int_field("id", 0, std::nullopt),
+                 make_external_struct_field("payload", 1,
+                                            {make_external_int_field("existing", 2, std::nullopt),
+                                             make_external_int_field("k", 3, std::nullopt)})});
+        ObjectPool object_pool;
+        DescriptorTbl* descriptor_table = nullptr;
+        const TupleDescriptor* tuple_descriptor = nullptr;
+        ASSERT_TRUE(create_single_int_tuple_descriptor(&object_pool, "id", 0, &descriptor_table,
+                                                       &tuple_descriptor)
+                            .ok());
+        const auto int_type = make_nullable(std::make_shared<DataTypeInt32>());
+        Block block;
+        block.insert({int_type->create_column(), int_type, "id"});
+        const Status status = read_v1_with_equality_deletes(
+                file_format, data_file, {{delete_file, {0, 3}}}, std::move(current_root),
+                tuple_descriptor, &block, &timezone_obj, cache.get(), std::nullopt);
+
+        // Row 1's payload.k is NULL, so (1, NULL) deletes it; row 3's NULL key does not match 7.
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_EQ(block.rows(), 2);
+        EXPECT_EQ(int_type->to_string(*block.get_by_position(0).column, 0), "2");
+        EXPECT_EQ(int_type->to_string(*block.get_by_position(0).column, 1), "3");
+        std::filesystem::remove_all(test_dir);
     }
 }
 
