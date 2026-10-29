@@ -277,12 +277,11 @@ public class SessionVariablesTest extends TestWithFeService {
     }
 
     @Test
-    public void testFuzzyVariantMaxSubcolumnsCountIsZeroOnlyInDocMode() {
+    public void testFuzzyVariantMaxSubcolumnsCountIsNeverZero() {
         SessionVariable sessionVar = new SessionVariable();
         for (int i = 0; i < 100; i++) {
             sessionVar.initFuzzyModeVariables();
-            Assertions.assertTrue(sessionVar.getDefaultVariantEnableDocMode()
-                    || sessionVar.getDefaultVariantMaxSubcolumnsCount() > 0);
+            Assertions.assertTrue(sessionVar.getDefaultVariantMaxSubcolumnsCount() > 0);
         }
     }
 
