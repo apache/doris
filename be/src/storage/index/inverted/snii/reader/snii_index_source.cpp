@@ -217,6 +217,24 @@ Status SniiIndexSource::scoring_doc_freq(std::string_view term, uint64_t* out) {
     return Status::OK();
 }
 
+// Reads the term as scoring_doc_freq does, so terms of a reserved namespace resolve too.
+Status SniiIndexSource::scoring_doc_freq_among(std::string_view term,
+                                               std::span<const uint32_t> docs, uint64_t* out) {
+    *out = 0;
+    if (docs.empty()) {
+        return Status::OK();
+    }
+    Term* resolved = nullptr;
+    RETURN_IF_ERROR(_resolve(term, &resolved, &_scoring_dict_cache));
+    if (!resolved->hit.found) {
+        return Status::OK();
+    }
+    std::unique_ptr<SniiPostingsCursor> cursor;
+    RETURN_IF_ERROR(
+            _cursor(*resolved, /*positions=*/false, /*scoring=*/false, /*wave=*/nullptr, &cursor));
+    return index_query::count_listed_docs(*cursor, docs, out);
+}
+
 // The norms section is read once, when a document's norm is first asked.
 Status SniiIndexSource::encoded_norms(std::span<const uint32_t> docs, std::vector<uint32_t>* out) {
     out->assign(docs.size(), 1);
