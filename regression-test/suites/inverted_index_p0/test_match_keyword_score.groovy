@@ -23,6 +23,7 @@ suite("test_match_keyword_score", "p0") {
     // MATCH and SEARCH need index execution even when CI fuzzes these session defaults.
     sql "set enable_common_expr_pushdown = true"
     sql "set enable_inverted_index_query = true"
+    sql "set enable_match_without_inverted_index = true"
 
     for (def storageFormat : ["V2", "V3", "SNII"]) {
         sql "DROP TABLE IF EXISTS test_match_keyword_score"
@@ -32,11 +33,13 @@ suite("test_match_keyword_score", "p0") {
                 body STRING NULL,
                 tag STRING NULL,
                 tag_none STRING NULL,
+                n INT NULL,
                 INDEX idx_body(body) USING INVERTED
                     PROPERTIES("parser" = "english", "support_phrase" = "true"),
                 INDEX idx_tag(tag) USING INVERTED PROPERTIES("ignore_above" = "1024"),
                 INDEX idx_tag_none(tag_none) USING INVERTED
-                    PROPERTIES("parser" = "none", "support_phrase" = "true")
+                    PROPERTIES("parser" = "none", "support_phrase" = "true"),
+                INDEX idx_n(n) USING INVERTED
             ) ENGINE=OLAP
             DUPLICATE KEY(id)
             DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -46,7 +49,7 @@ suite("test_match_keyword_score", "p0") {
             )
         """
         // The first row alone is the reported case: one document scores idf = ln(4/3) = 0.287682.
-        sql """INSERT INTO test_match_keyword_score VALUES (1, 'apple apple', 'BP', 'Hello World')"""
+        sql """INSERT INTO test_match_keyword_score VALUES (1, 'apple apple', 'BP', 'Hello World', 1)"""
         sql "sync"
         quickTest("${storageFormat}_single_row_match", """
             SELECT id, ROUND(s, 6) FROM (
@@ -56,8 +59,9 @@ suite("test_match_keyword_score", "p0") {
         """, true)
 
         sql """INSERT INTO test_match_keyword_score VALUES
-            (2, 'apple pear', 'BP', 'hello world'), (3, 'pear', 'other', 'Hello World'),
-            (4, 'apple', 'x', 'Hello'), (5, 'apple', 'BP', NULL), (6, 'apple', NULL, 'Hello World')
+            (2, 'apple pear', 'BP', 'hello world', 2), (3, 'pear', 'other', 'Hello World', 1),
+            (4, 'apple', 'x', 'Hello', 1), (5, 'apple', 'BP', NULL, NULL),
+            (6, 'apple', NULL, 'Hello World', 2)
         """
         sql "sync"
 
@@ -66,6 +70,9 @@ suite("test_match_keyword_score", "p0") {
                 ["match", "tag MATCH 'BP'"],
                 ["match_all", "tag MATCH_ALL 'BP'"],
                 ["match_phrase", "tag MATCH_PHRASE 'BP'"],
+                // A trailing " ~N" is the phrase slop, not part of the term: it scores BP.
+                ["match_phrase_slop", "tag MATCH_PHRASE 'BP ~1'"],
+                ["match_phrase_ordered_slop", "tag MATCH_PHRASE 'BP ~1+'"],
                 ["search", "SEARCH('tag:BP')"],
                 // Case and spaces are kept, and phrase support inherited by parser=none is ignored.
                 ["none_match", "tag_none MATCH 'Hello World'"],
@@ -75,7 +82,10 @@ suite("test_match_keyword_score", "p0") {
                 ["analyzed_and_keyword", "body MATCH 'apple' AND tag MATCH 'BP'"],
                 ["search_and", "SEARCH('body:apple AND tag:BP')"],
                 // An equality is a filter: only the body leaf scores.
-                ["analyzed_and_equality", "body MATCH 'apple' AND tag = 'BP'"]]) {
+                ["analyzed_and_equality", "body MATCH 'apple' AND tag = 'BP'"],
+                // A MATCH on a number cast to text is a filter over the BKD index of n: only the
+                // body leaf scores.
+                ["analyzed_and_numeric_cast", "body MATCH 'apple' AND CAST(n AS STRING) MATCH '1'"]]) {
             quickTest("${storageFormat}_${query[0]}", """
                 SELECT id, ROUND(s, 6) FROM (
                     SELECT id, score() AS s FROM test_match_keyword_score

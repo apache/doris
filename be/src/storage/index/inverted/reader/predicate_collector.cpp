@@ -33,6 +33,7 @@
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/common/string_helper.h"
 #include "storage/index/inverted/query/exec/term_pattern.h"
+#include "storage/index/inverted/query/logical/match_lowering.h"
 #include "storage/index/inverted/reader/inverted_index_selector.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
@@ -292,10 +293,18 @@ namespace {
 // "Hello World", as SEARCH('tag:"Hello World"') does. Any other index cuts the value with the
 // query's analyzer.
 Result<std::vector<TermInfo>> match_scoring_terms(const std::string& value,
+                                                  InvertedIndexQueryType query_type,
                                                   const TabletIndex& index_meta,
                                                   const InvertedIndexAnalyzerCtx& analyzer_ctx) {
     if (!inverted_index::InvertedIndexAnalyzer::should_analyzer(index_meta.properties())) {
-        return std::vector<TermInfo> {TermInfo(value)};
+        // A keyword phrase reads a trailing " ~N" as its slop, as lower_match does before the
+        // reader looks the term up: tag MATCH_PHRASE 'BP ~1' looks up BP. Collecting "BP ~1"
+        // would leave the scorer without statistics for BP and fail the query.
+        std::string_view term = value;
+        if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
+            index_query::logical::take_slop(&term);
+        }
+        return std::vector<TermInfo> {TermInfo(std::string(term))};
     }
     DORIS_CHECK(analyzer_ctx.analyzer_provider != nullptr);
     return analyze_plain_query(value, analyzer_ctx);
@@ -383,14 +392,18 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
     const auto* index_meta = DORIS_TRY(
             select_index_meta(candidates.index_metas, candidates.field_type, query_type,
                               analyzer_ctx->analyzer_key, analyzer_ctx->legacy_analyzer_key));
-    if (!IndexReaderHelper::is_need_similarity_score(expr->op(), index_meta)) {
+    // Only a text index is read with a score. CAST(n AS STRING) MATCH '1' on an INT column runs as
+    // a scalar filter, and the index selected for n is a BKD index that holds no terms: opening it
+    // as a text index to count them would fail the query.
+    if (!is_string_type(candidates.field_type) ||
+        !IndexReaderHelper::is_need_similarity_score(expr->op(), index_meta)) {
         return Status::OK();
     }
 
     auto options = DataTypeSerDe::get_default_format_options();
     options.timezone = &state->timezone_obj();
-    auto term_infos = DORIS_TRY(
-            match_scoring_terms(right_literal->value(options), *index_meta, *analyzer_ctx));
+    auto term_infos = DORIS_TRY(match_scoring_terms(right_literal->value(options), query_type,
+                                                    *index_meta, *analyzer_ctx));
     // The prefix of a phrase prefix is scored by the terms it expands to, so the statistics are
     // collected for them per segment; a prefix alone scores a constant and needs none.
     std::optional<TermInfo> scoring_prefix;

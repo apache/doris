@@ -2481,6 +2481,102 @@ TEST_F(CollectionStatisticsTest, CollectsKeywordIndexValueAsOneTerm) {
     }
 }
 
+// A keyword MATCH_PHRASE reads a trailing " ~N" or " ~N+" as its slop and looks up the rest, so the
+// statistics must be collected for that term too; any other MATCH looks up the whole value.
+TEST_F(CollectionStatisticsTest, KeywordPhraseCollectsTermWithoutSlop) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+
+    constexpr int32_t kColUid = 1301;
+    TabletColumn col;
+    col.set_unique_id(kColUid);
+    col.set_name("kw");
+    col.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    tablet_schema->append_column(col);
+
+    TabletIndexPB index_pb;
+    index_pb.set_index_id(2301);
+    index_pb.set_index_name("kw_idx");
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.add_col_unique_id(kColUid);
+    TabletIndex index;
+    index.init_from_pb(index_pb);
+    tablet_schema->append_index(std::move(index));
+
+    constexpr int kSlotId = 81;
+    runtime_state_->_mock_desc_tbl->add_slot_descriptor(SlotId(kSlotId), kColUid, "kw", {});
+
+    struct Case {
+        TExprOpcode::type op;
+        std::string value;
+        std::string term;
+    };
+    for (const auto& c : {Case {TExprOpcode::MATCH_PHRASE, "Hello World ~1", "Hello World"},
+                          Case {TExprOpcode::MATCH_PHRASE, "Hello World ~2+", "Hello World"},
+                          Case {TExprOpcode::MATCH_ANY, "Hello World ~1", "Hello World ~1"}}) {
+        SCOPED_TRACE(c.value);
+        auto match_expr =
+                std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+        match_expr->_children.push_back(
+                std::make_shared<collection_statistics::MockVSlotRef>("kw", SlotId(kSlotId)));
+        match_expr->_children.push_back(
+                std::make_shared<collection_statistics::MockVLiteral>(c.value));
+        auto analyzer_ctx = std::make_shared<InvertedIndexAnalyzerCtx>();
+        analyzer_ctx->parser_type = InvertedIndexParserType::PARSER_NONE;
+        match_expr->set_analyzer_ctx(std::move(analyzer_ctx));
+        match_expr->set_opcode(c.op);
+
+        MatchPredicateCollector collector;
+        std::unordered_map<std::wstring, CollectInfo> collect_infos;
+        auto status =
+                collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
+        ASSERT_TRUE(status.ok()) << status.msg();
+        ASSERT_EQ(collect_infos.size(), 1U);
+        EXPECT_EQ(collect_infos.begin()->second.unique_terms, std::vector<std::string>({c.term}));
+    }
+}
+
+// CAST(n AS STRING) MATCH '1' on an INT column runs as a scalar filter. The index selected for n is
+// a BKD index without terms, so the predicate collects nothing instead of opening it as text.
+TEST_F(CollectionStatisticsTest, MatchOnNumericColumnCollectsNothing) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+
+    constexpr int32_t kColUid = 1302;
+    TabletColumn col;
+    col.set_unique_id(kColUid);
+    col.set_name("n");
+    col.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    tablet_schema->append_column(col);
+
+    TabletIndexPB index_pb;
+    index_pb.set_index_id(2302);
+    index_pb.set_index_name("n_idx");
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.add_col_unique_id(kColUid);
+    TabletIndex index;
+    index.init_from_pb(index_pb);
+    tablet_schema->append_index(std::move(index));
+
+    constexpr int kSlotId = 82;
+    runtime_state_->_mock_desc_tbl->add_slot_descriptor(SlotId(kSlotId), kColUid, "n", {});
+
+    auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+    match_expr->_children.push_back(
+            std::make_shared<collection_statistics::MockVSlotRef>("n", SlotId(kSlotId)));
+    match_expr->_children.push_back(std::make_shared<collection_statistics::MockVLiteral>("1"));
+    match_expr->set_analyzer_ctx(std::make_shared<InvertedIndexAnalyzerCtx>());
+
+    for (auto op : {TExprOpcode::MATCH_ANY, TExprOpcode::MATCH_ALL, TExprOpcode::MATCH_PHRASE}) {
+        SCOPED_TRACE(op);
+        match_expr->set_opcode(op);
+        MatchPredicateCollector collector;
+        std::unordered_map<std::wstring, CollectInfo> collect_infos;
+        auto status =
+                collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
+        ASSERT_TRUE(status.ok()) << status.msg();
+        EXPECT_TRUE(collect_infos.empty());
+    }
+}
+
 TEST_F(CollectionStatisticsTest, ExplicitNoneDoesNotSelectNormalizerIndexForScoring) {
     auto tablet_schema = std::make_shared<TabletSchema>();
 
