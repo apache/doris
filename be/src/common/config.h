@@ -1900,9 +1900,6 @@ DECLARE_mInt32(thrift_client_open_num_tries);
 
 // Default HTTP scheme used by S3Client when the endpoint has no scheme.
 DECLARE_String(s3_client_http_scheme);
-// Completed-client retention only; external owners can outlive cache eviction.
-DECLARE_Int32(s3_client_cache_capacity);
-DECLARE_Int32(s3_client_cache_idle_ttl_seconds);
 
 DECLARE_mBool(ignore_schema_change_check);
 

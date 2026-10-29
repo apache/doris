@@ -56,8 +56,7 @@ namespace doris {
 std::string hide_access_key(const std::string& ak);
 
 class S3URI;
-class S3ClientCache;
-class CachePolicy;
+class S3ClientRegistry;
 struct S3ClientConf {
     std::string endpoint;
     std::string region;
@@ -90,7 +89,7 @@ struct S3ClientConf {
     bool operator==(const S3ClientConf&) const = default;
 
     uint64_t get_hash() const noexcept {
-        // Cache eviction/rollback and pending-task removal must not allocate.
+        // Weak-index cleanup and pending-task removal must not allocate.
         // Combine AK/SK in order without concatenation, and avoid the by-value
         // crc32_hash(string) overload for every other string field.
         size_t credentials_hash = crc32_hash(ak.data(), ak.size());
@@ -154,10 +153,6 @@ public:
 
     static S3ClientFactory& instance();
 
-    // ExecEnv owns the CacheManager registration, not static destruction.
-    void init_cache_policy();
-    void close_cache();
-
     Result<std::shared_ptr<io::ObjStorageClient>> create(const S3ClientConf& s3_conf);
 
     static Status convert_properties_to_s3_conf(const std::map<std::string, std::string>& prop,
@@ -193,8 +188,7 @@ private:
     S3ClientFactory();
 
     Aws::SDKOptions _aws_options;
-    std::unique_ptr<S3ClientCache> _cache;
-    std::unique_ptr<CachePolicy> _cache_policy;
+    std::unique_ptr<S3ClientRegistry> _registry;
     std::mutex _ca_cert_lock;
     std::string _ca_cert_file_path;
 #ifdef BE_TEST
