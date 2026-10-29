@@ -918,6 +918,51 @@ std::vector<FileBlock::Range> BlockFileCache::downloaded_ranges(const UInt128Wra
     return ranges;
 }
 
+bool BlockFileCache::is_range_downloaded_or_downloading(const UInt128Wrapper& hash, size_t offset,
+                                                        size_t size, const CacheContext& context) {
+    DORIS_CHECK(size > 0);
+    const size_t end = offset + size;
+    DORIS_CHECK(end > offset);
+    SCOPED_CACHE_LOCK(_mutex, this);
+    auto file = _files.find(hash);
+    if (file == _files.end() && !_async_open_done) {
+        _storage->load_file_blocks_directly_unlocked(this, hash, context.tablet_id, cache_lock);
+        file = _files.find(hash);
+    }
+    if (file == _files.end()) {
+        return false;
+    }
+
+    const auto& blocks = file->second;
+    DORIS_CHECK(!blocks.empty());
+    auto iterator = blocks.lower_bound(offset);
+    if (iterator != blocks.begin()) {
+        --iterator;
+    }
+    // Old upload boundaries can leave [0, 512 KiB) and [512 KiB, 1.5 MiB). Walk their
+    // actual intervals rather than assuming one cached cell per aligned writeback block.
+    size_t covered = offset;
+    for (; iterator != blocks.end(); ++iterator) {
+        const auto& block = iterator->second.file_block;
+        const auto& range = block->range();
+        if (range.right < covered) {
+            continue;
+        }
+        if (range.left > covered) {
+            return false;
+        }
+        const auto state = block->state();
+        if (state != FileBlock::State::DOWNLOADED && state != FileBlock::State::DOWNLOADING) {
+            return false;
+        }
+        if (range.right >= end - 1) {
+            return true;
+        }
+        covered = range.right + 1;
+    }
+    return false;
+}
+
 FileBlocksProbeResult BlockFileCache::probe(const UInt128Wrapper& hash, size_t offset, size_t size,
                                             const CacheContext& context) {
     DORIS_CHECK(size > 0);

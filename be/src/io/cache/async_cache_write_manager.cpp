@@ -605,14 +605,7 @@ bool AsyncCacheWriteManager::should_skip_block_writeback(
     }
     ReadStatistics stats;
     const auto context = admission_ctx.to_cache_context(&stats);
-    auto result = _cache->probe(cache_hash, offset, size, context);
-    DORIS_CHECK(result.file_blocks.size() == 1);
-    const auto& block = result.file_blocks.front();
-    if (block == nullptr) {
-        return false;
-    }
-    const auto state = block->state();
-    return state == FileBlock::State::DOWNLOADED || state == FileBlock::State::DOWNLOADING;
+    return _cache->is_range_downloaded_or_downloading(cache_hash, offset, size, context);
 }
 
 Status AsyncCacheWriteManager::allocate_tracked_buffer(size_t size,
