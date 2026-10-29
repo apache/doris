@@ -383,7 +383,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             if (partitionNames == null) {
                 scanContext.checkCancelled();
                 partitionNames = hmsClient.listPartitionNames(
-                        handle.getDbName(), handle.getTableName(), MAX_PARTITIONS);
+                        handle.getDbName(), handle.getTableName(), MAX_PARTITIONS, scanContext);
             }
             if (nextPartition == partitionNames.size()) {
                 return false;

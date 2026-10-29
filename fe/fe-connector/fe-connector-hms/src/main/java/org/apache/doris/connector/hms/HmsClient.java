@@ -135,6 +135,14 @@ public interface HmsClient extends Closeable {
     List<String> listPartitionNames(String dbName, String tableName,
             int maxParts);
 
+    default List<String> listPartitionNames(String dbName, String tableName, int maxParts,
+            ConnectorScanContext scanContext) {
+        scanContext.checkCancelled();
+        List<String> names = listPartitionNames(dbName, tableName, maxParts);
+        scanContext.checkCancelled();
+        return names;
+    }
+
     /**
      * Lists partition names bypassing any decorator cache (a FRESH metastore listing). SHOW PARTITIONS and the
      * {@code partitions} metadata TVF need a fresh view (legacy read the raw pooled client, never the metadata

@@ -271,6 +271,33 @@ public class HiveScanBatchModeTest {
     }
 
     @Test
+    public void unprunedStreamingPassesCancellationToPartitionNameListing() throws Exception {
+        ConnectorScanContext context = new ConnectorScanContext();
+        HmsClient client = new FakeHmsClient() {
+            @Override
+            public List<String> listPartitionNames(String db, String table, int maxParts) {
+                throw new AssertionError("Whole-scan streaming must carry its scan context");
+            }
+
+            @Override
+            public List<String> listPartitionNames(String db, String table, int maxParts,
+                    ConnectorScanContext actual) {
+                Assertions.assertSame(context, actual);
+                actual.cancel();
+                actual.checkCancelled();
+                throw new AssertionError("The names lookup was cancelled");
+            }
+        };
+        CountingLister lister = new CountingLister();
+        ConnectorScanRequest request = ConnectorScanRequest.builder(parquetHandle(PART_KEYS),
+                Collections.emptyList()).scanContext(context).build();
+        try (ConnectorSplitSource source = provider(client, lister).streamSplits(new FakeSession(), request)) {
+            Assertions.assertThrows(CancellationException.class, source::hasNext);
+        }
+        Assertions.assertEquals(0, lister.totalCalls);
+    }
+
+    @Test
     public void streamingPassesCancellationToPartitionMetadataLookup() throws Exception {
         ConnectorScanContext context = new ConnectorScanContext();
         CountDownLatch entered = new CountDownLatch(1);

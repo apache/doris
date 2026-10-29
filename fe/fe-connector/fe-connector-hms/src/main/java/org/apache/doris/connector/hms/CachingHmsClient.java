@@ -217,6 +217,22 @@ public class CachingHmsClient implements HmsClient {
     }
 
     @Override
+    public List<String> listPartitionNames(String dbName, String tableName, int maxParts,
+            ConnectorScanContext scanContext) {
+        scanContext.checkCancelled();
+        List<String> names = partitionNamesCache.getForLoadScope(
+                new PartitionNamesKey(dbName, tableName, maxParts), scanContext, key -> {
+                    scanContext.checkCancelled();
+                    List<String> loaded = delegate.listPartitionNames(
+                            key.dbName, key.tableName, key.maxParts, scanContext);
+                    scanContext.checkCancelled();
+                    return loaded;
+                });
+        scanContext.checkCancelled();
+        return names;
+    }
+
+    @Override
     public List<String> listPartitionNamesFresh(String dbName, String tableName, int maxParts) {
         // Fresh (cache-bypassing) listing for SHOW PARTITIONS / the partitions metadata TVF — legacy read the raw
         // pooled client, never the metadata cache. This neither READS nor WRITES partitionNamesCache: reading would

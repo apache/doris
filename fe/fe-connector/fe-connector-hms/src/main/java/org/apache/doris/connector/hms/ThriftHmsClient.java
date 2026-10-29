@@ -65,8 +65,10 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -90,6 +92,7 @@ public class ThriftHmsClient implements HmsClient {
 
     private static final HiveMetaHookLoader DUMMY_HOOK_LOADER = tbl -> null;
     private static final long POOL_BORROW_TIMEOUT_MS = 60_000L;
+    private static final long SCAN_POOL_POLL_MS = 100L;
     private static final int ADD_PARTITIONS_BATCH_SIZE = 20;
     private static final String TRANSIENT_LAST_DDL_TIME = "transient_lastDdlTime";
 
@@ -213,6 +216,13 @@ public class ThriftHmsClient implements HmsClient {
                         toThriftMaxParts(maxParts)));
     }
 
+    @Override
+    public List<String> listPartitionNames(String dbName, String tableName, int maxParts,
+            ConnectorScanContext scanContext) {
+        return executeScanCall(scanContext, client -> client.listPartitionNames(
+                dbName, tableName, toThriftMaxParts(maxParts)));
+    }
+
     /**
      * Maps the connector's {@code maxParts} contract onto the {@code short max_parts} that HMS
      * {@code get_partition_names} accepts.
@@ -247,17 +257,18 @@ public class ThriftHmsClient implements HmsClient {
     @Override
     public HmsPartitionBatchResult getExistingPartitionsWithStats(
             String dbName, String tableName, List<String> partNames) {
-        return getExistingPartitionsWithStats(dbName, tableName, partNames, () -> { });
+        return getExistingPartitionsWithStats(dbName, tableName, partNames, () -> { }, null);
     }
 
     @Override
     public HmsPartitionBatchResult getExistingPartitionsWithStats(String dbName, String tableName,
             List<String> partNames, ConnectorScanContext scanContext) {
-        return getExistingPartitionsWithStats(dbName, tableName, partNames, scanContext::checkCancelled);
+        return getExistingPartitionsWithStats(
+                dbName, tableName, partNames, scanContext::checkCancelled, scanContext);
     }
 
     private HmsPartitionBatchResult getExistingPartitionsWithStats(String dbName, String tableName,
-            List<String> partNames, Runnable checkCancelled) {
+            List<String> partNames, Runnable checkCancelled, ConnectorScanContext scanContext) {
         checkCancelled.run();
         if (closed) {
             throw new HmsClientException("HMS client is closed");
@@ -267,7 +278,7 @@ public class ThriftHmsClient implements HmsClient {
             HmsPartitionTransport transport = (db, table, names) -> executePartitionCall(client -> {
                 checkCancelled.run();
                 return loadPartitionsByNames(client, db, table, names);
-            });
+            }, scanContext);
             return new HmsPartitionBatchExecutor(partitionBatchSize, transport, checkCancelled)
                     .executeExistingWithStats(request);
         }
@@ -673,12 +684,46 @@ public class ThriftHmsClient implements HmsClient {
         }
     }
 
-    /** Executes one physical partition RPC while keeping pool/setup failures non-degradable. */
-    private <T> T executePartitionCall(HmsAction<T> action) {
+    private <T> T executeScanCall(ConnectorScanContext scanContext, HmsAction<T> action) {
+        scanContext.checkCancelled();
         if (closed) {
             throw new HmsClientException("HMS client is closed");
         }
-        try (PooledHmsClient pooled = borrowClient()) {
+        try (PooledHmsClient pooled = borrowClient(scanContext)) {
+            scanContext.checkCancelled();
+            try {
+                return doAs(() -> {
+                    scanContext.checkCancelled();
+                    T result = action.call(pooled.client);
+                    scanContext.checkCancelled();
+                    return result;
+                });
+            } catch (CancellationException e) {
+                throw e;
+            } catch (Exception e) {
+                pooled.taint(e);
+                throw e;
+            }
+        } catch (HmsClientException | CancellationException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new HmsClientException("HMS operation failed: " + e.getMessage(), e);
+        }
+    }
+
+    /** Executes one physical partition RPC while keeping pool/setup failures non-degradable. */
+    private <T> T executePartitionCall(HmsAction<T> action) {
+        return executePartitionCall(action, null);
+    }
+
+    private <T> T executePartitionCall(HmsAction<T> action, ConnectorScanContext scanContext) {
+        if (closed) {
+            throw new HmsClientException("HMS client is closed");
+        }
+        try (PooledHmsClient pooled = borrowClient(scanContext)) {
+            if (scanContext != null) {
+                scanContext.checkCancelled();
+            }
             return executePartitionCall(pooled, action);
         } catch (HmsClientException | CancellationException e) {
             throw e;
@@ -814,6 +859,41 @@ public class ThriftHmsClient implements HmsClient {
         }
         try {
             return clientPool.borrowObject();
+        } catch (Exception e) {
+            throw new HmsClientException(withRootCause("Failed to borrow HMS client "
+                    + "from pool: " + e.getMessage(), e), e);
+        }
+    }
+
+    private PooledHmsClient borrowClient(ConnectorScanContext scanContext) {
+        if (scanContext == null) {
+            return borrowClient();
+        }
+        scanContext.checkCancelled();
+        if (clientPool == null) {
+            return createFreshClient();
+        }
+        long remainingMillis = clientPool.getMaxWaitMillis();
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(remainingMillis);
+        try {
+            while (true) {
+                scanContext.checkCancelled();
+                try {
+                    return clientPool.borrowObject(Math.min(SCAN_POOL_POLL_MS, remainingMillis));
+                } catch (NoSuchElementException e) {
+                    // This pool blocks when exhausted, disables borrow/create validation, and uses
+                    // no-op activation. Creation failures are HmsClientException, so only a local
+                    // wait timeout reaches here. Preserve the original total borrowing budget.
+                    scanContext.checkCancelled();
+                    long remainingNanos = deadline - System.nanoTime();
+                    if (remainingNanos <= 0) {
+                        throw e;
+                    }
+                    remainingMillis = Math.max(1, TimeUnit.NANOSECONDS.toMillis(remainingNanos));
+                }
+            }
+        } catch (CancellationException e) {
+            throw e;
         } catch (Exception e) {
             throw new HmsClientException(withRootCause("Failed to borrow HMS client "
                     + "from pool: " + e.getMessage(), e), e);
