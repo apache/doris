@@ -419,7 +419,9 @@ Status pfor_decode(ByteSource* src, size_t n, uint32_t* out) {
     uint32_t n_exc;
     RETURN_IF_ERROR(src->get_varint32(&n_exc));
     RETURN_IF_ERROR(bitunpack(src, n, w, out));
-    uint32_t idx = 0;
+    // 64 bits wide: a delta from the file is at most 2^32 - 1 and idx is below n before every add, so the
+    // sum cannot wrap back into [0, n) the way a 32-bit one can.
+    uint64_t idx = 0;
     for (uint32_t i = 0; i < n_exc; ++i) {
         uint32_t d, val;
         RETURN_IF_ERROR(src->get_varint32(&d));
@@ -442,7 +444,7 @@ Status pfor_skip(ByteSource* src, size_t n) {
     const size_t packed = (static_cast<size_t>(w) * n + 7) / 8;
     Slice unused;
     RETURN_IF_ERROR(src->get_bytes(packed, &unused));
-    uint32_t idx = 0;
+    uint64_t idx = 0; // wide for the same reason as in pfor_decode
     for (uint32_t i = 0; i < n_exc; ++i) {
         uint32_t d = 0;
         uint32_t val = 0;
