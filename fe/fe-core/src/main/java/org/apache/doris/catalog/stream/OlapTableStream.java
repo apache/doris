@@ -32,18 +32,22 @@ import org.apache.doris.thrift.TRow;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 public class OlapTableStream extends BaseTableStream {
 
@@ -55,6 +59,13 @@ public class OlapTableStream extends BaseTableStream {
 
     @SerializedName("hpt")
     private Map<Long, Long> historicalPartitionTSO;
+
+    // Row counts of the changelog index and of the base index of each partition at the moment its
+    // offset advanced. They give a stream read a baseline to estimate the rows it will return:
+    // the row count of the changelog index alone is the size of the whole changelog, not of the
+    // range being read. See PartitionStreamState.
+    @SerializedName("ps")
+    private Map<Long, PartitionStreamState> partitionStates;
 
     // for persist
     public OlapTableStream() {
@@ -128,6 +139,58 @@ public class OlapTableStream extends BaseTableStream {
         super.setProperties(properties);
     }
 
+    private synchronized Map<Long, PartitionStreamState> partitionStates() {
+        if (!(partitionStates instanceof ConcurrentHashMap)) {
+            // A record read back from an image holds whatever map the deserialization built, which
+            // is not safe for the concurrent reads and the replacement the planner and the offset
+            // advance do on it.
+            partitionStates = partitionStates == null
+                    ? new ConcurrentHashMap<>() : new ConcurrentHashMap<>(partitionStates);
+        }
+        return partitionStates;
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        super.gsonPostProcess();
+        partitionStates();
+    }
+
+    public PartitionStreamState getPartitionStreamState(long partitionId) {
+        return partitionStates().get(partitionId);
+    }
+
+    public Map<Long, PartitionStreamState> getPartitionStates() {
+        return ImmutableMap.copyOf(partitionStates());
+    }
+
+    /**
+     * Record, for each of the given partitions, the row counts the estimate of a read is built
+     * from. Called whenever the offsets of those partitions move, so that the recorded state and
+     * the offset describe the same point in time: the counters are the ones the FE holds when the
+     * offset advances, and a backend report which arrives later only makes the next estimate
+     * larger, never smaller.
+     */
+    public void unprotectedRecordPartitionStreamStates(Collection<Long> partitionIds) {
+        OlapTable baseTable = getBaseTableNullable();
+        if (baseTable == null || partitionIds.isEmpty()) {
+            return;
+        }
+        long changelogIndexId = baseTable.hasChangelog() ? baseTable.getChangelogIndexMeta().getIndexId() : -1;
+        Map<Long, PartitionStreamState> states = partitionStates();
+        for (Long partitionId : partitionIds) {
+            if (baseTable.getPartition(partitionId) == null) {
+                continue;
+            }
+            long changelogRowCount = changelogIndexId > 0
+                    ? baseTable.getRowCountForPartitionIndex(partitionId, changelogIndexId, false)
+                    : PartitionStreamState.UNKNOWN_ROW_COUNT;
+            long baseRowCount = baseTable.getRowCountForPartitionIndex(partitionId,
+                    baseTable.getBaseIndexId(), false);
+            states.put(partitionId, new PartitionStreamState(changelogRowCount, baseRowCount));
+        }
+    }
+
     private void initializeLocalOffsets() {
         // set offset according to baseTable
         OlapTable baseTable = getBaseTableNullable();
@@ -147,6 +210,10 @@ public class OlapTableStream extends BaseTableStream {
                                 }
                     );
         }
+        // Both cases start from the partition TSO the stream was created at, so the counters have
+        // the same baseline in both.
+        unprotectedRecordPartitionStreamStates(baseTable.getPartitions().stream()
+                .map(Partition::getId).collect(Collectors.toList()));
     }
 
     public static OlapTableStream read(DataInput in) throws IOException {
@@ -318,6 +385,7 @@ public class OlapTableStream extends BaseTableStream {
             partitionOffset.put(entry.getKey(), entry.getValue());
             partitionConsumptionTime.put(entry.getKey(), ts);
         }
+        unprotectedRecordPartitionStreamStates(next.keySet());
     }
 
     Set<Long> unprotectedCollectStalePartitionOffsetIds(Set<Long> validPartitionIds) {
@@ -341,6 +409,11 @@ public class OlapTableStream extends BaseTableStream {
                 }
             }
         }
+        for (Long partitionId : partitionStates().keySet()) {
+            if (!validPartitionIds.contains(partitionId)) {
+                stalePartitionIds.add(partitionId);
+            }
+        }
         return stalePartitionIds;
     }
 
@@ -353,6 +426,7 @@ public class OlapTableStream extends BaseTableStream {
             if (historicalPartitionTSO != null) {
                 historicalPartitionTSO.remove(partitionId);
             }
+            partitionStates().remove(partitionId);
         }
     }
 }

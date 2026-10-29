@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.OlapTableWrapper;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
@@ -470,6 +471,17 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      */
     private double getOlapTableRowCount(OlapScan olapScan) {
         OlapTable olapTable = olapScan.getTable();
+        if (olapTable instanceof OlapTableWrapper) {
+            // A wrapper answering for a read the table metadata cannot describe -- the change rows
+            // of an offset range, or the image at an offset -- records its own row count. It has to
+            // be asked before the statistics record: that record describes the base index of the
+            // table, and for a changelog read it has no entry at all, which would leave the read at
+            // the one-row floor.
+            long rowCountEstimate = ((OlapTableWrapper) olapTable).getRowCountEstimate();
+            if (rowCountEstimate >= 0) {
+                return rowCountEstimate;
+            }
+        }
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapScan.getTable().getId());
         double rowCount = -1;
