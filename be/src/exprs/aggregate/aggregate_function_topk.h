@@ -86,16 +86,16 @@ struct EmptyTopKArena {};
 /// adversarial input can feed the n-th generated priority as the n-th smallest value, making the
 /// value order match the priority order and turning the treap into a chain of depth n. The
 /// process-random base and the counter keep the sequence independent of the data.
-inline uint64_t next_topk_priority_seed() {
-    static std::atomic<uint64_t> counter {0};
-    static const uint64_t base = [] {
+inline uint32_t next_topk_priority_seed() {
+    static std::atomic<uint32_t> counter {0};
+    static const uint32_t base = [] {
         std::random_device device;
-        return (static_cast<uint64_t>(device()) << 32) | static_cast<uint64_t>(device());
+        return static_cast<uint32_t>(device());
     }();
-    uint64_t z = base + counter.fetch_add(1, std::memory_order_relaxed) * 0x9E3779B97F4A7C15ULL;
-    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
-    z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
-    return z ^ (z >> 31);
+    uint32_t z = base + counter.fetch_add(1, std::memory_order_relaxed) * 0x9E3779B9u;
+    z = (z ^ (z >> 16)) * 0x21F0AAADu;
+    z = (z ^ (z >> 15)) * 0x735A2D97u;
+    return z ^ (z >> 15);
 }
 
 /**
@@ -153,18 +153,22 @@ struct AggregateTopKCountData
         int64_t count = 0;
     };
 
-    bool has_k = false;
-    int64_t k = 0;
+    // k is the aggregate's count argument, which is never negative, so -1 can stand in for "this
+    // partial state has not seen its first row yet" and the state needs no separate flag.
+    static constexpr int64_t NO_K = -1;
+    int64_t k = NO_K;
     // Indexed by slot; an evicted slot stays as a dead entry until compaction.
     DorisVector<Slot> slots;
     int32_t root = NO_SLOT;
     // The last live slot in the aggregate's order: the value an incoming row has to beat to enter
     // a full list. Cached so that rejecting a worse value costs one comparison, not a descent.
     int32_t worst = NO_SLOT;
-    int64_t live = 0;
+    // Both counters are bounded by the slot count, which the int32_t links already cap, so 32 bits
+    // are enough; keeping them (and the seed) 32-bit is what holds the state to 56 bytes.
+    uint32_t live = 0;
     // Slots evicted since the last compaction.
-    int64_t dead = 0;
-    uint64_t rng = next_topk_priority_seed();
+    uint32_t dead = 0;
+    uint32_t rng = next_topk_priority_seed();
 
     AggregateTopKCountData() = default;
     AggregateTopKCountData(const AggregateTopKCountData&) = delete;
@@ -231,12 +235,11 @@ public:
                Arena&) const override {
         auto& state = Base::data(place);
         const auto& other = Base::data(rhs);
-        // A partial state without has_k never saw any row, so it carries no information.
-        if (!other.has_k) {
+        // A partial state without a k never saw any row, so it carries no information.
+        if (other.k == State::NO_K) {
             return;
         }
-        if (!state.has_k) {
-            state.has_k = true;
+        if (state.k == State::NO_K) {
             state.k = other.k;
         } else if (UNLIKELY(state.k != other.k)) {
             // Ordinary partial/final aggregation always shares the same constant k, but the
@@ -255,7 +258,8 @@ public:
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         const auto& state = Base::data(place);
-        buf.write_binary(state.has_k);
+        // The serialized form keeps the historical flag byte: it is derived from k in the state.
+        buf.write_binary(state.k != State::NO_K);
         buf.write_binary(state.k);
         // The slots are in arrival order and may include dead ones, while the serialized form is
         // the sorted (value, count) list the reader rebuilds the tree from.
@@ -283,8 +287,12 @@ public:
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena&) const override {
         auto& state = Base::data(place);
-        buf.read_binary(state.has_k);
+        bool has_k = false;
+        buf.read_binary(has_k);
         buf.read_binary(state.k);
+        if (!has_k) {
+            state.k = State::NO_K;
+        }
         int64_t size = 0;
         buf.read_binary(size);
         auto values = read_column(buf);
@@ -437,13 +445,13 @@ private:
     /// value is worse and cannot enter the list.
     static bool is_worse(int cmp) { return IsMin ? cmp > 0 : cmp < 0; }
 
-    /// splitmix64. The priorities only have to be independent enough to keep the treap balanced;
+    /// splitmix32. The priorities only have to be independent enough to keep the treap balanced;
     /// a per-state sequence keeps the shape reproducible for the same insertion order.
     static uint32_t next_priority(State& state) {
-        uint64_t z = (state.rng += 0x9E3779B97F4A7C15ULL);
-        z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
-        z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
-        return static_cast<uint32_t>(z ^ (z >> 31));
+        uint32_t z = (state.rng += 0x9E3779B9u);
+        z = (z ^ (z >> 16)) * 0x21F0AAADu;
+        z = (z ^ (z >> 15)) * 0x735A2D97u;
+        return z ^ (z >> 15);
     }
 
     static int compare_slots(const State& state, int32_t lhs, int32_t rhs) {
@@ -610,7 +618,7 @@ private:
                 state.slots[slot].payload = values[slot].value;
             }
         }
-        state.live = static_cast<int64_t>(size);
+        state.live = static_cast<uint32_t>(size);
         state.dead = 0;
         DorisVector<int32_t> stack;
         stack.reserve(size);
@@ -667,14 +675,13 @@ private:
         int64_t value =
                 assert_cast<const ColumnInt64&, TypeCheckOnRelease::DISABLE>(*nested).get_element(
                         row_num);
-        if (!state.has_k) {
+        if (state.k == State::NO_K) {
             if (UNLIKELY(value < 0)) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT,
                                 "the count of min_topk and max_topk must be a non-negative "
                                 "constant, but got {}",
                                 value);
             }
-            state.has_k = true;
             state.k = value;
         } else {
             // k comes from the same constant expression on every row and every partial state.
