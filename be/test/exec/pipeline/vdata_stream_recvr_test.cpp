@@ -19,7 +19,9 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <memory>
+#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -447,6 +449,73 @@ TEST_F(DataStreamRecvrTest, RejectedRemoteBlockReleasesCallbackAndAccounting) {
     EXPECT_EQ(callback_count, 1);
     EXPECT_EQ(_mock_counter->current_value(), 0);
 }
+
+class DataStreamRecvrCallbackTest : public DataStreamRecvrTest,
+                                    public ::testing::WithParamInterface<bool> {
+public:
+    static std::unique_ptr<PBlock> make_valid_pblock() {
+        auto block = ColumnHelper::create_block<DataTypeInt32>({1});
+        auto pblock = std::make_unique<PBlock>();
+        to_pblock(block, pblock.get());
+        return pblock;
+    }
+
+    void run_concurrent_add_and_cancel(VDataStreamRecvr::SenderQueue* sender,
+                                       google::protobuf::Closure* pending,
+                                       google::protobuf::Closure* incoming) {
+        // The running callback must own neither the lock nor a slot in the pending deque.
+        std::unique_lock<std::mutex> lock(sender->_lock, std::try_to_lock);
+        ASSERT_TRUE(lock.owns_lock());
+        ASSERT_EQ(sender->_pending_closures.size(), 1);
+        ASSERT_EQ(sender->_pending_closures.front().first, pending);
+        lock.unlock();
+        std::thread rpc([&]() {
+            google::protobuf::Closure* done = incoming;
+            EXPECT_TRUE(sender->add_block(make_valid_pblock(), 1, 3, &done, 0, 0));
+            EXPECT_EQ(done, nullptr);
+            // Follow the error-EOS RPC path while the consumer's callback is running.
+            recvr->remove_sender(0, 1, Status::InternalError("test cancellation"));
+        });
+        rpc.join();
+    }
+};
+
+TEST_P(DataStreamRecvrCallbackTest, PendingCallbackDetachedBeforeConcurrentAddAndCancel) {
+    bool invalid_block = GetParam();
+    create_recvr(1, false);
+    recvr->always_exceeds_limit = true;
+    auto* sender = recvr->sender_queues().back();
+    MockClosure first;
+    MockClosure second;
+    MockClosure third;
+    std::array<int, 3> callback_counts {};
+    const std::array<int, 3> expected_counts {1, 1, 1};
+    second._cb = [&]() { ++callback_counts[1]; };
+    third._cb = [&]() { ++callback_counts[2]; };
+    first._cb = [&]() {
+        ++callback_counts[0];
+        run_concurrent_add_and_cancel(sender, &second, &third);
+    };
+    google::protobuf::Closure* done = &first;
+    ASSERT_TRUE(sender->add_block(invalid_block ? make_invalid_hll_pblock() : make_valid_pblock(),
+                                  1, 1, &done, 0, 0));
+    ASSERT_EQ(done, nullptr);
+    done = &second;
+    ASSERT_TRUE(sender->add_block(make_valid_pblock(), 1, 2, &done, 0, 0));
+    ASSERT_EQ(done, nullptr);
+
+    Block block;
+    bool eos = false;
+    auto st = sender->get_batch(&block, &eos);
+    EXPECT_EQ(st.ok(), !invalid_block);
+    EXPECT_EQ(callback_counts, expected_counts);
+    EXPECT_TRUE(sender->_pending_closures.empty());
+    EXPECT_TRUE(sender->_is_cancelled);
+    recvr->close();
+    EXPECT_EQ(callback_counts, expected_counts);
+}
+
+INSTANTIATE_TEST_SUITE_P(BlockDecodeResults, DataStreamRecvrCallbackTest, ::testing::Bool());
 
 TEST_F(DataStreamRecvrTest, TestRemoteMultiSender) {
     create_recvr(3, false);

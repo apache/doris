@@ -68,18 +68,18 @@ VDataStreamRecvr::SenderQueue::~SenderQueue() {
 }
 
 Status VDataStreamRecvr::SenderQueue::get_batch(Block* block, bool* eos) {
-#ifndef NDEBUG
-    if (!_is_cancelled && _block_queue.empty() && _num_remaining_senders > 0) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "_is_cancelled: {}, _block_queue_empty: {}, "
-                               "_num_remaining_senders: {}, _debug_string_info: {}",
-                               _is_cancelled, _block_queue.empty(), _num_remaining_senders,
-                               _debug_string_info());
-    }
-#endif
     BlockItem block_item;
     {
         INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(_lock));
+#ifndef NDEBUG
+        if (!_is_cancelled && _block_queue.empty() && _num_remaining_senders > 0) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "_is_cancelled: {}, _block_queue_empty: {}, "
+                                   "_num_remaining_senders: {}, _debug_string_info: {}",
+                                   _is_cancelled, _block_queue.empty(), _num_remaining_senders,
+                                   _debug_string_info());
+        }
+#endif
         //check and get block_item from data_queue
         if (_is_cancelled) {
             RETURN_IF_ERROR(_cancel_status);
@@ -103,28 +103,30 @@ Status VDataStreamRecvr::SenderQueue::get_batch(Block* block, bool* eos) {
         COUNTER_UPDATE(_recvr->_decompress_timer, block_item.decompress_time());
         COUNTER_UPDATE(_recvr->_decompress_bytes, block_item.decompress_bytes());
         _recvr->_memory_used_counter->update(-(int64_t)block_byte_size);
+        std::pair<google::protobuf::Closure*, MonotonicStopWatch> pending_closure {nullptr, {}};
         {
             INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(_lock));
             sub_blocks_memory_usage(block_byte_size);
+            _record_debug_info();
             if (_block_queue.empty() && _source_dependency) {
                 if (!_is_cancelled && _num_remaining_senders > 0) {
                     _source_dependency->block();
                 }
             }
+            if (!_pending_closures.empty()) {
+                pending_closure = _pending_closures.front();
+                _pending_closures.pop_front();
+            }
         }
-        _record_debug_info();
 
-        if (!_pending_closures.empty()) {
-            auto closure_pair = _pending_closures.front();
-            closure_pair.first->Run();
-            int64_t elapse_time = closure_pair.second.elapsed_time();
+        if (pending_closure.first != nullptr) {
+            pending_closure.first->Run();
+            int64_t elapse_time = pending_closure.second.elapsed_time();
             if (_recvr->_max_wait_to_process_time->value() < elapse_time) {
                 _recvr->_max_wait_to_process_time->set(elapse_time);
             }
-            _pending_closures.pop_front();
-
-            closure_pair.second.stop();
-            _recvr->_buffer_full_total_timer->update(closure_pair.second.elapsed_time());
+            pending_closure.second.stop();
+            _recvr->_buffer_full_total_timer->update(pending_closure.second.elapsed_time());
         }
     }};
 

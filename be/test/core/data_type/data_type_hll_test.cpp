@@ -23,16 +23,23 @@
 
 #include <cstring>
 #include <iostream>
+#include <limits>
+#include <tuple>
 
 #include "agent/be_exec_version_manager.h"
+#include "core/block/block.h"
 #include "core/column/column.h"
+#include "core/column/column_const.h"
+#include "core/column/column_nullable.h"
 #include "core/data_type/common_data_type_serder_test.h"
 #include "core/data_type/common_data_type_test.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
 #include "core/field.h"
 #include "core/types.h"
+#include "util/unaligned.h"
 
 // this test is gonna to be a data type test template for all DataType which should make ut test to coverage the function defined
 // for example DataTypeHLL should test this function:
@@ -269,6 +276,199 @@ TEST(DataTypeHLLBoundsTest, RejectInvalidCompressedNullMap) {
                      doris::Exception);
     }
 }
+
+TEST(DataTypeHLLBoundsTest, RejectTruncatedNullableHLL) {
+    auto dt_nullable = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeHLL>());
+    for (int version : {USE_CONST_SERDE - 1, BeExecVersionManager::get_newest_version()}) {
+        SCOPED_TRACE(version);
+        auto column = dt_nullable->create_column();
+        column->insert_default();
+        std::vector<char> buf(dt_nullable->get_uncompressed_serialized_bytes(*column, version));
+        auto* end = dt_nullable->serialize(*column, buf.data(), version);
+        buf.resize(end - buf.data());
+        size_t outer_header =
+                version >= USE_CONST_SERDE ? sizeof(bool) + 2 * sizeof(size_t) : sizeof(uint32_t);
+        size_t child_header =
+                version >= USE_CONST_SERDE ? sizeof(bool) + 2 * sizeof(size_t) : sizeof(size_t);
+        size_t child_start = outer_header + 1;
+        size_t value_start = child_start + child_header + sizeof(size_t);
+        unaligned_store<size_t>(buf.data() + child_start + child_header, HLL_COLUMN_DEFAULT_LEN);
+        buf[value_start] = HLL_DATA_FULL;
+
+        for (size_t cut : {child_start, child_start + child_header - 1, child_start + child_header,
+                           value_start - 1, value_start, value_start + 1}) {
+            SCOPED_TRACE(cut);
+            auto decoded = dt_nullable->create_column();
+            EXPECT_THROW(dt_nullable->deserialize(buf.data(), buf.data() + cut, &decoded, version),
+                         doris::Exception);
+        }
+    }
+}
+
+class DataTypeHLLHeaderBoundsTest : public ::testing::TestWithParam<std::tuple<int, bool>> {};
+
+TEST_P(DataTypeHLLHeaderBoundsTest, RejectMalformedHeadersAndLengths) {
+    const int version = std::get<0>(GetParam());
+    const bool nullable = std::get<1>(GetParam());
+    DataTypePtr type = std::make_shared<DataTypeHLL>();
+    if (nullable) {
+        type = std::make_shared<DataTypeNullable>(type);
+    }
+    auto column = type->create_column();
+    column->insert_default();
+    std::vector<char> buf(type->get_uncompressed_serialized_bytes(*column, version));
+    auto* end = type->serialize(*column, buf.data(), version);
+    auto reject = [&type, version](const char* begin, const char* limit) {
+        auto decoded = type->create_column();
+        EXPECT_THROW(type->deserialize(begin, limit, &decoded, version), doris::Exception);
+    };
+    reject(buf.data() + 1, buf.data());
+    size_t legacy_header = nullable ? sizeof(uint32_t) : sizeof(size_t);
+    size_t header = version >= USE_CONST_SERDE ? sizeof(bool) + 2 * sizeof(size_t) : legacy_header;
+    reject(buf.data(), buf.data());
+    reject(buf.data(), buf.data() + header - 1);
+    reject(buf.data(), buf.data() + header);
+    if (version >= USE_CONST_SERDE) {
+        buf[0] = 2;
+        reject(buf.data(), end);
+        buf[0] = 0;
+        unaligned_store<size_t>(buf.data() + sizeof(bool) + sizeof(size_t), 2);
+        reject(buf.data(), end);
+        unaligned_store<size_t>(buf.data() + sizeof(bool) + sizeof(size_t), 1);
+    }
+    if (!nullable) {
+        reject(buf.data(), buf.data() + header + sizeof(size_t));
+        unaligned_store<size_t>(buf.data() + header, HLL_COLUMN_DEFAULT_LEN + 1);
+        reject(buf.data(), end);
+        unaligned_store<size_t>(buf.data() + header, 1);
+        buf[header + sizeof(size_t)] = 4;
+        reject(buf.data(), end);
+    }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+        WireLayouts, DataTypeHLLHeaderBoundsTest,
+        ::testing::Combine(::testing::Values(USE_CONST_SERDE - 1,
+                                             BeExecVersionManager::get_newest_version()),
+                           ::testing::Bool()));
+
+TEST(DataTypeHLLBoundsTest, RejectMalformedCompressedNullMaps) {
+    auto type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeHLL>());
+    for (int version : {USE_CONST_SERDE - 1, BeExecVersionManager::get_newest_version()}) {
+        SCOPED_TRACE(version);
+        auto nested = type->get_nested_type()->create_column();
+        nested->insert_many_defaults(512);
+        auto column = ColumnNullable::create(std::move(nested), ColumnUInt8::create(512, 0));
+        std::vector<char> original(type->get_uncompressed_serialized_bytes(*column, version));
+        auto* end = type->serialize(*column, original.data(), version);
+        original.resize(end - original.data());
+        size_t header =
+                version >= USE_CONST_SERDE ? sizeof(bool) + 2 * sizeof(size_t) : sizeof(uint32_t);
+        auto encoded_size = unaligned_load<size_t>(original.data() + header);
+        auto reject = [&](const std::vector<char>& buf, size_t input_size) {
+            auto decoded = type->create_column();
+            EXPECT_THROW(type->deserialize(buf.data(), buf.data() + input_size, &decoded, version),
+                         doris::Exception);
+        };
+        reject(original, header + sizeof(size_t) - 1);
+        reject(original, header + sizeof(size_t) + encoded_size);
+        // A 512-byte map has 128 integers and 32 control bytes. Reject inconsistent
+        // control/data sizes before invoking the SIMD decoder or allocating the null map.
+        for (size_t bad_size :
+             {std::numeric_limits<size_t>::max(), size_t(31), size_t(32), encoded_size + 1}) {
+            SCOPED_TRACE(bad_size);
+            auto buf = original;
+            unaligned_store<size_t>(buf.data() + header, bad_size);
+            reject(buf, buf.size());
+        }
+        auto buf = original;
+        buf[header + sizeof(size_t)] = static_cast<char>(0xff);
+        reject(buf, buf.size());
+        if (version >= USE_CONST_SERDE) {
+            buf = original;
+            size_t oversized = size_t(std::numeric_limits<uint32_t>::max()) + 1;
+            unaligned_store<size_t>(buf.data() + sizeof(bool), oversized);
+            unaligned_store<size_t>(buf.data() + sizeof(bool) + sizeof(size_t), oversized);
+            reject(buf, buf.size());
+        }
+    }
+}
+
+class NullableTinyIntSerdeTest : public ::testing::TestWithParam<std::tuple<int, size_t, size_t>> {
+};
+
+TEST_P(NullableTinyIntSerdeTest, CompressedRoundTrip) {
+    auto [version, rows, null_byte] = GetParam();
+    auto dt_nullable = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt8>());
+    auto nested = dt_nullable->get_nested_type()->create_column();
+    nested->insert_many_defaults(rows);
+    auto null_map = ColumnUInt8::create(rows, 0);
+    for (size_t i = 0; i < rows; ++i) {
+        null_map->get_data()[i] = i % 4 == null_byte;
+    }
+    auto column = ColumnNullable::create(std::move(nested), std::move(null_map));
+    Block block({ColumnWithTypeAndName(std::move(column), dt_nullable, "tinyint")});
+    PBlock pblock;
+    size_t uncompressed = 0;
+    size_t compressed = 0;
+    int64_t compress_time = 0;
+    ASSERT_TRUE(block.serialize(version, &pblock, &uncompressed, &compressed, &compress_time,
+                                segment_v2::NO_COMPRESSION));
+    if (null_byte == 4) {
+        // The uncompressed null map is larger than the entire encoded block.
+        EXPECT_LT(pblock.column_values().size(), rows);
+    }
+    auto trusted_decoded = dt_nullable->create_column();
+    dt_nullable->deserialize(pblock.column_values().data(), &trusted_decoded, version);
+    EXPECT_EQ(trusted_decoded->size(), rows);
+    Block decoded;
+    size_t decoded_bytes = 0;
+    int64_t decompress_time = 0;
+    ASSERT_TRUE(decoded.deserialize(pblock, &decoded_bytes, &decompress_time));
+    ASSERT_EQ(decoded.rows(), rows);
+    const auto& result = assert_cast<const ColumnNullable&>(*decoded.get_by_position(0).column);
+    for (size_t i = 0; i < rows; ++i) {
+        EXPECT_EQ(result.is_null_at(i), i % 4 == null_byte);
+        EXPECT_EQ(result.get_nested_column().get_int(i), 0);
+    }
+}
+
+// Exercise one-, two-, three- and four-byte StreamVByte values and a partial tail.
+INSTANTIATE_TEST_SUITE_P(
+        WireLayouts, NullableTinyIntSerdeTest,
+        ::testing::Combine(
+                ::testing::Values(USE_CONST_SERDE - 1, BeExecVersionManager::get_newest_version()),
+                ::testing::Values(size_t {257}, size_t {512}, size_t {513}),
+                ::testing::Values(size_t {4}, size_t {0}, size_t {1}, size_t {2}, size_t {3})));
+
+class NullableHLLConstSerdeTest : public ::testing::TestWithParam<std::tuple<int, size_t, bool>> {};
+
+TEST_P(NullableHLLConstSerdeTest, RoundTrip) {
+    auto [version, rows, is_null] = GetParam();
+    auto type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeHLL>());
+    auto nested = type->get_nested_type()->create_column();
+    nested->insert_default();
+    auto nullable = ColumnNullable::create(std::move(nested), ColumnUInt8::create(1, is_null));
+    auto column = ColumnConst::create(std::move(nullable), rows);
+    std::vector<char> buf(type->get_uncompressed_serialized_bytes(*column, version));
+    auto* end = type->serialize(*column, buf.data(), version);
+    auto decoded = type->create_column();
+    EXPECT_EQ(type->deserialize(buf.data(), end, &decoded, version), end);
+    EXPECT_EQ(decoded->size(), rows);
+    EXPECT_EQ(is_column_const(*decoded), version >= USE_CONST_SERDE);
+    auto full = decoded->convert_to_full_column_if_const();
+    const auto& result = assert_cast<const ColumnNullable&>(*full);
+    for (size_t row = 0; row < rows; ++row) {
+        EXPECT_EQ(result.is_null_at(row), is_null);
+    }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+        WireLayouts, NullableHLLConstSerdeTest,
+        ::testing::Combine(::testing::Values(USE_CONST_SERDE - 1,
+                                             BeExecVersionManager::get_newest_version()),
+                           ::testing::Values(size_t {0}, size_t {1}, size_t {512}),
+                           ::testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(Params, DataTypeHLLTest, ::testing::Values(0, 1, 10, 100));
 

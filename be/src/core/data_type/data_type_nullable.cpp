@@ -278,7 +278,7 @@ const char* DataTypeNullable::deserialize(const char* buf, const char* end,
             buf += encode_size;
         }
         // column data values
-        buf = nested_data_type->deserialize(buf, &nested, be_exec_version);
+        buf = nested_data_type->deserialize(buf, end, &nested, be_exec_version);
         col->replace_columns(std::move(nested), std::move(null_map));
         return buf;
     } else {
@@ -297,7 +297,7 @@ const char* DataTypeNullable::deserialize(const char* buf, const char* end,
         size_t encode_size = 0;
         if (end != nullptr) {
             size_t remaining = static_cast<size_t>(end - buf);
-            if (mem_size > remaining) {
+            if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT && mem_size > remaining) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT,
                                 "Malformed nullable column: truncated null map");
             }
@@ -328,7 +328,7 @@ const char* DataTypeNullable::deserialize(const char* buf, const char* end,
             buf += encode_size;
         }
         // data values
-        buf = nested_data_type->deserialize(buf, &nested, be_exec_version);
+        buf = nested_data_type->deserialize(buf, end, &nested, be_exec_version);
         col->replace_columns(std::move(nested), std::move(null_map));
         return buf;
     }
