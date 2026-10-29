@@ -45,6 +45,11 @@
 #include "util/slice.h"
 
 namespace doris::segment_v2 {
+
+// index_file_writer.cpp keeps it out of its anonymous namespace for this test.
+void snii_resolve_index_write_params(bool is_direct_load, bool has_norms,
+                                     doris::snii::writer::SniiIndexInput* input);
+
 namespace {
 
 constexpr int64_t kIndexId = 9;
@@ -319,12 +324,30 @@ constexpr uint64_t kGoldenKeywordDocsOnly = 0x27cec04c70573201ULL;
 
 // The default of the knob is part of the written format's behavior: the fixture above pins it to 0
 // for the digests, so this reads the value a fresh process starts with.
-TEST(SniiWriterPrxZstdSaving, DefaultIsThirtyPercent) {
-    EXPECT_EQ(config::snii_prx_zstd_min_saving_percent, 30);
+TEST(SniiWriterPrxZstdSaving, DefaultLetsEachIndexSpendItsBudget) {
+    EXPECT_EQ(config::snii_prx_zstd_min_saving_percent, -1);
+}
+
+TEST(SniiWriterPrxZstdSaving, NegativeConfigGivesEachIndexABudget) {
+    const int32_t saved = config::snii_prx_zstd_min_saving_percent;
+    const auto resolve = [](int32_t value) {
+        config::snii_prx_zstd_min_saving_percent = value;
+        doris::snii::writer::SniiIndexInput input;
+        input.config = doris::snii::format::IndexConfig::kDocsPositions;
+        snii_resolve_index_write_params(/*is_direct_load=*/true, /*has_norms=*/false, &input);
+        return input;
+    };
+    EXPECT_TRUE(resolve(-1).prx_zstd_budget);
+    EXPECT_FALSE(resolve(0).prx_zstd_budget);
+    EXPECT_EQ(resolve(0).prx_window_limits.zstd_min_saving_percent, 0);
+    EXPECT_FALSE(resolve(30).prx_zstd_budget);
+    EXPECT_EQ(resolve(30).prx_window_limits.zstd_min_saving_percent, 30);
+    EXPECT_EQ(resolve(150).prx_window_limits.zstd_min_saving_percent, 100);
+    config::snii_prx_zstd_min_saving_percent = saved;
 }
 
 // Every document repeats the same positions, so a window is far smaller as zstd than as PFOR.
-// 0 and 30 keep zstd; 100 never picks it, so the segment is larger.
+// 0, 30 and the budget keep zstd; 100 never picks it, so the segment is larger.
 TEST_F(SniiWriterGoldenBytes, PrxZstdMinSavingConfigReachesTheWriter) {
     std::vector<std::string> rows;
     for (int doc = 0; doc < 2000; ++doc) {
@@ -344,7 +367,10 @@ TEST_F(SniiWriterGoldenBytes, PrxZstdMinSavingConfigReachesTheWriter) {
     const size_t thirty = written_size("saving_30", meta, rows);
     config::snii_prx_zstd_min_saving_percent = 100;
     const size_t never_zstd = written_size("saving_100", meta, rows);
+    config::snii_prx_zstd_min_saving_percent = -1;
+    const size_t budgeted = written_size("saving_budget", meta, rows);
     EXPECT_EQ(thirty, smallest);
+    EXPECT_EQ(budgeted, smallest);
     EXPECT_GT(never_zstd, smallest + 1000) << "smallest=" << smallest;
 }
 

@@ -120,6 +120,8 @@ void snii_resolve_index_write_params(bool is_direct_load, bool has_norms,
     input->prx_zstd_level = std::clamp(
             is_direct_load ? config::snii_prx_zstd_level_direct_load : config::snii_prx_zstd_level,
             3, 19);
+    // Negative: the index chooses the percentage within its own size budget.
+    input->prx_zstd_budget = config::snii_prx_zstd_min_saving_percent < 0;
     input->prx_window_limits.zstd_min_saving_percent =
             static_cast<uint32_t>(std::clamp(config::snii_prx_zstd_min_saving_percent, 0, 100));
     // G16-d: dict block size experiment knob; <= 0 keeps the format default.

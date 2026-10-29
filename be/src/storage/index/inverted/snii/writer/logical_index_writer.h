@@ -76,6 +76,9 @@ struct SniiIndexInput {
     // tests may only tighten them to exercise extreme-window behavior without
     // allocating hundreds of MiB.
     format::PrxWindowLimits prx_window_limits = format::kReaderPrxWindowLimits;
+    // When set, the .prx windows of the index share one format::PrxZstdBudget, which replaces
+    // prx_window_limits.zstd_min_saving_percent.
+    bool prx_zstd_budget = false;
     // Lexicographically sorted terms with ascending-docid postings. Used when
     // `term_source` is null (callers that already hold a materialized vector,
     // e.g. unit tests). The writer reads but does not retain these.
@@ -351,6 +354,8 @@ private:
     int dict_block_zstd_level_ = 3;
     int prx_zstd_level_ = 3;
     format::PrxWindowLimits prx_window_limits_ = format::kReaderPrxWindowLimits;
+    // The windows of the index share it when SniiIndexInput::prx_zstd_budget is set.
+    format::PrxZstdBudget prx_zstd_budget_;
     // The DICT region (zstd-compressed blocks) is staged here as blocks flush. It must
     // land contiguously AFTER the posting region (which streams concurrently to the
     // output), so it cannot stream directly; the orchestrator streams it into the
