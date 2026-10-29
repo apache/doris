@@ -547,3 +547,11 @@ POINT (1 2)	0101000000000000000000F03F0000000000000040
 1	false	1	true	false	1	true	["ordinary-key"]	false	1	true	1
 2	false	1	true	false	1	true	["ordinary-key"]	false	1	true	12
 
+-- !spatial_select_cast_null_containers --
+1	false	["7"]	true	false	["ordinary-key"]	true	false	true	8	false	true	kept
+
+-- !spatial_write_cast_null_containers --
+1	false	1	["ordinary-key"]	true	false	1	["ordinary-key"]	true	false	true	9	false	true	kept
+2	false	1	["ordinary-key"]	true	false	1	["ordinary-key"]	true	false	true	10	false	true	11
+3	true	\N	\N	true	false	0	[]	true	true	true	\N	false	true	empty-control
+

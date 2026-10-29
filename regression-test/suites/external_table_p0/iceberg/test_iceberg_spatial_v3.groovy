@@ -1645,4 +1645,54 @@ public class CreateIcebergSpatialV3Table {
         map_keys(g_map), g_map['ordinary-key'] is null,
         size(g_map['ordinary-key']), g_map['ordinary-key'][1] is null, ordinary
         from spatial_write_cast_null_arrays order by id"""
+
+    // Preserve ordinary intermediate casts while retagging NULL spatial leaves.
+    sql "drop table if exists spatial_write_cast_null_containers"
+    sql """create table spatial_write_cast_null_containers (
+        id int, g_map map<string,geometry>, gg_map map<string,geography>,
+        g_struct struct<shape:geometry,label:string>, gg_struct struct<shape:geography,label:string>
+    ) properties ('format-version'='3', 'write.format.default'='parquet',
+        'write.update.mode'='merge-on-read')"""
+    sql """insert into spatial_write_cast_null_containers select 1,
+        cast(map('007',cast(null as int)) as map<int,int>),
+        cast(cast(map('ordinary-key',cast(null as int)) as map<string,int>) as map<string,bigint>),
+        cast(named_struct('shape',cast(null as int),'label','008') as struct<shape:int,label:int>),
+        cast(named_struct('shape',cast(null as int),'label',cast('kept' as string))
+            as struct<shape:int,label:string>)"""
+    order_qt_spatial_select_cast_null_containers """select id,
+        g_map is null, map_keys(g_map), g_map['7'] is null,
+        gg_map is null, map_keys(gg_map), gg_map['ordinary-key'] is null,
+        g_struct is null, g_struct.shape is null, g_struct.label,
+        gg_struct is null, gg_struct.shape is null, gg_struct.label
+        from spatial_write_cast_null_containers order by id"""
+    sql """merge into spatial_write_cast_null_containers t using
+        (select 1 id union all select 2 id) s on t.id = s.id
+        when matched then update set
+            g_map = cast(map('ordinary-key',cast(null as int)) as map<string,int>),
+            g_struct = cast(named_struct('shape',cast(null as int),'label','009') as struct<shape:int,label:int>)
+        when not matched then insert (id,g_map,gg_map,g_struct,gg_struct) values (s.id,
+            cast(map('ordinary-key',cast(null as int)) as map<string,int>),
+            cast(map('ordinary-key',cast(null as int)) as map<string,int>),
+            cast(named_struct('shape',cast(null as int),'label','010') as struct<shape:int,label:int>),
+            cast(named_struct('shape',cast(null as int),'label','kept') as struct<shape:int,label:string>))"""
+    sql """update spatial_write_cast_null_containers set
+        gg_map = cast(cast(map('ordinary-key',cast(null as int)) as map<string,int>) as map<string,bigint>),
+        gg_struct = cast(named_struct('shape',cast(null as int),'label','011') as struct<shape:int,label:int>)
+        where id = 2"""
+    sql """insert into spatial_write_cast_null_containers select 3,
+        cast(null as map<string,int>), cast(map() as map<string,int>),
+        cast(null as struct<shape:int,label:string>),
+        cast(named_struct('shape',cast(null as int),'label','empty-control') as struct<shape:int,label:string>)"""
+    test {
+        sql """insert into spatial_write_cast_null_containers(id,g_map)
+            select 4,cast(map('ordinary-key',1) as map<string,int>)"""
+        exception "Spatial connector write cannot convert input column"
+    }
+    sql "refresh table spatial_write_cast_null_containers"
+    order_qt_spatial_write_cast_null_containers """select id,
+        g_map is null, size(g_map), map_keys(g_map), g_map['ordinary-key'] is null,
+        gg_map is null, size(gg_map), map_keys(gg_map), gg_map['ordinary-key'] is null,
+        g_struct is null, g_struct.shape is null, g_struct.label,
+        gg_struct is null, gg_struct.shape is null, gg_struct.label
+        from spatial_write_cast_null_containers order by id"""
 }

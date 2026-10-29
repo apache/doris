@@ -904,6 +904,32 @@ TEST(VGeoFunctionsTest, GeographyRejectsRoundedPointPolygonOwnership) {
     expect_geography_relation("st_touches", separated, polygon, false);
 }
 
+TEST(VGeoFunctionsTest, GeographyRejectsRoundedPointPolygonStrictSide) {
+    // Unlike a rounded vertex collision, this exterior point becomes strictly inside S2.
+    const std::string point = "POINT (6.999999999999999 10.25)";
+    const std::vector<std::string> polygons {
+            "POLYGON ((7 10,8 10,8 11,7 11,7 10))",
+            "POLYGON ((7 10,7 11,8 11,8 10,7 10))",
+            "POLYGON ((6 9,9 9,9 12,6 12,6 9),(7 10,8 10,8 11,7 11,7 10))"};
+    for (const auto& polygon : polygons) {
+        expect_rounded_polygon_interior_error("st_contains", polygon, point);
+        expect_rounded_polygon_interior_error("st_within", point, polygon);
+        for (const auto* name : {"st_intersects", "st_disjoint"}) {
+            expect_rounded_polygon_interior_error(name, point, polygon);
+            expect_rounded_polygon_interior_error(name, polygon, point);
+        }
+        expect_geography_relation("st_touches", point, polygon, false);
+        expect_geography_relation("st_touches", polygon, point, false);
+    }
+    // A small raw separation alone is not an error: keep correctly represented close points.
+    const std::string polygon = polygons.front();
+    expect_geography_relation("st_contains", polygon, "POINT (7.000000000000001 10.25)", true);
+    expect_geography_relation("st_contains", polygon, "POINT (6.99999999999999 10.25)", false);
+    expect_geography_relation("st_contains", polygon, "POINT (7 10.25)", false);
+    expect_geography_relation("st_intersects", polygon, "POINT (7 10.25)", true);
+    expect_geography_relation("st_touches", polygon, "POINT (7 10.25)", true);
+}
+
 TEST(VGeoFunctionsTest, GeographyAdjacentPolygonSubdivisionKeepsBoundaryContact) {
     const std::string a = "POLYGON ((0 58,1 58,1 59,0 59,0 58))";
     const std::vector<std::string> neighbours {

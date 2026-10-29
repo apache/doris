@@ -23,6 +23,7 @@
 #include <s2/s2closest_edge_query.h>
 #include <s2/s2closest_point_query.h>
 #include <s2/s2contains_point_query.h>
+#include <s2/s2edge_distances.h>
 #include <s2/s2earth.h>
 #include <s2/s2lax_polygon_shape.h>
 #include <s2/s2loop.h>
@@ -1177,6 +1178,56 @@ static Status geography_check_polygon_interiors(std::string_view name, const S2S
     return Status::OK();
 }
 
+static S1ChordAngle geography_conversion_error();
+
+// Return the side of a raw spherical edge using the original degree values. The
+// calculation index uses binary64 S2 points, so a point one ULP outside an edge
+// can move to the other side after conversion. Keep this check local to points
+// already within the conversion error of a polygon edge; distant points cannot
+// be affected by the bounded coordinate conversion.
+static int geography_raw_side(const GeoCoordinate& a, const GeoCoordinate& b,
+                              const GeoCoordinate& point) {
+    using RawSideFloat = boost::multiprecision::cpp_bin_float_quad;
+    const auto vector = [](const GeoCoordinate& coordinate) {
+        const auto [sin_lon, cos_lon] =
+                geography_degree_sincos<RawSideFloat>(coordinate.x);
+        const auto [sin_lat, cos_lat] =
+                geography_degree_sincos<RawSideFloat>(coordinate.y);
+        return std::array<RawSideFloat, 3> {cos_lat * cos_lon, cos_lat * sin_lon, sin_lat};
+    };
+    const auto first = vector(a);
+    const auto second = vector(b);
+    const auto query = vector(point);
+    const RawSideFloat determinant =
+            (first[1] * second[2] - first[2] * second[1]) * query[0] +
+            (first[2] * second[0] - first[0] * second[2]) * query[1] +
+            (first[0] * second[1] - first[1] * second[0]) * query[2];
+    return (determinant > 0) - (determinant < 0);
+}
+
+static bool geography_raw_rounded_side_mismatch(const GeographyCoordinates& polygon,
+                                                const GeographyVertex& point) {
+    const S1Angle conversion_error = geography_conversion_error().ToAngle();
+    for (const auto& ring : polygon.sequences) {
+        for (size_t i = 0; i + 1 < ring.size(); ++i) {
+            const auto& start = ring[i];
+            const auto& end = ring[i + 1];
+            if (start == end || point == start || point == end ||
+                S2::GetDistance(point.point, start.point, end.point) > conversion_error) {
+                continue;
+            }
+            const int raw_side = geography_raw_side(start.coordinate, end.coordinate,
+                                                     point.coordinate);
+            const int rounded_side =
+                    s2pred::ExpensiveSign(start.point, end.point, point.point, false);
+            if (raw_side != 0 && rounded_side != 0 && raw_side != rounded_side) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 static Status geography_point_relation(std::string_view name, const GeoShape& lhs,
                                        const GeoShape& rhs, const GeographyEdgeNodes& nodes,
                                        bool* result) {
@@ -1218,6 +1269,11 @@ static Status geography_point_relation(std::string_view name, const GeoShape& lh
             if (closed && !interior) {
                 return Status::NotSupported(
                         "{} does not support ambiguous spherical Polygon boundary ownership", name);
+            }
+            if (geography_raw_rounded_side_mismatch(other_raw, point)) {
+                return Status::NotSupported(
+                        "{} does not support ambiguous spherical Polygon boundary side conversion",
+                        name);
             }
         }
     }

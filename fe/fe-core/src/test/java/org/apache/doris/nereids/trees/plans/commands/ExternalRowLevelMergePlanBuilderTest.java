@@ -335,6 +335,31 @@ public class ExternalRowLevelMergePlanBuilderTest {
     }
 
     @Test
+    public void mergeBranchesBindCastWrappedNullMapsAndStructs() {
+        ExpressionAnalyzer analyzer = mergeExpressionAnalyzer();
+        NereidsParser parser = new NereidsParser();
+        for (DataType spatial : ImmutableList.of(new GeometryType("OGC:CRS84"),
+                new GeographyType("OGC:CRS84", "spherical"))) {
+            DataType map = MapType.of(StringType.INSTANCE, spatial);
+            DataType struct = new StructType(ImmutableList.of(new StructField("shape", spatial, true, ""),
+                    new StructField("label", StringType.INSTANCE, true, "")));
+            List<String> values = ImmutableList.of(
+                    "cast(map('ordinary-key', cast(null as int)) as map<string,int>)",
+                    "cast(cast(map('ordinary-key', cast(null as int)) as map<string,int>) as map<string,bigint>)",
+                    "cast(named_struct('shape', cast(null as int), 'label', 'ordinary')"
+                            + " as struct<shape:int,label:string>)");
+            for (int i = 0; i < values.size(); i++) {
+                DataType target = i < 2 ? map : struct;
+                String sql = values.get(i);
+                Expression analyzed = Assertions.assertDoesNotThrow(
+                        () -> analyzer.analyze(mergeBranch(parser.parseExpression(sql), target)), sql);
+                Assertions.assertEquals(target, analyzed.getDataType(), sql);
+                Assertions.assertFalse(analyzed.isNullLiteral(), sql);
+            }
+        }
+    }
+
+    @Test
     public void mergeNestedNullsKeepOrdinaryKeysAndNonNullSpatialIdentity() {
         ExpressionAnalyzer analyzer = mergeExpressionAnalyzer();
         for (DataType spatial : ImmutableList.of(new GeometryType("OGC:CRS84"),

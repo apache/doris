@@ -33,7 +33,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedSt
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
@@ -92,17 +94,18 @@ public final class ConnectorSpatialWriteNormalizer {
             int sourceOrdinal = sourceOrdinals.get(i);
             Slot slot = source.getOutput().get(sourceOrdinal);
             Expression value = resolver.resolve(slot, source);
-            boolean literal = isLiteralConstruction(value);
+            DataType targetType = DataType.fromCatalogType(target.getType());
+            boolean literal = isLiteralConstruction(value) || canRetargetSpatialNulls(value, targetType);
             // SELECT/UPDATE reach the bound sink with CAST(ARRAY(NULL) AS ARRAY<INT>).
             // Reuse MERGE's NULL-only proof before validation, without lifting arbitrary producers.
             if (literal) {
-                value = normalizeSpatialNullsBeforeBinding(value, DataType.fromCatalogType(target.getType()));
+                value = normalizeSpatialNullsBeforeBinding(value, targetType);
             }
             ConnectorSpatialWriteValidator.validate(target, value);
             // Never lift arbitrary producer expressions above their input scope, or
             // replace outer-join NULL padding with a non-NULL container constant.
             if (literal) {
-                Expression normalized = normalizeSpatialNulls(value, DataType.fromCatalogType(target.getType()));
+                Expression normalized = normalizeSpatialNulls(value, targetType);
                 if (!normalized.getDataType().equals(slot.getDataType())) {
                     // SELECT v,v can feed an ordinary BIGINT and a spatial NULL. Sharing
                     // v's ExprId would let project merging replace the ordinary cast's input.
@@ -231,9 +234,9 @@ public final class ConnectorSpatialWriteNormalizer {
         if (origin.isNullLiteral()) {
             return new NullLiteral(target);
         }
-        // A previously bound ARRAY(NULL) can already be an ArrayLiteral. Retain the
-        // non-NULL container while retagging only its proven NULL-only construction.
-        if (input instanceof ArrayLiteral && target instanceof ArrayType && nullArrayDepth(input) >= 0) {
+        // Bound container constructors can already be literals. Retain their non-NULL
+        // containers and ordinary values while retagging only proven NULL spatial paths.
+        if (input instanceof Literal && canRetargetSpatialNulls(input, target)) {
             return normalizeSpatialNulls(input, target);
         }
         // MERGE eagerly casts each branch to its sink type. An explicit ARRAY<INT>
@@ -249,6 +252,15 @@ public final class ConnectorSpatialWriteNormalizer {
                 return new Cast(normalizeSpatialNullsBeforeBinding(cast.child(), target), target,
                         cast.isExplicitType(), cast.isStrict());
             }
+        }
+        if (input.getClass() == Cast.class && canRetargetSpatialNulls(input, target)) {
+            Cast cast = (Cast) input;
+            // CAST(MAP('k', NULL:INT) AS MAP<STRING,INT>) hides NULL provenance.
+            // Patch only spatial paths: replacing ordinary key/field types could erase
+            // an intermediate cast error such as STRING -> TINYINT -> STRING.
+            DataType patched = spatialLiteralType(cast.getDataType(), target);
+            return new Cast(normalizeSpatialNullsBeforeBinding(cast.child(), patched), patched,
+                    cast.isExplicitType(), cast.isStrict());
         }
         String constructor = "";
         if (input instanceof UnboundFunction) {
@@ -303,6 +315,88 @@ public final class ConnectorSpatialWriteNormalizer {
             return new CreateStruct(children.toArray(new Expression[0]));
         }
         return input.withChildren(children);
+    }
+
+    /** Proves NULL on spatial paths without lifting dynamic ordinary siblings. */
+    private static boolean canRetargetSpatialNulls(Expression value, DataType target) {
+        if (!target.toCatalogDataType().typeContainsSpatialType()) {
+            // Preserve a constant ordinary cast rather than evaluating or removing it.
+            // A Slot/UDF sibling still cannot be lifted out of its producer scope.
+            return isLiteralConstruction(value) || (value.getClass() == Cast.class
+                    && canRetargetSpatialNulls(value.child(0), target));
+        }
+        if (value.isNullLiteral()) {
+            return true;
+        }
+        if (value.getClass() == Cast.class) {
+            Cast cast = (Cast) value;
+            // A text bridge or incompatible container shape must retain its cast error.
+            return sameSpatialContainerShape(cast.getDataType(), target)
+                    && canRetargetSpatialNulls(cast.child(), spatialLiteralType(cast.getDataType(), target));
+        }
+        String constructor = "";
+        if (value instanceof UnboundFunction) {
+            UnboundFunction function = (UnboundFunction) value;
+            if (function.getDbName() != null || function.isDistinct() || function.isSkew()) {
+                return false;
+            }
+            constructor = function.getName();
+        }
+        if (target instanceof ArrayType && (value instanceof ArrayLiteral || value instanceof Array
+                || constructor.equalsIgnoreCase("array"))) {
+            List<? extends Expression> elements = value instanceof ArrayLiteral
+                    ? ((ArrayLiteral) value).getValue() : value.children();
+            return elements.stream().allMatch(child ->
+                    canRetargetSpatialNulls(child, ((ArrayType) target).getItemType()));
+        }
+        if (target instanceof MapType) {
+            MapType map = (MapType) target;
+            if (value instanceof MapLiteral) {
+                return ((MapLiteral) value).getValue().entrySet().stream().allMatch(entry ->
+                        canRetargetSpatialNulls(entry.getKey(), map.getKeyType())
+                                && canRetargetSpatialNulls(entry.getValue(), map.getValueType()));
+            }
+            if ((value instanceof CreateMap || constructor.equalsIgnoreCase("map")) && value.arity() % 2 == 0) {
+                return IntStream.range(0, value.arity()).allMatch(i -> canRetargetSpatialNulls(value.child(i),
+                        i % 2 == 0 ? map.getKeyType() : map.getValueType()));
+            }
+        } else if (target instanceof StructType) {
+            StructType struct = (StructType) target;
+            boolean named = value instanceof CreateNamedStruct || constructor.equalsIgnoreCase("named_struct");
+            List<? extends Expression> fields = value instanceof StructLiteral
+                    ? ((StructLiteral) value).getValue() : value.children();
+            int step = named ? 2 : 1;
+            if ((value instanceof StructLiteral || value instanceof CreateStruct || named
+                    || constructor.equalsIgnoreCase("struct")) && fields.size() == step * struct.getFields().size()) {
+                return IntStream.range(0, struct.getFields().size()).allMatch(i -> canRetargetSpatialNulls(
+                        fields.get(i * step + step - 1), struct.getFields().get(i).getDataType()));
+            }
+        }
+        return false;
+    }
+
+    private static boolean sameSpatialContainerShape(DataType source, DataType target) {
+        if (!target.toCatalogDataType().typeContainsSpatialType()) {
+            return true;
+        }
+        if (target instanceof GeometryType || target instanceof GeographyType) {
+            return !source.isComplexType();
+        }
+        if (source instanceof ArrayType && target instanceof ArrayType) {
+            return sameSpatialContainerShape(((ArrayType) source).getItemType(), ((ArrayType) target).getItemType());
+        }
+        if (source instanceof MapType && target instanceof MapType) {
+            return sameSpatialContainerShape(((MapType) source).getKeyType(), ((MapType) target).getKeyType())
+                    && sameSpatialContainerShape(((MapType) source).getValueType(), ((MapType) target).getValueType());
+        }
+        if (source instanceof StructType && target instanceof StructType) {
+            StructType from = (StructType) source;
+            StructType to = (StructType) target;
+            return from.getFields().size() == to.getFields().size()
+                    && IntStream.range(0, from.getFields().size()).allMatch(i -> sameSpatialContainerShape(
+                            from.getFields().get(i).getDataType(), to.getFields().get(i).getDataType()));
+        }
+        return false;
     }
 
     /** Minimum array depth of a proven NULL-only value; -1 means the proof failed. */

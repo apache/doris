@@ -39,8 +39,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedSt
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -60,6 +62,7 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -207,6 +210,77 @@ public class ConnectorSpatialWriteNormalizerTest {
                 Assertions.assertTrue(((Cast) result).isStrict());
                 Assertions.assertSame(source, normalized.child(0));
             }
+        }
+    }
+
+    @Test
+    public void testCastNullMapAndStructProvenanceAtBoundWriteSink() {
+        for (Type spatial : ImmutableList.of(ScalarType.createGeometryType("OGC:CRS84"),
+                ScalarType.createGeographyType("OGC:CRS84", "spherical"))) {
+            Expression typedNull = new NullLiteral(IntegerType.INSTANCE);
+            List<Expression> values = ImmutableList.of(new CreateMap(
+                    new Cast(new StringLiteral("ordinary-key"), StringType.INSTANCE, true, true), typedNull),
+                    new CreateNamedStruct(new StringLiteral("shape"), typedNull,
+                            new StringLiteral("label"),
+                            new Cast(new StringLiteral("ordinary"), StringType.INSTANCE, true, true)));
+            List<Type> targets = ImmutableList.of(new MapType(Type.STRING, spatial),
+                    new StructType(new StructField("shape", spatial), new StructField("label", Type.STRING)));
+            List<Type> sources = ImmutableList.of(new MapType(Type.STRING, Type.INT),
+                    new StructType(new StructField("shape", Type.INT), new StructField("label", Type.STRING)));
+            for (int i = 0; i < values.size(); i++) {
+                DataType sourceType = DataType.fromCatalogType(sources.get(i));
+                Cast value = new Cast(new Cast(values.get(i), sourceType, true, true), sourceType, true, true);
+                LogicalPlan source = row(value);
+                LogicalPlan normalized = ConnectorSpatialWriteNormalizer.normalize(
+                        ImmutableList.of(new Column("shape", targets.get(i))), source, new CTEContext());
+                Expression result = ((LogicalProject<?>) normalized).getProjects().get(0).child(0);
+                Assertions.assertEquals(DataType.fromCatalogType(targets.get(i)), result.getDataType());
+                Assertions.assertInstanceOf(Cast.class, result);
+                Assertions.assertTrue(((Cast) result).isExplicitType());
+                Assertions.assertTrue(((Cast) result).isStrict());
+                String ordinary = i == 0 ? "ordinary-key" : "ordinary";
+                Assertions.assertTrue(result.anyMatch(child -> child instanceof StringLiteral
+                        && ((StringLiteral) child).getValue().equals(ordinary)));
+                Assertions.assertSame(source, normalized.child(0));
+            }
+        }
+    }
+
+    @Test
+    public void testCastNullContainerLiteralsKeepOrdinaryCastTargets() {
+        Type geometry = ScalarType.createGeometryType("OGC:CRS84");
+        DataType map = DataType.fromCatalogType(new MapType(Type.TINYINT, Type.INT));
+        Expression value = new Cast(new MapLiteral(ImmutableMap.of(new StringLiteral("7"),
+                new NullLiteral(IntegerType.INSTANCE))), map, true, true);
+        LogicalPlan source = row(value);
+        LogicalPlan normalized = ConnectorSpatialWriteNormalizer.normalize(ImmutableList.of(
+                new Column("shape", new MapType(Type.STRING, geometry))), source, new CTEContext());
+        Expression result = ((LogicalProject<?>) normalized).getProjects().get(0).child(0);
+        Assertions.assertEquals(DataType.fromCatalogType(new MapType(Type.TINYINT, geometry)), result.getDataType());
+        Assertions.assertTrue(((Cast) result).isStrict());
+
+        Type struct = new StructType(new StructField("shape", Type.INT), new StructField("n", Type.TINYINT));
+        Expression fields = new StructLiteral(ImmutableList.of(new NullLiteral(IntegerType.INSTANCE),
+                new IntegerLiteral(7)), DataType.fromCatalogType(struct));
+        Type target = new StructType(new StructField("shape", geometry), new StructField("n", Type.BIGINT));
+        LogicalPlan structSource = row(new Cast(fields, DataType.fromCatalogType(struct), true, true));
+        LogicalPlan structResult = ConnectorSpatialWriteNormalizer.normalize(ImmutableList.of(
+                new Column("shape", target)), structSource, new CTEContext());
+        Expression output = ((LogicalProject<?>) structResult).getProjects().get(0).child(0);
+        Type patched = new StructType(new StructField("shape", geometry), new StructField("n", Type.TINYINT));
+        Assertions.assertEquals(DataType.fromCatalogType(patched), output.getDataType());
+    }
+
+    @Test
+    public void testContainerCastsCannotHideValuesOrIncompatibleShapes() {
+        DataType map = DataType.fromCatalogType(new MapType(Type.STRING, Type.INT));
+        Type target = new MapType(Type.STRING, ScalarType.createGeometryType("OGC:CRS84"));
+        Expression nullMap = new CreateMap(new StringLiteral("ordinary-key"), new NullLiteral(IntegerType.INSTANCE));
+        for (Expression value : ImmutableList.of(new Cast(new CreateMap(new StringLiteral("ordinary-key"),
+                new IntegerLiteral(1)), map), new Cast(new Cast(nullMap, StringType.INSTANCE), map),
+                new Cast(new Array(new NullLiteral(IntegerType.INSTANCE)), map))) {
+            Assertions.assertThrows(AnalysisException.class, () -> ConnectorSpatialWriteNormalizer.normalize(
+                    ImmutableList.of(new Column("shape", target)), row(value), new CTEContext()));
         }
     }
 
