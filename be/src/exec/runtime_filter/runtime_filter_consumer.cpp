@@ -55,7 +55,9 @@ Status RuntimeFilterConsumer::acquire_expr(std::vector<RuntimeFilterExprPtr>& pu
 
 void RuntimeFilterConsumer::signal(RuntimeFilter* other) {
     std::unique_lock<std::recursive_mutex> l(_rmtx);
-    COUNTER_SET(_wait_timer, int64_t((MonotonicMillis() - _registration_time) * NANOS_PER_MILLIS));
+    COUNTER_SET(_wait_timer,
+                int64_t((MonotonicMillis() - _registration_time.load(std::memory_order_acquire)) *
+                        NANOS_PER_MILLIS));
     _set_state(State::READY, other->_wrapper);
     if (!_filter_timer.empty()) {
         for (auto& timer : _filter_timer) {
@@ -64,11 +66,22 @@ void RuntimeFilterConsumer::signal(RuntimeFilter* other) {
     }
 }
 
+void RuntimeFilterConsumer::start_wait() {
+    if (_wait_started.exchange(true, std::memory_order_acq_rel)) {
+        return;
+    }
+    _registration_time.store(MonotonicMillis(), std::memory_order_release);
+    std::unique_lock<std::recursive_mutex> l(_rmtx);
+    for (auto& timer : _filter_timer) {
+        timer->start_wait();
+    }
+}
+
 std::shared_ptr<RuntimeFilterTimer> RuntimeFilterConsumer::create_filter_timer(
         std::shared_ptr<Dependency> dependencies) {
     std::unique_lock<std::recursive_mutex> l(_rmtx);
-    auto timer = std::make_shared<RuntimeFilterTimer>(_registration_time, _rf_wait_time_ms,
-                                                      dependencies);
+    auto timer = std::make_shared<RuntimeFilterTimer>(
+            _registration_time.load(std::memory_order_acquire), _rf_wait_time_ms, dependencies);
     _filter_timer.push_back(timer);
     return timer;
 }

@@ -33,8 +33,12 @@ public:
     RuntimeFilterConsumerHelper(const std::vector<TRuntimeFilterDesc>& runtime_filters);
     ~RuntimeFilterConsumerHelper() = default;
 
+    // `wait_for_runtime_filter` must be false for consumers that must not block the pipeline task
+    // (e.g. an exchange source, which only applies filters that have already arrived). Such a
+    // consumer gets no dependency and no timer; the late-arrival path still applies the filter.
     Status init(RuntimeState* state, bool need_local_merge, int32_t node_id, int32_t operator_id,
-                std::vector<std::shared_ptr<Dependency>>& dependencies, const std::string& name);
+                std::vector<std::shared_ptr<Dependency>>& dependencies, const std::string& name,
+                bool wait_for_runtime_filter = true);
     // Get all arrived runtime filters at Open phase which will be push down to storage.
     // Called by Operator.
     Status acquire_runtime_filter(RuntimeState* state, VExprContextSPtrs& conjuncts,

@@ -26,6 +26,7 @@
 #include "exec/exchange/vdata_stream_mgr.h"
 #include "exec/exchange/vdata_stream_recvr.h"
 #include "exec/operator/operator.h"
+#include "exec/runtime_filter/runtime_filter_consumer_helper.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "runtime/exec_env.h"
@@ -144,6 +145,13 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     create_merger_timer = ADD_TIMER(custom_profile(), "CreateMergerTime");
     custom_profile()->add_info_string("InstanceID", print_id(state->fragment_instance_id()));
 
+    auto& p = _parent->cast<ExchangeSourceOperatorX>();
+    runtime_filter_helper = std::make_unique<RuntimeFilterConsumerHelper>(p.runtime_filter_descs());
+    std::vector<std::shared_ptr<Dependency>> filter_dependencies;
+    RETURN_IF_ERROR(runtime_filter_helper->init(state, /*need_local_merge=*/false, p.node_id(),
+                                                p.operator_id(), filter_dependencies,
+                                                p.get_name() + "_FILTER_DEPENDENCY",
+                                                /*wait_for_runtime_filter=*/false));
     return Status::OK();
 }
 
@@ -158,6 +166,8 @@ Status ExchangeLocalState::open(RuntimeState* state) {
             RETURN_IF_ERROR(p._ordering_expr_ctxs[i]->clone(state, ordering_expr_ctxs[i]));
         }
     }
+    RETURN_IF_ERROR(runtime_filter_helper->acquire_runtime_filter(
+            state, conjuncts(), p.operator_row_desc_before_projection()));
     return Status::OK();
 }
 
@@ -170,7 +180,8 @@ ExchangeSourceOperatorX::ExchangeSourceOperatorX(ObjectPool* pool, const TPlanNo
           _partition_type(tnode.exchange_node.__isset.partition_type
                                   ? tnode.exchange_node.partition_type
                                   : TPartitionType::UNPARTITIONED),
-          _offset(tnode.exchange_node.__isset.offset ? tnode.exchange_node.offset : 0) {}
+          _offset(tnode.exchange_node.__isset.offset ? tnode.exchange_node.offset : 0),
+          _runtime_filter_descs(tnode.runtime_filters) {}
 
 Status ExchangeSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(OperatorX<ExchangeLocalState>::init(tnode, state));
@@ -218,6 +229,10 @@ Status ExchangeSourceOperatorX::get_block_impl(RuntimeState* state, Block* block
     }
     {
         SCOPED_TIMER(local_state.filter_timer);
+        int arrived_rf_num = 0;
+        RETURN_IF_ERROR(local_state.runtime_filter_helper->try_append_late_arrival_runtime_filter(
+                state, operator_row_desc_before_projection(), arrived_rf_num,
+                local_state.conjuncts()));
         RETURN_IF_ERROR(doris::VExprContext::filter_block(local_state.conjuncts(), block,
                                                           block->columns()));
     }
@@ -262,6 +277,9 @@ Status ExchangeLocalState::close(RuntimeState* state) {
     }
     if (stream_recvr != nullptr) {
         stream_recvr->close();
+    }
+    if (runtime_filter_helper != nullptr) {
+        runtime_filter_helper->collect_realtime_profile(custom_profile());
     }
     return Base::close(state);
 }

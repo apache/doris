@@ -62,8 +62,6 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel
 import org.apache.doris.nereids.trees.plans.distribute.DistributePlanner;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
@@ -84,7 +82,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.TimeBasedChangeVisibleWaiter;
-import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.statistics.query.QueryStatsRecorder;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -359,54 +356,6 @@ public class NereidsPlanner extends Planner {
         return new PlanPreprocessors(statementContext).process(logicalPlan);
     }
 
-    /**
-     * config rf wait time if wait time is the same as default value
-     * 1. local mode, config according to max table row count
-     *     a. olap table:
-     *       row < 1G: 1 sec
-     *       1G <= row < 10G: 5 sec
-     *       10G < row: 20 sec
-     *     b. external table:
-     *       row < 1G: 5 sec
-     *       1G <= row < 10G: 10 sec
-     *       10G < row: 50 sec
-     * 2. cloud mode, config it as query time out
-     */
-    private void configRuntimeFilterWaitTime() {
-        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null
-                && ConnectContext.get().getSessionVariable().getRuntimeFilterWaitTimeMs()
-                == VariableMgr.getDefaultSessionVariable().getRuntimeFilterWaitTimeMs()) {
-            SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
-            if (Config.isCloudMode()) {
-                sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS,
-                        String.valueOf(Math.max(VariableMgr.getDefaultSessionVariable().getRuntimeFilterWaitTimeMs(),
-                                1000 * sessionVariable.getQueryTimeoutS())));
-            } else {
-                List<LogicalCatalogRelation> scans = cascadesContext.getRewritePlan()
-                        .collectToList(LogicalCatalogRelation.class::isInstance);
-                double maxRow = StatsCalculator.getMaxTableRowCount(scans, cascadesContext);
-                boolean hasExternalTable = scans.stream().anyMatch(scan -> !(scan instanceof LogicalOlapScan));
-                if (hasExternalTable) {
-                    if (maxRow < 1_000_000_000L) {
-                        sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "5000");
-                    } else if (maxRow < 10_000_000_000L) {
-                        sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "20000");
-                    } else {
-                        sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "50000");
-                    }
-                } else {
-                    if (maxRow < 1_000_000_000L) {
-                        sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "1000");
-                    } else if (maxRow < 10_000_000_000L) {
-                        sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "5000");
-                    } else {
-                        sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "20000");
-                    }
-                }
-            }
-        }
-    }
-
     private void initCascadesContext(LogicalPlan plan, PhysicalProperties requireProperties) {
         cascadesContext = CascadesContext.initContext(statementContext, plan, requireProperties);
     }
@@ -604,7 +553,6 @@ public class NereidsPlanner extends Planner {
                     .disableJoinReorderIfStatsInvalid(scans, cascadesContext);
             disableJoinReorderReason.ifPresent(statementContext::setDisableJoinReorderReason);
         }
-        configRuntimeFilterWaitTime();
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start optimize plan");
         }
