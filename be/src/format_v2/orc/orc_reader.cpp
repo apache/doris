@@ -901,14 +901,42 @@ public:
         for (size_t i = 0; i < safe_count; ++i) {
             _add_predicate(request.conjuncts[i]);
         }
+        if (_columns.empty()) {
+            return;
+        }
+        // The SDK's depth-first dotted-path map uses last-write wins: root "a.b" can name
+        // nested a.b instead. Resolve requested names once and retain only matching physical IDs.
+        std::unordered_map<std::string, uint64_t> sdk_type_ids;
+        for (const auto& [id, column] : _columns) {
+            sdk_type_ids.emplace(column.name, id);
+        }
+        const auto resolve_names = [&](auto&& self, const ::orc::Type& type,
+                                       const std::string& prefix) -> void {
+            for (uint64_t i = 0; i < type.getSubtypeCount(); ++i) {
+                const auto& child = *type.getSubtype(i);
+                auto path = prefix;
+                if (type.getKind() == ::orc::STRUCT) {
+                    path = type.getColumnId() == 0 ? type.getFieldName(i)
+                                                   : prefix + "." + type.getFieldName(i);
+                    if (const auto it = sdk_type_ids.find(path); it != sdk_type_ids.end()) {
+                        it->second = child.getColumnId();
+                    }
+                }
+                self(self, child, path);
+            }
+        };
+        resolve_names(resolve_names, *_reader->_state->root_type, "");
+        std::erase_if(_columns, [&](const auto& entry) {
+            return sdk_type_ids.at(entry.second.name) != entry.first;
+        });
     }
 
     bool empty() const { return _columns.empty(); }
 
     void fillDictFilterColumnNames(std::unique_ptr<::orc::StripeInformation>,
                                    std::list<std::string>& names) const override {
-        for (const auto& [name, column] : _columns) {
-            names.push_back(name);
+        for (const auto& [id, column] : _columns) {
+            names.push_back(column.name);
         }
     }
 
@@ -917,8 +945,8 @@ public:
             bool* stripe_filtered) const override {
         SCOPED_RAW_TIMER(&_reader->_reader_statistics.dict_filter_rewrite_time);
         *stripe_filtered = false;
-        for (const auto& [name, column] : _columns) {
-            const auto it = dictionaries.find(name);
+        for (const auto& [id, column] : _columns) {
+            const auto it = dictionaries.find(column.name);
             // A later stripe may use direct encoding for a column that previously had a dictionary.
             if (it == dictionaries.end()) {
                 continue;
@@ -937,6 +965,7 @@ public:
 
 private:
     struct DictionaryColumn {
+        std::string name;
         size_t position = 0;
         DataTypePtr type;
         VExprContextSPtrs conjuncts;
@@ -968,7 +997,8 @@ private:
         if (type.getKind() != ::orc::STRING && type.getKind() != ::orc::VARCHAR) {
             return;
         }
-        auto& target = _columns[_reader->_state->root_type->getFieldName(id)];
+        auto& target = _columns[type.getColumnId()];
+        target.name = _reader->_state->root_type->getFieldName(id);
         target.position = column->second.value();
         target.type = _reader->_convert_to_doris_type(type);
         target.conjuncts.push_back(conjunct);
@@ -1027,7 +1057,7 @@ private:
     }
 
     OrcReader* _reader;
-    std::map<std::string, DictionaryColumn> _columns;
+    std::map<uint64_t, DictionaryColumn> _columns;
 };
 
 OrcReader::OrcReader(std::shared_ptr<io::FileSystemProperties>& system_properties,

@@ -2955,6 +2955,41 @@ void write_string_filter_orc_file(const std::string& path, bool dictionary,
     out.write(stream.getData(), static_cast<std::streamsize>(stream.getLength()));
 }
 
+void write_dictionary_name_collision_file(const std::string& path, bool nested_first,
+                                          const std::string& root_name) {
+    auto type = ::orc::createStructType();
+    auto nested = ::orc::createStructType();
+    nested->addStructField("b", ::orc::createPrimitiveType(::orc::STRING));
+    if (nested_first) {
+        type->addStructField("a", std::move(nested));
+        type->addStructField(root_name, ::orc::createPrimitiveType(::orc::STRING));
+    } else {
+        type->addStructField(root_name, ::orc::createPrimitiveType(::orc::STRING));
+        type->addStructField("a", std::move(nested));
+    }
+    MemoryOutputStream stream(1024 * 1024);
+    ::orc::WriterOptions options;
+    options.setCompression(::orc::CompressionKind_NONE);
+    options.setDictionaryKeySizeThreshold(1.0);
+    auto writer = ::orc::createWriter(*type, &stream, options);
+    auto batch = writer->createRowBatch(64);
+    auto& fields = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+    auto& root = dynamic_cast<::orc::StringVectorBatch&>(*fields.fields[nested_first ? 1 : 0]);
+    auto& parent = dynamic_cast<::orc::StructVectorBatch&>(*fields.fields[nested_first ? 0 : 1]);
+    auto& child = dynamic_cast<::orc::StringVectorBatch&>(*parent.fields[0]);
+    const std::string hit = "hit";
+    const std::string miss = "miss";
+    for (size_t row = 0; row < 64; ++row) {
+        set_string_value(root, row, hit);
+        set_string_value(child, row, miss);
+    }
+    fields.numElements = root.numElements = parent.numElements = child.numElements = 64;
+    writer->add(*batch);
+    writer->close();
+    std::ofstream out(path, std::ios::binary);
+    out.write(stream.getData(), static_cast<std::streamsize>(stream.getLength()));
+}
+
 void write_orc_prefetch_file(const std::string& file_path) {
     auto type = std::unique_ptr<::orc::Type>(
             ::orc::Type::buildTypeFromString("struct<a:int,b:int,c:int,payload:string>"));
@@ -8001,6 +8036,54 @@ TEST_F(NewOrcReaderTest, DictionaryRejectsAbsentValuesWithoutRowDecoding) {
     EXPECT_TRUE(eof);
     EXPECT_EQ(rows, 0);
     EXPECT_EQ(decode_calls, 0);
+}
+
+TEST_F(NewOrcReaderTest, DictionaryNamesPreservePhysicalColumnIdentity) {
+    for (const bool nested_first : {false, true}) {
+        for (const std::string root_name : {"a.b", "unambiguous.name"}) {
+            SCOPED_TRACE(fmt::format("nested_first={}, root_name={}", nested_first, root_name));
+            const auto path = (_test_dir / "dictionary_name_collision.orc").string();
+            write_dictionary_name_collision_file(path, nested_first, root_name);
+            RuntimeProfile profile("dictionary-name-identity");
+            auto reader = create_reader_for_path(path, &profile);
+            TQueryOptions options;
+            options.__set_enable_orc_filter_by_min_max(false);
+            options.__set_enable_orc_lazy_mat(false);
+            RuntimeState state {options, TQueryGlobals()};
+            ASSERT_TRUE(reader->init(&state).ok());
+            std::vector<format::ColumnDefinition> schema;
+            ASSERT_TRUE(reader->get_schema(&schema).ok());
+            const int root_index = nested_first ? 1 : 0;
+            const int parent_index = nested_first ? 0 : 1;
+            auto request = std::make_shared<format::FileScanRequest>();
+            request->predicate_columns = {field_projection(root_index)};
+            request->non_predicate_columns = {field_projection(parent_index)};
+            // Both roots must be projected: the SDK can otherwise omit the nested dictionary.
+            request->conjuncts.push_back(
+                    VExprContext::create_shared(std::make_shared<NullableStringEqualsExpr>(
+                            0, remove_nullable(schema[root_index].type), "hit", root_name)));
+            ASSERT_TRUE(reader->open(request).ok());
+            size_t total_rows = 0;
+            bool eof = false;
+            while (!eof) {
+                Block block = build_file_block({schema[root_index], schema[parent_index]});
+                size_t rows = 0;
+                ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+                total_rows += rows;
+                for (size_t row = 0; row < rows; ++row) {
+                    const auto& values =
+                            assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+                    EXPECT_FALSE(values.is_null_at(row));
+                    EXPECT_EQ(values.get_nested_column().get_data_at(row).to_string(), "hit");
+                }
+            }
+            EXPECT_EQ(total_rows, 64);
+            // Unambiguous dotted names must keep dictionary pruning available.
+            if (root_name != "a.b" || nested_first) {
+                EXPECT_GT(profile.get_counter("DictionaryValuesEvaluated")->value(), 0);
+            }
+        }
+    }
 }
 
 TEST_F(NewOrcReaderTest, DictionaryKeepsNullSafeMatches) {

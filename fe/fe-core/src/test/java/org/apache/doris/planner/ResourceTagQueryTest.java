@@ -226,7 +226,7 @@ public class ResourceTagQueryTest extends TestWithFeService {
         String queryStr = "explain select * from test.tbl1";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         System.out.println(explainString);
-        Assertions.assertTrue(explainString.contains("tablets=30/30"));
+        Assertions.assertTrue(explainString.contains("tablets=30/30"), explainString);
 
         // set zone1 tag for root
         String setPropStr2 = "set property for 'root' 'resource_tags.location' = 'zone1';";
