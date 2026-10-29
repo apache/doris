@@ -92,9 +92,9 @@ inline uint32_t next_topk_priority_seed() {
         std::random_device device;
         return static_cast<uint32_t>(device());
     }();
-    uint32_t z = base + counter.fetch_add(1, std::memory_order_relaxed) * 0x9E3779B9u;
-    z = (z ^ (z >> 16)) * 0x21F0AAADu;
-    z = (z ^ (z >> 15)) * 0x735A2D97u;
+    uint32_t z = base + counter.fetch_add(1, std::memory_order_relaxed) * 0x9E3779B9U;
+    z = (z ^ (z >> 16)) * 0x21F0AAADU;
+    z = (z ^ (z >> 15)) * 0x735A2D97U;
     return z ^ (z >> 15);
 }
 
@@ -448,9 +448,9 @@ private:
     /// splitmix32. The priorities only have to be independent enough to keep the treap balanced;
     /// a per-state sequence keeps the shape reproducible for the same insertion order.
     static uint32_t next_priority(State& state) {
-        uint32_t z = (state.rng += 0x9E3779B9u);
-        z = (z ^ (z >> 16)) * 0x21F0AAADu;
-        z = (z ^ (z >> 15)) * 0x735A2D97u;
+        uint32_t z = (state.rng += 0x9E3779B9U);
+        z = (z ^ (z >> 16)) * 0x21F0AAADU;
+        z = (z ^ (z >> 15)) * 0x735A2D97U;
         return z ^ (z >> 15);
     }
 
