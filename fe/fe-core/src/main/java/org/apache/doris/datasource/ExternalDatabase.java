@@ -58,6 +58,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -376,7 +377,11 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 return Optional.empty();
             }
         }
-        long metadataRefreshGeneration = table.getMetadataRefreshGeneration();
+        OptionalLong metadataGeneration = table.observeMetadataRefreshGeneration();
+        if (!metadataGeneration.isPresent()) {
+            return Optional.empty();
+        }
+        long metadataRefreshGeneration = metadataGeneration.getAsLong();
         return extCatalog.observeDatabase(this).flatMap(database ->
                 tableNames.observe("", names).flatMap(membership ->
                         tables.observe(table.getName(), table).map(object -> () -> MetaCacheCleanup.runDeferred(() -> {
