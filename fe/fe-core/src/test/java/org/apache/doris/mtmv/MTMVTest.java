@@ -44,6 +44,10 @@ import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
+import org.apache.doris.mtmv.ivm.IvmFailureReason;
+import org.apache.doris.mtmv.ivm.IvmRefreshFailureStage;
+import org.apache.doris.mtmv.ivm.IvmRefreshMethod;
+import org.apache.doris.mtmv.ivm.IvmRefreshSummary;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.EditLog;
@@ -490,6 +494,8 @@ public class MTMVTest {
         MTMVRelation relation = mtmv.getRelation();
         MTMVTask task = new MTMVTask(mtmv, relation, null);
         task.setStatus(TaskStatus.FAILED);
+        task.setStartTimeMs(1000L);
+        task.setFinishTimeMs(2000L);
         AlterMTMV alterMTMV = new AlterMTMV(new TableNameInfo("db1", "mv1"), MTMVAlterOpType.ADD_TASK);
         alterMTMV.setTask(task);
         alterMTMV.setRelation(relation);
@@ -503,6 +509,88 @@ public class MTMVTest {
         Mockito.verify(editLog).submitEdit(
                 Mockito.eq(OperationType.OP_ALTER_MTMV), Mockito.same(alterMTMV));
         Mockito.verify(editLogItem).await();
+    }
+
+    /**
+     * The refresh summary of an IVM MV follows each task result the MV records, and a follower replaying the same
+     * journal records ends with the same summary -- however few tasks the history keeps.
+     */
+    @Test
+    public void testTheRefreshSummaryIsTheSameOnTheMasterAndInTheReplay() {
+        MTMV master = buildSerializableMTMV();
+        master.getIvmInfo().setEnableIvm(true);
+        MTMV follower = buildSerializableMTMV();
+        follower.getIvmInfo().setEnableIvm(true);
+        List<AlterMTMV> journaled = Lists.newArrayList();
+        int maxPersistenceTaskCount = Config.max_persistence_task_count;
+        try {
+            Config.max_persistence_task_count = 1;
+            withMockedEditLog(journaled, () -> {
+                for (MTMVTask task : Lists.newArrayList(
+                        endedTask(master, TaskStatus.SUCCESS, IvmRefreshMethod.COMPLETE, null, null),
+                        endedTask(master, TaskStatus.FAILED, IvmRefreshMethod.NONE,
+                                IvmFailureReason.MIN_MAX_BOUNDARY_HIT.name(), null),
+                        endedTask(master, TaskStatus.CANCELED, IvmRefreshMethod.PARTITION_REBUILD, null, null),
+                        endedTask(master, TaskStatus.FAILED, IvmRefreshMethod.NONE,
+                                IvmRefreshFailureStage.EXECUTION_FAILED.name(), null),
+                        endedTask(master, TaskStatus.SUCCESS, IvmRefreshMethod.MIXED, null,
+                                IvmFailureReason.CHANGELOG_BROKEN.name()))) {
+                    Assertions.assertTrue(master.addTaskResult(taskResult(master, task), false));
+                }
+                for (AlterMTMV record : journaled) {
+                    AlterMTMV replayed = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(record), AlterMTMV.class);
+                    Assertions.assertTrue(follower.addTaskResult(replayed, true));
+                }
+            });
+        } finally {
+            Config.max_persistence_task_count = maxPersistenceTaskCount;
+        }
+
+        Assertions.assertEquals(5, journaled.size());
+        IvmRefreshSummary summary = Deencapsulation.getField(master, "ivmRefreshSummary");
+        Assertions.assertEquals(0, summary.getConsecutiveFailures());
+        Assertions.assertEquals(IvmRefreshFailureStage.EXECUTION_FAILED.name(), summary.getLastFailureReason());
+        Assertions.assertEquals(IvmRefreshMethod.MIXED, summary.getLastRefreshMethod());
+        Assertions.assertEquals(1L, summary.getFallbackCount());
+        Assertions.assertEquals(IvmFailureReason.CHANGELOG_BROKEN.name(), summary.getLastFallbackReason());
+        Assertions.assertTrue(master.hasSucceededIvmRefresh());
+        IvmRefreshSummary replayed = Deencapsulation.getField(follower, "ivmRefreshSummary");
+        Assertions.assertEquals(GsonUtils.GSON.toJson(summary), GsonUtils.GSON.toJson(replayed));
+    }
+
+    /** An MV that is not an IVM MV records its task results without a refresh summary. */
+    @Test
+    public void testAPlainMvKeepsNoRefreshSummary() {
+        MTMV mtmv = buildSerializableMTMV();
+
+        withMockedEditLog(Lists.newArrayList(), () -> Assertions.assertTrue(mtmv.addTaskResult(taskResult(mtmv,
+                endedTask(mtmv, TaskStatus.FAILED, null, IvmRefreshFailureStage.OTHER.name(), null)), false)));
+
+        IvmRefreshSummary summary = Deencapsulation.getField(mtmv, "ivmRefreshSummary");
+        Assertions.assertEquals(0, summary.getConsecutiveFailures());
+        Assertions.assertEquals(0L, summary.getLastFailureTimeMs());
+    }
+
+    /** A task of the MV that has ended as {@code status}, with what it reports about its refresh. */
+    private static MTMVTask endedTask(MTMV mtmv, TaskStatus status, IvmRefreshMethod method, String failureReason,
+            String fallbackReason) {
+        MTMVTask task = new MTMVTask(mtmv, mtmv.getRelation(), null);
+        task.setStatus(status);
+        task.setStartTimeMs(1000L);
+        task.setFinishTimeMs(2000L);
+        Deencapsulation.setField(task, "ivmRefreshMethod", method);
+        Deencapsulation.setField(task, "ivmFailureReason", failureReason);
+        Deencapsulation.setField(task, "ivmFallback", fallbackReason != null);
+        Deencapsulation.setField(task, "ivmFallbackReason", fallbackReason);
+        return task;
+    }
+
+    private static AlterMTMV taskResult(MTMV mtmv, MTMVTask task) {
+        AlterMTMV alterMTMV = new AlterMTMV(new TableNameInfo("db1", "mv1"), MTMVAlterOpType.ADD_TASK);
+        alterMTMV.setTask(task);
+        alterMTMV.setRelation(mtmv.getRelation());
+        alterMTMV.setPartitionSnapshots(Map.of());
+        return alterMTMV;
     }
 
     @Test
@@ -1384,6 +1472,9 @@ public class MTMVTest {
         withMockedEditLog(journaled, () -> {
             MTMVTask task = new MTMVTask(mtmv, mtmv.getRelation(), null);
             task.setStatus(TaskStatus.FAILED);
+            // A task that has failed has run, and has the times to say so.
+            task.setStartTimeMs(1000L);
+            task.setFinishTimeMs(2000L);
             // Set on the task rather than through its getter: the getter hands out a detached copy, which
             // is the point of it -- a cancelled task's worker may still be merging into the field.
             Map<String, Long> taskCapturedEpochs = Maps.newConcurrentMap();
@@ -1435,6 +1526,8 @@ public class MTMVTest {
         EditLogItem editLogItem = Mockito.mock(EditLogItem.class);
         Mockito.when(env.getEditLog()).thenReturn(editLog);
         Mockito.when(env.getMtmvService()).thenReturn(Mockito.mock(MTMVService.class));
+        // a successful task result invalidates the rewrite cache
+        Mockito.when(env.getMtmvCacheManager()).thenReturn(new MTMVCacheManager());
         Mockito.when(editLog.submitEdit(Mockito.eq(OperationType.OP_ALTER_MTMV), Mockito.any(AlterMTMV.class)))
                 .thenAnswer(invocation -> {
                     journaled.add(invocation.getArgument(1));
