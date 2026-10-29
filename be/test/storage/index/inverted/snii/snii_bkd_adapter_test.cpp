@@ -21,6 +21,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <numeric>
 #include <optional>
 #include <set>
 #include <string>
@@ -29,6 +30,7 @@
 #include "common/status.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
@@ -46,6 +48,7 @@
 #include "storage/index/inverted/snii/snii_bkd_index_reader.h"
 #include "storage/index/inverted/snii/snii_bkd_index_writer.h"
 #include "storage/index/inverted/snii/staged_file_probe.h"
+#include "storage/index/inverted/snii/writer/snii_build_memory_tracker.h"
 #include "storage/key_coder.h"
 #include "storage/tablet/tablet_schema.h"
 
@@ -314,6 +317,44 @@ TEST_F(SniiBkdAdapterTest, SealingDrainsTheStagedDataWhileTheProducerIsStillAliv
     // `writer` is STILL in scope here, exactly as it is in IndexBuilder.
     EXPECT_EQ(doris::snii_test::snii_staged_files("bkd_data"), before)
             << "sealing left bkd_data pinned by the producer";
+    assert_ok(index_file_writer.finish_close());
+}
+
+// The writer's build memory is visible in the process-wide SNII build tracker while it is held, as
+// the text writer's is: the NULL docids until finish() moves them into the bitmap, the builder's
+// point buffer until the build is done. None of it may stay charged once finish() returns, even
+// though the producer is still alive (IndexBuilder keeps it until the rowset is closed).
+TEST_F(SniiBkdAdapterTest, BuildMemoryIsChargedAndGivenBackAtFinish) {
+    ::doris::MemTracker* tracker = ::doris::snii::writer::snii_build_mem_tracker();
+    const int64_t baseline = tracker->consumption();
+    const int64_t registered_baseline = ::doris::snii::writer::snii_registered_build_bytes();
+
+    const std::string prefix = test_path("accounted_producer");
+    io::FileWriterPtr file_writer;
+    assert_ok(io::global_local_filesystem()->create_file(
+            InvertedIndexDescriptor::get_index_file_path_v2(prefix), &file_writer));
+    IndexFileWriter index_file_writer(io::global_local_filesystem(), prefix, "accounted_rowset",
+                                      /*seg_id=*/0, InvertedIndexStorageFormatPB::SNII,
+                                      std::move(file_writer), /*can_use_ram_dir=*/true,
+                                      /*tablet_id=*/303);
+    SniiBkdIndexColumnWriter writer(&index_file_writer, &_meta, kFieldType);
+    assert_ok(writer.init());
+
+    constexpr uint32_t kNulls = 200000;
+    assert_ok(writer.add_nulls(kNulls));
+    std::vector<int64_t> values(1000);
+    std::iota(values.begin(), values.end(), 0);
+    assert_ok(writer.add_values(reinterpret_cast<const uint8_t*>(values.data()), values.size()));
+    // At least the 4 bytes of every NULL docid, and the builder's point buffer on top.
+    EXPECT_GE(tracker->consumption() - baseline, static_cast<int64_t>(kNulls) * 4);
+    // A BKD build cannot be reclaimed by a forced spill, so it is not offered to the spill decision.
+    EXPECT_EQ(::doris::snii::writer::snii_registered_build_bytes(), registered_baseline);
+
+    assert_ok(writer.finish());
+    EXPECT_EQ(tracker->consumption(), baseline)
+            << "finish() left build memory charged to a producer that is still alive";
+
+    assert_ok(index_file_writer.begin_close());
     assert_ok(index_file_writer.finish_close());
 }
 

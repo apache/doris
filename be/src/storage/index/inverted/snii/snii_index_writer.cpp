@@ -354,23 +354,9 @@ Status SniiIndexColumnWriter::add_array_values(size_t field_size, const uint8_t*
 }
 
 Status SniiIndexColumnWriter::_reserve_null_docids_for_append(size_t count) {
-    const size_t need = _null_docids.size() + count;
-    // Repeated NULL runs reuse capacity until geometric growth is needed.
-    if (need <= _null_docids.capacity()) {
-        return Status::OK();
-    }
-    const size_t target_capacity = std::max(need, _null_docids.capacity() * 2);
     // Uninitialized writers in unit tests have no reporter.
-    if (_memory_reporter == nullptr) {
-        _null_docids.reserve(target_capacity);
-        return Status::OK();
-    }
-    ::doris::snii::writer::MemoryReporter::Reservation replacement;
-    RETURN_IF_ERROR(_null_docids_reservation.prepare_replacement(
-            static_cast<uint64_t>(target_capacity) * sizeof(uint32_t), &replacement));
-    _null_docids.reserve(target_capacity);
-    _null_docids_reservation = std::move(replacement);
-    return Status::OK();
+    return ::doris::snii::writer::reserve_docids_for_append(
+            _memory_reporter.get(), &_null_docids_reservation, &_null_docids, count);
 }
 
 // Hand back the token stream for one row. The two ways to get one differ in ownership AND in
