@@ -31,6 +31,7 @@
 #include <cstdlib>
 #include <ostream>
 #include <string>
+#include <string_view>
 
 #include "common/status.h"
 #include "core/binary_cast.hpp"
@@ -226,10 +227,65 @@ static T parse_es_integer(const char* text, size_t length, StringParser::ParseRe
 }
 
 template <typename T>
+static T parse_es_floating_string(const std::string& text, StringParser::ParseResult* result) {
+    // Java's floating parser also accepts hexadecimal exponents, f/d suffixes and ASCII trim
+    // characters. Keep the ordinary decimal fast path, and require the complete Java token.
+    std::string_view token(text);
+    while (!token.empty() && static_cast<unsigned char>(token.front()) <= 0x20) {
+        token.remove_prefix(1);
+    }
+    while (!token.empty() && static_cast<unsigned char>(token.back()) <= 0x20) {
+        token.remove_suffix(1);
+    }
+    auto magnitude = token;
+    if (!magnitude.empty() && (magnitude.front() == '+' || magnitude.front() == '-')) {
+        magnitude.remove_prefix(1);
+    }
+    if (magnitude == "NaN" || magnitude == "Infinity") {
+        return StringParser::string_to_float<T>(token.data(), token.size(), result);
+    }
+    if (!magnitude.empty() &&
+        std::string_view("fFdD").find(magnitude.back()) != std::string_view::npos) {
+        token.remove_suffix(1);
+        magnitude.remove_suffix(1);
+        // Java permits outer whitespace, but not a gap between the number and its suffix.
+        if (magnitude.empty() || static_cast<unsigned char>(magnitude.back()) <= 0x20) {
+            *result = StringParser::PARSE_FAILURE;
+            return 0;
+        }
+    }
+    if (magnitude.empty() ||
+        !((magnitude.front() >= '0' && magnitude.front() <= '9') || magnitude.front() == '.')) {
+        *result = StringParser::PARSE_FAILURE;
+        return 0;
+    }
+    const bool hexadecimal = magnitude.starts_with("0x") || magnitude.starts_with("0X");
+    if (hexadecimal && magnitude.find_first_of("pP") == std::string_view::npos) {
+        *result = StringParser::PARSE_FAILURE;
+        return 0;
+    }
+    // Float.parseFloat rounds directly to float; an intermediate double can round a value
+    // just above a float midpoint back to that midpoint and then to the wrong float.
+    if (hexadecimal || std::is_same_v<T, float>) {
+        char* end = nullptr;
+        T number;
+        if constexpr (std::is_same_v<T, float>) {
+            number = std::strtof(token.data(), &end);
+        } else {
+            number = std::strtod(token.data(), &end);
+        }
+        *result = end == token.data() + token.size() ? StringParser::PARSE_SUCCESS
+                                                     : StringParser::PARSE_FAILURE;
+        return number;
+    }
+    return StringParser::string_to_float<T>(token.data(), token.size(), result);
+}
+
+template <typename T>
 static T parse_es_narrow_integer(const std::string& text, StringParser::ParseResult* result) {
     // Unlike long's BigDecimal conversion, ES parses byte/short/integer strings through double:
     // "0.99999999999999999" rounds to 1 before truncation. Keep long's exact path separate.
-    auto number = StringParser::string_to_float<double>(text.data(), text.size(), result);
+    auto number = parse_es_floating_string<double>(text, result);
     if (*result != StringParser::PARSE_SUCCESS) {
         return 0;
     }
@@ -276,17 +332,35 @@ Status get_int_value(const rapidjson::Value& col, PrimitiveType type, void* slot
                                         type_to_string(type));
         }
         parsed = static_cast<T>(number);
-    } else {
-        if (!value->IsString() && !value->IsNumber()) {
-            RETURN_ERROR_IF_COL_IS_NOT_STRING((*value), type);
+    } else if (value->IsNumber()) {
+        // Jackson converts numeric tokens directly from double. Serializing INT64_MIN first
+        // rounds its text below the valid range; Java also saturates the rounded upper endpoint.
+        const double number = value->GetDouble();
+        using ParsedType = std::conditional_t<(sizeof(T) < 4), int32_t, T>;
+        const auto maximum = static_cast<double>(StringParser::numeric_limits<ParsedType>(false));
+        if (!std::isfinite(number) ||
+            number < static_cast<double>(StringParser::numeric_limits<ParsedType>(true)) ||
+            number > maximum) {
+            return Status::RuntimeError("ES integer value is out of range for {}",
+                                        type_to_string(type));
         }
-        std::string text = value->IsString()
-                                   ? std::string(value->GetString(), value->GetStringLength())
-                                   : json_value_to_string(*value);
+        const ParsedType converted = number == maximum
+                                             ? StringParser::numeric_limits<ParsedType>(false)
+                                             : static_cast<ParsedType>(number);
+        if constexpr (sizeof(T) < 4) {
+            if (converted < StringParser::numeric_limits<T>(true) ||
+                converted > StringParser::numeric_limits<T>(false)) {
+                return Status::RuntimeError("ES integer value is out of range for {}",
+                                            type_to_string(type));
+            }
+        }
+        parsed = static_cast<T>(converted);
+    } else {
+        RETURN_ERROR_IF_COL_IS_NOT_STRING((*value), type);
+        std::string text(value->GetString(), value->GetStringLength());
         StringParser::ParseResult result;
         if constexpr (sizeof(T) < 8) {
-            parsed = value->IsString() ? parse_es_narrow_integer<T>(text, &result)
-                                       : parse_es_integer<T>(text.data(), text.size(), &result);
+            parsed = parse_es_narrow_integer<T>(text, &result);
         } else {
             parsed = parse_es_integer<T>(text.data(), text.size(), &result);
         }
@@ -460,9 +534,8 @@ Status get_float_value(const rapidjson::Value& col, PrimitiveType type, void* sl
     RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
 
     StringParser::ParseResult result;
-    const std::string& val = col.GetString();
-    size_t len = col.GetStringLength();
-    T v = StringParser::string_to_float<T>(val.c_str(), len, &result);
+    const std::string val(col.GetString(), col.GetStringLength());
+    T v = parse_es_floating_string<T>(val, &result);
     RETURN_ERROR_IF_PARSING_FAILED(result, col, type);
     *reinterpret_cast<T*>(slot) = v;
 
@@ -489,9 +562,8 @@ Status insert_float_value(const rapidjson::Value& col, PrimitiveType type, IColu
     RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
 
     StringParser::ParseResult result;
-    const std::string& val = col.GetString();
-    size_t len = col.GetStringLength();
-    T v = StringParser::string_to_float<T>(val.c_str(), len, &result);
+    const std::string val(col.GetString(), col.GetStringLength());
+    T v = parse_es_floating_string<T>(val, &result);
     RETURN_ERROR_IF_PARSING_FAILED(result, col, type);
 
     col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&v)), 0);
@@ -587,6 +659,13 @@ Status handle_value(const rapidjson::Value& col, PrimitiveType sub_type, bool pu
 template <PrimitiveType T>
 Status process_single_column(const rapidjson::Value& col, PrimitiveType sub_type,
                              bool pure_doc_value, Array& array) {
+    // Source arrays retain null members that ES omits from docvalues. Numeric empty strings
+    // have the same missing-value semantics; Boolean empty strings still mean false.
+    if (col.IsNull() ||
+        (is_number(T) && T != TYPE_BOOLEAN && col.IsString() && col.GetStringLength() == 0)) {
+        array.push_back(Field {});
+        return Status::OK();
+    }
     typename PrimitiveTypeTraits<T>::CppType val;
     RETURN_IF_ERROR(handle_value<T>(col, sub_type, pure_doc_value, val));
     array.push_back(Field::create_field<T>(val));
@@ -621,6 +700,11 @@ Status process_date_column(const rapidjson::Value& col, PrimitiveType sub_type, 
         array.push_back(Field::create_field<T>(data));
     } else {
         for (const auto& sub_col : col.GetArray()) {
+            // Nullable source members must bypass date parsing, which requires a real value.
+            if (sub_col.IsNull()) {
+                array.push_back(Field {});
+                continue;
+            }
             typename PrimitiveTypeTraits<T>::CppType data;
             RETURN_IF_ERROR((get_date_int<T>(sub_col, sub_type, pure_doc_value, &data, time_zone)));
             array.push_back(Field::create_field<T>(data));
@@ -638,6 +722,11 @@ Status process_jsonb_column(const rapidjson::Value& col, PrimitiveType sub_type,
         array.push_back(Field::create_field<TYPE_JSONB>(std::move(json)));
     } else {
         for (const auto& sub_col : col.GetArray()) {
+            // SQL NULL members stay distinct from nonnull JSONB containers such as [null].
+            if (sub_col.IsNull()) {
+                array.push_back(Field {});
+                continue;
+            }
             JsonBinaryValue jsonb_value;
             RETURN_IF_ERROR(jsonb_value.from_json_string(json_value_to_string(sub_col)));
             JsonbField json(jsonb_value.value(), jsonb_value.size());
@@ -805,12 +894,16 @@ Status ScrollParser::fill_columns(const std::vector<SlotDescriptor*>& slots,
         const rapidjson::Value& source_value = (*line)[col_name];
         // Source fallback changes every sibling's decoder. A scalar numeric/Boolean/date field
         // may hold [value], [] or [null]; preserve its single value or missing-value semantics.
-        // STRING keeps its JSON representation, and declared ARRAY keeps its container.
+        // STRING and JSONB keep their JSON representation; declared ARRAY keeps its container.
         bool scalar_source_array = !pure_doc_value && source_value.IsArray() &&
-                                   type != TYPE_ARRAY && !is_string_type(type);
+                                   type != TYPE_ARRAY && type != TYPE_JSONB &&
+                                   !is_string_type(type);
         const rapidjson::Value& col =
                 scalar_source_array && source_value.Size() == 1 ? source_value[0] : source_value;
-        bool is_null = col.IsNull() || (scalar_source_array && source_value.Empty());
+        // Empty numeric source strings are ES missing values, including singleton arrays.
+        bool is_null = col.IsNull() || (scalar_source_array && source_value.Empty()) ||
+                       (!pure_doc_value && is_number(type) && type != TYPE_BOOLEAN &&
+                        col.IsString() && col.GetStringLength() == 0);
         if (is_null && slot_desc->is_nullable()) {
             col_ptr->insert_data(nullptr, 0);
             continue;

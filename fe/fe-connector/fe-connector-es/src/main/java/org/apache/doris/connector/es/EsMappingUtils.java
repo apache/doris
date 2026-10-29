@@ -50,6 +50,10 @@ public final class EsMappingUtils {
             "keyword", "byte", "short", "integer", "long", "unsigned_long", "float", "double",
             "half_float", "scaled_float", "date", "date_nanos", "boolean", "ip", "geo_point"));
 
+    private static final Set<String> IGNORE_MALFORMED_TYPES = new HashSet<>(Arrays.asList(
+            "byte", "short", "integer", "long", "unsigned_long", "float", "double", "half_float", "scaled_float",
+            "boolean", "date", "date_nanos", "ip", "geo_point", "geo_shape"));
+
     private EsMappingUtils() {
     }
 
@@ -201,13 +205,8 @@ public final class EsMappingUtils {
         try {
             // Mapping-induced source/index differences on any alias backing index must prevent
             // filtering or replacing source values through that path.
-            List<ObjectNode> roots = new ArrayList<>();
+            JsonNode indices = MAPPER.readTree(indexMapping);
             Set<String> columns = new HashSet<>(context.getColumn2typeMap().keySet());
-            for (JsonNode index : MAPPER.readTree(indexMapping)) {
-                ObjectNode root = getRootSchema((ObjectNode) index.get("mappings"), mappingType,
-                        new ArrayList<>(), true);
-                roots.add(root);
-            }
             // Use the same populated schema as inference, including unprojected filter columns.
             schemaProperties.fieldNames().forEachRemaining(columns::add);
             // Filters can reference columns absent from the projection. Resolve their query paths
@@ -217,7 +216,10 @@ public final class EsMappingUtils {
                 resolveKeywordFields(context, field, column, field.path("type").asText());
             }
             Set<String> unsafeDocValues = new HashSet<>();
-            for (ObjectNode root : roots) {
+            for (JsonNode index : indices) {
+                ObjectNode root = getRootSchema((ObjectNode) index.get("mappings"), mappingType,
+                        new ArrayList<>(), true);
+                JsonNode mappingDefaults = index.path("settings").path("index").path("mapping");
                 JsonNode properties = root.path("properties");
                 if (isSourceDisabled(root.path("_source"))) {
                     // A source projection fails on disabled backings; full source preserves the
@@ -237,7 +239,8 @@ public final class EsMappingUtils {
                             || root.path("runtime").has(column) || copyTargets.contains(column);
                     // ES mappings do not distinguish arrays from scalars. Even a short equality can
                     // match one indexed array element while Doris reads the entire source JSON string.
-                    if (sourceChanged || changesSourceValue(field) || changesSourceValue(queryField)
+                    if (sourceChanged || changesSourceValue(field, mappingDefaults)
+                            || changesSourceValue(queryField, mappingDefaults)
                             || "text".equals(queryField.path("type").asText()) || !isSearchable(queryField)) {
                         context.getSourceValueUnsafeFields().add(column);
                     }
@@ -248,7 +251,8 @@ public final class EsMappingUtils {
                     }
                     // Query and docvalue paths may select different multi-fields. An unused sibling's
                     // normalizer must not invalidate either path; only the chosen read value matters.
-                    if (sourceChanged || changesSourceValue(field) || changesSourceValue(readField)
+                    if (sourceChanged || changesSourceValue(field, mappingDefaults)
+                            || changesSourceValue(readField, mappingDefaults)
                             || !readField.path("doc_values").asBoolean(true)
                             || DEFAULT_DOCVALUE_DISABLED_FIELDS.contains(readField.path("type").asText())) {
                         // One backing without this docvalue path would return missing values for its hits.
@@ -267,9 +271,13 @@ public final class EsMappingUtils {
                 : field.path("fields").path(path.substring(column.length() + 1));
     }
 
-    private static boolean changesSourceValue(JsonNode field) {
+    private static boolean changesSourceValue(JsonNode field, JsonNode mappingDefaults) {
+        // With index-level ignore_malformed=true/coerce=false, source "5" survives without an
+        // indexed value. A field's explicit false overrides that default; keyword ignores it.
+        boolean ignoresMalformed = IGNORE_MALFORMED_TYPES.contains(field.path("type").asText())
+                && field.path("ignore_malformed").asBoolean(mappingDefaults.path("ignore_malformed").asBoolean(false));
         return field.isMissingNode() || field.has("ignore_above") || field.hasNonNull("normalizer")
-                || field.hasNonNull("null_value") || field.path("ignore_malformed").asBoolean(false);
+                || field.hasNonNull("null_value") || ignoresMalformed;
     }
 
     private static boolean requiresSourcePredicateEvaluation(JsonNode field) {

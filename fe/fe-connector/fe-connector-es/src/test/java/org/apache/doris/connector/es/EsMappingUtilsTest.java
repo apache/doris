@@ -204,4 +204,20 @@ public class EsMappingUtilsTest {
         Assertions.assertEquals("long", root.path("runtime").path("properties").path("type").asText());
     }
 
+    @Test
+    void indexMalformedDefaultsRespectFieldOverridesAndFieldTypes() {
+        String mapping = "{\"test\":{\"settings\":{\"index\":{\"mapping\":"
+                + "{\"ignore_malformed\":\"true\",\"coerce\":\"false\"}}},\"mappings\":{\"properties\":{"
+                + "\"inherited\":{\"type\":\"long\"},"
+                + "\"overridden\":{\"type\":\"long\",\"ignore_malformed\":false},"
+                + "\"keyword\":{\"type\":\"keyword\"}}}}}";
+        EsFieldContext context = EsMappingUtils.resolveFieldContext(Collections.emptyList(), "test", mapping, null);
+        Assertions.assertTrue(context.getSourceValueUnsafeFields().contains("inherited"));
+        Assertions.assertFalse(context.getDocValueFieldsContext().containsKey("inherited"));
+        Assertions.assertFalse(context.getSourceValueUnsafeFields().contains("overridden"));
+        Assertions.assertTrue(context.getDocValueFieldsContext().containsKey("overridden"));
+        Assertions.assertFalse(context.getSourceValueUnsafeFields().contains("keyword"));
+        Assertions.assertTrue(context.getDocValueFieldsContext().containsKey("keyword"));
+    }
+
 }

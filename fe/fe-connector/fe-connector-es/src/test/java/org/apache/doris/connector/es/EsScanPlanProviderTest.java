@@ -1190,4 +1190,26 @@ class EsScanPlanProviderTest {
         }
     }
 
+    @Test
+    void inheritedMalformedSettingsRetainSourceNullPredicates() {
+        String mapping = "{\"test\":{\"settings\":{\"index\":{\"mapping\":"
+                + "{\"ignore_malformed\":\"true\",\"coerce\":\"false\"}}},\"mappings\":{\"properties\":{"
+                + "\"a\":{\"type\":\"keyword\",\"normalizer\":\"lowercase\"},\"b\":{\"type\":\"long\"}}}}}";
+        ConnectorExpression predicate = new ConnectorIsNull(
+                new ConnectorColumnRef("b", ConnectorType.of("BIGINT")), false);
+        ScanNodePropertiesResult inherited = propertiesForMapping(mapping, predicate);
+        Assertions.assertEquals("0", inherited.getProperties().get("doc_values_mode"));
+        Assertions.assertEquals(Collections.singleton(0), inherited.getNotPushedConjunctIndices());
+        Assertions.assertEquals(EsQueryDslBuilder.matchAllQuery(), inherited.getProperties().get("query_dsl"));
+
+        String overridden = mapping.replace("\"b\":{\"type\":\"long\"}",
+                "\"b\":{\"type\":\"long\",\"ignore_malformed\":false}");
+        Assertions.assertTrue(propertiesForMapping(overridden, predicate).getNotPushedConjunctIndices().isEmpty());
+        String safe = mapping.replace("\"ignore_malformed\":\"true\"", "\"ignore_malformed\":\"false\"");
+        String alias = safe.substring(0, safe.length() - 1) + ",\"second\":"
+                + mapping.substring("{\"test\":".length(), mapping.length() - 1) + "}";
+        Assertions.assertEquals(Collections.singleton(0),
+                propertiesForMapping(alias, predicate).getNotPushedConjunctIndices());
+    }
+
 }

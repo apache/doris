@@ -29,6 +29,7 @@
 #include "core/column/column_nullable.h"
 #include "format/table/es/es_scroll_query.h"
 #include "runtime/descriptors.h"
+#include "util/jsonb_utils.h"
 
 namespace doris {
 
@@ -58,8 +59,8 @@ public:
     }
 
     static Status read_scalar(TPrimitiveType::type type, const std::string& json,
-                              MutableColumnPtr* column) {
-        auto descriptor = value_slot(type);
+                              MutableColumnPtr* column, bool array = false) {
+        auto descriptor = value_slot(type, array);
         descriptor.nullIndicatorBit = 0;
         SlotDescriptor slot(descriptor);
         ScrollParser parser(false);
@@ -78,6 +79,122 @@ public:
         return value_slot(TPrimitiveType::BOOLEAN, array);
     }
 };
+
+TEST_F(EsScrollParserTest, JsonbSourcePreservesArrayContainers) {
+    for (const std::string value : {R"([{"x":1}])", "[]", "[null]", R"({"x":1})"}) {
+        MutableColumnPtr column;
+        auto status = read_scalar(TPrimitiveType::JSONB, value, &column);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        ASSERT_EQ(column->size(), 1);
+        ASSERT_FALSE(column->is_null_at(0)) << value;
+        const auto bytes = column->get_data_at(0);
+        EXPECT_EQ(JsonbToJson::jsonb_to_json_string(bytes.data, bytes.size), value);
+    }
+}
+
+TEST_F(EsScrollParserTest, IntegerNumericDoublePreservesLongBoundary) {
+    for (const std::string value : {"-9223372036854775808.0", "-9.223372036854776E18"}) {
+        MutableColumnPtr column;
+        auto status = read_scalar(TPrimitiveType::BIGINT, value, &column);
+        ASSERT_TRUE(status.ok()) << value << ": " << status.to_string();
+        ASSERT_FALSE(column->is_null_at(0));
+        EXPECT_EQ(assert_cast<const ColumnNullable&>(*column).get_nested_column().get_int(0),
+                  INT64_MIN);
+    }
+}
+
+TEST_F(EsScrollParserTest, NumericSourceEmptyStringsAreNull) {
+    for (auto type : {TPrimitiveType::TINYINT, TPrimitiveType::SMALLINT, TPrimitiveType::INT,
+                      TPrimitiveType::BIGINT, TPrimitiveType::FLOAT, TPrimitiveType::DOUBLE}) {
+        for (const std::string value : {R"("")", R"([""])"}) {
+            MutableColumnPtr column;
+            auto status = read_scalar(type, value, &column);
+            ASSERT_TRUE(status.ok()) << type << ": " << value << ": " << status.to_string();
+            ASSERT_EQ(column->size(), 1);
+            EXPECT_TRUE(column->is_null_at(0));
+        }
+    }
+}
+
+TEST_F(EsScrollParserTest, DeclaredSourceArraysPreserveNullElements) {
+    for (auto type : {TPrimitiveType::BIGINT, TPrimitiveType::BOOLEAN, TPrimitiveType::DOUBLE,
+                      TPrimitiveType::STRING, TPrimitiveType::DATEV2, TPrimitiveType::JSONB}) {
+        std::string value;
+        switch (type) {
+        case TPrimitiveType::BOOLEAN:
+            value = "true";
+            break;
+        case TPrimitiveType::STRING:
+            value = R"("text")";
+            break;
+        case TPrimitiveType::DATEV2:
+            value = R"("2026-01-01")";
+            break;
+        case TPrimitiveType::JSONB:
+            value = R"({"x":1})";
+            break;
+        default:
+            value = "1";
+        }
+        MutableColumnPtr column;
+        auto status = read_scalar(type, "[null," + value + ",null]", &column, true);
+        ASSERT_TRUE(status.ok()) << type << ": " << status.to_string();
+        ASSERT_FALSE(column->is_null_at(0));
+        const auto& array = assert_cast<const ColumnArray&>(
+                assert_cast<const ColumnNullable&>(*column).get_nested_column());
+        ASSERT_EQ(array.get_offsets()[0], 3);
+        EXPECT_TRUE(array.get_data().is_null_at(0));
+        EXPECT_FALSE(array.get_data().is_null_at(1));
+        EXPECT_TRUE(array.get_data().is_null_at(2));
+    }
+}
+
+TEST_F(EsScrollParserTest, NarrowIntegerSourceAcceptsJavaFloatingGrammar) {
+    for (auto type : {TPrimitiveType::TINYINT, TPrimitiveType::SMALLINT, TPrimitiveType::INT}) {
+        for (const std::string value : {"0x1.8p1", "0X1.8P1f", "3d", "+3F", " 3d "}) {
+            MutableColumnPtr column;
+            auto status = read_scalar(type, "\"" + value + "\"", &column);
+            ASSERT_TRUE(status.ok()) << type << ": " << value << ": " << status.to_string();
+            EXPECT_EQ(assert_cast<const ColumnNullable&>(*column).get_nested_column().get_int(0),
+                      3);
+        }
+        for (const std::string value : {"0x3", "0x1.8", "0x1p1junk", "3dd", "3 f"}) {
+            MutableColumnPtr column;
+            EXPECT_FALSE(read_scalar(type, "\"" + value + "\"", &column).ok()) << value;
+        }
+    }
+}
+
+TEST_F(EsScrollParserTest, FloatingSourceAcceptsJavaFloatingGrammar) {
+    for (auto type : {TPrimitiveType::FLOAT, TPrimitiveType::DOUBLE}) {
+        for (const std::string value : {"0x1.8p1", "3d", "+3F"}) {
+            MutableColumnPtr column;
+            auto status = read_scalar(type, "\"" + value + "\"", &column);
+            ASSERT_TRUE(status.ok()) << value << ": " << status.to_string();
+            auto bytes = column->get_data_at(0);
+            if (type == TPrimitiveType::FLOAT) {
+                float actual;
+                memcpy(&actual, bytes.data, sizeof(actual));
+                EXPECT_FLOAT_EQ(actual, 3.0F);
+            } else {
+                double actual;
+                memcpy(&actual, bytes.data, sizeof(actual));
+                EXPECT_DOUBLE_EQ(actual, 3.0);
+            }
+        }
+    }
+}
+
+TEST_F(EsScrollParserTest, FloatSourceRoundsDirectlyToFloat) {
+    MutableColumnPtr column;
+    auto status = read_scalar(TPrimitiveType::FLOAT,
+                              R"("1.000000059604644775390625000000000000000000000001")", &column);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    auto bytes = column->get_data_at(0);
+    float actual;
+    memcpy(&actual, bytes.data, sizeof(actual));
+    EXPECT_EQ(actual, 1.00000011920928955078125F);
+}
 
 TEST_F(EsScrollParserTest, EmptyAndNullScalarSourceArrays) {
     for (auto type : {TPrimitiveType::FLOAT, TPrimitiveType::DOUBLE, TPrimitiveType::BOOLEAN,
