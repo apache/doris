@@ -18,12 +18,24 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.trees.expressions.functions.agg.LegacyAggStateResultTypeResolver;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.qe.ConnectContext;
 
 /** ComputePrecisionForSum */
-public interface ComputePrecisionForSum extends ComputePrecision {
+public interface ComputePrecisionForSum extends ComputePrecision, LegacyAggStateResultTypeResolver {
+    @Override
+    default DataType resolveLegacyAggStateResultType(DataType storedInput) {
+        if (!(storedInput instanceof DecimalV3Type)) {
+            return getDataType();
+        }
+        DecimalV3Type input = (DecimalV3Type) storedInput;
+        int precision = input.getPrecision() <= DecimalV3Type.MAX_DECIMAL128_PRECISION
+                ? DecimalV3Type.MAX_DECIMAL128_PRECISION : DecimalV3Type.MAX_DECIMAL256_PRECISION;
+        return DecimalV3Type.createDecimalV3TypeNotCheck256(precision, input.getScale());
+    }
+
     @Override
     default FunctionSignature computePrecision(FunctionSignature signature) {
         DataType argumentType = getArgumentType(0);

@@ -58,7 +58,17 @@ message PTypeNode {
     optional int32 variant_max_subcolumns_count = 6 [default = 0];
     optional bool variant_enable_doc_mode = 7 [default = false];
     optional bool variant_is_v2 = 8 [default = false];
+    optional PAggStateSignature agg_state = 9;
 };
+
+message PAggStateSignature {
+    optional string function_name = 1;
+    repeated PTypeDesc sub_types = 2;
+    repeated bool sub_type_nullables = 3;
+    optional bool result_is_nullable = 4;
+    optional int32 be_exec_version = 5;
+    optional PTypeDesc result_type = 6;
+}
 
 // A flattened representation of a tree of column types obtained by depth-first
 // traversal. Complex types such as map, array and struct have child types corresponding

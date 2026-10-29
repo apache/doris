@@ -51,7 +51,6 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DbUtil;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.nereids.rules.expression.check.CheckCast;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -548,7 +547,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                             if (!Objects.equals(newColumn.getType(), column.getType())) {
                                 DataType srcType = DataType.fromCatalogType(column.getType());
                                 DataType destType = DataType.fromCatalogType(newColumn.getType());
-                                CheckCast.check(srcType, destType, false, false);
+                                // Also reject incompatible jobs persisted before the DDL-time check was added.
+                                SchemaChangeHandler.checkColumnTypeConversion(column, newColumn);
                                 SlotRef slot = new SlotRef(destSlotDesc);
                                 slot.setCol(column.getName());
                                 Expr defineExpr = slot;

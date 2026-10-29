@@ -1287,7 +1287,9 @@ public abstract class Type {
     public static boolean matchExactType(Type type1, Type type2, boolean ignorePrecision) {
         // we should make type decide to match other for itself to impl matchesType instead of switch case types
         if (type1.matchesType(type2)) {
-            if (type1.isArrayType()) {
+            if (type1.isAggStateType() && type2.isAggStateType()) {
+                return type1.equals(type2);
+            } else if (type1.isArrayType()) {
                 return matchExactType(((ArrayType) type1).getItemType(), ((ArrayType) type2).getItemType(),
                         ignorePrecision);
             } else if (type1.isMapType()) {

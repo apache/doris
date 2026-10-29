@@ -44,8 +44,17 @@ public class AggStateType extends Type {
     @SerializedName(value = "functionName")
     private String functionName;
 
+    @SerializedName(value = "resultType")
+    private Type resultType;
+
     public AggStateType(String functionName, Boolean resultIsNullable, List<Type> subTypes,
             List<Boolean> subTypeNullables) {
+        this(functionName, resultIsNullable, subTypes, subTypeNullables, null);
+    }
+
+    public AggStateType(String functionName, Boolean resultIsNullable, List<Type> subTypes,
+            List<Boolean> subTypeNullables, Type resultType) {
+        this.resultType = resultType;
         Objects.requireNonNull(subTypes, "subTypes should not be null");
         Objects.requireNonNull(subTypeNullables, "subTypeNullables should not be null");
         if (subTypes.size() != subTypeNullables.size()) {
@@ -56,6 +65,11 @@ public class AggStateType extends Type {
         this.subTypes = subTypes;
         this.subTypeNullables = subTypeNullables;
         this.resultIsNullable = resultIsNullable;
+    }
+
+    /** Saved result signature, or null for legacy states without result metadata. */
+    public Type getResultType() {
+        return resultType;
     }
 
     public List<Type> getSubTypes() {
@@ -89,8 +103,7 @@ public class AggStateType extends Type {
                 stringBuilder.append(" not null");
             }
         }
-        stringBuilder.append(")");
-        stringBuilder.append(">");
+        stringBuilder.append(")>");
         return stringBuilder.toString();
     }
 
@@ -125,6 +138,10 @@ public class AggStateType extends Type {
         container.setResultIsNullable(resultIsNullable);
         container.setFunctionName(functionName);
         container.setBeExecVersion(Config.be_exec_version);
+        // Old catalog images omit the signature; retain that marker for the BE legacy reader.
+        if (resultType != null) {
+            container.setAggStateResultType(resultType.toThrift());
+        }
     }
 
     @Override
@@ -133,19 +150,17 @@ public class AggStateType extends Type {
             return false;
         }
         AggStateType other = (AggStateType) o;
-        int subTypeNumber = subTypeNullables.size();
-        if (subTypeNumber != other.subTypeNullables.size()) {
-            return false;
-        }
-        for (int i = 0; i < subTypeNumber; i++) {
-            if (!subTypeNullables.get(i).equals(other.subTypeNullables.get(i))) {
-                return false;
-            }
-            if (!subTypes.get(i).equals(other.subTypes.get(i))) {
-                return false;
-            }
-        }
-        return true;
+        return Objects.equals(functionName, other.functionName)
+                && Objects.equals(resultIsNullable, other.resultIsNullable)
+                && Objects.equals(resultType, other.resultType)
+                && subTypes.equals(other.subTypes)
+                && subTypeNullables.equals(other.subTypeNullables);
+    }
+
+    @Override
+    public int hashCode() {
+        // Some nested catalog types implement structural equality without a structural hash code.
+        return Objects.hash(functionName, resultIsNullable, subTypeNullables);
     }
 
     public PrimitiveType getPrimitiveType() {

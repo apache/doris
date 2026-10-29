@@ -23,6 +23,7 @@ import org.apache.doris.backup.BackupJobInfo.BackupPartitionInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupTabletInfo;
 import org.apache.doris.backup.RestoreFileMapping.IdChain;
 import org.apache.doris.backup.Status.ErrCode;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -66,8 +67,10 @@ import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -759,7 +762,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                                 BackupHandler.SIGNATURE_VERSION, intersectPartNames);
                         String remoteTblSignature = remoteOlapTbl.getSignature(
                                 BackupHandler.SIGNATURE_VERSION, intersectPartNames);
-                        if (!localTblSignature.equals(remoteTblSignature)) {
+                        if (!localTblSignature.equals(remoteTblSignature)
+                                || !aggStateSignatures(localOlapTbl).equals(aggStateSignatures(remoteOlapTbl))) {
                             if (isForceReplace) {
                                 LOG.info("Table {} already exists but with different schema, will force replace, "
                                         + "local table: {}, remote table: {}",
@@ -871,6 +875,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                                 }
                             }
                         }
+                    } catch (AnalysisException e) {
+                        status = new Status(ErrCode.COMMON_ERROR,
+                                "Failed to compare schemas for table " + tableName + ": " + e.getMessage());
+                        return;
                     } finally {
                         localOlapTbl.readUnlock();
                     }
@@ -1219,6 +1227,20 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         metaPreparedTime = System.currentTimeMillis();
         setState(RestoreJobState.SNAPSHOTING);
         // No log here, PENDING state restore job will redo this method
+    }
+
+    /** The table signature omits AGG_STATE details. Compare the effective types for every index by name. */
+    @VisibleForTesting
+    static com.google.common.collect.Table<String, String, DataType> aggStateSignatures(OlapTable table) {
+        com.google.common.collect.Table<String, String, DataType> signatures = HashBasedTable.create();
+        table.getIndexNameToId().forEach((indexName, indexId) -> {
+            for (Column column : table.getSchemaByIndexId(indexId, true)) {
+                if (column.getType().isAggStateType()) {
+                    signatures.put(indexName, column.getName(), DataType.fromCatalogType(column.getType()));
+                }
+            }
+        });
+        return signatures;
     }
 
     private Status bindLocalAndRemoteOlapTableReplicas(

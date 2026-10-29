@@ -31,7 +31,9 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.proto.OlapFile;
+import org.apache.doris.proto.Types;
 import org.apache.doris.thrift.TColumn;
+import org.apache.doris.thrift.TPrimitiveType;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -42,6 +44,8 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 public class ColumnTest {
 
@@ -95,6 +99,43 @@ public class ColumnTest {
         Assertions.assertFalse(datetimeProtobufColumn.hasDefaultValueExpr());
     }
 
+
+    @Test
+    public void testNestedAggStateResult() throws Exception {
+        AggStateType sum = new AggStateType("sum", true, List.of(Type.INT), List.of(false), Type.BIGINT);
+        AggStateType outer = new AggStateType("any_value", true, List.of(sum), List.of(false), sum);
+        Assertions.assertEquals(sum.toThrift(), outer.toThrift().getAggStateResultType());
+
+        Column column = new Column("s", outer, false, AggregateType.GENERIC, false, null, "");
+        Types.PAggStateSignature result = ColumnToProtobuf.toPb(column, null, null)
+                .getAggStateResultType().getTypes(0).getAggState();
+        Assertions.assertEquals("sum", result.getFunctionName());
+        Assertions.assertEquals(TPrimitiveType.INT.getValue(),
+                result.getSubTypes(0).getTypes(0).getScalarType().getType());
+        Assertions.assertFalse(result.getSubTypeNullables(0));
+        Assertions.assertEquals(TPrimitiveType.BIGINT.getValue(),
+                result.getResultType().getTypes(0).getScalarType().getType());
+    }
+
+    @Test
+    public void testAggStateVariantResultMetadataRoundTrip() throws Exception {
+        VariantType variant = new VariantType(new ArrayList<>(), 8, false, 10000, 0, true, 0L, 64, false);
+        AggStateType state = new AggStateType("collect_list", false, List.of(variant), List.of(true),
+                new ArrayType(variant, true));
+        Column column = new Column("s", state, false, AggregateType.GENERIC, false, null, "");
+
+        OlapFile.ColumnPB metadata = ColumnToProtobuf.toPb(column, null, null);
+        Types.PTypeDesc result = OlapFile.ColumnPB.parseFrom(metadata.toByteArray()).getAggStateResultType();
+        Assertions.assertEquals(2, result.getTypesCount());
+        Types.PTypeNode variantNode = result.getTypes(1);
+        Assertions.assertEquals(TPrimitiveType.VARIANT.getValue(), variantNode.getScalarType().getType());
+        Assertions.assertTrue(variantNode.hasVariantMaxSubcolumnsCount());
+        Assertions.assertEquals(8, variantNode.getVariantMaxSubcolumnsCount());
+        Assertions.assertTrue(variantNode.hasVariantEnableDocMode());
+        Assertions.assertTrue(variantNode.getVariantEnableDocMode());
+        Assertions.assertTrue(variantNode.hasVariantIsV2());
+        Assertions.assertTrue(variantNode.getVariantIsV2());
+    }
 
     @Test
     public void testSerialization() throws Exception {

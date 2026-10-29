@@ -21,8 +21,11 @@ import org.apache.doris.backup.BackupJobInfo.BackupIndexInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupOlapTableInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupPartitionInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupTabletInfo;
+import org.apache.doris.catalog.AggStateType;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -32,8 +35,10 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
@@ -61,6 +66,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.zip.Adler32;
@@ -227,6 +233,28 @@ public class RestoreJobTest {
         if (mockedMarkedCountDownLatch != null) {
             mockedMarkedCountDownLatch.close();
         }
+    }
+
+    @Test
+    public void testRestoreAggStateSignatures() {
+        mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+        Mockito.when(env.getFunctionRegistry()).thenReturn(new FunctionRegistry());
+        OlapTable legacy = tableWithStateInRollup(10L, null);
+        OlapTable narrow = tableWithStateInRollup(20L, ScalarType.createDecimalV3Type(38, 2));
+        OlapTable wide = tableWithStateInRollup(30L, ScalarType.createDecimalV3Type(76, 2));
+        Assertions.assertEquals(RestoreJob.aggStateSignatures(legacy), RestoreJob.aggStateSignatures(narrow));
+        Assertions.assertNotEquals(RestoreJob.aggStateSignatures(legacy), RestoreJob.aggStateSignatures(wide));
+        Assertions.assertNotEquals(RestoreJob.aggStateSignatures(narrow), RestoreJob.aggStateSignatures(wide));
+    }
+
+    private OlapTable tableWithStateInRollup(long rollupId, Type resultType) {
+        AggStateType state = new AggStateType("sum", true, Lists.newArrayList(ScalarType.createDecimalV3Type(18, 2)),
+                Lists.newArrayList(false), resultType);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getIndexNameToId()).thenReturn(Map.of("base", 1L, "rollup", rollupId));
+        Mockito.when(table.getSchemaByIndexId(1L, true)).thenReturn(Lists.newArrayList(new Column("k", Type.INT)));
+        Mockito.when(table.getSchemaByIndexId(rollupId, true)).thenReturn(Lists.newArrayList(new Column("s", state)));
+        return table;
     }
 
     @Test

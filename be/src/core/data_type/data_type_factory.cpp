@@ -80,9 +80,9 @@ DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc, bool
         for (UInt32 i = 0; i < col_desc.get_subtype_count(); i++) {
             dataTypes.push_back(create_data_type(col_desc.get_sub_column(i)));
         }
-        nested = std::make_shared<DataTypeAggState>(dataTypes, col_desc.get_result_is_nullable(),
-                                                    col_desc.get_aggregation_name(),
-                                                    col_desc.get_be_exec_version());
+        nested = std::make_shared<DataTypeAggState>(
+                dataTypes, col_desc.get_result_is_nullable(), col_desc.get_aggregation_name(),
+                col_desc.get_be_exec_version(), col_desc.get_agg_state_result_type());
     } else if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         DCHECK(col_desc.get_subtype_count() == 1);
         nested = std::make_shared<DataTypeArray>(create_data_type(col_desc.get_sub_column(0)));
@@ -366,9 +366,12 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         for (auto child : pcolumn.children()) {
             sub_types.push_back(create_data_type(child));
         }
-        nested = std::make_shared<DataTypeAggState>(sub_types, pcolumn.result_is_nullable(),
-                                                    pcolumn.function_name(),
-                                                    pcolumn.be_exec_version());
+        nested = std::make_shared<DataTypeAggState>(
+                sub_types, pcolumn.result_is_nullable(), pcolumn.function_name(),
+                pcolumn.be_exec_version(),
+                pcolumn.has_agg_state_result_type()
+                        ? create_data_type(pcolumn.agg_state_result_type(), false)
+                        : nullptr);
         break;
     }
     default: {
@@ -395,9 +398,12 @@ DataTypePtr DataTypeFactory::create_data_type(const segment_v2::ColumnMetaPB& pc
             }
             data_types.push_back(DataTypeFactory::instance().create_data_type(child));
         }
-        nested = std::make_shared<DataTypeAggState>(data_types, pcolumn.result_is_nullable(),
-                                                    pcolumn.function_name(),
-                                                    pcolumn.be_exec_version());
+        nested = std::make_shared<DataTypeAggState>(
+                data_types, pcolumn.result_is_nullable(), pcolumn.function_name(),
+                pcolumn.be_exec_version(),
+                pcolumn.has_agg_state_result_type()
+                        ? create_data_type(pcolumn.agg_state_result_type(), false)
+                        : nullptr);
     } else if (pcolumn.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_ARRAY)) {
         // Item subcolumn and length subcolumn, for sparse columns only subcolumn
         DCHECK_GE(pcolumn.children_columns().size(), 1) << pcolumn.DebugString();
@@ -688,8 +694,21 @@ DataTypePtr DataTypeFactory::create_data_type(
             }
             nested = std::make_shared<DataTypeStruct>(data_types, names);
         } else if (primitive_type == TYPE_AGG_STATE) {
-            // Do nothing
-            nested = std::make_shared<DataTypeAggState>();
+            if (node.has_agg_state()) {
+                const auto& state = node.agg_state();
+                DataTypes args;
+                for (int i = 0; i < state.sub_types_size(); ++i) {
+                    args.push_back(
+                            create_data_type(state.sub_types(i), state.sub_type_nullables(i)));
+                }
+                nested = std::make_shared<DataTypeAggState>(
+                        args, state.result_is_nullable(), state.function_name(),
+                        state.be_exec_version(),
+                        state.has_result_type() ? create_data_type(state.result_type(), false)
+                                                : nullptr);
+            } else {
+                nested = std::make_shared<DataTypeAggState>();
+            }
         } else if (primitive_type == TYPE_VARBINARY) {
             // Serialized execution types must retain VARBINARY(n)'s byte limit across RPCs.
             return create_data_type(primitive_type, is_nullable, 0, 0,
@@ -778,31 +797,7 @@ DataTypePtr DataTypeFactory::create_data_type(
 }
 
 DataTypePtr DataTypeFactory::create_data_type(const TTypeDesc& t) {
-    DataTypePtr nested = nullptr;
-
-    auto is_agg_state = false;
-    if (t.types[0].type == TTypeNodeType::SCALAR) {
-        DCHECK(t.types[0].__isset.scalar_type);
-        const TScalarType& scalar_type = t.types[0].scalar_type;
-        is_agg_state = thrift_to_type(scalar_type.type) == TYPE_AGG_STATE;
-    }
-    if (is_agg_state) {
-        DCHECK(t.__isset.sub_types);
-        DataTypes subTypes;
-        for (auto sub : t.sub_types) {
-            subTypes.push_back(create_data_type(sub, sub.is_nullable));
-        }
-        DCHECK(t.__isset.result_is_nullable);
-        DCHECK(t.__isset.function_name);
-        nested = std::make_shared<DataTypeAggState>(subTypes, t.result_is_nullable, t.function_name,
-                                                    t.be_exec_version);
-        return t.is_nullable ? make_nullable(nested) : nested;
-    } else {
-        int idx = 0;
-        nested = create_data_type(t.types, &idx, t.is_nullable);
-        DCHECK_EQ(idx, t.types.size() - 1);
-        return nested;
-    }
+    return create_data_type(t, t.is_nullable);
 }
 
 DataTypePtr DataTypeFactory::create_data_type(const TTypeDesc& t, bool is_nullable) {
@@ -822,8 +817,10 @@ DataTypePtr DataTypeFactory::create_data_type(const TTypeDesc& t, bool is_nullab
         }
         DCHECK(t.__isset.result_is_nullable);
         DCHECK(t.__isset.function_name);
-        nested = std::make_shared<DataTypeAggState>(subTypes, t.result_is_nullable, t.function_name,
-                                                    t.be_exec_version);
+        nested = std::make_shared<DataTypeAggState>(
+                subTypes, t.result_is_nullable, t.function_name, t.be_exec_version,
+                t.agg_state_result_type ? create_data_type(*t.agg_state_result_type, false)
+                                        : nullptr);
         return is_nullable ? make_nullable(nested) : nested;
     } else {
         int idx = 0;
