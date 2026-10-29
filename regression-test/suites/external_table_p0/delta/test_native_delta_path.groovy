@@ -205,7 +205,7 @@ suite("test_native_delta_path", "p0,external") {
     """
     test {
         sql "DROP TABLE ${createCatalogName}.`default`.created_events"
-        exception "Drop table is not supported for catalog"
+        exception "Native Delta DROP TABLE requires delta.write.enabled=true"
     }
     order_qt_created_after_rejected_drop """
         SELECT COUNT(*)
@@ -214,12 +214,12 @@ suite("test_native_delta_path", "p0,external") {
 
     test {
         sql "TRUNCATE TABLE ${catalogName}.`default`.customer"
-        exception "Truncate table is not supported for catalog"
+        exception "delta.write.enabled=true"
     }
     order_qt_read_only_after_rejected_truncate "SELECT COUNT(*) FROM ${catalogName}.`default`.customer"
     test {
         sql "TRUNCATE TABLE ${createCatalogName}.`default`.created_events PARTITION (p1)"
-        exception "Plugin connector TRUNCATE TABLE supports full tables only"
+        exception "Native Delta TRUNCATE PARTITION is not supported"
     }
     order_qt_created_after_rejected_partition_truncate """
         SELECT id, payload FROM ${createCatalogName}.`default`.created_events ORDER BY id

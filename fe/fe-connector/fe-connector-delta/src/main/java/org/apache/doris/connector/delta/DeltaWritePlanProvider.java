@@ -68,9 +68,21 @@ final class DeltaWritePlanProvider implements ConnectorWritePlanProvider {
         if (!handle.getStaticPartitionSpec().isEmpty()) {
             throw new UnsupportedOperationException("Native Delta static-partition writes are not supported");
         }
-        if (handle.getWriteOperation() != WriteOperation.INSERT
-                && handle.getWriteOperation() != WriteOperation.OVERWRITE) {
-            throw new DorisConnectorException("Native Delta row-level DML must use its copy-on-write plan");
+        // The SPI keeps the SQL operation while copy-on-write commands bind an overwrite mechanism.
+        switch (handle.getWriteOperation()) {
+            case INSERT:
+            case OVERWRITE:
+                break;
+            case DELETE:
+            case UPDATE:
+            case MERGE:
+                if (!handle.isOverwrite()) {
+                    throw new DorisConnectorException("Native Delta row-level DML must use its copy-on-write plan");
+                }
+                break;
+            default:
+                throw new DorisConnectorException("Native Delta does not support write operation "
+                        + handle.getWriteOperation());
         }
         DeltaConnectorTransaction transaction = (DeltaConnectorTransaction) session.getCurrentTransaction()
                 .orElseThrow(() -> new DorisConnectorException("Delta write requires a statement transaction"));

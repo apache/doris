@@ -41,6 +41,9 @@ import org.apache.thrift.protocol.TBinaryProtocol;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -154,6 +157,57 @@ public class DeltaConnectorSpiTest {
         Assertions.assertTrue(connector.getCatalogAdapter().loadSnapshot(empty).getActiveFiles().isEmpty());
     }
 
+    @ParameterizedTest
+    @EnumSource(value = WriteOperation.class, names = {"DELETE", "UPDATE", "MERGE"})
+    public void testCopyOnWriteKeepsStatementOperation(WriteOperation operation) throws Exception {
+        DeltaConnector connector = createConnector("copy-on-write-" + operation);
+        append(connector, new TestSession("initial-append"), "initial.parquet", 2);
+        TestSession session = new TestSession("copy-on-write-" + operation);
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorTableHandle table = metadata.getTableHandle(session, "default", "events").orElseThrow();
+        ConnectorTransaction transaction = metadata.beginTransaction(session, table);
+        session.setCurrentTransaction(transaction);
+
+        ConnectorSinkPlan plan = connector.getWritePlanProvider().planWrite(
+                session, writeHandle(metadata, session, table, true, operation));
+        Assertions.assertTrue(plan.getDataSink().getHiveTableSink().isConnectorFileSink());
+        Assertions.assertFalse(plan.getDataSink().getHiveTableSink().isOverwrite());
+        Assertions.assertEquals(OptionalLong.of(2), transaction.getOriginalRowCount());
+        transaction.commit();
+        transaction.close();
+        DeltaTableHandle replaced = connector.getCatalogAdapter().getTableHandle("default", "events").orElseThrow();
+        Assertions.assertTrue(connector.getCatalogAdapter().loadSnapshot(replaced).getActiveFiles().isEmpty());
+        metadata.close();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = WriteOperation.class, names = {"DELETE", "UPDATE", "MERGE"})
+    public void testRowLevelWriteWithoutCopyOnWriteIsRejected(WriteOperation operation) throws Exception {
+        DeltaConnector connector = createConnector("direct-row-level-" + operation);
+        TestSession session = new TestSession("direct-row-level-" + operation);
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorTableHandle table = metadata.getTableHandle(session, "default", "events").orElseThrow();
+        DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
+                () -> connector.getWritePlanProvider().planWrite(
+                        session, writeHandle(metadata, session, table, false, operation)));
+        Assertions.assertTrue(failure.getMessage().contains("copy-on-write plan"));
+        metadata.close();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testFileRewriteIsRejected(boolean overwrite) throws Exception {
+        DeltaConnector connector = createConnector("file-rewrite-" + overwrite);
+        TestSession session = new TestSession("file-rewrite-" + overwrite);
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorTableHandle table = metadata.getTableHandle(session, "default", "events").orElseThrow();
+        DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
+                () -> connector.getWritePlanProvider().planWrite(
+                        session, writeHandle(metadata, session, table, overwrite, WriteOperation.REWRITE)));
+        Assertions.assertTrue(failure.getMessage().contains("REWRITE"));
+        metadata.close();
+    }
+
     @Test
     public void testConflictingReportsRollbackAndStaleBaseFailsBeforeWriting() throws Exception {
         DeltaConnector connector = createConnector("rejection");
@@ -247,6 +301,12 @@ public class DeltaConnectorSpiTest {
 
     private static ConnectorWriteHandle writeHandle(ConnectorMetadata metadata, ConnectorSession session,
             ConnectorTableHandle table, boolean overwrite) {
+        return writeHandle(metadata, session, table, overwrite,
+                overwrite ? WriteOperation.OVERWRITE : WriteOperation.INSERT);
+    }
+
+    private static ConnectorWriteHandle writeHandle(ConnectorMetadata metadata, ConnectorSession session,
+            ConnectorTableHandle table, boolean overwrite, WriteOperation operation) {
         List<ConnectorColumn> columns = metadata.getTableSchema(session, table).getColumns();
         return new ConnectorWriteHandle() {
             @Override
@@ -271,7 +331,7 @@ public class DeltaConnectorSpiTest {
 
             @Override
             public WriteOperation getWriteOperation() {
-                return overwrite ? WriteOperation.OVERWRITE : WriteOperation.INSERT;
+                return operation;
             }
         };
     }
