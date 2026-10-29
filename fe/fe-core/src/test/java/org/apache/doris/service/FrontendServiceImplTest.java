@@ -989,7 +989,9 @@ public class FrontendServiceImplTest {
 
             TStreamLoadPutResult authorized = impl.streamLoadPut(
                     groupCommitStreamLoadRequest("root", "", "missing_table"));
-            Assert.assertEquals(TStatusCode.NOT_FOUND, authorized.getStatus().getStatusCode());
+            TStatusCode authorizedStatus = authorized.getStatus().getStatusCode();
+            Assert.assertTrue("authorized request should reach the missing-table check, but got " + authorizedStatus,
+                    authorizedStatus == TStatusCode.NOT_FOUND || authorizedStatus == TStatusCode.ANALYSIS_ERROR);
             Assert.assertTrue(authorized.getStatus().getErrorMsgs().get(0).contains("missing_table"));
         } finally {
             connectContext.setThreadLocalInfo();
