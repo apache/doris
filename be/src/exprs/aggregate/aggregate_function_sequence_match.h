@@ -68,7 +68,7 @@ struct ComparePairFirst final {
 
 static constexpr size_t MAX_EVENTS = 32;
 
-/// Max number of iterations to match the pattern against a sequence, exception thrown when exceeded
+/// Max number of iterations to match the pattern against a sequence; exceeding it is an error.
 constexpr auto sequence_match_max_iterations = 1000000l;
 
 template <PrimitiveType T, typename Derived>
@@ -482,10 +482,11 @@ public:
             }
 
             if (++i > sequence_match_max_iterations) {
-                LOG(WARNING)
-                        << "Pattern application proves too difficult, exceeding max iterations (" +
-                                   std::to_string(sequence_match_max_iterations) + ")";
-                return false;
+                // The only matching event may follow the budget (e.g. a million earlier events).
+                // Exhausting the search is not proof that the pattern does not match.
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "sequence pattern evaluation exceeded max iterations ({})",
+                                sequence_match_max_iterations);
             }
         }
 
@@ -540,10 +541,11 @@ public:
                 }
 
                 if (limit_iterations && ++events_processed > sequence_match_max_iterations) {
-                    LOG(WARNING) << "Pattern application proves too difficult, exceeding max "
-                                    "iterations are " +
-                                            std::to_string(sequence_match_max_iterations);
-                    return false;
+                    // A deterministic event may still occur after the inspected prefix.
+                    // Report the exhausted budget instead of treating it as a missing event.
+                    throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                    "sequence pattern evaluation exceeded max iterations ({})",
+                                    sequence_match_max_iterations);
                 }
             }
 
