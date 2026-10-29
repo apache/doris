@@ -522,6 +522,12 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams,
             Optional<MvccSnapshot> latestSnapshotFence) {
+        // Views have their own schema and no table snapshot. Binding expands the view SQL and rejects
+        // time travel; resolving a table handle here would load the view name through the table API.
+        if (isView()) {
+            return new PluginDrivenMvccSnapshot(emptySnapshot(),
+                    Collections.emptyMap(), Collections.emptyMap());
+        }
         if (!tableSnapshot.isPresent() && !scanParams.isPresent()) {
             // B5a implicit query-begin (latest) pin.
             return latestSnapshotFence.isPresent()

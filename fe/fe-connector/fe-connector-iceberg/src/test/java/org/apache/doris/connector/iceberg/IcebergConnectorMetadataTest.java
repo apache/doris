@@ -41,8 +41,12 @@ import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.types.Types;
+import org.apache.iceberg.view.BaseView;
 import org.apache.iceberg.view.ImmutableSQLViewRepresentation;
 import org.apache.iceberg.view.ImmutableViewVersion;
+import org.apache.iceberg.view.View;
+import org.apache.iceberg.view.ViewMetadata;
+import org.apache.iceberg.view.ViewOperations;
 import org.apache.iceberg.view.ViewVersion;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -142,6 +146,29 @@ public class IcebergConnectorMetadataTest {
                     .sql(sql).dialect(reprDialect).build());
         }
         return builder.build();
+    }
+
+    private static View viewWithMetadata(ViewVersion version, Schema schema) {
+        ViewMetadata metadata = ViewMetadata.builder()
+                .setLocation("s3://warehouse/db1/v1")
+                .setCurrentVersion(version, schema)
+                .build();
+        return new BaseView(new ViewOperations() {
+            @Override
+            public ViewMetadata current() {
+                return metadata;
+            }
+
+            @Override
+            public ViewMetadata refresh() {
+                return metadata;
+            }
+
+            @Override
+            public void commit(ViewMetadata base, ViewMetadata updated) {
+                throw new UnsupportedOperationException();
+            }
+        }, "db1.v1");
     }
 
     // ---------------------------------------------------------------------
@@ -612,15 +639,14 @@ public class IcebergConnectorMetadataTest {
         Schema viewSchema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()),
                 Types.NestedField.optional(2, "name", Types.StringType.get()));
-        ops.view = new FakeIcebergViewCatalog.StubView(
+        ops.view = viewWithMetadata(
                 viewVersionWith("Spark", "spark", "SELECT 1"), viewSchema);
 
         ConnectorViewDefinition def = metadataWith(ops).getViewDefinition(null, "db1", "v1");
 
         // WHY (H8): ONE loadView yields the sql/dialect (BindRelation / SHOW CREATE) AND the column schema
-        // (DESC / SHOW COLUMNS / information_schema.columns). The dialect is the summary engine-name LOWERCASED;
-        // the sql is that dialect's representation; the columns are parseSchema(view.schema()). MUTATION:
-        // dropping toLowerCase / wrong representation / not parsing the view schema (empty columns) -> red.
+        // (DESC / SHOW COLUMNS / information_schema.columns). SQL and dialect come from the selected
+        // representation, while columns come from parseSchema(view.schema()).
         Assertions.assertEquals("SELECT 1", def.getSql());
         Assertions.assertEquals("spark", def.getDialect());
         List<ConnectorColumn> cols = def.getColumns();
@@ -644,7 +670,7 @@ public class IcebergConnectorMetadataTest {
         Schema viewSchema = new Schema(
                 Types.NestedField.optional(1, "b", Types.BinaryType.get()),
                 Types.NestedField.optional(2, "ts_tz", Types.TimestampType.withZone()));
-        ops.view = new FakeIcebergViewCatalog.StubView(
+        ops.view = viewWithMetadata(
                 viewVersionWith("spark", "spark", "SELECT 1"), viewSchema);
         Map<String, String> props = new HashMap<>();
         props.put("enable.mapping.varbinary", "true");
@@ -690,26 +716,62 @@ public class IcebergConnectorMetadataTest {
     }
 
     @Test
-    public void getViewDefinitionThrowsWhenEngineNameMissing() {
-        // WHY (moved from the seam test post-H8): the dialect IS the summary engine-name; without it the SQL
-        // representation cannot be selected. MUTATION: dropping the empty-engine-name check -> wrong behavior.
-        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
-        ops.view = new FakeIcebergViewCatalog.StubView(
-                viewVersionWith(null, "spark", "SELECT 1"), idNameSchema());
-        Assertions.assertThrows(RuntimeException.class,
-                () -> metadataWith(ops).getViewDefinition(null, "db1", "v1"));
+    public void getViewDefinitionDoesNotRequireEngineName() {
+        for (String engineName : Arrays.asList(null, "", "Polaris")) {
+            RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+            ops.view = viewWithMetadata(viewVersionWith(engineName, "SpArK", "SELECT 1"), idNameSchema());
+            ops.throwNoSuchTableOnLoadTable = true;
+
+            ConnectorViewDefinition definition = metadataWith(ops).getViewDefinition(null, "db1", "v1");
+
+            Assertions.assertEquals("SELECT 1", definition.getSql());
+            Assertions.assertEquals("spark", definition.getDialect());
+            Assertions.assertEquals(2, definition.getColumns().size());
+            Assertions.assertEquals(Collections.singletonList("loadView:db1.v1"), ops.log);
+        }
     }
 
     @Test
-    public void getViewDefinitionThrowsWhenNoSqlForDialect() {
-        // WHY (moved from the seam test post-H8): engine-name present but no SQL representation for that dialect
-        // -> sqlFor returns null -> must fail loud (mirrors legacy "Cannot get view text"). MUTATION: dropping
-        // the null-sql check -> NPE.
+    public void getViewDefinitionPrefersDorisRepresentation() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ViewVersion version = ImmutableViewVersion.builder()
+                .from(viewVersionWith("Spark", "spark", "SELECT 1 AS spark_value"))
+                .addRepresentations(ImmutableSQLViewRepresentation.builder()
+                        .sql("SELECT 1 AS doris_value").dialect("DoRiS").build())
+                .build();
+        ops.view = viewWithMetadata(version, idNameSchema());
+
+        ConnectorViewDefinition definition = metadataWith(ops).getViewDefinition(null, "db1", "v1");
+
+        Assertions.assertEquals("SELECT 1 AS doris_value", definition.getSql());
+        Assertions.assertEquals("doris", definition.getDialect());
+    }
+
+    @Test
+    public void getViewDefinitionUsesFirstSqlRepresentationWhenDorisIsAbsent() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ViewVersion version = ImmutableViewVersion.builder()
+                .from(viewVersionWith("Trino", "spark", "SELECT 1 AS spark_value"))
+                .addRepresentations(ImmutableSQLViewRepresentation.builder()
+                        .sql("SELECT 1 AS trino_value").dialect("trino").build())
+                .build();
+        ops.view = viewWithMetadata(version, idNameSchema());
+
+        ConnectorViewDefinition definition = metadataWith(ops).getViewDefinition(null, "db1", "v1");
+
+        Assertions.assertEquals("SELECT 1 AS spark_value", definition.getSql());
+        Assertions.assertEquals("spark", definition.getDialect());
+    }
+
+    @Test
+    public void getViewDefinitionThrowsWhenNoSqlRepresentation() {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.view = new FakeIcebergViewCatalog.StubView(
                 viewVersionWith("spark", null, null), idNameSchema());
-        Assertions.assertThrows(RuntimeException.class,
+        RuntimeException exception = Assertions.assertThrows(RuntimeException.class,
                 () -> metadataWith(ops).getViewDefinition(null, "db1", "v1"));
+        Assertions.assertTrue(exception.getMessage().contains(
+                "Cannot get SQL representation for Iceberg view 'db1.v1'"), exception.getMessage());
     }
 
     // ---------------------------------------------------------------------
