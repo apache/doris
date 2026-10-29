@@ -36,6 +36,94 @@
 #include "util/jsonb_document.h"
 
 namespace doris {
+namespace {
+
+template <size_t BlockSize>
+size_t contiguous_rowid_run(const uint32_t* indices, size_t max_run) {
+    const uint64_t first = indices[0];
+    size_t run = 0;
+    // Reject sparse blocks using their endpoints before checking every rowid.
+    // Verify every entry: [0, 0, 2, ..., 15] has consecutive endpoints but a duplicate.
+    while (run + BlockSize <= max_run &&
+           indices[run + BlockSize - 1] == first + run + BlockSize - 1) {
+        bool consecutive = true;
+        for (size_t i = 0; i < BlockSize; ++i) {
+            consecutive &= indices[run + i] == first + run + i;
+        }
+        if (!consecutive) {
+            break;
+        }
+        run += BlockSize;
+    }
+    if (run > 0) {
+        // Combine verified blocks and their tail into one copy. For example,
+        // [0..34, 40] copies 35 values together, then gathers row 40.
+        while (run < max_run && indices[run] == first + run) {
+            ++run;
+        }
+    }
+    return run;
+}
+
+} // namespace
+
+template <FieldType FT>
+size_t storage_to_column_by_indices(const uint8_t* values, size_t src_rows, const uint32_t* indices,
+                                    size_t count, uint64_t index_base, IColumn& dst) {
+    if (count == 0) {
+        return 0;
+    }
+    using Layout = StorageLayout<FT>;
+    using StorageValue = typename Layout::StorageValue;
+    using Column =
+            typename PrimitiveTypeTraits<storage_field_type_to_primitive_type(FT)>::ColumnType;
+    auto& data = assert_cast<Column&>(dst).get_data();
+    const size_t old_size = data.size();
+    data.resize(old_size + count);
+    constexpr bool same_layout =
+            std::is_base_of_v<storage_layout_detail::BitCast<FT>, Layout> ||
+            std::is_base_of_v<storage_layout_detail::FloatingPoint<FT>, Layout>;
+    constexpr size_t block_size = sizeof(StorageValue) > 16 ? 32 : 16;
+    size_t appended = 0;
+    while (appended < count) {
+        if constexpr (same_layout) {
+            static_assert(sizeof(StorageValue) == sizeof(typename Layout::PrimitiveValue));
+            const uint64_t index = indices[appended] - index_base;
+            if (UNLIKELY(index >= src_rows)) {
+                break;
+            }
+            const size_t max_run = std::min(count - appended, src_rows - index);
+            const size_t run = contiguous_rowid_run<block_size>(indices + appended, max_run);
+            if (run > 0) {
+                memcpy(data.data() + old_size + appended, values + index * sizeof(StorageValue),
+                       run * sizeof(StorageValue));
+                appended += run;
+                continue;
+            }
+        }
+        // Once a probe finds short or sparse rowids, gather the remaining batch.
+        // This avoids repeated probes on sparse reads, at the cost of missing later runs.
+        for (; appended < count; ++appended) {
+            const uint64_t index = indices[appended] - index_base;
+            if (UNLIKELY(index >= src_rows)) {
+                break;
+            }
+            StorageValue value;
+            memcpy(&value, values + index * sizeof(StorageValue), sizeof(StorageValue));
+            data[old_size + appended] = Layout::to_primitive(value);
+        }
+        break;
+    }
+    data.resize_assume_reserved(old_size + appended);
+    return appended;
+}
+
+#define INSTANTIATE_SELECTED_STORAGE_LAYOUT(FT)                  \
+    template size_t storage_to_column_by_indices<FieldType::FT>( \
+            const uint8_t*, size_t, const uint32_t*, size_t, uint64_t, IColumn&);
+DORIS_APPLY_FOR_FIXED_WIDTH_STORAGE_LAYOUT_TYPES(INSTANTIATE_SELECTED_STORAGE_LAYOUT)
+#undef INSTANTIATE_SELECTED_STORAGE_LAYOUT
+
 namespace storage_layout_detail {
 
 template <FieldType FT>

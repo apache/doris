@@ -74,6 +74,12 @@ class IColumn;
 template <FieldType FT>
 struct StorageLayout;
 
+// Append the prefix of selected fixed-width storage values in rowid order.
+// Indices before index_base or beyond src_rows stop the append.
+template <FieldType FT>
+size_t storage_to_column_by_indices(const uint8_t* values, size_t src_rows, const uint32_t* indices,
+                                    size_t count, uint64_t index_base, IColumn& dst);
+
 // Where a batch conversion puts what it cannot borrow: converted fixed-width values and
 // serialised payloads in `bytes`, the Slice descriptors of the byte types in `cells`.
 struct StorageBuffers {

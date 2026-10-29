@@ -414,24 +414,9 @@ public:
             return Status::OK();
         }
 
-        auto total = *n;
-        auto read_count = 0;
-        _buffer.resize(total);
-        for (size_t i = 0; i < total; ++i) {
-            ordinal_t ord = rowids[i] - page_first_ordinal;
-            if (UNLIKELY(ord >= _num_elements)) {
-                break;
-            }
-
-            _buffer[read_count++] = *reinterpret_cast<CppType*>(get_data(ord));
-        }
-
-        if (LIKELY(read_count > 0)) {
-            StorageLayout<Type>::storage_to_column(reinterpret_cast<const uint8_t*>(_buffer.data()),
-                                                   read_count, *dst);
-        }
-
-        *n = read_count;
+        *n = storage_to_column_by_indices<Type>(reinterpret_cast<const uint8_t*>(get_data(0)),
+                                                _num_elements, rowids, *n, page_first_ordinal,
+                                                *dst);
         return Status::OK();
     }
 
@@ -464,8 +449,6 @@ private:
 
     int _size_of_element;
     size_t _cur_index;
-
-    std::vector<std::conditional_t<std::is_same_v<CppType, bool>, uint8_t, CppType>> _buffer;
 
     friend class BinaryDictPageDecoder;
 };

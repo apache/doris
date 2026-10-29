@@ -208,25 +208,9 @@ public:
             return Status::OK();
         }
 
-        auto total = *n;
-        auto read_count = 0;
-        _buffer.resize(total);
-        for (size_t i = 0; i < total; ++i) {
-            ordinal_t ord = rowids[i] - page_first_ordinal;
-            if (UNLIKELY(ord >= _num_elems)) {
-                break;
-            }
-
-            _buffer[read_count++] =
-                    unaligned_load<CppType>(&_data[PLAIN_PAGE_HEADER_SIZE + ord * SIZE_OF_TYPE]);
-        }
-
-        if (LIKELY(read_count > 0)) {
-            StorageLayout<Type>::storage_to_column(reinterpret_cast<const uint8_t*>(_buffer.data()),
-                                                   read_count, *dst);
-        }
-
-        *n = read_count;
+        *n = storage_to_column_by_indices<Type>(
+                reinterpret_cast<const uint8_t*>(_data.data + PLAIN_PAGE_HEADER_SIZE), _num_elems,
+                rowids, *n, page_first_ordinal, *dst);
         return Status::OK();
     }
 
@@ -248,8 +232,6 @@ private:
     uint32_t _cur_idx;
     typedef typename TypeTraits<Type>::CppType CppType;
     static constexpr size_t SIZE_OF_TYPE = TypeTraits<Type>::size;
-
-    std::vector<std::conditional_t<std::is_same_v<CppType, bool>, uint8_t, CppType>> _buffer;
 };
 
 } // namespace segment_v2
