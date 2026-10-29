@@ -355,6 +355,8 @@ final class LanceNamespaceClient {
             AlterTableAddColumnsRequest request = new AlterTableAddColumnsRequest()
                     .id(buildTableId(dbName, tableName))
                     .newColumns(columns);
+            // TODO: Upgrade Lance once DirectoryNamespace serializes JsonNullable<String> expressions as strings.
+            // Lance 12.0.0 currently sends an object and ADD COLUMN fails with "invalid type: map, expected a string".
             executeTableMutation(dbName, tableName, () -> namespace.alterTableAddColumns(request));
         } catch (DdlException e) {
             throw new RuntimeException(e);
