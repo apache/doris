@@ -51,6 +51,7 @@ import org.apache.doris.resource.workloadgroup.QueueToken;
 import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
@@ -235,6 +236,10 @@ public class AuditLogHelper {
                         statistics.getSpillWriteBytesToLocalStorage())
                 .setSpillReadBytesFromLocalStorage(statistics == null ? 0 :
                         statistics.getSpillReadBytesFromLocalStorage())
+                // Remote spill totals arrive in final BE reports; WorkloadRuntimeStatusMgr
+                // waits for the participants, with a bounded fallback if a BE never reports.
+                .setSpillWriteBytesToRemoteStorage(0)
+                .setSpillReadBytesFromRemoteStorage(0)
                 .setScanBytesFromLocalStorage(statistics == null ? 0 :
                         statistics.getScanBytesFromLocalStorage())
                 .setScanBytesFromRemoteStorage(statistics == null ? 0 :
@@ -370,10 +375,20 @@ public class AuditLogHelper {
             auditEventBuilder.setState(String.valueOf(MysqlStateType.OK));
         }
         AuditEvent event = auditEventBuilder.build();
-        Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().submitFinishQueryToAudit(event);
+        Set<Long> auditBackendIds = getAuditStatisticsBackendIds(ctx.getExecutor());
+        if (auditBackendIds.isEmpty()) {
+            Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().submitFinishQueryToAudit(event);
+        } else {
+            Env.getCurrentEnv().getWorkloadRuntimeStatusMgr()
+                    .submitFinishQueryToAudit(event, auditBackendIds);
+        }
         if (LOG.isDebugEnabled()) {
             LOG.debug("submit audit event: {}", event.queryId);
         }
+    }
+
+    static Set<Long> getAuditStatisticsBackendIds(StmtExecutor executor) {
+        return executor == null ? ImmutableSet.of() : executor.getAuditStatisticsBackendIds();
     }
 
     private static long getQueueTimeMs(ConnectContext ctx) {
