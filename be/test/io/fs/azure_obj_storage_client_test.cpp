@@ -29,6 +29,7 @@
 
 #include "cpp/obj-client/obj_storage_client.h"
 #include "io/fs/file_system.h"
+#include "io/obj_storage/obj_client_factory.h"
 #include "util/s3_util.h"
 
 #ifdef USE_AZURE
@@ -131,18 +132,20 @@ protected:
         std::string containerName = std::getenv("AZURE_CONTAINER_NAME");
 
         // Initialize Azure SDK
-        [[maybe_unused]] auto& s3ClientFactory = S3ClientFactory::instance();
+        [[maybe_unused]] auto& s3ClientFactory = AwsSdkManager::instance();
 
-        auto client_result = S3ClientFactory::instance().create(
-                {.endpoint = fmt::format("https://{}.blob.core.windows.net", accountName),
-                 .region = "dummy-region",
-                 .ak = accountName,
-                 .sk = accountKey,
-                 .token = "",
-                 .bucket = containerName,
-                 .provider = ObjStorageProvider::AZURE,
-                 .role_arn = "",
-                 .external_id = ""});
+        auto client_result = io::ObjClientFactory::instance().get_or_create(io::ObjClientConfig {
+                .connection = {},
+                .usage = io::ClientUsage::EXTERNAL_ACCESS,
+                .backend =
+                        io::AzureClientConfig {
+                                .endpoint = fmt::format("https://{}.blob.core.windows.net",
+                                                        accountName),
+                                .account = accountName,
+                                .container = containerName,
+                                .auth = io::AzureSharedKeyConfig {.account_key = accountKey},
+                        },
+        });
         ASSERT_TRUE(client_result.has_value()) << client_result.error();
         AzureObjStorageClientTest::obj_storage_client = std::move(client_result).value();
     }

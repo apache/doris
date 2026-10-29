@@ -28,8 +28,8 @@
 #include "exec/spill/spill_file_reader.h"
 #include "exec/spill/spill_file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "io/fs/path.h"
-#include "io/fs/s3_file_system.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_profile.h"
@@ -44,7 +44,7 @@ SpillFile::SpillFile(SpillDataDir* data_dir, io::FileSystemSPtr fs, std::string 
           _spill_dir(data_dir->get_spill_data_path() + "/" + std::move(relative_path)),
           _log_path(_spill_dir) {
     if (_data_dir->is_remote()) {
-        auto* s3_fs = dynamic_cast<io::S3FileSystem*>(_fs.get());
+        auto* s3_fs = dynamic_cast<io::ObjStorageFileSystem*>(_fs.get());
         DORIS_CHECK(s3_fs != nullptr);
         _log_path = fmt::format("s3://{}/{}", s3_fs->bucket(),
                                 (io::Path(s3_fs->prefix()) / _spill_dir).native());

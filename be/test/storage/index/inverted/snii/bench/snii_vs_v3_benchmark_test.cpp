@@ -102,7 +102,7 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/fs/local_file_system.h"
-#include "io/fs/s3_file_system.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "io/io_common.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/cache_manager.h"
@@ -122,6 +122,7 @@
 #include "storage/storage_engine.h"
 #include "storage/storage_policy.h"
 #include "storage/tablet/tablet.h"
+#include "testutil/obj_storage_test_util.h"
 #include "util/defer_op.h"
 #include "util/threadpool.h"
 #include "util/time.h"
@@ -168,7 +169,7 @@ const std::vector<QueryCase> kQueryCases = {
 };
 
 // Which storage the rowset lives on. Local is the fast iteration loop; RemoteS3 is the shape a
-// real deployment has -- S3FileSystem -> CachedRemoteFileReader -> BlockFileCache -> query -- and is
+// real deployment has -- ObjStorageFileSystem -> CachedRemoteFileReader -> BlockFileCache -> query -- and is
 // the only mode where the read-amplification counters mean anything.
 enum class IoMode { kLocal, kRemoteS3 };
 
@@ -550,7 +551,7 @@ protected:
             ExecEnv::GetInstance()->_file_cache_factory = _origin_file_cache_factory;
             _origin_file_cache_factory_saved = false;
             // Deliberately leaked, never destroyed. FileWriter::init_cache_builder hands the S3
-            // write path a raw BlockFileCache* (file_writer.h), and S3FileWriter fills the cache
+            // write path a raw BlockFileCache* (file_writer.h), and ObjStorageFileWriter fills the cache
             // from its upload threads -- its own comment notes the writer may already be gone by
             // then. The cache's own GC/monitor threads are likewise only stopped by ~BlockFileCache.
             // In a real BE the factory is a process-lifetime singleton so none of that can dangle;
@@ -715,7 +716,7 @@ protected:
                 std::cout << "  reuse: RowsetMeta::init failed, re-importing" << std::endl;
                 return false;
             }
-            // The S3FileSystem object is rebuilt every run; the meta only carries a resource id,
+            // The ObjStorageFileSystem object is rebuilt every run; the meta only carries a resource id,
             // so rebind it or every read would go through a null filesystem.
             if (storage_resource.has_value()) {
                 meta->set_remote_storage_resource(*storage_resource);
@@ -848,7 +849,7 @@ protected:
         ASSERT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
     }
 
-    // Stand up the real deployment chain: S3FileSystem -> CachedRemoteFileReader -> BlockFileCache.
+    // Stand up the real deployment chain: ObjStorageFileSystem -> CachedRemoteFileReader -> BlockFileCache.
     // Credentials come from the environment so they never live in the source tree; the endpoint is
     // a real S3 service, so this measures genuine remote behaviour rather than a local stand-in.
     // Returns false (and skips) when the environment is not configured.
@@ -969,19 +970,15 @@ protected:
             ExecEnv::GetInstance()->_s3_file_upload_thread_pool = std::move(pool);
         }
 
-        S3Conf s3_conf;
-        s3_conf.client_conf.ak = ak;
-        s3_conf.client_conf.sk = sk;
-        s3_conf.client_conf.endpoint = endpoint;
-        s3_conf.client_conf.region = region;
-        s3_conf.bucket = bucket;
+        io::ObjStorageConfig s3_conf =
+                io::make_test_s3_storage_config(bucket, "", endpoint, region, ak, sk);
         // A per-pid prefix cannot be reused across runs, so reuse mode pins a stable one. It is
         // also why teardown must not delete it -- see _teardown_remote.
         s3_conf.prefix = _reuse_rowsets() ? std::string(kS3Prefix) + "reuse"
                                           : kS3Prefix + std::to_string(::getpid());
         _reuse_bucket = bucket;
         _reuse_prefix = s3_conf.prefix;
-        auto fs = io::S3FileSystem::create(std::move(s3_conf), "snii-bench-s3-fs");
+        auto fs = io::ObjStorageFileSystem::create(std::move(s3_conf), "snii-bench-s3-fs");
         if (!fs.has_value()) {
             std::cout << "  S3FileSystem::create failed: " << fs.error() << std::endl;
             return false;
@@ -1160,7 +1157,7 @@ protected:
                 io_mode == IoMode::kRemoteS3 && policy == BenchCachePolicy::kWriteBack;
         const bool local_warm = io_mode == IoMode::kLocal;
         // Held for the whole run so load, compaction and query all see the same policy. With the
-        // cache off, S3FileSystem hands out a plain reader instead of a CachedRemoteFileReader, so
+        // cache off, ObjStorageFileSystem hands out a plain reader instead of a CachedRemoteFileReader, so
         // every read is a real GET.
         const bool saved_enable_file_cache = config::enable_file_cache;
         config::enable_file_cache = write_back;
@@ -1862,7 +1859,7 @@ protected:
     std::unique_ptr<segment_v2::InvertedIndexQueryCache> _query_cache;
     segment_v2::InvertedIndexSearcherCache* _previous_searcher_cache = nullptr;
     segment_v2::InvertedIndexQueryCache* _previous_query_cache = nullptr;
-    std::shared_ptr<io::S3FileSystem> _remote_fs;
+    std::shared_ptr<io::ObjStorageFileSystem> _remote_fs;
     std::unique_ptr<io::FileCacheFactory> _owned_file_cache_factory;
     io::FileCacheFactory* _origin_file_cache_factory = nullptr;
     bool _origin_file_cache_factory_saved = false;

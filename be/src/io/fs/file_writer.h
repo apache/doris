@@ -36,14 +36,12 @@ struct EncryptionInfo;
 
 // Only affects remote file writers
 struct FileWriterOptions {
-    // S3 committer will start multipart uploading all files on BE side,
-    // and then complete multipart upload these files on FE side.
-    // If you do not complete multi parts of a file, the file will not be visible.
-    // So in this way, the atomicity of a single file can be guaranteed. But it still cannot
-    // guarantee the atomicity of multiple files.
-    // Because hive committers have best-effort semantics,
-    // this shortens the inconsistent time window.
-    bool used_by_s3_committer = false;
+    // BE stages every file as an uncompleted upload (S3 multipart parts or Azure blocks), and
+    // the FE coordinator completes them at commit. An uncompleted file is not visible, so a
+    // single file is atomic. Multiple files are still not atomic, but because Hive committers
+    // have best-effort semantics, this shortens the inconsistent time window.
+    // The coordinator must support the client's ObjStorageCapabilities::deferred_completion.
+    bool deferred_completion = false;
     bool write_file_cache = false;
     bool allow_adaptive_file_cache_write = true;
     bool is_cold_data = false;

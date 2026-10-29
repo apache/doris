@@ -102,7 +102,9 @@ public:
     ObjStorageResponse abort_multipart_upload(const ObjStoragePath& opts,
                                               const std::string& upload_id) override;
     ObjStorageCapabilities capabilities() const override {
-        return {.max_delete_batch = 256, .max_list_page = 5000};
+        return {.max_delete_batch = 256,
+                .max_list_page = 5000,
+                .deferred_completion = ObjStorageDeferredCompletion::NAMESPACED_BLOCK_IDS};
     }
 
 protected:

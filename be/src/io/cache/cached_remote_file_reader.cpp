@@ -69,7 +69,7 @@
 
 namespace doris::io {
 
-bvar::Adder<uint64_t> s3_read_counter("cached_remote_reader_s3_read");
+bvar::Adder<uint64_t> remote_read_counter("cached_remote_reader_s3_read");
 bvar::Adder<uint64_t> peer_read_counter("cached_remote_reader_peer_read");
 bvar::LatencyRecorder g_skip_cache_num("cached_remote_reader_skip_cache_num");
 bvar::Adder<uint64_t> g_skip_cache_sum("cached_remote_reader_skip_cache_sum");
@@ -102,7 +102,7 @@ bvar::PassiveStatus<int> g_active_peer_races_bvar(
         [](void*) { return g_active_peer_races.load(std::memory_order_relaxed); }, nullptr);
 // Cross-CG peer read race statistics
 bvar::Adder<uint64_t> g_peer_race_peer_win("peer_race_peer_win");
-bvar::Adder<uint64_t> g_peer_race_s3_win("peer_race_s3_win");
+bvar::Adder<uint64_t> g_peer_race_remote_win("peer_race_s3_win");
 bvar::Adder<uint64_t> g_peer_race_both_fail("peer_race_both_fail");
 bvar::Adder<uint64_t> g_peer_cross_compute_group_read("peer_cross_compute_group_read");
 bvar::Adder<uint64_t> g_peer_same_compute_group_read("peer_same_compute_group_read");
@@ -324,11 +324,11 @@ Status execute_peer_read(const std::vector<FileBlockSPtr>& empty_blocks,
     return st;
 }
 
-// Execute S3 read
-Status execute_s3_read(size_t empty_start, size_t& size, std::unique_ptr<char[]>& buffer,
-                       ReadStatistics& stats, const IOContext* io_ctx,
-                       FileReaderSPtr remote_file_reader) {
-    s3_read_counter << 1;
+// Read the span directly from remote storage.
+Status read_remote_span(size_t empty_start, size_t& size, std::unique_ptr<char[]>& buffer,
+                        ReadStatistics& stats, const IOContext* io_ctx,
+                        FileReaderSPtr remote_file_reader) {
+    remote_read_counter << 1;
     SCOPED_RAW_TIMER(&stats.remote_read_timer);
     stats.from_peer_cache = false;
     auto st = remote_file_reader->read_at(empty_start, Slice(buffer.get(), size), &size, io_ctx);
@@ -342,21 +342,21 @@ CloudWarmUpManager& get_warm_up_manager() {
     return ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
 }
 
-// Shared state for peer-vs-S3 winner race.
+// Shared state for peer-vs-remote winner race.
 // Uses bthread primitives — never std::mutex/condition_variable in bthread context.
 struct RaceState {
     bthread::Mutex mtx;
     bthread::ConditionVariable cv;
-    int winner = -1; // 0=peer won, 1=s3 won, -1=undecided, -2=both failed
+    int winner = -1; // 0=peer won, 1=remote won, -1=undecided, -2=both failed
     bool peer_done = false;
-    bool s3_done = false;
+    bool remote_done = false;
     Status peer_status;
-    Status s3_status;
-    std::unique_ptr<char[]> s3_buf;
-    // Actual bytes fetched by the winning S3 leg; merged into the caller's
+    Status remote_status;
+    std::unique_ptr<char[]> remote_buf;
+    // Actual bytes fetched by the winning remote leg; merged into the caller's
     // ReadStatistics only in the winner==1 branch of collect_race_result (the
-    // losing S3 leg may outlive the caller's stack, so it must not touch stats).
-    size_t s3_read_size = 0;
+    // losing remote leg may outlive the caller's stack, so it must not touch stats).
+    size_t remote_read_size = 0;
     PeerFetchResult peer_res;
     std::string peer_winner_cg_id; // compute_group_id of the winning peer candidate
     std::string peer_winner_host;  // host of the winning peer candidate
@@ -366,7 +366,7 @@ struct RaceState {
 
 // Peer race logic: try candidates sequentially until one succeeds or all fail.
 // NOTE: Do NOT capture io_ctx here — it points into the caller's stack which may be destroyed
-// when S3 wins the race and the caller returns before this bthread finishes.
+// when remote wins the race and the caller returns before this bthread finishes.
 void run_peer_race(std::shared_ptr<RaceState> race, std::vector<FileBlockSPtr> empty_blocks,
                    const std::string& file_path, size_t file_sz, bool is_doris,
                    std::shared_ptr<CloudWarmUpManager> manager,
@@ -382,12 +382,12 @@ void run_peer_race(std::shared_ptr<RaceState> race, std::vector<FileBlockSPtr> e
     peer_sw.start();
 
     for (size_t i = 0; i < candidates.size(); ++i) {
-        // Before issuing the next RPC, check if S3 already won.
+        // Before issuing the next RPC, check if remote already won.
         if (i > 0) {
             TEST_SYNC_POINT("run_peer_race::between_candidates");
             std::unique_lock<bthread::Mutex> lk(race->mtx);
             if (race->winner > 0) {
-                // S3 already won — stop, but not all candidates were tried.
+                // Remote already won — stop, but not all candidates were tried.
                 all_tried = false;
                 break;
             }
@@ -429,7 +429,7 @@ void run_peer_race(std::shared_ptr<RaceState> race, std::vector<FileBlockSPtr> e
         }
         if (is_fill_not_found(st, request_fill)) {
             // Pull-through fill already told us this designated fill CG could not serve the block
-            // in time. Do not serially retry additional candidates in the same race; let S3 win
+            // in time. Do not serially retry additional candidates in the same race; let remote win
             // instead of paying more peer RPC latency.
             manager->rotate_peer_candidate_on_cache_miss(tablet_id, cand.host, cand.brpc_port);
             all_tried = false;
@@ -448,39 +448,39 @@ void run_peer_race(std::shared_ptr<RaceState> race, std::vector<FileBlockSPtr> e
     std::unique_lock<bthread::Mutex> lk(race->mtx);
     race->peer_done = true;
     race->peer_status = Status::InternalError<false>("peer: all candidates failed");
-    if (race->winner < 0 && race->s3_done) {
-        race->winner = race->s3_status.ok() ? 1 : -2;
+    if (race->winner < 0 && race->remote_done) {
+        race->winner = race->remote_status.ok() ? 1 : -2;
     }
     race->cv.notify_all();
 }
 
-// Apply hedge delay, then submit S3 read to the thread pool (or run inline).
-void launch_s3_race(std::shared_ptr<RaceState> race, size_t empty_start, size_t span_size,
-                    const IOContext* io_ctx, FileReaderSPtr remote_reader,
-                    std::shared_ptr<ResourceContext> parent_resource_ctx,
-                    std::shared_ptr<CachedRemoteFileReader> owner) {
-    // Raw S3 read body.
-    // `owner` keeps the CachedRemoteFileReader alive until the S3 task finishes,
+// Apply hedge delay, then submit remote read to the thread pool (or run inline).
+void launch_remote_race(std::shared_ptr<RaceState> race, size_t empty_start, size_t span_size,
+                        const IOContext* io_ctx, FileReaderSPtr remote_reader,
+                        std::shared_ptr<ResourceContext> parent_resource_ctx,
+                        std::shared_ptr<CachedRemoteFileReader> owner) {
+    // Raw remote read body.
+    // `owner` keeps the CachedRemoteFileReader alive until the remote task finishes,
     // preventing close() from being called on remote_reader while we are still reading.
     // Do NOT capture io_ctx: it points into the caller's stack/iterator which may be
-    // destroyed when the query is cancelled before this background task runs. The S3
+    // destroyed when the query is cancelled before this background task runs. The remote
     // leg of the race is a best-effort background task whose result is discarded if the
-    // peer wins; passing nullptr is safe because S3FileReader::read_at_impl ignores it.
-    auto do_s3_read = [race, empty_start, span_size, remote_reader, owner]() {
+    // peer wins; passing nullptr is safe because ObjStorageFileReader::read_at_impl ignores it.
+    auto do_remote_read = [race, empty_start, span_size, remote_reader, owner]() {
         (void)owner;
-        auto s3_buf = std::make_unique<char[]>(span_size);
+        auto remote_buf = std::make_unique<char[]>(span_size);
         size_t read_size = span_size;
-        s3_read_counter << 1;
+        remote_read_counter << 1;
         TEST_SYNC_POINT("CachedRemoteFileReader::_execute_winner_race::s3_before_read");
-        auto st = remote_reader->read_at(empty_start, Slice(s3_buf.get(), span_size), &read_size,
-                                         nullptr);
+        auto st = remote_reader->read_at(empty_start, Slice(remote_buf.get(), span_size),
+                                         &read_size, nullptr);
         std::unique_lock<bthread::Mutex> lk(race->mtx);
-        race->s3_done = true;
-        race->s3_status = st;
+        race->remote_done = true;
+        race->remote_status = st;
         if (st.ok() && race->winner < 0) {
             race->winner = 1;
-            race->s3_buf = std::move(s3_buf);
-            race->s3_read_size = read_size;
+            race->remote_buf = std::move(remote_buf);
+            race->remote_read_size = read_size;
         }
         race->cv.notify_all();
     };
@@ -497,22 +497,23 @@ void launch_s3_race(std::shared_ptr<RaceState> race, size_t empty_start, size_t 
         }
         peer_already_won = (race->winner == 0);
         if (peer_already_won) {
-            race->s3_done = true;
-            race->s3_status = Status::InternalError<false>("skipped: peer won during hedge delay");
+            race->remote_done = true;
+            race->remote_status =
+                    Status::InternalError<false>("skipped: peer won during hedge delay");
         }
     }
 
     if (!peer_already_won) {
-        auto s3_fn = [do_s3_read, parent_resource_ctx]() mutable {
+        auto remote_fn = [do_remote_read, parent_resource_ctx]() mutable {
             std::unique_ptr<AttachTask> attach_task;
             if (parent_resource_ctx != nullptr) {
                 attach_task = std::make_unique<AttachTask>(parent_resource_ctx);
             }
-            do_s3_read();
+            do_remote_read();
         };
-        auto* s3_pool = ExecEnv::GetInstance()->peer_race_s3_thread_pool();
-        if (s3_pool == nullptr || !s3_pool->submit_func(s3_fn).ok()) {
-            do_s3_read();
+        auto* remote_pool = ExecEnv::GetInstance()->peer_race_s3_thread_pool();
+        if (remote_pool == nullptr || !remote_pool->submit_func(remote_fn).ok()) {
+            do_remote_read();
         }
     }
 }
@@ -523,7 +524,7 @@ Status collect_race_result(std::shared_ptr<RaceState> race, size_t span_size,
                            ReadStatistics& stats, const IOContext* io_ctx) {
     {
         std::unique_lock<bthread::Mutex> lk(race->mtx);
-        while (race->winner < 0 && !(race->peer_done && race->s3_done)) {
+        while (race->winner < 0 && !(race->peer_done && race->remote_done)) {
             race->cv.wait(lk);
         }
     }
@@ -563,34 +564,34 @@ Status collect_race_result(std::shared_ptr<RaceState> race, size_t span_size,
         }
         return Status::OK();
     } else if (race->winner == 1) {
-        // S3 won: this was a real storage GET, so account it as physical remote IO
+        // Remote won: this was a real storage GET, so account it as physical remote IO
         // exactly like the non-race download path does.
-        buffer = std::move(race->s3_buf);
+        buffer = std::move(race->remote_buf);
         stats.from_peer_cache = false;
-        stats.remote_physical_read_bytes += race->s3_read_size;
-        g_peer_race_s3_win << 1;
+        stats.remote_physical_read_bytes += race->remote_read_size;
+        g_peer_race_remote_win << 1;
         if (io_ctx != nullptr && io_ctx->file_cache_stats != nullptr) {
             io_ctx->file_cache_stats->num_peer_race_s3_win++;
         }
         return Status::OK();
     }
     g_peer_race_both_fail << 1;
-    return Status::InternalError<false>("peer race: both peer and s3 failed");
+    return Status::InternalError<false>("peer race: both peer and remote storage failed");
 }
 
 } // anonymous namespace
 
-Status CachedRemoteFileReader::_execute_s3_fallback(size_t empty_start, size_t span_size,
-                                                    std::unique_ptr<char[]>& buffer,
-                                                    PeerFetchResult* peer_result,
-                                                    ReadStatistics& stats,
-                                                    const IOContext* io_ctx) {
+Status CachedRemoteFileReader::_execute_remote_fallback(size_t empty_start, size_t span_size,
+                                                        std::unique_ptr<char[]>& buffer,
+                                                        PeerFetchResult* peer_result,
+                                                        ReadStatistics& stats,
+                                                        const IOContext* io_ctx) {
     if (peer_result != nullptr) {
         peer_result->clear();
     }
     buffer.reset(new char[span_size]);
     size_t read_size = span_size;
-    return execute_s3_read(empty_start, read_size, buffer, stats, io_ctx, _remote_file_reader);
+    return read_remote_span(empty_start, read_size, buffer, stats, io_ctx, _remote_file_reader);
 }
 
 Status CachedRemoteFileReader::_execute_sequential_peer_read(
@@ -601,7 +602,7 @@ Status CachedRemoteFileReader::_execute_sequential_peer_read(
     // candidates[0] already reflects last_successful_compute_group_id affinity:
     // get_peer_candidates() applies stable_partition before returning.
     if (candidates.empty()) {
-        return _execute_s3_fallback(empty_start, span_size, buffer, peer_result, stats, io_ctx);
+        return _execute_remote_fallback(empty_start, span_size, buffer, peer_result, stats, io_ctx);
     }
 
     auto& manager = get_warm_up_manager();
@@ -652,7 +653,7 @@ Status CachedRemoteFileReader::_execute_sequential_peer_read(
         manager.update_peer_candidate_on_rpc_failure(tablet_id, candidates[0].host,
                                                      candidates[0].brpc_port);
     }
-    return _execute_s3_fallback(empty_start, span_size, buffer, peer_result, stats, io_ctx);
+    return _execute_remote_fallback(empty_start, span_size, buffer, peer_result, stats, io_ctx);
 }
 
 Status CachedRemoteFileReader::_execute_remote_read(const std::vector<FileBlockSPtr>& empty_blocks,
@@ -661,9 +662,9 @@ Status CachedRemoteFileReader::_execute_remote_read(const std::vector<FileBlockS
                                                     PeerFetchResult* peer_result,
                                                     ReadStatistics& stats,
                                                     const IOContext* io_ctx) {
-    // --- Non-peer path: direct S3 ---
+    // --- Non-peer path: direct remote ---
     if (!_should_read_from_peer(io_ctx)) {
-        return _execute_s3_fallback(empty_start, span_size, buffer, peer_result, stats, io_ctx);
+        return _execute_remote_fallback(empty_start, span_size, buffer, peer_result, stats, io_ctx);
     }
 
     // --- UT debug point: injected peer address ---
@@ -676,7 +677,7 @@ Status CachedRemoteFileReader::_execute_remote_read(const std::vector<FileBlockS
         auto st = execute_peer_read(empty_blocks, peer_result, path().native(), this->size(),
                                     _is_doris_table, stats, io_ctx, dp_host, dp_port);
         if (st.ok()) return st;
-        return _execute_s3_fallback(empty_start, span_size, buffer, peer_result, stats, io_ctx);
+        return _execute_remote_fallback(empty_start, span_size, buffer, peer_result, stats, io_ctx);
     });
 
     // --- Resolve tablet and obtain peer candidates ---
@@ -685,7 +686,7 @@ Status CachedRemoteFileReader::_execute_remote_read(const std::vector<FileBlockS
     auto candidates = manager.get_peer_candidates(tablet_id);
     if (candidates.empty()) {
         if (!manager.is_peer_cooldown(tablet_id)) {
-            // Cold miss: trigger background FE fetch and fall back to S3.
+            // Cold miss: trigger background FE fetch and fall back to remote.
             g_peer_lazy_fetch_triggered << 1;
             auto manager_ptr =
                     ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager_ptr();
@@ -693,7 +694,7 @@ Status CachedRemoteFileReader::_execute_remote_read(const std::vector<FileBlockS
                 manager_ptr->fetch_candidates_from_fe(tablet_id);
             });
         }
-        return _execute_s3_fallback(empty_start, span_size, buffer, peer_result, stats, io_ctx);
+        return _execute_remote_fallback(empty_start, span_size, buffer, peer_result, stats, io_ctx);
     }
 
     // --- Dispatch: concurrent race or sequential fallback ---
@@ -746,11 +747,11 @@ Status CachedRemoteFileReader::_execute_winner_race(
             },
             /*init_thread_ctx=*/true);
 
-    // Launch S3 (with optional hedge delay).
-    // Pass shared_from_this() so the background S3 task holds a reference to this
-    // reader, preventing destruction (and close()) until the S3 task completes.
-    launch_s3_race(race, empty_start, span_size, io_ctx, remote_reader, parent_resource_ctx,
-                   shared_from_this());
+    // Launch remote (with optional hedge delay).
+    // Pass shared_from_this() so the background remote task holds a reference to this
+    // reader, preventing destruction (and close()) until the remote task completes.
+    launch_remote_race(race, empty_start, span_size, io_ctx, remote_reader, parent_resource_ctx,
+                       shared_from_this());
 
     // Collect race result.
     return collect_race_result(race, span_size, buffer, peer_result, stats, io_ctx);
@@ -1054,7 +1055,7 @@ Status CachedRemoteFileReader::_read_remaining_blocks_from_cache(
             size_t remote_bytes_read {0};
             stats.hit_cache = false;
             stats.from_peer_cache = false;
-            s3_read_counter << 1;
+            remote_read_counter << 1;
             SCOPED_RAW_TIMER(&stats.remote_read_timer);
             RETURN_IF_ERROR(_remote_file_reader->read_at(
                     current_offset, Slice(result.data + (current_offset - offset), read_size),
@@ -1123,7 +1124,7 @@ Status CachedRemoteFileReader::_read_remote_only_on_cache_miss(
         stats.hit_cache = false;
         stats.from_peer_cache = false;
         stats.skip_cache = true;
-        s3_read_counter << 1;
+        remote_read_counter << 1;
         if (is_dryrun) [[unlikely]] {
             *bytes_read = bytes_req;
             g_read_cache_indirect_bytes << 0;

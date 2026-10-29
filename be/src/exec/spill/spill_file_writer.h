@@ -95,7 +95,7 @@ private:
     /// Append to the current part. For object storage `data` is appended after
     /// _wait_for_upload_queue(). After a failed append the part is
     /// broken: every later append, the footer included, returns that failure without reaching
-    /// the file writer (S3FileWriter must not be appended to after a failed append).
+    /// the file writer (ObjStorageFileWriter must not be appended to after a failed append).
     Status _append_to_part(const Slice& data);
 
     /// Object storage only: refuse a cancelled query, and wait while the S3 upload queue holds

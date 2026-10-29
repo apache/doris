@@ -109,7 +109,7 @@ public:
     void prefetch_range(size_t offset, size_t size, const IOContext* io_ctx = nullptr);
 
 protected:
-    /// Read bytes from cache when possible and fall back to peer/S3 when needed.
+    /// Read bytes from cache when possible and fall back to peer/remote when needed.
     /// @param[in] offset Start offset in the file.
     /// @param[out] result Destination buffer for the requested bytes.
     /// @param[out] bytes_read Number of bytes copied into result.
@@ -271,11 +271,11 @@ private:
     /// Collect blocks that still need remote data and update cache-hit statistics.
     /// @param[in] holder Cache blocks covering the aligned request range.
     /// @param[in,out] stats Read statistics updated according to block states.
-    /// @return Blocks that should be fetched from peer/S3 by the current reader.
+    /// @return Blocks that should be fetched from peer/remote by the current reader.
     std::vector<FileBlockSPtr> _collect_remote_read_blocks(const FileBlocksHolder& holder,
                                                            ReadStatistics& stats);
 
-    /// Fetch missing blocks from peer/S3, write them into cache, and copy the overlap to result.
+    /// Fetch missing blocks from peer/remote, write them into cache, and copy the overlap to result.
     /// @param[in] empty_blocks Blocks selected for remote fetch.
     /// @param[in] offset Original request offset.
     /// @param[in] bytes_req Original request size.
@@ -283,12 +283,12 @@ private:
     /// @param[out] result Destination buffer for the original request.
     /// @param[in] is_dryrun True if cache-file writes and local buffer copies should be skipped.
     /// @param[in,out] stats Read statistics updated for remote and local cache work.
-    /// @param[in] io_ctx IO context passed to peer/S3 reads.
+    /// @param[in] io_ctx IO context passed to peer/remote reads.
     /// @param[in,out] indirect_read_bytes Bytes copied into result through the indirect path.
     /// @param[out] empty_start Left boundary of the fetched contiguous empty range.
     /// @param[out] empty_end Right boundary of the fetched contiguous empty range.
-    /// @param[out] peer_fetched_blocks Exact blocks fetched by peer in sparse mode; empty for S3.
-    /// @return OK on success; otherwise an error from peer/S3 read.
+    /// @param[out] peer_fetched_blocks Exact blocks fetched by peer in sparse mode; empty for remote.
+    /// @return OK on success; otherwise an error from peer/remote read.
     Status _read_remote_blocks_into_cache(const std::vector<FileBlockSPtr>& empty_blocks,
                                           size_t offset, size_t bytes_req, size_t already_read,
                                           Slice result, bool is_dryrun, ReadStatistics& stats,
@@ -305,7 +305,7 @@ private:
     /// @param[in] is_dryrun True if local cache IO should be skipped.
     /// @param[in] empty_start Left boundary of the range already handled by remote fetch.
     /// @param[in] empty_end Right boundary of the range already handled by remote fetch.
-    /// @param[in] peer_fetched_blocks Exact blocks already filled by peer; empty for S3 path.
+    /// @param[in] peer_fetched_blocks Exact blocks already filled by peer; empty for remote path.
     /// @param[in,out] stats Read statistics updated for wait, cache, and remote fallback paths.
     /// @param[in,out] indirect_read_bytes Bytes copied into result through this indirect stage.
     /// @param[out] bytes_read Total bytes covered for the original request after this stage.
@@ -352,30 +352,30 @@ private:
                                            SourceReadBreakdown& source_read_breakdown,
                                            const IOContext* io_ctx);
 
-    /// Fall back to S3: clear peer_result, allocate buffer, and read from remote storage.
+    /// Fall back to remote: clear peer_result, allocate buffer, and read from remote storage.
     /// @param[in] empty_start Start offset of the contiguous remote-read range.
     /// @param[in] span_size Size of the remote-read range in bytes.
-    /// @param[in,out] buffer Span buffer that receives S3 data.
+    /// @param[in,out] buffer Span buffer that receives remote data.
     /// @param[in,out] peer_result Cleared when non-null.
-    /// @param[in,out] stats Read statistics updated for S3 execution.
+    /// @param[in,out] stats Read statistics updated for remote execution.
     /// @param[in] io_ctx IO context passed to the remote reader.
-    /// @return OK on success; otherwise the S3 read error.
-    Status _execute_s3_fallback(size_t empty_start, size_t span_size,
-                                std::unique_ptr<char[]>& buffer, PeerFetchResult* peer_result,
-                                ReadStatistics& stats, const IOContext* io_ctx);
+    /// @return OK on success; otherwise the remote read error.
+    Status _execute_remote_fallback(size_t empty_start, size_t span_size,
+                                    std::unique_ptr<char[]>& buffer, PeerFetchResult* peer_result,
+                                    ReadStatistics& stats, const IOContext* io_ctx);
 
-    /// Sequential peer-then-S3 fallback: try the best peer candidate, update affinity on
-    /// success/failure, and fall back to S3 if peer fails.
+    /// Sequential peer-then-remote fallback: try the best peer candidate, update affinity on
+    /// success/failure, and fall back to remote if peer fails.
     /// @param[in] empty_blocks Blocks whose data is missing from local cache.
     /// @param[in] empty_start Start offset of the contiguous remote-read range.
     /// @param[in] span_size Size of the remote-read range in bytes.
-    /// @param[in,out] buffer Span buffer that receives S3 data on S3 fallback.
+    /// @param[in,out] buffer Span buffer that receives remote data on remote fallback.
     /// @param[in,out] peer_result Peer payloads populated on peer success.
-    /// @param[in,out] stats Read statistics updated for peer/S3 execution.
+    /// @param[in,out] stats Read statistics updated for peer/remote execution.
     /// @param[in] io_ctx IO context passed to the remote reader.
     /// @param[in] candidates Peer candidates sorted by affinity.
     /// @param[in] tablet_id Tablet ID for affinity tracking.
-    /// @return OK on success; otherwise the S3 read error.
+    /// @return OK on success; otherwise the remote read error.
     Status _execute_sequential_peer_read(const std::vector<FileBlockSPtr>& empty_blocks,
                                          size_t empty_start, size_t span_size,
                                          std::unique_ptr<char[]>& buffer,
@@ -386,28 +386,28 @@ private:
 
     /// Execute a remote fetch for the contiguous empty range, trying peer first when enabled.
     /// @param[in] empty_blocks Blocks whose data is missing from local cache.
-    /// @param[in] empty_start Start offset of the contiguous remote-read range for S3 fallback.
-    /// @param[in] span_size Size of the enclosing contiguous remote-read range for S3 fallback.
-    /// @param[in,out] buffer Temporary span buffer receiving S3 data.
+    /// @param[in] empty_start Start offset of the contiguous remote-read range for remote fallback.
+    /// @param[in] span_size Size of the enclosing contiguous remote-read range for remote fallback.
+    /// @param[in,out] buffer Temporary span buffer receiving remote data.
     /// @param[in,out] peer_result Segmented peer payloads when the peer path succeeds.
-    /// @param[in,out] stats Read statistics updated for peer/S3 execution.
+    /// @param[in,out] stats Read statistics updated for peer/remote execution.
     /// @param[in] io_ctx IO context passed to the remote reader.
-    /// @return OK on success; otherwise the peer/S3 read error.
+    /// @return OK on success; otherwise the peer/remote read error.
     Status _execute_remote_read(const std::vector<FileBlockSPtr>& empty_blocks, size_t empty_start,
                                 size_t span_size, std::unique_ptr<char[]>& buffer,
                                 PeerFetchResult* peer_result, ReadStatistics& stats,
                                 const IOContext* io_ctx);
 
-    /// Execute a winner race between peer read and S3 read for cross compute group scenarios.
-    /// Launches both peer and S3 reads concurrently in bthreads and returns the first successful
+    /// Execute a winner race between peer read and remote read for cross compute group scenarios.
+    /// Launches both peer and remote reads concurrently in bthreads and returns the first successful
     /// result. Uses bthread::Mutex and bthread::ConditionVariable for synchronization.
     /// @param[in] empty_blocks Blocks whose data is missing from local cache.
     /// @param[in] empty_start Start offset of the contiguous remote-read range.
-    /// @param[in] span_size Size of the contiguous range for the S3 fallback read.
-    /// @param[in,out] buffer Temporary span buffer that receives S3 data on S3 win.
+    /// @param[in] span_size Size of the contiguous range for the remote fallback read.
+    /// @param[in,out] buffer Temporary span buffer that receives remote data on remote win.
     /// @param[out] peer_result Peer fetch payloads populated when peer wins.
     /// @param[in,out] stats Read statistics updated for the winning path.
-    /// @param[in] io_ctx IO context passed to both peer and S3 reads.
+    /// @param[in] io_ctx IO context passed to both peer and remote reads.
     /// @param[in] candidates All peer candidates for the tablet.
     /// @return OK on success with buffer or peer_result populated; otherwise an error.
     Status _execute_winner_race(const std::vector<FileBlockSPtr>& empty_blocks, size_t empty_start,
