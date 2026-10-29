@@ -148,32 +148,32 @@
 6	0.7187315
 
 -- !V2_match_mow --
-2	0.64072424
-3	0.90232176
+2	0.60996956
+3	0.8713851
 
 -- !V2_match_mow_topn_control --
-2	0.64072424
-3	0.90232176
+2	0.60996956
+3	0.8713851
 
 -- !V2_search_mow --
-2	0.64072424
-3	0.90232176
+2	0.60996956
+3	0.8713851
 
 -- !V2_search_mow_topn_control --
-2	0.64072424
-3	0.90232176
+2	0.60996956
+3	0.8713851
 
 -- !V2_match_mow_after_delete --
-3	1.0217376
+3	1.1823694
 
 -- !V2_match_mow_after_delete_topn_control --
-3	1.0217376
+3	1.1823694
 
 -- !V2_search_mow_after_delete --
-3	1.0217376
+3	1.1823694
 
 -- !V2_search_mow_after_delete_topn_control --
-3	1.0217376
+3	1.1823694
 
 -- !V3_match_range --
 1	0.4700036
@@ -324,32 +324,32 @@
 6	0.7187315
 
 -- !V3_match_mow --
-2	0.64072424
-3	0.90232176
+2	0.60996956
+3	0.8713851
 
 -- !V3_match_mow_topn_control --
-2	0.64072424
-3	0.90232176
+2	0.60996956
+3	0.8713851
 
 -- !V3_search_mow --
-2	0.64072424
-3	0.90232176
+2	0.60996956
+3	0.8713851
 
 -- !V3_search_mow_topn_control --
-2	0.64072424
-3	0.90232176
+2	0.60996956
+3	0.8713851
 
 -- !V3_match_mow_after_delete --
-3	1.0217376
+3	1.1823694
 
 -- !V3_match_mow_after_delete_topn_control --
-3	1.0217376
+3	1.1823694
 
 -- !V3_search_mow_after_delete --
-3	1.0217376
+3	1.1823694
 
 -- !V3_search_mow_after_delete_topn_control --
-3	1.0217376
+3	1.1823694
 
 -- !ann_control --
 1	0.0

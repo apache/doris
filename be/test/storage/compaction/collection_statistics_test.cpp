@@ -21,7 +21,10 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <memory>
+#include <roaring/roaring.hh>
+#include <set>
 #include <string>
 
 #include "common/exception.h"
@@ -41,11 +44,13 @@
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"
+#include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/util/term_iterator.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/rowset/rowset_reader.h"
+#include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "util/defer_op.h"
@@ -272,11 +277,18 @@ protected:
         test_dir_ = "./collection_statistics_test_" +
                     std::to_string(::testing::UnitTest::GetInstance()->random_seed());
         ASSERT_TRUE(io::global_local_filesystem()->create_directory(test_dir_).ok());
+        // Merge-on-write collection reads the null bitmap through the query cache.
+        previous_query_cache_ = ExecEnv::GetInstance()->get_inverted_index_query_cache();
+        query_cache_.reset(
+                segment_v2::InvertedIndexQueryCache::create_global_cache(1024 * 1024, 1));
+        ExecEnv::GetInstance()->set_inverted_index_query_cache(query_cache_.get());
     }
 
     void TearDown() override {
         stats_.reset();
         runtime_state_.reset();
+        ExecEnv::GetInstance()->set_inverted_index_query_cache(previous_query_cache_);
+        query_cache_.reset();
         (void)io::global_local_filesystem()->delete_directory(test_dir_);
     }
 
@@ -343,6 +355,8 @@ protected:
     std::unique_ptr<CollectionStatistics> stats_;
     std::shared_ptr<MockRuntimeState> runtime_state_;
     std::string test_dir_;
+    segment_v2::InvertedIndexQueryCache* previous_query_cache_ = nullptr;
+    std::unique_ptr<segment_v2::InvertedIndexQueryCache> query_cache_;
 };
 
 TEST_F(CollectionStatisticsTest, CollectWithEmptyRowsetSplits) {
@@ -526,7 +540,8 @@ TEST_F(CollectionStatisticsTest, MissingFieldIndexPreservesOtherFieldStatistics)
     other_info.index_meta = tablet_schema->inverted_indexs(2).front();
     infos.emplace(L"2", std::move(other_info));
     for (int i = 0; i < 2; ++i) {
-        auto status = stats_->process_segment(rowset, i, tablet_schema.get(), infos, nullptr);
+        auto status =
+                stats_->process_segment(rowset, i, tablet_schema.get(), infos, nullptr, nullptr);
         ASSERT_TRUE(status.ok()) << status;
     }
     EXPECT_EQ(2u, stats_->get_doc_num());
@@ -803,14 +818,432 @@ TEST_F(CollectionStatisticsTest, TabletCollectionStatisticsCollectsOnceAndCopies
 
     CollectionStatistics first;
     CollectionStatistics second;
-    EXPECT_TRUE(
-            tablet_statistics
-                    .copy_to(runtime_state_.get(), tablet_schema, expr_contexts, nullptr, &first)
-                    .ok());
-    EXPECT_TRUE(
-            tablet_statistics
-                    .copy_to(runtime_state_.get(), tablet_schema, expr_contexts, nullptr, &second)
-                    .ok());
+    EXPECT_TRUE(tablet_statistics
+                        .copy_to(runtime_state_.get(), tablet_schema, expr_contexts, nullptr,
+                                 nullptr, &first)
+                        .ok());
+    EXPECT_TRUE(tablet_statistics
+                        .copy_to(runtime_state_.get(), tablet_schema, expr_contexts, nullptr,
+                                 nullptr, &second)
+                        .ok());
+}
+
+namespace {
+
+using collection_statistics_detail::count_listed_docs;
+using collection_statistics_detail::exclude_hidden_docs;
+using collection_statistics_detail::exclude_hidden_term_docs;
+using collection_statistics_detail::SegmentScoringStats;
+using collection_statistics_detail::sum_non_null_norm_lengths;
+using collection_statistics_detail::sum_norm_lengths;
+using collection_statistics_detail::sum_norm_lengths_of;
+
+TabletSchemaSPtr create_english_index_schema() {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(DUP_KEYS);
+    schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->init_from_pb(schema_pb);
+
+    TabletColumn column;
+    column.set_unique_id(1);
+    column.set_name("content");
+    column.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    column.set_is_nullable(true);
+    tablet_schema->append_column(column);
+
+    TabletIndex index;
+    index._index_id = 1;
+    index._index_type = IndexType::INVERTED;
+    index._col_unique_ids.push_back(1);
+    index._properties["parser"] = "english";
+    index._properties["support_phrase"] = "true";
+    tablet_schema->append_index(std::move(index));
+    return tablet_schema;
+}
+
+// Writes the inverted index of a segment holding `rows`, one document each, the rows of
+// `null_rows` as NULL whatever their value.
+Status write_index_segment(const TabletSchemaSPtr& tablet_schema, const std::string& test_dir,
+                           const std::string& segment_path, const std::vector<std::string>& rows,
+                           const std::set<size_t>& null_rows = {}) {
+    std::vector<StorePath> paths;
+    paths.emplace_back(test_dir, 1024);
+    auto tmp_file_dirs = std::make_unique<segment_v2::TmpFileDirs>(paths);
+    RETURN_IF_ERROR(tmp_file_dirs->init());
+    ExecEnv::GetInstance()->set_tmp_file_dir(std::move(tmp_file_dirs));
+
+    const std::string prefix {
+            segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(segment_path)};
+    io::FileWriterPtr compound_file;
+    io::FileWriterOptions options;
+    auto fs = io::global_local_filesystem();
+    RETURN_IF_ERROR(
+            fs->create_file(segment_v2::InvertedIndexDescriptor::get_index_file_path_v2(prefix),
+                            &compound_file, &options));
+    segment_v2::IndexFileWriter file_writer(fs, prefix, "hidden_rows", 0,
+                                            InvertedIndexStorageFormatPB::V3,
+                                            std::move(compound_file));
+    const auto indexes = tablet_schema->inverted_indexs(1);
+    DORIS_CHECK(indexes.size() == 1);
+    std::unique_ptr<segment_v2::IndexColumnWriter> column_writer;
+    RETURN_IF_ERROR(segment_v2::IndexColumnWriter::create(&tablet_schema->column(0), &column_writer,
+                                                          &file_writer, indexes[0]));
+    for (size_t row = 0; row < rows.size(); ++row) {
+        if (null_rows.contains(row)) {
+            RETURN_IF_ERROR(column_writer->add_nulls(1));
+        } else {
+            const Slice value(rows[row]);
+            RETURN_IF_ERROR(column_writer->add_values("content", &value, 1));
+        }
+    }
+    RETURN_IF_ERROR(column_writer->finish());
+    RETURN_IF_ERROR(file_writer.begin_close());
+    return file_writer.finish_close();
+}
+
+std::vector<RowSetSplits> single_segment_splits(const TabletSchemaSPtr& tablet_schema,
+                                                const std::string& segment_path) {
+    auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+    auto rowset = std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
+    rowset->set_num_segments(1);
+    rowset->set_segment_path(0, segment_path);
+    auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
+    return {RowSetSplits(reader)};
+}
+
+// A delete bitmap of its own tablet, marking `rows` of the first segment of the splits' rowset at
+// `version`. The bitmap's aggregation cache is keyed by tablet and rowset, and the mock rowsets
+// share their ids, so each bitmap takes its own tablet id.
+MowHiddenRows hide_rows(const std::vector<RowSetSplits>& splits, int64_t tablet_id, int64_t version,
+                        const std::vector<uint32_t>& rows) {
+    MowHiddenRows hidden {.delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id),
+                          .version = version};
+    const auto rowset_id = splits[0].rs_reader->rowset()->rowset_id();
+    for (const uint32_t row : rows) {
+        hidden.delete_bitmap->add({rowset_id, 0, version}, row);
+    }
+    return hidden;
+}
+
+// A reader of the CLucene index of a segment written by write_index_segment.
+class SegmentIndexReader {
+public:
+    SegmentIndexReader(const TabletSchemaSPtr& tablet_schema, const std::string& segment_path)
+            : _file_reader(
+                      io::global_local_filesystem(),
+                      std::string {segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(
+                              segment_path)},
+                      InvertedIndexStorageFormatPB::V3) {
+        DORIS_CHECK(_file_reader.init().ok());
+        auto compound = _file_reader.open(tablet_schema->inverted_indexs(1)[0]);
+        DORIS_CHECK(compound.has_value());
+        _searcher = std::make_unique<lucene::search::IndexSearcher>(
+                lucene::index::IndexReader::open(compound->get()), true);
+    }
+
+    lucene::index::IndexReader* get() const { return _searcher->getReader(); }
+
+private:
+    segment_v2::IndexFileReader _file_reader;
+    std::unique_ptr<lucene::search::IndexSearcher> _searcher;
+};
+
+} // namespace
+
+// A replica whose segment still holds a row that a later load overwrote must collect the same
+// statistics as a replica that compacted the row away, or the two score every row differently.
+TEST_F(CollectionStatisticsTest, HiddenRowsAreCollectedLikeCompactedAway) {
+    IndexPolicyMgr policy_mgr;
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* original_policy_mgr = exec_env->index_policy_mgr();
+    exec_env->_index_policy_mgr = &policy_mgr;
+    Defer restore_policy_mgr([&] { exec_env->_index_policy_mgr = original_policy_mgr; });
+
+    auto tablet_schema = create_english_index_schema();
+    // Forty-five tokens: CLucene's norm holds lengths exactly only up to 40.
+    std::string overwritten;
+    for (int i = 0; i < 44; ++i) {
+        overwritten += "gamma ";
+    }
+    overwritten += "alpha";
+    const std::string uncompacted_path = test_dir_ + "/hidden_rows_uncompacted_0.dat";
+    const std::string compacted_path = test_dir_ + "/hidden_rows_compacted_0.dat";
+    ASSERT_TRUE(write_index_segment(tablet_schema, test_dir_, uncompacted_path,
+                                    {"alpha beta", overwritten, "beta gamma delta"})
+                        .ok());
+    ASSERT_TRUE(write_index_segment(tablet_schema, test_dir_, compacted_path,
+                                    {"alpha beta", "beta gamma delta"})
+                        .ok());
+
+    struct Collected {
+        uint64_t doc_count;
+        uint64_t token_count;
+        uint64_t alpha_doc_frequency;
+        uint64_t gamma_doc_frequency;
+        float avg_dl;
+        float alpha_idf;
+    };
+    int64_t next_tablet_id = 9100;
+    auto collect = [&](const std::string& segment_path,
+                       const std::vector<uint32_t>& hidden_rows) -> Collected {
+        auto splits = single_segment_splits(tablet_schema, segment_path);
+        MowHiddenRows hidden = hide_rows(splits, next_tablet_id++, 5, hidden_rows);
+        CollectionStatistics stats;
+        const Status status =
+                stats.collect(runtime_state_.get(), splits, tablet_schema,
+                              create_match_expr_contexts("alpha gamma"), nullptr, &hidden);
+        EXPECT_TRUE(status.ok()) << status;
+        return {.doc_count = stats.get_doc_num(),
+                .token_count = stats.get_total_term_cnt_by_col(L"1"),
+                .alpha_doc_frequency = stats.get_term_doc_freq_by_col(L"1", L"alpha"),
+                .gamma_doc_frequency = stats.get_term_doc_freq_by_col(L"1", L"gamma"),
+                .avg_dl = stats.get_or_calculate_avg_dl(L"1"),
+                .alpha_idf = stats.get_or_calculate_idf(L"1", L"alpha")};
+    };
+
+    const Collected uncompacted = collect(uncompacted_path, {1});
+    const Collected compacted = collect(compacted_path, {});
+    EXPECT_EQ(uncompacted.doc_count, 2);
+    EXPECT_EQ(uncompacted.token_count, 5);
+    EXPECT_EQ(uncompacted.alpha_doc_frequency, 1);
+    EXPECT_EQ(uncompacted.gamma_doc_frequency, 1);
+    EXPECT_EQ(uncompacted.doc_count, compacted.doc_count);
+    EXPECT_EQ(uncompacted.token_count, compacted.token_count);
+    EXPECT_EQ(uncompacted.alpha_doc_frequency, compacted.alpha_doc_frequency);
+    EXPECT_EQ(uncompacted.gamma_doc_frequency, compacted.gamma_doc_frequency);
+    EXPECT_EQ(uncompacted.avg_dl, compacted.avg_dl);
+    EXPECT_EQ(uncompacted.alpha_idf, compacted.alpha_idf);
+
+    // Without the delete bitmap the overwritten row is counted, with its exact length.
+    ASSERT_TRUE(stats_->collect(runtime_state_.get(),
+                                single_segment_splits(tablet_schema, uncompacted_path),
+                                tablet_schema, create_match_expr_contexts("alpha gamma"), nullptr)
+                        .ok());
+    EXPECT_EQ(stats_->get_doc_num(), 3);
+    EXPECT_EQ(stats_->get_total_term_cnt_by_col(L"1"), 50);
+    EXPECT_EQ(stats_->get_term_doc_freq_by_col(L"1", L"alpha"), 2);
+}
+
+// A tablet whose rows were all deleted or overwritten still has segments to collect from, but no
+// document a query can match. Its statistics are empty, not missing.
+TEST_F(CollectionStatisticsTest, AllRowsHiddenCollectsEmptyStatistics) {
+    IndexPolicyMgr policy_mgr;
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* original_policy_mgr = exec_env->index_policy_mgr();
+    exec_env->_index_policy_mgr = &policy_mgr;
+    Defer restore_policy_mgr([&] { exec_env->_index_policy_mgr = original_policy_mgr; });
+
+    auto tablet_schema = create_english_index_schema();
+    const std::string segment_path = test_dir_ + "/all_rows_hidden_0.dat";
+    ASSERT_TRUE(write_index_segment(tablet_schema, test_dir_, segment_path, {"alpha beta", "alpha"})
+                        .ok());
+
+    auto splits = single_segment_splits(tablet_schema, segment_path);
+    MowHiddenRows hidden = hide_rows(splits, 9200, 3, {0, 1});
+    const Status status = stats_->collect(runtime_state_.get(), splits, tablet_schema,
+                                          create_match_expr_contexts("alpha"), nullptr, &hidden);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(stats_->get_doc_num(), 0);
+    EXPECT_EQ(stats_->get_term_doc_freq_by_col(L"1", L"alpha"), 0);
+    EXPECT_TRUE(std::isfinite(stats_->get_or_calculate_avg_dl(L"1")));
+    EXPECT_TRUE(std::isfinite(stats_->get_or_calculate_idf(L"1", L"alpha")));
+
+    // Without any collected segment the statistics are still reported missing.
+    CollectionStatistics nothing_collected;
+    EXPECT_THROW(nothing_collected.get_doc_num(), Exception);
+}
+
+// NULL rows have no tokens. A merge-on-write tablet, whose token count comes from the norms, counts
+// them as documents without tokens, as a table without a delete bitmap does.
+TEST_F(CollectionStatisticsTest, NullRowsCountAsDocumentsWithoutTokens) {
+    IndexPolicyMgr policy_mgr;
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* original_policy_mgr = exec_env->index_policy_mgr();
+    exec_env->_index_policy_mgr = &policy_mgr;
+    Defer restore_policy_mgr([&] { exec_env->_index_policy_mgr = original_policy_mgr; });
+
+    auto tablet_schema = create_english_index_schema();
+    const std::string segment_path = test_dir_ + "/null_rows_0.dat";
+    ASSERT_TRUE(write_index_segment(tablet_schema, test_dir_, segment_path,
+                                    {"alpha beta", "", "alpha", "", "beta gamma delta"}, {1, 3})
+                        .ok());
+    auto splits = single_segment_splits(tablet_schema, segment_path);
+    auto collect = [&](const MowHiddenRows* hidden) {
+        CollectionStatistics stats;
+        const Status status = stats.collect(runtime_state_.get(), splits, tablet_schema,
+                                            create_match_expr_contexts("alpha"), nullptr, hidden);
+        EXPECT_TRUE(status.ok()) << status;
+        return std::make_pair(stats.get_doc_num(), stats.get_total_term_cnt_by_col(L"1"));
+    };
+
+    const auto without_bitmap = collect(nullptr);
+    EXPECT_EQ(without_bitmap.first, 5);
+    EXPECT_EQ(without_bitmap.second, 6);
+    MowHiddenRows nothing_hidden = hide_rows(splits, 9300, 2, {});
+    EXPECT_EQ(collect(&nothing_hidden), without_bitmap);
+
+    // A hidden NULL row leaves the document count and still adds no tokens.
+    MowHiddenRows null_hidden = hide_rows(splits, 9301, 2, {1});
+    EXPECT_EQ(collect(&null_hidden), std::make_pair(uint64_t {4}, uint64_t {6}));
+
+    // The norms of the NULL rows stand for one token each; their lengths are left out.
+    SegmentIndexReader reader(tablet_schema, segment_path);
+    uint64_t all_lengths = 0;
+    ASSERT_TRUE(sum_norm_lengths(reader.get(), L"1", &all_lengths).ok());
+    EXPECT_EQ(all_lengths, 8);
+    const std::vector<uint32_t> null_docs {1, 3};
+    uint64_t non_null_lengths = 0;
+    ASSERT_TRUE(sum_non_null_norm_lengths(reader.get(), L"1", null_docs, &non_null_lengths).ok());
+    EXPECT_EQ(non_null_lengths, 6);
+    const std::vector<uint32_t> beyond {5};
+    EXPECT_EQ(sum_non_null_norm_lengths(reader.get(), L"1", beyond, &non_null_lengths).code(),
+              ErrorCode::INVERTED_INDEX_FILE_CORRUPTED);
+    EXPECT_EQ(sum_norm_lengths_of(reader.get(), L"1", beyond, &non_null_lengths).code(),
+              ErrorCode::INVERTED_INDEX_FILE_CORRUPTED);
+}
+
+// The hidden rows a term lists are counted by leaping over the postings between them when they
+// are rare, and otherwise by walking them alongside the decoded postings.
+TEST_F(CollectionStatisticsTest, CountListedDocsLeapsOrScansOverHiddenRows) {
+    IndexPolicyMgr policy_mgr;
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* original_policy_mgr = exec_env->index_policy_mgr();
+    exec_env->_index_policy_mgr = &policy_mgr;
+    Defer restore_policy_mgr([&] { exec_env->_index_policy_mgr = original_policy_mgr; });
+
+    auto tablet_schema = create_english_index_schema();
+    std::vector<std::string> rows;
+    for (int i = 0; i < 300; ++i) {
+        rows.emplace_back(i % 3 == 0 ? "alpha beta" : "beta");
+    }
+    const std::string segment_path = test_dir_ + "/count_listed_0.dat";
+    ASSERT_TRUE(write_index_segment(tablet_schema, test_dir_, segment_path, rows).ok());
+    SegmentIndexReader reader(tablet_schema, segment_path);
+    auto postings = [&](const std::string& term) {
+        return segment_v2::TermIterator::create(nullptr, false, reader.get(), L"1", term);
+    };
+
+    // Eight rows among the 100 postings of alpha are walked alongside them; among the 300 of
+    // beta, leapt to.
+    const std::vector<uint32_t> hidden {0, 1, 2, 3, 150, 151, 297, 299};
+    // 0, 3, 150 and 297 hold alpha.
+    EXPECT_EQ(count_listed_docs(*postings("alpha"), hidden), 4);
+    EXPECT_EQ(count_listed_docs(*postings("beta"), hidden), hidden.size());
+    EXPECT_EQ(count_listed_docs(*postings("omega"), hidden), 0);
+    EXPECT_EQ(count_listed_docs(*postings("alpha"), std::span<const uint32_t> {}), 0);
+
+    // Many rows among the contiguous postings of beta are walked alongside them, a block at a
+    // time.
+    std::vector<uint32_t> many;
+    for (uint32_t row = 5; row < 300; row += 7) {
+        many.push_back(row);
+    }
+    EXPECT_EQ(count_listed_docs(*postings("beta"), many), many.size());
+    // Those that are multiples of 3 hold alpha.
+    uint64_t alpha_rows = 0;
+    for (const uint32_t row : many) {
+        alpha_rows += row % 3 == 0 ? 1 : 0;
+    }
+    EXPECT_EQ(count_listed_docs(*postings("alpha"), many), alpha_rows);
+
+    uint64_t doc_frequency = 100;
+    ASSERT_TRUE(exclude_hidden_term_docs(*postings("alpha"), hidden, &doc_frequency).ok());
+    EXPECT_EQ(doc_frequency, 96);
+    uint64_t too_small = 3;
+    EXPECT_EQ(exclude_hidden_term_docs(*postings("alpha"), hidden, &too_small).code(),
+              ErrorCode::INVERTED_INDEX_FILE_CORRUPTED);
+
+    uint64_t lengths = 0;
+    ASSERT_TRUE(sum_norm_lengths(reader.get(), L"1", &lengths).ok());
+    EXPECT_EQ(lengths, 400);
+    ASSERT_TRUE(sum_norm_lengths_of(reader.get(), L"1", hidden, &lengths).ok());
+    EXPECT_EQ(lengths, 12);
+    // A field without norms has no lengths to sum.
+    EXPECT_EQ(sum_norm_lengths_of(reader.get(), L"no_such_field", hidden, &lengths).code(),
+              ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
+}
+
+TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenDocsSumsNormsOfReturnedRows) {
+    const std::vector<uint64_t> norm_lengths {3, 5, 2, 7};
+    auto sum_of = [&norm_lengths](std::span<const uint32_t> docs, uint64_t* out) {
+        *out = 0;
+        for (const uint32_t doc : docs) {
+            *out += norm_lengths[doc];
+        }
+        return Status::OK();
+    };
+    const roaring::Roaring no_nulls;
+    SegmentScoringStats stats {.doc_count = 4, .token_count = 1000, .has_norms = true};
+    const std::vector<uint32_t> hidden {1, 3};
+    ASSERT_TRUE(exclude_hidden_docs(hidden, no_nulls, 17, sum_of, &stats).ok());
+    EXPECT_EQ(stats.doc_count, 2);
+    EXPECT_EQ(stats.token_count, 5);
+
+    // With nothing hidden the token count still comes from the norms, as on a replica that
+    // compacted the hidden rows away.
+    stats = {.doc_count = 4, .token_count = 1000, .has_norms = true};
+    ASSERT_TRUE(exclude_hidden_docs({}, no_nulls, 17, sum_of, &stats).ok());
+    EXPECT_EQ(stats.doc_count, 4);
+    EXPECT_EQ(stats.token_count, 17);
+}
+
+TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenDocsWithoutNormsCountsOneTokenPerRow) {
+    auto never = [](std::span<const uint32_t>, uint64_t*) {
+        ADD_FAILURE() << "an index without norms reads none";
+        return Status::OK();
+    };
+    SegmentScoringStats stats {.doc_count = 5, .token_count = 9, .has_norms = false};
+    const std::vector<uint32_t> hidden {0, 4};
+    roaring::Roaring nulls;
+    nulls.add(1);
+    ASSERT_TRUE(exclude_hidden_docs(hidden, nulls, 0, never, &stats).ok());
+    EXPECT_EQ(stats.doc_count, 3);
+    EXPECT_EQ(stats.token_count, 3);
+}
+
+TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenDocsRejectsRowBeyondIndex) {
+    auto sum_of = [](std::span<const uint32_t>, uint64_t* out) {
+        *out = 0;
+        return Status::OK();
+    };
+    SegmentScoringStats stats {.doc_count = 2, .token_count = 2, .has_norms = true};
+    const std::vector<uint32_t> hidden {2};
+    const Status status = exclude_hidden_docs(hidden, roaring::Roaring {}, 2, sum_of, &stats);
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_CORRUPTED) << status;
+}
+
+// A NULL row is a document without tokens, though its norm stands for one: it stays in the
+// document count and its length is left out, hidden or not.
+TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenDocsLeavesOutLengthsOfNullRows) {
+    const std::vector<uint64_t> norm_lengths {3, 5, 1, 7, 1};
+    std::vector<uint32_t> summed;
+    auto sum_of = [&](std::span<const uint32_t> docs, uint64_t* out) {
+        *out = 0;
+        for (const uint32_t doc : docs) {
+            summed.push_back(doc);
+            *out += norm_lengths[doc];
+        }
+        return Status::OK();
+    };
+    roaring::Roaring nulls;
+    nulls.add(2);
+    nulls.add(4);
+    // 3 + 5 + 7, the lengths of the non-NULL rows.
+    constexpr uint64_t kNonNullLengths = 15;
+
+    SegmentScoringStats stats {.doc_count = 5, .token_count = 1000, .has_norms = true};
+    ASSERT_TRUE(exclude_hidden_docs({}, nulls, kNonNullLengths, sum_of, &stats).ok());
+    EXPECT_EQ(stats.doc_count, 5);
+    EXPECT_EQ(stats.token_count, 15);
+
+    stats = {.doc_count = 5, .token_count = 1000, .has_norms = true};
+    const std::vector<uint32_t> hidden {1, 2};
+    ASSERT_TRUE(exclude_hidden_docs(hidden, nulls, kNonNullLengths, sum_of, &stats).ok());
+    EXPECT_EQ(stats.doc_count, 3);
+    EXPECT_EQ(stats.token_count, 10);
+    // Only the hidden non-NULL row's norm is read.
+    EXPECT_EQ(summed, std::vector<uint32_t> {1});
 }
 
 TEST_F(CollectionStatisticsTest, CollectWithCastWrappedSlotRef) {
