@@ -70,6 +70,7 @@
 #include "exprs/runtime_filter_expr.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
+#include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "exprs/vtopn_pred.h"
@@ -4575,6 +4576,87 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteResolvesFieldIdThroughIdlessWrapp
     EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({1, 3}));
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, MissingNestedEqualityKeyOpensStructTraversal) {
+    auto existing = make_file_column(3, "existing", std::make_shared<DataTypeInt32>());
+    auto inner = make_file_column(
+            2, "inner",
+            std::make_shared<DataTypeStruct>(DataTypes {existing.type}, Strings {"existing"}));
+    inner.children = {existing};
+    auto payload = make_file_column(
+            1, "payload",
+            std::make_shared<DataTypeStruct>(DataTypes {inner.type}, Strings {"inner"}));
+    payload.children = {inner};
+
+    auto table_payload = external_struct_schema_field(
+            "payload", 1,
+            {external_struct_schema_field(
+                    "inner", 2,
+                    {external_schema_field("existing", 3),
+                     external_schema_field("k", 4, {}, "7",
+                                           external_primitive_type(TPrimitiveType::INT), false,
+                                           true)},
+                    true)},
+            true);
+    auto scan_params = make_local_scan_params(FileFormat::PARQUET);
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info({external_schema(100, {table_payload})});
+
+    doris::format::iceberg::IcebergTableReader reader;
+    reader._scan_params = &scan_params;
+    reader._iceberg_params.emplace().__set_original_file_path("nested-key.parquet");
+    const auto key_type = make_nullable(std::make_shared<DataTypeInt64>());
+    // Compare an INT default with a BIGINT tombstone below two nullable structs.
+    doris::format::iceberg::IcebergTableReader::EqualityDeleteFilter filter;
+    filter.field_ids = {4};
+    filter.field_names = {"k"};
+    filter.key_types = {make_nullable(std::make_shared<DataTypeInt32>())};
+    filter.delete_key_types = {key_type};
+    FileScanRequest request;
+    VExprSPtr expr;
+    DataTypePtr comparison_type;
+    ASSERT_TRUE(reader._build_missing_equality_delete_key_expr(
+                              filter, 0, {&payload, &payload.children.front()}, &request, &expr,
+                              &comparison_type)
+                        .ok());
+    ASSERT_EQ(expr->children().size(), 2);
+    ASSERT_EQ(expr->children()[0]->children().size(), 1);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto context = VExprContext::create_shared(expr);
+    Defer close_context {[&] { context->close(); }};
+    ASSERT_TRUE(context->prepare(&state, RowDescriptor()).ok());
+    ASSERT_TRUE(context->open(&state).ok());
+    ASSERT_TRUE(expr->ready_status().ok());
+    ASSERT_TRUE(expr->children()[0]->ready_status().ok());
+    ASSERT_TRUE(expr->children()[0]->children()[0]->ready_status().ok());
+    ASSERT_TRUE(expr->children()[1]->ready_status().ok());
+
+    auto column = payload.type->create_column();
+    column->insert_many_defaults(3);
+    auto& nullable_payload = assert_cast<ColumnNullable&>(*column);
+    nullable_payload.get_null_map_data()[1] = 0;
+    nullable_payload.get_null_map_data()[2] = 0;
+    auto& nullable_inner = assert_cast<ColumnNullable&>(
+            assert_cast<ColumnStruct&>(nullable_payload.get_nested_column()).get_column(0));
+    nullable_inner.get_null_map_data()[0] = 0;
+    nullable_inner.get_null_map_data()[2] = 0;
+    Block block;
+    block.insert({std::move(column), payload.type, "payload"});
+
+    VExprContextSPtr cloned_context;
+    ASSERT_TRUE(context->clone(&state, cloned_context).ok());
+    Defer close_clone {[&] { cloned_context->close(); }};
+    for (const auto& ctx : {context, cloned_context}) {
+        ColumnWithTypeAndName result;
+        ASSERT_TRUE(ctx->execute(&block, result).ok());
+        ASSERT_EQ(result.column->size(), 3);
+        EXPECT_TRUE(result.type->equals(*key_type));
+        EXPECT_TRUE(result.column->is_null_at(0));
+        EXPECT_TRUE(result.column->is_null_at(1));
+        EXPECT_EQ(result.column->get_int(2), 7);
+    }
 }
 
 // Keep the shared Parquet/ORC reader setup together so both V2 paths assert identical semantics.
