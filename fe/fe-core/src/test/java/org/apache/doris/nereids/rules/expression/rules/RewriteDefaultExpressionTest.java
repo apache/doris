@@ -105,6 +105,21 @@ public class RewriteDefaultExpressionTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
+    public void writeOnlyDefaultInADeleteIsRejected() {
+        // DELETE FROM t WHERE score = DEFAULT(score): the statement pins the writer schema for its delete sink, but
+        // it writes no row values, so the write-only default 9 must not match the rows it deletes.
+        SlotReference score = scoreSlot(true);
+        pinWriterColumn("9");
+        cascadesContext.getStatementContext().addConnectorDeleteTarget(TABLE_ID);
+
+        AnalysisException e = Assertions.assertThrows(AnalysisException.class,
+                () -> executor.rewrite(new Default(score), context));
+
+        Assertions.assertTrue(e.getMessage().contains("DEFAULT(score) cannot be used in a DELETE: the defaults of"
+                + " this table apply only to the rows that a statement writes"), e.getMessage());
+    }
+
+    @Test
     public void readSchemaDefaultIsKeptWithoutWriteOnlyDefaults() {
         // A connector whose read schema carries its defaults (hive) resolves from the scanned column as before.
         SlotReference score = scoreSlot(false);

@@ -50,7 +50,8 @@ import java.util.Optional;
  * 2. DEFAULT(column) with no default value but nullable -> NULL
  * 3. DEFAULT(column) with no default value and not nullable -> error
  * A table whose defaults apply to writes only takes them from the writer schema that the statement
- * pinned for its write target; DEFAULT(column) on any other such table is an error.
+ * pinned for its write target; DEFAULT(column) on any other such table, or on the target of a DELETE,
+ * which writes no row values, is an error.
  */
 public class RewriteDefaultExpression implements ExpressionPatternRuleFactory {
 
@@ -91,7 +92,12 @@ public class RewriteDefaultExpression implements ExpressionPatternRuleFactory {
         if (originalTable.filter(PluginDrivenExternalTable.class::isInstance)
                 .filter(table -> ((PluginDrivenExternalTable) table).hasWriteOnlyDefaults())
                 .isPresent()) {
-            column = pinnedWriteColumn(context.cascadesContext.getStatementContext(), originalTable.get(), column)
+            StatementContext statementContext = context.cascadesContext.getStatementContext();
+            if (statementContext.isConnectorDeleteTarget(originalTable.get().getId())) {
+                throw new AnalysisException("DEFAULT(" + slotRef.toSql() + ") cannot be used in a DELETE: the"
+                        + " defaults of this table apply only to the rows that a statement writes");
+            }
+            column = pinnedWriteColumn(statementContext, originalTable.get(), column)
                     .orElseThrow(() -> new AnalysisException("DEFAULT(" + slotRef.toSql()
                             + ") must reference a column of the table that this statement writes"));
             // The expressions around DEFAULT(column) were bound against the read column, so a default of another type

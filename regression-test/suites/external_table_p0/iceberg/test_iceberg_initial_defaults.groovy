@@ -631,6 +631,12 @@ suite("test_iceberg_initial_defaults", "p0,external") {
         sql """SELECT DEFAULT(default_int) FROM ${parquetTable}"""
         exception "must reference a column of the table that this statement writes"
     }
+    // A DELETE writes no row values, so the write-default must not decide which rows it deletes: rows 20-22
+    // hold 35 and would all match.
+    test {
+        sql """DELETE FROM ${parquetTable} WHERE id IN (20, 21, 22) AND default_int = DEFAULT(default_int)"""
+        exception "cannot be used in a DELETE"
+    }
 
     // Pin a branch while default_int still has write-default 35, then evolve the table-current
     // schema to 36. Iceberg selects the branch as the parent snapshot but writes the new snapshot
