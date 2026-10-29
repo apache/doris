@@ -21,6 +21,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -98,13 +99,17 @@ public class MaterializedViewAggregateOnNoneAggregateRule extends AbstractMateri
     @Override
     protected Pair<Map<BaseTableInfo, Set<String>>, Map<BaseColInfo, Set<String>>> calcInvalidPartitions(
             Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap,
+            int pctInputsInQuery,
             Plan rewrittenPlan,
             CascadesContext cascadesContext,
-            AsyncMaterializationContext materializationContext)
+            AsyncMaterializationContext materializationContext,
+            Map<MTMVRelatedTableIf, Set<String>> uncoveredNarrowedBasePartitions,
+            Set<BaseColInfo> columnsSharingRetainedBucket)
             throws AnalysisException {
         Pair<Map<BaseTableInfo, Set<String>>, Map<BaseColInfo, Set<String>>> invalidPartitions
-                = super.calcInvalidPartitions(queryUsedBaseTablePartitionMap, rewrittenPlan, cascadesContext,
-                materializationContext);
+                = super.calcInvalidPartitions(queryUsedBaseTablePartitionMap, pctInputsInQuery, rewrittenPlan,
+                cascadesContext, materializationContext, uncoveredNarrowedBasePartitions,
+                columnsSharingRetainedBucket);
         if (invalidPartitions != null && !invalidPartitions.value().isEmpty()) {
             // Aggregate-on-non-aggregate rewrite does not support base-table union compensation.
             return null;

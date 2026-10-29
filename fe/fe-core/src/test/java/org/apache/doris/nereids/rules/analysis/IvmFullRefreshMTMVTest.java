@@ -41,6 +41,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.rewrite.NormalizeOlapTableStreamScan;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -109,6 +110,29 @@ public class IvmFullRefreshMTMVTest extends TestWithFeService {
         Assertions.assertSame(baseTable, streamScan.getTable().getBaseTable());
         Assertions.assertEquals(Lists.newArrayList(partitionId), streamScan.getSelectedPartitionIds());
         assertProjectKeepsOriginSlots(scan, project);
+    }
+
+    /**
+     * A PCT input the batch's mapping does not name is read as no rows, and needs no usable stream for it:
+     * its ordinary scan would read the partitions the mapping stopped recording, which is what the reset
+     * set says it was not read from.
+     */
+    @Test
+    public void testEmptyResetScopeReadsNoRowsWithoutAStream() throws Exception {
+        OlapTable baseTable = baseTable();
+        Long partitionId = baseTable.getPartition("p1").getId();
+        LogicalOlapScan scan = newOlapScan(baseTable, Lists.newArrayList(partitionId));
+        Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException(DB_NAME);
+        OlapTableStream stream = (OlapTableStream) db.getTableOrMetaException(streamName(baseTable));
+        stream.setDisabled(true);
+        try {
+            Plan result = rewrite(scan, baseTable, Optional.of(new HashSet<>()));
+
+            Assertions.assertTrue(result instanceof LogicalEmptyRelation);
+            Assertions.assertEquals(scan.getOutput(), result.getOutput());
+        } finally {
+            stream.setDisabled(false);
+        }
     }
 
     @Test
@@ -205,6 +229,109 @@ public class IvmFullRefreshMTMVTest extends TestWithFeService {
         Assertions.assertSame(scan, result);
     }
 
+    /**
+     * A COMPLETE preview cannot create the stream the refresh it previews would reconcile before reading,
+     * so rather than deny that refresh's plan it shows the same partition read from the base table itself.
+     */
+    @Test
+    public void testExplainWithoutStreamReadsBaseTable() throws Exception {
+        OlapTable baseTable = baseTable();
+        Long partitionId = baseTable.getPartition("p1").getId();
+        LogicalOlapScan scan = newOlapScan(baseTable, Lists.newArrayList(partitionId));
+
+        Plan result = rewrite(scan, fullExplainContext(mtmv(MV_ID + 1, "missing_mv"), baseTable,
+                Optional.of(resetPartitionIds(Lists.newArrayList(partitionId)))));
+
+        Assertions.assertSame(scan, result);
+        Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException(DB_NAME);
+        Assertions.assertNull(db.getTableNullable(
+                        IvmUtil.streamName(MV_ID + 1, baseTable.getFullQualifiers())),
+                "the preview must not create the stream");
+    }
+
+    @Test
+    public void testExplainWithoutStreamReadsResetPartitionsFromBaseTable() throws Exception {
+        OlapTable baseTable = baseTable();
+        Long partitionId = baseTable.getPartition("p1").getId();
+        LogicalOlapScan scan = newOlapScan(baseTable, baseTable.getPartitionIds());
+
+        Plan result = rewrite(scan, fullExplainContext(mtmv(MV_ID + 1, "missing_mv"), baseTable,
+                Optional.of(resetPartitionIds(Lists.newArrayList(partitionId)))));
+
+        Assertions.assertTrue(result instanceof LogicalOlapScan);
+        Assertions.assertFalse(result instanceof LogicalOlapTableStreamScan);
+        Assertions.assertSame(baseTable, ((LogicalOlapScan) result).getTable());
+        Assertions.assertEquals(Lists.newArrayList(partitionId),
+                ((LogicalOlapScan) result).getSelectedPartitionIds());
+    }
+
+    @Test
+    public void testExplainWithDisabledStreamReadsBaseTable() throws Exception {
+        OlapTable baseTable = baseTable();
+        Long partitionId = baseTable.getPartition("p1").getId();
+        LogicalOlapScan scan = newOlapScan(baseTable, Lists.newArrayList(partitionId));
+        Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException(DB_NAME);
+        OlapTableStream stream = (OlapTableStream) db.getTableOrMetaException(streamName(baseTable));
+        stream.setDisabled(true);
+        try {
+            Plan result = rewrite(scan, fullExplainContext(mtmv(), baseTable,
+                    Optional.of(resetPartitionIds(Lists.newArrayList(partitionId)))));
+
+            Assertions.assertSame(scan, result);
+        } finally {
+            stream.setDisabled(false);
+        }
+    }
+
+    /**
+     * Execution keeps failing closed: only a refresh reconciles the streams before it reads, and the one
+     * running here did not.
+     */
+    @Test
+    public void testExecuteWithoutStreamStillFailsClosed() throws Exception {
+        OlapTable baseTable = baseTable();
+        Long partitionId = baseTable.getPartition("p1").getId();
+        LogicalOlapScan scan = newOlapScan(baseTable, Lists.newArrayList(partitionId));
+        Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException(DB_NAME);
+        OlapTableStream stream = (OlapTableStream) db.getTableOrMetaException(streamName(baseTable));
+
+        Assertions.assertThrows(IvmException.class, () -> rewrite(scan,
+                fullRefreshContext(mtmv(MV_ID + 1, "missing_mv"), baseTable,
+                        Optional.of(resetPartitionIds(Lists.newArrayList(partitionId))))));
+        stream.setDisabled(true);
+        try {
+            Assertions.assertThrows(IvmException.class, () -> rewrite(scan,
+                    fullRefreshContext(mtmv(), baseTable,
+                            Optional.of(resetPartitionIds(Lists.newArrayList(partitionId))))));
+        } finally {
+            stream.setDisabled(false);
+        }
+    }
+
+    @Test
+    public void testFindIvmStreamReportsOnlyUsableStream() throws Exception {
+        OlapTable baseTable = baseTable();
+        Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException(DB_NAME);
+        OlapTable wrongBaseTable = (OlapTable) db.getTableOrMetaException("wrong_base_tbl");
+        OlapTableStream stream = (OlapTableStream) db.getTableOrMetaException(streamName(baseTable));
+
+        Assertions.assertFalse(IvmUtil.findIvmStream(mtmv(MV_ID + 1, "missing_mv"), baseTable).isPresent());
+        Assertions.assertFalse(IvmUtil.findIvmStream(mtmv(), wrongBaseTable).isPresent());
+        stream.setDisabled(true);
+        try {
+            Assertions.assertFalse(IvmUtil.findIvmStream(mtmv(), baseTable).isPresent());
+        } finally {
+            stream.setDisabled(false);
+        }
+        stream.setStale(true);
+        try {
+            Assertions.assertFalse(IvmUtil.findIvmStream(mtmv(), baseTable).isPresent());
+        } finally {
+            stream.setStale(false);
+        }
+        Assertions.assertSame(stream, IvmUtil.findIvmStream(mtmv(), baseTable).orElseThrow());
+    }
+
     @Test
     public void testIvmStreamValidationFailsClosed() throws Exception {
         OlapTable baseTable = baseTable();
@@ -268,14 +395,30 @@ public class IvmFullRefreshMTMVTest extends TestWithFeService {
 
     private IvmRewriteContext fullRefreshContext(OlapTable baseTable,
             Optional<Set<Long>> resetPartitionIds) {
-        MTMV mtmv = mtmv();
-        BaseTableInfo baseTableInfo = new BaseTableInfo(baseTable);
-        Map<BaseTableInfo, Set<Long>> resetScopes = resetPartitionIds
-                .map(partitionIds -> ImmutableMap.of(baseTableInfo, partitionIds))
+        return fullRefreshContext(mtmv(), baseTable, resetPartitionIds);
+    }
+
+    private IvmRewriteContext fullRefreshContext(MTMV mtmv, OlapTable baseTable,
+            Optional<Set<Long>> resetPartitionIds) {
+        return IvmRewriteContext.full(mtmv, resetScopes(baseTable, resetPartitionIds),
+                nonPctReadMode(resetPartitionIds));
+    }
+
+    private IvmRewriteContext fullExplainContext(MTMV mtmv, OlapTable baseTable,
+            Optional<Set<Long>> resetPartitionIds) {
+        return IvmRewriteContext.fullExplain(mtmv, resetScopes(baseTable, resetPartitionIds),
+                nonPctReadMode(resetPartitionIds));
+    }
+
+    private Map<BaseTableInfo, Set<Long>> resetScopes(OlapTable baseTable,
+            Optional<Set<Long>> resetPartitionIds) {
+        return resetPartitionIds
+                .map(partitionIds -> ImmutableMap.of(new BaseTableInfo(baseTable), partitionIds))
                 .orElseGet(ImmutableMap::of);
-        StreamReadMode nonPctReadMode = resetPartitionIds.isPresent()
-                ? StreamReadMode.RESET : StreamReadMode.SNAPSHOT;
-        return IvmRewriteContext.full(mtmv, resetScopes, nonPctReadMode);
+    }
+
+    private StreamReadMode nonPctReadMode(Optional<Set<Long>> resetPartitionIds) {
+        return resetPartitionIds.isPresent() ? StreamReadMode.RESET : StreamReadMode.SNAPSHOT;
     }
 
     private Plan normalizeStreamScan(Plan plan) throws Exception {

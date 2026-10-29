@@ -33,6 +33,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshContext.PreparedPartitionSnapshots;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -418,5 +419,56 @@ public class MTMVPartitionUtilTest {
         Assertions.assertEquals(1, versionRequests.size());
         Assertions.assertEquals(expectedPartitionNames, versionRequests.get(0));
         Mockito.verify(baseOlapTable, Mockito.never()).getPartitions();
+    }
+
+    @Test
+    public void testCollectPctResetPartitionIdsSupportsMultiplePctTables() throws AnalysisException {
+        OlapTable firstPctTable = Mockito.mock(OlapTable.class);
+        Mockito.when(firstPctTable.getName()).thenReturn("first_pct");
+        Mockito.when(firstPctTable.getDatabase()).thenReturn(databaseIf);
+        Partition firstPartition = Mockito.mock(Partition.class);
+        Partition sharedPartition = Mockito.mock(Partition.class);
+        Partition lastPartition = Mockito.mock(Partition.class);
+        Mockito.when(firstPartition.getId()).thenReturn(11L);
+        Mockito.when(sharedPartition.getId()).thenReturn(12L);
+        Mockito.when(lastPartition.getId()).thenReturn(13L);
+        Mockito.when(firstPctTable.getPartitionOrAnalysisException("first_p1")).thenReturn(firstPartition);
+        Mockito.when(firstPctTable.getPartitionOrAnalysisException("first_shared")).thenReturn(sharedPartition);
+        Mockito.when(firstPctTable.getPartitionOrAnalysisException("first_p3")).thenReturn(lastPartition);
+
+        OlapTable secondPctTable = Mockito.mock(OlapTable.class);
+        Mockito.when(secondPctTable.getName()).thenReturn("second_pct");
+        Mockito.when(secondPctTable.getDatabase()).thenReturn(databaseIf);
+        Partition secondFirstPartition = Mockito.mock(Partition.class);
+        Partition secondLastPartition = Mockito.mock(Partition.class);
+        Mockito.when(secondFirstPartition.getId()).thenReturn(21L);
+        Mockito.when(secondLastPartition.getId()).thenReturn(22L);
+        Mockito.when(secondPctTable.getPartitionOrAnalysisException("second_p1")).thenReturn(secondFirstPartition);
+        Mockito.when(secondPctTable.getPartitionOrAnalysisException("second_p2")).thenReturn(secondLastPartition);
+
+        Mockito.when(context.getByPartitionName("mv_p1")).thenReturn(
+                ImmutableMap.<MTMVRelatedTableIf, Set<String>>of(
+                        firstPctTable, Sets.newHashSet("first_p1", "first_shared"),
+                        secondPctTable, Sets.newHashSet("second_p1")));
+        Mockito.when(context.getByPartitionName("mv_p2")).thenReturn(
+                ImmutableMap.<MTMVRelatedTableIf, Set<String>>of(
+                        firstPctTable, Sets.newHashSet("first_shared", "first_p3"),
+                        secondPctTable, Sets.newHashSet("second_p2")));
+        // A PCT table neither refreshed partition names feeds them nothing -- the sync window dropped the
+        // partitions it would feed them with, say -- and that has to be read as an explicit empty scope.
+        // Absent from the map, it would be read through its ordinary scan instead, which reads exactly the
+        // partitions the mapping records nowhere.
+        OlapTable absentPctTable = Mockito.mock(OlapTable.class);
+        Mockito.when(absentPctTable.getName()).thenReturn("absent_pct");
+        Mockito.when(absentPctTable.getDatabase()).thenReturn(databaseIf);
+        Mockito.when(mtmvPartitionInfo.getPctTables()).thenReturn(
+                Sets.newHashSet(firstPctTable, secondPctTable, absentPctTable));
+
+        Map<BaseTableInfo, Set<Long>> result = MTMVPartitionUtil.collectPctResetPartitionIds(
+                mtmv, context, Sets.newHashSet("mv_p1", "mv_p2"));
+
+        Assertions.assertEquals(Sets.newHashSet(11L, 12L, 13L), result.get(new BaseTableInfo(firstPctTable)));
+        Assertions.assertEquals(Sets.newHashSet(21L, 22L), result.get(new BaseTableInfo(secondPctTable)));
+        Assertions.assertEquals(Sets.newHashSet(), result.get(new BaseTableInfo(absentPctTable)));
     }
 }

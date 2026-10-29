@@ -20,6 +20,7 @@ package org.apache.doris.mtmv;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 
@@ -59,19 +60,28 @@ public class MTMVRelatedPartitionDescOnePartitionColGenerator implements MTMVRel
         Map<MTMVRelatedTableIf, Map<String, PartitionItem>> relatedPartitionItems = lastResult.getItems();
         for (Entry<MTMVRelatedTableIf, Map<String, PartitionItem>> entry : relatedPartitionItems.entrySet()) {
             int relatedColPos = mvPartitionInfo.getPctColPos(entry.getKey());
-            Map<PartitionKeyDesc, Set<String>> onePctRes = Maps.newHashMap();
             Set<String> queryUsedPartitions = queryUsedPartitionMap.get(entry.getKey().getFullQualifiers());
+            Map<PartitionKeyDesc, Set<String>> onePctRes = Maps.newHashMap();
             for (Entry<String, PartitionItem> onePctEntry : entry.getValue().entrySet()) {
-                if (queryUsedPartitions != null && !queryUsedPartitions.contains(onePctEntry.getKey())) {
+                // A partition of a range partitioned table is dropped here when the query does not read it:
+                // its desc is its own bounds (such a table has one partition column, see
+                // RangePartitionItem#toPartitionKeyDesc(int)), so one partition is one desc, and the filter
+                // this reads is already expanded to MV partition granularity -- MTMVPartitionExpander,
+                // through MTMV#calculatePartitionMappings -- so dropping it takes no bucket the query reads
+                // out of the descs. It is what keeps the roll-up cheap: the roll-up parses, truncates and
+                // increments a date per desc, and a view over a year's worth of daily partitions would
+                // otherwise do that for all of them to answer a query about one day.
+                if (onePctEntry.getValue() instanceof RangePartitionItem
+                        && queryUsedPartitions != null && !queryUsedPartitions.contains(onePctEntry.getKey())) {
                     continue;
                 }
                 PartitionKeyDesc partitionKeyDesc = onePctEntry.getValue().toPartitionKeyDesc(relatedColPos);
-                if (onePctRes.containsKey(partitionKeyDesc)) {
-                    onePctRes.get(partitionKeyDesc).add(onePctEntry.getKey());
-                } else {
-                    onePctRes.put(partitionKeyDesc, Sets.newHashSet(onePctEntry.getKey()));
-                }
+                onePctRes.computeIfAbsent(partitionKeyDesc, k -> Sets.newHashSet()).add(onePctEntry.getKey());
             }
+            // A list partitioned table keeps every partition's desc, and they are filtered out of the grouped
+            // descs in MTMVRelatedPartitionDescTransferGenerator: a partition whose keys meet another table's
+            // belongs to the MV partition this query is answered from even where the query does not read it,
+            // and dropping it here would leave that desc short of its keys.
             res.put(entry.getKey(), onePctRes);
         }
 

@@ -71,6 +71,31 @@ public class MTMVRefreshContextBatchTest {
     }
 
     @Test
+    public void undescribedPartitionIsLeftUnscopedWhileTheOtherKeepsItsRecord() throws AnalysisException {
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        MTMVRelatedTableIf table = Mockito.mock(MTMVRelatedTableIf.class);
+        MTMVRefreshSnapshot refreshSnapshot = Mockito.mock(MTMVRefreshSnapshot.class);
+        Map<String, Map<MTMVRelatedTableIf, Set<String>>> mappings = new LinkedHashMap<>();
+        mappings.put("mv_stale", Collections.emptyMap());
+        mappings.put("mv_kept", Collections.singletonMap(table, Collections.singleton("p_kept")));
+        configureContext(mtmv, table, refreshSnapshot, mappings);
+        Mockito.when(mtmv.calculatePartitionMappings(Mockito.anyMap(), Mockito.nullable(Map.class),
+                Mockito.anySet())).thenAnswer(invocation -> {
+                    invocation.<Set<String>>getArgument(2).add("mv_stale");
+                    return mappings;
+                });
+        MTMVRefreshContext context = MTMVRefreshContext.buildContext(mtmv, Collections.emptyMap());
+
+        Map<String, Map<BaseTableInfo, Set<String>>> result = MTMVPartitionUtil.mappedBasePartitionsByMvPartition(
+                Collections.singletonMap(table, "d"), context,
+                new LinkedHashSet<>(Arrays.asList("mv_stale", "mv_kept")));
+
+        Assertions.assertFalse(result.containsKey("mv_stale"));
+        Assertions.assertEquals(Collections.singleton("p_kept"),
+                result.get("mv_kept").get(new BaseTableInfo(table)));
+    }
+
+    @Test
     public void aggregatesOneHundredSixtyThousandMappedPartitionsIntoOneLogicalLoad()
             throws AnalysisException {
         MTMV mtmv = Mockito.mock(MTMV.class);
@@ -222,7 +247,7 @@ public class MTMVRefreshContextBatchTest {
 
         PreparedPartitionSnapshots prepared = context.preparePartitionSnapshots(mappings.keySet());
 
-        Mockito.verify(mtmv).calculatePartitionMappings(Mockito.anyMap(), Mockito.eq(pins));
+        Mockito.verify(mtmv).calculatePartitionMappings(Mockito.anyMap(), Mockito.eq(pins), Mockito.anySet());
         Mockito.verify(table).getPartitionSnapshots(Mockito.eq(new LinkedHashSet<>(Arrays.asList("p1", "p2"))),
                 Mockito.same(context),
                 Mockito.eq(Optional.of(pin)));
@@ -288,7 +313,7 @@ public class MTMVRefreshContextBatchTest {
             MTMVRefreshSnapshot refreshSnapshot,
             Map<String, Map<MTMVRelatedTableIf, Set<String>>> mappings) throws AnalysisException {
         MTMVPartitionInfo partitionInfo = Mockito.mock(MTMVPartitionInfo.class);
-        Mockito.when(mtmv.calculatePartitionMappings(Mockito.anyMap(), Mockito.nullable(Map.class)))
+        Mockito.when(mtmv.calculatePartitionMappings(Mockito.anyMap(), Mockito.nullable(Map.class), Mockito.anySet()))
                 .thenReturn(mappings);
         Mockito.when(mtmv.getRelation()).thenReturn(null);
         Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(partitionInfo);

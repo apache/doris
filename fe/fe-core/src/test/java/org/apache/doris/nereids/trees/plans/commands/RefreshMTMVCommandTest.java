@@ -18,8 +18,19 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTable;
+import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVPartitionInfo;
+import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.MTMVPlanUtil;
+import org.apache.doris.mtmv.MTMVRefreshContext;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mtmv.ivm.IvmIncrRefreshManager;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -30,12 +41,16 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableComma
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -209,6 +224,77 @@ public class RefreshMTMVCommandTest {
         command.createRefreshCommand(mtmv, stmtCtx);
 
         Assertions.assertEquals(excluded, stmtCtx.getExcludedTriggerTables());
+    }
+
+    @Test
+    public void testCompleteExplainPinsOneSnapshotPerExternalInput() throws Exception {
+        RefreshMTMVInfo info = extractRefreshInfo("REFRESH MATERIALIZED VIEW db1.mv1 COMPLETE");
+        TestRefreshMTMVCommand command = new TestRefreshMTMVCommand(info, false);
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        MTMVPartitionInfo mvPartitionInfo = Mockito.mock(MTMVPartitionInfo.class);
+        Mockito.when(mvPartitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.SELF_MANAGE);
+        Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(mvPartitionInfo);
+        Mockito.when(mtmv.getExcludedTriggerTables()).thenReturn(Collections.emptySet());
+        Mockito.when(mtmv.isIvm()).thenReturn(false);
+
+        MvccTable firstInput = mockMvccTable("t1");
+        MvccTable secondInput = mockMvccTable("t2");
+        MvccSnapshot firstSnapshot = Mockito.mock(MvccSnapshot.class);
+        MvccSnapshot secondSnapshot = Mockito.mock(MvccSnapshot.class);
+        Mockito.when(firstInput.loadSnapshot(Mockito.any(), Mockito.any())).thenReturn(firstSnapshot);
+        Mockito.when(secondInput.loadSnapshot(Mockito.any(), Mockito.any())).thenReturn(secondSnapshot);
+        Mockito.when(mtmv.getQuerySql()).thenReturn("SELECT 1 AS k1");
+
+        StatementContext stmtCtx = new StatementContext(new ConnectContext(), null);
+        UpdateMvByPartitionCommand refreshPlan = Mockito.mock(UpdateMvByPartitionCommand.class);
+        Map<MvccTableInfo, MvccSnapshot> contextPins = new HashMap<>();
+        try (MockedStatic<MTMVPlanUtil> planUtil =
+                        Mockito.mockStatic(MTMVPlanUtil.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<MTMVUtil> util = Mockito.mockStatic(MTMVUtil.class);
+                MockedStatic<MTMVRefreshContext> contexts = Mockito.mockStatic(MTMVRefreshContext.class);
+                MockedStatic<UpdateMvByPartitionCommand> from =
+                        Mockito.mockStatic(UpdateMvByPartitionCommand.class)) {
+            // The inputs are resolved from the definition, not from the stored relation.
+            planUtil.when(() -> MTMVPlanUtil.getBaseTableFromQuery(Mockito.anyString(), Mockito.any()))
+                    .thenReturn(new MTMVPlanUtil.QueryAnalysisResult(
+                            Sets.newHashSet(firstInput, secondInput),
+                            Sets.newHashSet(firstInput, secondInput), false));
+            util.when(() -> MTMVUtil.getTable(new BaseTableInfo(firstInput))).thenReturn(firstInput);
+            util.when(() -> MTMVUtil.getTable(new BaseTableInfo(secondInput))).thenReturn(secondInput);
+            contexts.when(() -> MTMVRefreshContext.buildContext(Mockito.eq(mtmv), Mockito.anyMap(),
+                            Mockito.anyMap()))
+                    .thenAnswer(invocation -> {
+                        contextPins.putAll(invocation.getArgument(2));
+                        return Mockito.mock(MTMVRefreshContext.class);
+                    });
+            from.when(() -> UpdateMvByPartitionCommand.from(Mockito.eq(mtmv), Mockito.anySet(),
+                            Mockito.anyMap(), Mockito.same(stmtCtx), Mockito.any(), Mockito.any()))
+                    .thenReturn(refreshPlan);
+
+            Assertions.assertSame(refreshPlan, command.createRefreshCommand(mtmv, stmtCtx));
+        }
+
+        Mockito.verify(mtmv, Mockito.never()).getRelation();
+        // One engine materialization per input, whatever number of MV partitions the scope is derived for.
+        Mockito.verify(firstInput, Mockito.times(1)).loadSnapshot(Optional.empty(), Optional.empty());
+        Mockito.verify(secondInput, Mockito.times(1)).loadSnapshot(Optional.empty(), Optional.empty());
+        // The same pins are handed to the mapping derivation and installed for predicate/scan binding.
+        Assertions.assertSame(firstSnapshot, contextPins.get(new MvccTableInfo(firstInput)));
+        Assertions.assertSame(secondSnapshot, contextPins.get(new MvccTableInfo(secondInput)));
+        Assertions.assertSame(firstSnapshot, stmtCtx.getSnapshot(firstInput).get());
+        Assertions.assertSame(secondSnapshot, stmtCtx.getSnapshot(secondInput).get());
+    }
+
+    private static MvccTable mockMvccTable(String tableName) {
+        MvccTable table = Mockito.mock(MvccTable.class);
+        DatabaseIf database = Mockito.mock(DatabaseIf.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(table.getName()).thenReturn(tableName);
+        Mockito.when(table.getDatabase()).thenReturn(database);
+        Mockito.when(database.getFullName()).thenReturn("db1");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("ctl");
+        return table;
     }
 
     private static class TestRefreshMTMVCommand extends RefreshMTMVCommand {

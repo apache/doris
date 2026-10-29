@@ -182,4 +182,21 @@ suite("test_ivm_partitions_fallback_stream_unusable") {
     taskId = waitForNewTask(taskId)
     assertEquals("FAILED", taskStatus(taskId))
     order_qt_after_strict_failure_mv """SELECT order_id, dt, amount, dimension_name FROM ${mvName}"""
+
+    // Previewing the COMPLETE refresh that would recover the stream must work before it is recovered:
+    // the refresh reconciles the stream before reading, and a preview creates nothing to do so. It
+    // shows the read such a refresh makes, the joined table's partitions straight from the base table.
+    explain {
+        sql "REFRESH MATERIALIZED VIEW ${mvName} COMPLETE"
+        contains "${dimTable}(${dimTable})"
+        contains "partitions=2/2 (d202601,d202602)"
+    }
+    assertTrue(streamNameOf(dimTable) == null, "the preview must not create the stream")
+
+    // And the refresh it previewed then runs and recovers the stream.
+    sql """REFRESH MATERIALIZED VIEW ${mvName} COMPLETE"""
+    taskId = waitForNewTask(taskId)
+    assertEquals("SUCCESS\tCOMPLETE\tNONE", taskOutcome(taskId))
+    assertTrue(streamNameOf(dimTable) != null, "the complete refresh should have reconciled the stream")
+    order_qt_after_previewed_complete_mv """SELECT order_id, dt, amount, dimension_name FROM ${mvName}"""
 }

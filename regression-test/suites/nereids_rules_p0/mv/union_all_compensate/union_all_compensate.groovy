@@ -281,7 +281,10 @@ suite("union_all_compensate") {
 
 
         // Aggregate, if query group by expression use the partition column, and the invalid partition is not in the
-        // grace_period, should compensate union all, and should rewritten successfully
+        // grace_period, the compensation would union two finished aggregates. Grouping by to_date(data_date) rather
+        // than by data_date itself can not be shown to keep the two branches' groups apart -- the expression can put
+        // several partitions' values in one group -- so the union is declined and the query is answered from the base
+        // table, which gives the same rows.
         def query5_0 =
                 """
             select to_date(t1.data_date),
@@ -300,8 +303,7 @@ suite("union_all_compensate") {
         sql "set enable_sql_cache=false"
         sql """ALTER MATERIALIZED VIEW test_agg_mv set("grace_period"="0");"""
         sql """set enable_materialized_view_rewrite = true;"""
-        mv_rewrite_success(query5_0, "test_agg_mv",
-                is_partition_statistics_ready(db, ["test_table1", "test_table2", "test_agg_mv"]))
+        mv_rewrite_fail(query5_0, "test_agg_mv")
         order_qt_query5_0_after_no_sql_cache "${query5_0}"
         sql "set enable_sql_cache=true"
         sql "set enable_strong_consistency_read=true"

@@ -1679,6 +1679,23 @@ public class MTMV extends OlapTable {
     public Map<String, Map<MTMVRelatedTableIf, Set<String>>> calculatePartitionMappings(
             Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap,
             Map<MvccTableInfo, MvccSnapshot> pinnedSnapshots) throws AnalysisException {
+        return calculatePartitionMappings(queryUsedBaseTablePartitionMap, pinnedSnapshots, Sets.newHashSet());
+    }
+
+    /**
+     * The same, with every MV partition no base partition describes added to {@code undescribedMvPartitions}.
+     *
+     * <p>Such a partition is one the alignment has not caught up with: a base {@code ADD PARTITION} widens the
+     * keys an MV partition covers, so the alignment replaces it with an empty partition of the wider keys, and
+     * until that is done its own descriptor is one the base partitions no longer produce. Reading it as no
+     * table feeding it would write no rows over the rows it holds, so a refresh has to tell it apart from a
+     * partition that really is fed by nothing -- and the default list partition of a table is named in every
+     * MV partition's mapping, which is why the mapping being non-empty says nothing about this.
+     */
+    public Map<String, Map<MTMVRelatedTableIf, Set<String>>> calculatePartitionMappings(
+            Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap,
+            Map<MvccTableInfo, MvccSnapshot> pinnedSnapshots,
+            Set<String> undescribedMvPartitions) throws AnalysisException {
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
             return Maps.newHashMap();
         }
@@ -1697,9 +1714,16 @@ public class MTMV extends OlapTable {
         Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> pctPartitionDescs = MTMVPartitionUtil
                 .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties, getPartitionColumns(),
                         effectiveFilter, pinnedSnapshots);
+        Map<MTMVRelatedTableIf, String> defaultListPartitions =
+                MTMVPartitionUtil.defaultListPartitionsOf(mvPartitionInfo);
         for (Entry<String, PartitionItem> entry : mvPartitionItems.entrySet()) {
-            res.put(entry.getKey(),
-                    pctPartitionDescs.getOrDefault(entry.getValue().toPartitionKeyDesc(), Maps.newHashMap()));
+            Map<MTMVRelatedTableIf, Set<String>> matched =
+                    pctPartitionDescs.get(entry.getValue().toPartitionKeyDesc());
+            if (matched == null) {
+                undescribedMvPartitions.add(entry.getKey());
+            }
+            res.put(entry.getKey(), MTMVPartitionUtil.withDefaultListPartitions(
+                    matched == null ? Maps.newHashMap() : matched, defaultListPartitions));
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("calculatePartitionMappings use [{}] mills, mvName is [{}]",

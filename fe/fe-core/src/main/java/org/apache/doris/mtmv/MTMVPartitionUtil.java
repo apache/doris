@@ -24,9 +24,14 @@ import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.ListPartitionInfo;
+import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.TableNameInfo;
@@ -46,6 +51,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
@@ -54,6 +60,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -150,36 +157,85 @@ public class MTMVPartitionUtil {
      * @throws AnalysisException
      */
     public static Pair<List<String>, List<PartitionKeyDesc>> alignMvPartition(MTMV mtmv) throws AnalysisException {
-        return alignMvPartitionWithSnapshots(mtmv, null);
+        PartitionAlignment alignment = computePartitionAlignmentWithSnapshots(mtmv, null);
+        return Pair.of(alignment.getPartitionsToDrop(), alignment.getPartitionsToAdd());
     }
 
     public static Pair<List<String>, List<PartitionKeyDesc>> alignMvPartition(MTMV mtmv,
             Map<MvccTableInfo, MvccSnapshot> pinnedSnapshots) throws AnalysisException {
         Map<MvccTableInfo, MvccSnapshot> snapshotCopy = new LinkedHashMap<>(pinnedSnapshots);
-        return alignMvPartitionWithSnapshots(mtmv, snapshotCopy);
+        PartitionAlignment alignment = computePartitionAlignmentWithSnapshots(mtmv, snapshotCopy);
+        return Pair.of(alignment.getPartitionsToDrop(), alignment.getPartitionsToAdd());
     }
 
-    private static Pair<List<String>, List<PartitionKeyDesc>> alignMvPartitionWithSnapshots(MTMV mtmv,
+    /**
+     * The partitions a refresh's alignment drops and creates, with the descriptors it creates them from and
+     * the base partitions each of them is read from -- what a preview of that alignment needs to read a
+     * replacement partition the way the refresh will once it has created it.
+     */
+    public static PartitionAlignment computePartitionAlignment(MTMV mtmv,
+            Map<MvccTableInfo, MvccSnapshot> pinnedSnapshots) throws AnalysisException {
+        Map<MvccTableInfo, MvccSnapshot> snapshotCopy = new LinkedHashMap<>(pinnedSnapshots);
+        return computePartitionAlignmentWithSnapshots(mtmv, snapshotCopy);
+    }
+
+    private static PartitionAlignment computePartitionAlignmentWithSnapshots(MTMV mtmv,
             Map<MvccTableInfo, MvccSnapshot> pinnedSnapshots) throws AnalysisException {
         Map<String, PartitionKeyDesc> mtmvPartitionDescs = mtmv.generateMvPartitionDescs();
-        Set<PartitionKeyDesc> relatedPartitionDescs = generateRelatedPartitionDescs(mtmv.getMvPartitionInfo(),
-                mtmv.getMvProperties(), mtmv.getPartitionColumns(), Maps.newHashMap(), pinnedSnapshots).keySet();
+        Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> relatedDescs = generateRelatedPartitionDescs(
+                mtmv.getMvPartitionInfo(), mtmv.getMvProperties(), mtmv.getPartitionColumns(),
+                Maps.newHashMap(), pinnedSnapshots);
         List<String> partitionsToDrop = new ArrayList<>();
         List<PartitionKeyDesc> partitionsToAdd = new ArrayList<>();
         // drop partition of mtmv
         for (Entry<String, PartitionKeyDesc> entry : mtmvPartitionDescs.entrySet()) {
-            if (!relatedPartitionDescs.contains(entry.getValue())) {
+            if (!relatedDescs.containsKey(entry.getValue())) {
                 partitionsToDrop.add(entry.getKey());
             }
         }
         // add partition for mtmv
         HashSet<PartitionKeyDesc> mtmvPartitionDescsSet = Sets.newHashSet(mtmvPartitionDescs.values());
-        for (PartitionKeyDesc desc : relatedPartitionDescs) {
+        for (PartitionKeyDesc desc : relatedDescs.keySet()) {
             if (!mtmvPartitionDescsSet.contains(desc)) {
                 partitionsToAdd.add(desc);
             }
         }
-        return Pair.of(partitionsToDrop, partitionsToAdd);
+        return new PartitionAlignment(partitionsToDrop, partitionsToAdd, relatedDescs);
+    }
+
+    /**
+     * The alignment a refresh runs before it reads anything: which partitions the base partitions no longer
+     * describe, which descriptors they produce in their place, and the base partitions each of those
+     * descriptors is read from.
+     */
+    public static class PartitionAlignment {
+        private final List<String> partitionsToDrop;
+        private final List<PartitionKeyDesc> partitionsToAdd;
+        private final Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> readScopes;
+
+        private PartitionAlignment(List<String> partitionsToDrop, List<PartitionKeyDesc> partitionsToAdd,
+                Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> readScopes) {
+            this.partitionsToDrop = partitionsToDrop;
+            this.partitionsToAdd = partitionsToAdd;
+            this.readScopes = readScopes;
+        }
+
+        public List<String> getPartitionsToDrop() {
+            return partitionsToDrop;
+        }
+
+        public List<PartitionKeyDesc> getPartitionsToAdd() {
+            return partitionsToAdd;
+        }
+
+        /**
+         * The base partitions each descriptor's partition is read from, by descriptor and then by table. A
+         * partition created from one of these descriptors will be recorded with exactly this scope, and its
+         * refresh reads exactly these partitions.
+         */
+        public Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> getReadScopes() {
+            return readScopes;
+        }
     }
 
     /**
@@ -301,6 +357,408 @@ public class MTMVPartitionUtil {
             }
         }
         return Optional.of(res);
+    }
+
+    /**
+     * Whether the table has a list partition's default partition, the partition that takes the rows no other
+     * partition of it claims.
+     *
+     * <p>Such a table cannot be represented completely by a materialized view partitioned on it: a key that
+     * only that partition holds has no MV partition to be read into -- the MV's partitions are the keys the
+     * explicit partitions project to -- so its rows are not in the MV, and no rewrite of a query that may
+     * read them can be answered from it. The partitions are walked under the table's read lock, so a
+     * concurrent ADD or DROP PARTITION cannot be seen half applied.
+     */
+    public static boolean hasDefaultListPartition(MTMVRelatedTableIf table) {
+        if (!(table instanceof OlapTable)) {
+            return false;
+        }
+        OlapTable olapTable = (OlapTable) table;
+        if (!(olapTable.getPartitionInfo() instanceof ListPartitionInfo)) {
+            return false;
+        }
+        olapTable.readLock();
+        try {
+            for (PartitionItem item : olapTable.getPartitionInfo().getIdToItem(false).values()) {
+                if (item.isDefaultPartition()) {
+                    return true;
+                }
+            }
+        } finally {
+            olapTable.readUnlock();
+        }
+        return false;
+    }
+
+    /**
+     * The desc of the MV partition each of these descs belongs to, grouped: the keys of a list partitioned
+     * base table can meet at the MV's partition column -- a partition holding several keys of it, one of them
+     * shared with another partition -- and an MV's own partitions cannot overlap, so descs whose keys meet
+     * are one partition whose keys are the union of theirs. A desc whose keys meet nothing is answered with
+     * itself, and so is every desc that is not a list of keys.
+     *
+     * <p>The keys of a merged desc are written out in the order
+     * {@link PartitionKeyDesc#sortedInValues} gives the same key set, which is the order
+     * {@link ListPartitionItem#toPartitionKeyDesc(int)} writes it in too, because
+     * {@link PartitionKeyDesc#equals} compares that list: the same keys in another order are another desc,
+     * which would leave the MV partition an alignment computes unmatchable to the one it holds.
+     *
+     * <p>Answered as groups -- the merged desc, and the descs whose keys it holds -- rather than one merged
+     * desc per source desc: a caller mapping every source desc would otherwise hash the group's merged desc,
+     * N+1 keys, once per source desc in it, which is quadratic in a group of N.
+     */
+    public static Map<PartitionKeyDesc, Set<PartitionKeyDesc>> groupedListDescs(
+            Collection<PartitionKeyDesc> descs) {
+        // A union-find over the keys: two descs whose keys meet end up in one group, transitively, and each
+        // key is looked up once -- walking the groups per desc would be quadratic in the number of partitions.
+        Map<List<PartitionValue>, List<PartitionValue>> groupOfKey = Maps.newHashMap();
+        for (PartitionKeyDesc desc : descs) {
+            if (!desc.hasInValues()) {
+                continue;
+            }
+            List<PartitionValue> first = desc.getInValues().iterator().next();
+            groupOfKey.putIfAbsent(first, first);
+            for (List<PartitionValue> key : desc.getInValues()) {
+                groupOfKey.putIfAbsent(key, key);
+                unionKey(groupOfKey, first, key);
+            }
+        }
+        Map<List<PartitionValue>, Set<List<PartitionValue>>> keysOfGroup = Maps.newHashMap();
+        for (List<PartitionValue> key : groupOfKey.keySet()) {
+            keysOfGroup.computeIfAbsent(findKey(groupOfKey, key), k -> Sets.newHashSet()).add(key);
+        }
+        Map<List<PartitionValue>, Set<PartitionKeyDesc>> descsOfGroup = Maps.newHashMap();
+        Map<List<PartitionValue>, PartitionKeyDesc> onlyDescOfGroup = Maps.newHashMap();
+        for (PartitionKeyDesc desc : descs) {
+            if (!desc.hasInValues()) {
+                continue;
+            }
+            List<PartitionValue> group = findKey(groupOfKey, desc.getInValues().iterator().next());
+            descsOfGroup.computeIfAbsent(group, k -> Sets.newHashSet()).add(desc);
+            onlyDescOfGroup.putIfAbsent(group, desc);
+        }
+        Map<PartitionKeyDesc, Set<PartitionKeyDesc>> res = Maps.newHashMap();
+        for (Entry<List<PartitionValue>, Set<PartitionKeyDesc>> entry : descsOfGroup.entrySet()) {
+            Set<PartitionKeyDesc> groupDescs = entry.getValue();
+            PartitionKeyDesc mergedDesc = groupDescs.size() == 1
+                    ? onlyDescOfGroup.get(entry.getKey())
+                    : PartitionKeyDesc.createIn(
+                            PartitionKeyDesc.sortedInValues(keysOfGroup.get(entry.getKey())));
+            res.put(mergedDesc, groupDescs);
+        }
+        // A desc that is not a list of keys meets nothing and is its own group.
+        for (PartitionKeyDesc desc : descs) {
+            if (!desc.hasInValues()) {
+                res.put(desc, Sets.newHashSet(desc));
+            }
+        }
+        return res;
+    }
+
+    private static void unionKey(Map<List<PartitionValue>, List<PartitionValue>> groupOfKey,
+            List<PartitionValue> left, List<PartitionValue> right) {
+        List<PartitionValue> leftGroup = findKey(groupOfKey, left);
+        List<PartitionValue> rightGroup = findKey(groupOfKey, right);
+        if (leftGroup != rightGroup) {
+            groupOfKey.put(rightGroup, leftGroup);
+        }
+    }
+
+    private static List<PartitionValue> findKey(Map<List<PartitionValue>, List<PartitionValue>> groupOfKey,
+            List<PartitionValue> key) {
+        List<PartitionValue> group = Preconditions.checkNotNull(groupOfKey.get(key),
+                "a key is registered before it is looked up: %s", key);
+        while (group != groupOfKey.get(group)) {
+            group = groupOfKey.get(group);
+        }
+        List<PartitionValue> root = group;
+        // Path compression, so that the walk is not repeated for the rest of this group's keys.
+        group = groupOfKey.get(key);
+        while (group != root) {
+            List<PartitionValue> next = groupOfKey.get(group);
+            groupOfKey.put(group, root);
+            group = next;
+        }
+        return root;
+    }
+
+    /**
+     * The base partitions each MV partition is read from, by MV partition and then by base table: the ones
+     * that MV partition is recorded with, which is the same set the refresh reads and the same one a rebuild
+     * of it has to read again. A table named with an empty set is not read for that MV partition, and a
+     * table absent from an MV partition's map keeps that MV partition's own key range.
+     *
+     * <p>Kept per MV partition rather than unioned for the batch: a batch writes the rows of each MV
+     * partition, and those are the rows of that partition's own recorded base partitions. A base partition
+     * of a range table can end past the MV partition it is rolled up into, see
+     * UpdateMvByPartitionCommand#constructTableWithPredicates, so a row of it can lie inside another MV
+     * partition's key range. Unioned, the batch reads that row through the other partition's range although
+     * the partition it comes from is not the one recorded there, and a batch that does not write that
+     * partition reads a row it has no target for. Paired, each MV partition is read from exactly its own
+     * record, which is what the snapshot written next to the read claims.
+     *
+     * <p>Every table the MV is partitioned on is named for each MV partition, olap or external: a table the
+     * mapping does not name for an MV partition feeds it nothing -- the sync window dropped its partitions,
+     * say -- and its MV key range reads rows the snapshot records no partition for. The empty set says that
+     * outright, which is what separates it from a table that is not one of the MV partition column's
+     * sources at all.
+     *
+     * <p>An MV partition no base partition describes is left out of the map rather than mapped to nothing:
+     * nothing is recorded for it, so there is no scope its read could match, and an empty set would read no
+     * rows over the rows it holds. Left out, it keeps its own key range -- the read
+     * UpdateMvByPartitionCommand#constructTableWithPredicates gives a partition the map does not name
+     * -- while the partitions that are described keep their records. What ends up undescribed here is an
+     * external partition table's partition the mapping cannot describe at all -- a row whose partition key is
+     * null, say; the olap cause, an alignment that has not caught up yet, is refused by a refresh rather than
+     * read, see MTMVTask#requireDescribedPartitions.
+     *
+     * <p>The tables are named by {@link BaseTableInfo} rather than by the table object: the mapping is keyed
+     * by the tables the MV's partition info holds and this reads them by the name it is given, so what
+     * identifies a table here is the table it names, not which of the two objects it was read from.
+     */
+    public static Map<String, Map<BaseTableInfo, Set<String>>> mappedBasePartitionsByMvPartition(
+            Map<TableIf, String> tableWithPartKey, MTMVRefreshContext context, Set<String> mvPartitionNames) {
+        Map<String, Map<BaseTableInfo, Set<String>>> res = Maps.newHashMap();
+        for (String mvPartitionName : mvPartitionNames) {
+            if (context.getUndescribedMvPartitions().contains(mvPartitionName)) {
+                // Left out rather than mapped to an empty set, and left out for this partition alone: the
+                // rows it holds are read through its own key range, while another partition of the same
+                // batch having no record says nothing about what this one is read from.
+                continue;
+            }
+            res.put(mvPartitionName, mappedBasePartitions(tableWithPartKey,
+                    context.getByPartitionName(mvPartitionName)));
+        }
+        return res;
+    }
+
+    /**
+     * One MV partition's read scope, by table: every table the MV is partitioned on is named, and one the
+     * mapping does not name is named with an empty set -- the table feeds the MV partition nothing, which is
+     * a different statement from the table not being one of the MV partition column's sources.
+     */
+    private static Map<BaseTableInfo, Set<String>> mappedBasePartitions(
+            Map<TableIf, String> tableWithPartKey, Map<MTMVRelatedTableIf, Set<String>> byRelatedTable) {
+        Map<BaseTableInfo, Set<String>> byTable = Maps.newHashMap();
+        for (TableIf table : tableWithPartKey.keySet()) {
+            byTable.put(new BaseTableInfo(table), Sets.newHashSet());
+        }
+        for (Entry<MTMVRelatedTableIf, Set<String>> entry : byRelatedTable.entrySet()) {
+            Set<String> readable = byTable.get(new BaseTableInfo(entry.getKey()));
+            if (readable != null) {
+                readable.addAll(entry.getValue());
+            }
+        }
+        return byTable;
+    }
+
+    /**
+     * The partitions an alignment has yet to create, by the name it will give them: the item each of them
+     * will be created from and the base partitions it will be read from.
+     *
+     * <p>A refresh aligns before it reads anything and takes the partitions it rebuilds from the MV after
+     * that, so the partitions the alignment creates are rebuilt in the same round as the ones it keeps. A
+     * preview of that refresh has to cover them too, or it shows a read narrower than the refresh makes: the
+     * base partitions a replacement is read from feed no MV partition yet, so nothing else in the preview
+     * reads them.
+     *
+     * <p>The name is the one the alignment's ADD PARTITION will create the partition under
+     * ({@link #generatePartitionName}), which is what pairs the preview's terms with the partition the
+     * refresh will write; the partition itself does not exist yet, so the preview cannot target it in the
+     * sink and reads it through these predicates alone.
+     */
+    public static Map<String, PendingPartition> pendingPartitions(MTMV mtmv, PartitionAlignment alignment,
+            Map<TableIf, String> tableWithPartKey) throws AnalysisException {
+        Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> readScopes = alignment.getReadScopes();
+        Map<MTMVRelatedTableIf, String> defaultListPartitions =
+                defaultListPartitionsOf(mtmv.getMvPartitionInfo());
+        List<Column> partitionColumns = mtmv.getPartitionColumns();
+        Map<String, PendingPartition> res = Maps.newHashMap();
+        for (PartitionKeyDesc desc : alignment.getPartitionsToAdd()) {
+            Map<MTMVRelatedTableIf, Set<String>> scope = readScopes.get(desc);
+            Preconditions.checkState(scope != null, "the alignment describes every partition it adds: %s", desc);
+            res.put(generatePartitionName(desc), new PendingPartition(generatePartitionItem(desc,
+                    partitionColumns), mappedBasePartitions(tableWithPartKey,
+                    withDefaultListPartitions(scope, defaultListPartitions))));
+        }
+        return res;
+    }
+
+    /**
+     * A partition the alignment has yet to create: the item it will be created from, and the base partitions
+     * it will be read from, by table. Both are what the refresh will create and read it through, so a preview
+     * that pairs the two reads it the way the refresh will.
+     */
+    public static class PendingPartition {
+        private final PartitionItem item;
+        private final Map<BaseTableInfo, Set<String>> readScope;
+
+        private PendingPartition(PartitionItem item, Map<BaseTableInfo, Set<String>> readScope) {
+            this.item = item;
+            this.readScope = readScope;
+        }
+
+        public PartitionItem getItem() {
+            return item;
+        }
+
+        public Map<BaseTableInfo, Set<String>> getReadScope() {
+            return readScope;
+        }
+    }
+
+    /**
+     * The item a partition created from this descriptor is given, built the way the ADD PARTITION the
+     * alignment runs builds it -- see ListPartitionInfo#createAndCheckPartitionItem and
+     * RangePartitionInfo#createAndCheckPartitionItem -- without the checks: the partition a descriptor the
+     * alignment adds describes typically overlaps one it replaces, which those checks refuse.
+     */
+    public static PartitionItem generatePartitionItem(PartitionKeyDesc desc, List<Column> partitionColumns)
+            throws AnalysisException {
+        if (!desc.hasInValues()) {
+            return new RangePartitionItem(Range.closedOpen(
+                    PartitionKey.createPartitionKey(desc.getLowerValues(), partitionColumns),
+                    PartitionKey.createPartitionKey(desc.getUpperValues(), partitionColumns)));
+        }
+        List<PartitionKey> partitionKeys = Lists.newArrayList();
+        for (List<PartitionValue> values : desc.getInValues()) {
+            partitionKeys.add(PartitionKey.createListPartitionKey(values, partitionColumns));
+        }
+        Preconditions.checkState(!partitionKeys.isEmpty(), "a list partition holds at least one key: %s", desc);
+        ListPartitionItem item = new ListPartitionItem(partitionKeys);
+        item.setDefaultPartition(partitionKeys.get(partitionKeys.size() - 1).isDefaultListPartitionKey());
+        return item;
+    }
+
+    /**
+     * The list partition each base table of this MV has that takes the rows no other partition of it claims,
+     * by table, or none for a table that has no such partition.
+     *
+     * <p>Read once per mapping rather than per MV partition: the mapping describes every MV partition and the
+     * answer is the table's, not the partition's. The table's partitions are read under its read lock, so
+     * that a concurrent ADD or DROP PARTITION cannot be seen half applied -- its name list and the items the
+     * walk resolves against it have to come from one state of the table -- and so that this walk is not one
+     * more reader of a tree another thread is modifying.
+     */
+    public static Map<MTMVRelatedTableIf, String> defaultListPartitionsOf(MTMVPartitionInfo mvPartitionInfo)
+            throws AnalysisException {
+        Map<MTMVRelatedTableIf, String> res = Maps.newHashMap();
+        for (MTMVRelatedTableIf pctTable : mvPartitionInfo.getPctTables()) {
+            if (!(pctTable instanceof OlapTable)) {
+                continue;
+            }
+            OlapTable olapTable = (OlapTable) pctTable;
+            if (!(olapTable.getPartitionInfo() instanceof ListPartitionInfo)) {
+                continue;
+            }
+            olapTable.readLock();
+            try {
+                for (String partitionName : olapTable.getPartitionNames()) {
+                    if (olapTable.getPartitionItemOrAnalysisException(partitionName).isDefaultPartition()) {
+                        res.put(pctTable, partitionName);
+                        break;
+                    }
+                }
+            } finally {
+                olapTable.readUnlock();
+            }
+        }
+        return res;
+    }
+
+    /**
+     * One MV partition's mapping, with every base table's default list partition named in it.
+     *
+     * <p>Such a partition holds rows for every key its table can be read by, so it belongs to every MV
+     * partition that reads the table -- not only to the one its own key, the sentinel those rows were placed
+     * by, maps to. Naming it everywhere is what the read and the record have to agree on: the refresh reads
+     * the rows of it that belong to the MV partition being refreshed, and the partition is recorded among the
+     * ones that partition is read through, so an insert into it leaves that MV partition out of sync instead
+     * of changing nothing the MV compares.
+     */
+    public static Map<MTMVRelatedTableIf, Set<String>> withDefaultListPartitions(
+            Map<MTMVRelatedTableIf, Set<String>> mapping,
+            Map<MTMVRelatedTableIf, String> defaultListPartitions) {
+        if (defaultListPartitions.isEmpty()) {
+            return mapping;
+        }
+        Map<MTMVRelatedTableIf, Set<String>> res = Maps.newHashMap(mapping);
+        for (Entry<MTMVRelatedTableIf, String> entry : defaultListPartitions.entrySet()) {
+            Set<String> partitions = Sets.newHashSet(res.getOrDefault(entry.getKey(), Sets.newHashSet()));
+            partitions.add(entry.getValue());
+            res.put(entry.getKey(), partitions);
+        }
+        return res;
+    }
+
+    /**
+     * The partitions each PCT input is read from for these MV partitions, by table, with an explicit empty
+     * set for a table the mapping does not name.
+     *
+     * <p>An absent table is one whose retained base partitions share no key with these MV partitions --
+     * after a sync window dropped them, say -- so the read must return no rows of it. Leaving the entry out
+     * instead is what makes the read differ from the record: the rewriter has no reset for the table and
+     * falls back to its ordinary scan, which reads the partitions the window dropped, while the mapping
+     * records none of them. The rows land in the MV partition and the snapshot says the table was not read,
+     * so a later change to them is never compared and a later delta never looks at them.
+     *
+     * <p>The refresh uses this both to read a batch and to explain one, so that a preview's reads are the
+     * reads the refresh makes; see RefreshMTMVCommand's COMPLETE branch and MTMVTask's batch executor.
+     *
+     * <p>Seeded the same way {@link #generateRelatedBasePartitionIds} seeds the delta's scope, and for the
+     * same reason: the empty set says "this table may not be read at all", which is not the same statement
+     * as the table's absence. The pre-seeded set is not looked up for a table the MV excludes from trigger
+     * tracking -- the rewriter returns its scan before consulting the reset.
+     */
+    public static Map<BaseTableInfo, Set<Long>> collectPctResetPartitionIds(MTMV mtmv,
+            MTMVRefreshContext context, Set<String> mvPartitionNames) throws AnalysisException {
+        Map<BaseTableInfo, Set<Long>> resetPartitionIds = Maps.newHashMap();
+        for (MTMVRelatedTableIf pctTable : mtmv.getMvPartitionInfo().getPctTables()) {
+            if (pctTable instanceof OlapTable) {
+                resetPartitionIds.put(new BaseTableInfo(pctTable), Sets.newHashSet());
+            }
+        }
+        for (String mvPartitionName : mvPartitionNames) {
+            for (Entry<MTMVRelatedTableIf, Set<String>> entry
+                    : context.getByPartitionName(mvPartitionName).entrySet()) {
+                if (!(entry.getKey() instanceof OlapTable)) {
+                    continue;
+                }
+                OlapTable pctTable = (OlapTable) entry.getKey();
+                Set<Long> partitionIds = resetPartitionIds.computeIfAbsent(
+                        new BaseTableInfo(pctTable), key -> Sets.newHashSet());
+                for (String pctPartitionName : entry.getValue()) {
+                    partitionIds.add(pctTable.getPartitionOrAnalysisException(pctPartitionName).getId());
+                }
+            }
+        }
+        return resetPartitionIds;
+    }
+
+    /**
+     * The same, for the callers that pair the scopes themselves rather than read them from a context: one
+     * scope per MV partition, in the shape {@link #mappedBasePartitionsByMvPartition} answers. That is also
+     * what lets a preview add the partitions an alignment has yet to create -- their scopes are the ones the
+     * alignment computed, and no context knows them yet.
+     */
+    public static Map<BaseTableInfo, Set<Long>> collectPctResetPartitionIds(MTMV mtmv,
+            Collection<Map<BaseTableInfo, Set<String>>> readScopes) throws AnalysisException {
+        Map<BaseTableInfo, Set<Long>> resetPartitionIds = Maps.newHashMap();
+        for (MTMVRelatedTableIf pctTable : mtmv.getMvPartitionInfo().getPctTables()) {
+            if (!(pctTable instanceof OlapTable)) {
+                continue;
+            }
+            OlapTable olapTable = (OlapTable) pctTable;
+            BaseTableInfo tableInfo = new BaseTableInfo(olapTable);
+            Set<Long> partitionIds = Sets.newHashSet();
+            for (Map<BaseTableInfo, Set<String>> scope : readScopes) {
+                for (String pctPartitionName : scope.getOrDefault(tableInfo, Collections.emptySet())) {
+                    partitionIds.add(olapTable.getPartitionOrAnalysisException(pctPartitionName).getId());
+                }
+            }
+            resetPartitionIds.put(tableInfo, partitionIds);
+        }
+        return resetPartitionIds;
     }
 
     /**

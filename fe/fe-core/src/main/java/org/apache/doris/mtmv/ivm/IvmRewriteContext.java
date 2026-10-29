@@ -163,10 +163,20 @@ public class IvmRewriteContext {
                 Collections.emptyMap());
     }
 
-    /** EXPLAIN REFRESH COMPLETE: only a plan is produced. */
-    public static IvmRewriteContext fullExplain(MTMV mtmv) {
+    /**
+     * EXPLAIN REFRESH COMPLETE: only a plan is produced. It explains every MV partition in one plan,
+     * which is the refresh-all first batch the refresh would run: the PCT inputs are reset to the base
+     * partitions the refresh records for them -- a table it records as empty is read as no rows -- and a
+     * non-PCT input is read in {@code nonPctReadMode}. Deriving both from the refresh's own mapping is
+     * what keeps the preview's reads the reads execution makes; see
+     * {@link org.apache.doris.mtmv.MTMVPartitionUtil#collectPctResetPartitionIds}.
+     */
+    public static IvmRewriteContext fullExplain(MTMV mtmv,
+            Map<BaseTableInfo, Set<Long>> resetPartitionIds,
+            StreamReadMode nonPctReadMode) {
         return new IvmRewriteContext(Mode.FULL, Objects.requireNonNull(mtmv, "mtmv can not be null"),
-                null, false, ExecutionKind.EXPLAIN, Optional.empty(), Collections.emptyMap(), Optional.empty(),
+                null, false, ExecutionKind.EXPLAIN, Optional.empty(), resetPartitionIds,
+                Optional.of(Objects.requireNonNull(nonPctReadMode, "nonPctReadMode can not be null")),
                 Collections.emptyMap());
     }
 

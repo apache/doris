@@ -1299,8 +1299,22 @@ public class MTMVTask extends AbstractTask {
             int end = start + refreshPartitionNum;
             Set<String> execPartitionNames = Sets.newHashSet(partitions
                     .subList(start, Math.min(end, partitions.size())));
+            // What this batch reads and what it records are the same set, both decided here from the one
+            // mapping the snapshots below are generated from, and paired per MV partition so that each one
+            // is read from its own record: see MTMVPartitionUtil#mappedBasePartitionsByMvPartition.
+            Map<String, Map<BaseTableInfo, Set<String>>> readableBasePartitionsByMvPartition = mtmv.isIvm()
+                    ? null : MTMVPartitionUtil.mappedBasePartitionsByMvPartition(tableWithPartKey, context,
+                            execPartitionNames);
+            // IVM COMPLETE rebuilds partitions through this same loop, and an incremental rebuild of a
+            // dirty partition resets it to the base rows the mapping names. Both overwrite what the MV
+            // partition holds, so both need the partition to be one the mapping describes: the alignment
+            // lag this refuses is what a base ADD PARTITION widening a LIST component leaves behind.
+            if (hasOlapPctTable()) {
+                requireDescribedPartitions(context, execPartitionNames);
+            }
             Map<BaseTableInfo, Set<Long>> batchResetPartitionIds = useIvmFallbackStreams
-                    ? collectPctResetPartitionIds(context, execPartitionNames) : Maps.newHashMap();
+                    ? MTMVPartitionUtil.collectPctResetPartitionIds(mtmv, context, execPartitionNames)
+                    : Maps.newHashMap();
             Optional<IvmRewriteContext> rewriteContext = Optional.empty();
             if (useIvmFallbackStreams) {
                 StreamReadMode nonPctReadMode = i == 0 && refreshAllPartitions
@@ -1319,7 +1333,8 @@ public class MTMVTask extends AbstractTask {
                             execPartitionNames);
             try {
                 IvmPlanSignature batchPlanSignature = refreshPartitionsWithRetry(
-                        execPartitionNames, tableWithPartKey, rewriteContext, refreshMode);
+                        execPartitionNames, tableWithPartKey, readableBasePartitionsByMvPartition,
+                        rewriteContext, refreshMode);
                 if (capturePlanSignature) {
                     batchPlanSignature = Objects.requireNonNull(batchPlanSignature,
                             "IVM COMPLETE refresh did not produce a plan signature");
@@ -1406,10 +1421,11 @@ public class MTMVTask extends AbstractTask {
      * Whether a stream this partition refresh will read is missing or unusable.
      *
      * <p>The set is narrower than the plan, and which tables are in it depends on the partitions being
-     * refreshed: a PCT table that no refreshed partition's mapping names keeps its place in the plan as
-     * an ordinary scan, so its stream is never read, and a table outside the plan's own tables is not
-     * scanned at all. Judging the whole plan instead sends a partition refresh that would have worked to
-     * a full rebuild whenever such an unread stream is missing.
+     * refreshed: a PCT table that no refreshed partition's mapping names is read as no rows at all -- its
+     * reset set is empty, and the rewriter answers it with an empty relation rather than a stream scan --
+     * so its stream is never read, and a table outside the plan's own tables is not scanned at all.
+     * Judging the whole plan instead sends a partition refresh that would have worked to a full rebuild
+     * whenever such an unread stream is missing.
      */
     private boolean hasUnusableIvmStreamForPartitions(MTMVRefreshContext context,
             List<String> mvPartitionNames) {
@@ -1502,32 +1518,49 @@ public class MTMVTask extends AbstractTask {
         }
     }
 
-    private Map<BaseTableInfo, Set<Long>> collectPctResetPartitionIds(MTMVRefreshContext context,
-            Set<String> execPartitionNames) throws AnalysisException {
-        Map<BaseTableInfo, Set<Long>> resetPartitionIds = Maps.newHashMap();
-        for (String mvPartitionName : execPartitionNames) {
-            for (Entry<MTMVRelatedTableIf, Set<String>> entry
-                    : context.getByPartitionName(mvPartitionName).entrySet()) {
-                if (!(entry.getKey() instanceof OlapTable)) {
-                    continue;
-                }
-                OlapTable pctTable = (OlapTable) entry.getKey();
-                Set<Long> partitionIds = resetPartitionIds.computeIfAbsent(
-                        new BaseTableInfo(pctTable), key -> Sets.newHashSet());
-                for (String pctPartitionName : entry.getValue()) {
-                    partitionIds.add(pctTable.getPartitionOrAnalysisException(pctPartitionName).getId());
-                }
+    /**
+     * Whether any of the tables the MV is partitioned on is an olap one, which is where the check below can
+     * read anything. It reads a partition no base partition describes as the alignment having fallen behind an
+     * olap table's change, and that is a state only an olap table has: an external table describes its
+     * partitions from the snapshot the read is taken at, and one it cannot describe -- a row whose partition
+     * key is null, say -- is not a state the alignment can catch up with at all. So the check is taken where
+     * its reading can be true, and an MV partitioned on external tables alone is left to the read's own scope.
+     */
+    private boolean hasOlapPctTable() throws AnalysisException {
+        for (MTMVRelatedTableIf pctTable : mtmv.getMvPartitionInfo().getPctTables()) {
+            if (pctTable instanceof OlapTable) {
+                return true;
             }
         }
-        return resetPartitionIds;
+        return false;
+    }
+
+    /**
+     * Whether each MV partition of this batch is one the mapping describes, i.e. one that some base partition's
+     * keys name. A partition nothing describes is one the alignment has not caught up with: a base `ADD
+     * PARTITION` widens the keys an MV partition covers, which replaces it with an empty partition of the new
+     * keys, and if that lands between the alignment and this mapping the partition is read as no table feeding
+     * it and the batch writes no rows over the rows it holds. The batch is not read at all then: the task tries
+     * again, and trying again realigns.
+     */
+    private void requireDescribedPartitions(MTMVRefreshContext context, Set<String> execPartitionNames)
+            throws AnalysisException {
+        for (String mvPartitionName : execPartitionNames) {
+            if (context.getUndescribedMvPartitions().contains(mvPartitionName)) {
+                throw new AnalysisException("MV partition " + mvPartitionName + " of " + mtmv.getName()
+                        + " is described by no base partition: the alignment has not caught up with a base "
+                        + "table change. Refreshing it would write no rows over the rows it holds.");
+            }
+        }
     }
 
     private IvmPlanSignature refreshPartitionsWithRetry(Set<String> execPartitionNames,
             Map<TableIf, String> tableWithPartKey,
+            Map<String, Map<BaseTableInfo, Set<String>>> readableBasePartitionsByMvPartition,
             Optional<IvmRewriteContext> rewriteContext, RefreshMode refreshMode)
             throws Exception {
         return executeWithRetry(() -> refreshPartitions(execPartitionNames, tableWithPartKey,
-                        rewriteContext, refreshMode),
+                        readableBasePartitionsByMvPartition, rewriteContext, refreshMode),
                 "partition refresh, execPartitionNames=" + execPartitionNames);
     }
 
@@ -1584,6 +1617,7 @@ public class MTMVTask extends AbstractTask {
 
     private IvmPlanSignature refreshPartitions(Set<String> refreshPartitionNames,
             Map<TableIf, String> tableWithPartKey,
+            Map<String, Map<BaseTableInfo, Set<String>>> readableBasePartitionsByMvPartition,
             Optional<IvmRewriteContext> rewriteContext, RefreshMode refreshMode)
             throws Exception {
         // Create the MTMV context before parsing the MV definition SQL so SET_VAR hints
@@ -1607,7 +1641,8 @@ public class MTMVTask extends AbstractTask {
         // if SELF_MANAGE mv, only have default partition,  will not have partitionItem, so we give empty set
         UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand
                 .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE
-                        ? refreshPartitionNames : Sets.newHashSet(), tableWithPartKey, statementContext);
+                        ? refreshPartitionNames : Sets.newHashSet(), tableWithPartKey, statementContext,
+                        readableBasePartitionsByMvPartition, null);
         setupComputeGroup(mtmvCtx);
         AtomicReference<IvmPlanSignature> signatureRef = new AtomicReference<>();
         try {
