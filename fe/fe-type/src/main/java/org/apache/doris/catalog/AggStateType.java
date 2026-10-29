@@ -44,8 +44,17 @@ public class AggStateType extends Type {
     @SerializedName(value = "functionName")
     private String functionName;
 
+    @SerializedName(value = "resultType")
+    private Type resultType;
+
     public AggStateType(String functionName, Boolean resultIsNullable, List<Type> subTypes,
             List<Boolean> subTypeNullables) {
+        this(functionName, resultIsNullable, subTypes, subTypeNullables, null);
+    }
+
+    public AggStateType(String functionName, Boolean resultIsNullable, List<Type> subTypes,
+            List<Boolean> subTypeNullables, Type resultType) {
+        this.resultType = resultType;
         Objects.requireNonNull(subTypes, "subTypes should not be null");
         Objects.requireNonNull(subTypeNullables, "subTypeNullables should not be null");
         if (subTypes.size() != subTypeNullables.size()) {
@@ -56,6 +65,17 @@ public class AggStateType extends Type {
         this.subTypes = subTypes;
         this.subTypeNullables = subTypeNullables;
         this.resultIsNullable = resultIsNullable;
+    }
+
+    public Type getResultType() {
+        return Objects.requireNonNull(resultType, "Aggregate state is missing its result type; recreate the state");
+    }
+
+    public void checkBeExecVersion() {
+        if (Config.be_exec_version < Config.AGG_STATE_RESULT_TYPE_MIN_BE_EXEC_VERSION) {
+            throw new IllegalStateException("Aggregate states require be_exec_version >= "
+                    + Config.AGG_STATE_RESULT_TYPE_MIN_BE_EXEC_VERSION);
+        }
     }
 
     public List<Type> getSubTypes() {
@@ -89,8 +109,7 @@ public class AggStateType extends Type {
                 stringBuilder.append(" not null");
             }
         }
-        stringBuilder.append(")");
-        stringBuilder.append(">");
+        stringBuilder.append(")>");
         return stringBuilder.toString();
     }
 
@@ -125,6 +144,8 @@ public class AggStateType extends Type {
         container.setResultIsNullable(resultIsNullable);
         container.setFunctionName(functionName);
         container.setBeExecVersion(Config.be_exec_version);
+        checkBeExecVersion();
+        container.setAggStateResultType(getResultType().toThrift().getTypes());
     }
 
     @Override
@@ -133,6 +154,9 @@ public class AggStateType extends Type {
             return false;
         }
         AggStateType other = (AggStateType) o;
+        if (!Objects.equals(resultType, other.resultType)) {
+            return false;
+        }
         int subTypeNumber = subTypeNullables.size();
         if (subTypeNumber != other.subTypeNullables.size()) {
             return false;

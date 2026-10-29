@@ -19,7 +19,6 @@
 
 #include <gen_cpp/data.pb.h>
 
-#include "common/consts.h"
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/column/column_fixed_length_object.h"
@@ -37,26 +36,16 @@ namespace doris {
 class DataTypeAggState : public DataTypeString {
 public:
     DataTypeAggState(DataTypes sub_types, bool result_is_nullable, std::string function_name,
-                     int be_exec_version)
+                     int be_exec_version, DataTypePtr result_type)
             : _result_is_nullable(result_is_nullable),
               _sub_types(std::move(sub_types)),
               _function_name(std::move(function_name)),
-              _be_exec_version(be_exec_version) {
-        DataTypePtr result_type;
-        auto arg_primitive_type = _sub_types[0]->get_primitive_type();
-        if (is_decimalv3(arg_primitive_type)) {
-            // TODO: handle decimal256 correctly according to session var enable_decimal256
-            int precision = 0;
-            if (arg_primitive_type == PrimitiveType::TYPE_DECIMAL256) {
-                precision = BeConsts::MAX_DECIMAL256_PRECISION;
-            } else {
-                precision = BeConsts::MAX_DECIMAL128_PRECISION;
-            }
-            result_type = DataTypeFactory::instance().create_data_type(
-                    arg_primitive_type, _sub_types[0]->is_nullable(), precision,
-                    _sub_types[0]->get_scale());
-        } else {
-            result_type = _sub_types[0];
+              _be_exec_version(be_exec_version),
+              _result_type(result_type) {
+        // Old metadata has no result signature and cannot identify the accumulator layout.
+        if (!result_type) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Aggregate state is missing its result type; recreate the state");
         }
         _agg_function = AggregateFunctionSimpleFactory::instance().get(
                 _function_name, _sub_types, result_type, _result_is_nullable, _be_exec_version);
@@ -74,11 +63,36 @@ public:
 
     const std::string get_family_name() const override { return "AggState"; }
 
+    bool equals(const IDataType& rhs) const override {
+        const auto* other = typeid_cast<const DataTypeAggState*>(&rhs);
+        if (!other) {
+            return false;
+        }
+        // The default constructor represents only the primitive type, not an executable state.
+        if (!_result_type || !other->_result_type) {
+            return !_result_type && !other->_result_type;
+        }
+        if (!_result_type->equals(*other->_result_type) ||
+            _function_name != other->_function_name ||
+            _result_is_nullable != other->_result_is_nullable ||
+            _sub_types.size() != other->_sub_types.size()) {
+            return false;
+        }
+        for (size_t i = 0; i < _sub_types.size(); ++i) {
+            if (!_sub_types[i]->equals(*other->_sub_types[i])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     std::string do_get_name() const override {
         return fmt::format(
-                "AggState(function_name={},result_is_nullable={},arguments=[{}],be_exec_version={}"
-                ")",
-                _function_name, _result_is_nullable, get_types_string(), _be_exec_version);
+                       "AggState(function_name={},result_is_nullable={},arguments=[{}],be_exec_"
+                       "version={}"
+                       ")",
+                       _function_name, _result_is_nullable, get_types_string(), _be_exec_version) +
+               (_result_type ? " result=" + _result_type->get_name() : "");
     }
 
     std::string get_function_name() const { return _function_name; }
@@ -95,6 +109,7 @@ public:
         col_meta->set_function_name(_function_name);
         col_meta->set_result_is_nullable(_result_is_nullable);
         col_meta->set_be_exec_version(_be_exec_version);
+        _result_type->to_protobuf(col_meta->mutable_agg_state_result_type());
     }
 
     AggregateFunctionPtr get_nested_function() const { return _agg_function; }
@@ -152,6 +167,7 @@ private:
     DataTypes _sub_types;
     std::string _function_name;
     int _be_exec_version;
+    DataTypePtr _result_type;
 };
 
 inline DataTypePtr get_serialized_type(const DataTypePtr& type) {

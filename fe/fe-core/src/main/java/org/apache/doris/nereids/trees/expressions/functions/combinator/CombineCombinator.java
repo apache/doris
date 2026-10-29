@@ -92,7 +92,7 @@ public class CombineCombinator extends AggregateFunction
                 arguments.stream().map(ExpressionTrait::nullable)
                         .collect(ImmutableList.toImmutableList()),
                 BuiltinAggregateFunctions.INSTANCE.aggFuncNameNullableMap.get(nested.getName()),
-                false);
+                false, AggStateType.resultTypeFor(nested));
     }
 
     @Override

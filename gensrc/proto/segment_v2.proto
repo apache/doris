@@ -18,6 +18,8 @@
 
 syntax="proto2";
 
+import "types.proto";
+
 package doris.segment_v2;
 
 // page position info
@@ -232,6 +234,7 @@ message ColumnMetaPB {
     optional uint64 uncompressed_data_bytes = 25;
     optional uint64 raw_data_bytes = 26;
     optional bool variant_enable_doc_mode = 27 [default = false];
+    optional doris.PTypeDesc agg_state_result_type = 28;
 }
 
 // External column meta entry describing one top-level column's externalized

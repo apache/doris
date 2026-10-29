@@ -77,7 +77,8 @@ public class StateCombinator extends ScalarFunction
         this.returnType = new AggStateType(nested.getName(),
                 arguments.stream().map(ExpressionTrait::getDataType).collect(ImmutableList.toImmutableList()),
                 arguments.stream().map(ExpressionTrait::nullable).collect(ImmutableList.toImmutableList()),
-                BuiltinAggregateFunctions.INSTANCE.aggFuncNameNullableMap.get(nested.getName()));
+                BuiltinAggregateFunctions.INSTANCE.aggFuncNameNullableMap.get(nested.getName()),
+                true, AggStateType.resultTypeFor(nested));
     }
 
     private StateCombinator(ScalarFunctionParams functionParams, AggregateFunction nested) {
@@ -95,7 +96,8 @@ public class StateCombinator extends ScalarFunction
                         .map(ExpressionTrait::getDataType).collect(ImmutableList.toImmutableList()),
                 functionParams.arguments.stream()
                         .map(ExpressionTrait::nullable).collect(ImmutableList.toImmutableList()),
-                BuiltinAggregateFunctions.INSTANCE.aggFuncNameNullableMap.get(nested.getName()));
+                BuiltinAggregateFunctions.INSTANCE.aggFuncNameNullableMap.get(nested.getName()),
+                true, AggStateType.resultTypeFor(nested));
     }
 
     public static StateCombinator create(AggregateFunction nested) {

@@ -46,6 +46,8 @@ class BeExecVersionManager {
 public:
     BeExecVersionManager() = delete;
 
+    static constexpr int AGG_STATE_RESULT_TYPE_VERSION = 20;
+
     static Status check_be_exec_version(int be_exec_version);
 
     static int get_function_compatibility(int be_exec_version, std::string function_name);

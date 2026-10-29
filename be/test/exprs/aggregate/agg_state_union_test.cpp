@@ -143,8 +143,13 @@ protected:
 
     static void check(const std::string& name, const DataTypePtr& argument, const ColumnPtr& input,
                       bool result_nullable = true) {
-        auto type = std::make_shared<DataTypeAggState>(DataTypes {argument}, result_nullable, name,
-                                                       BeExecVersionManager::get_newest_version());
+        auto type = std::make_shared<DataTypeAggState>(
+                DataTypes {argument}, result_nullable, name,
+                BeExecVersionManager::get_newest_version(),
+                remove_nullable(AggregateFunctionSimpleFactory::instance()
+                                        .get(name, DataTypes {argument}, argument, result_nullable,
+                                             BeExecVersionManager::get_newest_version())
+                                        ->get_return_type()));
         auto nested = type->get_nested_function();
         check_function(nested, {input}, type);
     }

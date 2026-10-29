@@ -41,8 +41,14 @@ protected:
     static std::shared_ptr<DataTypeAggState> state_type(const std::string& name,
                                                         const DataTypePtr& argument_type,
                                                         bool result_nullable = true) {
-        return std::make_shared<DataTypeAggState>(DataTypes {argument_type}, result_nullable, name,
-                                                  BeExecVersionManager::get_newest_version());
+        return std::make_shared<DataTypeAggState>(
+                DataTypes {argument_type}, result_nullable, name,
+                BeExecVersionManager::get_newest_version(),
+                remove_nullable(AggregateFunctionSimpleFactory::instance()
+                                        .get(name, DataTypes {argument_type}, argument_type,
+                                             result_nullable,
+                                             BeExecVersionManager::get_newest_version())
+                                        ->get_return_type()));
     }
 
     static void append_state(const AggregateFunctionPtr& function, const ColumnPtr& input,

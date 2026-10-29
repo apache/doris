@@ -39,6 +39,7 @@
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/config.h"
 #include "common/config.h"
+#include "core/data_type/data_type_factory.hpp"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "storage/compaction/cumulative_compaction_changelog_policy.h"
@@ -324,6 +325,12 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     column->set_precision(tcolumn.column_type.precision);
     column->set_frac(tcolumn.column_type.scale);
 
+    // Persist the producer's signature so later sessions reconstruct the same accumulator width.
+    if (tcolumn.__isset.agg_state_result_type) {
+        DataTypeFactory::instance()
+                .create_data_type(tcolumn.agg_state_result_type, false)
+                ->to_protobuf(column->mutable_agg_state_result_type());
+    }
     if (tcolumn.__isset.result_is_nullable) {
         column->set_result_is_nullable(tcolumn.result_is_nullable);
     }

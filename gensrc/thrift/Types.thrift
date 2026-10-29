@@ -193,6 +193,8 @@ struct TTypeDesc {
     5: optional bool result_is_nullable
     6: optional string function_name
     7: optional i32 be_exec_version
+    // Nested aggregate result type; absent means the legacy input-derived signature.
+    8: optional list<TTypeNode> agg_state_result_type
 }
 
 enum TAggregationType {

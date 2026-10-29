@@ -142,7 +142,7 @@ class StateCombinatorTest {
                     new PercentileReservoir(argument, new DoubleLiteral(0.25)));
             AggStateType target = new AggStateType("percentile_reservoir",
                     ImmutableList.of(DoubleType.INSTANCE, DoubleType.INSTANCE),
-                    ImmutableList.of(nullable, false), true);
+                    ImmutableList.of(nullable, false), true, true, DoubleType.INSTANCE);
             Assertions.assertNotEquals(target, state.getDataType());
 
             Cast converted = (Cast) MoreFieldsThread.keepFunctionSignature(

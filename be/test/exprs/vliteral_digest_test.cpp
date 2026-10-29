@@ -100,15 +100,16 @@ TEST(VLiteralDigestTest, NestedUnsupportedColumnsDisableDigest) {
 
 TEST(VLiteralDigestTest, AggStateDigestUsesSerializedColumn) {
     const auto version = BeExecVersionManager::get_newest_version();
-    auto sum_type = std::make_shared<DataTypeAggState>(
-            DataTypes {std::make_shared<DataTypeInt32>()}, false, "sum", version);
+    auto sum_type =
+            std::make_shared<DataTypeAggState>(DataTypes {std::make_shared<DataTypeInt32>()}, false,
+                                               "sum", version, std::make_shared<DataTypeInt64>());
     auto sum_null = VLiteral::create_shared(make_nullable(sum_type), Field());
     EXPECT_EQ(sum_null->get_digest(42), 0);
 
     // HLL aggregate states serialize as ColumnString, unlike direct HLL literals.
     auto hll_type = DataTypeFactory::instance().create_data_type(TYPE_HLL, false);
-    auto hll_state_type =
-            std::make_shared<DataTypeAggState>(DataTypes {hll_type}, false, "hll_union", version);
+    auto hll_state_type = std::make_shared<DataTypeAggState>(DataTypes {hll_type}, false,
+                                                             "hll_union", version, hll_type);
     auto hll_state_null = VLiteral::create_shared(make_nullable(hll_state_type), Field());
     EXPECT_NE(hll_state_null->get_digest(42), 0);
     EXPECT_EQ(hll_state_null->get_digest(42), hll_state_null->get_digest(42));

@@ -38,6 +38,7 @@
 #include "core/field.h"
 #include "core/types.h"
 #include "exec/common/variant_util.h"
+#include "storage/tablet/tablet_schema.h"
 
 // 1. datatype meta info:
 //         get_type_id, get_type_as_type_descriptor, get_storage_field_type, have_subtypes, get_pdata_type (const IDataType *data_type), to_pb_column_meta (PColumnMeta *col_meta)
@@ -64,15 +65,68 @@ public:
     DataTypes sub_types = {sub_type};
     // DataTypeAggState---> column_fixed_length_object
     DataTypePtr datatype_agg_state_count = std::make_shared<DataTypeAggState>(
-            sub_types, false, "count", BeExecVersionManager::get_newest_version());
+            sub_types, false, "count", BeExecVersionManager::get_newest_version(),
+            std::make_shared<DataTypeInt64>());
     // DataTypeAggState---> column_string
     DataTypePtr datatype_agg_state_hll_union = std::make_shared<DataTypeAggState>(
-            sub_types, false, "hll_union", BeExecVersionManager::get_newest_version());
+            sub_types, false, "hll_union", BeExecVersionManager::get_newest_version(),
+            DataTypeFactory::instance().create_data_type(TYPE_HLL, false));
     int rows_value;
 };
 
+TEST_P(DataTypeAggStateTest, DecimalAvgResultSignature) {
+    auto input = DataTypeFactory::instance().create_data_type(TYPE_DECIMAL64, true, 18, 2);
+    auto result = DataTypeFactory::instance().create_data_type(TYPE_DECIMAL256, false, 76, 4);
+    const auto version = BeExecVersionManager::get_newest_version();
+    auto explicit_type =
+            std::make_shared<DataTypeAggState>(DataTypes {input}, true, "avg", version, result);
+    auto decimal128 = std::make_shared<DataTypeAggState>(
+            DataTypes {input}, true, "avg", version,
+            DataTypeFactory::instance().create_data_type(TYPE_DECIMAL128I, false, 38, 4));
+    EXPECT_EQ(explicit_type->get_nested_function()->get_return_type()->get_name(),
+              "Nullable(Decimal(76, 4))");
+    EXPECT_EQ(decimal128->get_nested_function()->get_return_type()->get_name(),
+              "Nullable(Decimal(38, 4))");
+    EXPECT_FALSE(explicit_type->equals(*decimal128));
+    EXPECT_FALSE(decimal128->equals(*explicit_type));
+
+    PColumnMeta metadata;
+    explicit_type->to_pb_column_meta(&metadata);
+    ASSERT_TRUE(metadata.has_agg_state_result_type());
+    auto restored = DataTypeFactory::instance().create_data_type(metadata);
+    EXPECT_TRUE(explicit_type->equals(*restored));
+    ColumnPB column;
+    column.set_unique_id(1);
+    column.set_name("s");
+    column.set_type("AGG_STATE");
+    column.set_aggregation("avg");
+    column.set_result_is_nullable(true);
+    column.set_be_exec_version(version);
+    result->to_protobuf(column.mutable_agg_state_result_type());
+    auto* child = column.add_children_columns();
+    child->set_unique_id(2);
+    child->set_type("DECIMAL64");
+    child->set_precision(18);
+    child->set_frac(2);
+    child->set_is_nullable(true);
+    TabletColumn tablet_column(column);
+    ColumnPB persisted;
+    tablet_column.to_schema_pb(&persisted);
+    ASSERT_TRUE(persisted.has_agg_state_result_type());
+    EXPECT_TRUE(explicit_type->equals(
+            *DataTypeFactory::instance().create_data_type(TabletColumn(persisted))));
+    column.clear_agg_state_result_type();
+    EXPECT_NE(tablet_column, TabletColumn(column));
+
+    metadata.clear_agg_state_result_type();
+    EXPECT_THROW(DataTypeFactory::instance().create_data_type(metadata), Exception);
+    EXPECT_THROW(DataTypeFactory::instance().create_data_type(TabletColumn(column)), Exception);
+}
+
 TEST_P(DataTypeAggStateTest, MetaInfoTest) {
-    auto agg_state_type_descriptor = std::make_shared<DataTypeAggState>();
+    auto agg_state_type_descriptor = std::make_shared<DataTypeAggState>(
+            sub_types, false, "count", BeExecVersionManager::get_newest_version(),
+            std::make_shared<DataTypeInt64>());
     auto col_meta = std::make_shared<PColumnMeta>();
     col_meta->set_type(PGenericType_TypeId_AGG_STATE);
     CommonDataTypeTest::DataTypeMetaInfo agg_state_meta_info_to_assert = {

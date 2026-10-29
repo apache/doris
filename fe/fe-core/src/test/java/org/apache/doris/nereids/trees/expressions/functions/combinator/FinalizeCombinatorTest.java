@@ -101,7 +101,7 @@ class FinalizeCombinatorTest {
     @Test
     void testAliasCanonicalization() {
         AggStateType state = new AggStateType("var_pop", ImmutableList.of(DoubleType.INSTANCE),
-                ImmutableList.of(true), true);
+                ImmutableList.of(true), true, true, DoubleType.INSTANCE);
         FinalizeCombinator finalize = build("variance_finalize", new SlotReference("s", state, false));
         Assertions.assertEquals("variance_finalize", finalize.getName());
         Assertions.assertEquals(DoubleType.INSTANCE, finalize.getDataType());
