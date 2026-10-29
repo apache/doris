@@ -45,9 +45,6 @@ CustomAwsCredentialsProviderChain::CustomAwsCredentialsProviderChain()
                         "The environment variable value " << AWS_EC2_METADATA_DISABLED << " is "
                                                           << ec2MetadataDisabled);
 
-    // One provider serves both container platforms: create_container_credentials_provider() reads
-    // all four AWS_CONTAINER_* variables, applies the provider's own relative-then-absolute
-    // precedence, and logs which variable supplied the endpoint.
     if (container_credentials_available()) {
         AddProvider(create_container_credentials_provider());
     }
@@ -75,4 +72,4 @@ CustomAwsCredentialsProviderChain::CustomAwsCredentialsProviderChain(
         AddProvider(provider);
     }
 }
-}
+} // namespace doris
