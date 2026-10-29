@@ -153,7 +153,8 @@ public class EditLog {
     private EditLogOutputStream editStream = null;
 
     private long txId = 0;
-
+    // This best-effort timer starts when EditLog is created and resets after every roll.
+    private volatile long lastEditLogRollTimeMs = System.currentTimeMillis();
 
     private AtomicLong numTransactions = new AtomicLong(0);
     private AtomicLong totalTimeTransactions = new AtomicLong(0);
@@ -249,9 +250,10 @@ public class EditLog {
 
         txId += batch.size();
         // update statistics, etc. (optional, can be added as needed)
-        if (txId >= Config.edit_log_roll_num) {
-            LOG.info("txId {} is equal to or larger than edit_log_roll_num {}, will roll edit.", txId,
-                    Config.edit_log_roll_num);
+        if (txId >= Config.edit_log_roll_num || exceedEditLogRollInterval()) {
+            LOG.info("edit log roll condition met. txId: {}, edit log roll num: {}, "
+                            + "cloud edit log roll interval: {} seconds",
+                    txId, Config.edit_log_roll_num, Config.cloud_edit_log_roll_interval_second);
             rollEditLog();
             txId = 0;
         }
@@ -392,7 +394,7 @@ public class EditLog {
                         ExternalCatalog ctl = (ExternalCatalog) Env.getCurrentEnv().getCatalogMgr()
                                 .getCatalog(info.getCtl());
                         if (ctl != null) {
-                            ctl.replayDropTable(info.getDb(), info.getTableName());
+                            ctl.replayDropTable(info.getDb(), info.getTableName(), info.getResolvedDb());
                         }
                     }
                     break;
@@ -1452,6 +1454,11 @@ public class EditLog {
                     // This log is only used to keep FE/MS cut point in journal timeline.
                     break;
                 }
+                case OperationType.OP_LANCE_INDEX_JOB_UPSERT: {
+                    // Consumed and ignored by JournalEntity: payload of the removed durable
+                    // Lance index job framework; nothing to replay.
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}, log id: {}", opCode, logId, e);
@@ -1513,6 +1520,7 @@ public class EditLog {
      */
     public void rollEditLog() {
         journal.rollJournal();
+        lastEditLogRollTimeMs = System.currentTimeMillis();
     }
 
     // NOTICE: No guarantee atomicity of entries
@@ -1598,14 +1606,21 @@ public class EditLog {
         // get a new transactionId
         txId++;
 
-        if (txId >= Config.edit_log_roll_num) {
-            LOG.info("txId {} is equal to or larger than edit_log_roll_num {}, will roll edit.", txId,
-                    Config.edit_log_roll_num);
+        if (txId >= Config.edit_log_roll_num || exceedEditLogRollInterval()) {
+            LOG.info("edit log roll condition met. txId: {}, edit log roll num: {}, "
+                            + "cloud edit log roll interval: {} seconds",
+                    txId, Config.edit_log_roll_num, Config.cloud_edit_log_roll_interval_second);
             rollEditLog();
             txId = 0;
         }
 
         return logId;
+    }
+
+    private boolean exceedEditLogRollInterval() {
+        return Config.isCloudMode() && Config.cloud_edit_log_roll_interval_second > 0
+                && System.currentTimeMillis() - lastEditLogRollTimeMs
+                        >= TimeUnit.SECONDS.toMillis(Config.cloud_edit_log_roll_interval_second);
     }
 
     /**
@@ -2090,6 +2105,10 @@ public class EditLog {
 
     public void logUpdateJob(AbstractJob job) {
         logEdit(OperationType.OP_UPDATE_SCHEDULER_JOB, job);
+    }
+
+    public void logUpdateJob(String serializedJob) {
+        logEdit(OperationType.OP_UPDATE_SCHEDULER_JOB, out -> Text.writeString(out, serializedJob));
     }
 
     public void logDeleteJob(AbstractJob job) {

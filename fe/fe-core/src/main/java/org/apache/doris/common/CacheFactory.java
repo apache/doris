@@ -19,6 +19,7 @@ package org.apache.doris.common;
 
 import com.github.benmanes.caffeine.cache.AsyncCacheLoader;
 import com.github.benmanes.caffeine.cache.AsyncLoadingCache;
+import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
@@ -93,6 +94,11 @@ public class CacheFactory {
     public CacheFactory withSoftValues() {
         softValues = true;
         return this;
+    }
+
+    // Build a cache without automatic loading.
+    public <K, V> Cache<K, V> buildCache() {
+        return buildWithParams().build();
     }
 
     // Build a loading cache, without executor, it will use fork-join pool for refresh

@@ -145,7 +145,8 @@ suite('test_insert_overwrite_idempotence', 'docker') {
             assertEquals(1, 2, "should failed")
         } catch (Exception e) {
             logger.info("Caught exception in negative test: ${e.message}")
-            if (e.message.contains("ALREADY_EXIST") || e.message.contains("rowset already exists")) {
+            if (e.message.contains("ALREADY_EXIST") || e.message.contains("rowset already exists")
+                    || e.message.contains("tmp rowset key and recycle rowset key are mutually exclusive")) {
 
             } else {
                 assertEquals(2, 3, "unknown fail: ${e.message}")

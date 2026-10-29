@@ -93,6 +93,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SplitSource;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.maxcompute.MCTransaction;
 import org.apache.doris.encryption.EncryptionKey;
 import org.apache.doris.ha.FrontendNodeType;
@@ -137,7 +138,10 @@ import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.service.arrowflight.FlightSqlConnectProcessor;
+import org.apache.doris.service.arrowflight.FlightSqlQueryCancellation;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColStatsData;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -983,7 +987,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 if (table != null && !table.isTemporary()) {
                     table.readLock();
                     try {
-                        List<Column> baseSchema = table.getBaseSchemaOrEmpty();
+                        List<Column> baseSchema = getBaseSchemaForDisplayOrEmpty(table);
                         for (Column column : baseSchema) {
                             final TColumnDesc desc = getColumnDesc(column);
                             final TColumnDef colDef = new TColumnDef(desc);
@@ -1013,6 +1017,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
         }
         return result;
+    }
+
+    private List<Column> getBaseSchemaForDisplayOrEmpty(TableIf table) {
+        if (!(table instanceof IcebergExternalTable)) {
+            return table.getBaseSchemaOrEmpty();
+        }
+        try {
+            return ((IcebergExternalTable) table).getBaseSchemaForDisplay();
+        } catch (Exception e) {
+            // Keep the per-table failure handling of getBaseSchemaOrEmpty for metadata enumeration.
+            LOG.warn("failed to get display schema for table {}", table.getName(), e);
+            return Lists.newArrayList();
+        }
     }
 
     private TColumnDesc getColumnDesc(Column column) {
@@ -1074,6 +1091,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TReportExecStatusResult reportExecStatus(TReportExecStatusParams params) throws TException {
         return QeProcessorImpl.INSTANCE.reportExecStatus(params, getClientAddr());
+    }
+
+    @Override
+    public TStatus cancelFlightQuery(TUniqueId resultId) throws TException {
+        return FlightSqlQueryCancellation.INSTANCE.cancel(resultId);
     }
 
     @Override
@@ -1157,9 +1179,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             final TMasterOpResult result = new TMasterOpResult();
             try {
                 result.setGroupCommitLoadBeId(Env.getCurrentEnv().getGroupCommitManager()
-                        .selectBackendForGroupCommitInternal(info.groupCommitLoadTableId, info.cluster));
+                        .selectBackendForGroupCommitInternal(info.groupCommitLoadTableId, info.cluster,
+                                forwardedGroupCommitLoadSelectionHint(info)));
             } catch (LoadException | DdlException e) {
-                throw new TException(e.getMessage());
+                LOG.warn("failed to select backend for forwarded group commit load, tableId={}, cluster={}",
+                        info.groupCommitLoadTableId, info.cluster, e);
+                if (!info.isSetSupportsSelectionErrorResult() || !info.isSupportsSelectionErrorResult()) {
+                    throw new TException(e.getMessage() == null ? e.toString() : e.getMessage());
+                }
+                result.setStatusCode(1);
+                result.setErrMessage(e.getMessage() == null ? e.toString() : e.getMessage());
             }
             // just make the protocol happy
             result.setPacket("".getBytes());
@@ -1199,6 +1228,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // Set current connected FE to the client address, so that we can know where
         // this request come from.
         context.setCurrentConnectedFEIp(params.getClientNodeHost());
+        context.setConnectingFeLocalResourceGroup(params.isSetConnectingFeLocalResourceGroup()
+                ? params.getConnectingFeLocalResourceGroup() : Config.local_resource_group);
         if (Config.isCloudMode() && !Strings.isNullOrEmpty(params.getCloudCluster())) {
             context.setCloudCluster(params.getCloudCluster());
         }
@@ -1225,6 +1256,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         ConnectContext.remove();
         clearCallback.run();
         return result;
+    }
+
+    static BackendSelection.SelectionHint forwardedGroupCommitLoadSelectionHint(TGroupCommitInfo info) {
+        if (!info.isSetLoadSelectionPreferredKey() || !info.isSetLoadSelectionMode()) {
+            return null;
+        }
+        return BackendSelectionManager.getForwardedLoadSelectionHint(
+                info.getLoadSelectionPreferredKey(), info.getLoadSelectionMode());
     }
 
     private List<String> getTableNames(String dbName, List<Long> tableIds) throws UserException {
@@ -3054,12 +3093,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         // This allows the BE to discover peer candidates across warehouses.
                         backends = cloudReplica.getAllPrimaryBes();
                         // Also collect secondary backends (may have cached data during primary failover)
-                        for (String computeGroupId : cloudReplica.getPrimaryComputeGroupIds()) {
-                            Backend secondaryBe = cloudReplica.getSecondaryBackend(computeGroupId);
-                            if (secondaryBe != null) {
-                                backends.add(secondaryBe);
-                            }
-                        }
+                        backends.addAll(cloudReplica.getAllSecondaryBes());
                     } else {
                         // On the cloud, the PrimaryBackend of a tablet
                         // indicates the BE where the tablet is stably located,
@@ -3186,9 +3220,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     public TGetBinlogResult getBinlog(TGetBinlogRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("receive get binlog request: {}", request);
-        }
 
         TGetBinlogResult result = new TGetBinlogResult();
         TStatus status = new TStatus(TStatusCode.OK);
@@ -3305,7 +3336,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     // getSnapshot
     public TGetSnapshotResult getSnapshot(TGetSnapshotRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        LOG.trace("receive get snapshot info request: {}", request);
 
         TGetSnapshotResult result = new TGetSnapshotResult();
         TStatus status = checkMaster();
@@ -3419,7 +3449,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     // Restore Snapshot
     public TRestoreSnapshotResult restoreSnapshot(TRestoreSnapshotRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        LOG.trace("receive restore snapshot info request: {}", request);
 
         TRestoreSnapshotResult result = new TRestoreSnapshotResult();
         TStatus status = checkMaster();
@@ -3679,9 +3708,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     public TGetMasterTokenResult getMasterToken(TGetMasterTokenRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("receive get master token request: {}", request);
-        }
 
         TGetMasterTokenResult result = new TGetMasterTokenResult();
         TStatus status = checkMaster();
@@ -3709,9 +3735,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     // getBinlogLag
     public TGetBinlogLagResult getBinlogLag(TGetBinlogRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("receive get binlog lag request: {}", request);
-        }
 
         TGetBinlogLagResult result = new TGetBinlogLagResult();
         TStatus status = checkMaster();
@@ -3811,9 +3834,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     public TLockBinlogResult lockBinlog(TLockBinlogRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("receive lock binlog request: {}", request);
-        }
 
         TLockBinlogResult result = new TLockBinlogResult();
         TStatus status = checkMaster();

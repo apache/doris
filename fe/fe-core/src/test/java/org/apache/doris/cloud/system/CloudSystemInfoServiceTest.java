@@ -36,6 +36,7 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -223,6 +224,14 @@ public class CloudSystemInfoServiceTest {
 
         String res = infoService.getPhysicalCluster(vcgName);
         Assert.assertEquals(pcgName1, res);
+
+        Backend activeBackend = toAdd1.get(1);
+        Assert.assertSame(activeBackend,
+                infoService.getBackendInCurrentCluster(pcgName1, activeBackend.getId()));
+        Assert.assertSame(activeBackend,
+                infoService.getBackendInCurrentCluster(vcgName, activeBackend.getId()));
+        Assert.assertNull(infoService.getBackendInCurrentCluster(vcgName, toAdd2.get(1).getId()));
+        Assert.assertNull(infoService.getBackendInCurrentCluster(vcgName, Long.MAX_VALUE));
     }
 
     // active has 3 dead be and standby has 3 alive be
@@ -1052,6 +1061,49 @@ public class CloudSystemInfoServiceTest {
         Assert.assertTrue(infoService.containsCloudCluster("cluster_1"));
         // Different name in same map -> still false.
         Assert.assertFalse(infoService.containsCloudCluster("cluster_2"));
+    }
+
+    @Test
+    public void testRemovingRecreatedComputeGroupKeepsCurrentNameMapping() {
+        infoService = new CloudSystemInfoService();
+        String clusterName = "recreated_cluster";
+        String oldClusterId = "old_cluster_id";
+        String newClusterId = "new_cluster_id";
+
+        Backend oldBackend = new Backend(1L, "127.0.0.1", 9050);
+        Map<String, String> oldTagMap = Tag.DEFAULT_BACKEND_TAG.toMap();
+        oldTagMap.put(Tag.CLOUD_CLUSTER_NAME, clusterName);
+        oldTagMap.put(Tag.CLOUD_CLUSTER_ID, oldClusterId);
+        oldBackend.setTagMap(oldTagMap);
+        infoService.updateCloudClusterMapNoLock(Arrays.asList(oldBackend), new ArrayList<>());
+
+        Backend newBackend = new Backend(2L, "127.0.0.2", 9050);
+        Map<String, String> newTagMap = Tag.DEFAULT_BACKEND_TAG.toMap();
+        newTagMap.put(Tag.CLOUD_CLUSTER_NAME, clusterName);
+        newTagMap.put(Tag.CLOUD_CLUSTER_ID, newClusterId);
+        newBackend.setTagMap(newTagMap);
+        infoService.updateCloudClusterMapNoLock(Arrays.asList(newBackend), new ArrayList<>());
+
+        infoService.updateCloudClusterMapNoLock(new ArrayList<>(), Arrays.asList(oldBackend));
+
+        Assert.assertEquals(newClusterId, infoService.getCloudClusterIdByName(clusterName));
+        Assert.assertNull(infoService.getComputeGroupById(oldClusterId));
+        Assert.assertNotNull(infoService.getComputeGroupById(newClusterId));
+    }
+
+    @Test
+    public void testRemovingCurrentComputeGroupRemovesNameMapping() {
+        infoService = new CloudSystemInfoService();
+        String clusterName = "removed_cluster";
+        String clusterId = "removed_cluster_id";
+        CloudComputeGroupMeta computeGroup = new CloudComputeGroupMeta(
+                clusterId, clusterName, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
+        infoService.addComputeGroup(clusterId, computeGroup);
+
+        infoService.removeComputeGroup(clusterId, clusterName);
+
+        Assert.assertNull(infoService.getCloudClusterIdByName(clusterName));
+        Assert.assertNull(infoService.getComputeGroupById(clusterId));
     }
 
     /**

@@ -67,8 +67,9 @@ suite("test_remote_doris_all_types_select", "p0,external,doris,external_docker,e
         );
     """
 
+    // Successful Flight reads require timestamps within the supported 0001-9999 range.
     sql """
-        INSERT INTO `test_remote_doris_all_types_select_db`.`test_remote_doris_all_types_select_t` values('2025-05-18 01:00:00.000', true, -128, -32768, -2147483648, -9223372036854775808, -1234567890123456790, -123.456, -123456.789, -123457, -123456789012346, -1234567890123456789012345678, '1970-01-01', '0000-01-01 00:00:00', 'A', 'Hello', 'Hello, Doris!', '["apple", "banana", "orange"]', {"Emily":101,"age":25} , {11, 3.14, "Emily"}, '{"k1":"v31", "k2": 300, "k3": [123, 456], "k4": [], "k5": {"i1": "iv1"}}')
+        INSERT INTO `test_remote_doris_all_types_select_db`.`test_remote_doris_all_types_select_t` values('2025-05-18 01:00:00.000', true, -128, -32768, -2147483648, -9223372036854775808, -1234567890123456790, -123.456, -123456.789, -123457, -123456789012346, -1234567890123456789012345678, '1970-01-01', '0001-01-01 00:00:00', 'A', 'Hello', 'Hello, Doris!', '["apple", "banana", "orange"]', {"Emily":101,"age":25} , {11, 3.14, "Emily"}, '{"k1":"v31", "k2": 300, "k3": [123, 456], "k4": [], "k5": {"i1": "iv1"}}')
     """
     sql """
         INSERT INTO `test_remote_doris_all_types_select_db`.`test_remote_doris_all_types_select_t` values('2025-05-18 02:00:00.000', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
@@ -108,7 +109,7 @@ suite("test_remote_doris_all_types_select", "p0,external,doris,external_docker,e
     """
 
     sql """
-        INSERT INTO `test_remote_doris_all_types_select_db`.`test_remote_doris_all_types_select_t2` values('2025-05-18 01:00:00.000', [true], [-128], [-32768], [-2147483648], [-9223372036854775808], [-1234567890123456790], [-123.456], [-123456.789], [-123457], [-123456789012346], [-1234567890123456789012345678], ['0000-01-01'], ['0000-01-01 00:00:00'], ['A'], ['Hello'], ['Hello, Doris!'])
+        INSERT INTO `test_remote_doris_all_types_select_db`.`test_remote_doris_all_types_select_t2` values('2025-05-18 01:00:00.000', [true], [-128], [-32768], [-2147483648], [-9223372036854775808], [-1234567890123456790], [-123.456], [-123456.789], [-123457], [-123456789012346], [-1234567890123456789012345678], ['0000-01-01'], ['0001-01-01 00:00:00'], ['A'], ['Hello'], ['Hello, Doris!'])
     """
     sql """
         INSERT INTO `test_remote_doris_all_types_select_db`.`test_remote_doris_all_types_select_t2` values('2025-05-18 02:00:00.000', [NULL], [NULL], [NULL], [NULL], [NULL], [NULL], [NULL], [NULL], [NULL], [NULL], [NULL], [NULL], [NULL], [NULL], [NULL], [NULL])
@@ -171,6 +172,16 @@ suite("test_remote_doris_all_types_select", "p0,external,doris,external_docker,e
     qt_sql """
         select * from `test_remote_doris_all_types_select_catalog`.`test_remote_doris_all_types_select_db`.`test_remote_doris_all_types_select_t3` order by id
     """
+
+    // Keep zero-year rejection covered separately from successful all-type round trips.
+    sql """INSERT INTO test_remote_doris_all_types_select_db.test_remote_doris_all_types_select_t3
+           (id, datetime_0) VALUES ('2025-05-18 02:00:00', '0000-01-01 00:00:00')"""
+    test {
+        sql """SELECT datetime_0 FROM test_remote_doris_all_types_select_catalog
+               .test_remote_doris_all_types_select_db.test_remote_doris_all_types_select_t3
+               WHERE id = '2025-05-18 02:00:00'"""
+        exception "outside the supported 0001-9999 range"
+    }
 
     sql """ DROP DATABASE IF EXISTS test_remote_doris_all_types_select_db """
     sql """ DROP CATALOG IF EXISTS `test_remote_doris_all_types_select_catalog` """

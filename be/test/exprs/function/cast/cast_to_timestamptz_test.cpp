@@ -359,4 +359,49 @@ TEST_F(CastTimeStampTzTest, from_timestamptz_non_strict_mode_to_datetime) {
     }
 }
 
+TEST_F(CastTimeStampTzTest, boundary_cast_errors_preserve_status_and_null_semantics) {
+    const auto maximum = make_timestamptz(9999, 12, 31, 23, 59, 59, 999999);
+    for (const bool to_datetime : {false, true}) {
+        auto make_block = [&]() {
+            auto block = ColumnHelper::create_block<DataTypeTimeStampTz>({maximum});
+            block.get_by_position(0).type = std::make_shared<DataTypeTimeStampTz>(6);
+            DataTypePtr target = to_datetime
+                                         ? DataTypePtr(std::make_shared<DataTypeDateTimeV2>(6))
+                                         : DataTypePtr(std::make_shared<DataTypeTimeStampTz>(0));
+            block.insert(ColumnWithTypeAndName {nullptr, target, "result"});
+            return block;
+        };
+        auto strict_block = make_block();
+        Status status;
+        // Local display overflow must not replace the cast's error status with an exception.
+        if (to_datetime) {
+            CastToImpl<CastModeType::StrictMode, DataTypeTimeStampTz, DataTypeDateTimeV2> cast;
+            ASSERT_NO_THROW(
+                    status = cast.execute_impl(&context, strict_block, arguments, result, 1));
+        } else {
+            CastToImpl<CastModeType::StrictMode, DataTypeTimeStampTz, DataTypeTimeStampTz> cast;
+            ASSERT_NO_THROW(
+                    status = cast.execute_impl(&context, strict_block, arguments, result, 1));
+        }
+        // TRY_CAST must recognize a conversion failure instead of propagating an execution error.
+        EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);
+        EXPECT_NE(status.to_string().find("9999-12-31 23:59:59.999999"), std::string::npos);
+
+        auto nullable_block = make_block();
+        nullable_block.get_by_position(result).type =
+                make_nullable(nullable_block.get_by_position(result).type);
+        if (to_datetime) {
+            CastToImpl<CastModeType::NonStrictMode, DataTypeTimeStampTz, DataTypeDateTimeV2> cast;
+            status = cast.execute_impl(&context, nullable_block, arguments, result, 1, nullptr);
+        } else {
+            CastToImpl<CastModeType::NonStrictMode, DataTypeTimeStampTz, DataTypeTimeStampTz> cast;
+            status = cast.execute_impl(&context, nullable_block, arguments, result, 1, nullptr);
+        }
+        ASSERT_TRUE(status.ok()) << status;
+        const auto& nullable =
+                assert_cast<const ColumnNullable&>(*nullable_block.get_by_position(result).column);
+        EXPECT_TRUE(nullable.get_null_map_data()[0]);
+    }
+}
+
 } // namespace doris

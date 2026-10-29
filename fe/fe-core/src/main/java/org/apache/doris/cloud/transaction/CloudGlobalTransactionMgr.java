@@ -478,6 +478,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                         + "] is already aborted. abort reason: " + transactionState.getReason());
             } else if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED
                     || transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
+                if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
+                    ((CloudEnv) Env.getCurrentEnv()).getCloudFEVersionSynchronizer()
+                            .invalidateVersionCaches(dbId, transactionState.getTableIdList());
+                }
                 LOG.info("txn={}, status={} not need to calculate delete bitmap again, just return ",
                         transactionId,
                         transactionState.getTransactionStatus().toString());
@@ -582,6 +586,13 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         long txnId = commitTxnResponse.getTxnInfo().getTxnId();
         int totalPartitionNum = commitTxnResponse.getPartitionIdsList().size();
         if (totalPartitionNum == 0 && commitTxnResponse.getTableStatsList().isEmpty()) {
+            // A visible retry can contain only txn_info. Invalidate locally without another commit-time RPC;
+            // subsequent reads fetch fresh versions, including the table version used to validate SQL caches.
+            if (commitTxnResponse.getTxnInfo().getStatus() == TxnStatusPB.TXN_STATUS_VISIBLE
+                    && !(commitTxnResponse.getIsLazyCommit() && commitTxnResponse.getIsLazyCommitIncomplete())) {
+                ((CloudEnv) Env.getCurrentEnv()).getCloudFEVersionSynchronizer()
+                        .invalidateVersionCaches(dbId, commitTxnResponse.getTxnInfo().getTableIdsList());
+            }
             return Collections.emptyMap();
         }
         Env env = Env.getCurrentEnv();
@@ -2681,7 +2692,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         LOG.info("try to abort sub transaction, txnId: {}, subTxnId: {}, dbId: {}, tableIds: {}, subTxnNum: {}", txnId,
                 subTxnId, dbId, tableIds, subTxnNum);
         AbortSubTxnRequest request = AbortSubTxnRequest.newBuilder().setCloudUniqueId(Config.cloud_unique_id)
-                .setTxnId(txnId).setSubTxnId(subTxnId).setDbId(dbId).addAllTableIds(tableIds).setSubTxnNum(subTxnId)
+                .setTxnId(txnId).setSubTxnId(subTxnId).setDbId(dbId).addAllTableIds(tableIds).setSubTxnNum(subTxnNum)
                 .setRequestIp(FrontendOptions.getLocalHostAddressCached()).build();
         AbortSubTxnResponse response = null;
         int retryTime = 0;

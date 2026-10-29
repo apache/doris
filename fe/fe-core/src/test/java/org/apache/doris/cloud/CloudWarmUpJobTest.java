@@ -56,6 +56,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class CloudWarmUpJobTest {
@@ -184,6 +185,104 @@ public class CloudWarmUpJobTest {
         Assert.assertEquals(JobState.RUNNING, job.getJobState());
         Assert.assertEquals("previous failure", job.getJobInfo(null).get(COL_ERR_MSG));
         Mockito.verify(editLog).logModifyCloudWarmUpJob(job);
+    }
+
+    @Test
+    public void testOncePendingInitializationFailureReleasesDestinationLock() throws Exception {
+        checkPendingInitializationFailureReleasesDestinationLock(SyncMode.ONCE);
+    }
+
+    @Test
+    public void testPeriodicPendingInitializationFailureReleasesDestinationLock() throws Exception {
+        checkPendingInitializationFailureReleasesDestinationLock(SyncMode.PERIODIC);
+    }
+
+    private void checkPendingInitializationFailureReleasesDestinationLock(SyncMode syncMode) throws Exception {
+        CloudWarmUpJob job = Mockito.spy(createPendingJob(204L, syncMode));
+        CloudWarmUpJob nextJob = createPendingJob(205L, SyncMode.ONCE);
+        CloudEnv cloudEnv = Mockito.mock(CloudEnv.class);
+        CacheHotspotManager manager = new CacheHotspotManager(Mockito.mock(CloudSystemInfoService.class),
+                Mockito.mock(ThreadPoolExecutor.class));
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Mockito.when(cloudEnv.getCacheHotspotMgr()).thenReturn(manager);
+        Mockito.when(cloudEnv.getEditLog()).thenReturn(editLog);
+        Mockito.doAnswer(invocation -> {
+            Assert.assertFalse(manager.tryRegisterRunningJob(nextJob));
+            throw new IllegalStateException("initialization failed");
+        }).when(job).fetchBeToTabletIdBatches();
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(cloudEnv);
+            job.run();
+
+            Assert.assertTrue(manager.tryRegisterRunningJob(nextJob));
+            Assert.assertEquals(syncMode == SyncMode.ONCE ? JobState.CANCELLED : JobState.PENDING,
+                    job.getJobState());
+            Assert.assertEquals("Failed to initialize warm up job: initialization failed", job.getErrMsg());
+            Assert.assertTrue(job.getStartTimeMs() > 0);
+            Assert.assertTrue(job.getFinishedTimeMs() >= job.getStartTimeMs());
+            Assert.assertEquals(syncMode == SyncMode.PERIODIC, job.shouldWait());
+            Mockito.verify(editLog).logModifyCloudWarmUpJob(job);
+
+            CloudWarmUpJob persistedJob = copyBySerialization(job);
+            Assert.assertEquals(job.getJobState(), persistedJob.getJobState());
+            Assert.assertEquals(job.getErrMsg(), persistedJob.getErrMsg());
+            Assert.assertEquals(job.getStartTimeMs(), persistedJob.getStartTimeMs());
+            Assert.assertEquals(job.getFinishedTimeMs(), persistedJob.getFinishedTimeMs());
+
+            nextJob.run();
+            Assert.assertEquals(JobState.RUNNING, nextJob.getJobState());
+            Mockito.verifyNoInteractions(mockBackendPool);
+
+            if (syncMode == SyncMode.PERIODIC) {
+                manager.notifyJobStop(nextJob);
+                Mockito.doCallRealMethod().when(job).fetchBeToTabletIdBatches();
+                setStartTimeMs(job, System.currentTimeMillis() - 61_000L);
+                Assert.assertFalse(job.shouldWait());
+                job.run();
+                Assert.assertEquals(JobState.RUNNING, job.getJobState());
+                Assert.assertFalse(manager.tryRegisterRunningJob(nextJob));
+            } else {
+                job.run();
+                Mockito.verify(job).fetchBeToTabletIdBatches();
+                Assert.assertEquals(JobState.CANCELLED, job.getJobState());
+            }
+        }
+    }
+
+    @Test
+    public void testOncePendingInitializationKeepsDestinationLockOnSuccess() {
+        checkPendingInitializationKeepsDestinationLockOnSuccess(SyncMode.ONCE);
+    }
+
+    @Test
+    public void testPeriodicPendingInitializationKeepsDestinationLockOnSuccess() {
+        checkPendingInitializationKeepsDestinationLockOnSuccess(SyncMode.PERIODIC);
+    }
+
+    private void checkPendingInitializationKeepsDestinationLockOnSuccess(SyncMode syncMode) {
+        CloudWarmUpJob job = createPendingJob(206L, syncMode);
+        CloudWarmUpJob nextJob = Mockito.spy(createPendingJob(207L, SyncMode.ONCE));
+        CloudEnv cloudEnv = Mockito.mock(CloudEnv.class);
+        CacheHotspotManager manager = new CacheHotspotManager(Mockito.mock(CloudSystemInfoService.class),
+                Mockito.mock(ThreadPoolExecutor.class));
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Mockito.when(cloudEnv.getCacheHotspotMgr()).thenReturn(manager);
+        Mockito.when(cloudEnv.getEditLog()).thenReturn(editLog);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(cloudEnv);
+            job.run();
+            Assert.assertEquals(JobState.RUNNING, job.getJobState());
+
+            nextJob.run();
+            Assert.assertEquals(JobState.PENDING, nextJob.getJobState());
+            Assert.assertEquals(-1L, nextJob.getStartTimeMs());
+            Assert.assertFalse(manager.tryRegisterRunningJob(nextJob));
+            Mockito.verify(nextJob, Mockito.never()).fetchBeToTabletIdBatches();
+            Mockito.verify(editLog, Mockito.never()).logModifyCloudWarmUpJob(nextJob);
+            Mockito.verify(editLog).logModifyCloudWarmUpJob(job);
+        }
     }
 
     @Test
@@ -323,6 +422,17 @@ public class CloudWarmUpJobTest {
         Mockito.verify(cacheHotspotManager).notifyJobStop(job);
         Mockito.verify(editLog, Mockito.atLeastOnce()).logModifyCloudWarmUpJob(job);
         Mockito.verify(mockBackendPool).returnObject(address, client);
+    }
+
+    private CloudWarmUpJob createPendingJob(long jobId, SyncMode syncMode) {
+        return new CloudWarmUpJob.Builder()
+                .setJobId(jobId)
+                .setSrcClusterName("source_cluster")
+                .setDstClusterName("target_cluster")
+                .setJobType(JobType.CLUSTER)
+                .setSyncMode(syncMode)
+                .setSyncInterval(60L)
+                .build();
     }
 
     private CloudWarmUpJob createRunningJob(long jobId, TNetworkAddress firstAddress,

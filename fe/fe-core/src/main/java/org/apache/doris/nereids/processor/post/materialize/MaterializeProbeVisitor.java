@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.tablefunction.FullTextSearchTableValuedFunction;
 import org.apache.doris.tablefunction.VectorSearchTableValuedFunction;
 
 import com.google.common.collect.ImmutableSet;
@@ -79,9 +80,9 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
     public Optional<MaterializeSource> visitPhysicalFilter(PhysicalFilter<? extends Plan> filter,
                                                            ProbeContext context) {
         if (SessionVariable.getTopNLazyMaterializationUsingIndex() && filter.child() instanceof PhysicalOlapScan) {
-            // agg table do not support lazy materialize
+            // agg table / non-light-schema-change table do not support lazy materialize
             OlapTable table = ((PhysicalOlapScan) filter.child()).getTable();
-            if (KeysType.AGG_KEYS.equals(table.getKeysType())) {
+            if (!supportOlapTopnLazyMaterialize(table)) {
                 return Optional.empty();
             }
             if (filter.getInputSlots().contains(context.slot)) {
@@ -125,11 +126,39 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
             return (hmsExternalTable.getDlaType() == DLAType.HIVE && hmsExternalTable.supportedHiveTopNLazyTable())
                     || hmsExternalTable.getDlaType() == DLAType.ICEBERG;
         }
+        if (relation.getTable() instanceof OlapTable) {
+            return supportOlapTopnLazyMaterialize((OlapTable) relation.getTable());
+        }
+        return true;
+    }
+
+    /**
+     * Whether an OLAP table can perform topn lazy materialization.
+     *
+     * <p>Two hard requirements:
+     * <ul>
+     *   <li>Not an AGG_KEYS table: aggregate tables cannot locate a single source row for a value.</li>
+     *   <li>light_schema_change is enabled: lazy materialization appends a synthetic global row-id
+     *       column to the scan and relies on the BE rebuilding the tablet schema from FE's
+     *       columns_desc (keyed by column uniqueId). For non-light-schema-change tables every
+     *       column's uniqueId is -1, so the BE keeps its own on-disk schema and never installs the
+     *       synthetic row-id column. That path either fails with "field name is invalid" during the
+     *       scan or silently returns NULL for the lazily-fetched columns. Disable the optimization
+     *       for such tables and fall back to normal topn.</li>
+     * </ul>
+     */
+    private boolean supportOlapTopnLazyMaterialize(OlapTable table) {
+        if (KeysType.AGG_KEYS.equals(table.getKeysType())) {
+            return false;
+        }
+        if (!table.getEnableLightSchemaChange()) {
+            return false;
+        }
         return true;
     }
 
     boolean checkTVFRelationTableSupportedType(PhysicalTVFRelation tvfRelation) {
-        if (isVectorSearch(tvfRelation)) {
+        if (isLanceExternalSearch(tvfRelation)) {
             return true;
         }
 
@@ -146,8 +175,13 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
         return false;
     }
 
-    private boolean isVectorSearch(PhysicalTVFRelation tvfRelation) {
-        return VectorSearchTableValuedFunction.NAME.equals(tvfRelation.getFunction().getName());
+    static boolean isLanceExternalSearch(Relation relation) {
+        if (!(relation instanceof PhysicalTVFRelation)) {
+            return false;
+        }
+        String functionName = ((PhysicalTVFRelation) relation).getFunction().getName();
+        return VectorSearchTableValuedFunction.NAME.equals(functionName)
+                || FullTextSearchTableValuedFunction.NAME.equals(functionName);
     }
 
     @Override
@@ -155,9 +189,9 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
         if (scan.getSelectedIndexId() != scan.getTable().getBaseIndexId()) {
             return Optional.empty();
         }
-        // agg table do not support lazy materialize
+        // agg table / non-light-schema-change table do not support lazy materialize
         OlapTable table = scan.getTable();
-        if (KeysType.AGG_KEYS.equals(table.getKeysType())) {
+        if (!supportOlapTopnLazyMaterialize(table)) {
             return Optional.empty();
         }
         if (scan.getOperativeSlots().contains(context.slot)) {
@@ -189,7 +223,7 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
             PhysicalTVFRelation tvfRelation, ProbeContext context) {
         // The first Lance implementation fetches top-level columns by row ID. Keep nested
         // sub-column projections in the search phase until take_rows supports access paths.
-        if (isVectorSearch(tvfRelation) && context.slot.hasSubColPath()) {
+        if (isLanceExternalSearch(tvfRelation) && context.slot.hasSubColPath()) {
             return Optional.empty();
         }
         if (checkTVFRelationTableSupportedType(tvfRelation) && tvfRelation.getOutput().contains(context.slot)

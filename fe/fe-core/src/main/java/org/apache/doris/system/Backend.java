@@ -126,7 +126,7 @@ public class Backend implements Writable {
     // the locationTag is also saved in tagMap, use a single field here to avoid
     // creating this everytime we get it.
     @SerializedName(value = "locationTag", alternate = {"tag"})
-    private Tag locationTag = Tag.DEFAULT_BACKEND_TAG;
+    private volatile Tag locationTag = Tag.DEFAULT_BACKEND_TAG;
 
     @SerializedName("nodeRole")
     private Tag nodeRoleTag = Tag.DEFAULT_NODE_ROLE_TAG;
@@ -145,6 +145,8 @@ public class Backend implements Writable {
     // The physical memory available for use by BE.
     @SerializedName("beMemory")
     private long beMemory = 0;
+    @SerializedName("supportsPaimonRustReader")
+    private volatile boolean supportsPaimonRustReader;
     // from config::pipeline_executor_size , default equal cpuCores
     @SerializedName("pipelineExecutorSize")
     private int pipelineExecutorSize = 1;
@@ -255,6 +257,10 @@ public class Backend implements Writable {
 
     public String getVersion() {
         return version;
+    }
+
+    public boolean isPaimonRustReaderSupported() {
+        return supportsPaimonRustReader;
     }
 
     public int getBePort() {
@@ -871,6 +877,11 @@ public class Backend implements Writable {
     public boolean handleHbResponse(BackendHbResponse hbResponse, boolean isReplay) {
         boolean isChanged = false;
         if (hbResponse.getStatus() == HbStatus.OK) {
+            // An absent capability also clears support after a downgrade or legacy heartbeat replay.
+            if (supportsPaimonRustReader != hbResponse.isPaimonRustReaderSupported()) {
+                isChanged = true;
+                supportsPaimonRustReader = hbResponse.isPaimonRustReaderSupported();
+            }
             if (!this.version.equals(hbResponse.getVersion())) {
                 isChanged = true;
                 this.version = hbResponse.getVersion();
@@ -1138,4 +1149,3 @@ public class Backend implements Writable {
     }
 
 }
-

@@ -162,7 +162,20 @@ Status InvertedIndexColumnWriter<field_type>::create_field(lucene::document::Fie
     (*field)->setOmitTermFreqAndPositions(
             !(get_parser_phrase_support_string_from_properties(_index_meta->properties()) ==
               INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES));
-    (*field)->setOmitNorms(false);
+    // An analyzed index writes norms unless its "norms" property says otherwise. Norms cost one byte
+    // per segment row, including rows without a value, and a variant path index (a field_pattern
+    // index, or the copy inherited by one extracted subcolumn, which carries the path as its index
+    // suffix) is one of possibly thousands in a segment, so their norms can dwarf the data.
+    // inverted_index_skip_norms_for_variant drops norms for those indexes whatever their property
+    // says, so that a cluster can reclaim that space without rewriting its index definitions.
+    const bool variant_path_index =
+            !_index_meta->get_index_suffix().empty() || !_index_meta->field_pattern().empty();
+    const bool skipped_by_config =
+            variant_path_index && config::inverted_index_skip_norms_for_variant;
+    if (_should_analyzer && !skipped_by_config &&
+        get_index_norms_from_properties(_index_meta->properties())) {
+        (*field)->setOmitNorms(false);
+    }
     DBUG_EXECUTE_IF("InvertedIndexColumnWriter::create_field_v3", {
         if (_index_file_writer->get_storage_format() != InvertedIndexStorageFormatPB::V3) {
             return Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
@@ -248,6 +261,10 @@ Status InvertedIndexColumnWriter<field_type>::add_document() {
         close_on_error();
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "CLuceneError add_document: {}", e.what());
+    } catch (const Exception& e) {
+        close_on_error();
+        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "Analyzer error while adding document: {}", e.what());
     }
     return Status::OK();
 }
@@ -323,6 +340,9 @@ Status InvertedIndexColumnWriter<field_type>::new_inverted_index_field(const cha
     } catch (const CLuceneError& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "CLuceneError create new index field error: {}", e.what());
+    } catch (const Exception& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "Analyzer error while creating new index field: {}", e.what());
     }
     return Status::OK();
 }
@@ -444,16 +464,29 @@ Status InvertedIndexColumnWriter<field_type>::add_array_values(size_t field_size
                         return st;
                     }
                     if (_should_analyzer) {
-                        // in this case stream need to delete after add_document, because the
-                        // stream can not reuse for different field
-                        bool own_token_stream = true;
-                        ReaderPtr char_string_reader = DORIS_TRY(
-                                create_char_string_reader(_analyzer_config.char_filter_map));
-                        char_string_reader->init(v->get_data(), cast_set<int32_t>(v->get_size()),
-                                                 false);
-                        ts = _analyzer->tokenStream(new_field->name(), char_string_reader);
-                        new_field->setValue(ts, own_token_stream);
-                        keep_readers.emplace_back(std::move(char_string_reader));
+                        try {
+                            // Each array field needs an owned stream because streams cannot be
+                            // reused across fields.
+                            bool own_token_stream = true;
+                            ReaderPtr char_string_reader = DORIS_TRY(
+                                    create_char_string_reader(_analyzer_config.char_filter_map));
+                            char_string_reader->init(v->get_data(),
+                                                     cast_set<int32_t>(v->get_size()), false);
+                            ts = _analyzer->tokenStream(new_field->name(), char_string_reader);
+                            new_field->setValue(ts, own_token_stream);
+                            keep_readers.emplace_back(std::move(char_string_reader));
+                        } catch (const CLuceneError& e) {
+                            _doc->clear();
+                            close_on_error();
+                            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                                    "CLuceneError while creating array index field: {}", e.what());
+                        } catch (const Exception& e) {
+                            _doc->clear();
+                            close_on_error();
+                            return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                                    "Analyzer error while creating array index field: {}",
+                                    e.what());
+                        }
                     } else {
                         new_field_char_value(v->get_data(), v->get_size(), new_field.get());
                     }

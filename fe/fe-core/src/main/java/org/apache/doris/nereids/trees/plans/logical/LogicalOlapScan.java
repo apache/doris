@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rpc.RpcException;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -540,16 +541,14 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
     }
 
     /**
-     * add virtual column to olap scan.
+     * replace the virtual columns of olap scan, also in its output.
      * @param virtualColumns generated virtual columns
      * @return scan with virtual columns
      */
     @Override
     public LogicalOlapScan withVirtualColumns(List<NamedExpression> virtualColumns) {
-        LogicalProperties logicalProperties = getLogicalProperties();
-        List<Slot> output = Lists.newArrayList(logicalProperties.getOutput());
-        output.addAll(virtualColumns.stream().map(NamedExpression::toSlot).collect(Collectors.toList()));
-        logicalProperties = new LogicalProperties(() -> output, this::computeDataTrait);
+        List<Slot> output = outputWithVirtualColumns(virtualColumns);
+        LogicalProperties logicalProperties = new LogicalProperties(() -> output, this::computeDataTrait);
         return new LogicalOlapScan(relationId, (Table) table, qualifier,
                 groupExpression, Optional.of(logicalProperties),
                 selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
@@ -557,6 +556,21 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan, colToSubPathsMap,
                 manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
                 scoreRangeInfo, annOrderKeys, annLimit, partitionPrunablePredicates);
+    }
+
+    /**
+     * The output with the slots of the given virtual columns instead of the slots of the current ones. The other
+     * slots keep their ids, which the slots of the parent plan may already refer to.
+     */
+    protected List<Slot> outputWithVirtualColumns(List<NamedExpression> newVirtualColumns) {
+        Set<ExprId> oldVirtualColumns = virtualColumns.stream()
+                .map(NamedExpression::getExprId)
+                .collect(Collectors.toSet());
+        List<Slot> output = getLogicalProperties().getOutput().stream()
+                .filter(slot -> !oldVirtualColumns.contains(slot.getExprId()))
+                .collect(Collectors.toCollection(ArrayList::new));
+        newVirtualColumns.forEach(column -> output.add(column.toSlot()));
+        return output;
     }
 
     /**
@@ -809,6 +823,14 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
 
     @Override
     public void computeUnique(DataTrait.Builder builder) {
+        // Duplicate-producing scan modes invalidate all uniqueness
+        // guarantees regardless of table metadata or declared constraints.
+        // When the BE returns unmerged versions or duplicate key rows, the
+        // WinMagic window-function rewrite (and any other rule relying on
+        // uniqueness) would produce wrong results.
+        if (isDuplicateProducingScanMode()) {
+            return;
+        }
         // Raw-version reads expose superseded rows: with skipDeleteBitmap, rows replaced by
         // later versions are read; with read_mor_as_dup_tables, MOR tables are read as DUP and
         // expose every version. Uniqueness — including the table-level constraints imported by
@@ -848,6 +870,13 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 the mv2's agg key citycode * citycode is not unique
 
                 for simplicity, we disable unique compute for mv
+
+                Declared constraints from super.computeUnique(builder) were
+                already filtered by findSlotsByColumn() above: if a rollup
+                does not include ALL columns of a PRIMARY KEY / UNIQUE
+                constraint, the partial-column set is discarded.  Only
+                constraints whose full column set is present in the scan
+                output are propagated.
              */
             return;
         }
@@ -946,6 +975,45 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
             builder.addFuncDepsDG(originalPlan.getLogicalProperties().getTrait());
             builder.replaceFuncDepsBy(constructReplaceMap(mtmv));
         }
+    }
+
+    /**
+     * Whether the scan is configured with a session variable or scan
+     * mode that makes the BE return potentially duplicate rows even for
+     * declared unique keys.  In these modes any uniqueness guarantee —
+     * whether from OLAP key metadata or from user-declared PRIMARY KEY /
+     * UNIQUE constraints — is unreliable.
+     */
+    private boolean isDuplicateProducingScanMode() {
+        SessionVariable sv = ConnectContext.get().getSessionVariable();
+        // skipStorageEngineMerge: BE returns unmerged versions — all
+        // table types may have duplicate key rows.
+        if (sv.skipStorageEngineMerge) {
+            return true;
+        }
+        // skipDeleteBitmap: on UNIQUE_KEYS tables, rows that were replaced
+        // due to the same key are also read, so the key duplicates.
+        if (sv.skipDeleteBitmap && getTable().getKeysType() == KeysType.UNIQUE_KEYS) {
+            return true;
+        }
+        // readMorAsDup: MOW tables are read as DUPLICATE — uniqueness
+        // of the declared key is not guaranteed.
+        if (getTable().getKeysType() == KeysType.UNIQUE_KEYS
+                && getTable().isMorTable()
+                && sv.isReadMorAsDupEnabled(
+                    getTable().getQualifiedDbName(), getTable().getName())) {
+            return true;
+        }
+        // Stream scans and other scan subclasses that can return duplicate
+        // key rows are handled via producesDuplicateRows() which defaults
+        // to false and is overridden by subclasses with special semantics.
+        // This follows the Open/Closed principle: adding a new scan subclass
+        // with duplicate-producing behavior does not require modifying
+        // LogicalOlapScan.
+        if (producesDuplicateRows()) {
+            return true;
+        }
+        return false;
     }
 
     @Override
@@ -1058,5 +1126,15 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
     @Override
     public boolean supportPruneNestedColumn() {
         return true;
+    }
+
+    /**
+     * Override point for scan subclasses that can return duplicate rows
+     * even for declared unique keys.  The base {@code LogicalOlapScan}
+     * returns {@code false}; subclasses that introduce special scan modes
+     * (e.g. incremental stream scans) override this to return {@code true}.
+     */
+    protected boolean producesDuplicateRows() {
+        return false;
     }
 }

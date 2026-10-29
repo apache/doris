@@ -23,7 +23,6 @@ import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
@@ -133,18 +132,9 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             return castToIntegral(targetType, strictCast);
         }
         if (targetType.isDateType() || targetType.isDateV2Type()) {
-            Expression expression = castToDateTime(DateTimeV2Type.MAX, strictCast, false);
-            DateTimeV2Literal datetime = (DateTimeV2Literal) expression;
-            if (targetType.isDateType()) {
-                return new DateLiteral(datetime.year, datetime.month, datetime.day);
-            } else {
-                return new DateV2Literal(datetime.year, datetime.month, datetime.day);
-            }
+            return castToDateTime(targetType, strictCast);
         } else if (targetType.isDateTimeType()) {
-            Expression expression = castToDateTime(DateTimeV2Type.MAX, strictCast, true);
-            DateTimeV2Literal datetime = (DateTimeV2Literal) expression;
-            return new DateTimeLiteral((DateTimeType) targetType, datetime.year, datetime.month, datetime.day,
-                    datetime.hour, datetime.minute, datetime.second, datetime.microSecond);
+            return castToDateTime(targetType, strictCast);
         } else if (targetType.isTimeStampTzType()) {
             // Wildcard targets still need a concrete scale before parsing.
             TimeStampTzType timeStampTzType = (TimeStampTzType) targetType;
@@ -154,10 +144,10 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             if (DateTimeChecker.hasTimeZone(value)) {
                 return new TimestampTzLiteral(timeStampTzType, value);
             }
-            DateTimeV2Literal datetime = castToDateTime(DateTimeV2Type.MAX, strictCast, true);
+            DateTimeV2Literal datetime = (DateTimeV2Literal) castToDateTime(DateTimeV2Type.MAX, strictCast);
             return TimestampTzLiteral.fromSessionTimeZone(timeStampTzType, datetime);
         } else if (targetType.isDateTimeV2Type()) {
-            return castToDateTime(targetType, strictCast, true);
+            return castToDateTime(targetType, strictCast);
         } else if (targetType.isFloatType()) {
             return castToFloat();
         } else if (targetType.isDoubleType()) {
@@ -270,7 +260,7 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
         throw new CastException(String.format("%s can't cast to decimal in strict mode.", value));
     }
 
-    protected DateTimeV2Literal castToDateTime(DataType targetType, boolean strictCast, boolean isDatetime) {
+    protected DateLiteral castToDateTime(DataType targetType, boolean strictCast) {
         Matcher strictMatcher = dateStrictPattern.matcher(value);
         String year;
         String month;
@@ -312,14 +302,7 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             if (tz != null && tz.equalsIgnoreCase("CST")) {
                 tz = "+08:00";
             }
-            DateTimeV2Literal dt = getDateTimeLiteral(year, month, date, hour, minute, second,
-                    fraction, tz, targetType);
-            if (isDatetime) {
-                return dt;
-            } else {
-                return new DateTimeV2Literal(Long.parseLong(year2ToYear4(year)), Long.parseLong(month),
-                        Long.parseLong(date), 0, 0, 0);
-            }
+            return getDateTimeLiteral(year, month, date, hour, minute, second, fraction, tz, targetType);
         } else if (!strictCast) {
             Matcher unStrictMatcher = dateUnStrictPattern.matcher(value);
             if (unStrictMatcher.matches()) {
@@ -334,14 +317,7 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
                 if (tz != null && tz.equalsIgnoreCase("CST")) {
                     tz = "+08:00";
                 }
-                DateTimeV2Literal dt = getDateTimeLiteral(year, month, date, hour, minute, second,
-                        fraction, tz, targetType);
-                if (isDatetime) {
-                    return dt;
-                } else {
-                    return new DateTimeV2Literal(Long.parseLong(year2ToYear4(year)), Long.parseLong(month),
-                            Long.parseLong(date), 0, 0, 0);
-                }
+                return getDateTimeLiteral(year, month, date, hour, minute, second, fraction, tz, targetType);
             }
         }
         throw new CastException(String.format("[%s] can't cast to %s.", value, targetType));
@@ -355,7 +331,7 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
         return year;
     }
 
-    protected DateTimeV2Literal getDateTimeLiteral(String year, String month, String date, String hour, String minute,
+    protected DateLiteral getDateTimeLiteral(String year, String month, String date, String hour, String minute,
             String second, String fraction, String tz, DataType targetType) {
         String year4 = year2ToYear4(year);
         tz = tz == null ? "" : tz;
@@ -385,10 +361,30 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             }
         }
         String format = String.format("%s-%s-%sT%s:%s:%s%s%s", year4, month, date, hour, minute, second, fraction, tz);
-        try {
-            return new DateTimeV2Literal((DateTimeV2Type) targetType, format);
-        } catch (AnalysisException e) {
-            throw new CastException(e.getMessage(), e);
+        if (targetType.isDateType()) {
+            try {
+                return new DateLiteral(format);
+            } catch (AnalysisException e) {
+                throw new CastException(e.getMessage(), e);
+            }
+        } else if (targetType.isDateV2Type()) {
+            try {
+                return new DateV2Literal(format);
+            } catch (AnalysisException e) {
+                throw new CastException(e.getMessage(), e);
+            }
+        } else if (targetType.isDateTimeType()) {
+            try {
+                return new DateTimeLiteral(format);
+            } catch (AnalysisException e) {
+                throw new CastException(e.getMessage(), e);
+            }
+        } else {
+            try {
+                return new DateTimeV2Literal((DateTimeV2Type) targetType, format);
+            } catch (AnalysisException e) {
+                throw new CastException(e.getMessage(), e);
+            }
         }
     }
 

@@ -125,6 +125,29 @@ public class HelpCommand extends ShowCommand {
         return resultSet;
     }
 
+    /** Resolve the HELP result shape without materializing topic text or category rows. */
+    public ShowResultSetMetaData getMetaData(ConnectContext ctx) throws AnalysisException {
+        if (Strings.isNullOrEmpty(mark)) {
+            throw new AnalysisException("Help empty info.");
+        }
+        HelpModule module = HelpModule.getInstance();
+        // HELP has three result shapes; a topic match takes precedence over keywords and categories.
+        HelpTopic topic = module.getTopic(mark);
+        if (topic == null) {
+            List<String> topics = module.listTopicByKeyword(mark);
+            if (topics.size() > 1) {
+                return KEYWORD_META_DATA;
+            }
+            if (topics.size() == 1) {
+                topic = module.getTopic(topics.get(0));
+            }
+        }
+        if (topic != null) {
+            return TOPIC_META_DATA;
+        }
+        return module.listCategoryByName(mark).size() > 1 ? CATEGORY_META_DATA : KEYWORD_META_DATA;
+    }
+
     @Override
     public ShowResultSetMetaData getMetaData() {
         return ShowResultSetMetaData.builder().build();

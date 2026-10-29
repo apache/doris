@@ -33,6 +33,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "exprs/vexpr.h"
 #include "format/table/parquet_utils.h"
 #include "format_v2/table/iceberg_position_delete_sys_table_reader.h"
@@ -571,6 +572,41 @@ TEST(IcebergPositionDeleteSysTableV2ReaderTest, RecordsDeletionVectorRows) {
     EXPECT_EQ(1, read_rows);
     EXPECT_FALSE(eof);
     EXPECT_EQ(3, file_reader_stats.read_rows);
+}
+
+TEST(IcebergPositionDeleteSysTableV2ReaderTest, PreservesUuidPartitionBytes) {
+    ObjectPool pool;
+    const auto partition_type = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {make_nullable(std::make_shared<DataTypeVarbinary>())}, Strings {"p"}));
+    auto* slot = make_slot(&pool, 0, "partition", partition_type);
+    TIcebergFileDesc descriptor;
+    descriptor.__set_partition_data_json(R"({"p":"0x123E4567E89B12D3A456426614174000"})");
+    auto verify = [&](auto& reader) {
+        reader._iceberg_file_desc = &descriptor;
+        auto column = partition_type->create_column();
+        ASSERT_TRUE(reader._append_partition_column(column, *slot).ok());
+        ASSERT_TRUE(reader._append_partition_column(column, *slot).ok());
+        const auto& structure = assert_cast<const ColumnStruct&>(
+                assert_cast<const ColumnNullable&>(*column).get_nested_column());
+        const auto& field = assert_cast<const ColumnNullable&>(structure.get_column(0));
+        for (size_t row = 0; row < 2; ++row) {
+            ASSERT_FALSE(field.is_null_at(row));
+            EXPECT_EQ(
+                    std::string("\x12\x3e\x45\x67\xe8\x9b\x12\xd3\xa4\x56\x42\x66\x14\x17\x40\x00",
+                                16),
+                    field.get_nested_column().get_data_at(row).to_string());
+        }
+    };
+    format::iceberg::IcebergPositionDeleteSysTableV2Reader reader;
+    verify(reader);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("test_profile");
+    TFileRangeDesc range;
+    TFileScanRangeParams params;
+    std::vector<SlotDescriptor*> slots {slot};
+    IcebergPositionDeleteSysTableReader legacy_reader(slots, &state, &profile, range, &params,
+                                                      std::make_shared<io::IOContext>(), nullptr);
+    verify(legacy_reader);
 }
 
 TEST(IcebergPositionDeleteSysTableV2ReaderTest, CachesAndClearsPartitionValue) {

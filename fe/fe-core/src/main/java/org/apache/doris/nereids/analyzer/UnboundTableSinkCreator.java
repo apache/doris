@@ -85,7 +85,7 @@ public class UnboundTableSinkCreator {
     }
 
     /**
-     * create unbound sink for DML plan with static partition support for Iceberg.
+     * create unbound sink for DML plan with static partition support for Iceberg / Hive / MaxCompute.
      */
     public static LogicalSink<? extends Plan> createUnboundTableSink(List<String> nameParts,
             List<String> colNames, List<String> hints, boolean temporaryPartition, List<String> partitions,
@@ -100,7 +100,7 @@ public class UnboundTableSinkCreator {
                     Optional.empty(), plan);
         } else if (curCatalog instanceof HMSExternalCatalog) {
             return new UnboundHiveTableSink<>(nameParts, colNames, hints, partitions,
-                    dmlCommandType, Optional.empty(), Optional.empty(), plan);
+                    dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues);
         } else if (curCatalog instanceof IcebergExternalCatalog) {
             return new UnboundIcebergTableSink<>(nameParts, colNames, hints, partitions,
                     dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues, false);
@@ -120,8 +120,7 @@ public class UnboundTableSinkCreator {
 
     /**
      * create unbound sink for DML plan with auto detect overwrite partition enable
-     * and static partition support for Iceberg.
-     * TODO: staticPartitionKeyValues is only used for Iceberg, support other catalog types in future.
+     * and static partition support for Iceberg / Hive / MaxCompute.
      */
     public static LogicalSink<? extends Plan> createUnboundTableSinkMaybeOverwrite(List<String> nameParts,
             List<String> colNames, List<String> hints, boolean temporaryPartition, List<String> partitions,
@@ -145,7 +144,7 @@ public class UnboundTableSinkCreator {
                     Optional.empty(), plan);
         } else if (curCatalog instanceof HMSExternalCatalog && !isAutoDetectPartition) {
             return new UnboundHiveTableSink<>(nameParts, colNames, hints, partitions,
-                    dmlCommandType, Optional.empty(), Optional.empty(), plan);
+                    dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues);
         } else if (curCatalog instanceof IcebergExternalCatalog && !isAutoDetectPartition) {
             return new UnboundIcebergTableSink<>(nameParts, colNames, hints, partitions,
                     dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues, false);

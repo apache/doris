@@ -27,8 +27,11 @@ import org.apache.doris.catalog.TableIndexes;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.FileFormatConstants;
+import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -60,6 +63,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -243,6 +247,22 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return "default";
     }
 
+    public String getHiveParquetTimeZone() throws UserException {
+        if (catalog == null || !("hms".equalsIgnoreCase(catalog.getType())
+                || "hudi".equalsIgnoreCase(catalog.getType()))) {
+            return "";
+        }
+        return getConfiguredHiveParquetTimeZone();
+    }
+
+    public String getConfiguredHiveParquetTimeZone() throws UserException {
+        if (catalog == null) {
+            return "";
+        }
+        String value = catalog.getProperties().get(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE);
+        return value == null ? "" : FileFormatUtils.parseHiveParquetTimeZone(value);
+    }
+
     @Override
     public String getMysqlType() {
         return getType().toMysqlType();
@@ -375,6 +395,40 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     }
 
     /**
+     * Guard a table-level read with this table's retained lookup identity. Synthetic readers must
+     * invoke this on their source table; partition/selector absence must not retire that source.
+     */
+    public <R> R withMissingTableRepair(Supplier<R> read) {
+        // Metadata validators can enter a schema read under this monitor. Repair only after
+        // an outer unlocked entry point has unwound it, preserving catalog -> table lock order.
+        if (Thread.holdsLock(this)) {
+            return read.get();
+        }
+        Optional<Runnable> observation = db.observeTableLookup(this);
+        try {
+            return read.get();
+        } catch (RuntimeException failure) {
+            if (isMissingTable(failure)) {
+                observation.ifPresent(Runnable::run);
+            }
+            throw failure;
+        }
+    }
+
+    /** Providers with selectors override this to verify the missing object's base identity. */
+    protected boolean isMissingTable(Throwable failure) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof org.apache.hadoop.hive.metastore.api.NoSuchObjectException
+                    || cause instanceof org.apache.hadoop.hive.metastore.api.UnknownTableException
+                    || cause instanceof org.apache.iceberg.exceptions.NoSuchTableException
+                    || cause instanceof org.apache.iceberg.exceptions.NoSuchViewException) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Should only be called in ExternalCatalog's getSchema(),
      * which is called from schema cache.
      * If you want to get schema of this table, use getFullSchema()
@@ -394,7 +448,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         throw new NotImplementedException("implement in sub class");
     }
 
-    public void unsetObjectCreated() {
+    public synchronized void unsetObjectCreated() {
         this.objectCreated = false;
     }
 

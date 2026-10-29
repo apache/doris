@@ -366,9 +366,8 @@ public class NereidsLoadScanProvider {
             } else {
                 Column slotColumn;
                 TFileFormatType fileFormatType = fileGroup.getFileFormatProperties().getFileFormatType();
-                // Use real column type for arrow/native format, other formats read as varchar first
-                if (fileFormatType == TFileFormatType.FORMAT_ARROW
-                        || fileFormatType == TFileFormatType.FORMAT_NATIVE) {
+                // Use real column type for arrow format, other formats read as varchar first
+                if (fileFormatType == TFileFormatType.FORMAT_ARROW) {
                     if (tblColumn == null) {
                         throw new AnalysisException("Unknown column " + realColName + " in table " + tbl.getName()
                                 + " for " + fileFormatType + " load");

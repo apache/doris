@@ -19,24 +19,29 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.URI;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TFunctionBinaryType;
 import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -173,6 +178,96 @@ public class CreateFunctionTest {
     }
 
     @Test
+    public void testCreatePythonFunctionsPreserveFileSignatures() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        createDatabase(ctx, "create database py_file_type_db;");
+        ctx.setDatabase("py_file_type_db");
+        String properties = " properties('type'='PYTHON_UDF', 'symbol'='evaluate', "
+                + "'runtime_version'='3.10.2');";
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("py_file_type_db");
+        int index = 0;
+        for (String kind : ImmutableList.of("function", "aggregate function", "tables function")) {
+            for (String fileType : ImmutableList.of("file", "array<file>", "map<string,file>",
+                    "struct<f:file>", "array<struct<f:file>>")) {
+                Type expectedType = DataType.convertFromString(fileType).toCatalogDataType();
+                String returnType = kind.equals("tables function") ? "array<int>" : "int";
+                String argumentName = "file_arg_" + index++;
+                createFunction("create " + kind + " py_file_type_db." + argumentName + "(" + fileType
+                        + ") returns " + returnType + properties, ctx);
+                Function argumentFunction = findFunction(db, argumentName);
+                Assert.assertEquals(expectedType, argumentFunction.getArgs()[0]);
+                Assert.assertEquals(Type.INT, argumentFunction.getReturnType());
+                String outputType = kind.equals("tables function") ? "array<" + fileType + ">" : fileType;
+                String returnName = "file_return_" + index++;
+                createFunction("create " + kind + " py_file_type_db." + returnName + "(int) returns "
+                        + outputType + properties, ctx);
+                Function returnFunction = findFunction(db, returnName);
+                Assert.assertEquals(Type.INT, returnFunction.getArgs()[0]);
+                Assert.assertEquals(expectedType, returnFunction.getReturnType());
+            }
+        }
+        for (String fileType : ImmutableList.of("file", "array<file>", "map<string,file>", "struct<f:file>")) {
+            String name = "file_state_" + index++;
+            createFunction("create aggregate function py_file_type_db." + name
+                    + "(int) returns int intermediate " + fileType + properties, ctx);
+            AggregateFunction function = (AggregateFunction) findFunction(db, name);
+            Assert.assertEquals(DataType.convertFromString(fileType).toCatalogDataType(),
+                    function.getIntermediateType());
+        }
+    }
+
+    @Test
+    public void testCreatePythonFunctionsStillAcceptOrdinaryTypes() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        createDatabase(ctx, "create database py_normal_type_db;");
+        ctx.setDatabase("py_normal_type_db");
+        int index = 0;
+        for (String kind : ImmutableList.of("function", "aggregate function", "tables function")) {
+            for (String type : ImmutableList.of("int", "string", "array<int>", "map<string,int>",
+                    "struct<v:int,s:string>")) {
+                String outputType = kind.equals("tables function") ? "array<" + type + ">" : type;
+                String name = "ordinary_" + index++;
+                createFunction("create " + kind + " py_normal_type_db." + name + "(" + type + ") returns "
+                        + outputType + " properties('type'='PYTHON_UDF', 'symbol'='evaluate', "
+                        + "'runtime_version'='3.10.2');", ctx);
+                Assert.assertNotNull(findFunction(
+                        Env.getCurrentInternalCatalog().getDbNullable("py_normal_type_db"), name));
+            }
+        }
+    }
+
+    @Test
+    public void testDropFunctionReturnsCurrentGenerationId() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        createDatabase(ctx, "create database drop_function_id_db;");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("drop_function_id_db");
+        Assert.assertNotNull(db);
+
+        Function firstGeneration = createJavaUdf("drop_function_id_db", "generation_fn", Type.INT);
+        db.addFunction(firstGeneration, false);
+        Assert.assertEquals(ImmutableList.of(firstGeneration.getId()),
+                db.dropFunction(searchDesc(firstGeneration), false));
+
+        Function secondGeneration = createJavaUdf("drop_function_id_db", "generation_fn", Type.INT);
+        db.addFunction(secondGeneration, false);
+        Assert.assertNotEquals(firstGeneration.getId(), secondGeneration.getId());
+        Assert.assertEquals(ImmutableList.of(secondGeneration.getId()),
+                db.dropFunction(searchDesc(secondGeneration), false));
+    }
+
+    @Test
+    public void testDropGlobalFunctionReturnsCurrentGenerationId() throws Exception {
+        GlobalFunctionMgr globalFunctionMgr = Env.getCurrentEnv().getGlobalFunctionMgr();
+        Function function = createJavaUdf(null, "drop_global_function_id_fn", Type.INT);
+        FunctionSearchDesc functionDesc = searchDesc(function);
+        globalFunctionMgr.dropFunction(functionDesc, true);
+
+        globalFunctionMgr.addFunction(function, false);
+        Assert.assertEquals(ImmutableList.of(function.getId()),
+                globalFunctionMgr.dropFunction(functionDesc, false));
+    }
+
+    @Test
     public void testCreateGlobalFunction() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         ctx.getSessionVariable().setEnableFoldConstantByBe(false);
@@ -274,5 +369,15 @@ public class CreateFunctionTest {
             }
         }
         throw new AssertionError("function not found: " + functionName);
+    }
+
+    private Function createJavaUdf(String dbName, String functionName, Type... argTypes) throws Exception {
+        return ScalarFunction.createUdf(TFunctionBinaryType.JAVA_UDF,
+                new FunctionName(dbName, functionName), argTypes, Type.INT, false,
+                URI.create("file:///tmp/" + functionName + ".jar"), "evaluate", null, null);
+    }
+
+    private FunctionSearchDesc searchDesc(Function function) {
+        return new FunctionSearchDesc(function.getFunctionName(), function.getArgs(), function.hasVarArgs());
     }
 }

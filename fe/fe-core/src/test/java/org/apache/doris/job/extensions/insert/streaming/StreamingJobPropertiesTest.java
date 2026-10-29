@@ -18,17 +18,111 @@
 package org.apache.doris.job.extensions.insert.streaming;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.InsertTask;
+import org.apache.doris.job.offset.SourceOffsetProviderFactory;
+import org.apache.doris.job.offset.s3.S3EventSourceOffsetProvider;
+import org.apache.doris.job.offset.s3.S3SourceOffsetProvider;
+import org.apache.doris.nereids.trees.plans.commands.AlterJobCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
+import com.google.common.collect.ImmutableMap;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.HashMap;
 
 public class StreamingJobPropertiesTest {
+    @Test
+    public void testS3ProviderSelectionDefaultsToOrderedList() throws AnalysisException {
+        StreamingJobProperties orderedList = new StreamingJobProperties(new HashMap<>());
+        orderedList.validate();
+        Assert.assertTrue(SourceOffsetProviderFactory.createSourceOffsetProvider("s3", orderedList)
+                instanceof S3SourceOffsetProvider);
+
+        HashMap<String, String> props = new HashMap<>();
+        props.put("s3.ingestion_mode", "notification");
+        props.put("s3.event.source", "sqs");
+        props.put("s3.sqs.queue_url", "https://sqs.us-west-2.amazonaws.com/123456789012/events");
+        StreamingJobProperties event = new StreamingJobProperties(props);
+        event.validate();
+        Assert.assertTrue(SourceOffsetProviderFactory.createSourceOffsetProvider("s3", event)
+                instanceof S3EventSourceOffsetProvider);
+    }
+
+    @Test
+    public void testS3ModeNames() {
+        Assert.assertEquals("ORDERED_LIST", new StreamingJobProperties(ImmutableMap.of()).getS3IngestionMode());
+        Assert.assertEquals("ORDERED_LIST",
+                new StreamingJobProperties(ImmutableMap.of("s3.ingestion_mode", " ordered_list ")).getS3IngestionMode());
+        Assert.assertTrue(new StreamingJobProperties(
+                ImmutableMap.of("s3.ingestion_mode", "NOTIFICATION")).isS3NotificationMode());
+        Assert.assertTrue(new StreamingJobProperties(
+                ImmutableMap.of("s3.ingestion_mode", "ONE_TIME")).isS3OneTimeMode());
+        for (String mode : new String[] {"LEXICAL", "EVENT", "ONCE"}) {
+            Assert.assertThrows(AnalysisException.class,
+                    () -> new StreamingJobProperties(ImmutableMap.of("s3.ingestion_mode", mode)).validate());
+        }
+    }
+
+    @Test
+    public void testNotificationRequiresQueueAndRejectsManualOffset() throws AnalysisException {
+        HashMap<String, String> props = new HashMap<>();
+        props.put("s3.ingestion_mode", "NOTIFICATION");
+        Assert.assertThrows(AnalysisException.class, () -> new StreamingJobProperties(props).validate());
+        props.put("s3.event.source", "SQS");
+        Assert.assertThrows(AnalysisException.class, () -> new StreamingJobProperties(props).validate());
+        props.put("s3.sqs.queue_url", "https://sqs.us-west-2.amazonaws.com/123456789012/events");
+        new StreamingJobProperties(props).validate();
+        props.put("offset", "logs/a.csv");
+        Assert.assertThrows(AnalysisException.class, () -> new StreamingJobProperties(props).validate());
+        props.remove("offset");
+        props.put("max_interval", "7200");
+        Assert.assertThrows(AnalysisException.class, () -> new StreamingJobProperties(props).validate());
+    }
+
+
+    @Test
+    public void testS3OneTimeModeValidationAndAlter() throws Exception {
+        StreamingJobProperties properties = new StreamingJobProperties(ImmutableMap.of("s3.ingestion_mode", " one_time "));
+        properties.validate();
+        Assert.assertTrue(properties.isS3OneTimeMode());
+        Assert.assertThrows(AnalysisException.class,
+                () -> new StreamingJobProperties(ImmutableMap.of("s3.ingestion_mode", "invalid")).validate());
+        Assert.assertThrows(AnalysisException.class,
+                () -> new StreamingJobProperties(
+                        ImmutableMap.of("s3.ingestion_mode", "ONE_TIME", "offset", "{\"fileName\":\"a.csv\"}"))
+                        .validate());
+
+        StreamingInsertJob job = new StreamingInsertJob();
+        Deencapsulation.setField(job, "properties", properties.getProperties());
+        AlterJobCommand alterBatch = new AlterJobCommand("job", ImmutableMap.of("s3.max_batch_files", "1"),
+                null, null, null, ImmutableMap.of(), ImmutableMap.of());
+        Deencapsulation.invoke(alterBatch, "validateProps", job);
+        AlterJobCommand alterMode = new AlterJobCommand("job", ImmutableMap.of("s3.ingestion_mode", "ORDERED_LIST"),
+                null, null, null, ImmutableMap.of(), ImmutableMap.of());
+        Assert.assertThrows(AnalysisException.class,
+                () -> Deencapsulation.invoke(alterMode, "validateProps", job));
+        AlterJobCommand alterOffset = new AlterJobCommand("job",
+                ImmutableMap.of("offset", "{\"fileName\":\"a.csv\"}"), null, null, null, ImmutableMap.of(), ImmutableMap.of());
+        Assert.assertThrows(AnalysisException.class,
+                () -> Deencapsulation.invoke(alterOffset, "validateProps", job));
+    }
+
+    @Test
+    public void testS3OneTimeModeRestoredWithLegacyOffset() throws Exception {
+        StreamingInsertJob job = new StreamingInsertJob();
+        Deencapsulation.setField(job, "properties", ImmutableMap.of("s3.ingestion_mode", "ONE_TIME"));
+        Deencapsulation.setField(job, "tvfType", "s3");
+        job.setOffsetProviderPersist("{\"endFile\":\"data/a.csv\"}");
+        job.gsonPostProcess();
+        job.setJobStatus(JobStatus.RUNNING);
+        Assert.assertFalse(job.hasMoreDataToConsume());
+        Assert.assertFalse(job.hasReachedEnd());
+    }
 
     /**
      * Simulate FE restart: constructor is called without validate().
@@ -104,7 +198,8 @@ public class StreamingJobPropertiesTest {
         Assert.assertEquals(StreamingJobProperties.DEFAULT_MAX_INTERVAL_SECOND,
                 p.getMaxIntervalSecond());
         // but validate() should throw
-        Assert.assertThrows(AnalysisException.class, p::validate);
+        AnalysisException exception = Assert.assertThrows(AnalysisException.class, p::validate);
+        Assert.assertTrue(exception.getMessage().contains("max_interval must be at least 1 second"));
     }
 
     @Test

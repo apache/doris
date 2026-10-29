@@ -66,8 +66,10 @@ public final class PaimonWriteTarget {
                 throw new AnalysisException("Paimon table contains columns which differ only by case: "
                         + conflictingColumn.getName() + " and " + field.name());
             }
+            // The LTZ write boundary must preserve instants, regardless of the read mapping.
+            // Casting through DATETIMEV2 would collapse the two sides of a DST fall-back fold.
             Type type = PaimonUtil.paimonTypeToDorisType(
-                    field.type(), catalog.getEnableMappingVarbinary(), false);
+                    field.type(), catalog.getEnableMappingVarbinary(), true);
             // A Paimon schema has one logical VARIANT type. Doris uses the compute-V2
             // representation for the Paimon write protocol, including nested VARIANT nodes.
             DataType writeType = VariantType.toComputeV2(DataType.fromCatalogType(type));

@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -63,6 +64,9 @@ enum TableVirtualColumnType {
     // Doris internal Iceberg row locator column `__DORIS_ICEBERG_ROWID_COL__`.
     // It is a struct used by delete/update/merge, not the Iceberg `_row_id`.
     ICEBERG_ROWID = 3,
+    // Paimon Default blob storage: FILE values materialized from managed .blob files
+    // after physical columns and before table predicates.
+    PAIMON_BLOB = 4,
 };
 
 enum class FilterConversionType {
@@ -130,6 +134,7 @@ struct ColumnMapping {
     std::vector<ColumnDefinition> projected_file_children;
     // Table-side Variant object-key paths retained until the physical shredding schema is known.
     std::vector<std::vector<std::string>> variant_access_paths;
+    std::optional<bool> timestamp_is_adjusted_to_utc = std::nullopt;
     // Split/file-local constant entry when this mapping is produced from partition/default/virtual
     // expression instead of physical file data.
     std::optional<ConstantIndex> constant_index;
@@ -163,6 +168,9 @@ struct TableColumnMapperOptions {
     bool reject_missing_required_field = false;
     bool allow_idless_complex_wrapper_projection = false;
     bool enable_row_lineage_virtual_columns = false;
+    // Projected Paimon managed BLOB columns materialized as FILE by PaimonBlobMaterializer.
+    // They have no source in the anchor and must bypass constants and file predicate pushdown.
+    std::set<std::string> paimon_blob_columns {};
 
     std::string debug_string() const;
 };
@@ -205,6 +213,10 @@ public:
             const std::vector<ColumnDefinition>& projected_columns, FileScanRequest* file_request,
             RuntimeState* runtime_state = nullptr,
             const std::map<LocalColumnId, LocalIndex>* fixed_local_positions = nullptr);
+
+    // Table-format hooks may append hidden physical dependencies after the initial request is
+    // localized. Reconcile output mappings with that final layout before opening expressions.
+    Status reconcile_scan_request_after_customization(FileScanRequest* file_request);
 
     // Localize table-level filters to the file schema.
     // Trivial mappings can copy structured predicates directly. Type changes may be localized with

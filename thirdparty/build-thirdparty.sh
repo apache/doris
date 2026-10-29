@@ -45,6 +45,17 @@ if [[ -f "${DORIS_HOME}/env.sh" ]]; then
     export DO_NOT_CHECK_JAVA_ENV=
 fi
 
+# Do not let ambient CMake injection hooks or package-manager environments
+# alter third-party dependency resolution. Keep this after env.sh so custom
+# environment setup cannot reintroduce these values.
+unset CMAKE_TOOLCHAIN_FILE \
+    CMAKE_PROJECT_INCLUDE \
+    CMAKE_PROJECT_INCLUDE_BEFORE \
+    CMAKE_PROJECT_TOP_LEVEL_INCLUDES \
+    VCPKG_ROOT \
+    VCPKG_DEFAULT_TRIPLET \
+    CONDA_PREFIX
+
 # Check args
 usage() {
     echo "
@@ -155,8 +166,7 @@ if [[ "${CLEAN}" -eq 1 ]] && [[ -d "${TP_SOURCE_DIR}" ]]; then
 fi
 
 # Download thirdparties.
-prepare_arrow_paimon_download_packages "${packages[@]}"
-bash "${TP_DIR}/download-thirdparty.sh" "${ARROW_PAIMON_DOWNLOAD_PACKAGES[@]}"
+bash "${TP_DIR}/download-thirdparty.sh" "${packages[@]}"
 
 export LD_LIBRARY_PATH="${TP_DIR}/installed/lib:${LD_LIBRARY_PATH}"
 
@@ -400,23 +410,44 @@ build_thrift() {
     check_if_source_exist "${THRIFT_SOURCE}"
     cd "${TP_SOURCE_DIR}/${THRIFT_SOURCE}"
 
+    # Headers of a previously installed thrift would shadow the in-tree ones
+    # via -I${TP_INCLUDE_DIR} and break an in-place version upgrade.
+    rm -rf "${TP_INSTALL_DIR}/include/thrift"
+
+    # FE UT can rebuild the release-branch Thrift in a build image that already
+    # contains another Thrift version. Prefer this source tree's headers so an
+    # in-place rebuild does not compile against the installed headers.
+    local thrift_source_include="${TP_SOURCE_DIR}/${THRIFT_SOURCE}/lib/cpp/src"
+
     if [[ "${KERNEL}" != 'Darwin' ]]; then
         cflags="-I${TP_INCLUDE_DIR}"
-        cxxflags="-I${TP_INCLUDE_DIR} ${warning_unused_but_set_variable} -Wno-inconsistent-missing-override"
+        cxxflags="-I${thrift_source_include} -I${TP_INCLUDE_DIR} ${warning_unused_but_set_variable} -Wno-inconsistent-missing-override"
         ldflags="-L${TP_LIB_DIR} --static"
     else
         cflags="-I${TP_INCLUDE_DIR} -Wno-implicit-function-declaration -Wno-inconsistent-missing-override"
-        cxxflags="-I${TP_INCLUDE_DIR} ${warning_unused_but_set_variable} -Wno-inconsistent-missing-override"
+        cxxflags="-I${thrift_source_include} -I${TP_INCLUDE_DIR} ${warning_unused_but_set_variable} -Wno-inconsistent-missing-override"
         ldflags="-L${TP_LIB_DIR}"
     fi
 
     # NOTE(amos): libtool discard -static. --static works.
     ./configure CFLAGS="${cflags}" CXXFLAGS="${cxxflags}" LDFLAGS="${ldflags}" LIBS="-lcrypto -ldl -lssl" \
         --prefix="${TP_INSTALL_DIR}" --docdir="${TP_INSTALL_DIR}/doc" --enable-static --disable-shared --disable-tests \
-        --disable-tutorial --without-qt4 --without-qt5 --without-csharp --without-erlang --without-nodejs --without-nodets --without-swift \
-        --without-lua --without-perl --without-php --without-php_extension --without-dart --without-ruby --without-cl \
-        --without-haskell --without-go --without-haxe --without-d --without-python -without-java --without-dotnetcore -without-rs --with-cpp \
+        --disable-tutorial --without-qt5 --without-c_glib --without-java --without-kotlin --without-erlang --without-nodejs --without-nodets \
+        --without-lua --without-python --without-py3 --without-perl --without-php --without-php_extension \
+        --without-dart --without-ruby --without-go --without-rs --without-cl --without-netstd --without-d --with-cpp \
         --with-libevent="${TP_INSTALL_DIR}" --with-boost="${TP_INSTALL_DIR}" --with-openssl="${TP_INSTALL_DIR}"
+
+    # Thrift's generated Makefiles put dependency include paths before CXXFLAGS.
+    # Overlay this version's headers into the target prefix before compilation;
+    # make install will publish the same headers after the build succeeds.
+    local thrift_header
+    local relative_header
+    while IFS= read -r thrift_header; do
+        relative_header="${thrift_header#${thrift_source_include}/}"
+        mkdir -p "${TP_INCLUDE_DIR}/$(dirname "${relative_header}")"
+        cp "${thrift_header}" "${TP_INCLUDE_DIR}/${relative_header}"
+    done < <(find "${thrift_source_include}/thrift" -type f \
+        \( -name '*.h' -o -name '*.tcc' \) -print)
 
     if [[ -f compiler/cpp/thrifty.hh ]]; then
         mv compiler/cpp/thrifty.hh compiler/cpp/thrifty.h
@@ -1065,7 +1096,6 @@ build_grpc() {
 # arrow
 build_arrow() {
     check_if_source_exist "${ARROW_SOURCE}"
-    invalidate_arrow_prebuilt_marker "${TP_INSTALL_DIR}"
     cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}/cpp"
 
     mkdir -p release
@@ -1153,7 +1183,6 @@ build_arrow() {
     strip_lib libarrow_dataset.a
     strip_lib libarrow_acero.a
 
-    publish_arrow_prebuilt_marker "${TP_INSTALL_DIR}"
 }
 
 # abseil
@@ -1678,7 +1707,9 @@ build_libunwind() {
         # LIBUNWIND_IS_NATIVE_ONLY: https://lists.llvm.org/pipermail/cfe-commits/Week-of-Mon-20160523/159802.html
         # -nostdinc++ only required for gcc compilation
         cflags="-I${TP_INCLUDE_DIR} -std=c99 -D_LIBUNWIND_NO_HEAP=1 -D_DEBUG -D_LIBUNWIND_IS_NATIVE_ONLY -O3 -fno-exceptions -funwind-tables -fno-sanitize=all -nostdinc++ -fno-rtti -Wno-error=incompatible-pointer-types"
-        CFLAGS="${cflags}" LDFLAGS="-L${TP_LIB_DIR} -llzma" ../configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static
+        # Only the library is consumed; the test programs and man pages are not.
+        CFLAGS="${cflags}" LDFLAGS="-L${TP_LIB_DIR} -llzma" ../configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static \
+            --disable-tests --disable-documentation
 
         make -j "${PARALLEL}"
         make install
@@ -1729,6 +1760,26 @@ build_simdjson() {
     cp -r "${TP_SOURCE_DIR}/${SIMDJSON_SOURCE}/include"/* "${TP_INCLUDE_DIR}/"
 }
 
+# simdutf
+build_simdutf() {
+    check_if_source_exist "${SIMDUTF_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${SIMDUTF_SOURCE}"
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" -S . -B "${BUILD_DIR}" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_INSTALL_LIBDIR=lib64 \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DSIMDUTF_CXX_STANDARD="${TP_CXX_STANDARD}" \
+        -DSIMDUTF_TESTS=OFF \
+        -DSIMDUTF_TOOLS=OFF \
+        -DSIMDUTF_BENCHMARKS=OFF
+
+    "${CMAKE_CMD}" --build "${BUILD_DIR}" --target simdutf -j "${PARALLEL}"
+    "${CMAKE_CMD}" --install "${BUILD_DIR}"
+}
+
 # nlohmann_json
 build_nlohmann_json() {
     check_if_source_exist "${NLOHMANN_JSON_SOURCE}"
@@ -1742,6 +1793,27 @@ build_nlohmann_json() {
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
+}
+
+build_google_cloud_cpp() {
+    check_if_source_exist "${GOOGLE_CLOUD_CPP_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${GOOGLE_CLOUD_CPP_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    "${CMAKE_CMD}" -G "${GENERATOR}" -B "${BUILD_DIR}" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DBUILD_TESTING=OFF \
+        -DGOOGLE_CLOUD_CPP_ENABLE=oauth2 \
+        -DGOOGLE_CLOUD_CPP_ENABLE_EXAMPLES=OFF \
+        -DGOOGLE_CLOUD_CPP_ENABLE_WERROR=OFF \
+        -DGOOGLE_CLOUD_CPP_WITH_MOCKS=OFF
+
+    "${CMAKE_CMD}" --build "${BUILD_DIR}" -j "${PARALLEL}"
+    "${CMAKE_CMD}" --install "${BUILD_DIR}" --prefix "${TP_INSTALL_DIR}"
 }
 
 # sse2neon
@@ -2043,95 +2115,47 @@ build_pugixml() {
     cp "${TP_SOURCE_DIR}/${PUGIXML_SOURCE}/src/pugiconfig.hpp" "${TP_INSTALL_DIR}/include/"
 }
 
-# paimon-cpp
-build_paimon_cpp() {
-    check_if_source_exist "${PAIMON_CPP_SOURCE}"
-    require_arrow_prebuilt_for_paimon "${TP_INSTALL_DIR}"
-    invalidate_paimon_prebuilt_marker "${TP_INSTALL_DIR}"
-    cd "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}"
-
-    rm -rf "${BUILD_DIR}"
-    mkdir -p "${BUILD_DIR}"
-    cd "${BUILD_DIR}"
-
-    # Darwin doesn't build GNU libunwind in this script, so don't force -lunwind there.
-    local paimon_linker_flags="-L${TP_LIB_DIR} -lbrotlienc -lbrotlidec -lbrotlicommon -llzma"
-    if [[ "${KERNEL}" != 'Darwin' ]]; then
-        paimon_linker_flags="${paimon_linker_flags} -lunwind"
-    fi
-
-    CXXFLAGS="-Wno-nontrivial-memcall" \
-    "${CMAKE_CMD}" -C "${TP_DIR}/paimon-cpp-cache.cmake" \
-        -G "${GENERATOR}" \
-        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-        -DCMAKE_CXX_STANDARD="${TP_CXX_STANDARD}" \
-        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
-        -DPAIMON_BUILD_SHARED=OFF \
-        -DPAIMON_BUILD_STATIC=ON \
-        -DPAIMON_BUILD_TESTS=OFF \
-        -DPAIMON_ENABLE_ORC=ON \
-        -DPAIMON_ENABLE_AVRO=OFF \
-        -DPAIMON_ENABLE_LANCE=OFF \
-        -DPAIMON_ENABLE_JINDO=OFF \
-        -DPAIMON_ENABLE_LUMINA=OFF \
-        -DPAIMON_ENABLE_LUCENE=OFF \
-        -DCMAKE_EXE_LINKER_FLAGS="${paimon_linker_flags}" \
-        -DCMAKE_SHARED_LINKER_FLAGS="${paimon_linker_flags}" \
-        ..
-    "${BUILD_SYSTEM}" -j "${PARALLEL}"
-    "${BUILD_SYSTEM}" install
-
-    # Install paimon-cpp internal dependencies with renamed versions
-    # These libraries are built but not installed by default
-    echo "Installing paimon-cpp internal dependencies..."
-
-    # Arrow deps: When PAIMON_USE_EXTERNAL_ARROW=ON (Plan B), paimon-cpp
-    # reuses Doris's Arrow and does NOT build arrow_ep, so the paimon_deps
-    # directory is not needed.  When building its own Arrow (legacy), copy
-    # arrow artefacts into an isolated directory to avoid clashing with Doris.
-    local paimon_deps_dir="${TP_INSTALL_DIR}/paimon-cpp/lib64/paimon_deps"
-    if [ -d "arrow_ep-install/lib" ]; then
-        mkdir -p "${paimon_deps_dir}"
-        for paimon_arrow_dep in \
-            libarrow.a \
-            libarrow_compute.a \
-            libarrow_filesystem.a \
-            libarrow_dataset.a \
-            libarrow_acero.a \
-            libparquet.a; do
-            if [ -f "arrow_ep-install/lib/${paimon_arrow_dep}" ]; then
-                cp -v "arrow_ep-install/lib/${paimon_arrow_dep}" "${paimon_deps_dir}/${paimon_arrow_dep}"
-            fi
-        done
-    else
-        echo "  arrow_ep-install not found (PAIMON_USE_EXTERNAL_ARROW=ON?) – skipping paimon_deps Arrow copy"
-    fi
-
-    # Install roaring_bitmap, renamed to avoid conflict with Doris's croaringbitmap
-    if [ -f "release/libroaring_bitmap.a" ]; then
-        cp -v "release/libroaring_bitmap.a" "${TP_INSTALL_DIR}/lib64/libroaring_bitmap_paimon.a"
-    fi
-
-    # Install xxhash, renamed to avoid conflict with Doris's xxhash
-    if [ -f "release/libxxhash.a" ]; then
-        cp -v "release/libxxhash.a" "${TP_INSTALL_DIR}/lib64/libxxhash_paimon.a"
-    fi
-
-    # Install fmt v11 (from fmt_ep-install directory, renamed to avoid conflict with Doris's fmt v7)
-    if [ -f "fmt_ep-install/lib/libfmt.a" ]; then
-        cp -v "fmt_ep-install/lib/libfmt.a" "${TP_INSTALL_DIR}/lib64/libfmt_paimon.a"
-    fi
-
-    # Install tbb (from tbb_ep-install directory, renamed to avoid conflict with Doris's tbb)
-    if [ -f "tbb_ep-install/lib/libtbb.a" ]; then
-        cp -v "tbb_ep-install/lib/libtbb.a" "${TP_INSTALL_DIR}/lib64/libtbb_paimon.a"
-    fi
-
-    echo "Paimon-cpp internal dependencies installed successfully"
-    publish_paimon_prebuilt_marker "${TP_INSTALL_DIR}"
+# Publish a complete archive with one rename. Copy/strip must not damage an installed library
+# or expose a partial first installation if either command fails or the build is interrupted.
+install_rust_archive() {
+    (
+        set -e
+        local archive="$1"
+        local destination="${TP_INSTALL_DIR}/lib64/${archive##*/}"
+        local staged
+        staged="$(mktemp "${destination}.tmp.XXXXXX")"
+        trap 'rm -f "${staged}"' EXIT
+        cp -p "${archive}" "${staged}"
+        if [[ "${STRIP_TP_LIB}" = "ON" && "${KERNEL}" != 'Darwin' ]]; then
+            strip --strip-debug --strip-unneeded "${staged}"
+        fi
+        mv -f "${staged}" "${destination}"
+    )
 }
 
-# lance-c
+install_paimon_rust() {
+    (
+        set -e
+        local archive="$1"
+        local header="$2"
+        local destination="${TP_INSTALL_DIR}/include/paimon_rust/paimon.h"
+        local incomplete="${TP_INSTALL_DIR}/lib64/.paimon-installing"
+        mkdir -p "${TP_INSTALL_DIR}/include/paimon_rust" "${TP_INSTALL_DIR}/lib64"
+        local staged
+        staged="$(mktemp "${destination}.tmp.XXXXXX")"
+        trap 'rm -f "${staged}"' EXIT
+        cp -p "${header}" "${staged}"
+        test -s "${staged}"
+        test -s "${archive}"
+        # The two renames cannot be atomic together. Keep this recovery marker until
+        # both succeed so build.sh never reuses a mixed pair after interruption.
+        touch "${incomplete}"
+        install_rust_archive "${archive}"
+        mv -f "${staged}" "${destination}"
+        rm -f "${incomplete}"
+    )
+}
+
 build_lance_c() {
     check_if_source_exist "${LANCE_C_SOURCE}"
     cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
@@ -2141,7 +2165,7 @@ build_lance_c() {
 
     local cargo_bin="${LANCE_C_CARGO:-${CARGO:-cargo}}"
     if ! command -v "${cargo_bin}" >/dev/null 2>&1; then
-        echo "cargo is required to build lance-c. Install Rust 1.91.0 or set LANCE_C_CARGO."
+        echo "cargo is required to build lance-c. Install Rust 1.94.0 or set LANCE_C_CARGO."
         exit 1
     fi
     if [[ ! -x "${TP_INSTALL_DIR}/bin/protoc" ]]; then
@@ -2149,14 +2173,20 @@ build_lance_c() {
         exit 1
     fi
 
-    local required_rust_version="1.91.0"
+    local required_rust_version="1.94.0"
     local cargo_env=(
         "CARGO_BUILD_JOBS=${PARALLEL}"
         "CARGO_TARGET_DIR=${PWD}/${BUILD_DIR}"
         "PROTOC=${TP_INSTALL_DIR}/bin/protoc"
     )
     if command -v rustup >/dev/null 2>&1 && [[ -z "${RUSTUP_TOOLCHAIN}" ]]; then
-        if ! rustup toolchain list | grep -Eq '^1\.91\.0([[:space:]-]|$)'; then
+        # The presence check must look for the toolchain the minimum actually
+        # requires, not a literal: with only an older toolchain installed the
+        # stale check would skip the install below and then force
+        # RUSTUP_TOOLCHAIN to a version rustup cannot dispatch, failing the
+        # build before any archive is produced.
+        local required_rust_regex="${required_rust_version//./\\.}"
+        if ! rustup toolchain list | grep -Eq "^${required_rust_regex}([[:space:]-]|$)"; then
             rustup toolchain install "${required_rust_version}" --profile minimal
         fi
         cargo_env+=("RUSTUP_TOOLCHAIN=${required_rust_version}")
@@ -2167,8 +2197,22 @@ build_lance_c() {
         echo "failed to get cargo version for lance-c. Install Rust ${required_rust_version} or set LANCE_C_CARGO/RUSTUP_TOOLCHAIN."
         exit 1
     fi
-    if [[ "${cargo_version}" != "${required_rust_version}" ]]; then
-        echo "lance-c requires Rust/Cargo ${required_rust_version}, but found ${cargo_version}."
+    # Rust 1.94.0 is the minimum supported version. Allow newer toolchains when
+    # callers explicitly select one or rustup is unavailable on the system.
+    if ! awk -v required="${required_rust_version}" -v actual="${cargo_version}" 'BEGIN {
+            split(required, r, ".");
+            split(actual, a, ".");
+            for (i = 1; i <= 3; i++) {
+                if ((a[i] + 0) > (r[i] + 0)) {
+                    exit 0;
+                }
+                if ((a[i] + 0) < (r[i] + 0)) {
+                    exit 1;
+                }
+            }
+            exit 0;
+        }'; then
+        echo "lance-c requires Rust/Cargo ${required_rust_version} or newer, but found ${cargo_version}."
         echo "Install Rust ${required_rust_version} or set LANCE_C_CARGO/RUSTUP_TOOLCHAIN."
         exit 1
     fi
@@ -2186,11 +2230,129 @@ build_lance_c() {
     mkdir -p "${TP_INSTALL_DIR}/include" "${TP_INSTALL_DIR}/lib64"
     rm -rf "${TP_INSTALL_DIR}/include/lance"
     cp -av include/lance "${TP_INSTALL_DIR}/include/"
-    cp -v "${BUILD_DIR}/release/liblance_c.a" "${TP_INSTALL_DIR}/lib64/"
+    install_rust_archive "${BUILD_DIR}/release/liblance_c.a"
+}
 
-    if [[ "${STRIP_TP_LIB}" = "ON" && "${KERNEL}" != 'Darwin' ]]; then
-        strip --strip-debug --strip-unneeded "${TP_INSTALL_DIR}/lib64/liblance_c.a"
+# paimon-rust
+build_paimon_rust() {
+    check_if_source_exist "${PAIMON_RUST_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${PAIMON_RUST_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+
+    local cargo_bin="${PAIMON_RUST_CARGO:-${CARGO:-cargo}}"
+    if ! command -v "${cargo_bin}" >/dev/null 2>&1; then
+        echo "cargo is required to build paimon-rust. Install Rust 1.94.0 or set PAIMON_RUST_CARGO."
+        exit 1
     fi
+
+    local required_rust_version="1.94.0"
+    local cargo_env=(
+        "CARGO_BUILD_JOBS=${PARALLEL}"
+        "CARGO_TARGET_DIR=${PWD}/${BUILD_DIR}"
+    )
+    if command -v rustup >/dev/null 2>&1 && [[ -z "${RUSTUP_TOOLCHAIN}" ]]; then
+        # The presence check must look for the toolchain the minimum actually
+        # requires, not a literal: with only an older toolchain installed the
+        # stale check would skip the install below and then force
+        # RUSTUP_TOOLCHAIN to a version rustup cannot dispatch, failing the
+        # build before any archive is produced.
+        local required_rust_regex="${required_rust_version//./\\.}"
+        if ! rustup toolchain list | grep -Eq "^${required_rust_regex}([[:space:]-]|$)"; then
+            rustup toolchain install "${required_rust_version}" --profile minimal
+        fi
+        cargo_env+=("RUSTUP_TOOLCHAIN=${required_rust_version}")
+    fi
+
+    local cargo_version
+    if ! cargo_version="$(env "${cargo_env[@]}" "${cargo_bin}" --version | awk '{print $2}')"; then
+        echo "failed to get cargo version for paimon-rust. Install Rust ${required_rust_version} or set PAIMON_RUST_CARGO/RUSTUP_TOOLCHAIN."
+        exit 1
+    fi
+    # Rust 1.94.0 is the minimum supported version. Allow newer toolchains when
+    # callers explicitly select one or rustup is unavailable on the system.
+    # NOTE: paimon_c and lance_c are both Rust staticlibs linked into the same
+    # BE binary; they must be built with the SAME rustc toolchain so the linker
+    # resolves both crates' std references against a single std copy. Mixing
+    # toolchains makes the precompiled std hashes differ and the linker pulls
+    # both std copies in, colliding on the unmangled `rust_eh_personality`
+    # (duplicate symbol). Rebuild both lance_c and paimon_rust whenever the
+    # toolchain changes, using the same RUSTUP_TOOLCHAIN for both builds.
+    if ! awk -v required="${required_rust_version}" -v actual="${cargo_version}" 'BEGIN {
+            split(required, r, ".");
+            split(actual, a, ".");
+            for (i = 1; i <= 3; i++) {
+                if ((a[i] + 0) > (r[i] + 0)) {
+                    exit 0;
+                }
+                if ((a[i] + 0) < (r[i] + 0)) {
+                    exit 1;
+                }
+            }
+            exit 0;
+        }'; then
+        echo "paimon-rust requires Rust/Cargo ${required_rust_version} or newer, but found ${cargo_version}."
+        echo "Install Rust ${required_rust_version} or set PAIMON_RUST_CARGO/RUSTUP_TOOLCHAIN."
+        exit 1
+    fi
+
+    if [[ "${KERNEL}" != 'Darwin' ]]; then
+        cargo_env+=("CFLAGS=${CFLAGS:-} -std=gnu17")
+    fi
+
+    local cargo_args=(build --release --locked -p paimon-c --features paimon/storage-hdfs)
+    # cbindgen invokes cargo metadata itself; command-line flags on the build
+    # and install calls do not propagate to that child process.
+    cargo_env+=("CARGO=${cargo_bin}")
+    if [[ "$(echo "${PAIMON_RUST_CARGO_OFFLINE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
+        cargo_args+=(--offline)
+        cargo_env+=("CARGO_NET_OFFLINE=true")
+    fi
+    env "${cargo_env[@]}" "${cargo_bin}" "${cargo_args[@]}"
+
+    # Generate the C header from the Rust extern "C" surface via cbindgen.
+    # cbindgen is a pinned, Doris-controlled input: an unpinned "current"
+    # release would regenerate paimon.h differently between builds. The
+    # pinned version installs under a Doris-controlled --root and its
+    # resolved absolute path is invoked directly (a custom CARGO_HOME does
+    # not necessarily put cargo-installed binaries on PATH). Offline builds
+    # pass --offline to the install command, exactly like the fetch/build
+    # handling above — cargo fails on a missing local crate cache instead
+    # of reaching for the network.
+    local cbindgen_version="0.29.4"
+    local cbindgen_bin="${PAIMON_RUST_CBINDGEN:-}"
+    if [[ -z "${cbindgen_bin}" ]]; then
+        local cbindgen_root="${TP_SOURCE_DIR}/.doris-cbindgen-${cbindgen_version}"
+        cbindgen_bin="${cbindgen_root}/bin/cbindgen"
+        if [[ ! -x "${cbindgen_bin}" ]]; then
+            local cbindgen_install_args=(install cbindgen
+                --version "${cbindgen_version}" --locked --root "${cbindgen_root}")
+            if [[ "$(echo "${PAIMON_RUST_CARGO_OFFLINE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
+                cbindgen_install_args+=(--offline)
+            fi
+            echo "cbindgen not found; installing pinned ${cbindgen_version} via cargo install ..."
+            env "${cargo_env[@]}" "${cargo_bin}" "${cbindgen_install_args[@]}"
+        fi
+    elif [[ ! -x "${cbindgen_bin}" ]]; then
+        echo "PAIMON_RUST_CBINDGEN=${cbindgen_bin} is not an executable file."
+        exit 1
+    fi
+    # Write a temporary cbindgen.toml so the generated header carries our
+    # include-guard / cpp-compat settings without touching the upstream tree.
+    local cbindgen_toml="${BUILD_DIR}/cbindgen.toml"
+    mkdir -p "${BUILD_DIR}"
+    cat >"${cbindgen_toml}" <<'EOF'
+language = "C"
+include_guard = "PAIMON_C_H"
+pragma_once = true
+cpp_compat = true
+EOF
+    env "${cargo_env[@]}" "${cbindgen_bin}" bindings/c \
+        --config "${cbindgen_toml}" \
+        --output "${BUILD_DIR}/release/paimon.h"
+
+    install_paimon_rust "${BUILD_DIR}/release/libpaimon_c.a" "${BUILD_DIR}/release/paimon.h"
 }
 
 if [[ "${#packages[@]}" -eq 0 ]]; then
@@ -2253,7 +2415,9 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         hdfs3
         benchmark
         simdjson
+        simdutf
         nlohmann_json
+        google_cloud_cpp
         libbacktrace
         sse2neon
         xxhash
@@ -2268,7 +2432,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         brotli
         icu
         pugixml
-        paimon_cpp
+        paimon_rust
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"
@@ -2338,7 +2502,9 @@ cleanup_package_source() {
         libunwind)       src_var="LIBUNWIND_SOURCE" ;;
         benchmark)       src_var="BENCHMARK_SOURCE" ;;
         simdjson)        src_var="SIMDJSON_SOURCE" ;;
+        simdutf)         src_var="SIMDUTF_SOURCE" ;;
         nlohmann_json)   src_var="NLOHMANN_JSON_SOURCE" ;;
+        google_cloud_cpp) src_var="GOOGLE_CLOUD_CPP_SOURCE" ;;
         libbacktrace)    src_var="LIBBACKTRACE_SOURCE" ;;
         sse2neon)        src_var="SSE2NEON_SOURCE" ;;
         xxhash)          src_var="XXHASH_SOURCE" ;;
@@ -2367,8 +2533,8 @@ cleanup_package_source() {
         jindofs)         src_var="JINDOFS_SOURCE" ;;
         juicefs)         src_var="JUICEFS_SOURCE" ;;
         pugixml)         src_var="PUGIXML_SOURCE" ;;
-        paimon_cpp)      src_var="PAIMON_CPP_SOURCE" ;;
         lance_c)         src_var="LANCE_C_SOURCE" ;;
+        paimon_rust)     src_var="PAIMON_RUST_SOURCE" ;;
         aws_sdk)         src_var="AWS_SDK_SOURCE" ;;
         lzma)            src_var="LZMA_SOURCE" ;;
         xml2)            src_var="XML2_SOURCE" ;;
@@ -2402,7 +2568,11 @@ for package in "${packages[@]}"; do
     fi
     if [[ "${CONTINUE}" -eq 0 ]] || [[ "${PACKAGE_FOUND}" -eq 1 ]]; then
         command="build_${package}"
-        ${command}
+        # Isolate each package from environment and working-directory changes
+        # made by its build function or by a sourced upstream script.
+        (
+            "${command}"
+        )
         cd "${TP_DIR}"
         cleanup_package_source "${package}"
         echo "debug after clean: ${package}"

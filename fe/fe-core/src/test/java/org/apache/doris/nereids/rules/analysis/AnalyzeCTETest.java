@@ -32,8 +32,10 @@ import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
 import org.apache.doris.nereids.rules.rewrite.InApplyToJoin;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderApply;
 import org.apache.doris.nereids.rules.rewrite.UnCorrelatedApplyFilter;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
+import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -51,6 +53,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatchSupported {
 
@@ -555,5 +559,21 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
                 "Not throw expected exception.");
         Assertions.assertTrue(
                 exception.getMessage().contains("Table [xx] does not exist in database"));
+    }
+
+    @Test
+    public void testRepeatedProducerColumnOrder() {
+        String sql = "WITH q(x,y,z) AS (SELECT a,b,a FROM (SELECT 1 AS a,10 AS b) t) SELECT * FROM q";
+        List<Slot> output = PlanChecker.from(connectContext).analyze(sql).getPlan().getOutput();
+        Assertions.assertEquals(ImmutableList.of("x", "y", "z"), output.stream()
+                .map(Slot::getName).collect(Collectors.toList()));
+        PlanChecker.from(connectContext).checkPlannerResult(sql, planner -> {
+            PhysicalPlan plan = planner.getPhysicalPlan();
+            Assertions.assertTrue(plan instanceof ComputeResultSet);
+            Assertions.assertEquals(ImmutableList.of(ImmutableList.of("1", "10", "1")),
+                    ((ComputeResultSet) plan).computeResultInFe(
+                            planner.getCascadesContext(), Optional.empty(), plan.getOutput())
+                            .orElseThrow(() -> new AssertionError("Expected FE-computed CTE result")).getResultRows());
+        });
     }
 }

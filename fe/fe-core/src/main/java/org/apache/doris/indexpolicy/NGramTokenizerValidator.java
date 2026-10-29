@@ -27,14 +27,38 @@ import java.util.Map;
 import java.util.Set;
 
 public class NGramTokenizerValidator extends BasePolicyValidator {
+    // A configured range can emit one token per gram size at every input position.
+    static final int MAX_NGRAM_DIFF = 255;
+    // NGramTokenizer keeps four code-point slots per configured gram plus a refill margin.
+    static final int MAX_NGRAM_SIZE = 1024;
+
     private static final Set<String> ALLOWED_PROPS = ImmutableSet.of(
-            "type", "min_gram", "max_gram", "token_chars", "custom_token_chars");
+            "type", "min_gram", "max_gram", "max_ngram_diff", "token_chars", "custom_token_chars");
 
     private static final Set<String> VALID_TOKEN_CHARS = ImmutableSet.of(
             "letter", "digit", "whitespace", "punctuation", "symbol", "custom");
 
+    private final boolean enforceAbsoluteSizeLimit;
+
     public NGramTokenizerValidator() {
+        this(true);
+    }
+
+    private NGramTokenizerValidator(boolean enforceAbsoluteSizeLimit) {
         super(ALLOWED_PROPS);
+        this.enforceAbsoluteSizeLimit = enforceAbsoluteSizeLimit;
+    }
+
+    static boolean isValidPolicy(Map<String, String> properties) {
+        try {
+            // Policies created before max_ngram_diff existed have no compatibility marker and
+            // must retain the absolute-size behavior accepted by the previous release.
+            boolean hasCompatibilityMarker = properties.containsKey("max_ngram_diff");
+            new NGramTokenizerValidator(hasCompatibilityMarker).validate(properties);
+            return true;
+        } catch (DdlException | RuntimeException e) {
+            return false;
+        }
     }
 
     @Override
@@ -75,6 +99,35 @@ public class NGramTokenizerValidator extends BasePolicyValidator {
         if (minGram > maxGram) {
             throw new DdlException("max_gram [" + maxGram + "] "
                 + "cannot be smaller than min_gram [" + minGram + "]");
+        }
+        if (enforceAbsoluteSizeLimit
+                && (minGram > MAX_NGRAM_SIZE || maxGram > MAX_NGRAM_SIZE)) {
+            throw new DdlException("min_gram and max_gram must be less than or equal to " + MAX_NGRAM_SIZE);
+        }
+
+        int maxNgramDiff = 1;
+        if (props.containsKey("max_ngram_diff")) {
+            String value = props.get("max_ngram_diff");
+            if (!value.matches("-?[0-9]+")) {
+                throw new DdlException("max_ngram_diff must be a non-negative integer");
+            }
+            try {
+                maxNgramDiff = Integer.parseInt(value);
+                if (maxNgramDiff < 0) {
+                    throw new DdlException("max_ngram_diff must be greater than or equal to 0");
+                }
+                if (maxNgramDiff > MAX_NGRAM_DIFF) {
+                    throw new DdlException("max_ngram_diff must be less than or equal to " + MAX_NGRAM_DIFF);
+                }
+            } catch (NumberFormatException e) {
+                throw new DdlException("max_ngram_diff must be a non-negative integer");
+            }
+        }
+
+        int ngramDiff = maxGram - minGram;
+        if (ngramDiff > maxNgramDiff) {
+            throw new DdlException("The difference between max_gram and min_gram in NGram Tokenizer must be less "
+                    + "than or equal to: [ " + maxNgramDiff + " ] but was [" + ngramDiff + "]");
         }
 
         if (props.containsKey("token_chars")) {

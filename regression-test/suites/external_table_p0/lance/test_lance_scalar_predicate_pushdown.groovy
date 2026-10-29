@@ -22,7 +22,7 @@ suite("test_lance_scalar_predicate_pushdown", "p0,external") {
      *
      * | Lance / Arrow type | Doris type | Operators exercised |
      * |---|---|---|
-     * | bool | boolean | =, !=, <>, <=>, IN, NOT IN, IS NULL, IS NOT NULL, OR, NOT |
+     * | bool | boolean | Direct predicate, =, !=, <>, <=>, IN, NOT IN, IS NULL, IS NOT NULL, OR, NOT |
      * | float32 | float | All operators below |
      * | float64 | double | All operators below |
      * | decimal128 | decimal(18,2) | All operators below |
@@ -81,6 +81,19 @@ suite("test_lance_scalar_predicate_pushdown", "p0,external") {
                 contains "lancePushdownPredicate="
                 contains columnName
                 notContains "predicates:"
+            }
+        }
+
+        Closure verifyResidual = { String query, String expression ->
+            explain {
+                sql(query)
+                notContains "lancePushdownPredicate="
+                check { explainString ->
+                    String residual = explainString.readLines()
+                            .find { line -> line.trim().startsWith("predicates:") }
+                    return residual != null
+                            && residual.toLowerCase().contains(expression.toLowerCase())
+                }
             }
         }
 
@@ -202,9 +215,62 @@ suite("test_lance_scalar_predicate_pushdown", "p0,external") {
             String boolReversedQuery = """ SELECT row_id FROM predicate_pushdown WHERE true = bool_value ORDER BY row_id; """
             verifyFullyPushedDown(boolReversedQuery, "bool_value")
             quickTest("select_bool_reversed", boolReversedQuery)
+
+            String boolDirectQuery = """ SELECT row_id FROM predicate_pushdown WHERE bool_value ORDER BY row_id; """
+            verifyFullyPushedDown(boolDirectQuery, "bool_value")
+            quickTest("select_bool_direct", boolDirectQuery)
+
+            String boolDirectNotQuery = """ SELECT row_id FROM predicate_pushdown WHERE NOT bool_value ORDER BY row_id; """
+            verifyFullyPushedDown(boolDirectNotQuery, "bool_value")
+            quickTest("select_bool_direct_not", boolDirectNotQuery)
         }
 
         verifyBooleanPushdown()
+
+        String startsWithQuery =
+                """ SELECT row_id FROM predicate_pushdown WHERE starts_with(utf8_value, 'ten') ORDER BY row_id; """
+        verifyFullyPushedDown(startsWithQuery, "utf8_value")
+        quickTest("select_utf8_starts_with", startsWithQuery)
+
+        String endsWithQuery =
+                """ SELECT row_id FROM predicate_pushdown WHERE ends_with(utf8_value, 'one') ORDER BY row_id; """
+        verifyFullyPushedDown(endsWithQuery, "utf8_value")
+        quickTest("select_utf8_ends_with", endsWithQuery)
+
+        String likePrefixQuery =
+                """ SELECT row_id FROM predicate_pushdown WHERE utf8_value LIKE 'm%' ORDER BY row_id; """
+        verifyFullyPushedDown(likePrefixQuery, "utf8_value")
+        quickTest("select_utf8_like_prefix", likePrefixQuery)
+
+        String likeContainsQuery =
+                """ SELECT row_id FROM predicate_pushdown WHERE utf8_value LIKE '%a%' ORDER BY row_id; """
+        verifyFullyPushedDown(likeContainsQuery, "utf8_value")
+        quickTest("select_utf8_like_contains", likeContainsQuery)
+
+        String likeSingleWildcardQuery =
+                """ SELECT row_id FROM predicate_pushdown WHERE utf8_value LIKE 'ten-_' ORDER BY row_id; """
+        verifyFullyPushedDown(likeSingleWildcardQuery, "utf8_value")
+        quickTest("select_utf8_like_single_wildcard", likeSingleWildcardQuery)
+
+        String notLikeQuery =
+                """ SELECT row_id FROM predicate_pushdown WHERE utf8_value NOT LIKE 'ten-%' ORDER BY row_id; """
+        verifyFullyPushedDown(notLikeQuery, "utf8_value")
+        quickTest("select_utf8_not_like", notLikeQuery)
+
+        String explicitEscapeQuery =
+                """ SELECT row_id FROM predicate_pushdown WHERE utf8_value LIKE 'ten!_%' ESCAPE '!' ORDER BY row_id; """
+        verifyResidual(explicitEscapeQuery, "like")
+        quickTest("select_utf8_like_explicit_escape", explicitEscapeQuery)
+
+        String nulLikeQuery =
+                """ SELECT row_id FROM predicate_pushdown WHERE utf8_value LIKE 'm\\0_' ORDER BY row_id; """
+        verifyResidual(nulLikeQuery, "like")
+        quickTest("select_utf8_like_nul_residual", nulLikeQuery)
+
+        String regexpQuery =
+                """ SELECT row_id FROM predicate_pushdown WHERE utf8_value REGEXP '^ten-' ORDER BY row_id; """
+        verifyResidual(regexpQuery, "regexp")
+        quickTest("select_utf8_regexp_residual", regexpQuery)
 
         verifyOrderedScalarPushdown("predicate_pushdown", "float32", "float32_value", [
                 equal: "10",

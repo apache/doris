@@ -169,7 +169,18 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
 
     @Override
     public void computeUniform(DataTrait.Builder builder) {
-        getOutput().forEach(builder::addUniformSlot);
+        for (NamedExpression project : getProjects()) {
+            if (project instanceof Alias && project.child(0).isConstant()) {
+                // A one row relation's constant projects are known literals/constant expressions,
+                // register the value so that constant propagation and predicate inference outside
+                // the relation can fold predicates over these slots (e.g. a constant CTE whose
+                // consumers reference `date_sub(params.begin_time, ...)`), which enables
+                // partition pruning on the referenced tables.
+                builder.addUniformSlotAndLiteral(project.toSlot(), project.child(0));
+            } else {
+                builder.addUniformSlot(project.toSlot());
+            }
+        }
     }
 
     @Override

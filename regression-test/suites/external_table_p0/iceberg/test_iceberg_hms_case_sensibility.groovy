@@ -142,7 +142,7 @@ suite("test_iceberg_hms_case_sensibility", "p0,external,doris,external_docker,ex
             qt_sql11 """show tables from iceberg_hms_case_db2 like "%case_tbl14%"""" // empty
             qt_sql12 """show tables from iceberg_hms_case_db2 like "%case_tbl21%""""
 
-            order_qt_sql13 """select * from information_schema.tables where TABLE_SCHEMA="iceberg_hms_case_db1";"""
+            order_qt_sql13 """select * replace(cast(null as datetime) as UPDATE_TIME) from information_schema.tables where TABLE_SCHEMA="iceberg_hms_case_db1";"""
             order_qt_sql14 """select * from information_schema.columns where TABLE_SCHEMA="iceberg_hms_case_db1";"""
 
             // 4. insert

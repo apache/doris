@@ -23,6 +23,9 @@ suite("test_iceberg_transform_partitions", "p0,external,doris,external_docker,ex
         return
     }
 
+    // Iceberg instant columns use TIMESTAMPTZ; pin the display zone for typed snapshots.
+    sql """set time_zone = 'Asia/Shanghai'"""
+
     String catalog_name = "test_iceberg_transform_partitions"
     String db_name = "transform_partition_db"
     String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
@@ -130,14 +133,15 @@ suite("test_iceberg_transform_partitions", "p0,external,doris,external_docker,ex
         """
 
         // Bucket by BINARY
+        // These binary fixtures contain UTF-8 text; compare their explicit STRING representation.
         qt_bucket_binary_4_cnt1 """
-            select count(*) from bucket_binary_4 where partition_key = 'abc';
+            select count(*) from bucket_binary_4 where cast(partition_key as string) = 'abc';
         """
         qt_bucket_binary_4_cnt2 """
-            select count(*) from bucket_binary_4 where partition_key in ('', '你好');
+            select count(*) from bucket_binary_4 where cast(partition_key as string) in ('', '你好');
         """
         qt_bucket_binary_4_select1 """
-            select * from bucket_binary_4 where partition_key = 'abc' order by id;
+            select id, name, cast(partition_key as string) from bucket_binary_4 where cast(partition_key as string) = 'abc' order by id;
         """
 
         // Truncate STRING(3)
@@ -153,13 +157,13 @@ suite("test_iceberg_transform_partitions", "p0,external,doris,external_docker,ex
 
         // Truncate BINARY(4)
         qt_truncate_binary_4_cnt1 """
-            select count(*) from truncate_binary_4 where partition_key = 'abcdef';
+            select count(*) from truncate_binary_4 where cast(partition_key as string) = 'abcdef';
         """
         qt_truncate_binary_4_cnt2 """
-            select count(*) from truncate_binary_4 where partition_key in ('abcd', 'abcdef');
+            select count(*) from truncate_binary_4 where cast(partition_key as string) in ('abcd', 'abcdef');
         """
         qt_truncate_binary_4_select1 """
-            select * from truncate_binary_4 where partition_key = 'abcdef' order by id;
+            select id, name, cast(partition_key as string) from truncate_binary_4 where cast(partition_key as string) = 'abcdef' order by id;
         """
 
         // Truncate INT(10)

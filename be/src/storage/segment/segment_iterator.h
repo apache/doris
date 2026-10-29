@@ -273,6 +273,7 @@ private:
     bool _can_evaluated_by_vectorized(std::shared_ptr<ColumnPredicate> predicate);
 
     [[nodiscard]] Status _extract_common_expr_columns(const VExprSPtr& expr);
+    void _mark_common_expr_column(ColumnId cid);
     // same with _extract_common_expr_columns, but only extract columns that can be used for index
     [[nodiscard]] Status _execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& selected_size,
                                               Block* block);

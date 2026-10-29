@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.UtFrameUtils;
@@ -35,7 +36,9 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.UUID;
 
 public class CreateViewTest {
@@ -174,6 +177,25 @@ public class CreateViewTest {
     }
 
     @Test
+    public void testViewCommentDdlRoundTrip() throws Exception {
+        createView("create view test.view_comment_round_trip comment \"O'Reilly\" as select 1 as c");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        View originalView = (View) db.getTableOrDdlException("view_comment_round_trip");
+        List<String> createViewStmts = new ArrayList<>();
+        Env.getDdlStmt(originalView, createViewStmts, null, null, false, true, -1L);
+
+        String exportedDdl = createViewStmts.get(0);
+        Assert.assertTrue(exportedDdl.contains(" COMMENT \"O'Reilly\""));
+        String copiedDdl = exportedDdl.replace("CREATE VIEW `view_comment_round_trip`",
+                "CREATE VIEW test.`view_comment_round_trip_copy`");
+        createView(copiedDdl);
+
+        View copiedView = (View) db.getTableOrDdlException("view_comment_round_trip_copy");
+        Assert.assertEquals(originalView.getComment(), copiedView.getComment());
+    }
+
+    @Test
     public void testNestedViews() throws Exception {
         ExceptionChecker.expectThrowsNoException(
                 () -> createView("create view test.nv1 as select * from test.tbl1;"));
@@ -237,11 +259,9 @@ public class CreateViewTest {
     }
 
     @Test
-    public void testViewRejectVarbinary() throws Exception {
-        ExceptionChecker.expectThrowsWithMsg(
-                org.apache.doris.common.AnalysisException.class,
-                "View does not support VARBINARY type: vb",
-                () -> createView("create view test.vb_view as select X'AB' as vb;"));
+    public void testViewPreservesVarbinary() throws Exception {
+        createView("create view test.vb_view as select X'AB' as vb;");
+        PlanChecker.from(connectContext).analyze("select * from test.vb_view").rewrite();
     }
 
     @Test

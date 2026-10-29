@@ -302,8 +302,10 @@ void CloudWarmUpManager::handle_jobs() {
                     continue;
                 }
 
-                int64_t expiration_time = tablet_meta->ttl_seconds();
-                if (!tablet->add_rowset_warmup_state(*rs, WarmUpTriggerSource::JOB)) {
+                int64_t expiration_time = tablet_meta->file_cache_ttl_expiration_time();
+                const auto generation =
+                        tablet->add_rowset_warmup_state(*rs, WarmUpTriggerSource::JOB);
+                if (!generation) {
                     LOG(INFO) << "found duplicate warmup task for rowset " << rs->rowset_id()
                               << ", skip it";
                     continue;
@@ -318,12 +320,12 @@ void CloudWarmUpManager::handle_jobs() {
                                 storage_resource.value()->remote_segment_path(*rs, seg_id),
                                 rs->segment_file_size(cast_set<int>(seg_id)), rs->fs(),
                                 expiration_time, wait, false,
-                                [tablet, rs, seg_id](Status st) {
+                                [tablet, rs, seg_id, generation](Status st) {
                                     VLOG_DEBUG << "warmup rowset " << rs->version() << " segment "
                                                << seg_id << " completed";
                                     if (tablet->complete_rowset_segment_warmup(
                                                       WarmUpTriggerSource::JOB, rs->rowset_id(), st,
-                                                      1, 0)
+                                                      1, 0, *generation)
                                                 .trigger_source == WarmUpTriggerSource::JOB) {
                                         VLOG_DEBUG << "warmup rowset " << rs->version()
                                                    << " completed";
@@ -362,7 +364,7 @@ void CloudWarmUpManager::handle_jobs() {
                                 }
                             }
                             tablet->update_rowset_warmup_state_inverted_idx_num(
-                                    WarmUpTriggerSource::JOB, rs->rowset_id(), 1);
+                                    WarmUpTriggerSource::JOB, rs->rowset_id(), 1, *generation);
                             submit_download_tasks(
                                     idx_path, file_size, rs->fs(), expiration_time, wait, true,
                                     [=](Status st) {
@@ -371,7 +373,7 @@ void CloudWarmUpManager::handle_jobs() {
                                                    << "inverted idx:" << idx_path << " completed";
                                         if (tablet->complete_rowset_segment_warmup(
                                                           WarmUpTriggerSource::JOB, rs->rowset_id(),
-                                                          st, 0, 1)
+                                                          st, 0, 1, *generation)
                                                     .trigger_source == WarmUpTriggerSource::JOB) {
                                             VLOG_DEBUG << "warmup rowset " << rs->version()
                                                        << " completed";
@@ -386,7 +388,7 @@ void CloudWarmUpManager::handle_jobs() {
                             file_size = idx_file_info.has_index_size() ? idx_file_info.index_size()
                                                                        : -1;
                             tablet->update_rowset_warmup_state_inverted_idx_num(
-                                    WarmUpTriggerSource::JOB, rs->rowset_id(), 1);
+                                    WarmUpTriggerSource::JOB, rs->rowset_id(), 1, *generation);
                             submit_download_tasks(
                                     idx_path, file_size, rs->fs(), expiration_time, wait, true,
                                     [=](Status st) {
@@ -395,7 +397,7 @@ void CloudWarmUpManager::handle_jobs() {
                                                    << "inverted idx:" << idx_path << " completed";
                                         if (tablet->complete_rowset_segment_warmup(
                                                           WarmUpTriggerSource::JOB, rs->rowset_id(),
-                                                          st, 0, 1)
+                                                          st, 0, 1, *generation)
                                                     .trigger_source == WarmUpTriggerSource::JOB) {
                                             VLOG_DEBUG << "warmup rowset " << rs->version()
                                                        << " completed";

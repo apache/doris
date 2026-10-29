@@ -34,13 +34,20 @@
 #include <gen_cpp/PaloBrokerService_types.h>
 
 #include <algorithm>
+#include <cmath>
 #include <string>
+#include <vector>
 
 #include "storage/index/inverted/query_v2/bit_set_query/bit_set_scorer.h"
 #include "storage/index/inverted/query_v2/const_score_query/const_score_scorer.h"
 #include "storage/index/inverted/query_v2/nullable_scorer.h"
+#include "storage/index/inverted/query_v2/score_combiner.h"
 #include "storage/index/inverted/query_v2/segment_postings.h"
+#include "storage/index/inverted/query_v2/term_query/term_scorer.h"
+#include "storage/index/inverted/query_v2/union/buffered_union.h"
+#include "storage/index/inverted/similarity/bm25_similarity.h"
 #include "storage/index/inverted/util/string_helper.h"
+#include "util/hyperscan_util.h"
 
 CL_NS_USE(index)
 
@@ -70,6 +77,9 @@ ScorerPtr RegexpWeight::scorer(const QueryExecutionContext& context,
 
 ScorerPtr RegexpWeight::regexp_scorer(const QueryExecutionContext& context,
                                       const std::string& binding_key) {
+    if (is_hyperscan_regexp_expensive(_pattern)) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, HYPERSCAN_BOUNDED_REPEAT_ERROR);
+    }
     auto prefix = get_regex_prefix(_pattern);
 
     hs_database_t* database = nullptr;
@@ -106,6 +116,10 @@ ScorerPtr RegexpWeight::regexp_scorer(const QueryExecutionContext& context,
     }
 
     auto reader = lookup_reader(_field, context, binding_key);
+    if (_enable_scoring) {
+        return scored_terms_scorer(reader.get(), context, binding_key, matching_terms);
+    }
+
     auto doc_bitset = std::make_shared<roaring::Roaring>();
     for (const auto& term : matching_terms) {
         auto segment_postings =
@@ -120,6 +134,46 @@ ScorerPtr RegexpWeight::regexp_scorer(const QueryExecutionContext& context,
     auto bit_set = std::make_shared<BitSetScorer>(doc_bitset);
     auto const_score = std::make_shared<ConstScoreScorer<BitSetScorerPtr>>(std::move(bit_set));
     return const_score;
+}
+
+ScorerPtr RegexpWeight::scored_terms_scorer(lucene::index::IndexReader* reader,
+                                            const QueryExecutionContext& context,
+                                            const std::string& binding_key,
+                                            const std::vector<std::wstring>& matching_terms) {
+    // Expanded terms are not collected in collection statistics, so use reader statistics.
+    const auto num_docs = reader->maxDoc();
+    DORIS_CHECK_GT(num_docs, 0);
+    const auto total_term_freq = reader->sumTotalTermFreq(_field.c_str());
+    // Without norms, postings use a document length of one.
+    const float avgdl = static_cast<float>(total_term_freq.value_or(num_docs)) / num_docs;
+    DORIS_CHECK_GT(avgdl, 0.0F);
+
+    std::vector<ScorerPtr> term_scorers;
+    term_scorers.reserve(matching_terms.size());
+    auto logical_field = logical_field_or_fallback(context, binding_key, _field);
+    for (const auto& term : matching_terms) {
+        Term lucene_term(_field.c_str(), term.c_str());
+        const int32_t doc_freq = reader->docFreq(&lucene_term);
+        if (doc_freq == 0) {
+            continue;
+        }
+        const auto idf = static_cast<float>(
+                std::log1p((static_cast<double>(num_docs) - doc_freq + 0.5) / (doc_freq + 0.5)));
+        auto similarity = std::make_shared<BM25Similarity>(idf, avgdl);
+        auto posting =
+                create_term_posting(reader, _field, term, true, similarity, _context->io_ctx);
+        if (posting) {
+            term_scorers.emplace_back(std::make_shared<TermScorer>(
+                    std::move(posting), std::move(similarity), logical_field));
+        }
+    }
+    if (term_scorers.empty()) {
+        return std::make_shared<EmptyScorer>();
+    }
+    if (term_scorers.size() == 1) {
+        return std::move(term_scorers.front());
+    }
+    return make_buffered_union(term_scorers, std::make_shared<SumCombiner>());
 }
 
 std::optional<std::string> RegexpWeight::get_regex_prefix(const std::string& pattern) {

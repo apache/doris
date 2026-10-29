@@ -46,7 +46,6 @@ import org.apache.commons.math3.util.FastMath;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
 
 /**
  * executable functions:
@@ -1136,13 +1135,16 @@ public class NumericArithmetic {
             }
         }
 
-        int pos = Arrays.binarySearch(thresholdValues, value);
-
-        if (pos >= 0) {
-            return new IntegerLiteral(pos + 1);
-        } else {
-            int insertionPoint = -(pos + 1);
-            return new IntegerLiteral(insertionPoint);
+        int low = 0;
+        int high = thresholdValues.length;
+        while (low < high) {
+            int mid = low + ((high - low) >>> 1);
+            if (thresholdValues[mid] <= value) {
+                low = mid + 1;
+            } else {
+                high = mid;
+            }
         }
+        return new IntegerLiteral(low);
     }
 }

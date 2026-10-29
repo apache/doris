@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstddef>
+#include <map>
 #include <memory>
 #include <optional>
 #include <set>
@@ -47,6 +48,7 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/vin_predicate.h"
 #include "exprs/vliteral.h"
+#include "exprs/vslot_ref.h"
 #include "format_v2/column_mapper_nested.h"
 #include "format_v2/expr/cast.h"
 #include "format_v2/file_reader.h"
@@ -195,6 +197,8 @@ std::string virtual_column_type_to_string(TableVirtualColumnType type) {
         return "LAST_UPDATED_SEQUENCE_NUMBER";
     case TableVirtualColumnType::ICEBERG_ROWID:
         return "ICEBERG_ROWID";
+    case TableVirtualColumnType::PAIMON_BLOB:
+        return "PAIMON_BLOB";
     }
     return "UNKNOWN";
 }
@@ -241,6 +245,56 @@ std::string field_debug_string(const Field& field) {
     }
     out << "}";
     return out.str();
+}
+
+void remap_localized_slot_positions(const VExprSPtr& expr,
+                                    const std::map<size_t, size_t>& position_remap,
+                                    std::set<const VExpr*>* visited) {
+    if (expr == nullptr || !visited->insert(expr.get()).second) {
+        return;
+    }
+    if (auto* slot = dynamic_cast<VSlotRef*>(expr.get());
+        slot != nullptr && slot->column_id() >= 0) {
+        const auto remap = position_remap.find(static_cast<size_t>(slot->column_id()));
+        DORIS_CHECK(remap != position_remap.end()) << slot->column_id();
+        slot->set_column_id(static_cast<int>(remap->second));
+    }
+    for (const auto& child : expr->children()) {
+        remap_localized_slot_positions(child, position_remap, visited);
+    }
+    remap_localized_slot_positions(expr->get_impl(), position_remap, visited);
+}
+
+void compact_file_block_positions(FileScanRequest* request) {
+    std::set<size_t> occupied_positions;
+    for (const auto& [_, position] : request->local_positions) {
+        occupied_positions.insert(position.value());
+    }
+    for (const auto& [_, position] : request->non_predicate_positions) {
+        occupied_positions.insert(position.value());
+    }
+
+    std::map<size_t, size_t> position_remap;
+    size_t dense_position = 0;
+    for (size_t old_position : occupied_positions) {
+        position_remap.emplace(old_position, dense_position++);
+    }
+    for (auto& [_, position] : request->local_positions) {
+        position = LocalIndex(position_remap.at(position.value()));
+    }
+    for (auto& [_, position] : request->non_predicate_positions) {
+        position = LocalIndex(position_remap.at(position.value()));
+    }
+
+    // Slot refs were localized before predicate demotion removed duplicate file-block positions;
+    // remap them with the compacted layout so residual predicates keep reading the same columns.
+    std::set<const VExpr*> visited;
+    for (const auto& conjunct : request->conjuncts) {
+        remap_localized_slot_positions(conjunct->root(), position_remap, &visited);
+    }
+    for (const auto& conjunct : request->delete_conjuncts) {
+        remap_localized_slot_positions(conjunct->root(), position_remap, &visited);
+    }
 }
 
 template <typename T, typename Formatter>
@@ -391,6 +445,10 @@ std::string ColumnDefinition::debug_string() const {
         << ", name_mapping="
         << join_debug_strings(name_mapping, [](const std::string& name) { return name; })
         << ", has_name_mapping=" << has_name_mapping << ", local_id=" << local_id
+        << ", timestamp_is_adjusted_to_utc="
+        << (timestamp_is_adjusted_to_utc.has_value()
+                    ? (*timestamp_is_adjusted_to_utc ? "true" : "false")
+                    : "unset")
         << ", type=" << data_type_debug_string(type) << ", children="
         << join_debug_strings(children,
                               [](const ColumnDefinition& child) { return child.debug_string(); })
@@ -411,6 +469,10 @@ std::string ColumnDefinition::debug_string() const {
 std::string LocalColumnIndex::debug_string() const {
     std::ostringstream out;
     out << "LocalColumnIndex{index=" << index << ", project_all_children=" << project_all_children
+        << ", timestamp_is_adjusted_to_utc="
+        << (timestamp_is_adjusted_to_utc.has_value()
+                    ? (*timestamp_is_adjusted_to_utc ? "true" : "false")
+                    : "unset")
         << ", children="
         << join_debug_strings(children,
                               [](const LocalColumnIndex& child) { return child.debug_string(); })
@@ -433,7 +495,10 @@ std::string ColumnMapping::debug_string() const {
     } else {
         out << "null";
     }
-    out << ", file_column_name=" << file_column_name
+    out << ", file_column_name=" << file_column_name << ", timestamp_is_adjusted_to_utc="
+        << (timestamp_is_adjusted_to_utc.has_value()
+                    ? (*timestamp_is_adjusted_to_utc ? "true" : "false")
+                    : "unset")
         << ", original_file_type=" << data_type_debug_string(original_file_type)
         << ", original_file_children="
         << join_debug_strings(original_file_children,
@@ -1810,6 +1875,7 @@ static Status build_complex_projection(const ColumnMapping& mapping, LocalColumn
         return Status::OK();
     }
     *projection = LocalColumnIndex::local(*mapping.file_local_id);
+    projection->timestamp_is_adjusted_to_utc = mapping.timestamp_is_adjusted_to_utc;
     projection->project_all_children = mapping.child_mappings.empty();
     projection->children.clear();
     const auto present_children = present_child_mappings_in_file_order(mapping.child_mappings);
@@ -1831,6 +1897,35 @@ static Status build_complex_projection(const ColumnMapping& mapping, LocalColumn
                                     mapping.file_column_name);
     }
     return Status::OK();
+}
+
+static bool has_timestamp_semantics(const ColumnDefinition& column) {
+    return column.timestamp_is_adjusted_to_utc.has_value() ||
+           std::ranges::any_of(column.children, has_timestamp_semantics);
+}
+
+static void attach_timestamp_semantics(const std::optional<bool>& timestamp_is_adjusted_to_utc,
+                                       const std::vector<ColumnDefinition>& file_children,
+                                       LocalColumnIndex* projection) {
+    DORIS_CHECK(projection != nullptr);
+    projection->timestamp_is_adjusted_to_utc = timestamp_is_adjusted_to_utc;
+    for (const auto& file_child : file_children) {
+        auto child_it =
+                std::ranges::find_if(projection->children, [&](const LocalColumnIndex& child) {
+                    return child.local_id() == file_child.local_id;
+                });
+        if (child_it == projection->children.end()) {
+            // Full/hidden mappings can omit child_mappings when their types already match.
+            // Recover overrides from the annotated file schema without widening partial reads.
+            if (!projection->project_all_children || !has_timestamp_semantics(file_child)) {
+                continue;
+            }
+            projection->children.push_back(LocalColumnIndex::local(file_child.local_id));
+            child_it = std::prev(projection->children.end());
+        }
+        attach_timestamp_semantics(file_child.timestamp_is_adjusted_to_utc, file_child.children,
+                                   &*child_it);
+    }
 }
 
 // Update the mapping's file type according to the projection, and determine whether the projection
@@ -1986,6 +2081,7 @@ static Status build_scan_projection(ColumnMapping* mapping, bool force_full_comp
     DORIS_CHECK(projection != nullptr);
     const auto file_column_id = LocalColumnId(mapping->file_local_id.value());
     *projection = LocalColumnIndex::top_level(file_column_id);
+    projection->timestamp_is_adjusted_to_utc = mapping->timestamp_is_adjusted_to_utc;
     // Columnar readers can turn a complex mapping into a nested file projection, but
     // row-oriented readers must scan the full top-level complex field because all children are
     // encoded in the same text cell.
@@ -1998,6 +2094,8 @@ static Status build_scan_projection(ColumnMapping* mapping, bool force_full_comp
         RETURN_IF_ERROR(
                 build_complex_projection(*mapping, projection, enable_variant_leaf_projection));
     }
+    attach_timestamp_semantics(mapping->timestamp_is_adjusted_to_utc,
+                               mapping->original_file_children, projection);
     return Status::OK();
 }
 
@@ -2021,6 +2119,20 @@ static const LocalColumnIndex* find_scan_projection(
                 return projection.column_id() == file_column_id;
             });
     return projection_it == scan_columns.end() ? nullptr : &*projection_it;
+}
+
+static bool same_projected_file_shape(const std::vector<ColumnDefinition>& lhs,
+                                      const std::vector<ColumnDefinition>& rhs) {
+    if (lhs.size() != rhs.size()) {
+        return false;
+    }
+    for (size_t index = 0; index < lhs.size(); ++index) {
+        if (lhs[index].local_id != rhs[index].local_id ||
+            !same_projected_file_shape(lhs[index].children, rhs[index].children)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 // Apply the final scan projection of one root file column back to its ColumnMapping. This updates
@@ -2160,6 +2272,13 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
     mapping->table_column_name = table_column.name;
     mapping->table_type = table_column.type;
     mapping->variant_access_paths = table_column.variant_access_paths;
+    if (_options.paimon_blob_columns.contains(table_column.name)) {
+        // Managed BLOBs live outside the Parquet anchor. Wait for PaimonBlobMaterializer
+        // before evaluating their predicates; do not synthesize missing-column constants.
+        mapping->virtual_column_type = TableVirtualColumnType::PAIMON_BLOB;
+        mapping->filter_conversion = FilterConversionType::FINALIZE_ONLY;
+        return Status::OK();
+    }
     // Row-lineage names are Iceberg metadata contracts, not reserved names in generic Hive,
     // Hudi, or Paimon schemas. Only the Iceberg reader may opt into virtual synthesis.
     const auto row_lineage_type =
@@ -2428,6 +2547,36 @@ Status TableColumnMapper::create_scan_request(
     return Status::OK();
 }
 
+Status TableColumnMapper::reconcile_scan_request_after_customization(
+        FileScanRequest* file_request) {
+    DORIS_CHECK(file_request != nullptr);
+    bool output_shape_changed = false;
+    for (auto& mapping : _mappings) {
+        if (!mapping.file_local_id.has_value() ||
+            !file_request->local_positions.contains(LocalColumnId(*mapping.file_local_id))) {
+            continue;
+        }
+        const auto previous_file_type = mapping.file_type;
+        const auto previous_file_children = mapping.projected_file_children;
+        RETURN_IF_ERROR(apply_scan_projection_to_mapping_file_type(*file_request, &mapping));
+        output_shape_changed |=
+                previous_file_type == nullptr || mapping.file_type == nullptr ||
+                !previous_file_type->equals(*mapping.file_type) ||
+                !same_projected_file_shape(previous_file_children, mapping.projected_file_children);
+        rebuild_projection(&mapping, file_request->non_predicate_position(
+                                             LocalColumnId(*mapping.file_local_id)));
+    }
+    if (output_shape_changed) {
+        // Localized conjuncts embed nested child ordinals from the pre-hook projection. Scanner
+        // still evaluates the original table conjuncts, so discard stale file-local copies rather
+        // than allowing a late equality-delete dependency to reinterpret another child.
+        file_request->conjuncts.clear();
+        file_request->metadata_pruning_safe_conjunct_count = 0;
+    }
+    RETURN_IF_ERROR(_build_filter_entries(*file_request));
+    return Status::OK();
+}
+
 ColumnMapping* TableColumnMapper::_find_mapping(GlobalIndex global_index) {
     for (auto& mapping : _mappings) {
         if (mapping.global_index == global_index) {
@@ -2682,6 +2831,17 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
         FileScanRequestBuilder builder(file_request);
         RETURN_IF_ERROR(builder.add_non_predicate_column(std::move(demoted_projection)));
     }
+    // Predicate demotion can widen a nested projection after mappings were localized. Reapply the
+    // final shape so TableReader interprets the same child ordinals that FileReader returns.
+    for (auto& mapping : _mappings) {
+        if (mapping.file_local_id.has_value() &&
+            file_request->local_positions.contains(LocalColumnId(*mapping.file_local_id))) {
+            RETURN_IF_ERROR(apply_scan_projection_to_mapping_file_type(*file_request, &mapping));
+        }
+    }
+    // Final readers allocate a dense file block, so every retained slot must follow the same compaction.
+    compact_file_block_positions(file_request);
+    RETURN_IF_ERROR(_build_filter_entries(*file_request));
     return Status::OK();
 }
 
@@ -2712,6 +2872,7 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
     mapping->original_file_type = file_field.type;
     mapping->original_file_children = file_field.children;
     mapping->projected_file_children = file_field.children;
+    mapping->timestamp_is_adjusted_to_utc = file_field.timestamp_is_adjusted_to_utc;
     mapping->file_type = file_field.type;
     // Access paths are relative to the Variant terminal, so recursive complex mappings must carry
     // them instead of leaving them only on the top-level table column.

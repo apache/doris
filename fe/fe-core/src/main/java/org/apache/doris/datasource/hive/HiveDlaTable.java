@@ -32,7 +32,9 @@ import org.apache.doris.mtmv.MTMVTimestampSnapshot;
 import com.google.common.collect.Lists;
 import org.apache.commons.collections4.CollectionUtils;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -78,6 +80,57 @@ public class HiveDlaTable extends HMSDlaTable {
         HivePartition hivePartition = getHivePartitionByIdOrAnalysisException(partitionId,
                 hivePartitionValues, cache);
         return new MTMVTimestampSnapshot(hivePartition.getLastModifiedTime());
+    }
+
+    /**
+     * Bulk form of {@link #getPartitionSnapshot}: resolves every requested name against one partition-value
+     * listing and loads all cache misses through one batched HMS request instead of one RPC per partition.
+     * A name absent from the listing is omitted (the refresh context reports it per partition); any other
+     * failure is normalized to the checked AnalysisException this MTMV boundary declares, so the
+     * transparent-rewrite path degrades per-MV instead of a raw runtime exception disabling every MV
+     * candidate at the planner hook.
+     */
+    Map<String, MTMVSnapshotIf> getPartitionSnapshots(Set<String> partitionNames,
+            Optional<MvccSnapshot> snapshot) throws AnalysisException {
+        try {
+            HiveExternalMetaCache.HivePartitionValues hivePartitionValues =
+                    hmsTable.getHivePartitionValues(snapshot);
+            HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .hive(hmsTable.getCatalog().getId());
+            List<String> resolvedNames = new ArrayList<>(partitionNames.size());
+            List<List<String>> resolvedValues = new ArrayList<>(partitionNames.size());
+            for (String partitionName : partitionNames) {
+                Long partitionId = hivePartitionValues.getPartitionNameToIdMap().get(partitionName);
+                if (partitionId == null) {
+                    continue;
+                }
+                List<String> partitionValues = hivePartitionValues.getPartitionValuesMap().get(partitionId);
+                if (CollectionUtils.isEmpty(partitionValues)) {
+                    continue;
+                }
+                resolvedNames.add(partitionName);
+                resolvedValues.add(partitionValues);
+            }
+            Map<String, MTMVSnapshotIf> result = new LinkedHashMap<>();
+            if (resolvedNames.isEmpty()) {
+                return result;
+            }
+            List<HivePartition> partitions = cache.getAllPartitionsWithCache(hmsTable, resolvedValues);
+            if (partitions.size() != resolvedNames.size()) {
+                throw new AnalysisException("Invalid HMS partition result: requested="
+                        + resolvedNames.size() + ", returned=" + partitions.size());
+            }
+            for (int i = 0; i < resolvedNames.size(); i++) {
+                result.put(resolvedNames.get(i),
+                        new MTMVTimestampSnapshot(partitions.get(i).getLastModifiedTime()));
+            }
+            return result;
+        } catch (AnalysisException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw new AnalysisException("failed to load partition snapshots for "
+                    + hmsTable.getName() + ": " + e.getMessage(), e);
+        }
     }
 
     @Override

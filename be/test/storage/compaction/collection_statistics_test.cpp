@@ -21,23 +21,40 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <memory>
+#include <roaring/roaring.hh>
+#include <set>
 #include <string>
 
 #include "common/exception.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/primitive_type.h"
 #include "exec/common/variant_util.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
+#include "exprs/vmatch_predicate.h"
+#include "exprs/vsearch.h"
 #include "exprs/vslot_ref.h"
 #include "io/fs/local_file_system.h"
+#include "runtime/exec_env.h"
+#include "runtime/index_policy/index_policy_mgr.h"
 #include "storage/compaction/collection_statistics.cpp"
+#include "storage/index/index_file_reader.h"
+#include "storage/index/index_file_writer.h"
+#include "storage/index/index_writer.h"
+#include "storage/index/inverted/inverted_index_cache.h"
+#include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/index/inverted/util/term_iterator.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/rowset/rowset_reader.h"
+#include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
 #include "testutil/mock/mock_runtime_state.h"
+#include "util/defer_op.h"
+#include "util/slice.h"
 
 namespace doris {
 
@@ -112,6 +129,14 @@ public:
 
 private:
     std::string _value;
+};
+
+class FailingAnalyzerProvider final : public segment_v2::inverted_index::AnalyzerProvider {
+public:
+    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const override {
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                        "forced missing dictionary failure");
+    }
 };
 
 class MockRowsetMeta : public RowsetMeta {
@@ -252,11 +277,18 @@ protected:
         test_dir_ = "./collection_statistics_test_" +
                     std::to_string(::testing::UnitTest::GetInstance()->random_seed());
         ASSERT_TRUE(io::global_local_filesystem()->create_directory(test_dir_).ok());
+        // Merge-on-write collection reads the null bitmap through the query cache.
+        previous_query_cache_ = ExecEnv::GetInstance()->get_inverted_index_query_cache();
+        query_cache_.reset(
+                segment_v2::InvertedIndexQueryCache::create_global_cache(1024 * 1024, 1));
+        ExecEnv::GetInstance()->set_inverted_index_query_cache(query_cache_.get());
     }
 
     void TearDown() override {
         stats_.reset();
         runtime_state_.reset();
+        ExecEnv::GetInstance()->set_inverted_index_query_cache(previous_query_cache_);
+        query_cache_.reset();
         (void)io::global_local_filesystem()->delete_directory(test_dir_);
     }
 
@@ -323,6 +355,8 @@ protected:
     std::unique_ptr<CollectionStatistics> stats_;
     std::shared_ptr<MockRuntimeState> runtime_state_;
     std::string test_dir_;
+    segment_v2::InvertedIndexQueryCache* previous_query_cache_ = nullptr;
+    std::unique_ptr<segment_v2::InvertedIndexQueryCache> query_cache_;
 };
 
 TEST_F(CollectionStatisticsTest, CollectWithEmptyRowsetSplits) {
@@ -334,6 +368,187 @@ TEST_F(CollectionStatisticsTest, CollectWithEmptyRowsetSplits) {
     auto status = stats_->collect(runtime_state_.get(), empty_splits, tablet_schema, expr_contexts,
                                   nullptr);
     EXPECT_TRUE(status.ok()) << status.msg();
+}
+
+TEST_F(CollectionStatisticsTest, DocsOnlyNormalizerCollectsScoringStatistics) {
+    IndexPolicyMgr policy_mgr;
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* original_policy_mgr = exec_env->index_policy_mgr();
+    exec_env->_index_policy_mgr = &policy_mgr;
+    Defer restore_policy_mgr([&] { exec_env->_index_policy_mgr = original_policy_mgr; });
+
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(DUP_KEYS);
+    schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->init_from_pb(schema_pb);
+
+    TabletColumn column;
+    column.set_unique_id(1);
+    column.set_name("content");
+    column.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    tablet_schema->append_column(column);
+
+    TabletIndex index;
+    index._index_id = 1;
+    index._index_type = IndexType::INVERTED;
+    index._col_unique_ids.push_back(1);
+    index._properties["normalizer"] = "lowercase";
+    tablet_schema->append_index(std::move(index));
+
+    std::vector<StorePath> paths;
+    paths.emplace_back(test_dir_, 1024);
+    auto tmp_file_dirs = std::make_unique<segment_v2::TmpFileDirs>(paths);
+    ASSERT_TRUE(tmp_file_dirs->init().ok());
+    ExecEnv::GetInstance()->set_tmp_file_dir(std::move(tmp_file_dirs));
+
+    const std::string segment_path = test_dir_ + "/normalized_0.dat";
+    const std::string prefix {
+            segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(segment_path)};
+    io::FileWriterPtr compound_file;
+    io::FileWriterOptions options;
+    auto fs = io::global_local_filesystem();
+    ASSERT_TRUE(fs->create_file(segment_v2::InvertedIndexDescriptor::get_index_file_path_v2(prefix),
+                                &compound_file, &options)
+                        .ok());
+    segment_v2::IndexFileWriter file_writer(fs, prefix, "normalized", 0,
+                                            InvertedIndexStorageFormatPB::V3,
+                                            std::move(compound_file));
+    const auto indexes = tablet_schema->inverted_indexs(1);
+    ASSERT_EQ(indexes.size(), 1);
+    std::unique_ptr<segment_v2::IndexColumnWriter> column_writer;
+    auto create_status = segment_v2::IndexColumnWriter::create(
+            &tablet_schema->column(0), &column_writer, &file_writer, indexes[0]);
+    ASSERT_TRUE(create_status.ok()) << create_status;
+    std::vector<Slice> values {Slice("ALPHA")};
+    ASSERT_TRUE(column_writer->add_values("content", values.data(), values.size()).ok());
+    ASSERT_TRUE(column_writer->finish().ok());
+    ASSERT_TRUE(file_writer.begin_close().ok());
+    ASSERT_TRUE(file_writer.finish_close().ok());
+
+    auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+    auto rowset = std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
+    rowset->set_num_segments(1);
+    rowset->set_segment_path(0, segment_path);
+    auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
+    std::vector<RowSetSplits> splits {RowSetSplits(reader)};
+
+    auto status = stats_->collect(runtime_state_.get(), splits, tablet_schema,
+                                  create_match_expr_contexts("alpha"), nullptr);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(stats_->get_doc_num(), 1U);
+    EXPECT_EQ(stats_->get_total_term_cnt_by_col(L"1"), 1U);
+    EXPECT_EQ(stats_->get_term_doc_freq_by_col(L"1", L"alpha"), 1U);
+
+    segment_v2::IndexFileReader file_reader(fs, prefix, InvertedIndexStorageFormatPB::V3);
+    ASSERT_TRUE(file_reader.init().ok());
+    auto compound = file_reader.open(indexes[0]);
+    ASSERT_TRUE(compound.has_value()) << compound.error();
+    auto* raw_reader = lucene::index::IndexReader::open(compound->get());
+    auto searcher = std::make_unique<lucene::search::IndexSearcher>(raw_reader, true);
+    auto term_iter =
+            segment_v2::TermIterator::create(nullptr, true, searcher->getReader(), L"1", "alpha");
+    ::DocRange range;
+    ASSERT_TRUE(term_iter->read_range(&range));
+    ASSERT_EQ(range.doc_many_size_, 1);
+    ASSERT_EQ(range.freq_many, nullptr);
+    ASSERT_NE(range.norm_many, nullptr);
+    EXPECT_EQ((*range.norm_many)[0], 1U);
+}
+
+TEST_F(CollectionStatisticsTest, MissingFieldIndexPreservesOtherFieldStatistics) {
+    IndexPolicyMgr policy_mgr;
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* original_policy_mgr = exec_env->index_policy_mgr();
+    exec_env->_index_policy_mgr = &policy_mgr;
+    Defer restore_policy_mgr([&] { exec_env->_index_policy_mgr = original_policy_mgr; });
+
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(DUP_KEYS);
+    schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->init_from_pb(schema_pb);
+
+    TabletColumn column;
+    column.set_unique_id(1);
+    column.set_name("content");
+    column.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    tablet_schema->append_column(column);
+
+    TabletIndex index;
+    index._index_id = 1;
+    index._index_type = IndexType::INVERTED;
+    index._col_unique_ids.push_back(1);
+    index._properties["normalizer"] = "lowercase";
+    tablet_schema->append_index(std::move(index));
+
+    std::vector<StorePath> paths;
+    paths.emplace_back(test_dir_, 1024);
+    auto tmp_file_dirs = std::make_unique<segment_v2::TmpFileDirs>(paths);
+    ASSERT_TRUE(tmp_file_dirs->init().ok());
+    ExecEnv::GetInstance()->set_tmp_file_dir(std::move(tmp_file_dirs));
+
+    TabletColumn other = tablet_schema->column(0);
+    other.set_unique_id(2);
+    other.set_name("other");
+    tablet_schema->append_column(other);
+    TabletIndex other_index = *tablet_schema->inverted_indexs(1).front();
+    other_index._index_id = 2;
+    other_index._col_unique_ids = {2};
+    tablet_schema->append_index(std::move(other_index));
+    const std::vector<std::string> segment_paths {test_dir_ + "/only_content.dat",
+                                                  test_dir_ + "/only_other.dat"};
+    auto fs = io::global_local_filesystem();
+    for (size_t ordinal = 0; ordinal < segment_paths.size(); ++ordinal) {
+        const std::string prefix {segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(
+                segment_paths[ordinal])};
+        io::FileWriterPtr compound_file;
+        io::FileWriterOptions options;
+        ASSERT_TRUE(
+                fs->create_file(segment_v2::InvertedIndexDescriptor::get_index_file_path_v2(prefix),
+                                &compound_file, &options)
+                        .ok());
+        segment_v2::IndexFileWriter file_writer(fs, prefix, "missing_field", ordinal,
+                                                InvertedIndexStorageFormatPB::V3,
+                                                std::move(compound_file));
+        const auto& column = tablet_schema->column(ordinal);
+        const auto indexes = tablet_schema->inverted_indexs(column.unique_id());
+        ASSERT_EQ(1u, indexes.size());
+        std::unique_ptr<segment_v2::IndexColumnWriter> writer;
+        ASSERT_TRUE(
+                segment_v2::IndexColumnWriter::create(&column, &writer, &file_writer, indexes[0])
+                        .ok());
+        std::vector<Slice> values {Slice("ALPHA")};
+        ASSERT_TRUE(writer->add_values(column.name(), values.data(), values.size()).ok());
+        ASSERT_TRUE(writer->finish().ok());
+        ASSERT_TRUE(file_writer.begin_close().ok());
+        ASSERT_TRUE(file_writer.finish_close().ok());
+    }
+    auto meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+    auto rowset = std::make_shared<collection_statistics::MockRowset>(tablet_schema, meta);
+    rowset->set_num_segments(2);
+    for (int i = 0; i < 2; ++i) {
+        rowset->set_segment_path(i, segment_paths[i]);
+    }
+    CollectInfoMap infos;
+    ASSERT_TRUE(stats_->extract_collect_info(runtime_state_.get(),
+                                             create_match_expr_contexts("alpha"), tablet_schema,
+                                             &infos)
+                        .ok());
+    ASSERT_EQ(1u, infos.size());
+    CollectInfo other_info = infos.begin()->second;
+    other_info.index_meta = tablet_schema->inverted_indexs(2).front();
+    infos.emplace(L"2", std::move(other_info));
+    for (int i = 0; i < 2; ++i) {
+        auto status =
+                stats_->process_segment(rowset, i, tablet_schema.get(), infos, nullptr, nullptr);
+        ASSERT_TRUE(status.ok()) << status;
+    }
+    EXPECT_EQ(2u, stats_->get_doc_num());
+    EXPECT_EQ(1u, stats_->get_total_term_cnt_by_col(L"1"));
+    EXPECT_EQ(1u, stats_->get_total_term_cnt_by_col(L"2"));
+    EXPECT_EQ(1u, stats_->get_term_doc_freq_by_col(L"1", L"alpha"));
+    EXPECT_EQ(1u, stats_->get_term_doc_freq_by_col(L"2", L"alpha"));
 }
 
 TEST_F(CollectionStatisticsTest, CollectWithEmptyExpressions) {
@@ -572,6 +787,463 @@ TEST_F(CollectionStatisticsDetailedTest, IdfCalculationWithDifferentFrequencies)
     EXPECT_GT(rare_idf, common_idf);
     EXPECT_GT(common_idf, 0);
     EXPECT_GT(rare_idf, 0);
+}
+
+// Scanners of one tablet each copy the tablet's statistics, so they must score identically.
+TEST_F(CollectionStatisticsDetailedTest, CopyCollectedFromScoresLikeSource) {
+    stats_->set_total_num_docs(1000);
+    stats_->set_total_num_tokens(L"content", 5000);
+    stats_->set_term_doc_freq(L"content", L"jobs", 37);
+
+    CollectionStatistics copy;
+    copy.copy_collected_from(*stats_);
+
+    EXPECT_FLOAT_EQ(copy.get_or_calculate_idf(L"content", L"jobs"),
+                    stats_->get_or_calculate_idf(L"content", L"jobs"));
+    EXPECT_FLOAT_EQ(copy.get_or_calculate_avg_dl(L"content"),
+                    stats_->get_or_calculate_avg_dl(L"content"));
+
+    // The copy does not share the source's counters or derived caches.
+    stats_->set_term_doc_freq(L"content", L"jobs", 900);
+    CollectionStatistics recopied;
+    recopied.copy_collected_from(*stats_);
+    EXPECT_NE(recopied.get_or_calculate_idf(L"content", L"jobs"),
+              copy.get_or_calculate_idf(L"content", L"jobs"));
+}
+
+TEST_F(CollectionStatisticsTest, TabletCollectionStatisticsCollectsOnceAndCopiesToEveryCaller) {
+    auto tablet_schema = create_tablet_schema_with_inverted_index();
+    auto expr_contexts = create_match_expr_contexts();
+    TabletCollectionStatistics tablet_statistics({});
+
+    CollectionStatistics first;
+    CollectionStatistics second;
+    EXPECT_TRUE(tablet_statistics
+                        .copy_to(runtime_state_.get(), tablet_schema, expr_contexts, nullptr,
+                                 nullptr, &first)
+                        .ok());
+    EXPECT_TRUE(tablet_statistics
+                        .copy_to(runtime_state_.get(), tablet_schema, expr_contexts, nullptr,
+                                 nullptr, &second)
+                        .ok());
+}
+
+namespace {
+
+using collection_statistics_detail::count_listed_docs;
+using collection_statistics_detail::exclude_hidden_docs;
+using collection_statistics_detail::exclude_hidden_term_docs;
+using collection_statistics_detail::SegmentScoringStats;
+using collection_statistics_detail::sum_non_null_norm_lengths;
+using collection_statistics_detail::sum_norm_lengths;
+using collection_statistics_detail::sum_norm_lengths_of;
+
+TabletSchemaSPtr create_english_index_schema() {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(DUP_KEYS);
+    schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->init_from_pb(schema_pb);
+
+    TabletColumn column;
+    column.set_unique_id(1);
+    column.set_name("content");
+    column.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    column.set_is_nullable(true);
+    tablet_schema->append_column(column);
+
+    TabletIndex index;
+    index._index_id = 1;
+    index._index_type = IndexType::INVERTED;
+    index._col_unique_ids.push_back(1);
+    index._properties["parser"] = "english";
+    index._properties["support_phrase"] = "true";
+    tablet_schema->append_index(std::move(index));
+    return tablet_schema;
+}
+
+// Writes the inverted index of a segment holding `rows`, one document each, the rows of
+// `null_rows` as NULL whatever their value.
+Status write_index_segment(const TabletSchemaSPtr& tablet_schema, const std::string& test_dir,
+                           const std::string& segment_path, const std::vector<std::string>& rows,
+                           const std::set<size_t>& null_rows = {}) {
+    std::vector<StorePath> paths;
+    paths.emplace_back(test_dir, 1024);
+    auto tmp_file_dirs = std::make_unique<segment_v2::TmpFileDirs>(paths);
+    RETURN_IF_ERROR(tmp_file_dirs->init());
+    ExecEnv::GetInstance()->set_tmp_file_dir(std::move(tmp_file_dirs));
+
+    const std::string prefix {
+            segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(segment_path)};
+    io::FileWriterPtr compound_file;
+    io::FileWriterOptions options;
+    auto fs = io::global_local_filesystem();
+    RETURN_IF_ERROR(
+            fs->create_file(segment_v2::InvertedIndexDescriptor::get_index_file_path_v2(prefix),
+                            &compound_file, &options));
+    segment_v2::IndexFileWriter file_writer(fs, prefix, "hidden_rows", 0,
+                                            InvertedIndexStorageFormatPB::V3,
+                                            std::move(compound_file));
+    const auto indexes = tablet_schema->inverted_indexs(1);
+    DORIS_CHECK(indexes.size() == 1);
+    std::unique_ptr<segment_v2::IndexColumnWriter> column_writer;
+    RETURN_IF_ERROR(segment_v2::IndexColumnWriter::create(&tablet_schema->column(0), &column_writer,
+                                                          &file_writer, indexes[0]));
+    for (size_t row = 0; row < rows.size(); ++row) {
+        if (null_rows.contains(row)) {
+            RETURN_IF_ERROR(column_writer->add_nulls(1));
+        } else {
+            const Slice value(rows[row]);
+            RETURN_IF_ERROR(column_writer->add_values("content", &value, 1));
+        }
+    }
+    RETURN_IF_ERROR(column_writer->finish());
+    RETURN_IF_ERROR(file_writer.begin_close());
+    return file_writer.finish_close();
+}
+
+std::vector<RowSetSplits> single_segment_splits(const TabletSchemaSPtr& tablet_schema,
+                                                const std::string& segment_path) {
+    auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+    auto rowset = std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
+    rowset->set_num_segments(1);
+    rowset->set_segment_path(0, segment_path);
+    auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
+    return {RowSetSplits(reader)};
+}
+
+// A delete bitmap of its own tablet, marking `rows` of the first segment of the splits' rowset at
+// `version`. The bitmap's aggregation cache is keyed by tablet and rowset, and the mock rowsets
+// share their ids, so each bitmap takes its own tablet id.
+MowHiddenRows hide_rows(const std::vector<RowSetSplits>& splits, int64_t tablet_id, int64_t version,
+                        const std::vector<uint32_t>& rows) {
+    MowHiddenRows hidden {.delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id),
+                          .version = version};
+    const auto rowset_id = splits[0].rs_reader->rowset()->rowset_id();
+    for (const uint32_t row : rows) {
+        hidden.delete_bitmap->add({rowset_id, 0, version}, row);
+    }
+    return hidden;
+}
+
+// A reader of the CLucene index of a segment written by write_index_segment.
+class SegmentIndexReader {
+public:
+    SegmentIndexReader(const TabletSchemaSPtr& tablet_schema, const std::string& segment_path)
+            : _file_reader(
+                      io::global_local_filesystem(),
+                      std::string {segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(
+                              segment_path)},
+                      InvertedIndexStorageFormatPB::V3) {
+        DORIS_CHECK(_file_reader.init().ok());
+        auto compound = _file_reader.open(tablet_schema->inverted_indexs(1)[0]);
+        DORIS_CHECK(compound.has_value());
+        _searcher = std::make_unique<lucene::search::IndexSearcher>(
+                lucene::index::IndexReader::open(compound->get()), true);
+    }
+
+    lucene::index::IndexReader* get() const { return _searcher->getReader(); }
+
+private:
+    segment_v2::IndexFileReader _file_reader;
+    std::unique_ptr<lucene::search::IndexSearcher> _searcher;
+};
+
+} // namespace
+
+// A replica whose segment still holds a row that a later load overwrote must collect the same
+// statistics as a replica that compacted the row away, or the two score every row differently.
+TEST_F(CollectionStatisticsTest, HiddenRowsAreCollectedLikeCompactedAway) {
+    IndexPolicyMgr policy_mgr;
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* original_policy_mgr = exec_env->index_policy_mgr();
+    exec_env->_index_policy_mgr = &policy_mgr;
+    Defer restore_policy_mgr([&] { exec_env->_index_policy_mgr = original_policy_mgr; });
+
+    auto tablet_schema = create_english_index_schema();
+    // Forty-five tokens: CLucene's norm holds lengths exactly only up to 40.
+    std::string overwritten;
+    for (int i = 0; i < 44; ++i) {
+        overwritten += "gamma ";
+    }
+    overwritten += "alpha";
+    const std::string uncompacted_path = test_dir_ + "/hidden_rows_uncompacted_0.dat";
+    const std::string compacted_path = test_dir_ + "/hidden_rows_compacted_0.dat";
+    ASSERT_TRUE(write_index_segment(tablet_schema, test_dir_, uncompacted_path,
+                                    {"alpha beta", overwritten, "beta gamma delta"})
+                        .ok());
+    ASSERT_TRUE(write_index_segment(tablet_schema, test_dir_, compacted_path,
+                                    {"alpha beta", "beta gamma delta"})
+                        .ok());
+
+    struct Collected {
+        uint64_t doc_count;
+        uint64_t token_count;
+        uint64_t alpha_doc_frequency;
+        uint64_t gamma_doc_frequency;
+        float avg_dl;
+        float alpha_idf;
+    };
+    int64_t next_tablet_id = 9100;
+    auto collect = [&](const std::string& segment_path,
+                       const std::vector<uint32_t>& hidden_rows) -> Collected {
+        auto splits = single_segment_splits(tablet_schema, segment_path);
+        MowHiddenRows hidden = hide_rows(splits, next_tablet_id++, 5, hidden_rows);
+        CollectionStatistics stats;
+        const Status status =
+                stats.collect(runtime_state_.get(), splits, tablet_schema,
+                              create_match_expr_contexts("alpha gamma"), nullptr, &hidden);
+        EXPECT_TRUE(status.ok()) << status;
+        return {.doc_count = stats.get_doc_num(),
+                .token_count = stats.get_total_term_cnt_by_col(L"1"),
+                .alpha_doc_frequency = stats.get_term_doc_freq_by_col(L"1", L"alpha"),
+                .gamma_doc_frequency = stats.get_term_doc_freq_by_col(L"1", L"gamma"),
+                .avg_dl = stats.get_or_calculate_avg_dl(L"1"),
+                .alpha_idf = stats.get_or_calculate_idf(L"1", L"alpha")};
+    };
+
+    const Collected uncompacted = collect(uncompacted_path, {1});
+    const Collected compacted = collect(compacted_path, {});
+    EXPECT_EQ(uncompacted.doc_count, 2);
+    EXPECT_EQ(uncompacted.token_count, 5);
+    EXPECT_EQ(uncompacted.alpha_doc_frequency, 1);
+    EXPECT_EQ(uncompacted.gamma_doc_frequency, 1);
+    EXPECT_EQ(uncompacted.doc_count, compacted.doc_count);
+    EXPECT_EQ(uncompacted.token_count, compacted.token_count);
+    EXPECT_EQ(uncompacted.alpha_doc_frequency, compacted.alpha_doc_frequency);
+    EXPECT_EQ(uncompacted.gamma_doc_frequency, compacted.gamma_doc_frequency);
+    EXPECT_EQ(uncompacted.avg_dl, compacted.avg_dl);
+    EXPECT_EQ(uncompacted.alpha_idf, compacted.alpha_idf);
+
+    // Without the delete bitmap the overwritten row is counted, with its exact length.
+    ASSERT_TRUE(stats_->collect(runtime_state_.get(),
+                                single_segment_splits(tablet_schema, uncompacted_path),
+                                tablet_schema, create_match_expr_contexts("alpha gamma"), nullptr)
+                        .ok());
+    EXPECT_EQ(stats_->get_doc_num(), 3);
+    EXPECT_EQ(stats_->get_total_term_cnt_by_col(L"1"), 50);
+    EXPECT_EQ(stats_->get_term_doc_freq_by_col(L"1", L"alpha"), 2);
+}
+
+// A tablet whose rows were all deleted or overwritten still has segments to collect from, but no
+// document a query can match. Its statistics are empty, not missing.
+TEST_F(CollectionStatisticsTest, AllRowsHiddenCollectsEmptyStatistics) {
+    IndexPolicyMgr policy_mgr;
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* original_policy_mgr = exec_env->index_policy_mgr();
+    exec_env->_index_policy_mgr = &policy_mgr;
+    Defer restore_policy_mgr([&] { exec_env->_index_policy_mgr = original_policy_mgr; });
+
+    auto tablet_schema = create_english_index_schema();
+    const std::string segment_path = test_dir_ + "/all_rows_hidden_0.dat";
+    ASSERT_TRUE(write_index_segment(tablet_schema, test_dir_, segment_path, {"alpha beta", "alpha"})
+                        .ok());
+
+    auto splits = single_segment_splits(tablet_schema, segment_path);
+    MowHiddenRows hidden = hide_rows(splits, 9200, 3, {0, 1});
+    const Status status = stats_->collect(runtime_state_.get(), splits, tablet_schema,
+                                          create_match_expr_contexts("alpha"), nullptr, &hidden);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(stats_->get_doc_num(), 0);
+    EXPECT_EQ(stats_->get_term_doc_freq_by_col(L"1", L"alpha"), 0);
+    EXPECT_TRUE(std::isfinite(stats_->get_or_calculate_avg_dl(L"1")));
+    EXPECT_TRUE(std::isfinite(stats_->get_or_calculate_idf(L"1", L"alpha")));
+
+    // Without any collected segment the statistics are still reported missing.
+    CollectionStatistics nothing_collected;
+    EXPECT_THROW(nothing_collected.get_doc_num(), Exception);
+}
+
+// NULL rows have no tokens. A merge-on-write tablet, whose token count comes from the norms, counts
+// them as documents without tokens, as a table without a delete bitmap does.
+TEST_F(CollectionStatisticsTest, NullRowsCountAsDocumentsWithoutTokens) {
+    IndexPolicyMgr policy_mgr;
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* original_policy_mgr = exec_env->index_policy_mgr();
+    exec_env->_index_policy_mgr = &policy_mgr;
+    Defer restore_policy_mgr([&] { exec_env->_index_policy_mgr = original_policy_mgr; });
+
+    auto tablet_schema = create_english_index_schema();
+    const std::string segment_path = test_dir_ + "/null_rows_0.dat";
+    ASSERT_TRUE(write_index_segment(tablet_schema, test_dir_, segment_path,
+                                    {"alpha beta", "", "alpha", "", "beta gamma delta"}, {1, 3})
+                        .ok());
+    auto splits = single_segment_splits(tablet_schema, segment_path);
+    auto collect = [&](const MowHiddenRows* hidden) {
+        CollectionStatistics stats;
+        const Status status = stats.collect(runtime_state_.get(), splits, tablet_schema,
+                                            create_match_expr_contexts("alpha"), nullptr, hidden);
+        EXPECT_TRUE(status.ok()) << status;
+        return std::make_pair(stats.get_doc_num(), stats.get_total_term_cnt_by_col(L"1"));
+    };
+
+    const auto without_bitmap = collect(nullptr);
+    EXPECT_EQ(without_bitmap.first, 5);
+    EXPECT_EQ(without_bitmap.second, 6);
+    MowHiddenRows nothing_hidden = hide_rows(splits, 9300, 2, {});
+    EXPECT_EQ(collect(&nothing_hidden), without_bitmap);
+
+    // A hidden NULL row leaves the document count and still adds no tokens.
+    MowHiddenRows null_hidden = hide_rows(splits, 9301, 2, {1});
+    EXPECT_EQ(collect(&null_hidden), std::make_pair(uint64_t {4}, uint64_t {6}));
+
+    // The norms of the NULL rows stand for one token each; their lengths are left out.
+    SegmentIndexReader reader(tablet_schema, segment_path);
+    uint64_t all_lengths = 0;
+    ASSERT_TRUE(sum_norm_lengths(reader.get(), L"1", &all_lengths).ok());
+    EXPECT_EQ(all_lengths, 8);
+    const std::vector<uint32_t> null_docs {1, 3};
+    uint64_t non_null_lengths = 0;
+    ASSERT_TRUE(sum_non_null_norm_lengths(reader.get(), L"1", null_docs, &non_null_lengths).ok());
+    EXPECT_EQ(non_null_lengths, 6);
+    const std::vector<uint32_t> beyond {5};
+    EXPECT_EQ(sum_non_null_norm_lengths(reader.get(), L"1", beyond, &non_null_lengths).code(),
+              ErrorCode::INVERTED_INDEX_FILE_CORRUPTED);
+    EXPECT_EQ(sum_norm_lengths_of(reader.get(), L"1", beyond, &non_null_lengths).code(),
+              ErrorCode::INVERTED_INDEX_FILE_CORRUPTED);
+}
+
+// The hidden rows a term lists are counted by leaping over the postings between them when they
+// are rare, and otherwise by walking them alongside the decoded postings.
+TEST_F(CollectionStatisticsTest, CountListedDocsLeapsOrScansOverHiddenRows) {
+    IndexPolicyMgr policy_mgr;
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* original_policy_mgr = exec_env->index_policy_mgr();
+    exec_env->_index_policy_mgr = &policy_mgr;
+    Defer restore_policy_mgr([&] { exec_env->_index_policy_mgr = original_policy_mgr; });
+
+    auto tablet_schema = create_english_index_schema();
+    std::vector<std::string> rows;
+    for (int i = 0; i < 300; ++i) {
+        rows.emplace_back(i % 3 == 0 ? "alpha beta" : "beta");
+    }
+    const std::string segment_path = test_dir_ + "/count_listed_0.dat";
+    ASSERT_TRUE(write_index_segment(tablet_schema, test_dir_, segment_path, rows).ok());
+    SegmentIndexReader reader(tablet_schema, segment_path);
+    auto postings = [&](const std::string& term) {
+        return segment_v2::TermIterator::create(nullptr, false, reader.get(), L"1", term);
+    };
+
+    // Eight rows among the 100 postings of alpha are walked alongside them; among the 300 of
+    // beta, leapt to.
+    const std::vector<uint32_t> hidden {0, 1, 2, 3, 150, 151, 297, 299};
+    // 0, 3, 150 and 297 hold alpha.
+    EXPECT_EQ(count_listed_docs(*postings("alpha"), hidden), 4);
+    EXPECT_EQ(count_listed_docs(*postings("beta"), hidden), hidden.size());
+    EXPECT_EQ(count_listed_docs(*postings("omega"), hidden), 0);
+    EXPECT_EQ(count_listed_docs(*postings("alpha"), std::span<const uint32_t> {}), 0);
+
+    // Many rows among the contiguous postings of beta are walked alongside them, a block at a
+    // time.
+    std::vector<uint32_t> many;
+    for (uint32_t row = 5; row < 300; row += 7) {
+        many.push_back(row);
+    }
+    EXPECT_EQ(count_listed_docs(*postings("beta"), many), many.size());
+    // Those that are multiples of 3 hold alpha.
+    uint64_t alpha_rows = 0;
+    for (const uint32_t row : many) {
+        alpha_rows += row % 3 == 0 ? 1 : 0;
+    }
+    EXPECT_EQ(count_listed_docs(*postings("alpha"), many), alpha_rows);
+
+    uint64_t doc_frequency = 100;
+    ASSERT_TRUE(exclude_hidden_term_docs(*postings("alpha"), hidden, &doc_frequency).ok());
+    EXPECT_EQ(doc_frequency, 96);
+    uint64_t too_small = 3;
+    EXPECT_EQ(exclude_hidden_term_docs(*postings("alpha"), hidden, &too_small).code(),
+              ErrorCode::INVERTED_INDEX_FILE_CORRUPTED);
+
+    uint64_t lengths = 0;
+    ASSERT_TRUE(sum_norm_lengths(reader.get(), L"1", &lengths).ok());
+    EXPECT_EQ(lengths, 400);
+    ASSERT_TRUE(sum_norm_lengths_of(reader.get(), L"1", hidden, &lengths).ok());
+    EXPECT_EQ(lengths, 12);
+    // A field without norms has no lengths to sum.
+    EXPECT_EQ(sum_norm_lengths_of(reader.get(), L"no_such_field", hidden, &lengths).code(),
+              ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
+}
+
+TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenDocsSumsNormsOfReturnedRows) {
+    const std::vector<uint64_t> norm_lengths {3, 5, 2, 7};
+    auto sum_of = [&norm_lengths](std::span<const uint32_t> docs, uint64_t* out) {
+        *out = 0;
+        for (const uint32_t doc : docs) {
+            *out += norm_lengths[doc];
+        }
+        return Status::OK();
+    };
+    const roaring::Roaring no_nulls;
+    SegmentScoringStats stats {.doc_count = 4, .token_count = 1000, .has_norms = true};
+    const std::vector<uint32_t> hidden {1, 3};
+    ASSERT_TRUE(exclude_hidden_docs(hidden, no_nulls, 17, sum_of, &stats).ok());
+    EXPECT_EQ(stats.doc_count, 2);
+    EXPECT_EQ(stats.token_count, 5);
+
+    // With nothing hidden the token count still comes from the norms, as on a replica that
+    // compacted the hidden rows away.
+    stats = {.doc_count = 4, .token_count = 1000, .has_norms = true};
+    ASSERT_TRUE(exclude_hidden_docs({}, no_nulls, 17, sum_of, &stats).ok());
+    EXPECT_EQ(stats.doc_count, 4);
+    EXPECT_EQ(stats.token_count, 17);
+}
+
+TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenDocsWithoutNormsCountsOneTokenPerRow) {
+    auto never = [](std::span<const uint32_t>, uint64_t*) {
+        ADD_FAILURE() << "an index without norms reads none";
+        return Status::OK();
+    };
+    SegmentScoringStats stats {.doc_count = 5, .token_count = 9, .has_norms = false};
+    const std::vector<uint32_t> hidden {0, 4};
+    roaring::Roaring nulls;
+    nulls.add(1);
+    ASSERT_TRUE(exclude_hidden_docs(hidden, nulls, 0, never, &stats).ok());
+    EXPECT_EQ(stats.doc_count, 3);
+    EXPECT_EQ(stats.token_count, 3);
+}
+
+TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenDocsRejectsRowBeyondIndex) {
+    auto sum_of = [](std::span<const uint32_t>, uint64_t* out) {
+        *out = 0;
+        return Status::OK();
+    };
+    SegmentScoringStats stats {.doc_count = 2, .token_count = 2, .has_norms = true};
+    const std::vector<uint32_t> hidden {2};
+    const Status status = exclude_hidden_docs(hidden, roaring::Roaring {}, 2, sum_of, &stats);
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_CORRUPTED) << status;
+}
+
+// A NULL row is a document without tokens, though its norm stands for one: it stays in the
+// document count and its length is left out, hidden or not.
+TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenDocsLeavesOutLengthsOfNullRows) {
+    const std::vector<uint64_t> norm_lengths {3, 5, 1, 7, 1};
+    std::vector<uint32_t> summed;
+    auto sum_of = [&](std::span<const uint32_t> docs, uint64_t* out) {
+        *out = 0;
+        for (const uint32_t doc : docs) {
+            summed.push_back(doc);
+            *out += norm_lengths[doc];
+        }
+        return Status::OK();
+    };
+    roaring::Roaring nulls;
+    nulls.add(2);
+    nulls.add(4);
+    // 3 + 5 + 7, the lengths of the non-NULL rows.
+    constexpr uint64_t kNonNullLengths = 15;
+
+    SegmentScoringStats stats {.doc_count = 5, .token_count = 1000, .has_norms = true};
+    ASSERT_TRUE(exclude_hidden_docs({}, nulls, kNonNullLengths, sum_of, &stats).ok());
+    EXPECT_EQ(stats.doc_count, 5);
+    EXPECT_EQ(stats.token_count, 15);
+
+    stats = {.doc_count = 5, .token_count = 1000, .has_norms = true};
+    const std::vector<uint32_t> hidden {1, 2};
+    ASSERT_TRUE(exclude_hidden_docs(hidden, nulls, kNonNullLengths, sum_of, &stats).ok());
+    EXPECT_EQ(stats.doc_count, 3);
+    EXPECT_EQ(stats.token_count, 10);
+    // Only the hidden non-NULL row's norm is read.
+    EXPECT_EQ(summed, std::vector<uint32_t> {1});
 }
 
 TEST_F(CollectionStatisticsTest, CollectWithCastWrappedSlotRef) {
@@ -1305,6 +1977,361 @@ TEST(TermInfoComparerTest, OrdersByTermAndDedups) {
 
     EXPECT_EQ(terms.size(), 3u);
     EXPECT_THAT(ordered, ::testing::ElementsAre("apple", "banana", "cherry"));
+}
+
+TEST_F(CollectionStatisticsTest, MatchScoresLegacyMetadataUsingTheResolvedPolicy) {
+    IndexPolicyMgr policy_mgr;
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* original_policy_mgr = exec_env->index_policy_mgr();
+    exec_env->_index_policy_mgr = &policy_mgr;
+    Defer restore_policy_mgr([&] { exec_env->_index_policy_mgr = original_policy_mgr; });
+
+    TIndexPolicy policy;
+    policy.id = 100;
+    policy.name = "Foo";
+    policy.type = TIndexPolicyType::ANALYZER;
+    policy.properties["tokenizer"] = "keyword";
+    policy_mgr.apply_policy_changes({policy}, {});
+
+    TMatchPredicate match;
+    match.__set_analyzer_name("foo");
+    match.__set_parser_type("english");
+    match.__set_parser_lowercase(true);
+    match.__set_parser_stopwords("none");
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::MATCH_PRED);
+    node.__set_opcode(TExprOpcode::MATCH_PHRASE);
+    node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+    node.__set_num_children(2);
+    node.__set_match_predicate(match);
+    auto predicate = VMatchPredicate::create_shared(node);
+    predicate->add_child(
+            std::make_shared<collection_statistics::MockVSlotRef>("content", SlotId(1)));
+    predicate->add_child(std::make_shared<collection_statistics::MockVLiteral>("one two"));
+
+    auto tablet_schema = create_tablet_schema_with_inverted_index();
+    TabletIndex legacy_index;
+    legacy_index._index_id = 30;
+    legacy_index._index_type = IndexType::INVERTED;
+    legacy_index._col_unique_ids.push_back(1);
+    legacy_index._properties = {{"analyzer", "foo"}, {"support_phrase", "true"}};
+    tablet_schema->append_index(std::move(legacy_index));
+
+    MatchPredicateCollector collector;
+    CollectInfoMap collect_infos;
+    auto status = collector.collect(runtime_state_.get(), tablet_schema, predicate, &collect_infos);
+    ASSERT_TRUE(status.ok()) << status.msg();
+    ASSERT_EQ(collect_infos.size(), 1U);
+    const auto& collect_info = collect_infos.begin()->second;
+    ASSERT_NE(collect_info.index_meta, nullptr);
+    EXPECT_EQ(collect_info.index_meta->index_id(), 30);
+    ASSERT_EQ(collect_info.term_infos.size(), 1U);
+    EXPECT_EQ(collect_info.term_infos.begin()->get_single_term(), "one two");
+
+    TabletIndex exact_index;
+    exact_index._index_id = 40;
+    exact_index._index_type = IndexType::INVERTED;
+    exact_index._col_unique_ids.push_back(1);
+    exact_index._properties = {{"analyzer", "Foo"}, {"support_phrase", "true"}};
+    tablet_schema->append_index(std::move(exact_index));
+    collect_infos.clear();
+    status = collector.collect(runtime_state_.get(), tablet_schema, predicate, &collect_infos);
+    ASSERT_TRUE(status.ok()) << status.msg();
+    ASSERT_EQ(collect_infos.size(), 1U);
+    ASSERT_NE(collect_infos.begin()->second.index_meta, nullptr);
+    EXPECT_EQ(collect_infos.begin()->second.index_meta->index_id(), 40);
+}
+
+TEST_F(CollectionStatisticsTest, CollectConvertsAnalyzerFailureToStatus) {
+    TMatchPredicate match;
+    match.__set_parser_type("standard");
+    match.__set_parser_lowercase(true);
+    match.__set_parser_stopwords("none");
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::MATCH_PRED);
+    node.__set_opcode(TExprOpcode::MATCH_PHRASE);
+    node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+    node.__set_num_children(2);
+    node.__set_match_predicate(match);
+    auto predicate = VMatchPredicate::create_shared(node);
+    predicate->add_child(
+            std::make_shared<collection_statistics::MockVSlotRef>("content", SlotId(1)));
+    predicate->add_child(std::make_shared<collection_statistics::MockVLiteral>("query"));
+    auto* analyzer_ctx = const_cast<InvertedIndexAnalyzerCtx*>(predicate->query_analyzer_ctx());
+    ASSERT_NE(analyzer_ctx, nullptr);
+    analyzer_ctx->analyzer_provider =
+            std::make_shared<collection_statistics::FailingAnalyzerProvider>();
+
+    MatchPredicateCollector collector;
+    CollectInfoMap collect_infos;
+    Status status;
+    auto tablet_schema = create_tablet_schema_with_inverted_index();
+    EXPECT_NO_THROW(status = collector.collect(runtime_state_.get(), tablet_schema, predicate,
+                                               &collect_infos));
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR);
+    EXPECT_NE(status.msg().find("forced missing dictionary failure"), std::string::npos);
+    EXPECT_TRUE(collect_infos.empty());
+}
+
+TEST_F(CollectionStatisticsTest, ScoringAnalyzerContextReportsWrongFamilyComponentAsStatus) {
+    IndexPolicyMgr policy_mgr;
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* original_policy_mgr = exec_env->index_policy_mgr();
+    exec_env->_index_policy_mgr = &policy_mgr;
+    Defer restore_policy_mgr([&] { exec_env->_index_policy_mgr = original_policy_mgr; });
+
+    TIndexPolicy char_filter;
+    char_filter.id = 200;
+    char_filter.name = "Wrong";
+    char_filter.type = TIndexPolicyType::CHAR_FILTER;
+    char_filter.properties["type"] = "char_replace";
+    TIndexPolicy analyzer;
+    analyzer.id = 201;
+    analyzer.name = "wrong_family_analyzer";
+    analyzer.type = TIndexPolicyType::ANALYZER;
+    analyzer.properties["tokenizer"] = "keyword";
+    analyzer.properties["token_filter"] = "Wrong";
+    policy_mgr.apply_policy_changes({char_filter, analyzer}, {});
+
+    const std::map<std::string, std::string> properties = {{"analyzer", "wrong_family_analyzer"}};
+    auto analyzer_ctx = analyzer_context_from_properties(properties);
+    ASSERT_FALSE(analyzer_ctx.has_value());
+    EXPECT_EQ(analyzer_ctx.error().code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR);
+
+    const std::map<std::string, std::string> valid = {{"parser", "english"}};
+    EXPECT_TRUE(analyzer_context_from_properties(valid).has_value());
+}
+
+namespace {
+VExprSPtr make_scoring_search(const std::string& clause_type, const std::string& value) {
+    TSearchClause clause;
+    clause.__set_clause_type(clause_type);
+    clause.__set_field_name("content");
+    clause.__set_value(value);
+    TSearchParam param;
+    param.__set_root(clause);
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::SEARCH_EXPR);
+    node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+    node.__set_search_param(param);
+    return VSearchExpr::create_shared(node);
+}
+} // namespace
+
+TEST_F(CollectionStatisticsTest, SearchKeywordClausesKeepWholeValue) {
+    auto schema = std::make_shared<TabletSchema>();
+    TabletColumn column;
+    column.set_unique_id(1);
+    column.set_name("content");
+    column.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    schema->append_column(column);
+    TabletIndex index;
+    index._index_id = 10;
+    index._index_type = IndexType::INVERTED;
+    index._col_unique_ids.push_back(1);
+    schema->append_index(std::move(index));
+
+    SearchPredicateCollector collector;
+    for (const auto* clause_type : {"TERM", "PHRASE", "EXACT", "MATCH", "ANY", "ALL"}) {
+        CollectInfoMap infos;
+        auto expr = make_scoring_search(clause_type, "Apple banana");
+        ASSERT_TRUE(collector.collect(runtime_state_.get(), schema, expr, &infos).ok());
+        ASSERT_EQ(infos.size(), 1U);
+        ASSERT_EQ(infos.begin()->second.term_infos.size(), 1U);
+        EXPECT_EQ(infos.begin()->second.term_infos.begin()->get_single_term(), "Apple banana");
+    }
+}
+
+TEST_F(CollectionStatisticsTest, SearchExactSelectsKeywordStatisticsWithDualIndexes) {
+    auto schema = create_tablet_schema_with_inverted_index();
+    TabletIndex keyword;
+    keyword._index_id = 10;
+    keyword._index_type = IndexType::INVERTED;
+    keyword._col_unique_ids.push_back(1);
+    schema->append_index(std::move(keyword));
+    SearchPredicateCollector collector;
+    CollectInfoMap infos;
+    auto expr = make_scoring_search("EXACT", "Apple banana");
+    ASSERT_TRUE(collector.collect(runtime_state_.get(), schema, expr, &infos).ok());
+    ASSERT_EQ(infos.size(), 1U);
+    EXPECT_EQ(infos.begin()->second.index_meta->index_id(), 10);
+    ASSERT_EQ(infos.begin()->second.term_infos.size(), 1U);
+    EXPECT_EQ(infos.begin()->second.term_infos.begin()->get_single_term(), "Apple banana");
+}
+
+TEST_F(CollectionStatisticsTest, SearchRejectsNumericBkdScoring) {
+    auto schema = std::make_shared<TabletSchema>();
+    TabletColumn column;
+    column.set_unique_id(1);
+    column.set_name("content");
+    column.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    schema->append_column(column);
+    TabletIndex index;
+    index._index_id = 10;
+    index._index_type = IndexType::INVERTED;
+    index._col_unique_ids.push_back(1);
+    schema->append_index(std::move(index));
+    SearchPredicateCollector collector;
+    CollectInfoMap infos;
+    auto expr = make_scoring_search("EXACT", "7");
+    const auto status = collector.collect(runtime_state_.get(), schema, expr, &infos);
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
+    EXPECT_TRUE(infos.empty());
+}
+
+TEST(SearchPredicateCollectorTest, MatchAllDoesNotRequireFieldStatistics) {
+    TSearchClause clause;
+    clause.clause_type = "MATCH_ALL_DOCS";
+    SearchPredicateCollector collector;
+    CollectInfoMap infos;
+    auto status = collector.collect_from_clause(clause, nullptr, nullptr, &infos);
+    EXPECT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(infos.empty());
+}
+
+TEST(SearchPredicateCollectorTest, LucenePureExclusionAllowsFieldlessMatchAll) {
+    TSearchClause all;
+    all.clause_type = "MATCH_ALL_DOCS";
+    all.__set_occur(TSearchOccur::SHOULD);
+    TSearchClause excluded;
+    excluded.clause_type = "WILDCARD";
+    excluded.__set_field_name("body");
+    excluded.__set_value("hit*");
+    excluded.__set_occur(TSearchOccur::MUST_NOT);
+    TSearchClause root;
+    root.clause_type = "OCCUR_BOOLEAN";
+    root.__set_children({all, excluded});
+    SearchPredicateCollector collector;
+    CollectInfoMap infos;
+    auto status = collector.collect_from_clause(root, nullptr, nullptr, &infos);
+    EXPECT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(infos.empty());
+}
+
+TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantSubcolumnIndexForSearch) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+
+    constexpr int32_t kVariantUid = 9001;
+
+    TabletColumn variant_col;
+    variant_col.set_unique_id(kVariantUid);
+    variant_col.set_name("v");
+    variant_col.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    tablet_schema->append_column(variant_col);
+
+    TabletColumn sub_col;
+    sub_col.set_unique_id(-1);
+    sub_col.set_name("v.host");
+    sub_col.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    sub_col.set_parent_unique_id(kVariantUid);
+    PathInData path("v.host");
+    sub_col.set_path_info(path);
+    tablet_schema->append_column(sub_col);
+
+    auto sub_index = std::make_shared<TabletIndex>();
+    TabletIndexPB index_pb;
+    index_pb.set_index_id(2001);
+    index_pb.set_index_name("variant_subcolumn_idx");
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.add_col_unique_id(kVariantUid);
+    auto* props = index_pb.mutable_properties();
+    (*props)["parser"] = "standard";
+    (*props)["support_phrase"] = "true";
+    sub_index->init_from_pb(index_pb);
+
+    TabletSchema::PathsSetInfo path_set_info;
+    TabletIndexes sub_indexes = {sub_index};
+    path_set_info.subcolumn_indexes["host"] = sub_indexes;
+    std::unordered_map<int32_t, TabletSchema::PathsSetInfo> path_set_info_map;
+    path_set_info_map[kVariantUid] = std::move(path_set_info);
+    tablet_schema->set_path_set_info(std::move(path_set_info_map));
+
+    EXPECT_TRUE(tablet_schema->inverted_indexs(kVariantUid, "host").empty());
+
+    auto found = tablet_schema->inverted_indexs(tablet_schema->column(/*ordinal=*/1));
+    ASSERT_EQ(found.size(), 1u);
+    EXPECT_EQ(found[0]->index_name(), "variant_subcolumn_idx");
+
+    constexpr int kSlotId = 42;
+    runtime_state_->_mock_desc_tbl->add_slot_descriptor(SlotId(kSlotId), kVariantUid);
+
+    TSearchClause clause;
+    clause.__set_clause_type("TERM");
+    clause.__set_field_name("v.host");
+    clause.__set_value("foo");
+    SearchPredicateCollector collector;
+    CollectInfoMap collect_infos;
+    auto status = collector.collect_from_leaf(clause, runtime_state_.get(), tablet_schema,
+                                              &collect_infos);
+    ASSERT_TRUE(status.ok()) << status.msg();
+    ASSERT_EQ(collect_infos.size(), 1u);
+    auto it = collect_infos.find(StringHelper::to_wstring(std::to_string(kVariantUid) + ".v.host"));
+    ASSERT_NE(it, collect_infos.end());
+    ASSERT_NE(it->second.index_meta, nullptr);
+    EXPECT_EQ(it->second.index_meta->index_name(), "variant_subcolumn_idx");
+}
+
+TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantParentIndexWithoutTemplateForSearch) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+
+    constexpr int32_t kVariantUid = 9004;
+
+    TabletColumn variant_col;
+    variant_col.set_unique_id(kVariantUid);
+    variant_col.set_name("v");
+    variant_col.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    tablet_schema->append_column(variant_col);
+
+    TabletColumn sub_col;
+    sub_col.set_unique_id(-1);
+    sub_col.set_name("v.key");
+    sub_col.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    sub_col.set_parent_unique_id(kVariantUid);
+    PathInData path("v.key");
+    sub_col.set_path_info(path);
+    tablet_schema->append_column(sub_col);
+
+    TabletIndexPB index_pb;
+    index_pb.set_index_id(2004);
+    index_pb.set_index_name("variant_parent_idx");
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.add_col_unique_id(kVariantUid);
+    auto* props = index_pb.mutable_properties();
+    (*props)["parser"] = "english";
+    (*props)["support_phrase"] = "true";
+
+    TabletIndex index;
+    index.init_from_pb(index_pb);
+    tablet_schema->append_index(std::move(index));
+
+    // Pre-conditions: column-aware lookup is empty (no inheritance pre-populated)
+    // and generate_sub_column_info returns false (no field_pattern template).
+    // The collector must still resolve through the VARIANT-placeholder branch.
+    ASSERT_TRUE(tablet_schema->inverted_indexs(tablet_schema->column(/*ordinal=*/1)).empty());
+    ASSERT_EQ(tablet_schema->inverted_indexs(kVariantUid).size(), 1u);
+    TabletSchema::SubColumnInfo sub_column_info;
+    ASSERT_FALSE(variant_util::generate_sub_column_info(*tablet_schema, kVariantUid, "key",
+                                                        &sub_column_info));
+
+    constexpr int kSlotId = 45;
+    runtime_state_->_mock_desc_tbl->add_slot_descriptor(SlotId(kSlotId), kVariantUid, "v.key",
+                                                        {"key"});
+
+    TSearchClause clause;
+    clause.__set_clause_type("TERM");
+    clause.__set_field_name("v.key");
+    clause.__set_value("foo");
+    SearchPredicateCollector collector;
+    CollectInfoMap collect_infos;
+    auto status = collector.collect_from_leaf(clause, runtime_state_.get(), tablet_schema,
+                                              &collect_infos);
+    ASSERT_TRUE(status.ok()) << status.msg();
+    ASSERT_EQ(collect_infos.size(), 1u);
+    auto it = collect_infos.find(StringHelper::to_wstring(std::to_string(kVariantUid) + ".v.key"));
+    ASSERT_NE(it, collect_infos.end());
+    ASSERT_NE(it->second.index_meta, nullptr);
+    ASSERT_NE(it->second.owned_index_meta, nullptr);
+    EXPECT_EQ(it->second.index_meta->index_name(), "variant_parent_idx");
 }
 
 } // namespace doris

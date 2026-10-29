@@ -45,7 +45,6 @@ import org.apache.doris.datasource.hudi.HudiUtils;
 import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache;
 import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSchemaCacheKey;
-import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.mvcc.EmptyMvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -236,7 +235,14 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return true;
     }
 
-    protected synchronized void makeSureInitialized() {
+    protected void makeSureInitialized() {
+        withMissingTableRepair(() -> {
+            initializeHmsTable();
+            return null;
+        });
+    }
+
+    private synchronized void initializeHmsTable() {
         super.makeSureInitialized();
         if (!objectCreated) {
             long startTime = System.currentTimeMillis();
@@ -371,42 +377,53 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     @Override
     public List<Column> getFullSchema() {
-        makeSureInitialized();
-        if (getDlaType() == DLAType.HUDI) {
-            return ((HudiDlaTable) dlaTable).getHudiSchemaCacheValue(MvccUtil.getSnapshotFromContext(this))
-                    .getSchema();
-        } else if (getDlaType() == DLAType.ICEBERG) {
-            return IcebergUtils.getIcebergSchema(this);
-        }
-        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
-        return schemaCacheValue.map(SchemaCacheValue::getSchema).orElse(null);
+        return withMissingTableRepair(() -> {
+            makeSureInitialized();
+            if (getDlaType() == DLAType.HUDI) {
+                return ((HudiDlaTable) dlaTable).getHudiSchemaCacheValue(MvccUtil.getSnapshotFromContext(this))
+                        .getSchema();
+            } else if (getDlaType() == DLAType.ICEBERG) {
+                return getIcebergSchema(MvccUtil.getSnapshotFromContext(this)).getSchema();
+            }
+            Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
+            return schemaCacheValue.map(SchemaCacheValue::getSchema).orElse(null);
+
+        });
     }
 
     @Override
     public List<Column> getFullSchema(Optional<MvccSnapshot> snapshot) {
-        makeSureInitialized();
-        // HMS can front snapshot-aware formats too; callers that pin a relation must not fall
-        // back to the table's current schema merely because its catalog type is HMS.
-        if (getDlaType() == DLAType.HUDI) {
-            return ((HudiDlaTable) dlaTable).getHudiSchemaCacheValue(snapshot).getSchema();
-        } else if (getDlaType() == DLAType.ICEBERG) {
-            return IcebergUtils.getIcebergSchema(this, snapshot);
-        }
-        return super.getFullSchema(snapshot);
+        return withMissingTableRepair(() -> {
+            makeSureInitialized();
+            // HMS can front snapshot-aware formats too; callers that pin a relation must not fall
+            // back to the table's current schema merely because its catalog type is HMS.
+            if (getDlaType() == DLAType.HUDI) {
+                return ((HudiDlaTable) dlaTable).getHudiSchemaCacheValue(snapshot).getSchema();
+            } else if (getDlaType() == DLAType.ICEBERG) {
+                return getIcebergSchema(snapshot).getSchema();
+            }
+            return super.getFullSchema(snapshot);
+
+        });
     }
 
     @Override
     public Optional<SchemaCacheValue> getSchemaCacheValue() {
-        makeSureInitialized();
-        if (dlaType == DLAType.HUDI) {
-            return Optional.of(
-                    ((HudiDlaTable) dlaTable).getHudiSchemaCacheValue(MvccUtil.getSnapshotFromContext(this)));
-        } else if (dlaType == DLAType.ICEBERG) {
-            IcebergSnapshotCacheValue snapshotValue = IcebergUtils.getSnapshotCacheValue(
-                    MvccUtil.getSnapshotFromContext(this), this);
-            return Optional.of(IcebergUtils.getSchemaCacheValue(this, snapshotValue));
-        }
-        return super.getSchemaCacheValue();
+        return withMissingTableRepair(() -> {
+            makeSureInitialized();
+            if (dlaType == DLAType.HUDI) {
+                return Optional.of(
+                        ((HudiDlaTable) dlaTable).getHudiSchemaCacheValue(MvccUtil.getSnapshotFromContext(this)));
+            } else if (dlaType == DLAType.ICEBERG) {
+                return Optional.of(getIcebergSchema(MvccUtil.getSnapshotFromContext(this)));
+            }
+            return super.getSchemaCacheValue();
+        });
+    }
+
+    private SchemaCacheValue getIcebergSchema(Optional<MvccSnapshot> snapshot) {
+        return IcebergUtils.withSnapshotCacheValue(snapshot, this,
+                snapshotValue -> IcebergUtils.getSchemaCacheValue(this, snapshotValue));
     }
 
     public List<Type> getPartitionColumnTypes(Optional<MvccSnapshot> snapshot) {
@@ -433,8 +450,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     @Override
     public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
-        makeSureInitialized();
-        return dlaTable.getPartitionColumns(snapshot);
+        return withMissingTableRepair(() -> {
+            makeSureInitialized();
+            return dlaTable.getPartitionColumns(snapshot);
+        });
     }
 
     @Override
@@ -541,8 +560,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     @Override
     public boolean isView() {
-        makeSureInitialized();
-        return remoteTable.isSetViewOriginalText() || remoteTable.isSetViewExpandedText();
+        return withMissingTableRepair(() -> {
+            makeSureInitialized();
+            return remoteTable.isSetViewOriginalText() || remoteTable.isSetViewExpandedText();
+        });
     }
 
     @Override
@@ -588,6 +609,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     public long getLastCheckTime() {
         return 0;
+    }
+
+    public String getCreateTableSql() {
+        return withMissingTableRepair(() -> HiveMetaStoreClientHelper.showCreateTable(this));
     }
 
     /**
@@ -708,12 +733,20 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return client.getPartition(getRemoteDbName(), remoteName, partitionValues);
     }
 
+    public List<String> listPartitionNames() {
+        return withMissingTableRepair(() -> ((HMSExternalCatalog) catalog).getClient()
+                .listPartitionNames(getRemoteDbName(), getRemoteName()));
+    }
+
+    public List<String> listPartitionNames(long maxListPartitionNum) {
+        return withMissingTableRepair(() -> ((HMSExternalCatalog) catalog).getClient()
+                .listPartitionNames(getRemoteDbName(), getRemoteName(), maxListPartitionNum));
+    }
+
     @Override
     public Set<String> getPartitionNames() {
         makeSureInitialized();
-        HMSCachedClient client = ((HMSExternalCatalog) catalog).getClient();
-        List<String> names = client.listPartitionNames(getRemoteDbName(), getRemoteName());
-        return new HashSet<>(names);
+        return new HashSet<>(listPartitionNames());
     }
 
     @Override
@@ -855,7 +888,11 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                     // to be same as doris managed table.
                     // This is to avoid some unexpected behavior such as different partition pruning result
                     // between doris managed table and external table.
-                    if (column.getType().getPrimitiveType() == PrimitiveType.STRING) {
+                    // HMS partition names use the legacy text representation. Keep only partition
+                    // columns compatible with metadata literals and writer routing; file BINARY
+                    // columns still use VARBINARY and must never be decoded as text.
+                    if (column.getType().getPrimitiveType() == PrimitiveType.STRING
+                            || column.getType().getPrimitiveType() == PrimitiveType.VARBINARY) {
                         column.setType(ScalarType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH));
                     }
                     partitionColumns.add(column);
@@ -897,8 +934,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 return getHiveColumnStats(colName);
             case ICEBERG:
                 if (GlobalVariable.enableFetchIcebergStats) {
-                    return StatisticsUtil.getIcebergColumnStats(colName,
-                            IcebergUtils.getIcebergTable(this));
+                    return IcebergUtils.withIcebergTable(this,
+                            table -> StatisticsUtil.getIcebergColumnStats(colName, table));
                 } else {
                     break;
                 }
@@ -1056,6 +1093,16 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             Optional<MvccSnapshot> snapshot) throws AnalysisException {
         makeSureInitialized();
         return dlaTable.getPartitionSnapshot(partitionName, context, snapshot);
+    }
+
+    @Override
+    public Map<String, MTMVSnapshotIf> getPartitionSnapshots(Set<String> partitionNames,
+            MTMVRefreshContext context, Optional<MvccSnapshot> snapshot) throws AnalysisException {
+        makeSureInitialized();
+        if (dlaTable instanceof HiveDlaTable) {
+            return ((HiveDlaTable) dlaTable).getPartitionSnapshots(partitionNames, snapshot);
+        }
+        return MTMVRelatedTableIf.super.getPartitionSnapshots(partitionNames, context, snapshot);
     }
 
     @Override
@@ -1230,14 +1277,17 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     @Override
     public MvccSnapshot loadSnapshot(Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams) {
-        if (getDlaType() == DLAType.HUDI) {
-            return HudiUtils.getHudiMvccSnapshot(tableSnapshot, this);
-        } else if (getDlaType() == DLAType.ICEBERG) {
-            return new IcebergMvccSnapshot(
-                    IcebergUtils.getSnapshotCacheValue(tableSnapshot, this, scanParams));
-        } else {
-            return new EmptyMvccSnapshot();
-        }
+        return withMissingTableRepair(() -> {
+            if (getDlaType() == DLAType.HUDI) {
+                return HudiUtils.getHudiMvccSnapshot(tableSnapshot, this);
+            } else if (getDlaType() == DLAType.ICEBERG) {
+                return new IcebergMvccSnapshot(
+                        IcebergUtils.getSnapshotCacheValue(tableSnapshot, this, scanParams));
+            } else {
+                return new EmptyMvccSnapshot();
+            }
+
+        });
     }
 
     public boolean firstColumnIsString() {
@@ -1322,25 +1372,11 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     public HiveExternalMetaCache.HivePartitionValues getHivePartitionValues(Optional<MvccSnapshot> snapshot) {
-        long startTime = System.currentTimeMillis();
-        HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .hive(getCatalog().getId());
-        try {
-            List<Type> partitionColumnTypes = this.getPartitionColumnTypes(snapshot);
-            HiveExternalMetaCache.HivePartitionValues partitionValues = cache.getPartitionValues(this,
-                    partitionColumnTypes);
-            SummaryProfile summaryProfile = SummaryProfile.getSummaryProfile(null);
-            if (summaryProfile != null) {
-                summaryProfile.addExternalTableGetPartitionValuesTime(System.currentTimeMillis() - startTime);
-            }
-            return partitionValues;
-        } catch (Exception e) {
-            if (e.getMessage().contains(HiveExternalMetaCache.ERR_CACHE_INCONSISTENCY)) {
-                LOG.warn("Hive metastore cache inconsistency detected for table: {}.{}.{}. "
-                                + "Clearing cache and retrying to get partition values.",
-                        this.getCatalog().getName(), this.getDbName(), this.getName(), e);
-                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableByEngine(
-                        getCatalog().getId(), getMetaCacheEngine(), getDbName(), getName());
+        return withMissingTableRepair(() -> {
+            long startTime = System.currentTimeMillis();
+            HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .hive(getCatalog().getId());
+            try {
                 List<Type> partitionColumnTypes = this.getPartitionColumnTypes(snapshot);
                 HiveExternalMetaCache.HivePartitionValues partitionValues = cache.getPartitionValues(this,
                         partitionColumnTypes);
@@ -1349,9 +1385,25 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                     summaryProfile.addExternalTableGetPartitionValuesTime(System.currentTimeMillis() - startTime);
                 }
                 return partitionValues;
-            } else {
-                throw e;
+            } catch (Exception e) {
+                if (e.getMessage().contains(HiveExternalMetaCache.ERR_CACHE_INCONSISTENCY)) {
+                    LOG.warn("Hive metastore cache inconsistency detected for table: {}.{}.{}. "
+                                    + "Clearing cache and retrying to get partition values.",
+                            this.getCatalog().getName(), this.getDbName(), this.getName(), e);
+                    Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableByEngine(
+                            getCatalog().getId(), getMetaCacheEngine(), getDbName(), getName());
+                    List<Type> partitionColumnTypes = this.getPartitionColumnTypes(snapshot);
+                    HiveExternalMetaCache.HivePartitionValues partitionValues = cache.getPartitionValues(this,
+                            partitionColumnTypes);
+                    SummaryProfile summaryProfile = SummaryProfile.getSummaryProfile(null);
+                    if (summaryProfile != null) {
+                        summaryProfile.addExternalTableGetPartitionValuesTime(System.currentTimeMillis() - startTime);
+                    }
+                    return partitionValues;
+                } else {
+                    throw e;
+                }
             }
-        }
+        });
     }
 }

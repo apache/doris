@@ -43,6 +43,7 @@ import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache;
+import org.apache.doris.datasource.lance.LanceExternalCatalog;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
@@ -53,6 +54,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -67,6 +69,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentMap;
@@ -86,6 +89,29 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     public static final String ACCESS_CONTROLLER_PROPERTY_PREFIX_PROP = "access_controller.properties.";
     public static final String METADATA_REFRESH_INTERVAL_SEC = "metadata_refresh_interval_sec";
     public static final String CATALOG_TYPE_PROP = "type";
+
+    /**
+     * The Lance catalog properties whose change moves the persisted target identity
+     * (provider, stable locator, or namespace mapping) out from under an index
+     * statement that captured that identity. Credentials stay unguarded and may be
+     * rotated freely: an access key, secret key or session token authenticates to the
+     * same target. Storage-routing properties are part of the identity instead, because
+     * the target is identified by a URI and a different endpoint or region can land that
+     * same URI on a different storage service. The routing entries are the canonical
+     * endpoint/region spellings of every S3-compatible property family the Lance storage
+     * chain consumes: an s3 dataset reads whichever S3-compatible configuration the
+     * catalog carries (LanceS3StorageProvider prefers a concrete family over the generic
+     * s3 keys), while an oss dataset reads the oss keys only. Other properties are not
+     * target-changing and stay unguarded. Keys match case-insensitively because the
+     * catalog property chain performs no key normalization.
+     */
+    private static final Set<String> LANCE_TARGET_IDENTITY_KEYS = ImmutableSet.of(
+            "lance.catalog.type", "warehouse",
+            "lance.namespace.parent", "lance.namespace.delimiter", "lance.namespace.root_database",
+            "s3.endpoint", "s3.region", "oss.endpoint", "oss.region",
+            "cos.endpoint", "cos.region", "obs.endpoint", "obs.region",
+            "minio.endpoint", "minio.region", "gs.endpoint",
+            "ozone.endpoint", "ozone.region");
 
     private final MonitoredReentrantReadWriteLock lock = new MonitoredReentrantReadWriteLock(true);
 
@@ -132,8 +158,13 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
         String catalogName = catalog.getName();
         Env.getCurrentEnv().getRefreshManager().removeFromRefreshMap(catalogId);
+        // Remove both lock-free mappings first: a row-count load admitted after the fence below
+        // could otherwise still resolve this catalog through them and alias a same-name
+        // replacement, because RowCountKey equality uses only tableId. Fence last, while this
+        // write lock still excludes a same-name CREATE.
         idToCatalog.remove(catalogId);
         nameToCatalog.remove(catalogName);
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(catalogId);
         return new RemovedCatalog(catalog, catalogName);
     }
 
@@ -300,7 +331,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 LOG.warn("Non catalog {} is found.", catalogName);
                 return;
             }
-            CatalogIf<DatabaseIf<TableIf>> catalog = nameToCatalog.get(catalogName);
+            // Raw CatalogIf: the parameterized CatalogIf<DatabaseIf<TableIf>> can never be
+            // a LanceExternalCatalog at compile time, which would reject the instanceof below.
+            CatalogIf catalog = nameToCatalog.get(catalogName);
             if (catalog == null) {
                 throw new DdlException("No catalog found with name: " + catalogName);
             }
@@ -421,9 +454,149 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             }
             CatalogLog log = new CatalogLog();
             log.setCatalogId(catalog.getId());
-            log.setNewProps(newProperties);
+            Map<String, String> loggedProperties = Maps.newHashMap(newProperties);
+            if (catalog instanceof ExternalCatalog
+                    && loggedProperties.containsKey(CatalogProperty.ENABLE_MAPPING_VARBINARY)) {
+                // Older FEs replay this map verbatim, so normalize the durable record, not just
+                // the live CatalogProperty. Do not mutate the caller's possibly immutable map.
+                loggedProperties.put(CatalogProperty.ENABLE_MAPPING_VARBINARY, "true");
+            }
+            if (catalog instanceof ExternalCatalog
+                    && loggedProperties.containsKey(CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ)) {
+                // Replicate the effective type policy so older followers infer the same schema.
+                loggedProperties.put(CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ, "true");
+            }
+            log.setNewProps(loggedProperties);
             replayAlterCatalogProps(log, oldProperties, false);
-            Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
+            if (!(catalog instanceof ExternalCatalog)) {
+                // External catalogs journal the committed change from the fenced helper once publication
+                // has happened; non-external catalogs only reach this point on success.
+                Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    /** Capture local target identity before reading remote metadata, without holding a DDL lock over I/O. */
+    public LanceIndexTarget captureLanceIndexTarget(LanceExternalCatalog catalog) throws DdlException {
+        readLock();
+        try {
+            requireCurrentLanceCatalog(catalog);
+            return new LanceIndexTarget(lanceIndexTargetProperties(catalog), catalog.getIndexTargetVersion());
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public static final class LanceIndexTarget {
+        private final Map<String, String> properties;
+        private final long version;
+
+        private LanceIndexTarget(Map<String, String> properties, long version) {
+            this.properties = properties;
+            this.version = version;
+        }
+    }
+
+    @FunctionalInterface
+    public interface LanceIndexAdmissionAction<T> {
+        T run() throws Exception;
+    }
+
+    /**
+     * Revalidate the target and run the prepared admission action atomically with DROP CATALOG
+     * and identity ALTER. The action must contain only local work or a no-op; all metadata
+     * loading must finish before entering this short critical section.
+     */
+    public <T> T withLanceIndexAdmission(LanceExternalCatalog catalog, LanceIndexTarget expectedTarget,
+            LanceIndexAdmissionAction<T> action) throws Exception {
+        readLock();
+        try {
+            requireCurrentLanceCatalog(catalog);
+            if (catalog.getIndexTargetVersion() != expectedTarget.version
+                    || !lanceIndexTargetProperties(catalog).equals(expectedTarget.properties)) {
+                throw new DdlException("Lance catalog target changed during index admission; retry the statement");
+            }
+            return action.run();
+        } finally {
+            readUnlock();
+        }
+    }
+
+    private void requireCurrentLanceCatalog(LanceExternalCatalog catalog) throws DdlException {
+        if (idToCatalog.get(catalog.getId()) != catalog) {
+            throw new DdlException("Lance catalog changed during index admission; retry the statement");
+        }
+    }
+
+    private static Map<String, String> lanceIndexTargetProperties(LanceExternalCatalog catalog) {
+        Map<String, String> target = Maps.newHashMap();
+        for (Map.Entry<String, String> entry : catalog.getProperties().entrySet()) {
+            for (String identityKey : LANCE_TARGET_IDENTITY_KEYS) {
+                if (identityKey.equalsIgnoreCase(entry.getKey())) {
+                    target.put(entry.getKey(), entry.getValue());
+                    break;
+                }
+            }
+        }
+        return target;
+    }
+
+    /**
+     * Whether the supplied properties change any Lance target identity key relative to the
+     * currently persisted values. A same-value rewrite is an idempotent no-op and is not a
+     * change; a newly supplied identity key counts as a change when the persisted value
+     * differs (including when it was never set). Package-private for the guard test.
+     */
+    static boolean hasLanceIdentityKeyChange(Map<String, String> oldProperties,
+            Map<String, String> newProperties) {
+        for (Map.Entry<String, String> entry : newProperties.entrySet()) {
+            String key = entry.getKey();
+            if (key == null) {
+                continue;
+            }
+            for (String identityKey : LANCE_TARGET_IDENTITY_KEYS) {
+                if (identityKey.equalsIgnoreCase(key)
+                        && !Objects.equals(oldProperties.get(key), entry.getValue())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Migrate legacy markers after fenced master replay, before accepting queries or starting checkpoints.
+     */
+    public void migrateVarbinaryMappingProperties() throws DdlException {
+        writeLock();
+        try {
+            for (CatalogIf catalog : idToCatalog.values()) {
+                if (!(catalog instanceof ExternalCatalog)) {
+                    continue;
+                }
+                ExternalCatalog externalCatalog = (ExternalCatalog) catalog;
+                Map<String, String> migratedProperties = Maps.newHashMap();
+                for (String marker : new String[] {CatalogProperty.ENABLE_MAPPING_VARBINARY,
+                        CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ}) {
+                    if (!Boolean.parseBoolean(externalCatalog.getProperties().get(marker))) {
+                        migratedProperties.put(marker, "true");
+                    }
+                }
+                if (migratedProperties.isEmpty()) {
+                    continue;
+                }
+                CatalogLog log = new CatalogLog();
+                log.setCatalogId(catalog.getId());
+                log.setNewProps(migratedProperties);
+                // Use the existing ALTER format so running older followers can replay the change.
+                // Journal first: a failed write must leave the marker eligible for a retry.
+                Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
+                // Migration must not revalidate unrelated legacy connection properties or contact
+                // the external system while the master is still becoming ready.
+                replayAlterCatalogProps(log, null, true);
+            }
         } finally {
             writeUnlock();
         }
@@ -677,6 +850,12 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         writeLock();
         try {
             CatalogIf catalog = idToCatalog.get(log.getCatalogId());
+            if (catalog instanceof LanceExternalCatalog
+                    && hasLanceIdentityKeyChange(catalog.getProperties(), log.getNewProps())) {
+                // Invalidate in-flight snapshots before a tentative mutation, even if validation
+                // rolls it back. A loader outside this lock may have observed the temporary target.
+                ((LanceExternalCatalog) catalog).advanceIndexTargetVersion();
+            }
             if (catalog instanceof ExternalCatalog) {
                 // The tentative property window (legacy validators mutate the live CatalogProperty
                 // before commit/rollback) must be invisible to a concurrent lazy cache-group
@@ -740,8 +919,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 throw new DdlException("Invalid catalog properties: "
                         + validationException.getMessage(), validationException);
             }
-        } else {
-            externalCatalog.tryModifyCatalogProps(newProps);
         }
         if (newProps.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
             long catalogId = externalCatalog.getId();
@@ -749,15 +926,38 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             Integer[] sec = {metadataRefreshIntervalSec, metadataRefreshIntervalSec};
             Env.getCurrentEnv().getRefreshManager().addToRefreshMap(catalogId, sec);
         }
-        externalCatalog.modifyCatalogProps(newProps);
         // The commit reset the catalog's execution context and closed its SDK resources. Cached
         // base generations and projections are bound to the replaced context; retire them now so
         // the next statement loads a generation the planning fences accept, instead of retrying
-        // against an unplannable cached generation until managed refresh.
+        // against an unplannable cached generation until managed refresh. The properties are
+        // published before the reset's throwable cleanup, so retirement must run either way.
         Env currentEnv = Env.getCurrentEnv();
         ExternalMetaCacheMgr cacheMgr = currentEnv == null ? null : currentEnv.getExtMetaCacheMgr();
-        if (cacheMgr != null) {
-            cacheMgr.onCatalogOperationalContextChanged(externalCatalog.getId());
+        try {
+            if (cacheMgr != null) {
+                // Close the old row-count generation before publishing the new catalog context.
+                // The completion fence below also retires values loaded during the reset.
+                cacheMgr.invalidateRowCountCache(externalCatalog.getId());
+            }
+            externalCatalog.modifyCatalogProps(newProps);
+        } catch (RuntimeException e) {
+            if (!isReplay) {
+                throw e;
+            }
+            // A follower must not terminate because a local connector cleanup failed while applying
+            // an already-durable ALTER record. The property publication and the derived-state
+            // transitions above are failure-safe, so the record is considered applied.
+            LOG.warn("Failed to complete local cleanup while replaying ALTER CATALOG for {}: {}",
+                    externalCatalog.getName(), e.getMessage(), e);
+        } finally {
+            if (cacheMgr != null) {
+                cacheMgr.onCatalogOperationalContextChanged(externalCatalog.getId());
+            }
+            if (!isReplay && currentEnv != null) {
+                // Publication has happened once modifyCatalogProps is reached; journal it even if the
+                // reset's own cleanup throws. Pre-publication validation failures never reach here.
+                currentEnv.getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
+            }
         }
     }
 
@@ -815,6 +1015,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support create ExternalCatalog Tables");
         }
+        HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
         DatabaseIf db = catalog.getDbNullable(dbName);
         if (db == null) {
             if (!ignoreIfExists) {
@@ -822,23 +1023,28 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             }
             return;
         }
-
         long tblId;
-        HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
         tblId = Util.genIdByName(catalogName, dbName, tableName);
         // -1L means it will be dropped later, ignore
         if (tblId == ExternalMetaIdMgr.META_ID_FOR_NOT_EXISTS) {
             return;
         }
 
-        db.writeLock();
-        try {
-            HMSExternalTable namedTable = ((HMSExternalDatabase) db)
-                    .buildTableForInit(tableName, tableName, tblId, hmsCatalog, (HMSExternalDatabase) db, false);
-            namedTable.setUpdateTime(updateTime);
-            db.registerTable(namedTable);
-        } finally {
-            db.writeUnlock();
+        HMSExternalDatabase hmsDatabase = (HMSExternalDatabase) db;
+        boolean registered = hmsCatalog.executeIfDatabaseCurrent(hmsDatabase, () -> {
+            long metadataLoadEpoch = hmsDatabase.acquireTableMetadataLoadEpoch();
+            hmsDatabase.writeLock();
+            try {
+                HMSExternalTable namedTable = hmsDatabase
+                        .buildTableForInit(tableName, tableName, tblId, hmsCatalog, hmsDatabase, false);
+                namedTable.setUpdateTime(updateTime);
+                return hmsDatabase.registerTableFromEvent(namedTable, metadataLoadEpoch);
+            } finally {
+                hmsDatabase.writeUnlock();
+            }
+        });
+        if (!registered) {
+            throw new DdlException("External table metadata changed while processing create event");
         }
     }
 
@@ -851,7 +1057,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support drop ExternalCatalog databases");
         }
-        ((HMSExternalCatalog) catalog).unregisterDatabase(dbName);
+        HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
+        if (hmsCatalog.isDatabaseEventTargetExcluded(dbName)) {
+            return;
+        }
+        hmsCatalog.unregisterDatabase(dbName);
     }
 
     public void registerExternalDatabaseFromEvent(String dbName, String catalogName)
@@ -865,13 +1075,16 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
 
         HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
-        long dbId = Util.genIdByName(catalogName, dbName);
+        long metadataLoadEpoch = hmsCatalog.acquireMetadataLoadEpoch();
+        long dbId = Util.genIdByName(catalogName, hmsCatalog.localDatabaseNameFromRemote(dbName));
         // -1L means it will be dropped later, ignore
         if (dbId == ExternalMetaIdMgr.META_ID_FOR_NOT_EXISTS) {
             return;
         }
 
-        hmsCatalog.registerDatabase(dbId, dbName);
+        if (!hmsCatalog.registerDatabaseFromEvent(dbId, dbName, metadataLoadEpoch)) {
+            throw new DdlException("External catalog metadata changed while processing create database event");
+        }
     }
 
     public void addExternalPartitions(String catalogName, String dbName, String tableName,
@@ -884,8 +1097,29 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support ExternalCatalog");
         }
+        if (catalog instanceof HMSExternalCatalog
+                && ((HMSExternalCatalog) catalog).isPartitionEventTargetExcluded(dbName, tableName)) {
+            return;
+        }
+        // Partition events are already committed remotely. Fence the row count by cached identity
+        // before any database/table reload can fail and make the ignored-not-found path return.
+        Env.getCurrentEnv().getExtMetaCacheMgr()
+                .invalidateRowCountCache(catalog.getId(), dbName, tableName);
+        try {
+            addExternalPartitionsAfterFence(catalog, dbName, tableName, partitionNames, updateTime,
+                    ignoreIfNotExists);
+        } finally {
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .invalidateRowCountCache(catalog.getId(), dbName, tableName);
+        }
+    }
+
+    private void addExternalPartitionsAfterFence(CatalogIf catalog, String dbName, String tableName,
+            List<String> partitionNames, long updateTime, boolean ignoreIfNotExists) throws DdlException {
         DatabaseIf db = catalog.getDbNullable(dbName);
         if (db == null) {
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .invalidateTableByNameOrWider(catalog.getId(), dbName, tableName);
             if (!ignoreIfNotExists) {
                 throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
             }
@@ -894,6 +1128,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
         TableIf table = db.getTableNullable(tableName);
         if (table == null) {
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .invalidateTableByNameOrWider(catalog.getId(), dbName, tableName);
             if (!ignoreIfNotExists) {
                 throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
             }
@@ -927,8 +1163,29 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support ExternalCatalog");
         }
+        if (catalog instanceof HMSExternalCatalog
+                && ((HMSExternalCatalog) catalog).isPartitionEventTargetExcluded(dbName, tableName)) {
+            return;
+        }
+        // Partition events are already committed remotely. Fence the row count by cached identity
+        // before any database/table reload can fail and make the ignored-not-found path return.
+        Env.getCurrentEnv().getExtMetaCacheMgr()
+                .invalidateRowCountCache(catalog.getId(), dbName, tableName);
+        try {
+            dropExternalPartitionsAfterFence(catalog, dbName, tableName, partitionNames, updateTime,
+                    ignoreIfNotExists);
+        } finally {
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .invalidateRowCountCache(catalog.getId(), dbName, tableName);
+        }
+    }
+
+    private void dropExternalPartitionsAfterFence(CatalogIf catalog, String dbName, String tableName,
+            List<String> partitionNames, long updateTime, boolean ignoreIfNotExists) throws DdlException {
         DatabaseIf db = catalog.getDbNullable(dbName);
         if (db == null) {
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .invalidateTableByNameOrWider(catalog.getId(), dbName, tableName);
             if (!ignoreIfNotExists) {
                 throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
             }
@@ -937,6 +1194,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
         TableIf table = db.getTableNullable(tableName);
         if (table == null) {
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .invalidateTableByNameOrWider(catalog.getId(), dbName, tableName);
             if (!ignoreIfNotExists) {
                 throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
             }

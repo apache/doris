@@ -322,6 +322,23 @@ public class ColumnDefinition {
         }
     }
 
+    /**
+     * Returns whether the given type may be used as an OLAP key column.
+     */
+    public static boolean isEligibleKeyType(DataType type) {
+        return !type.isFloatLikeType()
+                && !type.isStringType()
+                && !type.isArrayType()
+                && !type.isBitmapType()
+                && !type.isHllType()
+                && !type.isQuantileStateType()
+                && !type.isJsonType()
+                && !type.isVariantType()
+                && !type.isMapType()
+                && !type.isStructType()
+                && !type.isFileType();
+    }
+
     private void checkKeyColumnType(boolean isOlap) {
         if (isOlap) {
             if (type.isFloatLikeType()) {
@@ -380,7 +397,15 @@ public class ColumnDefinition {
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }
+        if (!nestedColumn && type.isVariantType() && name.indexOf('.') != -1) {
+            throw new AnalysisException(
+                    "Cannot use `VARIANT` type column named with a `.` character: " + name);
+        }
         type.validateDataType();
+        if (type.typeContainsFile()) {
+            throw new AnalysisException(isOlap ? "FILE columns are not supported in internal tables"
+                    : "FILE columns are not supported in external tables");
+        }
         type = updateCharacterTypeLength(type);
         if (type.isArrayType()) {
             int depth = 0;

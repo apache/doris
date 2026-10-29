@@ -19,6 +19,7 @@ package org.apache.doris.datasource.property;
 
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
+import org.apache.doris.foundation.property.NoPathTraversalValidator;
 import org.apache.doris.nereids.types.UnsupportedType;
 
 import  org.junit.jupiter.api.Assertions;
@@ -103,6 +104,30 @@ public class ConnectorPropertiesUtilsTest {
         });
     }
 
+    @Test
+    void testPropertyValidatorRejectsInvalidValue() {
+        Map<String, String> props = new HashMap<>();
+        props.put("path.key", "core-site.xml, ..\\secret.xml");
+
+        SampleConfig config = new SampleConfig();
+        IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> ConnectorPropertiesUtils.bindConnectorProperties(config, props));
+
+        Assertions.assertTrue(ex.getMessage().contains("parent-directory references"), ex.getMessage());
+        Assertions.assertNull(config.getPathValue());
+    }
+
+    @Test
+    void testPropertyValidatorAcceptsSafeValue() {
+        Map<String, String> props = new HashMap<>();
+        props.put("path.key", "conf/core-site.xml");
+
+        SampleConfig config = new SampleConfig();
+        ConnectorPropertiesUtils.bindConnectorProperties(config, props);
+
+        Assertions.assertEquals("conf/core-site.xml", config.getPathValue());
+    }
+
     public class SampleConfig {
 
         @ConnectorProperty(names = {"string.key"})
@@ -128,6 +153,9 @@ public class ConnectorPropertiesUtilsTest {
 
         @ConnectorProperty(names = {"unsupported.key"})
         private UnsupportedType unsupportedField;
+
+        @ConnectorProperty(names = {"path.key"}, validator = NoPathTraversalValidator.class)
+        private String pathValue;
 
         public String getStringValue() {
             return stringValue;
@@ -159,6 +187,10 @@ public class ConnectorPropertiesUtilsTest {
 
         public UnsupportedType getUnsupportedField() {
             return unsupportedField;
+        }
+
+        public String getPathValue() {
+            return pathValue;
         }
 
     }

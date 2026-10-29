@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Index;
 import com.google.common.base.Strings;
 
 import java.util.Collections;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -107,18 +108,18 @@ public final class AnalyzerSelector {
      */
     private static String determineIndexAnalyzer(String customAnalyzer, String parser) {
         if (!Strings.isNullOrEmpty(customAnalyzer)) {
-            return customAnalyzer.trim().toLowerCase();
+            return customAnalyzer.trim();
         }
         if (!Strings.isNullOrEmpty(parser)
-                && !InvertedIndexUtil.INVERTED_INDEX_PARSER_NONE.equalsIgnoreCase(parser)) {
-            return parser.trim().toLowerCase();
+                && !InvertedIndexProperties.INVERTED_INDEX_PARSER_NONE.equalsIgnoreCase(parser)) {
+            return parser.trim().toLowerCase(Locale.ROOT);
         }
         // Keyword index (parser=none) or no analyzer configured
         return "";
     }
 
     private static String normalize(String analyzer) {
-        return analyzer == null ? "" : analyzer.trim().toLowerCase();
+        return analyzer == null ? "" : analyzer.trim();
     }
 
     /**
@@ -144,8 +145,8 @@ public final class AnalyzerSelector {
             this.userAnalyzer = userAnalyzer;
             this.indexAnalyzer = indexAnalyzer;
             this.parser = Strings.isNullOrEmpty(parser)
-                    ? InvertedIndexUtil.INVERTED_INDEX_PARSER_NONE
-                    : parser.trim().toLowerCase();
+                    ? InvertedIndexProperties.INVERTED_INDEX_PARSER_NONE
+                    : parser.trim().toLowerCase(Locale.ROOT);
             this.explicit = explicit;
         }
 

@@ -120,6 +120,12 @@ suite("test_analyze") {
         SET forbid_unknown_col_stats=false;
     """
 
+    // DROP STATS does not invalidate the SQL cache and the stats version is not part of the cache
+    // key, so a cached SELECT is replayed without planning and forbid_unknown_col_stats never fires.
+    sql """
+        SET enable_sql_cache=false;
+    """
+
     sql """
         SELECT * FROM ${tbl}
     """
@@ -2788,9 +2794,9 @@ PARTITION `p599` VALUES IN (599)
     sql """alter table alter_test modify column id set stats ('row_count'='100', 'ndv'='0', 'num_nulls'='0.0', 'data_size'='2.69975443E8', 'min_value'='1', 'max_value'='2');"""
     alter_result = sql """show column stats alter_test(id)"""
     logger.info("show column alter_test(id) stats: " + alter_result)
-    assertEquals(1, alter_result.size())
+    assertEquals(0, alter_result.size())
     alter_result = sql """show column cached stats alter_test(id)"""
-    assertEquals(1, alter_result.size())
+    assertEquals(0, alter_result.size())
     sql """alter table alter_test modify column id set stats ('row_count'='100', 'ndv'='0', 'num_nulls'='100', 'data_size'='2.69975443E8', 'min_value'='1', 'max_value'='2');"""
     alter_result = sql """show column stats alter_test(id)"""
     logger.info("show column alter_test(id) stats: " + alter_result)

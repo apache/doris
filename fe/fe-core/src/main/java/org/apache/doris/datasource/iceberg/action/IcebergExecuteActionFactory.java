@@ -18,7 +18,12 @@
 package org.apache.doris.datasource.iceberg.action;
 
 import org.apache.doris.common.DdlException;
+import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache.CatalogGenerationChangedException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.execute.ExecuteAction;
@@ -59,39 +64,58 @@ public class IcebergExecuteActionFactory {
             Optional<PartitionNamesInfo> partitionNamesInfo,
             Optional<Expression> whereCondition,
             IcebergExternalTable table) throws DdlException {
+        IcebergMetadataOps metadataOps = getMetadataOps(table);
 
         switch (actionType.toLowerCase()) {
             case ROLLBACK_TO_SNAPSHOT:
                 return new IcebergRollbackToSnapshotAction(properties, partitionNamesInfo,
-                        whereCondition);
+                        whereCondition, metadataOps);
             case ROLLBACK_TO_TIMESTAMP:
                 return new IcebergRollbackToTimestampAction(properties, partitionNamesInfo,
-                        whereCondition);
+                        whereCondition, metadataOps);
             case SET_CURRENT_SNAPSHOT:
                 return new IcebergSetCurrentSnapshotAction(properties, partitionNamesInfo,
-                        whereCondition);
+                        whereCondition, metadataOps);
             case CHERRYPICK_SNAPSHOT:
                 return new IcebergCherrypickSnapshotAction(properties, partitionNamesInfo,
-                        whereCondition);
+                        whereCondition, metadataOps);
             case FAST_FORWARD:
                 return new IcebergFastForwardAction(properties, partitionNamesInfo,
-                        whereCondition);
+                        whereCondition, metadataOps);
             case EXPIRE_SNAPSHOTS:
                 return new IcebergExpireSnapshotsAction(properties, partitionNamesInfo,
-                        whereCondition);
+                        whereCondition, metadataOps);
             case REWRITE_DATA_FILES:
                 return new IcebergRewriteDataFilesAction(properties, partitionNamesInfo,
-                        whereCondition);
+                        whereCondition, metadataOps);
             case PUBLISH_CHANGES:
                 return new IcebergPublishChangesAction(properties, partitionNamesInfo,
-                        whereCondition);
+                        whereCondition, metadataOps);
             case REWRITE_MANIFESTS:
                 return new IcebergRewriteManifestsAction(properties, partitionNamesInfo,
-                        whereCondition);
+                        whereCondition, metadataOps);
             default:
                 throw new DdlException("Unsupported Iceberg procedure: " + actionType
                         + ". Supported procedures: " + String.join(", ", getSupportedActions()));
         }
+    }
+
+    private static IcebergMetadataOps getMetadataOps(IcebergExternalTable table) throws DdlException {
+        ExternalCatalog catalog = table.getCatalog();
+        IcebergMetadataOps metadataOps;
+        if (catalog instanceof HMSExternalCatalog) {
+            metadataOps = ((HMSExternalCatalog) catalog).getIcebergMetadataOps();
+        } else if (catalog instanceof IcebergExternalCatalog) {
+            metadataOps = (IcebergMetadataOps) catalog.getMetadataOps();
+        } else {
+            throw new DdlException("Unsupported catalog type for Iceberg execute action: "
+                    + catalog.getClass().getSimpleName());
+        }
+        if (metadataOps == null) {
+            throw new CatalogGenerationChangedException(
+                    "Catalog was reset while preparing Iceberg execute action");
+        }
+        return metadataOps;
     }
 
     /**

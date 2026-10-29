@@ -54,6 +54,11 @@ public class ArrayExcept extends ScalarFunction implements ExplicitlyCastableSig
         super(functionParams);
     }
 
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        ArrayFunctionUtils.checkNoVarBinaryArguments(this);
+    }
+
     /**
      * withChildren.
      */

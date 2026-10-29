@@ -144,6 +144,10 @@ public class MysqlProtoTest {
     }
 
     private void mockChannel(String user, boolean sendOk) throws Exception {
+        mockChannel(user, sendOk, MysqlCapability.DEFAULT_CAPABILITY.getFlags());
+    }
+
+    private void mockChannel(String user, boolean sendOk, int clientCapabilityFlags) throws Exception {
         // mock channel
         new Expectations() {
             {
@@ -163,7 +167,7 @@ public class MysqlProtoTest {
         MysqlSerializer serializer = MysqlSerializer.newInstance();
 
         // capability
-        serializer.writeInt4(MysqlCapability.DEFAULT_CAPABILITY.getFlags());
+        serializer.writeInt4(clientCapabilityFlags);
         // max packet size
         serializer.writeInt4(1024000);
         // character set
@@ -283,6 +287,79 @@ public class MysqlProtoTest {
         context.setEnv(env);
         context.setThreadLocalInfo();
         Assert.assertTrue(MysqlProto.negotiate(context));
+    }
+
+    @Test
+    public void testNegotiateSetsClientMultiStatementsWhenTheClientAsksForIt() throws Exception {
+        // The client echoes the advertised capabilities, which carry CLIENT_MULTI_STATEMENTS: what
+        // Connector/J 8 and 9 with allowMultiQueries send, since they mask the flags they ask for
+        // with the advertised ones.
+        mockChannel("user", true);
+        mockPassword(true);
+        mockAccess();
+        ConnectContext context = new ConnectContext(streamConnection);
+        context.setEnv(env);
+        context.setThreadLocalInfo();
+        Assert.assertTrue(MysqlProto.negotiate(context));
+        Assert.assertTrue(context.getCapability().isClientMultiStatements());
+        new Verifications() {
+            {
+                channel.setClientMultiStatements();
+                times = 1;
+            }
+        };
+    }
+
+    @Test
+    public void testNegotiateLeavesClientMultiStatementsWhenTheClientDoesNotAskForIt() throws Exception {
+        int clientFlags = MysqlCapability.DEFAULT_CAPABILITY.getFlags()
+                & ~MysqlCapability.Flag.CLIENT_MULTI_STATEMENTS.getFlagBit();
+        mockChannel("user", true, clientFlags);
+        mockPassword(true);
+        mockAccess();
+        ConnectContext context = new ConnectContext(streamConnection);
+        context.setEnv(env);
+        context.setThreadLocalInfo();
+        Assert.assertTrue(MysqlProto.negotiate(context));
+        Assert.assertFalse(context.getCapability().isClientMultiStatements());
+        new Verifications() {
+            {
+                channel.setClientMultiStatements();
+                times = 0;
+            }
+        };
+    }
+
+    @Test
+    public void testNegotiateUsesClientServerCapabilityIntersection() throws Exception {
+        int clientFlags = MysqlCapability.DEFAULT_CAPABILITY.getFlags()
+                & ~MysqlCapability.Flag.CLIENT_DEPRECATE_EOF.getFlagBit();
+        mockChannel("user", true, clientFlags);
+        MysqlSerializer serializer = MysqlSerializer.newInstance();
+        new Expectations() {
+            {
+                channel.getSerializer();
+                minTimes = 0;
+                result = serializer;
+            }
+        };
+        mockPassword(true);
+        mockAccess();
+        ConnectContext context = new ConnectContext(streamConnection);
+        context.setEnv(env);
+        context.setThreadLocalInfo();
+        Assert.assertTrue(MysqlProto.negotiate(context));
+        Assert.assertEquals(clientFlags, context.getCapability().getFlags());
+        Assert.assertEquals(clientFlags, serializer.getCapability().getFlags());
+        new Verifications() {
+            {
+                channel.setClientDeprecatedEOF();
+                times = 0;
+            }
+        };
+        serializer.reset();
+        new MysqlOkPacket(context.getState()).writeTo(serializer);
+        Assert.assertEquals(7, serializer.toByteBuffer().remaining());
     }
 
     @Test

@@ -33,7 +33,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.lance.LanceExternalCatalog;
 import org.apache.doris.datasource.lance.LanceExternalTable;
-import org.apache.doris.datasource.lance.LanceLogicalIndex;
+import org.apache.doris.datasource.lance.index.LanceShowIndexInfo;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -152,13 +152,13 @@ public class ShowIndexCommand extends ShowCommand {
     }
 
     private List<List<String>> getLanceIndexRows(LanceExternalTable table) throws AnalysisException {
-        return buildLanceRows(table.getName(), table.loadIndexMetadata());
+        return buildLanceRows(table.getName(), table.loadIndexesForShow());
     }
 
     @VisibleForTesting
-    static List<List<String>> buildLanceRows(String tableName, List<LanceLogicalIndex> indexes) {
+    static List<List<String>> buildLanceRows(String tableName, List<LanceShowIndexInfo> indexes) {
         List<List<String>> rows = Lists.newArrayList();
-        for (LanceLogicalIndex index : indexes) {
+        for (LanceShowIndexInfo index : indexes) {
             List<String> columns = index.getColumns();
             for (int i = 0; i < columns.size(); i++) {
                 rows.add(Lists.newArrayList(tableName, "", index.getName(), String.valueOf(i + 1),

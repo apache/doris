@@ -45,6 +45,8 @@ struct FieldBindingContext {
 
 struct QueryExecutionContext {
     uint32_t segment_num_rows = 0;
+    // SEARCH bitmaps and each bound reader already use the Doris segment's row IDs.
+    bool preserve_doc_ids = false;
     std::vector<std::shared_ptr<lucene::index::IndexReader>> readers;
     std::unordered_map<std::string, std::shared_ptr<lucene::index::IndexReader>> reader_bindings;
     std::unordered_map<std::wstring, std::shared_ptr<lucene::index::IndexReader>>
@@ -151,7 +153,9 @@ protected:
                                            const io::IOContext* io_ctx) const {
         auto t = make_term_ptr(field.c_str(), term.c_str());
         auto iter = make_term_doc_ptr(reader, t.get(), enable_scoring, io_ctx);
-        return iter ? make_segment_postings(std::move(iter), enable_scoring, similarity) : nullptr;
+        return iter ? make_segment_postings(std::move(iter), enable_scoring, similarity,
+                                            reader->hasNorms(field.c_str()))
+                    : nullptr;
     }
 
     SegmentPostingsPtr create_position_posting(lucene::index::IndexReader* reader,
@@ -168,7 +172,9 @@ protected:
                                                const io::IOContext* io_ctx) const {
         auto t = make_term_ptr(field.c_str(), term.c_str());
         auto iter = make_term_positions_ptr(reader, t.get(), enable_scoring, io_ctx);
-        return iter ? make_segment_postings(std::move(iter), enable_scoring, similarity) : nullptr;
+        return iter ? make_segment_postings(std::move(iter), enable_scoring, similarity,
+                                            reader->hasNorms(field.c_str()))
+                    : nullptr;
     }
 };
 

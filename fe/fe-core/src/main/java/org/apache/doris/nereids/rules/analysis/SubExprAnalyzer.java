@@ -38,7 +38,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -97,6 +99,16 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
             throw new AnalysisException("Unsupported correlated subquery with a LIMIT clause with offset > 0 "
                     + analyzedResult.getLogicalPlan());
         }
+        // EXISTS over a top-level scalar aggregate (no GROUP BY) always returns
+        // exactly one row.  Fold to TRUE / FALSE immediately; this also avoids
+        // rejecting a valid query that happens to contain a set-operation
+        // underneath the aggregate, e.g.
+        //   WHERE EXISTS (SELECT COUNT(*) FROM (... UNION ALL ...) u)
+        // because SubqueryToApply would have constant-folded it anyway.
+        if (hasTopLevelScalarAgg(analyzedResult)) {
+            return BooleanLiteral.of(!exists.isNot());
+        }
+        checkNoCorrelatedSlotsUnderSetOp(analyzedResult);
         return new Exists(analyzedResult.getLogicalPlan(), analyzedResult.getCorrelatedSlots(), exists.isNot());
     }
 
@@ -114,6 +126,7 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
 
         checkOutputColumn(analyzedResult.getLogicalPlan());
         checkNoCorrelatedSlotsUnderAgg(analyzedResult);
+        checkNoCorrelatedSlotsUnderSetOp(analyzedResult);
         checkRootIsLimit(analyzedResult);
 
         return new InSubquery(
@@ -220,6 +233,14 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
         }
     }
 
+    private void checkNoCorrelatedSlotsUnderSetOp(AnalyzedResult analyzedResult) {
+        if (analyzedResult.hasCorrelatedSlotsUnderSetOp()) {
+            throw new AnalysisException(
+                    "Unsupported correlated subquery with set operation "
+                            + analyzedResult.getLogicalPlan());
+        }
+    }
+
     private void checkRootIsLimit(AnalyzedResult analyzedResult) {
         if (!analyzedResult.isCorrelated()) {
             return;
@@ -228,6 +249,29 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
             throw new AnalysisException("Unsupported correlated subquery with a LIMIT clause "
                     + analyzedResult.getLogicalPlan());
         }
+    }
+
+    /**
+     * Check whether the analyzed subquery plan has a top-level scalar aggregate
+     * (aggregate without GROUP BY).  Such an aggregate is guaranteed to return
+     * exactly one row regardless of its input, so EXISTS over it is always TRUE
+     * and NOT EXISTS is always FALSE.  Sorting the single row cannot change
+     * EXISTS semantics, so we also strip leading LogicalSort and
+     * LogicalSubQueryAlias wrappers (the latter appears during analysis before
+     * LogicalSubQueryAliasToLogicalProject is applied).
+     */
+    private boolean hasTopLevelScalarAgg(AnalyzedResult analyzedResult) {
+        LogicalPlan plan = analyzedResult.getLogicalPlan();
+        // Strip leading projects, sorts, and subquery-alias wrappers —
+        // analysis may wrap the aggregate in any of these.
+        while (plan instanceof LogicalProject || plan instanceof LogicalSort
+                || plan instanceof LogicalSubQueryAlias) {
+            plan = (LogicalPlan) plan.child(0);
+        }
+        if (plan instanceof LogicalAggregate) {
+            return ((LogicalAggregate<?>) plan).getGroupByExpressions().isEmpty();
+        }
+        return false;
     }
 
     private AnalyzedResult analyzeSubquery(SubqueryExpr expr) {
@@ -281,13 +325,19 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
                             ImmutableSet.copyOf(correlatedSlots), LogicalAggregate.class);
         }
 
+        public boolean hasCorrelatedSlotsUnderSetOp() {
+            return correlatedSlots.isEmpty() ? false
+                    : hasCorrelatedSlotsUnderNode(logicalPlan,
+                            ImmutableSet.copyOf(correlatedSlots), LogicalSetOperation.class);
+        }
+
         private static <T> boolean hasCorrelatedSlotsUnderNode(Plan rootPlan,
                                                                ImmutableSet<Slot> slots, Class<T> clazz) {
             ArrayDeque<Plan> planQueue = new ArrayDeque<>();
             planQueue.add(rootPlan);
             while (!planQueue.isEmpty()) {
                 Plan plan = planQueue.poll();
-                if (plan.getClass().equals(clazz)) {
+                if (clazz.isInstance(plan)) {
                     if (plan.containsSlots(slots)) {
                         return true;
                     }
@@ -355,6 +405,17 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
                 PlanType planType = ExpressionUtils.containsWindowExpression(
                         ((LogicalProject<?>) plan).getProjects()) ? PlanType.LOGICAL_WINDOW : plan.getType();
                 return new PlanNodeCorrelatedInfo(planType, false);
+            }
+        }
+
+        public PlanNodeCorrelatedInfo visitLogicalOneRowRelation(LogicalOneRowRelation plan, Void context) {
+            boolean containCorrelatedSlots = findCorrelatedSlots(plan);
+            if (containCorrelatedSlots) {
+                throw new AnalysisException(
+                        String.format("access outer query's column in project is not supported",
+                                correlatedSlots));
+            } else {
+                return new PlanNodeCorrelatedInfo(plan.getType(), false);
             }
         }
 
@@ -433,6 +494,11 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
                         case LOGICAL_JOIN:
                             throw new AnalysisException(
                                     "access outer query's column before join is not supported");
+                        case LOGICAL_UNION:
+                        case LOGICAL_INTERSECT:
+                        case LOGICAL_EXCEPT:
+                            throw new AnalysisException(
+                                    "access outer query's column before set operation is not supported");
                         case LOGICAL_SORT:
                             // allow any sort node, the sort node will be removed by ELIMINATE_ORDER_BY_UNDER_SUBQUERY
                             break;

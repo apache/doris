@@ -30,6 +30,8 @@ import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
@@ -48,6 +50,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.BiPredicate;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import javax.annotation.Nullable;
@@ -58,6 +61,8 @@ import javax.annotation.Nullable;
  * key/predicate/full invalidation, and lightweight runtime stats.
  */
 public class MetaCacheEntry<K, V> {
+    private static final ThreadLocal<Deque<Runnable>> DEFERRED_REMOVALS = new ThreadLocal<>();
+
     private static final Logger LOG = LogManager.getLogger(MetaCacheEntry.class);
     // Use striped locks to deduplicate slow external loads without managing per-key lock lifecycle.
     private static final int LOAD_LOCK_STRIPES = 128;
@@ -93,6 +98,8 @@ public class MetaCacheEntry<K, V> {
     private final Function<V, Object> removalTokenExtractor;
     @Nullable
     private final MetaCacheEntryRemovalListener<K, Object> removalListener;
+    @Nullable
+    private final Consumer<V> unpublishedValueRetirer;
     // Removed (key, token) pairs awaiting the asynchronous removal listener; drained together with
     // the reservation cleanups so Caffeine's synchronous callback stays lock-free. Only the token
     // is queued: the removed value's reservation is released with the removal, so keeping the
@@ -104,6 +111,7 @@ public class MetaCacheEntry<K, V> {
     // before a max-weight is configured. This keeps estimation and dependency retirement on every
     // load/refresh path instead of letting Caffeine publish values behind those hooks.
     private final boolean generationFencedRefresh;
+    private final boolean requiresManualMissLoad;
     // Keep the loading cache for refreshAfterWrite and the legacy sync-load path when the feature is disabled.
     private final LoadingCache<K, V> loadingData;
     // Use the plain cache view for manual miss load so slow I/O does not happen in Caffeine's sync load path.
@@ -183,6 +191,45 @@ public class MetaCacheEntry<K, V> {
             @Nullable MetaCacheEntryReplacementListener<K, V> replacementListener,
             @Nullable Function<V, ?> removalTokenExtractor,
             @Nullable MetaCacheEntryRemovalListener<K, ?> removalListener) {
+        this(name, loader, cacheSpec, refreshExecutor, autoRefresh, contextualOnly,
+                sizeEstimator, entryBudget, replacementListener, removalTokenExtractor, removalListener, null);
+    }
+
+    @SuppressWarnings("unchecked")
+    public MetaCacheEntry(String name, @Nullable Function<K, V> loader, CacheSpec cacheSpec,
+            ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly,
+            @Nullable MetaCacheSizeEstimator<K, V> sizeEstimator, @Nullable EntryBudget entryBudget,
+            @Nullable MetaCacheEntryReplacementListener<K, V> replacementListener,
+            @Nullable Function<V, ?> removalTokenExtractor,
+            @Nullable MetaCacheEntryRemovalListener<K, ?> removalListener,
+            @Nullable Consumer<V> unpublishedValueRetirer) {
+        this(name, loader, cacheSpec, refreshExecutor, autoRefresh, contextualOnly,
+                sizeEstimator, entryBudget, replacementListener, removalTokenExtractor,
+                removalListener, unpublishedValueRetirer, true);
+    }
+
+    @SuppressWarnings("unchecked")
+    public MetaCacheEntry(String name, @Nullable Function<K, V> loader, CacheSpec cacheSpec,
+            ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly,
+            @Nullable MetaCacheSizeEstimator<K, V> sizeEstimator, @Nullable EntryBudget entryBudget,
+            @Nullable MetaCacheEntryReplacementListener<K, V> replacementListener,
+            @Nullable Function<V, ?> removalTokenExtractor,
+            @Nullable MetaCacheEntryRemovalListener<K, ?> removalListener,
+            @Nullable Consumer<V> unpublishedValueRetirer, boolean softValues) {
+        this(name, loader, cacheSpec, refreshExecutor, autoRefresh, contextualOnly,
+                sizeEstimator, entryBudget, replacementListener, removalTokenExtractor,
+                removalListener, unpublishedValueRetirer, softValues, false);
+    }
+
+    @SuppressWarnings("unchecked")
+    public MetaCacheEntry(String name, @Nullable Function<K, V> loader, CacheSpec cacheSpec,
+            ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly,
+            @Nullable MetaCacheSizeEstimator<K, V> sizeEstimator, @Nullable EntryBudget entryBudget,
+            @Nullable MetaCacheEntryReplacementListener<K, V> replacementListener,
+            @Nullable Function<V, ?> removalTokenExtractor,
+            @Nullable MetaCacheEntryRemovalListener<K, ?> removalListener,
+            @Nullable Consumer<V> unpublishedValueRetirer, boolean softValues, boolean requiresManualMissLoad) {
+        this.requiresManualMissLoad = requiresManualMissLoad;
         this.name = name;
         if (contextualOnly) {
             if (loader != null) {
@@ -206,9 +253,11 @@ public class MetaCacheEntry<K, V> {
         }
         this.removalTokenExtractor = (Function<V, Object>) removalTokenExtractor;
         this.removalListener = (MetaCacheEntryRemovalListener<K, Object>) removalListener;
+        this.unpublishedValueRetirer = unpublishedValueRetirer;
         this.weightBounded = this.cacheSpec.isWeightBounded();
         this.generationFencedRefresh = autoRefresh
-                && (sizeEstimator != null || replacementListener != null || removalListener != null);
+                && (sizeEstimator != null || replacementListener != null
+                        || removalListener != null || unpublishedValueRetirer != null);
         if (weightBounded && (sizeEstimator == null || entryBudget == null)) {
             throw new IllegalArgumentException("weighted cache entry requires both estimator and budget: " + name);
         }
@@ -233,7 +282,7 @@ public class MetaCacheEntry<K, V> {
                 cacheWeigher,
                 true,
                 null);
-        if (weightBounded) {
+        if (weightBounded && softValues) {
             cacheFactory.withSoftValues();
         }
         if (weightBounded || generationFencedRefresh || removalListener != null) {
@@ -248,6 +297,45 @@ public class MetaCacheEntry<K, V> {
         // Initialize striped locks eagerly to keep the hot path allocation-free.
         for (int i = 0; i < loadLocks.length; i++) {
             loadLocks[i] = new Object();
+        }
+    }
+
+    /**
+     * Keep logical invalidation synchronous, but release captured removed values after the caller's guards.
+     * This context is request-local; removed graphs are never submitted to an asynchronous executor.
+     */
+    public static void runWithDeferredRemovalCallbacks(Runnable action) {
+        if (DEFERRED_REMOVALS.get() != null) {
+            action.run();
+            return;
+        }
+        Deque<Runnable> pending = new ArrayDeque<>();
+        DEFERRED_REMOVALS.set(pending);
+        Throwable failure = null;
+        try {
+            action.run();
+        } catch (RuntimeException | Error e) {
+            failure = e;
+        } finally {
+            DEFERRED_REMOVALS.remove();
+        }
+        Runnable cleanup;
+        while ((cleanup = pending.pollFirst()) != null) {
+            try {
+                cleanup.run();
+            } catch (RuntimeException | Error e) {
+                if (failure == null) {
+                    failure = e;
+                } else if (failure != e) {
+                    failure.addSuppressed(e);
+                }
+            }
+        }
+        if (failure instanceof RuntimeException) {
+            throw (RuntimeException) failure;
+        }
+        if (failure != null) {
+            throw (Error) failure;
         }
     }
 
@@ -521,7 +609,7 @@ public class MetaCacheEntry<K, V> {
             return;
         }
         invalidateAll();
-        pendingRemovalNotifications.clear();
+        drainRemovalNotificationsOnClose();
         if (entryBudget != null) {
             entryBudget.close();
         }
@@ -586,7 +674,12 @@ public class MetaCacheEntry<K, V> {
      * which case preparing values for publication is pure waste.
      */
     public boolean isWeightAccounting() {
-        return weightBounded && effectiveEnabled;
+        return weightBounded && effectiveEnabled && !closed.get();
+    }
+
+    /** True after this physical entry has been retired from its catalog generation. */
+    public boolean isClosed() {
+        return closed.get();
     }
 
     private AdmissionResult admitWeightedValue(
@@ -835,12 +928,13 @@ public class MetaCacheEntry<K, V> {
         if (!weightBounded && !generationFencedRefresh && removalListener == null) {
             return;
         }
-        if (closed.get()) {
-            return;
-        }
         // Replacement transfers the existing reservation to the newly published generation. A
         // soft-value collection instead reports a null value with COLLECTED and must release it.
         if (cause == RemovalCause.REPLACED) {
+            return;
+        }
+        if (closed.get()) {
+            queueRemovalNotification(key, value);
             return;
         }
         // The dead reservation is queued before the dependency notification so the shared
@@ -896,7 +990,23 @@ public class MetaCacheEntry<K, V> {
         if (removalListener == null) {
             return;
         }
-        pendingRemovalNotifications.add(new RemovedToken<>(key, removalToken(value)));
+        Deque<Runnable> deferred = DEFERRED_REMOVALS.get();
+        if (deferred != null) {
+            deferred.addLast(() -> queueRemovalNotification(key, value));
+            return;
+        }
+        RemovedToken<K> removed = new RemovedToken<>(key, removalToken(value));
+        if (closed.get()) {
+            invokeRemovalListener(removed.key, removed.token);
+            return;
+        }
+        pendingRemovalNotifications.add(removed);
+        if (closed.get() && pendingRemovalNotifications.remove(removed)) {
+            // close() drained before this publication. Claim the exact token here; if removal
+            // fails, the close drain or a worker already owns it and must invoke the listener.
+            invokeRemovalListener(removed.key, removed.token);
+            return;
+        }
         scheduleRemovalCleanup();
     }
 
@@ -983,15 +1093,32 @@ public class MetaCacheEntry<K, V> {
         }
         for (int processed = 0; processed < REMOVAL_CLEANUP_BATCH_SIZE; processed++) {
             RemovedToken<K> removed = pendingRemovalNotifications.poll();
-            if (removed == null || closed.get()) {
+            if (removed == null) {
                 return;
             }
-            try {
-                removalListener.onRemoval(removed.key, removed.token);
-            } catch (RuntimeException e) {
-                LOG.warn("Failed to retire dependencies after removing external metadata cache entry {}",
-                        name, e);
-            }
+            afterRemovalNotificationPollForTest(removed.key);
+            // A successful poll transfers ownership to this worker. close() cannot see this token
+            // in its final drain, so the worker must invoke it even when close raced the poll.
+            invokeRemovalListener(removed.key, removed.token);
+        }
+    }
+
+    private void drainRemovalNotificationsOnClose() {
+        RemovedToken<K> removed;
+        while ((removed = pendingRemovalNotifications.poll()) != null) {
+            invokeRemovalListener(removed.key, removed.token);
+        }
+    }
+
+    private void invokeRemovalListener(K key, @Nullable Object token) {
+        if (removalListener == null) {
+            return;
+        }
+        try {
+            removalListener.onRemoval(key, token);
+        } catch (RuntimeException e) {
+            LOG.warn("Failed to retire dependencies after removing external metadata cache entry {}",
+                    name, e);
         }
     }
 
@@ -1156,11 +1283,13 @@ public class MetaCacheEntry<K, V> {
             K key, long expectedRefreshGeneration, KeyMutationToken expectedMutation) {
         try {
             refreshExecutor.execute(() -> {
+                V refreshed = null;
+                boolean ownershipTransferred = false;
                 try {
                     if (!isRefreshRecordCurrent(key, expectedRefreshGeneration, expectedMutation)) {
                         return;
                     }
-                    V refreshed = loadAndTrack(key, this::applyDefaultLoader);
+                    refreshed = loadAndTrack(key, this::applyDefaultLoader);
                     if (refreshed == null) {
                         return;
                     }
@@ -1170,11 +1299,15 @@ public class MetaCacheEntry<K, V> {
                         }
                         advanceKeyMutation(key);
                         putNonWeightedValue(key, refreshed);
+                        ownershipTransferred = true;
                     }
                 } catch (RuntimeException e) {
                     LOG.warn("Failed to refresh external metadata cache entry {} for key {}; "
                             + "retaining the previous value", name, key, e);
                 } finally {
+                    if (refreshed != null && !ownershipTransferred) {
+                        retireUnpublishedValue(key, refreshed);
+                    }
                     endKeyMutation(key, expectedMutation);
                     refreshesInFlight.remove(key);
                 }
@@ -1199,15 +1332,18 @@ public class MetaCacheEntry<K, V> {
             K key, long expectedReservationGeneration, KeyMutationToken expectedMutation) {
         try {
             refreshExecutor.execute(() -> {
+                V refreshed = null;
+                boolean ownershipTransferred = false;
                 try {
                     if (!isReservationCurrent(key, expectedReservationGeneration, expectedMutation)) {
                         return;
                     }
-                    V refreshed = loadAndTrack(key, this::applyDefaultLoader);
+                    refreshed = loadAndTrack(key, this::applyDefaultLoader);
                     if (refreshed != null && isKeyMutationCurrent(key, expectedMutation)) {
-                        admitWeightedValue(
+                        AdmissionResult result = admitWeightedValue(
                                 key, refreshed, null, false, expectedMutation,
                                 expectedReservationGeneration, true);
+                        ownershipTransferred = result == AdmissionResult.ADMITTED;
                         // Admission rejection leaves the already reserved, known-good generation
                         // in place. A larger refresh must not turn a transient quota shortage into
                         // a forced cache miss for every subsequent reader.
@@ -1216,6 +1352,9 @@ public class MetaCacheEntry<K, V> {
                     LOG.warn("Failed to refresh external metadata cache entry {} for key {}; "
                             + "retaining the previous value", name, key, e);
                 } finally {
+                    if (refreshed != null && !ownershipTransferred) {
+                        retireUnpublishedValue(key, refreshed);
+                    }
                     endKeyMutation(key, expectedMutation);
                     refreshesInFlight.remove(key);
                 }
@@ -1236,9 +1375,25 @@ public class MetaCacheEntry<K, V> {
                 && record.published && data.asMap().get(key) != null;
     }
 
+    private void retireUnpublishedValue(K key, V value) {
+        // A refresh has no borrower to own a value that loses its generation fence or admission.
+        // Its cleanup must not run admitted-removal side effects against the retained generation.
+        if (unpublishedValueRetirer != null) {
+            try {
+                unpublishedValueRetirer.accept(value);
+            } catch (RuntimeException e) {
+                LOG.warn("Failed to retire an unpublished external metadata cache value for entry {}",
+                        name, e);
+            }
+            return;
+        }
+        invokeRemovalListener(key, removalToken(value));
+    }
+
     // Read the config dynamically so existing cache entries follow runtime config updates.
     private boolean isManualMissLoadEnabled() {
-        return weightBounded || generationFencedRefresh || Config.enable_external_meta_cache_manual_miss_load;
+        return requiresManualMissLoad || weightBounded || generationFencedRefresh
+                || Config.enable_external_meta_cache_manual_miss_load;
     }
 
     // Execute slow miss loads outside Caffeine's sync load path and suppress stale write-back after invalidation.
@@ -1335,6 +1490,10 @@ public class MetaCacheEntry<K, V> {
 
     // Called immediately before the asynchronous drain tries to acquire admissionLock.
     void beforeRemovalCleanupLockForTest(K key) {
+    }
+
+    // Called after a cleanup worker claims a dependency-retirement token from the queue.
+    void afterRemovalNotificationPollForTest(K key) {
     }
 
     // Let tests establish admissionLock -> Caffeine eviction-lock ordering deterministically.

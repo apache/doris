@@ -45,13 +45,20 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.FakeTransactionIDGenerator;
+import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
+import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
+import org.apache.doris.transaction.TransactionState.TxnCoordinator;
+import org.apache.doris.transaction.TransactionState.TxnSourceType;
+import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.collect.Lists;
 import mockit.Mock;
@@ -60,6 +67,8 @@ import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -127,6 +136,37 @@ public class RollupJobV2Test {
     public void tearDown() {
         File file = new File(fileName);
         file.delete();
+    }
+
+    @Test
+    public void testCommitWhileAbortingPreviousLoad() throws Exception {
+        long txnId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                Lists.newArrayList(CatalogTestUtil.testTableId1), "commit_during_rollup_abort",
+                new TxnCoordinator(TxnSourceType.FE, 0, "missing", 0), LoadJobSourceType.FRONTEND, 60);
+        TransactionState txn = masterTransMgr.getTransactionState(CatalogTestUtil.testDbId1, txnId);
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        MaterializedViewHandler handler = masterEnv.getMaterializedViewHandler();
+        handler.process(Lists.newArrayList(clause), db, table);
+        RollupJobV2 job = (RollupJobV2) handler.getAlterJobsV2().values().iterator().next();
+        job.jobState = JobState.WAITING_TXN;
+        job.watershedTxnId = txnId + 1;
+
+        try (MockedStatic<GlobalTransactionMgr> mocked = Mockito.mockStatic(
+                GlobalTransactionMgr.class, Mockito.CALLS_REAL_METHODS)) {
+            mocked.when(() -> GlobalTransactionMgr.checkFailedTxns(Mockito.anyList())).thenAnswer(invocation -> {
+                List<TransactionState> failed = (List<TransactionState>) invocation.callRealMethod();
+                Assert.assertEquals(Lists.newArrayList(txn), failed);
+                txn.setTransactionStatus(TransactionStatus.COMMITTED);
+                return failed;
+            });
+            job.runWaitingTxnJob();
+            Assert.assertEquals(JobState.WAITING_TXN, job.getJobState());
+            Assert.assertEquals(TransactionStatus.COMMITTED, txn.getTransactionStatus());
+        }
+        Assert.assertFalse(job.checkFailedPreviousLoadAndAbort());
+        txn.setTransactionStatus(TransactionStatus.VISIBLE);
+        Assert.assertTrue(job.checkFailedPreviousLoadAndAbort());
     }
 
     @Test
@@ -359,6 +399,42 @@ public class RollupJobV2Test {
         Column resultColumn1 = resultColumns.get(0);
         Assert.assertEquals(mvColumnName,
                 resultColumn1.getName());
+    }
+
+    @Test
+    public void testDeserializeOldRollupJobWithoutOrigStmt() {
+        String oldJson = "{"
+                + "\"clazz\":\"RollupJobV2\","
+                + "\"type\":\"ROLLUP\","
+                + "\"jobId\":1,"
+                + "\"jobState\":\"FINISHED\","
+                + "\"dbId\":1,"
+                + "\"tableId\":1,"
+                + "\"tableName\":\"test\","
+                + "\"errMsg\":\"\","
+                + "\"createTimeMs\":1,"
+                + "\"finishedTimeMs\":2,"
+                + "\"timeoutMs\":3,"
+                + "\"rawSql\":\"\","
+                + "\"watershedTxnId\":4,"
+                + "\"failedTabletBackends\":{},"
+                + "\"partitionIdToBaseRollupTabletIdMap\":{},"
+                + "\"partitionIdToRollupIndex\":{},"
+                + "\"baseIndexId\":1,"
+                + "\"rollupIndexId\":2,"
+                + "\"baseIndexName\":\"base\","
+                + "\"rollupIndexName\":\"rollup\","
+                + "\"rollupSchema\":[],"
+                + "\"baseSchemaHash\":1,"
+                + "\"rollupSchemaHash\":2,"
+                + "\"rollupKeysType\":\"AGG_KEYS\","
+                + "\"rollupShortKeyColumnCount\":1,"
+                + "\"storageFormat\":\"V2\","
+                + "\"sv\":{}"
+                + "}";
+
+        RollupJobV2 result = (RollupJobV2) GsonUtils.GSON.fromJson(oldJson, AlterJobV2.class);
+        Assert.assertEquals(JobState.FINISHED, Deencapsulation.getField(result, "showJobState"));
     }
 
     @Test

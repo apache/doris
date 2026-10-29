@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <list>
 #include <map>
 #include <memory>
 #include <optional>
@@ -53,6 +54,8 @@ class FileScannerV2 final : public Scanner {
 public:
     static constexpr const char* NAME = "FileScannerV2";
     static constexpr size_t ADAPTIVE_BATCH_INITIAL_PROBE_ROWS = 32;
+    static const std::string FileReadBytesProfile;
+    static const std::string FileReadTimeProfile;
 
     struct RealtimeCounterDeltas {
         int64_t scan_rows = 0;
@@ -138,6 +141,18 @@ public:
                   std::shared_ptr<SplitSourceConnector> split_source, RuntimeProfile* profile,
                   ShardedKVCache* kv_cache,
                   const std::unordered_map<std::string, int>* colname_to_slot_id);
+
+    // Standalone scanner used by TopN two-phase materialization.
+    FileScannerV2(RuntimeState* state, RuntimeProfile* profile, const TFileScanRangeParams* params,
+                  const std::unordered_map<std::string, int>* colname_to_slot_id,
+                  TupleDescriptor* tuple_desc)
+            : Scanner(state, profile), _params(params) {
+        (void)colname_to_slot_id;
+        _output_tuple_desc = tuple_desc;
+    }
+
+    Status read_by_rows(const TFileRangeDesc& range, const std::list<int64_t>& row_ids,
+                        Block* result_block, int64_t* init_reader_ms, int64_t* get_block_ms);
 
     Status init(RuntimeState* state, const VExprContextSPtrs& conjuncts) override;
     Status _open_impl(RuntimeState* state) override;

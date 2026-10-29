@@ -317,7 +317,7 @@ TEST(CastVariantV2ToTest, UnsupportedMapAndConstInputLeaveResultUntouched) {
     value->insert_value(1);
     ColumnPtr constant = ColumnConst::create(std::move(value), 3);
     CastResult const_result = execute_to_variant(constant, std::make_shared<DataTypeInt32>());
-    EXPECT_TRUE(const_result.status.is<ErrorCode::INVALID_ARGUMENT>());
+    EXPECT_TRUE(const_result.status.is<ErrorCode::INTERNAL_ERROR>());
     EXPECT_EQ(const_result.column.get(), const_result.initial_result.get());
 }
 

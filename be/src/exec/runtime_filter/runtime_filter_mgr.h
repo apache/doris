@@ -53,6 +53,9 @@ class RuntimeState;
 class RuntimeFilterWrapper;
 class QueryContext;
 class ExecEnv;
+template <typename Response>
+class HandleErrorBrpcCallback;
+class SyncSizeCallback;
 
 struct RuntimeFilterPublishTarget {
     PNetworkAddress addr;
@@ -94,6 +97,9 @@ struct GlobalMergeContext {
     std::vector<TRuntimeFilterTargetParamsV2> targetv2_info;
     std::unordered_set<UniqueId> arrive_id;
     std::vector<PNetworkAddress> source_addrs;
+    std::vector<std::shared_ptr<HandleErrorBrpcCallback<PSyncFilterSizeResponse>>>
+            sync_size_callbacks;
+    std::vector<std::shared_ptr<HandleErrorBrpcCallback<PPublishFilterResponse>>> publish_callbacks;
     std::atomic<bool> done = false;
 
     // for represent the round number of recursive cte

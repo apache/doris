@@ -50,6 +50,7 @@ import org.apache.paimon.catalog.Catalog.DatabaseNotExistException;
 import org.apache.paimon.catalog.Catalog.TableAlreadyExistException;
 import org.apache.paimon.catalog.Catalog.TableNotExistException;
 import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.format.OrcOptions;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.schema.SchemaManager;
@@ -146,29 +147,32 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public void dropDbImpl(String dbName, boolean ifExists, boolean force) throws DdlException {
+    public boolean dropDbImpl(String dbName, boolean ifExists, boolean force) throws DdlException {
+        return dropDbImplWithResolvedName(dbName, ifExists, force).isPresent();
+    }
+
+    @Override
+    public Optional<String> dropDbImplWithResolvedName(String dbName, boolean ifExists, boolean force)
+            throws DdlException {
         try {
-            executionAuthenticator.execute(() -> {
-                performDropDb(dbName, ifExists, force);
-                return null;
-            });
+            return executionAuthenticator.execute(() -> performDropDb(dbName, ifExists, force));
         } catch (Exception e) {
             throw new DdlException(
                 "Failed to drop database: " + dbName + ", error message is:" + e.getMessage(), e);
         }
     }
 
-    private void performDropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
+    private Optional<String> performDropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
         ExternalDatabase dorisDb = dorisCatalog.getDbNullable(dbName);
         if (dorisDb == null) {
             if (ifExists) {
                 LOG.info("drop database[{}] which does not exist", dbName);
                 // Database does not exist and IF EXISTS is specified; treat as no-op.
-                return;
+                return Optional.empty();
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_DB_DROP_EXISTS, dbName);
                 // ErrorReport.reportDdlException is expected to throw DdlException.
-                return;
+                return Optional.empty();
             }
         }
 
@@ -189,11 +193,32 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
         } catch (DatabaseNotEmptyException e) {
             throw new RuntimeException("database " + dbName + " is not empty! please check!");
         }
+        return Optional.of(dorisDb.getFullName());
     }
 
     @Override
     public void afterDropDb(String dbName) {
-        dorisCatalog.unregisterDatabase(dbName);
+        try {
+            // The DROP owns historical-name resolution. Ordinary replay lookup also serves CREATE
+            // and REFRESH, where a case-insensitive alias must still resolve the current database.
+            dorisCatalog.unregisterDatabase(dbName);
+        } catch (Exception e) {
+            // The remote drop is already committed and ExternalCatalog.dropDb still has to journal
+            // it; keep the post-drop cache cleanup best-effort so the log and its replay are not
+            // suppressed by an invalidation failure.
+            LOG.warn("Failed to invalidate Paimon cache after dropping database {}: {}",
+                    dbName, e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void afterDropDbNoOp(String dbName) {
+        try {
+            dorisCatalog.retireCachedDatabaseForNoOp(dbName);
+        } catch (Exception e) {
+            LOG.warn("Failed to retire cached database after no-op drop of {}: {}",
+                    dbName, e.getMessage(), e);
+        }
     }
 
     @Override
@@ -272,6 +297,12 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
         Map<String, String> normalizedProperties = new HashMap<>(properties);
         normalizedProperties.remove(PRIMARY_KEY_IDENTIFIER);
         normalizedProperties.remove(PROP_COMMENT);
+        // Legacy ORC LTZ encoding depends on the writer and reader JVM time zones. Persist the
+        // portable encoding for new tables only; changing an existing table can reinterpret its files.
+        // Explicit table options take precedence over catalog defaults, including a legacy opt-in.
+        String orcTimestampLegacyKey = OrcOptions.ORC_TIMESTAMP_LTZ_LEGACY_TYPE.key();
+        normalizedProperties.putIfAbsent(orcTimestampLegacyKey, catalog.options().getOrDefault(
+                Catalog.TABLE_DEFAULT_OPTION_PREFIX + orcTimestampLegacyKey, "false"));
         if (normalizedProperties.containsKey(PROP_LOCATION)) {
             String path = normalizedProperties.remove(PROP_LOCATION);
             normalizedProperties.put(CoreOptions.PATH.key(), path);
@@ -357,10 +388,38 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void afterDropTable(String dbName, String tblName) {
-        Optional<ExternalDatabase<?>> db = dorisCatalog.getDbForReplay(dbName);
-        db.ifPresent(externalDatabase -> externalDatabase.unregisterTable(tblName));
+        Optional<ExternalDatabase<?>> db = dorisCatalog.getDbForDropReplay(dbName);
+        try {
+            if (db.isPresent()) {
+                boolean invalidated = db.get().unregisterTableForReplay(tblName);
+                if (!invalidated) {
+                    // Only a genuinely unresolved name (for example a lost case-insensitive mapping)
+                    // needs the conservative database-wide retirement; an ordinary cold miss for a
+                    // known name must not evict unrelated cached siblings.
+                    if (!db.get().hasLocalTableName(tblName)) {
+                        db.get().retireAllTableObjectsWithoutEngineInvalidation();
+                    }
+                    invalidatePaimonCatalogForUnresolvedReplay();
+                }
+            } else {
+                // A cold DB with a retained canonical mapping has a narrow invalidation target.
+                // Only a genuinely lost mapping requires catalog-wide hidden-object retirement.
+                dorisCatalog.invalidateColdDatabaseForReplay(dbName);
+            }
+        } catch (Exception e) {
+            // The remote drop is already committed and ExternalCatalog.dropTable still has to
+            // journal it; keep the post-drop cache cleanup best-effort so the drop log and its
+            // replay are not suppressed by an invalidation failure.
+            LOG.warn("Failed to invalidate Paimon cache after dropping table {}.{}: {}",
+                    dbName, tblName, e.getMessage(), e);
+        }
         LOG.info("after drop table {}.{}.{}. is db exists: {}",
                 dorisCatalog.getName(), dbName, tblName, db.isPresent());
+    }
+
+    private void invalidatePaimonCatalogForUnresolvedReplay() {
+        Env.getCurrentEnv().getExtMetaCacheMgr()
+                .invalidateCatalogByEngine(dorisCatalog.getId(), PaimonExternalMetaCache.ENGINE);
     }
 
     @Override
@@ -417,16 +476,19 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
 
     @Override
     public boolean tableExist(String dbName, String tblName) {
+        Identifier identifier = Identifier.create(dbName, tblName);
         try {
+            if (dorisCatalog instanceof PaimonExternalCatalog) {
+                return ((PaimonExternalCatalog) dorisCatalog).sdkTableExists(identifier);
+            }
             return executionAuthenticator.execute(() -> {
                 try {
-                    catalog.getTable(Identifier.create(dbName, tblName));
+                    catalog.getTable(identifier);
                     return true;
                 } catch (TableNotExistException e) {
                     return false;
                 }
             });
-
         } catch (Exception e) {
             throw new RuntimeException("Failed to check table existence, catalog name: " + dorisCatalog.getName()
                 + "error message is:" + ExceptionUtils.getRootCauseMessage(e), e);
@@ -436,13 +498,16 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
     @Override
     public boolean databaseExist(String dbName) {
         try {
+            // CachingCatalog has no public database-cache invalidation API. listDatabases is
+            // delegated to the underlying catalog, so existence checks after REFRESH do not
+            // reuse a Database object cached before an external drop or recreate.
             return executionAuthenticator.execute(() -> {
-                try {
-                    catalog.getDatabase(dbName);
+                boolean caseSensitive = catalog.caseSensitive();
+                if (dbName.equals(Catalog.SYSTEM_DATABASE_NAME)) {
                     return true;
-                } catch (DatabaseNotExistException e) {
-                    return false;
                 }
+                return catalog.listDatabases().stream()
+                        .anyMatch(database -> databaseNameEquals(dbName, database, caseSensitive));
             });
         } catch (Exception e) {
             throw new RuntimeException("Failed to check database exist, error message is:" + e.getMessage(), e);
@@ -453,10 +518,18 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
         return Identifier.create(dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
     }
 
+    private boolean databaseNameEquals(String requestedName, String databaseName, boolean caseSensitive) {
+        return caseSensitive ? requestedName.equals(databaseName) : requestedName.equalsIgnoreCase(databaseName);
+    }
+
     private List<DataField> loadRemoteFields(ExternalTable dorisTable) throws UserException {
         try {
+            Identifier identifier = tableIdentifier(dorisTable);
+            if (dorisCatalog instanceof PaimonExternalCatalog) {
+                return ((PaimonExternalCatalog) dorisCatalog).getSdkTableFields(identifier);
+            }
             return executionAuthenticator.execute(
-                    () -> new ArrayList<>(catalog.getTable(tableIdentifier(dorisTable)).rowType().getFields()));
+                    () -> new ArrayList<>(catalog.getTable(identifier).rowType().getFields()));
         } catch (Exception e) {
             throw new UserException("Failed to load schema for Paimon table " + dorisTable.getName()
                     + ": " + ExceptionUtils.getRootCauseMessage(e), e);

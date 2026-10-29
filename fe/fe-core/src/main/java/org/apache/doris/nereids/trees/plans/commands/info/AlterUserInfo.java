@@ -23,12 +23,10 @@ import org.apache.doris.analysis.TlsOptions;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PasswordPolicy;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -132,9 +130,7 @@ public class AlterUserInfo {
                 + "actual number of type is " + ops.size());
         }
 
-        if (userDesc.getUserIdent().getQualifiedUser().equals(Auth.ROOT_USER)
-                && !ClusterNamespace.getNameFromFullName(ConnectContext.get().getQualifiedUser())
-                .equals(Auth.ROOT_USER)) {
+        if (userDesc.getUserIdent().isRootUser() && !ConnectContext.get().getCurrentUserIdentity().isRootUser()) {
             throw new AnalysisException("Only root user can modify root user");
         }
 

@@ -422,6 +422,13 @@ public class OperationType {
     public static final short OP_CREATE_ROLE_MAPPING = 496;
     public static final short OP_DROP_ROLE_MAPPING = 497;
 
+    // Payload of the removed durable Lance index job framework: kept only as a tombstone so
+    // old journals stay parseable (JournalEntity consumes and ignores the record). The code
+    // must never be reused: an edit log or image written by a build that still had the
+    // framework carries that opcode. No production deployment could hold such records: the
+    // mutation gate (enable_lance_index_mutation) never left its disabled default.
+    public static final short OP_LANCE_INDEX_JOB_UPSERT = 500;
+
     // For cloud.
     public static final short OP_UPDATE_CLOUD_REPLICA = 1000;
     @Deprecated

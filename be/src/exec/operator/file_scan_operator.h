@@ -56,6 +56,8 @@ public:
     int max_scanners_concurrency(RuntimeState* state) const override;
     int min_scanners_concurrency(RuntimeState* state) const override;
     ScannerScheduler* scan_scheduler(RuntimeState* state) const override;
+    static bool should_use_file_scanner_v2(const TQueryOptions& query_options, bool is_load,
+                                           const TFileScanRangeParams& scan_params);
 #ifdef BE_TEST
     static bool TEST_should_use_file_scanner_v2(const TQueryOptions& query_options, bool is_load,
                                                 const TFileScanRangeParams& scan_params);
@@ -80,8 +82,6 @@ private:
         return PushDownType::PARTIAL_ACCEPTABLE;
     }
     bool _push_down_topn(const RuntimePredicate& predicate) override;
-    static bool _should_use_file_scanner_v2(const TQueryOptions& query_options, bool is_load,
-                                            const TFileScanRangeParams& scan_params);
     static bool _can_generate_physical_splits(const TQueryOptions& query_options, bool is_load,
                                               const TFileScanRangeParams& scan_params,
                                               const TFileRangeDesc& range);

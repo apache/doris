@@ -103,6 +103,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -187,6 +188,15 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         return logicalQuery.orElse(originLogicalQuery);
     }
 
+    /** Rewrite the original query before planning, preserving INSERT options and the WITH clause. */
+    public InsertIntoTableCommand rewriteQuery(Function<Plan, Plan> rewrite) {
+        InsertIntoTableCommand command = new InsertIntoTableCommand(
+                (LogicalPlan) originLogicalQuery.rewriteUp(rewrite), labelName, insertCtx,
+                cte, needNormalizePlan, branchName);
+        command.setJobId(jobId);
+        return command;
+    }
+
     public Optional<Plan> getParsedPlan() {
         return parsedPlan;
     }
@@ -264,6 +274,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         int retryTimes = 0;
         ctx.getStatementContext().setIsInsert(true);
         while (++retryTimes < Math.max(ctx.getSessionVariable().dmlPlanRetryTimes, 3)) {
+            prepareMvccSnapshotsForPlanAttempt(ctx.getStatementContext(), retryTimes);
             TableIf targetTableIf = getTargetTableIf(ctx, qualifiedTargetTableName);
             DatabaseIf<?> targetDatabase = getTargetDatabase(targetTableIf);
             // check auth
@@ -339,6 +350,13 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         }
         LOG.warn("insert plan failed {} times. query id is {}.", retryTimes, DebugUtil.printId(ctx.queryId()));
         throw new AnalysisException("Insert plan failed. Could not get target table lock.");
+    }
+
+    static void prepareMvccSnapshotsForPlanAttempt(StatementContext statementContext, int attempt) {
+        if (attempt > 1) {
+            // Refresh planner metadata while retaining the source fences selected by the caller.
+            statementContext.resetMvccSnapshotsForRetry();
+        }
     }
 
     /**

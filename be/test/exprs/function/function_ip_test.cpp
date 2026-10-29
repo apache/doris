@@ -28,6 +28,17 @@
 
 namespace doris {
 
+TEST(FunctionIpTest, IPAddressVariantTypeTest) {
+    IPAddressVariant ipv4_zero("0.0.0.0");
+    EXPECT_TRUE(ipv4_zero.is_v4());
+    EXPECT_FALSE(ipv4_zero.is_v6());
+    EXPECT_EQ(ipv4_zero.as_v4(), 0);
+
+    IPAddressVariant ipv6_zero("::");
+    EXPECT_FALSE(ipv6_zero.is_v4());
+    EXPECT_TRUE(ipv6_zero.is_v6());
+}
+
 TEST(FunctionIpTest, FunctionIsIPAddressInRangeTest) {
     std::string func_name = "is_ip_address_in_range";
 
@@ -85,6 +96,17 @@ TEST(FunctionIpTest, FunctionIsIPAddressInRangeTest) {
             static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types,
                                                                   const_addr_dataset));
         }
+    }
+
+    {
+        DataSet ipv4_data_set = {
+                {{static_cast<IPv4>(0), std::string("0.0.0.0/0")}, static_cast<uint8_t>(1)},
+                {{static_cast<IPv4>(0), std::string("0.0.0.0/32")}, static_cast<uint8_t>(1)},
+                {{static_cast<IPv4>(1), std::string("0.0.0.0/32")}, static_cast<uint8_t>(0)},
+        };
+        InputTypeSet input_types = {PrimitiveType::TYPE_IPV4, PrimitiveType::TYPE_VARCHAR};
+        static_cast<void>(
+                check_function<DataTypeUInt8, true>(func_name, input_types, ipv4_data_set));
     }
 }
 
@@ -161,6 +183,17 @@ TEST(FunctionIpTest, FunctionCutIPv6Test) {
     InputTypeSet input_types = {PrimitiveType::TYPE_IPV6, PrimitiveType::TYPE_TINYINT,
                                 PrimitiveType::TYPE_TINYINT};
     static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+
+    std::array<uint8_t, 16> ipv6_bytes {0xff, 0x12, 0xcd, 0xab, 0x04, 0x00, 0x03, 0x00,
+                                        0x02, 0x00, 0x01, 0x00, 0xb8, 0x0d, 0x01, 0x20};
+    IPv6 ipv6;
+    std::memcpy(&ipv6, &ipv6_bytes, sizeof(IPv6));
+    DataSet odd_bytes_data_set = {
+            {{ipv6, (int8_t)1, (int8_t)0}, std::string("2001:db8:1:2:3:4:abcd:1200")},
+            {{ipv6, (int8_t)3, (int8_t)0}, std::string("2001:db8:1:2:3:4:ab00:0")},
+            {{ipv6, (int8_t)15, (int8_t)0}, std::string("2000::")}};
+    static_cast<void>(
+            check_function<DataTypeString, true>(func_name, input_types, odd_bytes_data_set));
 }
 
 class MockIndexReader : public segment_v2::InvertedIndexReader {
@@ -224,7 +257,7 @@ TEST(FunctionIpTest, evaluate_inverted_index) {
     // IPv4 test
     {
         auto cidr_col = ColumnString::create();
-        cidr_col->insert_data("127.0.0.0/8", 11);
+        cidr_col->insert_data("0.0.0.0/0", 9);
         auto const_cidr_col = ColumnConst::create(std::move(cidr_col), 1);
 
         ColumnsWithTypeAndName arguments = {

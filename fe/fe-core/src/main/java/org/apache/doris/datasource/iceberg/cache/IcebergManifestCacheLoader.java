@@ -19,6 +19,7 @@ package org.apache.doris.datasource.iceberg.cache;
 
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache;
+import org.apache.doris.datasource.iceberg.IcebergRuntimeContext;
 
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.Table;
@@ -34,21 +35,23 @@ public class IcebergManifestCacheLoader {
 
     public static ManifestCacheValue loadDataFilesWithCache(IcebergExternalMetaCache cache, ExternalTable dorisTable,
             ManifestFile manifest, Table table) {
-        return loadDataFilesWithCache(cache, dorisTable, manifest, table, null);
+        return loadDataFilesWithCache(cache, dorisTable, manifest, table, null, null);
     }
 
     public static ManifestCacheValue loadDataFilesWithCache(IcebergExternalMetaCache cache, ExternalTable dorisTable,
-            ManifestFile manifest, Table table, Consumer<Boolean> cacheHitRecorder) {
-        return cache.getManifestCacheValue(dorisTable, manifest, table, cacheHitRecorder);
+            ManifestFile manifest, Table table, IcebergRuntimeContext runtimeContext,
+            Consumer<Boolean> cacheHitRecorder) {
+        return cache.getManifestCacheValue(dorisTable, manifest, table, runtimeContext, cacheHitRecorder);
     }
 
     public static ManifestCacheValue loadDeleteFilesWithCache(IcebergExternalMetaCache cache,
             ExternalTable dorisTable, ManifestFile manifest, Table table) {
-        return loadDeleteFilesWithCache(cache, dorisTable, manifest, table, null);
+        return loadDeleteFilesWithCache(cache, dorisTable, manifest, table, null, null);
     }
 
     public static ManifestCacheValue loadDeleteFilesWithCache(IcebergExternalMetaCache cache,
-            ExternalTable dorisTable, ManifestFile manifest, Table table, Consumer<Boolean> cacheHitRecorder) {
-        return cache.getManifestCacheValue(dorisTable, manifest, table, cacheHitRecorder);
+            ExternalTable dorisTable, ManifestFile manifest, Table table, IcebergRuntimeContext runtimeContext,
+            Consumer<Boolean> cacheHitRecorder) {
+        return cache.getManifestCacheValue(dorisTable, manifest, table, runtimeContext, cacheHitRecorder);
     }
 }

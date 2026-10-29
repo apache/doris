@@ -19,8 +19,10 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <memory>
 #include <ostream>
 #include <string>
+#include <utility>
 
 #include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -33,6 +35,7 @@
 #include "core/column/column.h"
 #include "core/column/column_const.h"
 #include "exprs/function_context.h"
+#include "exprs/lambda_function/lambda_execution_context.h"
 #include "exprs/vexpr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
@@ -47,6 +50,8 @@ class RowDescriptor;
 namespace doris {
 #include "common/compile_check_begin.h"
 
+VExprContext::VExprContext(VExprSPtr expr) : _root(std::move(expr)) {}
+
 VExprContext::~VExprContext() {
     // In runtime filter, only create expr context to get expr root, will not call
     // prepare or open, so that it is not need to call close. And call close may core
@@ -59,6 +64,13 @@ VExprContext::~VExprContext() {
     } catch (const Exception& e) {
         LOG(WARNING) << "Exception occurs when expr context deconstruct: " << e.to_string();
     }
+}
+
+LambdaExecutionContext& VExprContext::lambda_execution_context() {
+    if (!_lambda_execution_context) {
+        _lambda_execution_context = std::make_unique<LambdaExecutionContext>();
+    }
+    return *_lambda_execution_context;
 }
 
 Status VExprContext::execute(Block* block, int* result_column_id) {

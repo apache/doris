@@ -25,6 +25,12 @@ import java.util.List;
 
 public class MaxComputeExternalTableTest {
     @Test
+    public void testInstantTypeCanBeWrittenBack() throws Exception {
+        Assert.assertEquals(com.aliyun.odps.type.TypeInfoFactory.TIMESTAMP,
+                MaxComputeMetadataOps.dorisTypeToMcType(org.apache.doris.catalog.ScalarType.createTimeStampTzType(6)));
+    }
+
+    @Test
     public void testParsePartitionValues() {
         List<String> partitionColumns = Arrays.asList("p1", "p2");
 

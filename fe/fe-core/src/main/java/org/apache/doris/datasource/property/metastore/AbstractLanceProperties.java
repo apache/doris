@@ -34,8 +34,18 @@ public abstract class AbstractLanceProperties extends MetastoreProperties {
     public static final String NAMESPACE_DELIMITER = "lance.namespace.delimiter";
     public static final String ROOT_DATABASE = "lance.namespace.root_database";
 
+    public static final String TABLE_ACCESS_CACHE_TTL_SECONDS = "lance.table_access_cache_ttl_seconds";
+    public static final int DEFAULT_TABLE_ACCESS_CACHE_TTL_SECONDS = 60;
+
     public static final String DEFAULT_DELIMITER = "$";
     public static final String DEFAULT_ROOT_DATABASE = "default";
+
+    @ConnectorProperty(
+            names = {TABLE_ACCESS_CACHE_TTL_SECONDS},
+            required = false,
+            description = "Maximum lifetime of cached table URIs and access options in seconds. "
+                    + "Default: 60. Set to 0 to describe the table on every read.")
+    private int tableAccessCacheTtlSeconds = DEFAULT_TABLE_ACCESS_CACHE_TTL_SECONDS;
 
     @ConnectorProperty(
             names = {NAMESPACE_PARENT},
@@ -101,7 +111,15 @@ public abstract class AbstractLanceProperties extends MetastoreProperties {
         return rootDatabase;
     }
 
+    public int getTableAccessCacheTtlSeconds() {
+        return tableAccessCacheTtlSeconds;
+    }
+
     private void validateCommonProperties() {
+        if (tableAccessCacheTtlSeconds < 0) {
+            throw new IllegalArgumentException("Property '" + TABLE_ACCESS_CACHE_TTL_SECONDS
+                    + "' must be non-negative");
+        }
         if (namespaceDelimiter.isEmpty() || namespaceDelimiter.indexOf('\\') >= 0) {
             throw new IllegalArgumentException("Property '" + NAMESPACE_DELIMITER
                     + "' cannot be empty or contain the escape character '\\'");

@@ -64,7 +64,44 @@ void add_search_binding_diagnostic(const std::shared_ptr<IndexQueryContext>& con
     }
 }
 
+InvertedIndexAnalyzerCtxSPtr build_analyzer_context_unsafe(
+        const std::map<std::string, std::string>& properties, const std::string& analyzer_key) {
+    InvertedIndexAnalyzerConfig config;
+    config.analyzer_name = get_analyzer_name_from_properties(properties);
+    config.parser_type = get_inverted_index_parser_type_from_string(
+            get_parser_string_from_properties(properties));
+    config.parser_mode = get_parser_mode_string_from_properties(properties);
+    config.lower_case = get_parser_lowercase_from_properties(properties);
+    config.stop_words = get_parser_stopwords_from_properties(properties);
+    config.char_filter_map = get_parser_char_filter_map_from_properties(properties);
+
+    auto analyzer_context = std::make_shared<InvertedIndexAnalyzerCtx>();
+    analyzer_context->analyzer_key = analyzer_key;
+    analyzer_context->analyzer_name = config.analyzer_name;
+    analyzer_context->parser_type = config.parser_type;
+    analyzer_context->char_filter_map = config.char_filter_map;
+    if (analyzer_context->requires_analysis()) {
+        analyzer_context->analyzer_provider =
+                inverted_index::InvertedIndexAnalyzer::create_analyzer_provider(&config);
+    }
+    return analyzer_context;
+}
+
 } // namespace
+
+// Replayed components can collide across policy families, so building the provider throws.
+Result<InvertedIndexAnalyzerCtxSPtr> build_search_analyzer_context(
+        const std::map<std::string, std::string>& properties, const std::string& analyzer_key) {
+    try {
+        return build_analyzer_context_unsafe(properties, analyzer_key);
+    } catch (const CLuceneError& error) {
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "Build search analyzer failed: {}", error.what()));
+    } catch (const Exception& error) {
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "Build search analyzer failed: {}", error.what()));
+    }
+}
 
 FieldReaderResolver::FieldReaderResolver(
         const std::unordered_map<std::string, IndexFieldNameAndTypePair>& data_type_with_names,
@@ -116,16 +153,6 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
 
     auto iterator_it = _iterators.find(field_name);
     if (iterator_it == _iterators.end() || iterator_it->second == nullptr) {
-        if (is_variant_sub) {
-            add_search_binding_diagnostic(
-                    _context,
-                    fmt::format("[VariantSearchBinding] phase=field_resolve result=no_iterator "
-                                "logical_field={} stored_field={} query_type={} "
-                                "reason=iterator_not_found",
-                                field_name, stored_field_name, query_type_to_string(query_type)));
-            *binding = FieldReaderBinding();
-            return Status::OK();
-        }
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
                 "iterator not found for field '{}'", field_name);
     }
@@ -364,14 +391,6 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
     return Status::OK();
 }
 
-segment_v2::IndexIterator* VariantSearchNullBitmapAdapter::iterator_for(
-        const query_v2::Scorer& /*scorer*/, const std::string& logical_field) const {
-    if (logical_field.empty()) {
-        return nullptr;
-    }
-    return _resolver.get_iterator(logical_field);
-}
-
 void populate_variant_search_binding_context(const FieldReaderResolver& resolver,
                                              query_v2::QueryExecutionContext* exec_ctx) {
     DCHECK(exec_ctx != nullptr);
@@ -395,6 +414,7 @@ query_v2::QueryExecutionContext build_variant_search_query_execution_context(
         query_v2::NullBitmapResolver* null_resolver) {
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = segment_num_rows;
+    exec_ctx.preserve_doc_ids = true;
     populate_variant_search_binding_context(resolver, &exec_ctx);
     exec_ctx.null_resolver = null_resolver;
     return exec_ctx;
@@ -672,9 +692,34 @@ Status VariantNestedSearchEvaluator::evaluate(
                 return map_variant_nested_leaf_query_to_active_group(mapper_context,
                                                                      logical_field_name, query);
             });
+    resolver.set_leaf_num_rows_resolver([mapper_context](const std::string& logical_field_name,
+                                                         uint32_t* num_rows) {
+        if (!starts_with_root_field(logical_field_name, mapper_context.root_field) ||
+            logical_field_name.size() <= mapper_context.root_field.size()) {
+            return Status::OK();
+        }
+        const auto relative_path = logical_field_name.substr(mapper_context.root_field.size() + 1);
+        auto [leaf_found, leaf_chain, leaf_path] =
+                mapper_context.variant_reader->collect_nested_group_chain(relative_path);
+        if (!leaf_found) {
+            return Status::OK();
+        }
+        DORIS_CHECK(!leaf_chain.empty());
+        uint64_t count = 0;
+        RETURN_IF_ERROR(mapper_context.read_provider->get_total_elements(
+                mapper_context.column_iter_opts, leaf_chain.back(), &count));
+        if (count > std::numeric_limits<uint32_t>::max()) {
+            return Status::InvalidArgument("nested leaf element_count exceeds uint32_t max");
+        }
+        *num_rows = static_cast<uint32_t>(count);
+        return Status::OK();
+    });
     struct ScopedLeafMapperReset {
         FieldReaderResolver& resolver;
-        ~ScopedLeafMapperReset() { resolver.set_leaf_query_mapper(nullptr); }
+        ~ScopedLeafMapperReset() {
+            resolver.set_leaf_query_mapper(nullptr);
+            resolver.set_leaf_num_rows_resolver(nullptr);
+        }
     } mapper_reset {resolver};
     RETURN_IF_ERROR(_function_search.build_query_recursive(
             nested_clause.children[0], context, resolver, &inner_query, &inner_binding_key,
@@ -683,7 +728,7 @@ Status VariantNestedSearchEvaluator::evaluate(
         return Status::OK();
     }
 
-    VariantSearchNullBitmapAdapter null_resolver(resolver);
+    SearchNullBitmapResolver null_resolver;
     query_v2::QueryExecutionContext exec_ctx = build_variant_search_query_execution_context(
             static_cast<uint32_t>(total_elements), resolver, &null_resolver);
 

@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <algorithm>
+
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/types.h"
 #include "core/value/time_value.h"
@@ -568,7 +570,22 @@ public:
             limited_col = col_from.cut(0, input_rows_count);
             col_to_serialize = limited_col.get();
         }
-        type.get_serde()->to_string_batch(*col_to_serialize, *col_to, options);
+        const auto serde = type.get_serde();
+        if (null_map != nullptr && std::any_of(null_map, null_map + input_rows_count,
+                                               [](auto value) { return value != 0; })) {
+            // Nested payloads of NULL rows may be uninitialized or outside the type's
+            // domain. Do not format them before the nullable wrapper restores the mask.
+            col_to->reserve(input_rows_count);
+            VectorBufferWriter write_buffer(*col_to);
+            for (size_t row = 0; row < input_rows_count; ++row) {
+                if (!null_map[row]) {
+                    serde->to_string(*col_to_serialize, row, write_buffer, options);
+                }
+                write_buffer.commit();
+            }
+        } else {
+            serde->to_string_batch(*col_to_serialize, *col_to, options);
+        }
 
         block.replace_by_position(result, std::move(col_to));
         return Status::OK();

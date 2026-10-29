@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.metacache;
 
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
 
@@ -99,6 +101,13 @@ public interface ExternalMetaCache {
     boolean isCatalogInitialized(long catalogId);
 
     /**
+     * Whether invalidation also releases state owned outside this engine's catalog entry group.
+     */
+    default boolean supportsInvalidationWithoutCatalogEntries() {
+        return false;
+    }
+
+    /**
      * Typed schema cache access that hides entry-name and class plumbing from callers.
      */
     @SuppressWarnings("unchecked")
@@ -138,9 +147,23 @@ public interface ExternalMetaCache {
     void invalidateDb(long catalogId, String dbName);
 
     /**
+     * Invalidate a database while preserving its resolved remote identity for engine caches.
+     */
+    default void invalidateDb(ExternalDatabase<?> database) {
+        invalidateDb(database.getCatalog().getId(), database.getFullName());
+    }
+
+    /**
      * Invalidate all entries related to a table.
      */
     void invalidateTable(long catalogId, String dbName, String tableName);
+
+    /**
+     * Invalidate a table while preserving its resolved remote identity for engine caches.
+     */
+    default void invalidateTable(ExternalTable table) {
+        invalidateTable(table.getCatalog().getId(), table.getDbName(), table.getName());
+    }
 
     /**
      * Invalidate all entries related to specific partitions.

@@ -17,18 +17,26 @@
 
 package org.apache.doris.job.util;
 
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.common.DataSourceType;
+import org.apache.doris.qe.GlobalVariable;
 
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
@@ -46,6 +54,58 @@ public class StreamingJobUtilsTest {
     @Before
     public void setUp() {
         MockitoAnnotations.initMocks(this);
+    }
+
+    @Test
+    public void testBinarySourceColumnsUseSupportedOlapTypes() {
+        List<Column> columns = new ArrayList<>();
+        columns.add(new Column("payload", ScalarType.createType(PrimitiveType.VARBINARY)));
+        columns.add(new Column("id", ScalarType.createType(PrimitiveType.VARBINARY)));
+        Mockito.when(jdbcClient.getColumnsFromJdbc("source_db", "source_table")).thenReturn(columns);
+
+        List<Column> result = StreamingJobUtils.getColumns(
+                jdbcClient, "source_db", "source_table", Arrays.asList("id"));
+
+        Assert.assertEquals("id", result.get(0).getName());
+        Assert.assertEquals(PrimitiveType.VARCHAR, result.get(0).getDataType());
+        Assert.assertEquals(ScalarType.MAX_VARCHAR_LENGTH, result.get(0).getType().getLength());
+        Assert.assertEquals(PrimitiveType.STRING, result.get(1).getDataType());
+    }
+
+    @Test
+    public void testNestedBinaryColumnsMatchCdcJsonCarrier() {
+        List<Column> columns = new ArrayList<>();
+        columns.add(new Column("payloads", new ArrayType(ScalarType.createVarbinaryType(16))));
+        columns.add(new Column("nested", new ArrayType(new ArrayType(ScalarType.createVarbinaryType(16)))));
+        Mockito.when(jdbcClient.getColumnsFromJdbc("source_db", "source_table")).thenReturn(columns);
+
+        List<Column> result = StreamingJobUtils.getColumns(
+                jdbcClient, "source_db", "source_table", new ArrayList<>());
+
+        Assert.assertEquals(new ArrayType(ScalarType.createStringType()), result.get(0).getType());
+        Assert.assertEquals(new ArrayType(new ArrayType(ScalarType.createStringType())), result.get(1).getType());
+    }
+
+    @Test
+    public void testCdcRetainsTimestampCarrierIndependentlyOfJdbcCatalogMapping() {
+        List<Column> columns = new ArrayList<>();
+        columns.add(new Column("event_time", ScalarType.createTimeStampTzType(6)));
+        columns.add(new Column("millis", ScalarType.createTimeStampTzType(3)));
+        columns.add(new Column("seconds", ScalarType.createTimeStampTzType(0)));
+        columns.add(new Column("local_time", ScalarType.createDatetimeV2Type(6)));
+        columns.add(new Column("events", new ArrayType(new ArrayType(ScalarType.createTimeStampTzType(6)))));
+        Mockito.when(jdbcClient.getColumnsFromJdbc("source_db", "source_table")).thenReturn(columns);
+
+        List<Column> result = StreamingJobUtils.getColumns(
+                jdbcClient, "source_db", "source_table", Arrays.asList("event_time"));
+
+        // CDC emits wall-clock carriers for both snapshots and binlog records, including keys.
+        Assert.assertEquals(ScalarType.createDatetimeV2Type(6), result.get(0).getType());
+        Assert.assertEquals(ScalarType.createDatetimeV2Type(3), result.get(1).getType());
+        Assert.assertEquals(ScalarType.createDatetimeV2Type(0), result.get(2).getType());
+        Assert.assertEquals(ScalarType.createDatetimeV2Type(6), result.get(3).getType());
+        Assert.assertEquals(new ArrayType(new ArrayType(ScalarType.createDatetimeV2Type(6))),
+                result.get(4).getType());
     }
 
     @Test
@@ -249,5 +309,46 @@ public class StreamingJobUtilsTest {
 
         Assert.assertEquals("test_db",
                 StreamingJobUtils.getRemoteDbName(DataSourceType.OCEANBASE, properties));
+    }
+
+    @Test
+    public void testGenerateCreateTableCmdsFindsMixedCasePrecreatedTargetWhenStoredLowerCase() throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(DataSourceConfigKeys.SCHEMA, "source_db");
+        properties.put(DataSourceConfigKeys.TABLE + ".source_table."
+                + DataSourceConfigKeys.TABLE_TARGET_TABLE_SUFFIX, "MixedTarget");
+
+        Database targetDatabase = new Database(1L, "target_db");
+        targetDatabase.registerTable(new OlapTable(2L, "mixedtarget", new ArrayList<>(), KeysType.UNIQUE_KEYS,
+                null, null));
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog internalCatalog = Mockito.mock(InternalCatalog.class);
+        Mockito.when(env.getInternalCatalog()).thenReturn(internalCatalog);
+        Mockito.when(internalCatalog.getDbNullable("target_db")).thenReturn(targetDatabase);
+        Mockito.when(jdbcClient.getTablesNameList("source_db"))
+                .thenReturn(Arrays.asList("source_table"));
+        Mockito.when(jdbcClient.getPrimaryKeys("source_db", "source_table"))
+                .thenReturn(Arrays.asList("id"));
+        Mockito.when(jdbcClient.getColumnsFromJdbc("source_db", "source_table"))
+                .thenReturn(Arrays.asList(
+                        new Column("id", ScalarType.createType(PrimitiveType.INT)),
+                        new Column("unsupported_col", new ScalarType(PrimitiveType.UNSUPPORTED))));
+
+        int originalLowerCaseTableNames = GlobalVariable.lowerCaseTableNames;
+        GlobalVariable.lowerCaseTableNames = 1;
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+                MockedStatic<StreamingJobUtils> utils = Mockito.mockStatic(StreamingJobUtils.class,
+                        Mockito.CALLS_REAL_METHODS)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            mockedEnv.when(Env::isStoredTableNamesLowerCase).thenReturn(true);
+            utils.when(() -> StreamingJobUtils.getJdbcClient(DataSourceType.POSTGRES, properties))
+                    .thenReturn(jdbcClient);
+
+            Assert.assertFalse(StreamingJobUtils.generateCreateTableCmds(
+                    "target_db", DataSourceType.POSTGRES, properties, new HashMap<>())
+                    .get("source_table").isPresent());
+        } finally {
+            GlobalVariable.lowerCaseTableNames = originalLowerCaseTableNames;
+        }
     }
 }

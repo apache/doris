@@ -118,19 +118,20 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         Map<String, String> params = buildSqlParams();
         params.put("min", StatisticsUtil.quote(min));
         params.put("max", StatisticsUtil.quote(max));
-        params.put("hotValueCollectCount", String.valueOf(SessionVariable.getHotValueCollectCount()));
         long tableRowCount = info.indexId == -1
                 ? tbl.getRowCount()
                 : ((OlapTable) tbl).getRowCountForIndex(info.indexId, false);
         SampleCollectInfo collectInfo = getSampleCollectInfo(tableRowCount);
         getSampleParams(params, tableRowCount, collectInfo);
-        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-        String sql;
+        String template = LINEAR_ANALYZE_TEMPLATE;
         if (collectInfo.algorithm == AnalyzeSampleAlgorithm.DUJ1) {
-            sql = stringSubstitutor.replace(DUJ1_ANALYZE_TEMPLATE);
-        } else {
-            sql = stringSubstitutor.replace(LINEAR_ANALYZE_TEMPLATE);
+            // DUJ1 is the only sample algorithm that collects hot values, and it derives them
+            // from the grouped sample it already builds for the NDV estimate, so only it needs
+            // the top-N count.
+            params.put("hotValueCollectCount", String.valueOf(SessionVariable.getHotValueCollectCount()));
+            template = DUJ1_ANALYZE_TEMPLATE;
         }
+        String sql = new StringSubstitutor(params).replace(template);
         LOG.info("Analyze param: algorithm {}, partitionColumnTooMany {}, keyColumnTooMany {}",
                 collectInfo.algorithm, partitionColumnSampleTooManyRows, keyColumnSampleTooManyRows);
         LOG.debug(sql);
@@ -306,7 +307,6 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         params.put("rowCount", String.valueOf(tableRowCount));
         params.put("type", col.getType().toString());
         params.put("limit", "");
-        params.put("subStringColName", getStringTypeColName(col));
 
         // For agg table and mor unique table, set PREAGGOPEN preAggHint.
         if (((OlapTable) tbl).getKeysType().equals(KeysType.AGG_KEYS)
@@ -356,11 +356,13 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     protected void setSampleParamsByAlgorithm(Map<String, String> params, long tableRowCount,
             AnalyzeSampleAlgorithm algorithm) {
         if (algorithm == AnalyzeSampleAlgorithm.DUJ1) {
+            // DUJ1 is the only sample algorithm that collects hot values: it derives them from
+            // the grouped sample it already builds for the NDV estimate below.
+            params.put("subStringColName", getStringTypeColName(col));
             params.put("ndvFunction", getNdvFunction(String.valueOf(tableRowCount)));
             params.put("dataSizeFunction", getDataSizeFunction(col, true));
             params.put("rowCount2", "(SELECT SUM(`count`) FROM cte1 WHERE `col_value` IS NOT NULL)");
         } else {
-            params.put("rowCount2", "(SELECT COUNT(1) FROM cte1 WHERE `${colName}` IS NOT NULL)");
             // For single unique key, use count as ndv.
             if (isSingleUniqueKey()) {
                 params.put("ndvFunction", String.valueOf(tableRowCount));

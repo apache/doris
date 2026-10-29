@@ -101,6 +101,7 @@ public final class MetricRepo {
     public static final String STREAMING_JOB_PER_JOB_SUCCEED_TASK_COUNT = "streaming_job_per_job_succeed_task_count";
     public static final String STREAMING_JOB_PER_JOB_FAILED_TASK_COUNT = "streaming_job_per_job_failed_task_count";
     public static final String STREAMING_JOB_PER_JOB_LAG_BYTES = "streaming_job_per_job_lag_bytes";
+    public static final String STREAMING_JOB_PER_JOB_LAG_MESSAGES = "streaming_job_per_job_lag_messages";
     public static final String STREAMING_JOB_PER_JOB_LAST_SOURCE_EVENT_TIMESTAMP_SECONDS =
             "streaming_job_per_job_last_source_event_timestamp_seconds";
     public static final String STREAMING_JOB_PER_JOB_LAST_TASK_SUCCESS_TIME_SECONDS =
@@ -124,6 +125,10 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_QUERY_TABLE;
     public static LongCounterMetric COUNTER_QUERY_OLAP_TABLE;
     public static LongCounterMetric COUNTER_QUERY_HIVE_TABLE;
+    public static LongCounterMetric COUNTER_CLONE_BYTES_LOCAL_AZ;
+    public static LongCounterMetric COUNTER_CLONE_BYTES_CROSS_AZ;
+    public static LongCounterMetric COUNTER_CLONE_CROSS_AZ_SLOT_FULL;
+    public static LongCounterMetric COUNTER_CLONE_CROSS_AZ_NO_LOCAL;
 
     public static LongCounterMetric HTTP_COUNTER_COPY_INFO_UPLOAD_REQUEST;
     public static LongCounterMetric HTTP_COUNTER_COPY_INFO_UPLOAD_ERR;
@@ -541,6 +546,18 @@ public final class MetricRepo {
         COUNTER_QUERY_HIVE_TABLE = new LongCounterMetric("query_hive_table", MetricUnit.REQUESTS,
                 "total query from hive table");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_QUERY_HIVE_TABLE);
+        COUNTER_CLONE_BYTES_LOCAL_AZ = new LongCounterMetric("clone_bytes_local_az", MetricUnit.BYTES,
+                "total clone bytes within the same tag.location");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_CLONE_BYTES_LOCAL_AZ);
+        COUNTER_CLONE_BYTES_CROSS_AZ = new LongCounterMetric("clone_bytes_cross_az", MetricUnit.BYTES,
+                "total clone bytes across different tag.location");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_CLONE_BYTES_CROSS_AZ);
+        COUNTER_CLONE_CROSS_AZ_SLOT_FULL = new LongCounterMetric("clone_cross_az_slot_full", MetricUnit.BYTES,
+                "total cross-AZ clone bytes caused by local source slot exhaustion");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_CLONE_CROSS_AZ_SLOT_FULL);
+        COUNTER_CLONE_CROSS_AZ_NO_LOCAL = new LongCounterMetric("clone_cross_az_no_local", MetricUnit.BYTES,
+                "total cross-AZ clone bytes caused by no local healthy source");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_CLONE_CROSS_AZ_NO_LOCAL);
         USER_COUNTER_QUERY_ALL = new AutoMappedMetric<>(name -> {
             LongCounterMetric userCountQueryAll = new LongCounterMetric("query_total", MetricUnit.REQUESTS,
                     "total query for single user");
@@ -1339,6 +1356,7 @@ public final class MetricRepo {
         DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_SUCCEED_TASK_COUNT);
         DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_FAILED_TASK_COUNT);
         DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_LAG_BYTES);
+        DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_LAG_MESSAGES);
         DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_LAST_SOURCE_EVENT_TIMESTAMP_SECONDS);
         DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_LAST_TASK_SUCCESS_TIME_SECONDS);
 
@@ -1436,10 +1454,25 @@ public final class MetricRepo {
                         .addLabel(new MetricLabel("job_name", jobName));
                 DORIS_METRIC_REGISTER.addMetrics(lag);
 
+                long lagMessages = sJob.getLagMessages();
+                if (lagMessages >= 0) {
+                    GaugeMetric<Long> messageLag = new GaugeMetric<Long>(
+                            STREAMING_JOB_PER_JOB_LAG_MESSAGES, MetricUnit.NOUNIT,
+                            "last observed approximate visible message backlog, excluding in-flight messages") {
+                        @Override
+                        public Long getValue() {
+                            return lagMessages;
+                        }
+                    };
+                    messageLag.addLabel(new MetricLabel("job_id", jobId))
+                            .addLabel(new MetricLabel("job_name", jobName));
+                    DORIS_METRIC_REGISTER.addMetrics(messageLag);
+                }
+
                 long lastSourceEventTimestampSeconds = sJob.getLastSourceEventTimestampSeconds();
                 GaugeMetric<Long> lastSourceEventTimestamp = new GaugeMetric<Long>(
                         STREAMING_JOB_PER_JOB_LAST_SOURCE_EVENT_TIMESTAMP_SECONDS, MetricUnit.SECONDS,
-                        "timestamp of the latest source binlog or WAL event recorded in the job's committed offset"
+                        "source event timestamp of the latest committed batch"
                                 + " as Unix seconds, 0 means unavailable") {
                     @Override
                     public Long getValue() {
@@ -2369,5 +2402,20 @@ public final class MetricRepo {
         labels.add(new MetricLabel("cluster_name", clusterName));
         counter.setLabels(labels);
         MetricRepo.DORIS_METRIC_REGISTER.addMetrics(counter);
+    }
+
+    public static void updateCloudTabletRebalancerMetrics(long durationMs, long allocatedBytes,
+                                                           long tabletScanCount) {
+        if (!MetricRepo.isInit || Config.isNotCloudMode()) {
+            return;
+        }
+        CloudMetrics.CLOUD_TABLET_REBALANCER_ROUND_TOTAL.increase(1L);
+        CloudMetrics.CLOUD_TABLET_REBALANCER_DURATION_MS_TOTAL.increase(durationMs);
+        CloudMetrics.CLOUD_TABLET_REBALANCER_LAST_ROUND_DURATION_MS.setValue(durationMs);
+        CloudMetrics.CLOUD_TABLET_REBALANCER_TABLET_SCAN_TOTAL.increase(tabletScanCount);
+        CloudMetrics.CLOUD_TABLET_REBALANCER_LAST_ROUND_ALLOCATED_BYTES.setValue(allocatedBytes);
+        if (allocatedBytes >= 0L) {
+            CloudMetrics.CLOUD_TABLET_REBALANCER_ALLOCATED_BYTES_TOTAL.increase(allocatedBytes);
+        }
     }
 }

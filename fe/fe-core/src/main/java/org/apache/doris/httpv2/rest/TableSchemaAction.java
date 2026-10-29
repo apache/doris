@@ -103,6 +103,10 @@ public class TableSchemaAction extends RestBaseController {
             @PathVariable(value = TABLE_KEY) final String tblName,
             HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request, response);
+        return getSchema(catalogName, dbName, tblName, PrivPredicate.SELECT);
+    }
+
+    Object getSchema(String catalogName, String dbName, String tblName, PrivPredicate privilege) {
         // just allocate 2 slot for top holder map
         Map<String, Object> resultMap = new HashMap<>(2);
 
@@ -112,9 +116,8 @@ public class TableSchemaAction extends RestBaseController {
 
         try {
             String fullDbName = getFullDbName(dbName);
-            // check privilege for select, otherwise return 401 HTTP status
             checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), catalogName, dbName, tblName,
-                    PrivPredicate.SELECT);
+                    privilege);
             TableIf table;
             try {
                 CatalogIf catalog = StringUtils.isNotBlank(catalogName) ? Env.getCurrentEnv().getCatalogMgr()

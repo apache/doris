@@ -117,4 +117,30 @@ public class MysqlResultSetEndPacketTest {
         Assert.assertTrue("ResultSet OK packet payload should be > 5, got: " + rsEndPayloadLength,
                 rsEndPayloadLength > 5);
     }
+
+    @Test
+    public void testPreservesMoreResultsStatus() {
+        QueryState state = new QueryState();
+        state.serverStatus = MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
+        MysqlSerializer serializer = MysqlSerializer.newInstance(capability);
+        new MysqlResultSetEndPacket(state).writeTo(serializer);
+
+        ByteBuffer buffer = serializer.toByteBuffer();
+        Assert.assertEquals(0xFE, MysqlProto.readInt1(buffer));
+        Assert.assertEquals(0, MysqlProto.readVInt(buffer));
+        Assert.assertEquals(0, MysqlProto.readVInt(buffer));
+        Assert.assertEquals(MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS, MysqlProto.readInt2(buffer));
+    }
+
+    @Test
+    public void testPreservesWarningCount() {
+        QueryState state = new QueryState();
+        state.setOk(0, 3, null);
+        MysqlSerializer serializer = MysqlSerializer.newInstance(capability);
+        new MysqlResultSetEndPacket(state).writeTo(serializer);
+
+        ByteBuffer buffer = serializer.toByteBuffer();
+        buffer.position(5);
+        Assert.assertEquals(3, MysqlProto.readInt2(buffer));
+    }
 }

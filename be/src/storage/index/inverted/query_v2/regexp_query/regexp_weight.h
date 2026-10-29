@@ -35,6 +35,10 @@ public:
 
 private:
     ScorerPtr regexp_scorer(const QueryExecutionContext& context, const std::string& binding_key);
+    ScorerPtr scored_terms_scorer(lucene::index::IndexReader* reader,
+                                  const QueryExecutionContext& context,
+                                  const std::string& binding_key,
+                                  const std::vector<std::wstring>& matching_terms);
 
     std::optional<std::string> get_regex_prefix(const std::string& pattern);
     void collect_matching_terms(const QueryExecutionContext& context,
@@ -46,7 +50,7 @@ private:
 
     std::wstring _field;
     std::string _pattern;
-    [[maybe_unused]] bool _enable_scoring = false;
+    bool _enable_scoring = false;
     bool _nullable = true;
     // Set to 0 to disable limit (ES has no default limit for prefix queries)
     // The limit prevents collecting too many terms, but can cause incorrect results

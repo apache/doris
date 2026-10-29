@@ -109,6 +109,10 @@ DEFINE_Int32(brpc_num_threads, "256");
 // the default value is set to -1, which means never close idle connection.
 DEFINE_Int32(brpc_idle_timeout_sec, "-1");
 
+// Maximum number of multi-dimensional bvar samples exported by /brpc_metrics.
+// brpc 1.4 defaults this flag to 0, which disables all MultiDimension metrics.
+DEFINE_String(bvar_max_dump_multi_dimension_metric_num, "5000");
+
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
 // this is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24
@@ -691,7 +695,7 @@ DEFINE_mBool(enable_stream_load_commit_txn_on_be, "false");
 DEFINE_Int64(stream_tvf_buffer_size, "1048576"); // 1MB
 
 // request cdc client timeout
-DEFINE_mInt32(request_cdc_client_timeout_ms, "60000");
+DEFINE_mInt32(request_cdc_client_timeout_ms, "120000");
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
@@ -1066,6 +1070,10 @@ DEFINE_mInt32(in_memory_file_size, "1048576"); // 1MB
 
 // Max size of parquet page header in bytes
 DEFINE_mInt32(parquet_header_max_size_mb, "1");
+// Max size of parquet file metadata in bytes
+DEFINE_mInt64(parquet_metadata_size_limit, "268435456");
+DEFINE_Validator(parquet_metadata_size_limit,
+                 [](const int64_t config) -> bool { return config > 0; });
 // Max buffer size for parquet row group
 DEFINE_mInt32(parquet_rowgroup_max_buffer_mb, "128");
 // Max buffer size for parquet chunk column
@@ -1206,8 +1214,28 @@ DEFINE_Validator(variant_max_json_key_length,
 DEFINE_Validator(variant_storage_parse_mode,
                  [](const int config) -> bool { return config >= 0 && config <= 2; });
 
+// Lance uses one BE-wide session so metadata/index caches and the optional Foyer data-file cache
+// can be shared by all Lance dataset readers.
+DEFINE_Int64(lance_index_cache_size_bytes, "10737418240");   // 10 GiB
+DEFINE_Int64(lance_metadata_cache_size_bytes, "1073741824"); // 1GB
+DEFINE_Bool(enable_lance_data_cache, "true");
+DEFINE_String(lance_data_cache_path, "${DORIS_HOME}/lance_data_cache");
+DEFINE_Int64(lance_data_cache_disk_capacity_bytes, "107374182400"); // 100GB
+DEFINE_Int64(lance_data_cache_read_block_size_bytes, "1048576");    // 1MB
+
+// I/O buffering budget per Lance scanner, not a cap on its total memory usage.
+// Runtime changes apply to newly created scanners.
+DEFINE_mInt64(lance_io_buffer_size_bytes, "2147483648"); // 2 GiB
+DEFINE_Validator(lance_io_buffer_size_bytes, [](int64_t value) { return value > 0; });
+
+// Read-ahead limits per Lance scanner. Runtime changes apply to newly created scanners.
+DEFINE_mInt32(lance_batch_readahead, "5");
+DEFINE_Validator(lance_batch_readahead, [](int32_t value) { return value > 0; });
+DEFINE_mInt32(lance_fragment_readahead, "5");
+DEFINE_Validator(lance_fragment_readahead, [](int32_t value) { return value > 0; });
+
 // block file cache
-DEFINE_Bool(enable_file_cache, "false");
+DEFINE_Bool(enable_file_cache, "true");
 // ATTENTION: For test only. Keep this enabled in production.
 // Whether S3 storage write paths populate file cache while writing data to object storage.
 // Disable this for tests that need load and compaction output to bypass file cache while keeping
@@ -1344,6 +1372,11 @@ DEFINE_mBool(debug_inverted_index_compaction, "false");
 DEFINE_mBool(inverted_index_ram_dir_enable, "true");
 // wheather index by RAM directory when base compaction
 DEFINE_mBool(inverted_index_ram_dir_enable_when_base_compaction, "true");
+// Norms cost one byte per segment row, including rows that hold no value for the field. A segment
+// holds one index per variant path, so writing norms for them costs rows * paths bytes. Turn this on
+// to leave norms out of every index on a variant path, whatever its "norms" property says; BM25
+// scoring (score()) on those indexes then fails.
+DEFINE_mBool(inverted_index_skip_norms_for_variant, "false");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DEFINE_Int32(num_broadcast_buffer, "32");
 
@@ -1446,6 +1479,12 @@ DEFINE_mBool(enable_mow_get_agg_by_cache, "true");
 DEFINE_mBool(enable_mow_get_agg_correctness_check_core, "false");
 DEFINE_mBool(enable_agg_and_remove_pre_rowsets_delete_bitmap, "true");
 DEFINE_mBool(enable_check_agg_and_remove_pre_rowsets_delete_bitmap, "false");
+// Remove pre-rowset delete bitmaps in [end_version, end_version] before writing aggregated delete
+// bitmaps. True: point delete; false: range delete.
+DEFINE_mBool(enable_remove_agg_pre_rowsets_delete_bitmap_by_keys, "true");
+// Remove pre-rowset delete bitmaps in [start_version, end_version). True: point delete; false:
+// range delete.
+DEFINE_mBool(enable_remove_pre_rowsets_delete_bitmap_by_keys, "true");
 
 // The secure path with user files, used in the `local` table function.
 DEFINE_String(user_files_secure_path, "${DORIS_HOME}");
@@ -1635,41 +1674,6 @@ DEFINE_mInt64(iceberg_sink_max_file_size, "1073741824"); // 1GB
 DEFINE_mInt64(paimon_jni_writer_memory_pool_limit_bytes, "536870912"); // 512MB
 DEFINE_Validator(paimon_jni_writer_memory_pool_limit_bytes,
                  [](int64_t bytes) -> bool { return bytes > 0; });
-
-// URI scheme to Doris file type mappings used by paimon-cpp DorisFileSystem.
-// Each entry uses the format "<scheme>=<file_type>", and file_type must be one of:
-// local, hdfs, s3, http, broker.
-DEFINE_Strings(paimon_file_system_scheme_mappings,
-               "file=local,hdfs=hdfs,viewfs=hdfs,local=hdfs,jfs=hdfs,"
-               "s3=s3,s3a=s3,s3n=s3,oss=s3,obs=s3,cos=s3,cosn=s3,gs=s3,"
-               "abfs=s3,abfss=s3,wasb=s3,wasbs=s3,http=http,https=http,"
-               "ofs=broker,gfs=broker");
-DEFINE_Validator(paimon_file_system_scheme_mappings,
-                 ([](const std::vector<std::string>& mappings) -> bool {
-                     doris::StringCaseUnorderedSet seen_schemes;
-                     static const doris::StringCaseUnorderedSet supported_types = {
-                             "local", "hdfs", "s3", "http", "broker"};
-                     for (const auto& raw_entry : mappings) {
-                         std::string_view entry = doris::trim(raw_entry);
-                         size_t separator = entry.find('=');
-                         if (separator == std::string_view::npos) {
-                             return false;
-                         }
-                         std::string scheme = std::string(doris::trim(entry.substr(0, separator)));
-                         std::string file_type =
-                                 std::string(doris::trim(entry.substr(separator + 1)));
-                         if (scheme.empty() || file_type.empty()) {
-                             return false;
-                         }
-                         if (supported_types.find(file_type) == supported_types.end()) {
-                             return false;
-                         }
-                         if (!seen_schemes.insert(scheme).second) {
-                             return false;
-                         }
-                     }
-                     return true;
-                 }));
 
 DEFINE_mInt32(thrift_client_open_num_tries, "1");
 

@@ -17,6 +17,12 @@
 
 #include <aws/core/Aws.h>
 #include <aws/s3/S3Client.h>
+#include <aws/s3/model/DeleteObjectRequest.h>
+#include <aws/s3/model/DeleteObjectResult.h>
+#include <aws/s3/model/DeleteObjectsRequest.h>
+#include <aws/s3/model/DeleteObjectsResult.h>
+#include <aws/s3/model/HeadObjectRequest.h>
+#include <aws/s3/model/HeadObjectResult.h>
 #include <aws/s3/model/ListObjectsV2Request.h>
 #include <aws/s3/model/ListObjectsV2Result.h>
 #include <aws/s3/model/Object.h>
@@ -50,6 +56,12 @@ public:
 
     MOCK_METHOD(Aws::S3::Model::ListObjectsV2Outcome, ListObjectsV2,
                 (const Aws::S3::Model::ListObjectsV2Request& request), (const, override));
+    MOCK_METHOD(Aws::S3::Model::DeleteObjectOutcome, DeleteObject,
+                (const Aws::S3::Model::DeleteObjectRequest& request), (const, override));
+    MOCK_METHOD(Aws::S3::Model::DeleteObjectsOutcome, DeleteObjects,
+                (const Aws::S3::Model::DeleteObjectsRequest& request), (const, override));
+    MOCK_METHOD(Aws::S3::Model::HeadObjectOutcome, HeadObject,
+                (const Aws::S3::Model::HeadObjectRequest& request), (const, override));
 };
 
 class S3ObjStorageClientMockTest : public testing::Test {
@@ -61,6 +73,37 @@ private:
 };
 
 Aws::SDKOptions S3ObjStorageClientMockTest::options {};
+
+TEST_F(S3ObjStorageClientMockTest, HeadPreservesFileMetadata) {
+    auto mock = std::make_shared<MockS3Client>();
+    auto client = std::make_shared<S3ObjStorageClient>(mock);
+    HeadObjectResult result;
+    result.SetContentLength(42);
+    result.SetContentType("image/png");
+    result.SetETag("\"opaque-2\"");
+    EXPECT_CALL(*mock, HeadObject(testing::_)).WillOnce(testing::Return(result));
+    auto metadata = client->head_object({.bucket = "bucket", .key = "key"});
+    ASSERT_TRUE(metadata.resp.ok());
+    EXPECT_EQ(metadata.file_size, 42);
+    EXPECT_EQ(metadata.content_type, "image/png");
+    EXPECT_EQ(metadata.etag, "\"opaque-2\"");
+}
+
+TEST_F(S3ObjStorageClientMockTest, HeadMetadataUsesOrdinaryRequestThroughRateLimiter) {
+    auto mock = std::make_shared<MockS3Client>();
+    auto client = std::make_shared<RateLimitedObjStorageClient>(
+            std::make_shared<S3ObjStorageClient>(mock));
+    HeadObjectResult result;
+    result.SetContentLength(42);
+    result.SetETag("\"opaque-2\"");
+    EXPECT_CALL(*mock, HeadObject(testing::_)).WillOnce([&](const HeadObjectRequest& request) {
+        EXPECT_FALSE(request.ChecksumModeHasBeenSet());
+        return HeadObjectOutcome(result);
+    });
+    const auto metadata = client->head_object({.bucket = "bucket", .key = "key"});
+    ASSERT_TRUE(metadata.resp.ok());
+    EXPECT_EQ(metadata.etag, "\"opaque-2\"");
+}
 
 TEST_F(S3ObjStorageClientMockTest, list_objects_compatibility) {
     // If storage only supports ListObjectsV1, s3_obj_storage_client.list_objects
@@ -94,6 +137,55 @@ ListObjectsV2Result CreatePageResult(const std::string& nextToken,
         result.AddContents(std::move(obj));
     }
     return result;
+}
+
+TEST_F(S3ObjStorageClientMockTest, ListPageDelimiterIsOptIn) {
+    auto mock = std::make_shared<MockS3Client>();
+    std::shared_ptr<ObjStorageClient> client = std::make_shared<S3ObjStorageClient>(mock);
+    EXPECT_CALL(*mock, ListObjectsV2(testing::_)).WillOnce([](const ListObjectsV2Request& request) {
+        EXPECT_EQ(request.GetDelimiter(), "/");
+        EXPECT_EQ(request.GetPrefix(), "dir/");
+        EXPECT_EQ(request.GetContinuationToken(), "next");
+        return ListObjectsV2Outcome(CreatePageResult("", {"dir/a.txt"}, false));
+    });
+    const auto direct = client->list_objects_page(
+            {.bucket = "bucket", .prefix = "dir/", .delimiter = "/"}, "next");
+    ASSERT_TRUE(direct.resp.ok());
+    ASSERT_EQ(direct.objects.size(), 1);
+    EXPECT_EQ(direct.objects[0].key, "dir/a.txt");
+    EXPECT_CALL(*mock, ListObjectsV2(testing::_)).WillOnce([](const ListObjectsV2Request& request) {
+        EXPECT_FALSE(request.DelimiterHasBeenSet());
+        return ListObjectsV2Outcome(CreatePageResult("", {"dir/deep/a.txt"}, false));
+    });
+    const auto recursive = client->list_objects_page({.bucket = "bucket", .prefix = "dir/"}, "");
+    ASSERT_TRUE(recursive.resp.ok());
+    ASSERT_EQ(recursive.objects.size(), 1);
+    EXPECT_EQ(recursive.objects[0].key, "dir/deep/a.txt");
+}
+
+TEST_F(S3ObjStorageClientMockTest, ListPagePreservesEtagsWithoutHeadRequests) {
+    auto mock = std::make_shared<testing::StrictMock<MockS3Client>>();
+    S3ObjStorageClient client(mock);
+    EXPECT_CALL(*mock, ListObjectsV2(testing::_)).WillOnce([](const auto&) {
+        ListObjectsV2Result result;
+        for (const auto& etag : {std::optional<std::string>("\"opaque-2\""),
+                                 std::optional<std::string>(""), std::optional<std::string>()}) {
+            Object object;
+            object.SetKey("dir/" + std::to_string(result.GetContents().size()));
+            object.SetSize(7);
+            if (etag) {
+                object.SetETag(*etag);
+            }
+            result.AddContents(std::move(object));
+        }
+        return ListObjectsV2Outcome(result);
+    });
+    const auto result = client.list_objects_page({.bucket = "bucket", .prefix = "dir/"}, "");
+    ASSERT_TRUE(result.resp.ok());
+    ASSERT_EQ(result.objects.size(), 3);
+    EXPECT_EQ(result.objects[0].etag, "\"opaque-2\"");
+    EXPECT_FALSE(result.objects[1].etag.has_value());
+    EXPECT_FALSE(result.objects[2].etag.has_value());
 }
 
 TEST_F(S3ObjStorageClientMockTest, list_objects_pagination_charges_one_get_qps) {

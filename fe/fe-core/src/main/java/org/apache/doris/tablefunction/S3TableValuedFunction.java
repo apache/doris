@@ -22,9 +22,10 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.lance.LanceMetadataLoader;
-import org.apache.doris.datasource.lance.LanceTableMetadata;
+import org.apache.doris.datasource.lance.metadata.LanceMetadataLoader;
+import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
 
 import java.util.Collections;
@@ -46,6 +47,11 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
     public static final String NAME = "s3";
 
     public S3TableValuedFunction(Map<String, String> properties) throws AnalysisException {
+        this(properties, null);
+    }
+
+    public S3TableValuedFunction(Map<String, String> properties, List<TBrokerFileStatus> files)
+            throws AnalysisException {
         // 1. analyze common properties
         Map<String, String> props = super.parseCommonProperties(properties);
         try {
@@ -61,6 +67,9 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
             // Just check
             // Fixme wait to be done  #50320
             // FileSystemFactory.get(storageProperties);
+            if (files != null) {
+                this.fileStatuses.addAll(files);
+            }
             return;
         }
         if (isLanceFormat()) {
@@ -75,7 +84,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
                         e);
             }
         } else {
-            parseFile();
+            parseFile(files);
         }
     }
 

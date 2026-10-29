@@ -27,11 +27,13 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.CachingSha2PasswordExchange;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlHandshakePacket;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.mysql.authenticate.password.NativePasswordResolver;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -62,6 +64,7 @@ import java.util.Optional;
  */
 public class MysqlConnectProcessor extends ConnectProcessor {
     private static final Logger LOG = LogManager.getLogger(MysqlConnectProcessor.class);
+    private static final int CURSOR_TYPE_READ_ONLY = 0x01;
 
     private ByteBuffer packetBuf;
 
@@ -127,12 +130,14 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         String stmtStr = "";
         try {
             StatementContext statementContext = prepCtx.statementContext;
+            if (!ctx.isProxy()) {
+                // An empty buffer still identifies a zero-parameter COM_STMT_EXECUTE when forwarding.
+                ctx.setPrepareExecuteBuffer(packetBuf.duplicate());
+                ctx.setPrepareExecuteTypeCodes(null);
+            }
             if (paramCount > 0) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("execute param buf: {}, array: {}", packetBuf, getHexStr(packetBuf));
-                }
-                if (!ctx.isProxy()) {
-                    ctx.setPrepareExecuteBuffer(packetBuf.duplicate());
                 }
                 byte[] nullbitmapData = new byte[(paramCount + 7) / 8];
                 packetBuf.get(nullbitmapData);
@@ -150,6 +155,15 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                     // rewrite with new prepared statment with type info in placeholders
                     prepCtx.command = prepareCommand.withPlaceholders(typedPlaceholders);
                     prepareCommand = (PrepareCommand) prepCtx.command;
+                } else if (!ctx.isProxy()) {
+                    // A new master proxy cannot reuse the follower's statement-local type cache.
+                    int[] typeCodes = new int[paramCount];
+                    for (int i = 0; i < paramCount; i++) {
+                        Placeholder parameter = prepareCommand.getPlaceholders().get(i);
+                        typeCodes[i] = parameter.getMysqlColType().getCode()
+                                | (parameter.isUnsigned() ? MysqlColType.UNSIGNED_MASK : 0);
+                    }
+                    ctx.setPrepareExecuteTypeCodes(typeCodes);
                 }
                 // parse param data
                 for (int i = 0; i < paramCount; ++i) {
@@ -211,8 +225,8 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         packetBuf = packetBuf.order(ByteOrder.LITTLE_ENDIAN);
         // parse stmt_id, flags, params
         int stmtId = packetBuf.getInt();
-        // flag
-        packetBuf.get();
+        int flags = Byte.toUnsignedInt(packetBuf.get());
+        ctx.setCursorFetchRequested((flags & CURSOR_TYPE_READ_ONLY) != 0);
         // iteration_count always 1,
         packetBuf.getInt();
         if (LOG.isDebugEnabled()) {
@@ -334,16 +348,34 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         if (!MysqlHandshakePacket.AUTH_PLUGIN_NAME.equals(authPluginName)) {
             MysqlChannel channel = ctx.mysqlChannel;
             MysqlSerializer serializer = MysqlSerializer.newInstance();
-            serializer.writeInt1((byte) 0xfe);
-            serializer.writeNulTerminateString(MysqlHandshakePacket.AUTH_PLUGIN_NAME);
-            serializer.writeBytes(authPluginData);
-            serializer.writeInt1(0);
-            channel.sendAndFlush(serializer.toByteBuffer());
-            // Server receive auth switch response packet from client.
-            ByteBuffer authSwitchResponse = channel.fetchOnePacket();
-            int length = authSwitchResponse.limit();
-            password = new byte[length];
-            System.arraycopy(authSwitchResponse.array(), 0, password, 0, length);
+            if (CachingSha2PasswordExchange.serves(authPluginName, ctx.getConnectAttributes())) {
+                // Same client class as at login (see NativePasswordResolver): full authentication,
+                // then the plaintext is checked the native way below.
+                String plainPassword;
+                try {
+                    plainPassword = CachingSha2PasswordExchange.exchange(channel, serializer,
+                            authPluginData, channel.isSslMode());
+                } catch (CachingSha2PasswordExchange.Rejected e) {
+                    LOG.warn("caching_sha2_password exchange rejected on COM_CHANGE_USER: {}", e.getMessage());
+                    plainPassword = null;
+                }
+                if (plainPassword == null) {
+                    ctx.getState().setError(ErrorCode.ERR_ACCESS_DENIED_ERROR, "Authentication failed.");
+                    return;
+                }
+                password = NativePasswordResolver.nativeScramble(plainPassword, authPluginData);
+            } else {
+                serializer.writeInt1((byte) 0xfe);
+                serializer.writeNulTerminateString(MysqlHandshakePacket.AUTH_PLUGIN_NAME);
+                serializer.writeBytes(authPluginData);
+                serializer.writeInt1(0);
+                channel.sendAndFlush(serializer.toByteBuffer());
+                // Server receive auth switch response packet from client.
+                ByteBuffer authSwitchResponse = channel.fetchOnePacket();
+                int length = authSwitchResponse.limit();
+                password = new byte[length];
+                System.arraycopy(authSwitchResponse.array(), 0, password, 0, length);
+            }
         }
 
         // For safety, not allowed to change to root or admin.

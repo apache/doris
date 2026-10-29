@@ -55,7 +55,7 @@ public class DropDatabaseEvent extends MetastoreEvent {
         try {
             logInfo("catalogName:[{}],dbName:[{}]", catalogName, dbName);
             Env.getCurrentEnv().getCatalogMgr()
-                    .unregisterExternalDatabase(dbName, catalogName);
+                    .unregisterExternalDatabase(event == null ? dbName : event.getDbName(), catalogName);
         } catch (DdlException e) {
             throw new MetastoreNotificationException(
                     getMsgWithEventInfo("Failed to process event"), e);

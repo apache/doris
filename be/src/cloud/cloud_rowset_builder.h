@@ -37,6 +37,8 @@ public:
 
     const RowsetMetaSharedPtr& rowset_meta();
 
+    bool is_s3_storage() const;
+
     Status set_txn_related_info();
 
     void set_skip_writing_rowset_metadata(bool skip) { _skip_writing_rowset_metadata = skip; }

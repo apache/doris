@@ -20,7 +20,9 @@ package org.apache.doris.datasource.paimon;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.VariantType;
 
 import org.apache.paimon.table.FileStoreTable;
@@ -32,6 +34,24 @@ import org.mockito.Mockito;
 import java.util.Collections;
 
 public class PaimonWriteTargetTest {
+
+    @Test
+    public void testLtzWriteBoundaryPreservesInstantsRegardlessOfReadMapping() throws Exception {
+        PaimonWriteTarget target = createTarget(
+                DataTypes.FIELD(0, "instant", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(6)),
+                DataTypes.FIELD(1, "local_time", DataTypes.TIMESTAMP(6)),
+                DataTypes.FIELD(2, "items", DataTypes.ARRAY(DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(3))),
+                DataTypes.FIELD(3, "record", DataTypes.ROW(
+                        DataTypes.FIELD(4, "instant", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(6)))));
+
+        // A civil DATETIMEV2 boundary collapses the two instants in a DST fall-back fold.
+        Assert.assertEquals(TimeStampTzType.of(6), DataType.fromCatalogType(target.getColumnTypes().get("instant")));
+        Assert.assertEquals(DateTimeV2Type.of(6), DataType.fromCatalogType(target.getColumnTypes().get("local_time")));
+        ArrayType arrayType = (ArrayType) DataType.fromCatalogType(target.getColumnTypes().get("items"));
+        Assert.assertEquals(TimeStampTzType.of(3), arrayType.getItemType());
+        StructType structType = (StructType) DataType.fromCatalogType(target.getColumnTypes().get("record"));
+        Assert.assertEquals(TimeStampTzType.of(6), structType.getFields().get(0).getDataType());
+    }
 
     @Test
     public void testVariantColumnIsAvailableToWriteBinding() throws Exception {

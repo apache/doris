@@ -29,6 +29,7 @@
 #include <string>
 #include <vector>
 
+#include "common/exception.h"
 #include "core/field.h"
 #include "core/value/vdatetime_value.h"
 #include "runtime/runtime_state.h"
@@ -43,6 +44,30 @@
 #include "util/slice.h"
 
 namespace doris::segment_v2 {
+
+class ThrowingAnalysisTestAnalyzer final : public lucene::analysis::Analyzer {
+public:
+    bool isSDocOpt() override { return true; }
+
+    lucene::analysis::TokenStream* tokenStream(const TCHAR*, lucene::util::Reader*) override {
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR, "forced analyzer failure");
+    }
+
+    lucene::analysis::TokenStream* reusableTokenStream(const TCHAR*,
+                                                       lucene::util::Reader*) override {
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR, "forced analyzer failure");
+    }
+
+    lucene::analysis::TokenStream* tokenStream(const TCHAR*,
+                                               const inverted_index::ReaderPtr&) override {
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR, "forced analyzer failure");
+    }
+
+    lucene::analysis::TokenStream* reusableTokenStream(const TCHAR*,
+                                                       const inverted_index::ReaderPtr&) override {
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR, "forced analyzer failure");
+    }
+};
 
 class InvertedIndexReaderTest : public testing::Test {
 public:
@@ -4344,6 +4369,46 @@ TEST_F(InvertedIndexReaderTest, ResultBitmapOrOperatorNullHandling) {
         EXPECT_TRUE(bitmap_field1.get_data_bitmap()->contains(20));
         EXPECT_FALSE(bitmap_field1.get_null_bitmap()->contains(20));
     }
+}
+
+TEST_F(InvertedIndexReaderTest, ClassicReaderConvertsAnalyzerFailureToStatus) {
+    TabletIndexPB pb;
+    pb.set_index_type(IndexType::INVERTED);
+    pb.set_index_id(73);
+    pb.set_index_name("analysis_failure_idx");
+    pb.add_col_unique_id(1);
+    pb.mutable_properties()->insert({"parser", "english"});
+    TabletIndex meta;
+    meta.init_from_pb(pb);
+
+    auto file_reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                         kTestDir + "/missing_analysis_failure",
+                                                         InvertedIndexStorageFormatPB::V2);
+    auto reader = FullTextIndexReader::create_shared(&meta, file_reader);
+    TQueryOptions options;
+    RuntimeState state;
+    state.set_query_options(options);
+    OlapReaderStatistics stats;
+    io::IOContext io_context;
+    auto context = std::make_shared<IndexQueryContext>();
+    context->io_ctx = &io_context;
+    context->stats = &stats;
+    context->runtime_state = &state;
+
+    InvertedIndexAnalyzerCtx analyzer_ctx;
+    analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
+    analyzer_ctx.analyzer = std::make_shared<ThrowingAnalysisTestAnalyzer>();
+    const Field query_value = Field::create_field<TYPE_STRING>("hello");
+    auto original_bitmap = std::make_shared<roaring::Roaring>();
+    original_bitmap->add(999);
+    std::shared_ptr<roaring::Roaring> bitmap = original_bitmap;
+
+    Status status;
+    EXPECT_NO_THROW(status = reader->query(context, "content", query_value,
+                                           InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap,
+                                           &analyzer_ctx));
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR) << status;
+    EXPECT_EQ(bitmap, original_bitmap);
 }
 
 } // namespace doris::segment_v2

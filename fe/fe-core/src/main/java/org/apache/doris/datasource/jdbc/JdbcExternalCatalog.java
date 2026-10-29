@@ -38,6 +38,7 @@ import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.jdbc.client.JdbcClientException;
 import org.apache.doris.datasource.mapping.IdentifierMapping;
 import org.apache.doris.datasource.mapping.JdbcIdentifierMapping;
+import org.apache.doris.foundation.security.JdbcDriverUrlSecurity;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PJdbcTestConnectionRequest;
 import org.apache.doris.proto.InternalService.PJdbcTestConnectionResult;
@@ -60,17 +61,13 @@ import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 
 import java.io.IOException;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
-import java.util.regex.Pattern;
 
 public class JdbcExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(JdbcExternalCatalog.class);
-    private static final Pattern SAFE_DRIVER_FILE_NAME = Pattern.compile("^[A-Za-z0-9._-]+\\.jar$");
 
     private static final List<String> REQUIRED_PROPERTIES = ImmutableList.of(
             JdbcResource.JDBC_URL,
@@ -123,35 +120,31 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         ExternalFunctionRules.check(catalogProperty.getProperties().getOrDefault(JdbcResource.FUNCTION_RULES, ""));
     }
 
+    @Override
+    public boolean validatePropertiesBeforeUpdate(
+            Map<String, String> currentProperties, Map<String, String> updatedProperties) throws DdlException {
+        // The identifier mapping is rebuilt during reset, after property publication. Reject an
+        // invalid candidate here so a failed ALTER cannot leave invalid durable properties.
+        if (updatedProperties.containsKey(META_NAMES_MAPPING)
+                || updatedProperties.containsKey(LOWER_CASE_META_NAMES)) {
+            String mapping = updatedProperties.getOrDefault(META_NAMES_MAPPING, getMetaNamesMapping());
+            String lowerCase = updatedProperties.getOrDefault(LOWER_CASE_META_NAMES, getLowerCaseMetaNames());
+            new JdbcIdentifierMapping(
+                    Env.isTableNamesCaseInsensitive() || Env.isStoredTableNamesLowerCase(),
+                    Boolean.parseBoolean(lowerCase), mapping);
+        }
+        return false;
+    }
+
     /**
      * Enforce the mandatory driver URL rule on user-facing CREATE and ALTER CATALOG validation.
      * Catalog replay does not call {@link #checkProperties()}, so existing catalogs remain compatible.
      */
     static void checkDriverUrlSecurityRule(String driverUrl) throws DdlException {
-        if (driverUrl == null || driverUrl.isEmpty()) {
-            return;
-        }
-        String pathToCheck = driverUrl;
-        if (driverUrl.contains("://")) {
-            try {
-                String decoded = new URI(driverUrl).getPath();
-                if (decoded != null) {
-                    pathToCheck = decoded;
-                }
-            } catch (URISyntaxException e) {
-                throw new DdlException("Invalid driver_url: " + driverUrl);
-            }
-        }
-        String probe = pathToCheck.replace('\\', '/');
-        for (String segment : probe.split("/")) {
-            if ("..".equals(segment)) {
-                throw new DdlException(
-                        "Invalid driver_url: path traversal ('..') is not allowed: " + driverUrl);
-            }
-        }
-        if (!driverUrl.contains("://") && !SAFE_DRIVER_FILE_NAME.matcher(driverUrl).matches()) {
-            throw new DdlException("Invalid driver_url: a driver file name must match "
-                    + "[A-Za-z0-9._-]+.jar (got: " + driverUrl + ")");
+        try {
+            JdbcDriverUrlSecurity.check(driverUrl);
+        } catch (IllegalArgumentException e) {
+            throw new DdlException(e.getMessage(), e);
         }
     }
 
@@ -172,11 +165,16 @@ public class JdbcExternalCatalog extends ExternalCatalog {
 
     @Override
     public void resetToUninitialized(boolean invalidCache) {
-        super.resetToUninitialized(invalidCache);
-        this.identifierMapping = new JdbcIdentifierMapping(
-                (Env.isTableNamesCaseInsensitive() || Env.isStoredTableNamesLowerCase()),
-                Boolean.parseBoolean(getLowerCaseMetaNames()),
-                getMetaNamesMapping());
+        try {
+            super.resetToUninitialized(invalidCache);
+        } finally {
+            // The committed ALTER has already published the new properties; rebuild the derived name
+            // mapping even when the reset's client cleanup (closeClient) throws.
+            this.identifierMapping = new JdbcIdentifierMapping(
+                    (Env.isTableNamesCaseInsensitive() || Env.isStoredTableNamesLowerCase()),
+                    Boolean.parseBoolean(getLowerCaseMetaNames()),
+                    getMetaNamesMapping());
+        }
     }
 
     @Override
@@ -289,7 +287,6 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 .setConnectionPoolMaxLifeTime(getConnectionPoolMaxLifeTime())
                 .setConnectionPoolMaxWaitTime(getConnectionPoolMaxWaitTime())
                 .setConnectionPoolKeepAlive(isConnectionPoolKeepAlive())
-                .setEnableMappingVarbinary(getEnableMappingVarbinary())
                 .setEnableMappingTimestampTz(getEnableMappingTimestampTz());
 
         return JdbcClient.createJdbcClient(jdbcClientConfig);

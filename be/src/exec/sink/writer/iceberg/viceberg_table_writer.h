@@ -91,6 +91,7 @@ public:
 private:
     friend class IcebergTableSinkOperatorTest;
     FRIEND_TEST(VIcebergTableWriterTest, RejectMissingPartitionSource);
+    FRIEND_TEST(VIcebergTableWriterTest, ResolvesNestedPartitionSource);
 
     // The currently active partition writer (may be VIcebergPartitionWriter or VIcebergSortWriter).
     // Updated during write() to track which writer received the most recent data.
@@ -102,10 +103,12 @@ private:
     public:
         IcebergPartitionColumn(const iceberg::PartitionField& field,
                                const PrimitiveType& source_type, int source_idx,
+                               std::vector<size_t> child_indices,
                                std::unique_ptr<PartitionColumnTransform> partition_column_transform)
                 : _field(field),
                   _source_type(source_type),
                   _source_idx(source_idx),
+                  _child_indices(std::move(child_indices)),
                   _partition_column_transform(std::move(partition_column_transform)) {}
 
     public:
@@ -113,6 +116,7 @@ private:
 
         const PrimitiveType& source_type() const { return _source_type; }
         int source_idx() const { return _source_idx; }
+        const std::vector<size_t>& child_indices() const { return _child_indices; }
 
         const PartitionColumnTransform& partition_column_transform() const {
             return *_partition_column_transform;
@@ -126,11 +130,15 @@ private:
         const iceberg::PartitionField& _field;
         PrimitiveType _source_type;
         int _source_idx;
+        std::vector<size_t> _child_indices;
         std::unique_ptr<PartitionColumnTransform> _partition_column_transform;
     };
 
     std::vector<IcebergPartitionColumn> _to_iceberg_partition_columns();
+    ColumnWithTypeAndName _nested_partition_source(
+            const Block& block, const IcebergPartitionColumn& partition_column) const;
 
+    std::string _partition_to_writer_key(const doris::iceberg::StructLike& data);
     std::string _partition_to_path(const doris::iceberg::StructLike& data);
     std::string _escape(const std::string& path);
     std::vector<std::string> _partition_values(const doris::iceberg::StructLike& data);
@@ -145,6 +153,7 @@ private:
             int file_name_index = 0);
 
     IcebergPartitionData _get_partition_data(Block* block, int position);
+    std::string _partition_value_to_human_string(size_t index, const std::any& value);
 
     std::any _get_iceberg_partition_value(const PrimitiveType& type_desc,
                                           const ColumnWithTypeAndName& partition_column,
@@ -180,6 +189,7 @@ private:
     // Static partition values for each partition column (indexed by column index)
     // If _partition_column_is_static[i] is true, this stores the static value.
     std::vector<std::string> _partition_column_static_values;
+    std::vector<std::string> _partition_column_static_path_values;
     // Flags to indicate if the partition column at index i is static
     std::vector<uint8_t> _partition_column_is_static;
 

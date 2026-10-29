@@ -86,7 +86,8 @@ suite("test_hdfs_parquet_group0","external,hive,tvf,external_docker") {
             order_qt_test_8 """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
-                        "format" = "parquet") limit 10; """
+                        "format" = "parquet",
+                        "hive.parquet.time-zone" = "Asia/Shanghai") limit 10; """
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/delta_encoding_optional_column.parquet"
@@ -104,7 +105,10 @@ suite("test_hdfs_parquet_group0","external,hive,tvf,external_docker") {
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/large_string_map.brotli.parquet"
-            order_qt_test_11 """ select count(arr) from HDFS(
+            // Read both 1 GiB keys one row per batch to avoid a 4 GiB output buffer allocation.
+            // Disable aggregate pushdown to retain full decoding of the >2 GiB column chunk.
+            order_qt_test_11 """ select /*+ SET_VAR(batch_size=1, enable_push_down_no_group_agg=false) */
+                        count(arr) from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet"); """
@@ -195,7 +199,22 @@ suite("test_hdfs_parquet_group0","external,hive,tvf,external_docker") {
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/nested_structs.rust.parquet"
-            order_qt_test_24 """ select * from HDFS(
+            // Strict conversion must reject the fixture's nanosecond-sized TIMESTAMP_MICROS.
+            // Permissive scans can substitute defaults, so do not depend on the session default.
+            def previousStrictCast = sql("show variables like 'enable_strict_cast'")[0][1]
+            sql "set enable_strict_cast = true"
+            try {
+                test {
+                    sql """ select ul_observation_date from HDFS(
+                            "uri" = "${uri}",
+                            "hadoop.username" = "${hdfsUserName}",
+                            "format" = "parquet") limit 10; """
+                    exception "Parquet dictionary entry"
+                }
+            } finally {
+                sql "set enable_strict_cast = ${previousStrictCast}"
+            }
+            order_qt_test_24 """ select * except (ul_observation_date) from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
@@ -212,7 +231,8 @@ suite("test_hdfs_parquet_group0","external,hive,tvf,external_docker") {
             order_qt_test_26 """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
-                        "format" = "parquet") limit 10; """
+                        "format" = "parquet",
+                        "hive.parquet.time-zone" = "Asia/Shanghai") limit 10; """
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/dict-page-offset-zero.parquet"
@@ -326,7 +346,8 @@ suite("test_hdfs_parquet_group0","external,hive,tvf,external_docker") {
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet"); """
-                exception "Unexpected end of stream"
+                // The native reader rejects the truncated fixed-width page before decoding values.
+                exception "Parquet fixed-width page has 364 uncompressed bytes, expected 400"
             }
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/lz4_raw_compressed.parquet"
@@ -361,14 +382,16 @@ suite("test_hdfs_parquet_group0","external,hive,tvf,external_docker") {
             order_qt_test_47 """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
-                        "format" = "parquet") limit 10; """
+                        "format" = "parquet",
+                        "hive.parquet.time-zone" = "Asia/Shanghai") limit 10; """
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/alltypes_tiny_pages_plain.parquet"
             order_qt_test_48 """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
-                        "format" = "parquet") limit 10; """
+                        "format" = "parquet",
+                        "hive.parquet.time-zone" = "Asia/Shanghai") limit 10; """
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/single_nan.parquet"
@@ -417,7 +440,8 @@ suite("test_hdfs_parquet_group0","external,hive,tvf,external_docker") {
             order_qt_test_55 """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
-                        "format" = "parquet") limit 10; """
+                        "format" = "parquet",
+                        "hive.parquet.time-zone" = "Asia/Shanghai") limit 10; """
         } finally {
         }
     }

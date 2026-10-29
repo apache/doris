@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.VariableAnnotation;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -41,6 +42,7 @@ import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints;
 import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints.Action;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.qe.VariableMgr.VarAttr;
+import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.thrift.TGroupCommitMode;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TQueryOptions;
@@ -113,6 +115,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SQL_MODE = "sql_mode";
     public static final String WORKLOAD_VARIABLE = "workload_group";
     public static final String RESOURCE_VARIABLE = "resource_group";
+    public static final String PREFERRED_BACKEND_SELECTION_KEY = "preferred_backend_selection_key";
+    public static final String BACKEND_SELECTION_MODE = "backend_selection_mode";
+    public static final String ENABLE_LOAD_BACKEND_SELECTION = "enable_load_backend_selection";
     public static final String AUTO_COMMIT = "autocommit";
     public static final String TX_ISOLATION = "tx_isolation";
     public static final String TX_READ_ONLY = "tx_read_only";
@@ -199,6 +204,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_REWRITE_ELEMENT_AT_TO_SLOT = "enable_rewrite_element_at_to_slot";
     public static final String ENABLE_ODBC_TRANSCATION = "enable_odbc_transcation";
     public static final String ENABLE_BINARY_SEARCH_FILTERING_PARTITIONS = "enable_binary_search_filtering_partitions";
+    public static final String ENABLE_DYNAMIC_PARTITION_DROP_PROTECTION =
+            "enable_dynamic_partition_drop_protection";
     public static final String CACHE_SORTED_PARTITION_INTERVAL_SECOND = "cache_sorted_partition_interval_second";
     public static final String SKIP_PRUNE_PREDICATE = "skip_prune_predicate";
     public static final String ENABLE_SQL_CACHE = "enable_sql_cache";
@@ -573,6 +580,10 @@ public class SessionVariable implements Serializable, Writable {
     // Split size for ExternalFileScanNode. Default value 0 means use the block size of HDFS/S3.
     public static final String FILE_SPLIT_SIZE = "file_split_size";
 
+    public static final String LANCE_FRAGMENTS_PER_SPLIT = "lance_fragments_per_split";
+
+    public static final String ENABLE_LANCE_LAZY_MATERIALIZATION = "enable_lance_lazy_materialization";
+
     public static final String FILE_SPLIT_SIZE_ON_FE = "file_split_size_on_fe";
 
     public static final String FILE_SPLIT_SIZE_ON_BE = "file_split_size_on_be";
@@ -807,7 +818,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FORCE_JNI_SCANNER = "force_jni_scanner";
 
-    public static final String ENABLE_PAIMON_CPP_READER = "enable_paimon_cpp_reader";
+    public static final String ENABLE_PAIMON_RUST_READER = "enable_paimon_rust_reader";
+
+    public static final String PAIMON_BLOB_MAX_SIZE = "paimon_blob_max_size";
 
     public static final String ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE = "enable_count_push_down_for_external_table";
 
@@ -832,6 +845,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_EXTENDED_REGEX = "enable_extended_regex";
 
     public static final String SHORT_CIRCUIT_EVALUATION = "short_circuit_evaluation";
+
+    public static final String ENABLE_HYPERSCAN_FALLBACK = "enable_hyperscan_fallback";
 
     public static final String CLOUD_PARTITIONS_TABLE_USE_CACHED_VISIBLE_VERSION =
             "cloud_partitions_table_use_cached_visible_version";
@@ -1253,6 +1268,29 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = RESOURCE_VARIABLE)
     public String resourceGroup = "";
 
+    @VariableMgr.VarAttr(name = PREFERRED_BACKEND_SELECTION_KEY, needForward = true,
+            checker = "checkPreferredBackendSelectionKey",
+            description = {"当前会话首选的后端选择键。默认空字符串表示未提供选择偏好。",
+                    "The preferred backend selection key for the current session. The default empty string "
+                            + "means no selection preference is provided."})
+    public String preferredBackendSelectionKey = "";
+
+    @VariableMgr.VarAttr(name = BACKEND_SELECTION_MODE, needForward = true,
+            checker = "checkBackendSelectionMode",
+            setter = "setBackendSelectionMode",
+            options = {"prefer", "require", "default"},
+            description = {"可选后端选择策略的模式。默认策略为空操作，不改变副本或后端选择行为。",
+                    "Backend selection mode for optional policies. The default policy is a no-op and does "
+                            + "not change replica or backend selection behavior. `require` is available only when the "
+                            + "extension declares support. Supported values are `prefer`, `require`, and `default`."})
+    public String backendSelectionMode = "prefer";
+
+    @VariableMgr.VarAttr(name = ENABLE_LOAD_BACKEND_SELECTION, needForward = true,
+            description = {"是否允许可选后端选择策略参与导入调度。默认策略为空操作，不改变导入行为。",
+                    "Whether optional backend selection policies may participate in load scheduling. "
+                            + "The default policy is a no-op and does not change load behavior."})
+    public boolean enableLoadBackendSelection = false;
+
     // this is used to make mysql client happy
     // autocommit is actually a boolean value, but @@autocommit is type of BIGINT.
     // So we need to set convertBoolToLongMethod to make "select @@autocommit" happy.
@@ -1447,6 +1485,7 @@ public class SessionVariable implements Serializable, Writable {
         NONE,
         IGNORE_JNI,
         IGNORE_NATIVE,
+        // Deprecated compatibility value. It behaves like NONE because no C++ splits are emitted.
         IGNORE_PAIMON_CPP
     }
 
@@ -1463,7 +1502,7 @@ public class SessionVariable implements Serializable, Writable {
                     "Use consistent hashing to split the appearance for external scan"})
     public boolean useConsistentHashForExternalScan = false;
 
-    @VariableMgr.VarAttr(name = PROFILE_LEVEL, fuzzy = false,
+    @VariableMgr.VarAttr(name = PROFILE_LEVEL, fuzzy = false, needForward = true,
             setter = "setProfileLevel", checker = "checkProfileLevel",
             description = { "查询 profile 的级别，1 表示只收集 MergedProfile 级别的 Counter，2 表示打印详细信息，"
                             + "3 表示打开一些可能导致性能回退的 Counter", "The level of query profile, "
@@ -1510,6 +1549,21 @@ public class SessionVariable implements Serializable, Writable {
             }
     )
     public boolean enableBinarySearchFilteringPartitions = true;
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_DYNAMIC_PARTITION_DROP_PROTECTION,
+            flag = VariableMgr.GLOBAL,
+            description = {
+                    "是否阻止后台动态分区任务自动删除分区。默认关闭。",
+                    "Whether to prevent background dynamic partition tasks from automatically dropping "
+                            + "partitions. OFF by default."
+            }
+    )
+    private boolean enableDynamicPartitionDropProtection = false;
+
+    public boolean isEnableDynamicPartitionDropProtection() {
+        return enableDynamicPartitionDropProtection;
+    }
 
     @VariableMgr.VarAttr(
             name = CACHE_SORTED_PARTITION_INTERVAL_SECOND,
@@ -1973,7 +2027,12 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_INFER_PREDICATE)
     private boolean enableInferPredicate = true;
 
-    @VariableMgr.VarAttr(name = RETURN_OBJECT_DATA_AS_BINARY)
+    // Forwarded to the BE as a query option and read by the MySQL result writer: when it is false
+    // the object types (HLL / BITMAP / QUANTILE_STATE) are serialized as NULL instead of their raw
+    // bytes. It therefore changes the result rows the sql cache stores, and must take part in the
+    // cache key, otherwise a session that turns it on replays the NULLs cached by a session that
+    // had it off. It only affects execution, not the plan, so it does not force forwarding.
+    @VariableMgr.VarAttr(name = RETURN_OBJECT_DATA_AS_BINARY, affectQueryResultInExecution = true)
     private boolean returnObjectDataAsBinary = false;
 
     @VariableMgr.VarAttr(name = BLOCK_ENCRYPTION_MODE, affectQueryResultInPlan = true)
@@ -2362,7 +2421,7 @@ public class SessionVariable implements Serializable, Writable {
                     + "如果 be.conf 中 enable_file_cache=false，该 BE 节点的 file cache 处于禁用状态。",
             "Set wether to use file cache. This variable takes effect only if the BE config enable_file_cache=true. "
                     + "The cache is not used when BE config enable_file_cache=false."})
-    public boolean enableFileCache = false;
+    public boolean enableFileCache = true;
 
     // Specify base path for file cache, or chose a random path.
     @VariableMgr.VarAttr(name = FILE_CACHE_BASE_PATH, needForward = true, description = {
@@ -2540,6 +2599,25 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE, needForward = true)
     public long fileSplitSize = 0;
+
+    @VariableMgr.VarAttr(name = LANCE_FRAGMENTS_PER_SPLIT, needForward = true,
+            flag = VariableMgr.INVISIBLE, fuzzy = false,
+            checker = "checkLanceFragmentsPerSplit", description = {
+                    "普通 Lance 扫描的调试参数。默认 0 自动划分；正数强制按指定 fragment 数分组，"
+                            + "跳过标量索引 segment 扫描和补足 BE 数量的逻辑。不影响 vector/FTS 查询。",
+                    "Debug override for ordinary Lance scans. Default 0 uses automatic splitting; "
+                            + "a positive value groups that many fragments per split, bypassing scalar segment scans "
+                            + "and minimum BE parallelism. Does not affect vector/FTS queries."})
+    public int lanceFragmentsPerSplit = 0;
+
+    @VariableMgr.VarAttr(name = ENABLE_LANCE_LAZY_MATERIALIZATION, needForward = true,
+            description = {
+                    "是否启用 Lance 两阶段延迟读取，默认开启，不受 topn_lazy_materialization_threshold 控制。"
+                            + "当前支持 vector_search 和 full_text_search 中可安全延迟读取的列。",
+                    "Enable Lance two-phase lazy materialization, "
+                            + "independently of topn_lazy_materialization_threshold. "
+                            + "Enabled by default for eligible columns in vector_search and full_text_search."})
+    public boolean enableLanceLazyMaterialization = true;
 
     @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE_ON_FE, needForward = true, description = {
             "支持 BE 细粒度切分时，FE 粗粒度文件分片的目标大小，单位为字节，默认为 512MB",
@@ -3051,10 +3129,18 @@ public class SessionVariable implements Serializable, Writable {
             description = {"强制使用 jni 方式读取外表", "Force the use of jni mode to read external table"})
     private boolean forceJniScanner = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_PAIMON_CPP_READER,
+    @VariableMgr.VarAttr(name = ENABLE_PAIMON_RUST_READER,
             fuzzy = true,
-            description = {"Paimon 非原生文件读取使用 paimon-cpp", "Use paimon-cpp for non-native Paimon reads"})
-    private boolean enablePaimonCppReader = false;
+            description = {"Paimon 非原生文件读取使用 paimon-rust,优先级高于 paimon-cpp",
+                    "Use paimon-rust for non-native Paimon reads, higher priority than paimon-cpp"})
+    private boolean enablePaimonRustReader = false;
+
+    @VariableMgr.VarAttr(name = PAIMON_BLOB_MAX_SIZE, needForward = true,
+            checker = "checkPaimonBlobMaxSize",
+            description = {"读取单个 Paimon BLOB inline 内容的最大字节数，超过限制时报错；descriptor 模式不受限制",
+                    "Maximum inline payload size in bytes for one Paimon BLOB value. "
+                            + "Larger values fail the query. Descriptor output is exempt."})
+    private long paimonBlobMaxSize = 10L * 1024 * 1024;
 
     @VariableMgr.VarAttr(name = ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE,
             fuzzy = true,
@@ -3720,6 +3806,10 @@ public class SessionVariable implements Serializable, Writable {
                     "Enable extended regular expressions, support look-around zero-width assertions"})
     public boolean enableExtendedRegex = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_HYPERSCAN_FALLBACK, needForward = true, affectQueryResultInExecution = true,
+            description = "Whether to fall back to RE2 when Hyperscan cannot compile a regular expression")
+    public boolean enableHyperscanFallback = true;
+
     @VariableMgr.VarAttr(
             name = DEFAULT_VARIANT_SPARSE_HASH_SHARD_COUNT,
             needForward = true,
@@ -3808,6 +3898,9 @@ public class SessionVariable implements Serializable, Writable {
         this.useSerialExchange = random.nextBoolean();
         this.enableCommonExpPushDownForInvertedIndex = random.nextBoolean();
         this.enableExprZonemapFilter = Config.pull_request_id % 2 == 0;
+        // Fuzzy sessions must exercise the production-default V2 path consistently. Dedicated
+        // compatibility cases can still select the legacy scanner explicitly after initialization.
+        this.enableFileScannerV2 = true;
         this.disableStreamPreaggregations = random.nextBoolean();
         this.enableStreamingAggHashJoinForcePassthrough = random.nextBoolean();
         this.enableLocalExchangeBeforeAgg = random.nextBoolean();
@@ -3971,7 +4064,7 @@ public class SessionVariable implements Serializable, Writable {
 
         // jni
         this.forceJniScanner = random.nextBoolean();
-        this.enablePaimonCppReader = random.nextBoolean();
+        this.enablePaimonRustReader = random.nextBoolean();
 
         // statistics
         this.fetchHiveRowCountSync = random.nextBoolean();
@@ -4463,8 +4556,61 @@ public class SessionVariable implements Serializable, Writable {
         return resourceGroup;
     }
 
+    public String getPreferredBackendSelectionKey() {
+        return preferredBackendSelectionKey;
+    }
+
+    public String getBackendSelectionMode() {
+        return backendSelectionMode;
+    }
+
+    public boolean isEnableLoadBackendSelection() {
+        return enableLoadBackendSelection;
+    }
+
     public void setResourceGroup(String resourceGroup) {
         this.resourceGroup = resourceGroup;
+    }
+
+    public void checkPreferredBackendSelectionKey(String preferredBackendSelectionKey) {
+        if (Strings.isNullOrEmpty(preferredBackendSelectionKey)) {
+            return;
+        }
+        try {
+            FeNameFormat.checkCommonName(PREFERRED_BACKEND_SELECTION_KEY, preferredBackendSelectionKey);
+        } catch (Exception e) {
+            LOG.warn("preferred_backend_selection_key value is invalid, the invalid value is {}",
+                    preferredBackendSelectionKey, e);
+            throw new UnsupportedOperationException(
+                    "preferred_backend_selection_key value is invalid, the invalid value is "
+                            + preferredBackendSelectionKey);
+        }
+    }
+
+    public void checkBackendSelectionMode(String backendSelectionMode) {
+        String normalized = Strings.nullToEmpty(backendSelectionMode).toLowerCase(Locale.ROOT);
+        if (!"prefer".equals(normalized)
+                && !"require".equals(normalized)
+                && !"default".equals(normalized)) {
+            LOG.warn("backend_selection_mode value is invalid, the invalid value is {}",
+                    backendSelectionMode);
+            throw new UnsupportedOperationException(
+                    "backend_selection_mode value is invalid, the invalid value is "
+                            + backendSelectionMode
+                            + ", supported values are prefer, require and default");
+        }
+        if ("require".equals(normalized) && Config.isCloudMode()) {
+            throw new UnsupportedOperationException(
+                    "Required backend selection is not supported in cloud mode");
+        }
+        if ("require".equals(normalized) && !BackendSelectionManager.supportsRequiredSelection()) {
+            throw new UnsupportedOperationException(
+                    "Backend selection provider does not support required backend selection");
+        }
+    }
+
+    public void setBackendSelectionMode(String backendSelectionMode) {
+        this.backendSelectionMode = Strings.nullToEmpty(backendSelectionMode).toLowerCase(Locale.ROOT);
     }
 
     public boolean isDisableFileCache() {
@@ -5713,8 +5859,9 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableParquetFilePageCache(enableParquetFilePageCache);
         tResult.setEnableOrcFilterByMinMax(enableOrcFilterByMinMax);
         tResult.setEnableExprZonemapFilter(enableExprZonemapFilter);
-        tResult.setEnablePaimonCppReader(enablePaimonCppReader);
         tResult.setFilePresignedUrlTtlSeconds(filePresignedUrlTtlSeconds);
+        tResult.setEnablePaimonRustReader(enablePaimonRustReader);
+        tResult.setPaimonBlobMaxSize(paimonBlobMaxSize);
         tResult.setCheckOrcInitSargsSuccess(checkOrcInitSargsSuccess);
 
         tResult.setTruncateCharOrVarcharColumns(truncateCharOrVarcharColumns);
@@ -5815,7 +5962,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setAnnIndexCandidateRowsPercentThreshold(annIndexCandidateRowsPercentThreshold);
         tResult.setMergeReadSliceSize(mergeReadSliceSizeBytes);
         tResult.setEnableExtendedRegex(enableExtendedRegex);
-
+        tResult.setEnableHyperscanFallback(enableHyperscanFallback);
         if (fileCacheQueryLimitPercent > 0) {
             tResult.setFileCacheQueryLimitPercent(Math.min(fileCacheQueryLimitPercent,
                     Config.file_cache_query_limit_max_percent));
@@ -6336,6 +6483,20 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public void checkPaimonBlobMaxSize(String value) {
+        long size = Long.parseLong(value);
+        if (size < 1 || size > Integer.MAX_VALUE) {
+            throw new InvalidParameterException(PAIMON_BLOB_MAX_SIZE
+                    + " must be between 1 and " + Integer.MAX_VALUE + " bytes");
+        }
+    }
+
+
+    public void checkLanceFragmentsPerSplit(String value) {
+        if (Integer.parseInt(value) < 0) {
+            throw new InvalidParameterException("lance_fragments_per_split must be non-negative");
+        }
+    }
 
     private static final long PREFERRED_BLOCK_SIZE_BYTES_MIN = 1048576L;      // 1MB
     private static final long PREFERRED_BLOCK_SIZE_BYTES_MAX = 536870912L;    // 512MB
@@ -6510,8 +6671,8 @@ public class SessionVariable implements Serializable, Writable {
         return forceJniScanner;
     }
 
-    public boolean isEnablePaimonCppReader() {
-        return enablePaimonCppReader;
+    public boolean isEnablePaimonRustReader() {
+        return enablePaimonRustReader;
     }
 
     public String getIgnoreSplitType() {
@@ -6537,8 +6698,8 @@ public class SessionVariable implements Serializable, Writable {
         forceJniScanner = force;
     }
 
-    public void setEnablePaimonCppReader(boolean enable) {
-        enablePaimonCppReader = enable;
+    public void setEnablePaimonRustReader(boolean enable) {
+        enablePaimonRustReader = enable;
     }
 
     public boolean isEnableCountPushDownForExternalTable() {

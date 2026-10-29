@@ -435,7 +435,7 @@ struct TQueryOptions {
   195: optional bool enable_left_semi_direct_return_opt;
 
   200: optional bool enable_adjust_conjunct_order_by_cost;
-  // Use paimon-cpp to read Paimon splits on BE
+  // Deprecated: the paimon-cpp reader has been removed. Retained for wire compatibility.
   201: optional bool enable_paimon_cpp_reader = false;
 
   // Whether all fragments of this query are assigned to a single backend.
@@ -507,6 +507,16 @@ struct TQueryOptions {
   226: optional bool enable_local_exchange_before_streaming_agg = false
 
   227: optional i64 file_presigned_url_ttl_seconds = 3600;
+
+  // Fall back to RE2 when Hyperscan cannot compile a regular expression.
+  228: optional bool enable_hyperscan_fallback = true;
+  // Use paimon-rust to read Paimon splits on BE. Higher priority than
+  // enable_paimon_cpp_reader.
+  229: optional bool enable_paimon_rust_reader = false;
+
+  // IDs 230-236 are allocated on master; do not reuse them in release branches.
+  // Maximum payload bytes per Paimon BLOB materialized as FILE inline. Descriptors are exempt.
+  237: optional i64 paimon_blob_max_size = 10485760;
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
@@ -670,9 +680,9 @@ enum TCompoundType {
 }
 
 struct TAIResource {
-  1: required string endpoint
-  2: required string provider_type
-  3: required string model_name
+  1: optional string endpoint
+  2: optional string provider_type
+  3: optional string model_name
   4: optional string api_key
   5: optional double temperature
   6: optional i64 max_tokens
@@ -680,6 +690,15 @@ struct TAIResource {
   8: optional i32 retry_delay_second
   9: optional string anthropic_version
   10: optional i32 dimensions
+  11: optional string embed_endpoint
+  12: optional string embed_provider_type
+  13: optional string embed_model_name
+  14: optional string embed_api_key
+  15: optional string effort
+  16: optional string embed_mm_endpoint
+  17: optional string embed_mm_provider_type
+  18: optional string embed_mm_model_name
+  19: optional string embed_mm_api_key
 }
 
 struct TCondition {
@@ -759,6 +778,7 @@ struct TPipelineFragmentParams {
   44: optional list<i32> topn_filter_source_node_ids
   45: optional map<string, TAIResource> ai_resources
   46: optional bool need_notify_close
+  47: optional map<string, Types.TS3Resource> s3_resources
 
   // For cloud
   1000: optional bool is_mow_table;

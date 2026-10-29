@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <memory>
 
 #include "common/logging.h"
 #include "common/status.h"
@@ -29,7 +30,9 @@
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
+#include "storage/compaction/collection_similarity.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
+#include "util/defer_op.h"
 #include "util/simd/bits.h"
 
 namespace doris {
@@ -262,9 +265,24 @@ public:
         }
     }
 
+    // NOLINTNEXTLINE(readability-function-size,readability-function-cognitive-complexity): Keep each operator's bitmap and score updates together.
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override {
         segment_v2::InvertedIndexResultBitmap res;
         bool all_pass = true;
+        auto index_context = context->get_index_context();
+        auto query_context = index_context->get_index_query_context();
+        auto parent_similarity =
+                query_context != nullptr ? query_context->collection_similarity : nullptr;
+        CollectionSimilarityPtr branch_similarity;
+        if (parent_similarity != nullptr) {
+            branch_similarity = std::make_shared<CollectionSimilarity>();
+            query_context->collection_similarity = branch_similarity;
+        }
+        Defer restore_similarity {[&]() {
+            if (branch_similarity != nullptr) {
+                query_context->collection_similarity = parent_similarity;
+            }
+        }};
 
         switch (_op) {
         case TExprOpcode::COMPOUND_OR: {
@@ -273,6 +291,12 @@ public:
                     !st.ok()) {
                     LOG(ERROR) << "expr:" << child->expr_name()
                                << " evaluate_inverted_index error:" << st.to_string();
+                    // A scored child may have discarded its map before reporting this error.
+                    // Preserve the failure even when no sibling contributes scores.
+                    if (branch_similarity != nullptr &&
+                        st.code() == ErrorCode::INVERTED_INDEX_NOT_SUPPORTED) {
+                        return st;
+                    }
                     all_pass = false;
                     continue;
                 }
@@ -285,7 +309,7 @@ public:
                     } else {
                         res |= *index_result;
                     }
-                    if (inverted_index_context->get_score_runtime() == nullptr) {
+                    if (branch_similarity == nullptr) {
                         if (res.get_data_bitmap()->cardinality() == segment_num_rows) {
                             break; // Early exit if result is full
                         }
@@ -302,6 +326,12 @@ public:
                     !st.ok()) {
                     LOG(ERROR) << "expr:" << child->expr_name()
                                << " evaluate_inverted_index error:" << st.to_string();
+                    // A scored child may have discarded its map before reporting this error.
+                    // Preserve the failure even when no sibling contributes scores.
+                    if (branch_similarity != nullptr &&
+                        st.code() == ErrorCode::INVERTED_INDEX_NOT_SUPPORTED) {
+                        return st;
+                    }
                     all_pass = false;
                     continue;
                 }
@@ -348,8 +378,19 @@ public:
                     "Compound operator must be AND, OR, or NOT to execute with inverted index.");
         }
 
+        if (branch_similarity != nullptr && _op != TExprOpcode::COMPOUND_NOT) {
+            auto scores = branch_similarity->release_scores();
+            if (!scores.empty() && (!all_pass || res.is_empty())) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                        "Cannot score a compound predicate with incomplete index evaluation");
+            }
+            if (all_pass && !res.is_empty()) {
+                DORIS_CHECK(res.get_data_bitmap() != nullptr);
+                parent_similarity->merge_scores(scores, *res.get_data_bitmap());
+            }
+        }
         if (all_pass && !res.is_empty()) {
-            context->get_index_context()->set_index_result_for_expr(this, res);
+            index_context->set_index_result_for_expr(this, res);
         }
         return Status::OK();
     }
@@ -610,7 +651,8 @@ private:
             if constexpr (is_and) {
                 lhs[i] &= rhs[i];
             } else {
-                lhs[i] |= rhs[i];
+                // Logical OR must produce a canonical Boolean instead of preserving input bits.
+                lhs[i] = (lhs[i] | rhs[i]) != 0;
             }
         }
     }
@@ -633,7 +675,9 @@ private:
                 res_data[i] = lhs_data[i] & rhs_data[i];
             } else {
                 res_null[i] = apply_or_null(lhs_data[i], lhs_null[i], rhs_data[i], rhs_null[i]);
-                res_data[i] = lhs_data[i] | rhs_data[i];
+                // A NULL row may carry an arbitrary nested byte. If the result remains NULL the
+                // byte is ignored; otherwise normalization prevents it from becoming visible.
+                res_data[i] = (lhs_data[i] | rhs_data[i]) != 0;
             }
         }
     }

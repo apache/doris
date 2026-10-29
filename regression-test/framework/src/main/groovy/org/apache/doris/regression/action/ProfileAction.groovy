@@ -36,6 +36,7 @@ class ProfileAction implements SuiteAction {
     private Runnable runCallback
     private Closure<String> check
     private SuiteContext context
+    private InetSocketAddress profileAddress
 
     ProfileAction(SuiteContext context, String tag) {
         this.context = context
@@ -45,6 +46,13 @@ class ProfileAction implements SuiteAction {
     ProfileAction(SuiteContext context) {
         this.context = context
         this.tag = null
+    }
+
+    /** Query profiles are local to the FE that executed the SQL. */
+    ProfileAction(SuiteContext context, InetSocketAddress profileAddress) {
+        this.context = context
+        this.tag = null
+        this.profileAddress = Objects.requireNonNull(profileAddress, "profileAddress can not be null")
     }
 
     void run(@ClosureParams(value = FromString, options = []) Runnable run) {
@@ -58,17 +66,13 @@ class ProfileAction implements SuiteAction {
 
     List getProfileList() {
         def httpCli = new HttpCliAction(context)
-        def addr = context.getFeHttpAddress()
+        def addr = profileAddress ?: context.getFeHttpAddress()
         httpCli.endpoint("${addr.hostString}:${addr.port}")
         httpCli.uri("/rest/v1/query_profile")
         httpCli.op("get")
         httpCli.printResponse(false)
 
-        if (context.config.isCloudMode()) {
-            httpCli.basicAuthorization(context.config.feCloudHttpUser, context.config.feCloudHttpPassword)
-        } else {
-            httpCli.basicAuthorization(context.config.feHttpUser, context.config.feHttpPassword)
-        }
+        httpCli.basicAuthorization(context.config.feHttpUser, context.config.feHttpPassword)
         List profileData = []
         httpCli.check { code, body ->
             if (code != 200) {
@@ -104,17 +108,13 @@ class ProfileAction implements SuiteAction {
 
     String getProfile(String profileId) {
         def profileCli = new HttpCliAction(context)
-        def addr = context.getFeHttpAddress()
+        def addr = profileAddress ?: context.getFeHttpAddress()
         profileCli.endpoint("${addr.hostString}:${addr.port}")
         profileCli.uri("/rest/v1/query_profile/${profileId}")
         profileCli.op("get")
         profileCli.printResponse(false)
 
-        if (context.config.isCloudMode()) {
-            profileCli.basicAuthorization(context.config.feCloudHttpUser, context.config.feCloudHttpPassword)
-        } else {
-            profileCli.basicAuthorization(context.config.feHttpUser, context.config.feHttpPassword)
-        }
+        profileCli.basicAuthorization(context.config.feHttpUser, context.config.feHttpPassword)
         def result = [text: ""]
         profileCli.check { profileCode, profileResp ->
             if (profileCode != 200) {
@@ -222,17 +222,13 @@ class ProfileAction implements SuiteAction {
             }
 
             def httpCli = new HttpCliAction(context)
-            def addr = context.getFeHttpAddress()
+            def addr = profileAddress ?: context.getFeHttpAddress()
             httpCli.endpoint("${addr.hostString}:${addr.port}")
             httpCli.uri("/rest/v1/query_profile")
             httpCli.op("get")
             httpCli.printResponse(false)
 
-            if (context.config.isCloudMode()) {
-                httpCli.basicAuthorization(context.config.feCloudHttpUser, context.config.feCloudHttpPassword)
-            } else {
-                httpCli.basicAuthorization(context.config.feHttpUser, context.config.feHttpPassword)
-            }
+            httpCli.basicAuthorization(context.config.feHttpUser, context.config.feHttpPassword)
             httpCli.check { code, body ->
                 if (code != 200) {
                     throw new IllegalStateException("Get profile list failed, code: ${code}, body:\n${body}")
@@ -252,11 +248,7 @@ class ProfileAction implements SuiteAction {
                         profileCli.op("get")
                         profileCli.printResponse(false)
 
-                        if (context.config.isCloudMode()) {
-                            profileCli.basicAuthorization(context.config.feCloudHttpUser, context.config.feCloudHttpPassword)
-                        } else {
-                            profileCli.basicAuthorization(context.config.feHttpUser, context.config.feHttpPassword)
-                        }
+                        profileCli.basicAuthorization(context.config.feHttpUser, context.config.feHttpPassword)
                         profileCli.check { profileCode, profileResp ->
                             if (profileCode != 200) {
                                 throw new IllegalStateException("Get profile failed, url: ${"/rest/v1/query_profile/${profileId}"}, code: ${profileCode}, body:\n${profileResp}")

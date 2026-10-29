@@ -43,4 +43,3 @@ is_internal	tinyint	Yes	false	\N	NONE
 workload_group	text	Yes	false	\N	NONE
 compute_group	text	Yes	false	\N	NONE
 stmt	text	Yes	false	\N	NONE
-

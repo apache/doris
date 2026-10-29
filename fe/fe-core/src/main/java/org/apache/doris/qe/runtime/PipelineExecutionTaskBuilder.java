@@ -18,6 +18,7 @@
 package org.apache.doris.qe.runtime;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.nereids.trees.plans.distribute.worker.BackendWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
@@ -86,15 +87,16 @@ public class PipelineExecutionTaskBuilder {
                             backend,
                             backendServiceProxy,
                             serializeFragments,
-                            buildSingleFragmentPipelineTask(backend, fragmentParamsList)
+                            buildSingleFragmentPipelineTask(
+                                    coordinatorContext.executionProfile, backend, fragmentParamsList)
                     )
             );
         }
         return fragmentTasks;
     }
 
-    private Map<Integer, SingleFragmentPipelineTask> buildSingleFragmentPipelineTask(
-            Backend backend, TPipelineFragmentParamsList fragmentParamsList) {
+    static Map<Integer, SingleFragmentPipelineTask> buildSingleFragmentPipelineTask(
+            ExecutionProfile executionProfile, Backend backend, TPipelineFragmentParamsList fragmentParamsList) {
         Map<Integer, SingleFragmentPipelineTask> tasks = Maps.newLinkedHashMap();
         for (TPipelineFragmentParams fragmentParams : fragmentParamsList.getParamsList()) {
             int fragmentId = fragmentParams.getFragmentId();
@@ -103,6 +105,7 @@ public class PipelineExecutionTaskBuilder {
                     .map(TPipelineInstanceParams::getFragmentInstanceId)
                     .collect(Collectors.toSet());
             tasks.put(fragmentId, new SingleFragmentPipelineTask(backend, fragmentId, instanceIds));
+            executionProfile.addFragmentBackend(fragmentId, backend.getId());
         }
         return tasks;
     }

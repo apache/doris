@@ -23,6 +23,7 @@ import org.apache.doris.cloud.JobWarmUpStats;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.Version;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.JsonUtil;
 import org.apache.doris.ha.FrontendNodeType;
@@ -32,6 +33,7 @@ import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.job.offset.jdbc.JdbcOffset;
 import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
+import org.apache.doris.job.offset.s3.S3EventSourceOffsetProvider;
 import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.monitor.jvm.JvmService;
 import org.apache.doris.monitor.jvm.JvmStats;
@@ -61,6 +63,29 @@ public class MetricsTest {
     public static void setUp() {
         FeConstants.runningUnitTest = true;
         MetricRepo.init();
+    }
+
+    @Test
+    public void testVersionMetricIsExportedWithBuildLabels() {
+        StringBuilder value = new StringBuilder()
+                .append(Version.DORIS_BUILD_VERSION_MAJOR).append(0)
+                .append(Version.DORIS_BUILD_VERSION_MINOR).append(0)
+                .append(Version.DORIS_BUILD_VERSION_PATCH);
+        if (Version.DORIS_BUILD_VERSION_HOTFIX > 0) {
+            value.append(0).append(Version.DORIS_BUILD_VERSION_HOTFIX);
+        }
+
+        String expectedSample = "doris_fe_version{version=\"" + Version.DORIS_BUILD_VERSION
+                + "\", major=\"" + Version.DORIS_BUILD_VERSION_MAJOR
+                + "\", minor=\"" + Version.DORIS_BUILD_VERSION_MINOR
+                + "\", patch=\"" + Version.DORIS_BUILD_VERSION_PATCH
+                + "\", hotfix=\"" + Version.DORIS_BUILD_VERSION_HOTFIX
+                + "\", short_hash=\"" + Version.DORIS_BUILD_SHORT_HASH
+                + "\"} " + Long.parseLong(value.toString());
+
+        String metricResult = getPrometheusMetrics();
+        Assert.assertTrue(metricResult, metricResult.contains("# TYPE doris_fe_version gauge"));
+        Assert.assertTrue(metricResult, metricResult.contains(expectedSample));
     }
 
     @Test
@@ -167,6 +192,34 @@ public class MetricsTest {
                     "doris_fe_streaming_job_per_job_last_task_success_time_seconds"
                             + "{job_id=\"1787039821000\", job_name=\"streaming_metric_job\"} 1787039821"));
             Assert.assertFalse(metricResult.contains("doris_fe_streaming_job_per_job_lag{"));
+            String messageLag = "doris_fe_streaming_job_per_job_lag_messages"
+                    + "{job_id=\"1787039821000\", job_name=\"streaming_metric_job\"}";
+            Assert.assertFalse(metricResult.contains(messageLag));
+
+            S3EventSourceOffsetProvider eventProvider = new S3EventSourceOffsetProvider("test-queue");
+            Deencapsulation.setField(job, "offsetProvider", eventProvider);
+            MetricRepo.updateStreamingJobPerJobMetrics();
+            Assert.assertFalse(getPrometheusMetrics().contains(messageLag));
+
+            Deencapsulation.setField(eventProvider, "approximateNumberOfMessages", 12L);
+            Deencapsulation.setField(eventProvider, "lastSourceEventTimestampSeconds", 1787039800L);
+            MetricRepo.updateStreamingJobPerJobMetrics();
+            metricResult = getPrometheusMetrics();
+            Assert.assertTrue(metricResult.contains(messageLag + " 12"));
+            Assert.assertTrue(metricResult.contains(
+                    "doris_fe_streaming_job_per_job_last_source_event_timestamp_seconds"
+                            + "{job_id=\"1787039821000\", job_name=\"streaming_metric_job\"} 1787039800"));
+
+            Deencapsulation.setField(eventProvider, "approximateNumberOfMessages", null);
+            MetricRepo.updateStreamingJobPerJobMetrics();
+            Assert.assertFalse(getPrometheusMetrics().contains(messageLag));
+
+            Deencapsulation.setField(eventProvider, "approximateNumberOfMessages", 0L);
+            MetricRepo.updateStreamingJobPerJobMetrics();
+            Assert.assertTrue(getPrometheusMetrics().contains(messageLag + " 0"));
+            jobMap.remove(job.getJobId());
+            MetricRepo.updateStreamingJobPerJobMetrics();
+            Assert.assertFalse(getPrometheusMetrics().contains(messageLag));
         } finally {
             jobMap.remove(job.getJobId());
             MetricRepo.updateStreamingJobPerJobMetrics();

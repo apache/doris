@@ -81,8 +81,6 @@ public:
 
     void set_is_report_success(bool is_report_success) { _is_report_success = is_report_success; }
 
-    void cancel(const Status reason);
-
     bool notify_close();
 
     TUniqueId get_query_id() const { return _query_id; }
@@ -149,6 +147,14 @@ public:
     }
 
 private:
+    // QueryContext is the sole entry point for query cancellation. Keep fragment cancellation
+    // private so callers cannot bypass QueryContext's first-error-wins guard and repeatedly run
+    // expensive fragment-local cleanup (for example, timeout diagnostics and task unblocking).
+    // QueryContext::cancel() calls this method only to propagate the accepted query cancellation
+    // to each fragment; this method must not call QueryContext::cancel() back.
+    friend void QueryContext::cancel(Status new_status);
+    void cancel(const Status reason);
+
     void _coordinator_callback(const ReportStatusRequest& req);
     std::string _to_http_path(const std::string& file_name) const;
 

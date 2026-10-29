@@ -596,7 +596,7 @@ public:
     }
 
     bool change_if_less(const IColumn& column, size_t row_num, Arena& arena) {
-        if (!has() || column_data->compare_at(0, row_num, column, -1) == 1) {
+        if (!has() || column_data->compare_at(0, row_num, column, 1) == 1) {
             change(column, row_num, arena);
             return true;
         } else {
@@ -605,7 +605,7 @@ public:
     }
 
     bool change_if_less(const Self& to, Arena& arena) {
-        if (to.has() && (!has() || column_data->compare_at(0, 0, *to.column_data, -1) == 1)) {
+        if (to.has() && (!has() || column_data->compare_at(0, 0, *to.column_data, 1) == 1)) {
             change(to, arena);
             return true;
         } else {
@@ -614,7 +614,7 @@ public:
     }
 
     bool change_if_greater(const IColumn& column, size_t row_num, Arena& arena) {
-        if (!has() || column_data->compare_at(0, row_num, column, -1) == -1) {
+        if (!has() || column_data->compare_at(0, row_num, column, 1) == -1) {
             change(column, row_num, arena);
             return true;
         } else {
@@ -623,7 +623,7 @@ public:
     }
 
     bool change_if_greater(const Self& to, Arena& arena) {
-        if (to.has() && (!has() || column_data->compare_at(0, 0, *to.column_data, -1) == -1)) {
+        if (to.has() && (!has() || column_data->compare_at(0, 0, *to.column_data, 1) == -1)) {
             change(to, arena);
             return true;
         } else {
@@ -640,7 +640,7 @@ public:
             type == TYPE_AGG_STATE) {
             return false;
         } else {
-            return !column_data->compare_at(0, row_num, column, -1);
+            return !column_data->compare_at(0, row_num, column, 1);
         }
     }
 

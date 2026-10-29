@@ -23,6 +23,7 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Joiner;
@@ -132,6 +133,8 @@ public class IndexInfoProcDir implements ProcDirInterface {
                                     && SessionVariable.enableDescribeExtendVariantColumn()) {
                     return new RemoteIndexSchemaProcDir(table, schema, bfColumns);
                 }
+            } else if (table instanceof IcebergExternalTable) {
+                schema = ((IcebergExternalTable) table).getBaseSchemaForDisplay();
             } else {
                 schema = table.getBaseSchema();
             }

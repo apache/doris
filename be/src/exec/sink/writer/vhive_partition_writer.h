@@ -19,6 +19,8 @@
 
 #include <gen_cpp/DataSinks_types.h>
 
+#include <optional>
+
 #include "core/column/column.h"
 #include "exprs/vexpr_fwd.h"
 #include "format/transformer/vfile_format_transformer.h"
@@ -101,6 +103,7 @@ private:
     TFileCompressType::type _hive_compress_type;
     const THiveSerDeProperties* _hive_serde_properties;
     const std::map<std::string, std::string>& _hadoop_conf;
+    std::optional<std::string> _hive_parquet_time_zone;
 
     std::shared_ptr<io::FileSystem> _fs = nullptr;
 

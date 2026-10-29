@@ -148,6 +148,34 @@ Status build_segment_zonemap_context(Segment* segment, const Schema& schema,
     return Status::OK();
 }
 
+// The statistics iterator answers pushed-down aggregates from the segment zone maps alone. An
+// invalid zone map has no min/max to answer with, so the caller has to read the data instead.
+Status segment_zone_maps_can_answer_agg(Segment* segment, const Schema& schema,
+                                        const StorageReadOptions& read_options, bool* usable) {
+    *usable = true;
+    for (size_t i = 0; i < schema.num_column_ids(); ++i) {
+        std::shared_ptr<ColumnReader> reader;
+        Status st = segment->get_column_reader(*schema.column(schema.column_id(i)), &reader,
+                                               read_options.stats, &read_options.io_ctx);
+        if (st.is<ErrorCode::NOT_FOUND>()) {
+            continue;
+        }
+        RETURN_IF_ERROR(st);
+        // Columns without a zone map keep the existing behaviour: the statistics iterator reports
+        // the missing zone map itself.
+        if (reader == nullptr || !reader->has_zone_map()) {
+            continue;
+        }
+        ZoneMap zone_map;
+        RETURN_IF_ERROR(reader->get_segment_zone_map(&zone_map));
+        if (zone_map.pass_all) {
+            *usable = false;
+            return Status::OK();
+        }
+    }
+    return Status::OK();
+}
+
 void fill_missing_decimal_precision(const TabletColumn& column, ColumnMetaPB* meta) {
     auto meta_type = static_cast<FieldType>(meta->type());
     if (meta_type != column.type()) {
@@ -435,9 +463,18 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         RETURN_IF_ERROR(load_index(read_options.stats, &read_options.io_ctx));
     }
 
-    if (read_options.delete_condition_predicates->num_of_column_predicate() == 0 &&
-        read_options.push_down_agg_type_opt != TPushAggOp::NONE &&
-        read_options.push_down_agg_type_opt != TPushAggOp::COUNT_ON_INDEX) {
+    bool use_statistics_iterator =
+            read_options.delete_condition_predicates->num_of_column_predicate() == 0 &&
+            read_options.push_down_agg_type_opt != TPushAggOp::NONE &&
+            read_options.push_down_agg_type_opt != TPushAggOp::COUNT_ON_INDEX;
+    // COUNT only fills defaults, every other pushed-down aggregate reads min/max out of the
+    // segment zone maps.
+    if (use_statistics_iterator && read_options.push_down_agg_type_opt != TPushAggOp::COUNT) {
+        bool usable = false;
+        RETURN_IF_ERROR(segment_zone_maps_can_answer_agg(this, *schema, read_options, &usable));
+        use_statistics_iterator = usable;
+    }
+    if (use_statistics_iterator) {
         iter->reset(new_vstatistics_iterator(this->shared_from_this(), *schema));
     } else {
         *iter = std::make_unique<SegmentIterator>(this->shared_from_this(), schema);
@@ -1143,9 +1180,17 @@ Status Segment::read_key_by_rowid(uint32_t row_id, std::string* key) {
 }
 
 Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescriptor* slot,
-                                       uint32_t row_id, MutableColumnPtr& result,
+                                       const std::vector<uint32_t>& row_ids,
+                                       MutableColumnPtr& result,
                                        StorageReadOptions& storage_read_options,
                                        std::unique_ptr<ColumnIterator>& iterator_hint) {
+    if (row_ids.empty()) {
+        return Status::OK();
+    }
+    DORIS_CHECK(std::is_sorted(row_ids.begin(), row_ids.end()));
+    DORIS_CHECK(std::adjacent_find(row_ids.begin(), row_ids.end()) == row_ids.end());
+    // ColumnIterator::seek_and_read expects monotonically increasing row_ids without
+    // duplicates for correct ordinal scanning. Enforce this contract at the entry point.
     auto io_ctx = storage_read_options.io_ctx;
     io_ctx.reader_type = ReaderType::READER_QUERY;
     io_ctx.file_cache_stats = &storage_read_options.stats->file_cache_stats;
@@ -1156,7 +1201,6 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
             .io_ctx = io_ctx,
     };
 
-    std::vector<segment_v2::rowid_t> single_row_loc {row_id};
     const auto runtime_type = remove_nullable(slot->type());
     const auto* variant_type = typeid_cast<const DataTypeVariant*>(runtime_type.get());
     const auto* variant_v2_type = typeid_cast<const DataTypeVariantV2*>(runtime_type.get());
@@ -1183,7 +1227,7 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
             RETURN_IF_ERROR(iterator_hint->init(opt));
         }
         RETURN_IF_ERROR(
-                iterator_hint->read_by_rowids(single_row_loc.data(), 1, file_storage_column));
+                iterator_hint->read_by_rowids(row_ids.data(), row_ids.size(), file_storage_column));
         ColumnPtr source_ptr;
         // storage may have different type with schema, so we need to cast the column
         RETURN_IF_ERROR(variant_util::cast_column(
@@ -1196,7 +1240,7 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
             result = IColumn::mutate(std::move(source_ptr));
             return Status::OK();
         }
-        RETURN_IF_CATCH_EXCEPTION(result->insert_range_from(*source_ptr, 0, 1));
+        RETURN_IF_CATCH_EXCEPTION(result->insert_range_from(*source_ptr, 0, row_ids.size()));
     } else {
         int index = (slot->col_unique_id() >= 0) ? schema.field_index(slot->col_unique_id())
                                                  : schema.field_index(slot->col_name());
@@ -1215,7 +1259,7 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
             RETURN_IF_ERROR(new_column_iterator(column, &iterator_hint, &storage_read_options));
             RETURN_IF_ERROR(iterator_hint->init(opt));
         }
-        RETURN_IF_ERROR(iterator_hint->read_by_rowids(single_row_loc.data(), 1, result));
+        RETURN_IF_ERROR(iterator_hint->read_by_rowids(row_ids.data(), row_ids.size(), result));
     }
     return Status::OK();
 }

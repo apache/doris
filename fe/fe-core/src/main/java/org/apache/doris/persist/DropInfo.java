@@ -34,6 +34,8 @@ public class DropInfo implements Writable {
     private String ctl;
     @SerializedName(value = "db")
     private String db;
+    @SerializedName(value = "resolvedDb")
+    private String resolvedDb;
     @SerializedName(value = "dbId")
     private long dbId;
     @SerializedName(value = "tableId")
@@ -59,6 +61,12 @@ public class DropInfo implements Writable {
         this.ctl = ctl;
         this.db = db;
         this.tableName = tbl;
+    }
+
+    // New external logs retain the database actually resolved by the leader. Older logs lack this field.
+    public DropInfo(String ctl, String db, String tbl, String resolvedDb) {
+        this(ctl, db, tbl);
+        this.resolvedDb = resolvedDb;
     }
 
     // for internal table
@@ -87,6 +95,10 @@ public class DropInfo implements Writable {
 
     public String getDb() {
         return db;
+    }
+
+    public String getResolvedDb() {
+        return resolvedDb;
     }
 
     public long getDbId() {

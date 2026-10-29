@@ -17,10 +17,13 @@
 
 #include "cloud/cloud_rowset_builder.h"
 
+#include <algorithm>
+
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
+#include "io/fs/file_system.h"
 #include "storage/storage_policy.h"
 
 namespace doris {
@@ -77,7 +80,7 @@ Status CloudRowsetBuilder::init() {
     context.mow_context = mow_context;
     context.write_file_cache = _req.write_file_cache;
     context.partial_update_info = _partial_update_info;
-    context.file_cache_ttl_sec = _tablet->ttl_seconds();
+    context.file_cache_expiration_time = _tablet->file_cache_ttl_expiration_time();
     context.storage_resource = _engine.get_storage_resource(_req.storage_vault_id);
     if (!context.storage_resource) {
         return Status::InternalError("vault id not found, maybe not sync, vault id {}",
@@ -123,7 +126,7 @@ void CloudRowsetBuilder::update_tablet_stats() {
     tablet->fetch_add_approximate_num_rows(_rowset->num_rows());
     tablet->fetch_add_approximate_data_size(_rowset->total_disk_size());
     tablet->fetch_add_approximate_cumu_num_rowsets(1);
-    tablet->fetch_add_approximate_cumu_num_deltas(_rowset->num_segments());
+    tablet->fetch_add_approximate_cumu_num_deltas(std::max<int64_t>(_rowset->num_segments(), 1));
     tablet->write_count.fetch_add(1, std::memory_order_relaxed);
 }
 
@@ -133,6 +136,13 @@ CloudTablet* CloudRowsetBuilder::cloud_tablet() {
 
 const RowsetMetaSharedPtr& CloudRowsetBuilder::rowset_meta() {
     return _rowset_writer->rowset_meta();
+}
+
+bool CloudRowsetBuilder::is_s3_storage() const {
+    if (_rowset_writer == nullptr) {
+        return false;
+    }
+    return _rowset_writer->context().fs()->type() == io::FileSystemType::S3;
 }
 
 Status CloudRowsetBuilder::set_txn_related_info() {

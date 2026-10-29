@@ -157,7 +157,7 @@ Status cast_variant_to_array(FunctionContext* context, const ColumnVariantV2& so
                              ColumnPtr* output) {
     if (source.size() != rows || target_type->get_primitive_type() != TYPE_ARRAY ||
         (!forced_nulls.empty() && forced_nulls.size() != rows)) {
-        return Status::InvalidArgument("Invalid Variant V2 input shape for ARRAY CAST");
+        return Status::InternalError("Invalid Variant V2 input shape for ARRAY CAST");
     }
     if (source.is_typed()) {
         if (context == nullptr) {

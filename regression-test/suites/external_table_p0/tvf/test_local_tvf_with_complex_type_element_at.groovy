@@ -19,6 +19,9 @@ import org.junit.Assert
 
 // This suit test the `backends` tvf
 suite("test_local_tvf_with_complex_type_element_at", "p0,external,external_docker") {
+    logger.info("Skip: this suite requires LOCAL TVF, which is disabled.")
+    return
+
     List<List<Object>> backends =  sql """ show backends """
     assertTrue(backends.size() > 0)
     def be_id = backends[0][0]
@@ -95,40 +98,48 @@ suite("test_local_tvf_with_complex_type_element_at", "p0,external,external_docke
         select * from local(
             "file_path" = "${outFilePath}/t.parquet",
             "backend_id" = "${be_id}",
-            "format" = "parquet"); """
+            "format" = "parquet",
+            "hive.parquet.time-zone" = "Asia/Shanghai"); """
 
    qt_sql """
             select count(*) from local(
                 "file_path" = "${outFilePath}/t.parquet",
                 "backend_id" = "${be_id}",
-                "format" = "parquet"); """
+                "format" = "parquet",
+                "hive.parquet.time-zone" = "Asia/Shanghai"); """
 
 
     qt_sql """ select arr_arr[1][1] from local (
                 "file_path" = "${outFilePath}/t.parquet",
                 "backend_id" = "${be_id}",          
-                "format" = "parquet");"""
+                "format" = "parquet",
+                "hive.parquet.time-zone" = "Asia/Shanghai");"""
 
     qt_sql """ select arr_map[1] from local (
                 "file_path" = "${outFilePath}/t.parquet",
                 "backend_id" = "${be_id}",          
-                "format" = "parquet");"""
+                "format" = "parquet",
+                "hive.parquet.time-zone" = "Asia/Shanghai");"""
     qt_sql """ select arr_map[1]["WdTnFb-LHW8Nel-laB-HCQA"] from local (
                 "file_path" = "${outFilePath}/t.parquet",
                 "backend_id" = "${be_id}",          
-                "format" = "parquet");"""
+                "format" = "parquet",
+                "hive.parquet.time-zone" = "Asia/Shanghai");"""
 
     qt_sql """ select map_map["W1iF16-DE1gzJx-avC-Mrf6"]["HJVQSC-46l3xm7-J6c-moIH"] from local (
                 "file_path" = "${outFilePath}/t.parquet",
                 "backend_id" = "${be_id}",          
-                "format" = "parquet");"""
+                "format" = "parquet",
+                "hive.parquet.time-zone" = "Asia/Shanghai");"""
 
     qt_sql """ select map_arr[1] from local (
                 "file_path" = "${outFilePath}/t.parquet",
                 "backend_id" = "${be_id}",          
-                "format" = "parquet");"""
+                "format" = "parquet",
+                "hive.parquet.time-zone" = "Asia/Shanghai");"""
     qt_sql """ select map_arr[1][7] from local (
                 "file_path" = "${outFilePath}/t.parquet",
                 "backend_id" = "${be_id}",          
-                "format" = "parquet");"""
+                "format" = "parquet",
+                "hive.parquet.time-zone" = "Asia/Shanghai");"""
 }

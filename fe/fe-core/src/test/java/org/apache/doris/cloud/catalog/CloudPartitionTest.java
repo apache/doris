@@ -21,6 +21,7 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.VersionHelper;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.rpc.RpcException;
 
 import mockit.Mock;
@@ -28,6 +29,8 @@ import mockit.MockUp;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -73,6 +76,29 @@ public class CloudPartitionTest {
     }
 
     @Test
+    public void testSnapshotVisibleVersionUsesDefaultCacheTtlWithoutConnectContext() throws RpcException {
+        ConnectContext.remove();
+        SessionVariable defaultSessionVariable = VariableMgr.getDefaultSessionVariable();
+        long originalCacheTtlMs = defaultSessionVariable.cloudPartitionVersionCacheTtlMs;
+        try {
+            defaultSessionVariable.cloudPartitionVersionCacheTtlMs = Long.MAX_VALUE;
+            CloudPartition cachedPartition = createPartition(1, 2, 3);
+            cachedPartition.setCachedVisibleVersion(2, 10086L);
+
+            try (MockedStatic<VersionHelper> mockedVersionHelper = Mockito.mockStatic(VersionHelper.class)) {
+                List<Long> versions = CloudPartition.getSnapshotVisibleVersion(
+                        Arrays.asList(cachedPartition));
+
+                Assertions.assertEquals(Arrays.asList(2L), versions);
+                mockedVersionHelper.verifyNoInteractions();
+            }
+        } finally {
+            defaultSessionVariable.cloudPartitionVersionCacheTtlMs = originalCacheTtlMs;
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
     public void testCachedVersion() throws RpcException {
         // Create ConnectContext with SessionVariable
         ConnectContext ctx = new ConnectContext();
@@ -98,7 +124,7 @@ public class CloudPartitionTest {
 
         new MockUp<VersionHelper>(VersionHelper.class) {
             @Mock
-            public Cloud.GetVersionResponse getVersionFromMeta(Cloud.GetVersionRequest req) {
+            public Cloud.GetVersionResponse getVersionFromMeta(Cloud.GetVersionRequest req, int maxAttempts) {
                 Cloud.GetVersionResponse.Builder builder = Cloud.GetVersionResponse.newBuilder();
                 builder.setVersion(singleVersions.get(callCount[0]));
                 builder.addAllVersions(batchVersions.get(callCount[0]));

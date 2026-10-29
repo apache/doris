@@ -32,11 +32,15 @@ import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.StandardCharsets;
 import java.sql.Clob;
+import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.sql.Types;
 import java.time.LocalDateTime;
 
 public class OracleJdbcExecutor extends BaseJdbcExecutor {
+    private static final java.time.format.DateTimeFormatter TIMESTAMP_TZ_FORMATTER =
+            java.time.format.DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss.SSSSSS");
     private static final Logger LOG = Logger.getLogger(OracleJdbcExecutor.class);
     private final CharsetDecoder utf8Decoder = StandardCharsets.UTF_8.newDecoder();
     private final boolean isNewJdbcVersion;
@@ -44,6 +48,31 @@ public class OracleJdbcExecutor extends BaseJdbcExecutor {
     public OracleJdbcExecutor(byte[] thriftParams) throws Exception {
         super(thriftParams);
         isNewJdbcVersion = isJdbcVersionGreaterThanOrEqualTo("12.2.0");
+    }
+
+    @Override
+    protected void setTimestampTz(int parameterIndex, LocalDateTime value) throws SQLException {
+        // Older Oracle drivers reject JDBC type 2014; the sink SQL parses an explicit UTC offset.
+        preparedStatement.setString(parameterIndex, value.format(TIMESTAMP_TZ_FORMATTER) + " +00:00");
+    }
+
+    @Override
+    protected void setTimestampTzNull(int parameterIndex) throws SQLException {
+        preparedStatement.setNull(parameterIndex, Types.VARCHAR);
+    }
+
+    @Override
+    protected void initializeStatement(Connection conn, JdbcDataSourceConfig config, String sql) throws SQLException {
+        // ALTER SESSION alone leaves the driver's TSLTZ zone unset; initialize every borrowed connection.
+        try {
+            Connection physical = conn.unwrap(Connection.class);
+            Class<?> oracleConnection = Class.forName("oracle.jdbc.OracleConnection", true,
+                    physical.getClass().getClassLoader());
+            oracleConnection.getMethod("setSessionTimeZone", String.class).invoke(conn.unwrap(oracleConnection), "UTC");
+        } catch (ReflectiveOperationException e) {
+            throw new SQLException("Failed to initialize Oracle session time zone", e);
+        }
+        super.initializeStatement(conn, config, sql);
     }
 
     @Override
@@ -67,6 +96,11 @@ public class OracleJdbcExecutor extends BaseJdbcExecutor {
 
     @Override
     protected Object getColumnValue(int columnIndex, ColumnType type, String[] replaceStringList) throws SQLException {
+        if (type.getType() == Type.TIMESTAMPTZ) {
+            // Both driver paths must preserve the instant instead of passing a local wall clock to JNI.
+            Timestamp value = resultSet.getTimestamp(columnIndex + 1);
+            return value == null ? null : LocalDateTime.ofInstant(value.toInstant(), java.time.ZoneOffset.UTC);
+        }
         if (isNewJdbcVersion) {
             return newGetColumnValue(columnIndex, type, replaceStringList);
         } else {
@@ -103,9 +137,6 @@ public class OracleJdbcExecutor extends BaseJdbcExecutor {
                 return resultSet.getObject(columnIndex + 1);
             case VARBINARY:
                 return resultSet.getObject(columnIndex + 1, byte[].class);
-            case TIMESTAMPTZ:
-                Timestamp ts = resultSet.getObject(columnIndex + 1, Timestamp.class);
-                return ts == null ? null : LocalDateTime.ofInstant(ts.toInstant(), java.time.ZoneOffset.UTC);
             default:
                 throw new IllegalArgumentException("Unsupported column type: " + type.getType());
         }

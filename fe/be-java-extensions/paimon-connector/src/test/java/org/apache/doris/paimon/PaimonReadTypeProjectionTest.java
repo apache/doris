@@ -20,7 +20,9 @@ package org.apache.doris.paimon;
 import org.apache.doris.common.jni.vec.ColumnType;
 
 import org.apache.paimon.types.ArrayType;
+import org.apache.paimon.types.BlobType;
 import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
@@ -30,6 +32,17 @@ import org.junit.Test;
 import java.util.Arrays;
 
 public class PaimonReadTypeProjectionTest {
+    @Test
+    public void testFileProjectionPreservesPaimonBlobType() {
+        BlobType blob = new BlobType();
+        Assert.assertSame(blob,
+                PaimonReadTypeProjection.project(blob, ColumnType.parseType("image", "file")));
+        RowType row = RowType.of(new DataType[] {blob}, new String[] {"image"});
+        RowType projected = (RowType) PaimonReadTypeProjection.project(
+                row, ColumnType.parseType("s", "struct<image:file>"));
+        Assert.assertEquals(blob, projected.getTypeAt(0));
+    }
+
     @Test
     public void testProjectNestedRowArrayAndMap() {
         RowType profileType = new RowType(false, Arrays.asList(

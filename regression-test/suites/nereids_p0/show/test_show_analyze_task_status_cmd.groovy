@@ -37,6 +37,12 @@ suite("test_show_analyze_task_status_cmd", "nereids_p0") {
     // Insert some data
     sql """ INSERT INTO ${tableName} VALUES (1, 'a'), (2, 'b') """
 
+    // SHOW ANALYZE TASK STATUS for a non-existent job should report a clear error
+    test {
+        sql """ SHOW ANALYZE TASK STATUS 922337203685477 """
+        exception "Analyze job [922337203685477] not exists"
+    }
+
     // Run analyze asynchronously
     def analyzeResult = sql """ ANALYZE TABLE ${tableName} """
     assertTrue(analyzeResult.size() == 1, "Unexpected analyze result size")

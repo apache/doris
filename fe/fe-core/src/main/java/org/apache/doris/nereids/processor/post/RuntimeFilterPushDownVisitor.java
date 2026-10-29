@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlap
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
@@ -467,6 +468,22 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
             }
         }
         return pushedDown;
+    }
+
+    @Override
+    public Boolean visitPhysicalRepeat(PhysicalRepeat<? extends Plan> repeat, PushDownContext ctx) {
+        if (!repeat.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
+            return false;
+        }
+        // Only push through Repeat if the probe slot appears in ALL grouping sets.
+        // A slot absent from a grouping set is erased to NULL for the rows of that group,
+        // so filtering on it before the repeat would incorrectly discard rows which are
+        // still needed to compute the other grouping sets.
+        Set<Expression> commonGroupingSetExpressions = repeat.getCommonGroupingSetExpressions();
+        if (!commonGroupingSetExpressions.containsAll(ctx.probeExpr.getInputSlots())) {
+            return false;
+        }
+        return repeat.child().accept(this, ctx);
     }
 
     @Override

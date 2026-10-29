@@ -912,12 +912,10 @@ public class Auth implements Writable {
 
     // revoke table
     public void revokeTablePrivilegeCommand(RevokeTablePrivilegeCommand command) throws DdlException {
-        if (command.getTablePattern() != null) {
-            PrivBitSet privs = PrivBitSet.of(command.getPrivileges());
-            revokeInternal(command.getUserIdentity().orElse(null), command.getRole().orElse(null),
-                    command.getTablePattern(), privs, command.getColPrivileges(),
-                    true /* err on non exist */, false /* is replay */);
-        }
+        PrivBitSet privs = PrivBitSet.of(command.getPrivileges());
+        revokeInternal(command.getUserIdentity().orElse(null), command.getRole().orElse(null),
+                command.getTablePattern(), privs, command.getColPrivileges(),
+                true /* err on non exist */, false /* is replay */);
     }
 
     public void replayRevoke(PrivInfo info) {

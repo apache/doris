@@ -336,8 +336,9 @@ TExprNode create_texpr_node_from(const Field& field, const PrimitiveType& type, 
         break;
     }
     case TYPE_VARBINARY: {
-        const auto& svf = field.get<TYPE_VARBINARY>();
-        THROW_IF_ERROR(create_texpr_literal_node<TYPE_VARBINARY>(&svf, &node));
+        // The literal encoder consumes std::string, not the scalar field's StringView layout.
+        const auto bytes = field.get<TYPE_VARBINARY>().str();
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_VARBINARY>(&bytes, &node));
         break;
     }
     default:

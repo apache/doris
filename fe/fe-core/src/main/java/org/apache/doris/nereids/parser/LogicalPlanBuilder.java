@@ -545,7 +545,6 @@ import org.apache.doris.nereids.trees.expressions.Default;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
 import org.apache.doris.nereids.trees.expressions.DereferenceExpression;
 import org.apache.doris.nereids.trees.expressions.Divide;
-import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -1708,7 +1707,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         LogicalPlan logicalPlan = new UnboundResultSink<>(visitQuery(ctx.query()));
         Map<String, String> properties = ctx.propertyClause() != null
                 ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
-        return new CreateMaterializedViewCommand(new TableNameInfo(nameParts), logicalPlan, properties);
+        return new CreateMaterializedViewCommand(ctx.EXISTS() != null, new TableNameInfo(nameParts),
+                logicalPlan, properties);
     }
 
     /**
@@ -2871,9 +2871,46 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ParserUtils.withOrigin(ctx, () -> {
             String functionName = ctx.tvfName.getText();
 
-            Map<String, String> map = visitPropertyItemList(ctx.properties);
+            Map<String, Placeholder> parameters = new LinkedHashMap<>();
+            Map<String, String> map;
+            if ("vector_search".equalsIgnoreCase(functionName) && ctx.properties != null) {
+                map = new HashMap<>();
+                Set<String> keys = new HashSet<>();
+                for (PropertyItemContext argument : ctx.properties.properties) {
+                    if (argument.key.constant() instanceof DorisParser.PlaceholderContext) {
+                        throw new AnalysisException("vector_search property names must be constant");
+                    }
+                    String key = parsePropertyKey(argument.key).toLowerCase(Locale.ROOT);
+                    if (!keys.add(key)) {
+                        throw new AnalysisException("Duplicate vector_search property: " + key);
+                    }
+                    if (argument.value.constant() instanceof DorisParser.PlaceholderContext) {
+                        // Bounds change the search results, but never the prepared result schema.
+                        if (!ImmutableSet.of("query_vector", "top_k", "offset", "filter",
+                                "distance_lower_bound", "distance_upper_bound").contains(key)) {
+                            throw new AnalysisException("vector_search property '" + key
+                                    + "' must be constant in a prepared statement");
+                        }
+                        parameters.put(key, (Placeholder) visit(argument.value.constant()));
+                    } else {
+                        map.put(key, parsePropertyValue(argument.value));
+                    }
+                }
+            } else {
+                if ("full_text_search".equalsIgnoreCase(functionName) && ctx.properties != null) {
+                    // A placeholder would otherwise reach the function as the literal text "?".
+                    for (PropertyItemContext argument : ctx.properties.properties) {
+                        if (argument.key.constant() instanceof DorisParser.PlaceholderContext
+                                || argument.value.constant() instanceof DorisParser.PlaceholderContext) {
+                            throw new AnalysisException("full_text_search properties must be constant"
+                                    + " in a prepared statement");
+                        }
+                    }
+                }
+                map = visitPropertyItemList(ctx.properties);
+            }
             LogicalPlan relation = new UnboundTVFRelation(StatementScopeIdGenerator.newRelationId(),
-                    functionName, new Properties(map));
+                    functionName, new Properties(map), parameters);
             return withTableAlias(relation, ctx.tableAlias());
         });
     }
@@ -4697,7 +4734,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     }
                     List<Expression> conjuncts = ExpressionUtils.extractConjunction(condition.get());
                     for (Expression expression : conjuncts) {
-                        if (!(expression instanceof EqualPredicate)) {
+                        if (!(expression instanceof EqualTo)) {
                             throw new ParseException("ASOF JOIN's ON clause must be one or more EQUAL(=) conjuncts",
                                     join);
                         }
@@ -5470,13 +5507,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public VariantField visitVariantSubColType(VariantSubColTypeContext ctx) {
-        String comment;
-        if (ctx.commentSpec() != null) {
-            comment = ctx.commentSpec().STRING_LITERAL().getText();
-            comment = LogicalPlanBuilderAssistant.escapeBackSlash(comment.substring(1, comment.length() - 1));
-        } else {
-            comment = "";
-        }
+        String comment = ctx.commentSpec() == null ? ""
+                : SqlLiteralUtils.parseStringLiteral(ctx.commentSpec().STRING_LITERAL().getText());
         String pattern = ctx.STRING_LITERAL().getText();
         pattern = pattern.substring(1, pattern.length() - 1);
         if (ctx.variantSubColMatchType() != null) {
@@ -5667,12 +5699,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         boolean isAggFunction = ctx.AGGREGATE() != null;
         boolean isTableFunction = ctx.TABLES() != null;
         FunctionName function = visitFunctionIdentifier(ctx.functionIdentifier());
-        FunctionArgTypesInfo functionArgTypesInfo;
-        if (ctx.functionArguments() != null) {
-            functionArgTypesInfo = visitFunctionArguments(ctx.functionArguments());
-        } else {
-            functionArgTypesInfo = new FunctionArgTypesInfo(new ArrayList<>(), false);
-        }
+        List<DataType> argTypes = ctx.dataTypeList() == null
+                ? new ArrayList<>() : visitDataTypeList(ctx.dataTypeList());
+        FunctionArgTypesInfo functionArgTypesInfo = new FunctionArgTypesInfo(argTypes, false);
         DataType returnType = typedVisit(ctx.returnType);
         returnType = returnType.conversion();
         DataType intermediateType = ctx.intermediateType != null ? typedVisit(ctx.intermediateType) : null;
@@ -5693,12 +5722,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         SetType statementScope = visitStatementScope(ctx.statementScope());
         boolean ifNotExists = ctx.EXISTS() != null;
         FunctionName function = visitFunctionIdentifier(ctx.functionIdentifier());
-        FunctionArgTypesInfo functionArgTypesInfo;
-        if (ctx.functionArguments() != null) {
-            functionArgTypesInfo = visitFunctionArguments(ctx.functionArguments());
-        } else {
-            functionArgTypesInfo = new FunctionArgTypesInfo(new ArrayList<>(), false);
-        }
+        List<DataType> argTypes = ctx.dataTypeList() == null
+                ? new ArrayList<>() : visitDataTypeList(ctx.dataTypeList());
+        FunctionArgTypesInfo functionArgTypesInfo = new FunctionArgTypesInfo(argTypes, false);
         List<String> parameters = ctx.parameters != null ? visitIdentifierSeq(ctx.parameters) : new ArrayList<>();
         Expression originFunction = getExpression(ctx.expression());
         return new CreateFunctionCommand(statementScope, ifNotExists, false, true, false,
@@ -6494,6 +6520,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public Command visitCreateIndex(CreateIndexContext ctx) {
         String indexName = ctx.name.getText();
         boolean ifNotExists = ctx.EXISTS() != null;
+        boolean orReplace = ctx.REPLACE() != null;
+        if (orReplace && ifNotExists) {
+            throw new AnalysisException("[OR REPLACE] and [IF NOT EXISTS] cannot used at the same time");
+        }
         TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
         List<String> indexCols = visitIdentifierList(ctx.identifierList());
         Map<String, String> properties = ctx.properties != null
@@ -6506,10 +6536,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             indexType = "INVERTED";
         } else if (ctx.ANN() != null) {
             indexType = "ANN";
+        } else if (ctx.BTREE() != null) {
+            indexType = "BTREE";
+        } else if (ctx.BITMAP() != null) {
+            indexType = "BITMAP";
         }
         String comment = ctx.STRING_LITERAL() == null ? "" : stripQuotes(ctx.STRING_LITERAL().getText());
         IndexDefinition indexDefinition = new IndexDefinition(indexName, ifNotExists, indexCols, indexType,
-                properties, comment);
+                properties, comment, orReplace);
         List<AlterTableOp> alterTableOps = Lists.newArrayList(new CreateIndexOp(tableNameInfo,
                 indexDefinition, false));
         return new AlterTableCommand(tableNameInfo, alterTableOps);
@@ -9098,35 +9132,28 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new TransactionRollbackCommand();
     }
 
+    /**
+     * The object of a table privilege is db, db.tbl or ctl.db.tbl; TablePattern.analyze() checks its wildcards.
+     */
+    private TablePattern parsePrivilegeTablePattern(DorisParser.MultipartIdentifierOrAsteriskContext ctx) {
+        List<String> parts = visitMultipartIdentifierOrAsterisk(ctx);
+        switch (parts.size()) {
+            case 1:
+                return new TablePattern(parts.get(0), "");
+            case 2:
+                return new TablePattern(parts.get(0), parts.get(1));
+            case 3:
+                return new TablePattern(parts.get(0), parts.get(1), parts.get(2));
+            default:
+                throw new ParseException("Privilege object name should be db, db.tbl or ctl.db.tbl, but got: "
+                        + String.join(".", parts), ctx);
+        }
+    }
+
     @Override
     public LogicalPlan visitGrantTablePrivilege(DorisParser.GrantTablePrivilegeContext ctx) {
         List<AccessPrivilegeWithCols> accessPrivilegeWithCols = visitPrivilegeList(ctx.privilegeList());
-
-        List<String> parts = visitMultipartIdentifierOrAsterisk(ctx.multipartIdentifierOrAsterisk());
-        int size = parts.size();
-
-        if (size < 1) {
-            throw new AnalysisException("grant table privilege statement missing parameters");
-        }
-
-        TablePattern tablePattern = null;
-        if (size == 1) {
-            String db = parts.get(size - 1);
-            tablePattern = new TablePattern(db, "");
-        }
-
-        if (size == 2) {
-            String db = parts.get(size - 2);
-            String tbl = parts.get(size - 1);
-            tablePattern = new TablePattern(db, tbl);
-        }
-
-        if (size == 3) {
-            String ctl = parts.get(size - 3);
-            String db = parts.get(size - 2);
-            String tbl = parts.get(size - 1);
-            tablePattern = new TablePattern(ctl, db, tbl);
-        }
+        TablePattern tablePattern = parsePrivilegeTablePattern(ctx.multipartIdentifierOrAsterisk());
 
         Optional<UserIdentity> userIdentity = Optional.empty();
         Optional<String> role = Optional.empty();
@@ -9272,28 +9299,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitRevokeTablePrivilege(DorisParser.RevokeTablePrivilegeContext ctx) {
         List<AccessPrivilegeWithCols> accessPrivilegeWithCols = visitPrivilegeList(ctx.privilegeList());
-
-        List<String> parts = visitMultipartIdentifierOrAsterisk(ctx.multipartIdentifierOrAsterisk());
-        int size = parts.size();
-
-        TablePattern tablePattern = null;
-        if (size == 1) {
-            String db = parts.get(size - 1);
-            tablePattern = new TablePattern(db, "");
-        }
-
-        if (size == 2) {
-            String db = parts.get(size - 2);
-            String tbl = parts.get(size - 1);
-            tablePattern = new TablePattern(db, tbl);
-        }
-
-        if (size == 3) {
-            String ctl = parts.get(size - 3);
-            String db = parts.get(size - 2);
-            String tbl = parts.get(size - 1);
-            tablePattern = new TablePattern(ctl, db, tbl);
-        }
+        TablePattern tablePattern = parsePrivilegeTablePattern(ctx.multipartIdentifierOrAsterisk());
 
         Optional<UserIdentity> userIdentity = Optional.empty();
         Optional<String> role = Optional.empty();

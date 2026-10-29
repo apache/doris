@@ -267,7 +267,6 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
             } else {
                 throw new JobException("Unsupported job type for ALTER:" + job.getJobType());
             }
-            job.logUpdateOperation();
         } finally {
             writeUnlock();
         }

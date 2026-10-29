@@ -127,6 +127,8 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
@@ -189,9 +191,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     @SerializedName(value = "itp", alternate = {"idToPartition"})
     @Getter
     protected ConcurrentHashMap<Long, Partition> idToPartition = new ConcurrentHashMap<>();
-    // handled in postgsonprocess
+    // handled in postgsonprocess. Sorted, and weakly consistent so that lock-free readers
+    // (e.g. EXPLAIN plan rendering) never hit ConcurrentModificationException while the table
+    // write lock holder adds/drops partitions.
     @Getter
-    protected Map<String, Partition> nameToPartition = Maps.newTreeMap();
+    protected Map<String, Partition> nameToPartition = new ConcurrentSkipListMap<>();
 
     @SerializedName(value = "di", alternate = {"distributionInfo"})
     private DistributionInfo defaultDistributionInfo;
@@ -242,6 +246,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     // This value is set when get the table version from meta-service, 0 means version is not cached yet
     private volatile long lastTableVersionCachedTimeMs = 0;
     private volatile long cachedTableVersion = -1;
+
+    // Commit notifications cannot clear invalidation: their versions may precede the missing commit result.
+    private final AtomicLong tableVersionCacheEpoch = new AtomicLong();
+    private final AtomicLong refreshedTableVersionCacheEpoch = new AtomicLong();
 
     private ReadWriteLock versionLock = Config.isCloudMode() ? new ReentrantReadWriteLock(true) : null;
 
@@ -3398,7 +3406,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     @VisibleForTesting
     protected boolean isCachedTableVersionExpired() {
         // -1 means no cache yet, need to fetch from MS
-        if (cachedTableVersion == -1) {
+        if (cachedTableVersion == -1 || tableVersionCacheEpoch.get() != refreshedTableVersionCacheEpoch.get()) {
             return true;
         }
         ConnectContext ctx = ConnectContext.get();
@@ -3412,13 +3420,18 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public boolean isCachedTableVersionExpired(long expirationMs) {
         // -1 means no cache yet, need to fetch from MS
-        if (cachedTableVersion == -1 || expirationMs <= 0) {
+        if (cachedTableVersion == -1 || expirationMs <= 0
+                || tableVersionCacheEpoch.get() != refreshedTableVersionCacheEpoch.get()) {
             return true;
         }
         return System.currentTimeMillis() - lastTableVersionCachedTimeMs > expirationMs;
     }
 
-    public void setCachedTableVersion(long version) {
+    public void invalidateCachedTableVersion() {
+        tableVersionCacheEpoch.incrementAndGet();
+    }
+
+    public synchronized void setCachedTableVersion(long version) {
         if (version >= cachedTableVersion) {
             cachedTableVersion = version;
             lastTableVersionCachedTimeMs = System.currentTimeMillis();
@@ -3439,6 +3452,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             return getCachedTableVersion();
         }
 
+        long cacheEpoch = tableVersionCacheEpoch.get();
         // get version rpc
         Cloud.GetVersionRequest request = Cloud.GetVersionRequest.newBuilder()
                 .setRequestIp(FrontendOptions.getLocalHostAddressCached())
@@ -3465,6 +3479,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             }
             // update cache
             setCachedTableVersion(version);
+            refreshedTableVersionCacheEpoch.accumulateAndGet(cacheEpoch, Math::max);
             return version;
         } catch (RpcException e) {
             LOG.warn("get version from meta service failed", e);
@@ -3529,9 +3544,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     private static List<Long> getVisibleVersionInBatchFromMs(List<OlapTable> tables) {
         List<Long> dbIds = new ArrayList<>(tables.size());
         List<Long> tableIds = new ArrayList<>(tables.size());
+        List<Long> cacheEpochs = new ArrayList<>(tables.size());
         for (OlapTable table : tables) {
             dbIds.add(table.getDatabase().getId());
             tableIds.add(table.getId());
+            cacheEpochs.add(table.tableVersionCacheEpoch.get());
         }
 
         List<Long> versions = getVisibleVersionFromMeta(dbIds, tableIds);
@@ -3540,11 +3557,16 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         Preconditions.checkState(tables.size() == versions.size());
         for (int i = 0; i < tables.size(); i++) {
             tables.get(i).setCachedTableVersion(versions.get(i));
+            tables.get(i).refreshedTableVersionCacheEpoch.accumulateAndGet(cacheEpochs.get(i), Math::max);
         }
         return versions;
     }
 
     public static List<Long> getVisibleVersionFromMeta(List<Long> dbIds, List<Long> tableIds) {
+        return getVisibleVersionFromMeta(dbIds, tableIds, Config.metaServiceRpcRetryTimes());
+    }
+
+    public static List<Long> getVisibleVersionFromMeta(List<Long> dbIds, List<Long> tableIds, int maxAttempts) {
         // get version rpc
         Cloud.GetVersionRequest request = Cloud.GetVersionRequest.newBuilder()
                 .setRequestIp(FrontendOptions.getLocalHostAddressCached())
@@ -3558,7 +3580,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 .build();
 
         try {
-            Cloud.GetVersionResponse resp = VersionHelper.getVersionFromMeta(request);
+            Cloud.GetVersionResponse resp = VersionHelper.getVersionFromMeta(request, maxAttempts);
             if (resp.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
                 throw new RpcException("get table visible version", "unexpected status " + resp.getStatus());
             }
@@ -3968,10 +3990,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             return original;
         }
         List<Index> matched = new ArrayList<>();
+        List<Index> named = new ArrayList<>();
         for (Index index : original) {
             if (InvertedIndexUtil.isAnalyzerMatched(index.getProperties(), analyzer)) {
                 matched.add(index);
+            } else if (InvertedIndexUtil.isAnalyzerNameMatched(index.getProperties(), analyzer)) {
+                named.add(index);
             }
+        }
+        // A built-in IK index is matched by its effective configuration, but an index created
+        // before that rule existed may be configured differently. When it is the only index that
+        // carries the requested name, keep serving the request from it as before; the predicate
+        // sends that index's own mode and lowercase settings to BE.
+        if (matched.isEmpty() && named.size() == 1) {
+            return named;
         }
         return matched;
     }

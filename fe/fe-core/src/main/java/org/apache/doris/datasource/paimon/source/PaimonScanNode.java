@@ -53,9 +53,11 @@ import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TPaimonBlobFileDesc;
 import org.apache.doris.thrift.TPaimonDeletionFileDesc;
 import org.apache.doris.thrift.TPaimonFileDesc;
 import org.apache.doris.thrift.TPaimonReaderType;
@@ -63,14 +65,23 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.CoreOptions;
+import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.BinaryRow;
+import org.apache.paimon.format.OrcOptions;
+import org.apache.paimon.format.blob.BlobFileFormat;
+import org.apache.paimon.io.DataFileMeta;
+import org.apache.paimon.operation.DataEvolutionSplitRead;
+import org.apache.paimon.options.Options;
 import org.apache.paimon.predicate.Predicate;
+import org.apache.paimon.rest.RESTTokenFileIO;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.BucketMode;
 import org.apache.paimon.table.DataTable;
+import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
@@ -81,12 +92,20 @@ import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.ScanMode;
 import org.apache.paimon.table.source.TableScan;
 import org.apache.paimon.table.source.snapshot.SnapshotReader;
+import org.apache.paimon.types.ArrayType;
+import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.DataTypeRoot;
+import org.apache.paimon.types.MapType;
+import org.apache.paimon.types.MultisetType;
+import org.apache.paimon.types.RowType;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -94,6 +113,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -103,6 +123,7 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
     private static final long MAX_RETAINED_SERIALIZED_TASK_BYTES = 16L * 1024 * 1024;
+    private volatile PaimonRustReaderCapabilities rustReaderCapabilities;
     private long maxRetainedSerializedTaskBytes = MAX_RETAINED_SERIALIZED_TASK_BYTES;
     // The keys of incremental read params for Paimon SDK
     private static final String PAIMON_INCREMENTAL_BETWEEN = "incremental-between";
@@ -123,11 +144,39 @@ public class PaimonScanNode extends FileQueryScanNode {
             "doris.scan.manifest.parallelism-cap";
     private static final String DORIS_SERIALIZED_SYSTEM_SOURCE = "doris.serialized-system-source";
     private static final String DORIS_SYSTEM_TABLE_TYPE = "doris.system-table-type";
+    // Same key as the rust CoreOptions DELETION_VECTORS_MERGE_ON_READ_OPTION: paimon
+    // 1.4 exposes no Java accessor for it, so the raw TableSchema option is read.
+    private static final String DELETION_VECTORS_MERGE_ON_READ = "deletion-vectors.merge-on-read";
     private static final List<String> BACKEND_PAIMON_OPTIONS = Arrays.asList(
             DORIS_ENABLE_JNI_IO_MANAGER,
             DORIS_JNI_IO_MANAGER_TMP_DIR,
             DORIS_JNI_IO_MANAGER_IMPL_CLASS,
             DORIS_ENABLE_FILE_READER_ASYNC);
+    // The table-location URI schemes whose property translation into the
+    // paimon-rust FileIO key families is implemented (BE bridge) and open
+    // tested: s3 / s3a -> the s3.* family, oss -> the fs.oss.* family, plus
+    // the credential-free hdfs and local-filesystem parsers (hadoop conf and
+    // local paths pass through untouched). See isRustVerifiedLocationScheme.
+    // An hdfs:// location additionally requires the credential-free backend
+    // shape of isRustVerifiedHdfsBackend: the same storage properties carry a
+    // Kerberized catalog's principal / keytab, its proxy user and its HA
+    // nameservice config, none of which the rust HDFS parser can honor.
+    private static final Set<String> RUST_VERIFIED_LOCATION_SCHEMES =
+            new HashSet<>(Arrays.asList("s3", "s3a", "oss", "hdfs", "file"));
+
+    // The dfs./hadoop./fs. keys a credential-free HDFS catalog may transport
+    // without changing what the pinned rust reader does: the warehouse path
+    // identity (fs.defaultFS, always shipped from the location), the
+    // authentication-type markers HdfsProperties always writes (validated to
+    // simple above), and the always-written fallback flag whose semantics only
+    // matter under Kerberos (already rejected above). Every other client
+    // setting is dropped by the rust parser and would diverge from JNI.
+    private static final Set<String> RUST_VERIFIED_HDFS_OPTION_KEYS =
+            new HashSet<>(Arrays.asList(
+                    "fs.defaultFS",
+                    "hadoop.security.authentication",
+                    "hdfs.security.authentication",
+                    "ipc.client.fallback-to-simple-auth-allowed"));
 
     private enum SplitReadType {
         JNI,
@@ -187,6 +236,13 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     // The schema information involved in the current query process (including historical schema).
     protected ConcurrentHashMap<Long, Boolean> currentQuerySchema = new ConcurrentHashMap<>();
+    private final Map<Long, TableSchema> historyTableSchemas = new ConcurrentHashMap<>();
+
+    @Override
+    protected String getHiveParquetTimeZone() {
+        // Paimon schema history owns TIMESTAMP/LOCAL_ZONED_TIMESTAMP semantics, including HMS tables.
+        return "";
+    }
 
     public PaimonScanNode(PlanNodeId id,
                           TupleDescriptor desc,
@@ -204,6 +260,10 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     protected void doInitialize() throws UserException {
+        if (!sessionVariable.enableFileScannerV2 && hasProjectedFileColumn()) {
+            throw new UserException("Paimon BLOB columns require enable_file_scanner_v2=true"
+                    + " for both native and JNI readers");
+        }
         checkVariantV2Enabled(desc);
         Optional<MvccSnapshot> relationSnapshot = getRelationSnapshot();
         if (desc.getTable() instanceof PaimonExternalTable
@@ -232,6 +292,10 @@ public class PaimonScanNode extends FileQueryScanNode {
         );
         backendStorageProperties = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
         backendPaimonOptions = new HashMap<>(getBackendPaimonOptions());
+        // Use the same effective table as serialized_table, including relation/catalog overrides
+        // and Paimon's default, so native readers and the JNI scanner receive one read mode.
+        backendPaimonOptions.put(CoreOptions.BLOB_AS_DESCRIPTOR.key(),
+                String.valueOf(new Options(processedTable.options()).get(CoreOptions.BLOB_AS_DESCRIPTOR)));
         OptionalInt manifestCap;
         if (source.getExternalTable() instanceof PaimonSysExternalTable) {
             manifestCap = source.runtimeSafeManifestParallelism(getScanParams());
@@ -333,6 +397,283 @@ public class PaimonScanNode extends FileQueryScanNode {
         }
     }
 
+    /**
+     * Whether the table location's URI scheme is served by a paimon-rust FileIO parser whose
+     * property translation the FE/BE bridge implements (the s3.* / fs.oss.* key families for
+     * s3 / s3a / oss) or that needs no credentials at all (hdfs hadoop conf and local
+     * filesystem paths). Every other scheme the pinned crate dispatches to its own parser
+     * (cosn / obs / gs / abfs and friends) must fall back to the JNI reader because Doris
+     * delivers those credentials only as AWS_* aliases that those parsers do not read.
+     * A null location cannot be verified (and cannot ship paimon_table either), so it is
+     * not rust-eligible.
+     *
+     * <p>The scheme must also appear in the exact lowercase form the pinned crate consumes.
+     * URI schemes are case-insensitive, but the crate lowercases only its storage
+     * dispatch: its object-store path extraction strips a lowercase {@code s3://} prefix
+     * from the original string, and the hdfs / file helpers likewise match only lowercase
+     * prefixes. A {@code S3://} or {@code Hdfs://} warehouse also produces DataSplit file
+     * paths in that original casing (serialized by the paimon SDK before the FE sees
+     * them), so the mixed-case shape fails the rust open beyond the transported location.
+     * Those valid URI variants must therefore route to JNI, whose Java stack is
+     * case-insensitive everywhere.
+     */
+    @VisibleForTesting
+    static boolean isRustVerifiedLocationScheme(String location) {
+        if (location == null) {
+            return false;
+        }
+        int sep = location.indexOf("://");
+        if (sep <= 0) {
+            // No URI scheme: a plain local path reads through the crate's local-filesystem
+            // parser, which needs no credentials.
+            return true;
+        }
+        return RUST_VERIFIED_LOCATION_SCHEMES.contains(location.substring(0, sep));
+    }
+
+    // Whether the location is an hdfs:// table (the only HDFS-family scheme in
+    // RUST_VERIFIED_LOCATION_SCHEMES; viewfs / jfs never pass it).
+    private static boolean isHdfsLocationScheme(String location) {
+        if (location == null) {
+            return false;
+        }
+        int sep = location.indexOf("://");
+        return sep > 0 && "hdfs".equalsIgnoreCase(location.substring(0, sep));
+    }
+
+    // Whether any member file of the split is ORC. Paimon allows per-level
+    // file.format, so one DataSplit can mix Parquet and ORC files; the split
+    // path's suffix (the first file) cannot speak for the whole split, and the
+    // shifted ORC LTZ decode applies to whichever ORC members rust reads.
+    @VisibleForTesting
+    static boolean splitHasOrcFile(DataSplit dataSplit) {
+        if (dataSplit == null) {
+            return false;
+        }
+        for (DataFileMeta fileMeta : dataSplit.dataFiles()) {
+            String format = fileMeta.fileFormat();
+            if (format != null && "orc".equalsIgnoreCase(format)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Mirrors the pinned paimon-rust read-mode option matrix
+    // (PartialUpdateConfig::read_unsupported_option_keys and
+    // AggregationConfig's runtime-unsupported keys). Both validate option-key
+    // PRESENCE, not values, so a table carrying the key with an off value is
+    // still rejected by the rust merge construction while Java reads it — the
+    // gate must mirror presence exactly.
+    //
+    // Partial-update reads support basic mode, sequence groups and field
+    // aggregation; unsupported keys are the remove-record-on-delete family,
+    // per-field ignore-delete / ignore-retract / distinct / nested-key /
+    // count-limit options.
+    private static boolean isRustUnsupportedPartialUpdateReadOption(String key) {
+        return (key.endsWith(".ignore-delete")
+                && !"ignore-delete".equals(key)
+                && !"partial-update.ignore-delete".equals(key))
+                || "partial-update.remove-record-on-delete".equals(key)
+                || "partial-update.remove-record-on-sequence-group".equals(key)
+                || hasFieldOptionSuffix(key, ".ignore-retract")
+                || hasFieldOptionSuffix(key, ".distinct")
+                || hasFieldOptionSuffix(key, ".nested-key")
+                || hasFieldOptionSuffix(key, ".count-limit");
+    }
+
+    // Aggregation reads support the per-field aggregate-function /
+    // list-agg-delimiter / default-aggregate-function matrix; unsupported keys
+    // are the remove-record-on-delete family, every ignore-delete spelling
+    // (including the bare one), and per-field sequence-group / ignore-retract /
+    // distinct / nested-key / count-limit options.
+    private static boolean isRustUnsupportedAggregationRuntimeOption(String key) {
+        return "ignore-delete".equals(key)
+                || key.endsWith(".ignore-delete")
+                || "aggregation.remove-record-on-delete".equals(key)
+                || hasFieldOptionSuffix(key, ".sequence-group")
+                || hasFieldOptionSuffix(key, ".ignore-retract")
+                || hasFieldOptionSuffix(key, ".distinct")
+                || hasFieldOptionSuffix(key, ".nested-key")
+                || hasFieldOptionSuffix(key, ".count-limit");
+    }
+
+    private static boolean hasFieldOptionSuffix(String key, String suffix) {
+        return key.startsWith("fields.") && key.endsWith(suffix);
+    }
+
+    // Whether the schema options carry any option key the pinned paimon-rust
+    // read rejects for this merge engine.
+    @VisibleForTesting
+    static boolean hasRustUnsupportedMergeOption(Map<String, String> options,
+            CoreOptions.MergeEngine mergeEngine) {
+        boolean partialUpdate = mergeEngine == CoreOptions.MergeEngine.PARTIAL_UPDATE;
+        for (String key : options.keySet()) {
+            if (key == null) {
+                continue;
+            }
+            if (partialUpdate ? isRustUnsupportedPartialUpdateReadOption(key)
+                    : isRustUnsupportedAggregationRuntimeOption(key)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Whether any member file of the split carries a data-file.external-paths
+    // location. Paimon can store an absolute location in each DataFileMeta, and
+    // both Java and the serialized rust split prefer it over the bucket path —
+    // but the pinned rust table builds ONE FileIO from paimon_table, whose
+    // storage enum parses every file with that warehouse-selected backend: an
+    // admitted hdfs table with an s3:// external file (or an s3 table with an
+    // oss:// file) reaches the wrong parser and fails the open, while JNI
+    // reads it. The shipped options describe only the warehouse, so any
+    // external file keeps the split on JNI.
+    @VisibleForTesting
+    static boolean splitHasExternalFiles(DataSplit dataSplit) {
+        if (dataSplit == null) {
+            return false;
+        }
+        for (DataFileMeta fileMeta : dataSplit.dataFiles()) {
+            if (fileMeta.externalPath().isPresent()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Native and Rust ORC routing must share this recursive check: nested LTZ values
+    // require the same JVM-zone conversion, including elements of a MULTISET.
+    @VisibleForTesting
+    static boolean containsTimestampLtz(DataType type) {
+        if (type == null) {
+            return false;
+        }
+        if (type.getTypeRoot() == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
+            return true;
+        }
+        if (type instanceof ArrayType) {
+            return containsTimestampLtz(((ArrayType) type).getElementType());
+        }
+        if (type instanceof MapType) {
+            MapType mapType = (MapType) type;
+            return containsTimestampLtz(mapType.getKeyType())
+                    || containsTimestampLtz(mapType.getValueType());
+        }
+        if (type instanceof MultisetType) {
+            return containsTimestampLtz(((MultisetType) type).getElementType());
+        }
+        if (type instanceof RowType) {
+            return ((RowType) type).getFields().stream()
+                    .anyMatch(field -> containsTimestampLtz(field.type()));
+        }
+        return false;
+    }
+
+    /**
+     * Whether an HDFS catalog's shipped backend properties describe a shape the
+     * pinned paimon-rust HDFS reader can serve identically to JNI. The rust
+     * storage_hdfs parser reads only the hdfs.name-node / hdfs.enable-append
+     * keys — no kerberos, no proxy user, no HA resolution, and no Hadoop client
+     * option map (HdfsNativeConfig.options stays empty) — so a catalog whose
+     * settings need any of those would open as the BE process's ambient
+     * identity, resolve the wrong DataNode, or miss the catalog's configured
+     * access while the same query works through JNI. Only the open-tested
+     * credential-free shape stays rust-eligible: simple (or unset)
+     * authentication, no principal / keytab / proxy user, no HA nameservice
+     * resolution, and no client option beyond the always-shipped inert keys of
+     * {@link #RUST_VERIFIED_HDFS_OPTION_KEYS} — everything else in the
+     * dfs./hadoop./fs. namespaces is dropped by the rust parser and keeps the
+     * catalog on JNI (dfs.client.use.datanode.hostname=true is the canonical
+     * simple-auth example: hdfs-native defaults to false and connects to the
+     * DataNode's advertised IP instead of its hostname, which commonly fails
+     * behind containers/NAT).
+     */
+    @VisibleForTesting
+    static boolean isRustVerifiedHdfsBackend(Map<String, String> backendStorageProperties) {
+        if (backendStorageProperties == null) {
+            return true;
+        }
+        // Authentication type: "simple" (or unset) authenticates as the same
+        // ambient OS user on both readers; kerberos (or anything else) needs the
+        // channel the rust parser does not read.
+        for (String authKey : new String[] {"hadoop.security.authentication",
+                "hdfs.security.authentication"}) {
+            String value = backendStorageProperties.get(authKey);
+            if (value != null && !"simple".equalsIgnoreCase(value.trim())) {
+                return false;
+            }
+        }
+        // Kerberos identity and the proxy user: any of these configured means
+        // the open must carry a specific identity, which only JNI can honor.
+        for (String identityKey : new String[] {"hadoop.kerberos.principal",
+                "hadoop.kerberos.keytab", "hadoop.username"}) {
+            String value = backendStorageProperties.get(identityKey);
+            if (value != null && !value.trim().isEmpty()) {
+                return false;
+            }
+        }
+        // HA nameservice resolution: the rust parser receives no dfs.* config,
+        // so a nameservice-authority location (dfs.nameservices / dfs.ha.*)
+        // cannot be resolved; the proven shape is a single name-node URI.
+        String nameServices = backendStorageProperties.get("dfs.nameservices");
+        if (nameServices != null && !nameServices.trim().isEmpty()) {
+            return false;
+        }
+        for (Map.Entry<String, String> entry : backendStorageProperties.entrySet()) {
+            if (entry.getKey() != null && entry.getKey().startsWith("dfs.ha.")
+                    && entry.getValue() != null && !entry.getValue().trim().isEmpty()) {
+                return false;
+            }
+        }
+        // Client options: the pinned rust storage_hdfs parser reads only the
+        // hdfs.name-node / hdfs.enable-append keys and leaves
+        // HdfsNativeConfig.options empty, so any other transported dfs./hadoop./fs.
+        // setting is silently dropped and hdfs-native runs with its own
+        // defaults. dfs.client.use.datanode.hostname=true is the canonical
+        // simple-auth example: valid without Kerberos, but hdfs-native
+        // defaults to false and connects to the DataNode's advertised IP
+        // instead of its hostname, which commonly fails behind containers/NAT
+        // while JNI succeeds. Only the keys HdfsProperties always writes for a
+        // credential-free catalog (or already validated above) are proven
+        // inert; anything else in these namespaces keeps the catalog on JNI.
+        for (Map.Entry<String, String> entry : backendStorageProperties.entrySet()) {
+            String key = entry.getKey();
+            // A blank value is the unset case (the producer null-filters; a
+            // blank site-config entry is inert), matching the identity and HA
+            // checks above.
+            if (key == null || entry.getValue() == null || entry.getValue().trim().isEmpty()) {
+                continue;
+            }
+            if ((key.startsWith("dfs.") || key.startsWith("hadoop.") || key.startsWith("fs."))
+                    && !RUST_VERIFIED_HDFS_OPTION_KEYS.contains(key)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Mirrors the pinned paimon-rust {@code DataSplit::is_fully_materialized_pk_dv}: a
+     * primary-key split is safe to read raw under deletion vectors only when scan planning
+     * marked it raw convertible AND every data file is compacted (level != 0) and known to
+     * carry no retract rows (delete_row_count == Some(0)). The rust read_pk path requires
+     * this for partial-update / aggregation DV tables; anything weaker must stay on JNI.
+     */
+    @VisibleForTesting
+    static boolean isFullyMaterializedPkDvSplit(DataSplit dataSplit) {
+        if (!dataSplit.rawConvertible()) {
+            return false;
+        }
+        for (DataFileMeta fileMeta : dataSplit.dataFiles()) {
+            Optional<Long> deleteRowCount = fileMeta.deleteRowCount();
+            if (fileMeta.level() == 0 || !deleteRowCount.isPresent() || deleteRowCount.get() != 0L) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private List<String> getOrderedPathPartitionKeys() {
         if (source == null) {
             return Collections.emptyList();
@@ -356,18 +697,24 @@ public class PaimonScanNode extends FileQueryScanNode {
                 }
             }
 
-            TableSchema tableSchema;
-            if (targetTable instanceof PaimonExternalTable) {
-                // Schema IDs are scoped to the resolved relation table, so a branch ID must
-                // never be looked up through the base table's schema cache namespace.
-                tableSchema = ((DataTable) source.getPaimonTable()).schemaManager().schema(schemaId);
-            } else {
-                tableSchema = PaimonUtils.getSchemaCacheValue(targetTable, schemaId).getTableSchema();
-            }
+            TableSchema tableSchema = getHistoryTableSchema(schemaId);
             params.addToHistorySchemaInfo(PaimonUtil.getHistorySchemaInfo(targetTable, tableSchema,
                     source.getCatalog().getEnableMappingVarbinary(),
                     source.getCatalog().getEnableMappingTimestampTz()));
         }
+    }
+
+    private TableSchema getHistoryTableSchema(long schemaId) {
+        return historyTableSchemas.computeIfAbsent(schemaId, id -> {
+            ExternalTable targetTable = source.getExternalTable();
+            if (targetTable instanceof PaimonExternalTable) {
+                // Schema IDs belong to the resolved relation, including its branch and
+                // time-travel options; reuse the same lookup for routing and serialization.
+                Table table = processedTable != null ? processedTable : source.getPaimonTable();
+                return ((DataTable) table).schemaManager().schema(id);
+            }
+            return PaimonUtils.getSchemaCacheValue(targetTable, id).getTableSchema();
+        });
     }
 
     @VisibleForTesting
@@ -411,11 +758,349 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         String fileFormat = getFileFormat(paimonSplit.getPathString());
         if (split != null) {
+            // use jni reader / paimon-cpp reader / paimon-rust reader
             rangeDesc.setFormatType(TFileFormatType.FORMAT_JNI);
-            // A logical DataSplit may span multiple files, so keep it intact for the JNI reader
-            // until the C++ path has a split-aware V2 adapter.
-            fileDesc.setReaderType(TPaimonReaderType.PAIMON_JNI);
-            fileDesc.setPaimonSplit(PaimonUtil.encodeObjectToString(split));
+            // paimon-cpp and paimon-rust both consume Paimon native binary serialization,
+            // which only supports DataSplit. Any other split type falls back to JNI.
+            boolean nativeSplit = split instanceof DataSplit;
+            // Fallback-read splits stay on JNI: FallbackDataSplit extends
+            // DataSplit, so the instanceof above passes, but its serializer
+            // appends an isFallback byte after the ordinary split that the
+            // pinned rust decoder rejects outright ("trailing bytes after
+            // DataSplit" — it requires full-buffer consumption), and even a
+            // permissive decode would still lack the second table identity
+            // needed to honor the fallback-side discriminator. Both sides of a
+            // FallbackReadFileStoreTable wrap their splits, so the table
+            // wrapper is gated as a whole (any split from it routes to JNI)
+            // until the rust ABI represents both sides; the FallbackSplit
+            // interface also catches a wrapper split regardless of how the
+            // table was resolved here.
+            boolean fallbackRead = split instanceof FallbackReadFileStoreTable.FallbackSplit
+                    || processedTable instanceof FallbackReadFileStoreTable;
+            // Serialize the same effective table that planning and the JNI reader use.
+            // Relation options such as t@options('read.batch-size'='1') are applied by
+            // getProcessedTable() (doInitialize caches it in processedTable), and the
+            // rust reader derives its read batch size from the schema options — the raw
+            // cached table would silently drop the override. Copies, delegates and
+            // fallback wrappers of getProcessedTable() are still FileStoreTable, so the
+            // instanceof gate keeps its semantics.
+            Table paimonTable = processedTable;
+            FileStoreTable paimonFileStoreTable =
+                    paimonTable instanceof FileStoreTable ? (FileStoreTable) paimonTable : null;
+            // query-auth.enabled tables stay on JNI: when catalog authorization
+            // succeeds with no row filter or column mask, Paimon still leaves an
+            // ordinary DataSplit (restricted results use QueryAuthSplit and are
+            // already handled by the nativeSplit gate above), so this table shape
+            // passes the compound gate — but the shipped schema keeps
+            // query-auth.enabled=true and the pinned rust ReadBuilder rejects
+            // every such table (its CoreOptions::ensure_read_authorized fails
+            // closed because the client cannot enforce the row filter / column
+            // masking), turning a valid authorized scan into a BE-open failure.
+            // Until the authorization result can be transported and enforced by
+            // the rust ABI, these tables route to JNI.
+            boolean queryAuthTable = false;
+            // REST-token tables stay on JNI: doInitialize snapshots
+            // RESTTokenFileIO.validToken().token() into the backend storage
+            // properties, discarding expireAtMillis and the REST refresh
+            // context, so the shipped credentials look static — but the
+            // pinned rust table reuses one option map with no refresh
+            // callback, while paimon 1.4.2's JNI RESTTokenFileIO checks
+            // expiry before each file operation and obtains a replacement
+            // token. A queued or long scan that crosses the token TTL would
+            // start on rust and later fail authentication. Gate until the
+            // rust ABI can refresh and atomically update credentials.
+            boolean restTokenTable = false;
+            // Partial-update / aggregation tables with deletion vectors only pass
+            // the rust reader in the fully materialized shape: the pinned rust
+            // read_pk rejects merge-engine=partial-update/aggregation with
+            // deletion-vectors.merge-on-read=true outright, and otherwise requires
+            // every split to be compacted and known free of retract rows
+            // (DataSplit::is_fully_materialized_pk_dv). Their ordinary DataSplits
+            // sail through the compound gate above, so without this check a valid
+            // Java/JNI scan reaches BE and the rust open fails. Deduplicate stays
+            // rust-eligible: its read_pk routes uncompacted splits to the KV
+            // reader, which applies the attached per-file DVs. merge-on-read=true
+            // is a table option, so the whole table routes to JNI;
+            // non-materialized splits are gated per split below.
+            boolean puAggDeletionVectors = false;
+            boolean dvMergeOnRead = false;
+            boolean deduplicateIgnoreDelete = false;
+            boolean rustUnsupportedMergeOption = false;
+            if (paimonFileStoreTable != null) {
+                // A renewable REST token reached the shipped properties as a
+                // plain value; only the table's FileIO type reveals it expires.
+                // Null-safe: a table handle whose FileIO is not resolved stays
+                // rust-eligible, mirroring the CoreOptions null-safety below.
+                restTokenTable = paimonFileStoreTable.fileIO() instanceof RESTTokenFileIO;
+                CoreOptions resolvedCoreOptions = paimonFileStoreTable.coreOptions();
+                // Null-safe: a table handle whose CoreOptions is not resolved
+                // (e.g. some wrapper shapes) stays rust-eligible rather than
+                // failing the scan here — the rust open itself rejects such a
+                // table if the option is really set.
+                if (resolvedCoreOptions != null) {
+                    queryAuthTable = resolvedCoreOptions.queryAuthEnabled();
+                    CoreOptions.MergeEngine mergeEngine = resolvedCoreOptions.mergeEngine();
+                    if (resolvedCoreOptions.deletionVectorsEnabled()
+                            && (mergeEngine == CoreOptions.MergeEngine.PARTIAL_UPDATE
+                                    || mergeEngine == CoreOptions.MergeEngine.AGGREGATE)) {
+                        puAggDeletionVectors = true;
+                        // The merge-engine and deletion-vectors.enabled checks
+                        // above resolve through the Java CoreOptions accessors,
+                        // which the table builds from this same schema options
+                        // map — the one the BE rust reader deserializes from
+                        // the shipped schema JSON — so they cannot diverge from
+                        // what BE sees. merge-on-read has no Java accessor in
+                        // paimon 1.4, so it is read raw from the map, with the
+                        // rust parsing semantics (any case-insensitive "true"
+                        // is on, default false).
+                        TableSchema dvSchema = paimonFileStoreTable.schema();
+                        Map<String, String> dvOptions = dvSchema == null ? null : dvSchema.options();
+                        String mergeOnRead = dvOptions == null
+                                ? null : dvOptions.get(DELETION_VECTORS_MERGE_ON_READ);
+                        dvMergeOnRead = "true".equalsIgnoreCase(mergeOnRead);
+                    }
+                    // deduplicate.ignore-delete=true tables stay on JNI:
+                    // Java's DeduplicateMergeFunction skips retract records
+                    // when the option is set — including old, uncompacted
+                    // files that still contain them — but the pinned rust
+                    // read_pk does not pass table options into its
+                    // deduplicate merge: it picks the latest row and omits
+                    // the key when that row is DELETE/UPDATE_BEFORE. An
+                    // uncompacted insert followed by a delete therefore
+                    // returns the insert through JNI but silently disappears
+                    // through rust. Gate the option until the rust merge
+                    // implements it.
+                    if (mergeEngine == CoreOptions.MergeEngine.DEDUPLICATE
+                            && resolvedCoreOptions.ignoreDelete()) {
+                        deduplicateIgnoreDelete = true;
+                    }
+                    // Non-DV merge options the pinned rust read rejects: Java
+                    // supports partial-update.remove-record-on-delete /
+                    // aggregation.remove-record-on-delete and the wider
+                    // per-field retract matrix, but the rust
+                    // PartialUpdateConfig / AggregationConfig validations
+                    // return Unsupported for them — and the DV-derived gates
+                    // above only cover deletion-vector tables, so an ordinary
+                    // non-DV DataSplit with one of these options would pass the
+                    // compound gate and fail during the rust merge
+                    // construction. Mirror the exact rust key matrix (presence,
+                    // not values) against the same schema options map BE
+                    // deserializes.
+                    if (mergeEngine == CoreOptions.MergeEngine.PARTIAL_UPDATE
+                            || mergeEngine == CoreOptions.MergeEngine.AGGREGATE) {
+                        TableSchema mergeSchema = paimonFileStoreTable.schema();
+                        Map<String, String> mergeOptions =
+                                mergeSchema == null ? null : mergeSchema.options();
+                        rustUnsupportedMergeOption = mergeOptions != null
+                                && hasRustUnsupportedMergeOption(mergeOptions, mergeEngine);
+                    }
+                }
+            }
+            // paimon-rust additionally requires (a) FileScannerV2: the V1 FileScanner
+            // explicitly rejects PAIMON_RUST, so with enable_file_scanner_v2 disabled
+            // the split falls back to JNI instead of encoding a rust request that the
+            // selected scanner cannot consume, and (b) a FileStoreTable: BE opens the
+            // table via paimon_table_from_schema_json, which needs the resolved
+            // TableSchema that only FileStoreTable exposes via schema(). If the table
+            // is not a FileStoreTable (e.g. a sys table backed by DataSplit), we cannot
+            // ship a schema JSON, so fall back to CPP / JNI rather than sending an
+            // incomplete PAIMON_RUST request that BE would reject.
+            //
+            // The paimon-rust S3 bridge maps static credentials, anonymous
+            // access (AWS_CREDENTIALS_PROVIDER_TYPE=ANONYMOUS -> s3.anonymous)
+            // and assume-role (AWS_ROLE_ARN / AWS_EXTERNAL_ID ->
+            // s3.assumed.role.*), but the remaining credential-provider modes
+            // are ambient JVM provider chains (ENV, SYSTEM_PROPERTIES,
+            // WEB_IDENTITY, CONTAINER, INSTANCE_PROFILE) with no paimon-rust
+            // equivalent — rust would silently sign with whatever the ambient
+            // chain resolves to. Gate those modes away from the rust reader
+            // here so the configured provider is honored via the JNI path.
+            boolean providerModeTranslatable = true;
+            String providerType = backendStorageProperties == null
+                    ? null : backendStorageProperties.get("AWS_CREDENTIALS_PROVIDER_TYPE");
+            String mode = providerType == null ? "DEFAULT" : providerType.trim().toUpperCase(Locale.ROOT);
+            if (mode.isEmpty()) {
+                mode = "DEFAULT";
+            }
+            String location = source.getTableLocation();
+            if (location != null && (location.startsWith("s3://") || location.startsWith("s3a://"))) {
+                // Java DEFAULT may resolve JVM properties or anonymous credentials;
+                // Rust's ambient chain is different. Only explicit keys or explicit
+                // anonymous access can cross this boundary without changing identity.
+                String accessKey = backendStorageProperties == null
+                        ? null : backendStorageProperties.get("AWS_ACCESS_KEY");
+                String secretKey = backendStorageProperties == null
+                        ? null : backendStorageProperties.get("AWS_SECRET_KEY");
+                boolean staticKeys = accessKey != null && !accessKey.trim().isEmpty()
+                        && secretKey != null && !secretKey.trim().isEmpty();
+                // Hadoop's Simple provider gives static keys precedence over anonymous,
+                // role and token settings. Rust interprets those settings differently.
+                boolean conflictingStaticSettings = staticKeys && (mode.equals("ANONYMOUS")
+                        || StringUtils.isNotEmpty(backendStorageProperties.get("AWS_ROLE_ARN"))
+                        || StringUtils.isNotEmpty(backendStorageProperties.get("AWS_TOKEN")));
+                providerModeTranslatable = !conflictingStaticSettings
+                        && (mode.equals("ANONYMOUS") || (mode.equals("DEFAULT") && staticKeys));
+            } else if (providerType != null) {
+                providerModeTranslatable = mode.equals("DEFAULT") || mode.equals("ANONYMOUS");
+                // OSS has no anonymous FileIO mode in the pinned Rust dependency.
+                if (mode.equals("ANONYMOUS") && location != null && location.startsWith("oss://")) {
+                    providerModeTranslatable = false;
+                }
+            }
+            // Incremental scans (binlog / changelog / delta / diff) must stay
+            // on the JNI path: this wire format carries only an ordinary
+            // DataSplit and the rust reader invokes TableRead::to_arrow, but
+            // paimon 1.4 marks incremental splits as streaming (which the
+            // pinned rust deserializer rejects), diff requires a separate
+            // IncrementalPlan instead of an ordinary plan, and ordinary
+            // primary-key reads can merge versions rather than return the
+            // changes — until the C ABI transports the mode and plan, the
+            // rust reader cannot express any of these.
+            TableScanParams incrementalParams = getScanParams();
+            boolean isIncremental = incrementalParams != null && incrementalParams.incrementalRead();
+            // ORC TIMESTAMP_WITH_LOCAL_TIME_ZONE schemas stay on JNI: the pinned
+            // paimon-rust ORC decoder materializes LTZ instants shifted by the
+            // writer timezone (an upstream crate limitation), so a logical ORC
+            // DataSplit that selects rust (e.g. with force_jni_scanner=true or
+            // when raw conversion is unavailable) returns a different instant
+            // than JNI — applying the session timezone in BE cannot repair an
+            // epoch already shifted during decode. Two bypasses are covered:
+            // (a) the format must come from EVERY member file — paimon allows
+            // per-level file.format, so one DataSplit can mix Parquet and ORC
+            // files and the split path's suffix (the first file) would hide
+            // the ORC members; (b) the LTZ search must recurse into nested
+            // types — an LTZ under MAP/ARRAY/ROW reaches the same shifted ORC
+            // decode through the container's field materialization. Parquet
+            // files with any LTZ, and ORC without any recursive LTZ, stay
+            // rust-eligible. nativeSplit only guards the cast — non-DataSplit
+            // splits already route to JNI.
+            boolean orcLtzSchema = paimonFileStoreTable != null
+                    && nativeSplit
+                    && splitHasOrcFile((DataSplit) split)
+                    && paimonFileStoreTable.schema().fields().stream()
+                            .anyMatch(field -> containsTimestampLtz(field.type()));
+            // data-file.external-paths splits stay on JNI (see
+            // splitHasExternalFiles): the rust table's single FileIO cannot
+            // serve an external file's backend. nativeSplit only guards the
+            // cast — non-DataSplit splits already route to JNI.
+            boolean externalFileSplit = nativeSplit && splitHasExternalFiles((DataSplit) split);
+            // Projected VARIANT columns stay on JNI: the rust leaf feeds its
+            // Arrow arrays to the slot serdes, and DataTypeVariantV2SerDe::
+            // read_column_from_arrow unconditionally returns
+            // NOT_IMPLEMENTED_ERROR — a nested Variant (ARRAY / MAP / STRUCT
+            // containing one) reaches the same decoder through the container
+            // serdes. desc carries only the slots this query projects, so a
+            // table whose VARIANT column is not projected still scans on
+            // rust. Gate until the rust leaf has a Variant Arrow decoder.
+            boolean projectedVariant = desc.getSlots().stream()
+                    .anyMatch(slot -> PaimonUtil.containsVariant(slot.getType()));
+            // Scheme capability gate: the pinned paimon-rust storage
+            // dispatcher (io/storage.rs) selects the FileIO parser from the
+            // table location's URI scheme, and libpaimon_c.a compiles in
+            // separate COS, OBS, GCS and Azdls parsers besides the OSS and S3
+            // ones. Doris normalizes every object store's credentials into
+            // the AWS_* / use_path_style aliases (see the *Properties storage
+            // classes), which the BE rust bridge translates only into the
+            // fs.oss.* and s3.* key families — a cosn:// / obs:// / gs:// /
+            // abfs:// warehouse would reach its scheme's parser without the
+            // key family it reads (fs.cosn.userinfo.*, fs.obs.*, gcs.*,
+            // azure.*) and fail the open instead of using JNI. Only the
+            // schemes whose property translation is implemented and
+            // open-tested (s3 / s3a / oss, via RUST_VERIFIED_LOCATION_SCHEMES)
+            // plus the credential-free hdfs and local-filesystem parsers stay
+            // rust-eligible; every other scheme falls back to JNI. A null
+            // location also routes to JNI: the rust path needs the
+            // paimon_table that only a real location can provide (BE rejects
+            // a split without it).
+            boolean schemeCapabilityVerified = isRustVerifiedLocationScheme(source.getTableLocation());
+            // An hdfs:// location is scheme-verified only together with the credential-free
+            // backend shape: the backend storage properties that ship to BE also carry an
+            // HDFS catalog's authentication (kerberos principal / keytab, proxy user, HA
+            // nameservice config), none of which the pinned rust HDFS parser reads — the
+            // scan would open as the BE process's ambient identity instead of the
+            // catalog's configured one and fail the access JNI honors. See
+            // isRustVerifiedHdfsBackend.
+            boolean hdfsBackendVerified = !isHdfsLocationScheme(source.getTableLocation())
+                    || isRustVerifiedHdfsBackend(backendStorageProperties);
+            // With merge-on-read=true the whole table already routes to JNI (dvMergeOnRead);
+            // for the remaining partial-update/aggregation DV tables, a split that is
+            // not fully materialized (uncompacted level-0 data, or retractions not
+            // known to be applied — even a split with no deletion file attached yet)
+            // fails the rust is_fully_materialized_pk_dv guard, so it falls back per
+            // split instead of turning into a BE-open failure. nativeSplit and
+            // !fallbackRead only guard the cast — those splits already route to JNI.
+            boolean splitDvNotMaterialized = puAggDeletionVectors && !dvMergeOnRead
+                    && nativeSplit && !fallbackRead
+                    && !isFullyMaterializedPkDvSplit((DataSplit) split);
+            boolean canUseRust = sessionVariable.isEnablePaimonRustReader()
+                    && !hasProjectedFileColumn()
+                    && sessionVariable.enableFileScannerV2 && nativeSplit && !fallbackRead
+                    && !isIncremental && providerModeTranslatable && !queryAuthTable
+                    && !restTokenTable
+                    && !dvMergeOnRead && !splitDvNotMaterialized
+                    && !orcLtzSchema && !projectedVariant && !externalFileSplit
+                    && !deduplicateIgnoreDelete && !rustUnsupportedMergeOption
+                    && schemeCapabilityVerified && hdfsBackendVerified
+                    && paimonFileStoreTable != null;
+            if (canUseRust) {
+                // Branch tables can retain persisted modes without a selector. Validate the
+                // transported options too: the pinned Rust builder only accepts default here.
+                String scanMode = PaimonScanParams.withoutTimeTravelSelectors(paimonFileStoreTable.schema())
+                        .options().get(CoreOptions.SCAN_MODE.key());
+                canUseRust = scanMode == null || "default".equalsIgnoreCase(scanMode);
+            }
+            if (canUseRust) {
+                // Every candidate can receive this range; older BEs cannot decode reader type 3.
+                canUseRust = !backendPolicy.getBackends().isEmpty()
+                        && backendPolicy.getBackends().stream().allMatch(Backend::isPaimonRustReaderSupported);
+            }
+            if (canUseRust) {
+                if (rustReaderCapabilities == null) {
+                    rustReaderCapabilities = new PaimonRustReaderCapabilities(paimonFileStoreTable, desc);
+                }
+                canUseRust = rustReaderCapabilities.canRead((DataSplit) split);
+            }
+            if (canUseRust) {
+                fileDesc.setReaderType(TPaimonReaderType.PAIMON_RUST);
+                fileDesc.setPaimonSplit(PaimonUtil.encodeDataSplitToString((DataSplit) split));
+            } else {
+                // A logical DataSplit may span multiple files, so keep it intact for the JNI reader.
+                fileDesc.setReaderType(TPaimonReaderType.PAIMON_JNI);
+                fileDesc.setPaimonSplit(PaimonUtil.encodeObjectToString(split));
+            }
+            // Set table location for paimon-cpp / paimon-rust reader
+            String tableLocation = source.getTableLocation();
+            if (tableLocation != null) {
+                fileDesc.setPaimonTable(tableLocation);
+            }
+            // paimon-rust reader opens tables via paimon_table_from_schema_json:
+            // ship db/table + resolved TableSchema JSON + non-default branch.
+            if (canUseRust) {
+                ExternalTable extTable = source.getExternalTable();
+                fileDesc.setDbName(extTable.getDbName());
+                fileDesc.setTableName(extTable.getName());
+
+                // No catalog / warehouse needed. FE ships the resolved TableSchema JSON
+                // and the branch (null-if-main; matches upstream paimon commit 742da63)
+                // so BE can skip a schema-file round trip. The FileStoreTable cast is
+                // safe here because canUseRust gates on it above. The fence's time-travel
+                // selector is stripped before transport: the rust reader pins data via
+                // the serialized DataSplit, and a shipped selector (scan.snapshot-id) is
+                // re-resolved by paimon-rust's copy_with_time_travel, which would swap
+                // these resolved fields for the pinned snapshot's older schema — a
+                // column added after the last data commit would then fail projection
+                // before per-file schema evolution could fill it (JNI keeps the resolved
+                // schema, so stripping restores rust/JNI parity).
+                TableSchema tableSchema =
+                        PaimonScanParams.withoutTimeTravelSelectors(
+                                ((FileStoreTable) paimonTable).schema());
+                fileDesc.setPaimonTableSchemaJson(PaimonUtil.encodeTableSchemaToJson(tableSchema));
+
+                String branch = CoreOptions.branch(tableSchema.options());
+                if (!Identifier.DEFAULT_MAIN_BRANCH.equals(branch)) {
+                    fileDesc.setPaimonBranch(branch);
+                }
+            }
             rangeDesc.setSelfSplitWeight(paimonSplit.getSelfSplitWeight());
         } else {
             // use native reader
@@ -424,12 +1109,22 @@ public class PaimonScanNode extends FileQueryScanNode {
                 rangeDesc.setFormatType(TFileFormatType.FORMAT_ORC);
             } else if (fileFormat.equals("parquet")) {
                 rangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET);
+                // Native ORC has history schemas too; only native Parquet needs this contract.
+                // Keep the flag set when a later range has another format.
+                params.setContainsNativeParquet(true);
             } else {
                 throw new RuntimeException("Unsupported file format: " + fileFormat);
             }
 
             putHistorySchemaInfo(paimonSplit.getSchemaId());
             fileDesc.setSchemaId(paimonSplit.getSchemaId());
+        }
+        if (paimonSplit.getBlobFiles() != null) {
+            // The reader remains PAIMON_NATIVE/PARQUET. These are companion column files,
+            // materialized by PaimonReader using the anchor's original file row positions.
+            fileDesc.setBlobFiles(paimonSplit.getBlobFiles());
+            fileDesc.setAnchorFirstRowId(paimonSplit.getAnchorFirstRowId());
+            fileDesc.setAnchorRowCount(paimonSplit.getAnchorRowCount());
         }
         fileDesc.setFileFormat(fileFormat);
         // Hadoop conf is set at ScanNode level via params.properties in createScanRangeLocations(),
@@ -481,13 +1176,21 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     public List<Split> getSplits(int numBackends) throws UserException {
+        // BLOB columns need either the companion-file plan below or a logical JNI split.
+        // Ordinary raw-file conversion cannot reconstruct their FILE values.
         boolean forceJniScanner = sessionVariable.isForceJniScanner();
+        boolean hasProjectedFile = hasProjectedFileColumn();
         // Paimon system tables need Paimon-side semantics:
         // - binlog: pack/merge + array materialization
         // - audit_log: rowkind / sequence-number projection
         // TODO: Allow native reader after Doris native parquet/orc reader can materialize
         // these system-table rows consistently with Paimon system-table semantics.
         boolean forceJniForSystemTable = shouldForceJniForSystemTable();
+        boolean materializeBlobColumns = !forceJniScanner && !forceJniForSystemTable
+                && needsNativeBlobMaterialization(hasProjectedFile);
+        Set<String> projectedNames = materializeBlobColumns ? desc.getSlots().stream()
+                .map(slot -> slot.getColumn().getName().toLowerCase(Locale.ROOT)).collect(Collectors.toSet())
+                : Collections.emptySet();
         SessionVariable.IgnoreSplitType ignoreSplitType = SessionVariable.IgnoreSplitType
                 .valueOf(sessionVariable.getIgnoreSplitType());
         List<Split> splits = new ArrayList<>();
@@ -538,7 +1241,8 @@ public class PaimonScanNode extends FileQueryScanNode {
             if (needPartitionMetadata) {
                 partitionInfoMap = partitionInfoMaps.computeIfAbsent(partitionValue, k -> {
                     return PaimonUtil.getPartitionInfoMap(
-                            source.getPaimonTable(), partitionValue, sessionVariable.getTimeZone());
+                            source.getPaimonTable(), partitionValue, sessionVariable.getTimeZone(),
+                            source.getCatalog().getEnableMappingTimestampTz());
                 });
             } else {
                 partitionInfoMaps.put(partitionValue, null);
@@ -549,6 +1253,16 @@ public class PaimonScanNode extends FileQueryScanNode {
             // must not pay the planning cost of merging Paimon manifest statistics.
             OptionalLong mergedRowCount = applyCountPushdown
                     ? dataSplit.mergedRowCount() : OptionalLong.empty();
+            Optional<List<Split>> blobSplits = Optional.empty();
+            if (!mergedRowCount.isPresent() && materializeBlobColumns
+                    && canUseNativeBlobSplit(dataSplit, projectedNames)) {
+                if (!hasDeterminedTargetFileSplitSize) {
+                    targetFileSplitSize = determineTargetFileSplitSize(dataSplits, isBatchMode());
+                    hasDeterminedTargetFileSplitSize = true;
+                }
+                blobSplits = createNativeBlobSplits(
+                        dataSplit, partitionInfoMap, targetFileSplitSize, projectedNames);
+            }
             if (applyCountPushdown && mergedRowCount.isPresent()) {
                 long count = mergedRowCount.getAsLong();
                 splitStat.setMergedRowCount(count);
@@ -559,7 +1273,18 @@ public class PaimonScanNode extends FileQueryScanNode {
                 }
                 pushDownCountSplits.add(split);
                 pushDownCountSum += count;
-            } else if (!forceJniScanner && !forceJniForSystemTable && supportNativeReader(optRawFiles)) {
+            } else if (blobSplits.isPresent()) {
+                if (ignoreSplitType == SessionVariable.IgnoreSplitType.IGNORE_NATIVE) {
+                    continue;
+                }
+                splits.addAll(blobSplits.get());
+                rawFileSplitNum += blobSplits.get().size();
+                splitStat.setType(SplitReadType.NATIVE);
+            } else if (!forceJniScanner && !forceJniForSystemTable && !hasProjectedFile
+                    && supportNativeReader(optRawFiles)) {
+                // Keep raw-file reads ahead of logical JNI/Rust dispatch: only the native file
+                // reader can use footer aggregates for COUNT(col) and MIN/MAX. Logical DataSplits
+                // may require merge/delete semantics and cannot reuse independent file statistics.
                 if (ignoreSplitType == SessionVariable.IgnoreSplitType.IGNORE_NATIVE) {
                     continue;
                 }
@@ -639,6 +1364,174 @@ public class PaimonScanNode extends FileQueryScanNode {
         return splits;
     }
 
+    private boolean needsNativeBlobMaterialization(boolean hasProjectedFile) {
+        if (!hasProjectedFile || !sessionVariable.enableFileScannerV2
+                || !(processedTable instanceof FileStoreTable)
+                || processedTable instanceof FallbackReadFileStoreTable) {
+            return false;
+        }
+        FileStoreTable table = (FileStoreTable) processedTable;
+        if (!table.coreOptions().dataEvolutionEnabled() || table.coreOptions().queryAuthEnabled()) {
+            return false;
+        }
+        // Nested FILE values still use JNI. Only top-level managed BLOBs can be joined to
+        // an anchor by its original row positions.
+        return desc.getSlots().stream()
+                .noneMatch(slot -> !slot.getType().isFileType() && slot.getType().typeContainsFile());
+    }
+
+    private boolean canUseNativeBlobSplit(DataSplit dataSplit, Set<String> projectedNames) throws UserException {
+        FileStoreTable table = (FileStoreTable) processedTable;
+        if (dataSplit instanceof FallbackReadFileStoreTable.FallbackSplit
+                || !table.primaryKeys().isEmpty() || dataSplit.isStreaming()) {
+            return false;
+        }
+        // TODO: If Paimon enables deletion vectors for data-evolution tables, propagate each
+        // anchor's deletion file to its native splits and preserve original row positions
+        // when materializing BLOBs. Paimon 1.4.2 currently rejects this option combination.
+        if (dataSplit.deletionFiles().orElse(Collections.emptyList()).stream().anyMatch(Objects::nonNull)) {
+            return false;
+        }
+        if (table.coreOptions().blobDescriptorField().stream()
+                .anyMatch(name -> projectedNames.contains(name.toLowerCase(Locale.ROOT)))) {
+            return false;
+        }
+        for (DataFileMeta file : dataSplit.dataFiles()) {
+            // Companion files must use the same backend configuration as the anchor.
+            if (file.externalPath().isPresent() || file.externalPathDir().isPresent()) {
+                return false;
+            }
+            if (file.firstRowId() == null || file.firstRowId() < 0 || file.rowCount() <= 0
+                    || file.firstRowId() > Long.MAX_VALUE - file.rowCount()) {
+                throw new UserException("Missing or invalid Paimon data-evolution row range for " + file.fileName());
+            }
+            if (BlobFileFormat.isBlobFile(file.fileName())
+                    && (file.writeCols() == null || file.writeCols().size() != 1)) {
+                throw new UserException("Managed Paimon BLOB files must contain exactly one column");
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Plans native reads only for projected BLOB columns using Paimon's Default blob storage:
+     * payloads live in managed .blob files and are joined to ordinary columns by row ID.
+     * Descriptor-only and external-storage descriptor modes fall back to JNI.
+     * The blob-as-descriptor read option is independent of the storage mode; native reads
+     * support both inline payload and descriptor output for Default blob storage.
+     * Returns Optional.empty() when the file layout requires JNI.
+     */
+    private Optional<List<Split>> createNativeBlobSplits(DataSplit dataSplit, Map<String, String> partitionValues,
+            long targetSplitSize, Set<String> projectedNames) throws UserException {
+        Set<Integer> projectedBlobIds = processedTable.rowType().getFields().stream()
+                .filter(field -> field.type().getTypeRoot() == DataTypeRoot.BLOB
+                        && projectedNames.contains(field.name().toLowerCase(Locale.ROOT)))
+                .map(DataField::id).collect(Collectors.toSet());
+        List<Split> result = new ArrayList<>();
+        try {
+            // Reuse the SDK's overlap grouping and latest-version selection. Flattening the
+            // DataSplit would duplicate rows, and selecting every .blob file would read obsolete
+            // versions after compaction.
+            for (List<DataFileMeta> group : DataEvolutionSplitRead.mergeRangesAndSort(dataSplit.dataFiles())) {
+                DataFileMeta anchor = findBlobParquetAnchor(group, projectedBlobIds);
+                if (anchor == null) {
+                    return Optional.empty();
+                }
+                List<DataEvolutionSplitRead.FieldBunch> bunches = DataEvolutionSplitRead.splitFieldBunches(
+                        group, file -> getHistoryTableSchema(file.schemaId()).logicalRowType());
+                List<TPaimonBlobFileDesc> blobFiles = new ArrayList<>();
+                for (DataEvolutionSplitRead.FieldBunch bunch : bunches) {
+                    DataFileMeta first = bunch.files().get(0);
+                    if (!BlobFileFormat.isBlobFile(first.fileName())) {
+                        continue;
+                    }
+                    DataField field = getHistoryTableSchema(first.schemaId()).logicalRowType()
+                            .getField(first.writeCols().get(0));
+                    if (!projectedBlobIds.contains(field.id())) {
+                        continue;
+                    }
+                    if (bunch.rowCount() != anchor.rowCount()
+                            || first.nonNullFirstRowId() != anchor.nonNullFirstRowId()) {
+                        return Optional.empty();
+                    }
+                    for (DataFileMeta blob : bunch.files()) {
+                        blobFiles.add(createBlobFileDescriptor(dataSplit, blob));
+                    }
+                }
+                String path = paimonDataFilePath(dataSplit, anchor);
+                List<Split> physicalSplits = fileSplitter.splitFile(
+                        LocationPath.of(path, storagePropertiesMap),
+                        selectFeSplitSizeForRawFile(path, targetSplitSize, true),
+                        null, anchor.fileSize(), -1, true, Collections.emptyList(),
+                        PaimonSplit.PaimonSplitCreator.DEFAULT);
+                for (Split physicalSplit : physicalSplits) {
+                    PaimonSplit split = (PaimonSplit) physicalSplit;
+                    split.setSchemaId(anchor.schemaId());
+                    split.setPaimonPartitionValues(partitionValues);
+                    // Preserve the complete anchor's row origin even when its bytes are split.
+                    split.setBlobFiles(blobFiles, anchor.nonNullFirstRowId(), anchor.rowCount());
+                }
+                result.addAll(physicalSplits);
+            }
+        } catch (IOException | IllegalArgumentException | IllegalStateException e) {
+            throw new UserException("Failed to plan native Paimon BLOB files: " + e.getMessage(), e);
+        }
+        return Optional.of(result);
+    }
+
+    /**
+     * Selects the single ordinary Parquet file that supplies columns and original row positions
+     * for joining managed .blob files. Multiple ordinary files require column merging, which
+     * this native path does not support. Returns null for layouts that must fall back to JNI.
+     */
+    private DataFileMeta findBlobParquetAnchor(List<DataFileMeta> group, Set<Integer> projectedBlobIds)
+            throws UserException {
+        DataFileMeta anchor = null;
+        for (DataFileMeta file : group) {
+            if (BlobFileFormat.isBlobFile(file.fileName())) {
+                continue;
+            }
+            // Multiple ordinary column files require a column-merge reader. Choosing one of them
+            // could omit newer ordinary values, even when all their row ranges match.
+            if (anchor != null || !"parquet".equals(file.fileFormat())) {
+                return null;
+            }
+            anchor = file;
+        }
+        if (anchor == null) {
+            return null;
+        }
+        // Descriptor-only and external-storage descriptor modes store descriptors in Parquet,
+        // rather than payloads in managed .blob files; projected columns in these modes use JNI.
+        for (DataField field : getHistoryTableSchema(anchor.schemaId()).logicalRowType().getFields()) {
+            if (field.type().getTypeRoot() == DataTypeRoot.BLOB
+                    && projectedBlobIds.contains(field.id())
+                    && (anchor.writeCols() == null || anchor.writeCols().contains(field.name()))) {
+                return null;
+            }
+        }
+        return anchor;
+    }
+
+    private TPaimonBlobFileDesc createBlobFileDescriptor(DataSplit split, DataFileMeta file) throws UserException {
+        DataField field = getHistoryTableSchema(file.schemaId()).logicalRowType().getField(file.writeCols().get(0));
+        if (field.type().getTypeRoot() != DataTypeRoot.BLOB) {
+            throw new UserException("Managed Paimon BLOB file has a non-BLOB field: " + field.name());
+        }
+        TPaimonBlobFileDesc descriptor = new TPaimonBlobFileDesc();
+        descriptor.setPath(LocationPath.of(paimonDataFilePath(split, file), storagePropertiesMap)
+                .toStorageLocation().toString());
+        descriptor.setFileSize(file.fileSize());
+        descriptor.setFirstRowId(file.nonNullFirstRowId());
+        descriptor.setRowCount(file.rowCount());
+        descriptor.setFieldId(field.id());
+        return descriptor;
+    }
+
+    private static String paimonDataFilePath(DataSplit split, DataFileMeta file) {
+        return file.externalPath().orElse(split.bucketPath() + "/" + file.fileName());
+    }
+
     @VisibleForTesting
     Map<String, String> getBackendPaimonOptions() {
         if (source == null) {
@@ -666,6 +1559,10 @@ public class PaimonScanNode extends FileQueryScanNode {
                 (PaimonJdbcMetaStoreProperties) catalog.getCatalogProperty().getMetastoreProperties();
         backendOptions.putAll(jdbcMetaStoreProperties.getBackendPaimonOptions());
         return backendOptions;
+    }
+
+    private boolean hasProjectedFileColumn() {
+        return desc.getSlots().stream().anyMatch(slot -> slot.getType().typeContainsFile());
     }
 
     @VisibleForTesting
@@ -1044,10 +1941,31 @@ public class PaimonScanNode extends FileQueryScanNode {
         if (!optRawFiles.isPresent()) {
             return false;
         }
-        List<String> files = optRawFiles.get().stream().map(RawFile::path).collect(Collectors.toList());
-        for (String f : files) {
-            String splitFileFormat = getFileFormat(f);
+        List<RawFile> orcFiles = new ArrayList<>();
+        for (RawFile file : optRawFiles.get()) {
+            String splitFileFormat = getFileFormat(file.path());
             if (!splitFileFormat.equals("orc") && !splitFileFormat.equals("parquet")) {
+                return false;
+            }
+            if (splitFileFormat.equals("orc")) {
+                orcFiles.add(file);
+            }
+        }
+        if (orcFiles.isEmpty()) {
+            return true;
+        }
+        Table table = processedTable != null ? processedTable : source.getPaimonTable();
+        if (!new Options(table.options()).get(OrcOptions.ORC_TIMESTAMP_LTZ_LEGACY_TYPE)) {
+            return true;
+        }
+        // Legacy Paimon ORC LTZ encoding requires the SDK's JVM-zone conversion:
+        // its physical TIMESTAMP_INSTANT bytes alone do not represent the logical instant.
+        // Check old schemas too, since evolution may remove or change a nested LTZ field.
+        if (containsTimestampLtz(table.rowType())) {
+            return false;
+        }
+        for (RawFile file : orcFiles) {
+            if (containsTimestampLtz(getHistoryTableSchema(file.schemaId()).logicalRowType())) {
                 return false;
             }
         }

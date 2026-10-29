@@ -23,24 +23,25 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.tablefunction.FullTextSearchTableValuedFunction;
 import org.apache.doris.tablefunction.VectorSearchTableValuedFunction;
 
 /**
- * Move an outer vector_search WHERE predicate below its Doris merge TopN.
+ * Move an outer Lance external-search WHERE predicate below its Doris merge TopN.
  *
- * <p>The TopN immediately above a vector_search TVF is added by {@code BindExpression} to merge
+ * <p>The TopN immediately above a search TVF is added by {@code BindExpression} to merge
  * the candidates returned by all Lance fragment scans. The SQL WHERE predicate must therefore be
  * evaluated below this TopN so it can become a residual conjunct on the Doris Lance scan node:
  *
  * <pre>
  * Filter                         TopN
  *   TopN            ->            Filter
- *     vector_search                 vector_search
+ *     search TVF                    search TVF
  * </pre>
  *
- * <p>This remains a postfilter relative to Lance nearest(): every fragment first returns its ANN
- * candidates, and Doris filters those candidates before the local/global TopN. It is deliberately
- * not converted into the Lance prefilter carried by the TVF's {@code filter} property.
+ * <p>This remains a postfilter relative to the Lance search: every split first returns candidates,
+ * and Doris filters those candidates before the local/global TopN. It is deliberately not
+ * converted into the Lance prefilter carried by the TVF's {@code filter} property.
  */
 public class PushDownFilterThroughVectorSearchTopN extends OneRewriteRuleFactory {
     @Override
@@ -48,8 +49,9 @@ public class PushDownFilterThroughVectorSearchTopN extends OneRewriteRuleFactory
         return logicalFilter(logicalTopN(logicalTVFRelation()))
                 .then(filter -> {
                     LogicalTopN<LogicalTVFRelation> topN = filter.child();
-                    if (!VectorSearchTableValuedFunction.NAME.equals(
-                            topN.child().getFunction().getName())) {
+                    String functionName = topN.child().getFunction().getName();
+                    if (!VectorSearchTableValuedFunction.NAME.equals(functionName)
+                            && !FullTextSearchTableValuedFunction.NAME.equals(functionName)) {
                         return null;
                     }
                     LogicalFilter<Plan> scanFilter = new LogicalFilter<>(

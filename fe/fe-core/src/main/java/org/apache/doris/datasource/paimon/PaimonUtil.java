@@ -21,6 +21,7 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.FileType;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
@@ -83,6 +84,7 @@ import org.apache.paimon.types.VarCharType;
 import org.apache.paimon.utils.DateTimeUtils;
 import org.apache.paimon.utils.InstantiationUtil;
 import org.apache.paimon.utils.InternalRowPartitionComputer;
+import org.apache.paimon.utils.JsonSerdeUtil;
 import org.apache.paimon.utils.Pair;
 import org.apache.paimon.utils.PartitionPathUtils;
 import org.apache.paimon.utils.Projection;
@@ -96,7 +98,7 @@ import java.io.OutputStream;
 import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.LocalTime;
-import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -328,11 +330,15 @@ public class PaimonUtil {
                 return ScalarType.createCharType(charLen);
             case BINARY:
                 int binaryLen = ((BinaryType) dataType).getLength();
-                return enableVarbinaryMapping ? ScalarType.createVarbinaryType(binaryLen) : Type.STRING;
+                // Binary payloads must retain their byte semantics; mapping them to STRING makes
+                // Flight clients attempt UTF-8 decoding on arbitrary bytes.
+                return ScalarType.createVarbinaryType(binaryLen);
             case VARBINARY:
                 // Paimon VarBinaryType length is in [1, 2147483647]
                 int varbinaryLen = ((VarBinaryType) dataType).getLength();
-                return enableVarbinaryMapping ? ScalarType.createVarbinaryType(varbinaryLen) : Type.STRING;
+                return ScalarType.createVarbinaryType(varbinaryLen);
+            case BLOB:
+                return FileType.create();
             case DECIMAL:
                 DecimalType decimal = (DecimalType) dataType;
                 return ScalarType.createDecimalV3Type(decimal.getPrecision(), decimal.getScale());
@@ -358,10 +364,8 @@ public class PaimonUtil {
                         tsScale = 6;
                     }
                 }
-                if (enableTimestampTzMapping) {
-                    return ScalarType.createTimeStampTzType(tsScale);
-                }
-                return ScalarType.createDatetimeV2Type(tsScale);
+                // Local-zoned timestamps are instants, regardless of legacy catalog properties.
+                return ScalarType.createTimeStampTzType(tsScale);
             case VARIANT:
                 // External-table schemas are cached and shared, so the physical marker must not
                 // depend on enable_variant_v2. PaimonScanNode checks the global switch per query.
@@ -480,6 +484,18 @@ public class PaimonUtil {
             boolean enableTimestampTzMapping) {
         TField field = new TField();
         field.setIsOptional(dataType.isNullable());
+        // Paimon writes high-precision TIMESTAMP and TIMESTAMP_LTZ with the same physical INT96
+        // representation, so preserve the logical table semantics in the schema history.
+        switch (dataType.getTypeRoot()) {
+            case TIMESTAMP_WITHOUT_TIME_ZONE:
+                field.setTimestampIsAdjustedToUtc(false);
+                break;
+            case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+                field.setTimestampIsAdjustedToUtc(true);
+                break;
+            default:
+                break;
+        }
         TNestedField nestedField = new TNestedField();
         switch (dataType.getTypeRoot()) {
             case ARRAY: {
@@ -735,7 +751,25 @@ public class PaimonUtil {
         }
     }
 
+    /**
+     * Serialize a paimon {@link TableSchema} to JSON via Paimon's registered
+     * serde. Output is identical to an on-disk schema/schema-N file and is
+     * consumed by the paimon-rust BE reader through paimon_table_from_schema_json.
+     */
+    public static String encodeTableSchemaToJson(TableSchema tableSchema) {
+        try {
+            return JsonSerdeUtil.toJson(tableSchema);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to serialize paimon TableSchema to JSON", e);
+        }
+    }
+
     public static Map<String, String> getPartitionInfoMap(Table table, BinaryRow partitionValues, String timeZone) {
+        return getPartitionInfoMap(table, partitionValues, timeZone, false);
+    }
+
+    public static Map<String, String> getPartitionInfoMap(Table table, BinaryRow partitionValues, String timeZone,
+            boolean enableTimestampTzMapping) {
         Map<String, String> partitionInfoMap = new HashMap<>();
         List<String> partitionKeys = table.partitionKeys();
         RowType partitionType = table.rowType().project(partitionKeys);
@@ -745,7 +779,7 @@ public class PaimonUtil {
         for (int i = 0; i < partitionKeys.size(); i++) {
             try {
                 String partitionValue = serializePartitionValue(partitionType.getFields().get(i).type(),
-                        partitionValuesArray[i], timeZone);
+                        partitionValuesArray[i], timeZone, enableTimestampTzMapping);
                 partitionInfoMap.put(partitionKeys.get(i), partitionValue);
             } catch (UnsupportedOperationException e) {
                 LOG.warn("Failed to serialize table {} partition value for key {}: {}", table.name(),
@@ -757,7 +791,7 @@ public class PaimonUtil {
     }
 
     private static String serializePartitionValue(org.apache.paimon.types.DataType type, Object value,
-            String timeZone) {
+            String timeZone, boolean enableTimestampTzMapping) {
         switch (type.getTypeRoot()) {
             case BOOLEAN:
             case INTEGER:
@@ -781,9 +815,10 @@ public class PaimonUtil {
                     return null;
                 }
                 return Double.toString((Double) value);
-            // case binary:
-            // case varbinary: should not supported, because if return string with utf8,
-            // the data maybe be corrupted
+            case BINARY:
+            case VARBINARY:
+                // Native readers reconstruct omitted partition columns from lossless hex literals.
+                return value == null ? null : "0x" + com.google.common.io.BaseEncoding.base16().encode((byte[]) value);
             case DATE:
                 if (value == null) {
                     return null;
@@ -814,13 +849,11 @@ public class PaimonUtil {
                 if (value == null) {
                     return null;
                 }
-                // Paimon timestamp with local time zone is stored as Timestamp type in utc
+                // Path readers have no session-zone fallback. Preserve the UTC instant and its
+                // explicit offset, including the two otherwise identical times in a DST overlap.
                 Timestamp timestamp = (Timestamp) value;
-                return timestamp.toLocalDateTime()
-                        .atZone(ZoneId.of("UTC"))
-                        .withZoneSameInstant(ZoneId.of(timeZone))
-                        .toLocalDateTime()
-                        .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+                return timestamp.toLocalDateTime().atOffset(ZoneOffset.UTC)
+                        .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
             default:
                 throw new UnsupportedOperationException("Unsupported type for serializePartitionValue: " + type);
         }

@@ -46,12 +46,30 @@ if (${MAKE_TEST} STREQUAL "OFF" AND ${BUILD_BENCHMARK} STREQUAL "OFF")
     endif ()
     pch_reuse(doris_be)
 
-    # This permits libraries loaded by dlopen to link to the symbols in the program.
-    set_target_properties(doris_be PROPERTIES ENABLE_EXPORTS 1)
+    # Keep doris_be symbols private. Java UDF callbacks are registered explicitly through JNI and
+    # Python UDFs run out of process, so neither requires executable exports. Exporting all symbols
+    # would also let dlopened libraries bind to private copies from static dependencies.
 
     target_link_libraries(doris_be
         ${DORIS_LINK_LIBS}
     )
+
+    if (OS_LINUX AND GLIBC_COMPATIBILITY)
+        # Use TARGET_FILE rather than an install/output directory so this check
+        # follows doris_be if its build location or output name changes.
+        set(GLIBC_COMPATIBILITY_CHECK
+            "${BASE_DIR}/cmake/check_glibc_compatibility.cmake")
+        set_property(TARGET doris_be APPEND PROPERTY LINK_DEPENDS
+            "${GLIBC_COMPATIBILITY_CHECK}")
+        add_custom_command(TARGET doris_be POST_BUILD
+            COMMAND "${CMAKE_COMMAND}"
+                "-DARTIFACT=$<TARGET_FILE:doris_be>"
+                "-DOBJDUMP=${CMAKE_OBJDUMP}"
+                "-DBASELINE=2.17"
+                -P "${GLIBC_COMPATIBILITY_CHECK}"
+            COMMENT "Checking that doris_be requires no glibc symbols newer than GLIBC_2.17"
+            VERBATIM)
+    endif()
 
     install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)
     install(TARGETS doris_be DESTINATION ${OUTPUT_DIR}/lib/)

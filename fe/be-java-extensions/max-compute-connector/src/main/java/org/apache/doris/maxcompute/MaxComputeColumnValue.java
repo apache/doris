@@ -248,7 +248,9 @@ public class MaxComputeColumnValue implements ColumnValue {
 
     @Override
     public LocalDateTime getTimeStampTz() {
-        return convertToLocalDateTime((TimeStampMicroTZVector) column, idx);
+        // JNI carries UTC components; the query timezone is applied only when Doris displays them.
+        return LocalDateTime.ofInstant(microsToInstant(((TimeStampMicroTZVector) column).get(idx)),
+                java.time.ZoneOffset.UTC);
     }
 
     @Override

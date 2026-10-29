@@ -105,7 +105,8 @@ public class MCTransaction implements Transaction {
                     .withMaxFieldSize(catalog.getMaxFieldSize())
                     .withArrowOptions(ArrowOptions.newBuilder()
                             .withDatetimeUnit(TimestampUnit.MILLI)
-                            .withTimestampUnit(TimestampUnit.MILLI)
+                            // Match the BE writer's microsecond TIMESTAMPTZ transport.
+                            .withTimestampUnit(TimestampUnit.MICRO)
                             .build());
 
             if (isStaticPartition) {

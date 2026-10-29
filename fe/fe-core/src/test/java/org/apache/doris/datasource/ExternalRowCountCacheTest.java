@@ -17,22 +17,205 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.util.concurrent.MoreExecutors;
+import com.google.common.util.concurrent.Uninterruptibles;
 import mockit.Mock;
 import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class ExternalRowCountCacheTest {
+    @Test
+    public void testCatalogCacheResetSuppressesPerDatabaseRowCountScan() {
+        ExternalCatalog catalog = Mockito.mock(ExternalCatalog.class);
+        Mockito.when(catalog.getId()).thenReturn(1L);
+        ExternalMetaCacheMgr metaCacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(metaCacheMgr);
+        new MockUp<Env>() {
+            @Mock
+            Env getCurrentEnv() {
+                return env;
+            }
+        };
+        ExternalDatabase<ExternalTable> db = new ExternalDatabase<ExternalTable>(
+                catalog, 2L, "db", "db", InitDatabaseLog.Type.TEST) {
+            @Override
+            protected ExternalTable buildTableInternal(String remoteTableName, String localTableName, long tblId,
+                    ExternalCatalog externalCatalog, ExternalDatabase externalDatabase) {
+                return null;
+            }
+        };
+
+        // A catalog-wide refresh suppresses the per-database engine flush, so no per-database
+        // row-count fence may run; the catalog scope is fenced once by the caller instead.
+        db.resetMetaToUninitialized(true, false);
+        Mockito.verify(metaCacheMgr).invalidateDb(db);
+        Mockito.verify(metaCacheMgr, Mockito.never()).invalidateRowCountCache(1L, 2L);
+
+        // An ordinary removal fences both the engine cache and this database's row counts.
+        db.resetMetaToUninitialized();
+        org.mockito.InOrder order = Mockito.inOrder(metaCacheMgr);
+        order.verify(metaCacheMgr).invalidateRowCountCache(1L, 2L);
+        order.verify(metaCacheMgr).invalidateDb(db);
+        order.verify(metaCacheMgr).invalidateRowCountCache(1L, 2L);
+    }
+
+    @Test
+    public void testDatabaseRemovalFencesRowCountWhenEngineInvalidationFails() {
+        ExternalCatalog catalog = Mockito.mock(ExternalCatalog.class);
+        Mockito.when(catalog.getId()).thenReturn(1L);
+        ExternalMetaCacheMgr metaCacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(metaCacheMgr);
+        new MockUp<Env>() {
+            @Mock
+            Env getCurrentEnv() {
+                return env;
+            }
+        };
+        ExternalDatabase<ExternalTable> db = new ExternalDatabase<ExternalTable>(
+                catalog, 2L, "db", "db", InitDatabaseLog.Type.TEST) {
+            @Override
+            protected ExternalTable buildTableInternal(String remoteTableName, String localTableName, long tblId,
+                    ExternalCatalog externalCatalog, ExternalDatabase externalDatabase) {
+                return null;
+            }
+        };
+        Mockito.doThrow(new IllegalStateException("engine invalidation failed"))
+                .when(metaCacheMgr).invalidateDb(db);
+
+        Assertions.assertThrows(IllegalStateException.class, () -> db.resetMetaToUninitialized(true, true));
+
+        // The independent row-count fence must still run when the routed invalidation throws.
+        Mockito.verify(metaCacheMgr, Mockito.times(2)).invalidateRowCountCache(1L, 2L);
+    }
+
+    @Test
+    public void testDatabaseRefreshFencesRowCountBeforeRetiringTableObjects() throws Exception {
+        ExternalCatalog catalog = Mockito.mock(ExternalCatalog.class);
+        Mockito.when(catalog.getId()).thenReturn(1L);
+        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        new MockUp<Env>() {
+            @Mock
+            Env getCurrentEnv() {
+                return env;
+            }
+        };
+        ExternalDatabase<ExternalTable> db = new ExternalDatabase<ExternalTable>(
+                catalog, 2L, "db", "db", InitDatabaseLog.Type.TEST) {
+            @Override
+            protected ExternalTable buildTableInternal(String remoteTableName, String localTableName, long tblId,
+                    ExternalCatalog externalCatalog, ExternalDatabase externalDatabase) {
+                return null;
+            }
+        };
+        @SuppressWarnings("unchecked")
+        MetaCache<ExternalTable> tableCache = Mockito.mock(MetaCache.class);
+        CountDownLatch generationSwap = new CountDownLatch(1);
+        CountDownLatch completeSwap = new CountDownLatch(1);
+        Mockito.when(tableCache.retireObjects()).thenReturn(() -> {
+            generationSwap.countDown();
+            Uninterruptibles.awaitUninterruptibly(completeSwap);
+        });
+        Field metaCacheField = ExternalDatabase.class.getDeclaredField("metaCache");
+        metaCacheField.setAccessible(true);
+        metaCacheField.set(db, tableCache);
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> reset = executor.submit(() -> {
+                db.resetMetaToUninitialized();
+            });
+            Assertions.assertTrue(generationSwap.await(10, TimeUnit.SECONDS));
+            // The replacement cache has been published while routed invalidation and the final
+            // fence have not run yet. The opening fence must already be visible.
+            Mockito.verify(cacheMgr).invalidateRowCountCache(1L, 2L);
+            Mockito.verify(cacheMgr, Mockito.never()).invalidateDb(db);
+            completeSwap.countDown();
+            reset.get(10, TimeUnit.SECONDS);
+        } finally {
+            completeSwap.countDown();
+            executor.shutdownNow();
+        }
+
+        org.mockito.InOrder order = Mockito.inOrder(cacheMgr, tableCache);
+        order.verify(cacheMgr).invalidateRowCountCache(1L, 2L);
+        order.verify(tableCache).retireObjects();
+        order.verify(cacheMgr).invalidateDb(db);
+        order.verify(cacheMgr).invalidateRowCountCache(1L, 2L);
+    }
+
+    @Test
+    public void testUnresolvedTableFencesRowCountBeforeObjectGenerationSwap() throws Exception {
+        ExternalCatalog catalog = Mockito.mock(ExternalCatalog.class);
+        Mockito.when(catalog.getId()).thenReturn(1L);
+        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        new MockUp<Env>() {
+            @Mock
+            Env getCurrentEnv() {
+                return env;
+            }
+        };
+        ExternalDatabase<ExternalTable> db = new ExternalDatabase<ExternalTable>(
+                catalog, 2L, "db", "db", InitDatabaseLog.Type.TEST) {
+            @Override
+            protected ExternalTable buildTableInternal(String remoteTableName, String localTableName, long tblId,
+                    ExternalCatalog externalCatalog, ExternalDatabase externalDatabase) {
+                return null;
+            }
+        };
+        @SuppressWarnings("unchecked")
+        MetaCache<ExternalTable> tableCache = Mockito.mock(MetaCache.class);
+        CountDownLatch swapStarted = new CountDownLatch(1);
+        CountDownLatch releaseSwap = new CountDownLatch(1);
+        Mockito.doAnswer(invocation -> {
+            swapStarted.countDown();
+            Assertions.assertTrue(releaseSwap.await(10, TimeUnit.SECONDS));
+            return null;
+        }).when(tableCache).invalidateObjects();
+        Field metaCacheField = ExternalDatabase.class.getDeclaredField("metaCache");
+        metaCacheField.setAccessible(true);
+        metaCacheField.set(db, tableCache);
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> retirement = executor.submit(() -> {
+                db.retireAllTableObjectsWithoutEngineInvalidation();
+            });
+            Assertions.assertTrue(swapStarted.await(10, TimeUnit.SECONDS));
+            Mockito.verify(cacheMgr).invalidateRowCountCache(1L, 2L);
+            releaseSwap.countDown();
+            retirement.get(10, TimeUnit.SECONDS);
+            Mockito.verify(cacheMgr, Mockito.times(2)).invalidateRowCountCache(1L, 2L);
+        } finally {
+            releaseSwap.countDown();
+            executor.shutdownNow();
+        }
+    }
+
     @Test
     public void testRowCountKeyUsesTableIdAsCacheIdentity() {
         ExternalRowCountCache.RowCountKey key1 = new ExternalRowCountCache.RowCountKey(1, 2, 3);
@@ -85,19 +268,364 @@ public class ExternalRowCountCacheTest {
     }
 
     @Test
+    public void testInvalidationScopes() {
+        ExternalRowCountCache.RowCountCacheLoader loader = new ExternalRowCountCache.RowCountCacheLoader() {
+            @Override
+            protected Optional<Long> doLoad(ExternalRowCountCache.RowCountKey rowCountKey) {
+                return Optional.of(rowCountKey.getTableId());
+            }
+        };
+
+        ExternalRowCountCache cache = new ExternalRowCountCache(
+                MoreExecutors.newDirectExecutorService(), null, loader);
+        Assertions.assertEquals(100L, cache.getCachedRowCount(1, 10, 100, false));
+        Assertions.assertEquals(101L, cache.getCachedRowCount(1, 10, 101, false));
+        Assertions.assertEquals(102L, cache.getCachedRowCount(1, 11, 102, false));
+        Assertions.assertEquals(200L, cache.getCachedRowCount(2, 20, 200, false));
+
+        cache.invalidateTable(1, 10, 100);
+        Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, cache.getCachedRowCountIfPresent(1, 10, 100));
+        Assertions.assertEquals(101L, cache.getCachedRowCountIfPresent(1, 10, 101));
+
+        cache.invalidateDb(1, 10);
+        Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, cache.getCachedRowCountIfPresent(1, 10, 101));
+        Assertions.assertEquals(102L, cache.getCachedRowCountIfPresent(1, 11, 102));
+
+        cache.invalidateCatalog(1);
+        Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, cache.getCachedRowCountIfPresent(1, 11, 102));
+        Assertions.assertEquals(200L, cache.getCachedRowCountIfPresent(2, 20, 200));
+    }
+
+    @Test
+    public void testCatalogGenerationFenceDoesNotReuseInFlightOrCompletedCount() throws Exception {
+        AtomicInteger loadCount = new AtomicInteger();
+        CountDownLatch oldLoadStarted = new CountDownLatch(1);
+        CountDownLatch releaseOldLoad = new CountDownLatch(1);
+        ExternalRowCountCache.RowCountCacheLoader loader = new ExternalRowCountCache.RowCountCacheLoader() {
+            @Override
+            protected Optional<Long> doLoad(ExternalRowCountCache.RowCountKey key) {
+                int load = loadCount.incrementAndGet();
+                if (load == 1) {
+                    oldLoadStarted.countDown();
+                    Uninterruptibles.awaitUninterruptibly(releaseOldLoad);
+                }
+                return Optional.of(load * 100L);
+            }
+        };
+        ExecutorService cacheExecutor = Executors.newFixedThreadPool(2);
+        ExecutorService readerExecutor = Executors.newSingleThreadExecutor();
+        try {
+            ExternalRowCountCache cache = new ExternalRowCountCache(cacheExecutor, null, loader);
+            Future<Long> oldRead = readerExecutor.submit(() -> cache.getCachedRowCount(1, 10, 100, false));
+            Assertions.assertTrue(oldLoadStarted.await(10, TimeUnit.SECONDS));
+
+            cache.invalidateCatalog(1);
+            Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, cache.getCachedRowCountIfPresent(1, 10, 100));
+            Assertions.assertEquals(200L, cache.getCachedRowCount(1, 10, 100, false));
+
+            releaseOldLoad.countDown();
+            Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, oldRead.get(10, TimeUnit.SECONDS));
+            Assertions.assertEquals(200L, cache.getCachedRowCountIfPresent(1, 10, 100));
+        } finally {
+            releaseOldLoad.countDown();
+            readerExecutor.shutdownNow();
+            cacheExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testDatabaseGenerationFenceKeepsOtherDatabasesReadable() throws Exception {
+        AtomicInteger loadCount = new AtomicInteger();
+        CountDownLatch oldLoadStarted = new CountDownLatch(1);
+        CountDownLatch releaseOldLoad = new CountDownLatch(1);
+        ExternalRowCountCache.RowCountCacheLoader loader = new ExternalRowCountCache.RowCountCacheLoader() {
+            @Override
+            protected Optional<Long> doLoad(ExternalRowCountCache.RowCountKey key) {
+                if (key.getDbId() == 10 && loadCount.incrementAndGet() == 1) {
+                    oldLoadStarted.countDown();
+                    Uninterruptibles.awaitUninterruptibly(releaseOldLoad);
+                    return Optional.of(100L);
+                }
+                return Optional.of(key.getDbId() * 100L + loadCount.get());
+            }
+        };
+        ExecutorService cacheExecutor = Executors.newFixedThreadPool(2);
+        ExecutorService readerExecutor = Executors.newSingleThreadExecutor();
+        try {
+            ExternalRowCountCache cache = new ExternalRowCountCache(cacheExecutor, null, loader);
+            Assertions.assertEquals(2000L, cache.getCachedRowCount(1, 20, 100, false));
+            Future<Long> oldRead = readerExecutor.submit(() -> cache.getCachedRowCount(1, 10, 100, false));
+            Assertions.assertTrue(oldLoadStarted.await(10, TimeUnit.SECONDS));
+
+            cache.invalidateDb(1, 10);
+            Assertions.assertEquals(2000L, cache.getCachedRowCountIfPresent(1, 20, 100));
+            Assertions.assertEquals(1002L, cache.getCachedRowCount(1, 10, 100, false));
+            releaseOldLoad.countDown();
+
+            Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, oldRead.get(10, TimeUnit.SECONDS));
+            Assertions.assertEquals(1002L, cache.getCachedRowCountIfPresent(1, 10, 100));
+            Assertions.assertEquals(2000L, cache.getCachedRowCountIfPresent(1, 20, 100));
+        } finally {
+            releaseOldLoad.countDown();
+            readerExecutor.shutdownNow();
+            cacheExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testInvalidatedNullLoadReturnsUnknownWithoutReusingIt() throws Exception {
+        AtomicInteger loadCount = new AtomicInteger();
+        CountDownLatch loadStarted = new CountDownLatch(1);
+        CountDownLatch releaseLoad = new CountDownLatch(1);
+        ExternalRowCountCache.RowCountCacheLoader loader = new ExternalRowCountCache.RowCountCacheLoader() {
+            @Override
+            protected Optional<Long> doLoad(ExternalRowCountCache.RowCountKey key) {
+                if (loadCount.incrementAndGet() == 1) {
+                    loadStarted.countDown();
+                    Uninterruptibles.awaitUninterruptibly(releaseLoad);
+                }
+                return Optional.of(100L);
+            }
+        };
+        ExecutorService cacheExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService readerExecutor = Executors.newSingleThreadExecutor();
+        try {
+            ExternalRowCountCache cache = new ExternalRowCountCache(cacheExecutor, null, loader);
+            Future<Long> oldRead = readerExecutor.submit(() -> cache.getCachedRowCount(1, 10, 100, false));
+            Assertions.assertTrue(loadStarted.await(10, TimeUnit.SECONDS));
+
+            cache.invalidateTable(1, 10, 100);
+            releaseLoad.countDown();
+
+            Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, oldRead.get(10, TimeUnit.SECONDS));
+            Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, cache.getCachedRowCountIfPresent(1, 10, 100));
+            Assertions.assertEquals(100L, cache.getCachedRowCount(1, 10, 100, false));
+            Assertions.assertEquals(2, loadCount.get());
+        } finally {
+            releaseLoad.countDown();
+            readerExecutor.shutdownNow();
+            cacheExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testPermanentCatalogRemovalReleasesGenerationWithoutRevivingOldReader() throws Exception {
+        CountDownLatch loadStarted = new CountDownLatch(1);
+        CountDownLatch releaseLoad = new CountDownLatch(1);
+        ExternalRowCountCache.RowCountCacheLoader loader = new ExternalRowCountCache.RowCountCacheLoader() {
+            @Override
+            protected Optional<Long> doLoad(ExternalRowCountCache.RowCountKey key) {
+                loadStarted.countDown();
+                Uninterruptibles.awaitUninterruptibly(releaseLoad);
+                return Optional.of(100L);
+            }
+        };
+        ExecutorService cacheExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService readerExecutor = Executors.newSingleThreadExecutor();
+        try {
+            ExternalRowCountCache cache = new ExternalRowCountCache(cacheExecutor, null, loader);
+            cache.invalidateCatalog(2L);
+            Assertions.assertEquals(0, cache.getCatalogGenerationCountForTest());
+            Future<Long> oldRead = readerExecutor.submit(() -> cache.getCachedRowCount(1L, 10L, 100L, false));
+            Assertions.assertTrue(loadStarted.await(10, TimeUnit.SECONDS));
+            Assertions.assertEquals(1, cache.getCatalogGenerationCountForTest());
+
+            cache.invalidateCatalog(1L);
+            cache.releaseCatalog(1L);
+            Assertions.assertEquals(0, cache.getCatalogGenerationCountForTest());
+            releaseLoad.countDown();
+
+            Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, oldRead.get(10, TimeUnit.SECONDS));
+            Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, cache.getCachedRowCountIfPresent(1L, 10L, 100L));
+            Assertions.assertEquals(0, cache.getCatalogGenerationCountForTest());
+        } finally {
+            releaseLoad.countDown();
+            readerExecutor.shutdownNow();
+            cacheExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testLateReadsAfterPermanentRemovalDoNotGrowCatalogGenerations() {
+        java.util.Set<Long> activeCatalogs = new java.util.HashSet<>();
+        ExternalRowCountCache.RowCountCacheLoader loader = new ExternalRowCountCache.RowCountCacheLoader() {
+            @Override
+            protected Optional<Long> doLoad(ExternalRowCountCache.RowCountKey key) {
+                return activeCatalogs.contains(key.getCatalogId()) ? Optional.of(100L) : null;
+            }
+        };
+        ExternalRowCountCache cache = new ExternalRowCountCache(
+                MoreExecutors.newDirectExecutorService(), null, loader, 2);
+        for (long catalogId = 1; catalogId <= 5; catalogId++) {
+            activeCatalogs.add(catalogId);
+            Assertions.assertEquals(100L, cache.getCachedRowCount(catalogId, 10, 100, false));
+            activeCatalogs.remove(catalogId);
+            cache.invalidateCatalog(catalogId);
+            cache.releaseCatalog(catalogId);
+
+            // A statement retaining an old table can still enter the cache after DROP cleanup.
+            Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT,
+                    cache.getCachedRowCount(catalogId, 10, 100, false));
+            Assertions.assertTrue(cache.getCatalogGenerationCountForTest() <= 2);
+        }
+    }
+
+    @Test
+    public void testInvalidateWhileRefreshIsRunningDoesNotRepublishStaleValue() throws Exception {
+        AtomicInteger loadCount = new AtomicInteger();
+        CountDownLatch refreshStarted = new CountDownLatch(1);
+        CountDownLatch allowRefreshToFinish = new CountDownLatch(1);
+        ExternalRowCountCache.RowCountCacheLoader loader = new ExternalRowCountCache.RowCountCacheLoader() {
+            @Override
+            protected Optional<Long> doLoad(ExternalRowCountCache.RowCountKey rowCountKey) {
+                int currentLoad = loadCount.incrementAndGet();
+                if (currentLoad == 2) {
+                    refreshStarted.countDown();
+                    Assertions.assertTrue(Uninterruptibles.awaitUninterruptibly(
+                            allowRefreshToFinish, 30, TimeUnit.SECONDS));
+                }
+                return Optional.of(currentLoad * 100L);
+            }
+        };
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            ExternalRowCountCache cache = new ExternalRowCountCache(executor, null, loader);
+            Assertions.assertEquals(100L, cache.getCachedRowCount(1, 10, 100, false));
+
+            cache.refreshForTest(1, 10, 100);
+            Assertions.assertTrue(refreshStarted.await(30, TimeUnit.SECONDS));
+            Assertions.assertEquals(100L, cache.getCachedRowCount(1, 10, 100, false));
+
+            cache.invalidateTable(1, 10, 100);
+            allowRefreshToFinish.countDown();
+            executor.submit(() -> { }).get(30, TimeUnit.SECONDS);
+
+            Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT,
+                    cache.getCachedRowCountIfPresent(1, 10, 100));
+            Assertions.assertEquals(300L, cache.getCachedRowCount(1, 10, 100, false));
+        } finally {
+            allowRefreshToFinish.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testCatalogInvalidationUsesFullInFlightLoadIdentity() throws Exception {
+        CountDownLatch oldLoadStarted = new CountDownLatch(1);
+        CountDownLatch newLoadStarted = new CountDownLatch(1);
+        CountDownLatch allowLoadsToFinish = new CountDownLatch(1);
+        ExternalRowCountCache.RowCountCacheLoader loader = new ExternalRowCountCache.RowCountCacheLoader() {
+            @Override
+            protected Optional<Long> doLoad(ExternalRowCountCache.RowCountKey rowCountKey) {
+                if (rowCountKey.getCatalogId() == 1L) {
+                    oldLoadStarted.countDown();
+                } else {
+                    newLoadStarted.countDown();
+                }
+                Assertions.assertTrue(Uninterruptibles.awaitUninterruptibly(
+                        allowLoadsToFinish, 30, TimeUnit.SECONDS));
+                return Optional.of(rowCountKey.getCatalogId() * 100L);
+            }
+        };
+
+        ExecutorService loaderExecutor = Executors.newFixedThreadPool(2);
+        ExecutorService callers = Executors.newFixedThreadPool(2);
+        try {
+            ExternalRowCountCache cache = new ExternalRowCountCache(loaderExecutor, null, loader);
+            Future<Long> oldLoad = callers.submit(() -> cache.getCachedRowCount(1, 10, 100, false));
+            Assertions.assertTrue(oldLoadStarted.await(30, TimeUnit.SECONDS));
+            cache.invalidateCatalog(1L);
+
+            Future<Long> newLoad = callers.submit(() -> cache.getCachedRowCount(2, 20, 100, false));
+            Assertions.assertTrue(newLoadStarted.await(30, TimeUnit.SECONDS));
+            cache.invalidateCatalog(2L);
+            allowLoadsToFinish.countDown();
+
+            Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, oldLoad.get(30, TimeUnit.SECONDS));
+            Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, newLoad.get(30, TimeUnit.SECONDS));
+            Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT,
+                    cache.getCachedRowCountIfPresent(2, 20, 100));
+        } finally {
+            allowLoadsToFinish.countDown();
+            callers.shutdownNow();
+            loaderExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testClosingFenceInvalidatesLoadAdmittedBeforeIt() throws Exception {
+        CountDownLatch loadAdmitted = new CountDownLatch(1);
+        CountDownLatch allowLoadToFinish = new CountDownLatch(1);
+        ExternalRowCountCache.RowCountCacheLoader loader = new ExternalRowCountCache.RowCountCacheLoader() {
+            @Override
+            protected Optional<Long> doLoad(ExternalRowCountCache.RowCountKey rowCountKey) {
+                loadAdmitted.countDown();
+                Assertions.assertTrue(Uninterruptibles.awaitUninterruptibly(
+                        allowLoadToFinish, 30, TimeUnit.SECONDS));
+                return Optional.of(100L);
+            }
+        };
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        ExecutorService callers = Executors.newSingleThreadExecutor();
+        try {
+            ExternalRowCountCache cache = new ExternalRowCountCache(executor, null, loader);
+            // Opening fence, then a load admitted inside the admission window.
+            cache.invalidateTable(1, 10, 100);
+            Future<Long> staleLoad = callers.submit(() -> cache.getCachedRowCount(1, 10, 100, false));
+            Assertions.assertTrue(loadAdmitted.await(30, TimeUnit.SECONDS));
+
+            // The selective refresh finishes and closes the window before the load can publish.
+            cache.invalidateTable(1, 10, 100);
+            allowLoadToFinish.countDown();
+
+            Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, staleLoad.get(30, TimeUnit.SECONDS));
+            Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT,
+                    cache.getCachedRowCountIfPresent(1, 10, 100));
+        } finally {
+            allowLoadToFinish.countDown();
+            callers.shutdownNow();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testRejectedSubmissionRemovesInFlightFence() {
+        ExecutorService rejectingExecutor = Mockito.mock(ExecutorService.class);
+        Mockito.doThrow(new RejectedExecutionException("rejected"))
+                .when(rejectingExecutor).execute(Mockito.any(Runnable.class));
+        ExternalRowCountCache cache = new ExternalRowCountCache(rejectingExecutor);
+
+        Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT,
+                cache.getCachedRowCount(1, 10, 100, false));
+        Assertions.assertEquals(0, cache.getInFlightLoadCountForTest());
+    }
+
+    @Test
     public void testLoadWithException() throws Exception {
         ThreadPoolExecutor executor = ThreadPoolManager.newDaemonFixedThreadPool(
                 1, Integer.MAX_VALUE, "TEST", true);
         AtomicInteger counter = new AtomicInteger(0);
 
-        new MockUp<ExternalRowCountCache.RowCountCacheLoader>() {
-            @Mock
+        ExternalRowCountCache.RowCountCacheLoader loader = new ExternalRowCountCache.RowCountCacheLoader() {
+            @Override
             protected Optional<Long> doLoad(ExternalRowCountCache.RowCountKey rowCountKey) {
-                counter.incrementAndGet();
-                return null;
+                int currentLoad = counter.incrementAndGet();
+                if (currentLoad == 1) {
+                    return null;
+                }
+                if (currentLoad == 3) {
+                    try {
+                        Thread.sleep(2000);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+                return Optional.of(100L);
             }
         };
-        ExternalRowCountCache cache = new ExternalRowCountCache(executor);
+        ExternalRowCountCache cache = new ExternalRowCountCache(executor, null, loader);
         long cachedRowCount = cache.getCachedRowCount(1, 1, 1, false);
         Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, cachedRowCount);
         for (int i = 0; i < 60; i++) {
@@ -108,13 +636,6 @@ public class ExternalRowCountCacheTest {
         }
         Assertions.assertEquals(1, counter.get());
 
-        new MockUp<ExternalRowCountCache.RowCountCacheLoader>() {
-            @Mock
-            protected Optional<Long> doLoad(ExternalRowCountCache.RowCountKey rowCountKey) {
-                counter.incrementAndGet();
-                return Optional.of(100L);
-            }
-        };
         cache.getCachedRowCount(1, 1, 1, false);
         for (int i = 0; i < 60; i++) {
             cachedRowCount = cache.getCachedRowCount(1, 1, 1, false);
@@ -128,18 +649,6 @@ public class ExternalRowCountCacheTest {
         Assertions.assertEquals(100, cachedRowCount);
         Assertions.assertEquals(2, counter.get());
 
-        new MockUp<ExternalRowCountCache.RowCountCacheLoader>() {
-            @Mock
-            protected Optional<Long> doLoad(ExternalRowCountCache.RowCountKey rowCountKey) {
-                counter.incrementAndGet();
-                try {
-                    Thread.sleep(2000);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-                return Optional.of(100L);
-            }
-        };
         cachedRowCount = cache.getCachedRowCount(2, 2, 2, false);
         Assertions.assertEquals(100, cachedRowCount);
         Thread.sleep(1000);

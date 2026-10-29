@@ -19,6 +19,7 @@ package org.apache.doris.persist;
 
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -29,6 +30,18 @@ import java.io.File;
 import java.nio.file.Files;
 
 public class DropDbInfoTest {
+    @Test
+    public void testExternalDropTargetSurvivesSerializationAndLegacyLogHasNoTarget() {
+        DropDbInfo current = new DropDbInfo("catalog", "Foo", "FOO");
+        DropDbInfo decoded = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(current), DropDbInfo.class);
+        Assert.assertEquals("Foo", decoded.getDbName());
+        Assert.assertEquals("FOO", decoded.getResolvedDbName());
+
+        DropDbInfo legacy = GsonUtils.GSON.fromJson(
+                GsonUtils.GSON.toJson(new DropDbInfo("catalog", "Foo")), DropDbInfo.class);
+        Assert.assertNull(legacy.getResolvedDbName());
+    }
+
     @Test
     public void testSerialization() throws Exception {
         MetaContext metaContext = new MetaContext();

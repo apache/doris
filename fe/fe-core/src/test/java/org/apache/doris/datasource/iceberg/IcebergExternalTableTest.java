@@ -23,6 +23,10 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Pair;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.datasource.metacache.MetaCache;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -35,13 +39,20 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 
 public class IcebergExternalTableTest {
 
@@ -62,6 +73,118 @@ public class IcebergExternalTableTest {
     }
 
     @Test
+    public void testSelectViewTextMissingRepairsLookup() {
+        verifyMissingViewRead(IcebergExternalTable::getViewText, false);
+    }
+
+    @Test
+    public void testShowCreateMissingViewRepairsLookup() {
+        verifyMissingViewRead(IcebergUtils::showCreateView, false);
+    }
+
+    @Test
+    public void testViewDialectMissingRepairsLookup() {
+        verifyMissingViewRead(IcebergExternalTable::getSqlDialect, false);
+    }
+
+    @Test
+    public void testDelayedViewTextMissingKeepsRecreatedLookup() {
+        verifyMissingViewRead(IcebergExternalTable::getViewText, true);
+    }
+
+    private void verifyMissingViewRead(Function<IcebergExternalTable, String> read, boolean recreateDuringLoad) {
+        IcebergExternalDatabase database = Mockito.mock(IcebergExternalDatabase.class);
+        IcebergExternalTable table = Mockito.spy(
+                new IcebergExternalTable(10L, "view", "view", mockCatalog, database));
+        Mockito.doReturn(true).when(table).isView();
+        Mockito.when(mockCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {});
+        ExecutorService executor = Executors.newCachedThreadPool();
+        MetaCache<IcebergExternalTable> cache = new MetaCache<>("db", executor,
+                OptionalLong.empty(), OptionalLong.empty(), 10,
+                ignored -> Lists.newArrayList(Pair.of("view", "view")), ignored -> Optional.empty(), null);
+        AtomicInteger repairs = new AtomicInteger();
+        IcebergExternalTable replacement = new IcebergExternalTable(10L, "view", "view", mockCatalog, database);
+        RuntimeException missing = new org.apache.iceberg.exceptions.NoSuchViewException("missing view");
+        try (MockedStatic<IcebergUtils> utils = Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            cache.refreshNames();
+            cache.updateCache("view", "view", table, 10L);
+            Mockito.when(database.observeTableLookup(table)).thenAnswer(ignored ->
+                    cache.observeLookup("view", "view", table, false, repairs::incrementAndGet));
+            utils.when(() -> IcebergUtils.getIcebergView(table)).thenAnswer(ignored -> {
+                Assertions.assertEquals(0, repairs.get());
+                if (recreateDuringLoad) {
+                    // Return an old request's absence only after a same-name replacement was published.
+                    cache.invalidateLookup("view", false);
+                    cache.updateCache("view", "view", replacement, 10L);
+                }
+                throw missing;
+            });
+            Assertions.assertTrue(table.isView());
+            RuntimeException failure = Assertions.assertThrows(RuntimeException.class, () -> read.apply(table));
+            Assertions.assertSame(missing, failure.getCause());
+            Assertions.assertEquals(recreateDuringLoad ? 0 : 1, repairs.get());
+            if (recreateDuringLoad) {
+                Assertions.assertSame(replacement, cache.tryGetMetaObj("view").get());
+                Assertions.assertSame(replacement, cache.getMetaObjById(10L, false).get());
+            } else {
+                Assertions.assertFalse(cache.tryGetMetaObj("view").isPresent());
+                Assertions.assertFalse(cache.getMetaObjById(10L, false).isPresent());
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testStatusCommentMissingViewRepairsLookup() {
+        IcebergExternalDatabase database = Mockito.mock(IcebergExternalDatabase.class);
+        IcebergExternalTable table = Mockito.spy(
+                new IcebergExternalTable(10L, "view", "view", mockCatalog, database));
+        Mockito.doReturn(true).when(table).isView();
+        java.util.concurrent.atomic.AtomicInteger repairs = new java.util.concurrent.atomic.AtomicInteger();
+        Mockito.when(database.observeTableLookup(table)).thenReturn(java.util.Optional.of(repairs::incrementAndGet));
+        RuntimeException missing = new org.apache.iceberg.exceptions.NoSuchViewException("missing");
+        Mockito.doThrow(missing).when(table).getIcebergView();
+        Assertions.assertSame(missing, Assertions.assertThrows(RuntimeException.class, table::getComment));
+        Assertions.assertEquals(1, repairs.get());
+    }
+
+    @Test
+    public void testStatusCommentMissingTableRepairsLookup() {
+        IcebergExternalDatabase database = Mockito.mock(IcebergExternalDatabase.class);
+        IcebergExternalTable table = Mockito.spy(
+                new IcebergExternalTable(10L, "table", "table", mockCatalog, database));
+        Mockito.doReturn(false).when(table).isView();
+        java.util.concurrent.atomic.AtomicInteger repaired = new java.util.concurrent.atomic.AtomicInteger();
+        Mockito.when(database.observeTableLookup(table)).thenReturn(java.util.Optional.of(repaired::incrementAndGet));
+        RuntimeException missing = new org.apache.iceberg.exceptions.NoSuchTableException("missing");
+        try (MockedStatic<IcebergUtils> utils = Mockito.mockStatic(IcebergUtils.class)) {
+            utils.when(() -> IcebergUtils.withIcebergTable(Mockito.same(table), Mockito.any())).thenThrow(missing);
+            Assertions.assertSame(missing, Assertions.assertThrows(RuntimeException.class, table::getComment));
+            Assertions.assertEquals(1, repaired.get());
+        }
+    }
+
+    @Test
+    public void testSchemaDisplayMissingTableRepairsLookup() {
+        IcebergExternalDatabase database = Mockito.mock(IcebergExternalDatabase.class);
+        IcebergExternalTable table = Mockito.spy(
+                new IcebergExternalTable(10L, "table", "table", mockCatalog, database));
+        Mockito.doReturn(false).when(table).isView();
+        java.util.concurrent.atomic.AtomicInteger repaired = new java.util.concurrent.atomic.AtomicInteger();
+        Mockito.when(database.observeTableLookup(table)).thenReturn(java.util.Optional.of(repaired::incrementAndGet));
+        RuntimeException missing = new org.apache.iceberg.exceptions.NoSuchTableException("missing");
+        try (MockedStatic<IcebergUtils> utils = Mockito.mockStatic(IcebergUtils.class)) {
+            utils.when(() -> IcebergUtils.withIcebergTableGeneration(Mockito.same(table), Mockito.any()))
+                    .thenThrow(missing);
+            RuntimeException failure = Assertions.assertThrows(RuntimeException.class,
+                    () -> table.getBaseSchemaForDisplay(false));
+            Assertions.assertSame(missing, failure.getCause());
+            Assertions.assertEquals(1, repaired.get());
+        }
+    }
+
+    @Test
     public void testIsSupportedPartitionTable() {
         IcebergExternalDatabase database = new IcebergExternalDatabase(mockCatalog, 1L, "2", "2");
         IcebergExternalTable table = new IcebergExternalTable(1, "1", "1", mockCatalog, database);
@@ -79,7 +202,7 @@ public class IcebergExternalTableTest {
         Mockito.when(icebergTable.specs()).thenReturn(specs);
 
         Assertions.assertFalse(spyTable.isValidRelatedTableCached());
-        Assertions.assertFalse(spyTable.isValidRelatedTable());
+        Assertions.assertFalse(spyTable.isValidRelatedTable(icebergTable));
 
         Mockito.verify(icebergTable, Mockito.times(1)).specs();
         Assertions.assertTrue(spyTable.isValidRelatedTableCached());
@@ -94,7 +217,7 @@ public class IcebergExternalTableTest {
         List<PartitionField> fields = Lists.newArrayList();
         Mockito.when(spec.fields()).thenReturn(fields);
 
-        Assertions.assertFalse(spyTable.isValidRelatedTable());
+        Assertions.assertFalse(spyTable.isValidRelatedTable(icebergTable));
         Mockito.verify(spec, Mockito.times(1)).fields();
         Assertions.assertTrue(spyTable.isValidRelatedTableCached());
         Assertions.assertFalse(spyTable.validRelatedTableCache());
@@ -109,7 +232,7 @@ public class IcebergExternalTableTest {
         fields.add(null);
         Mockito.when(spec.fields()).thenReturn(fields);
 
-        Assertions.assertFalse(spyTable.isValidRelatedTable());
+        Assertions.assertFalse(spyTable.isValidRelatedTable(icebergTable));
         Mockito.verify(spec, Mockito.times(2)).fields();
         Assertions.assertTrue(spyTable.isValidRelatedTableCached());
         Assertions.assertFalse(spyTable.validRelatedTableCache());
@@ -125,7 +248,7 @@ public class IcebergExternalTableTest {
         Mockito.doReturn(mockTransform("hour")).when(field).transform();
         Mockito.when(field.sourceId()).thenReturn(1);
 
-        Assertions.assertTrue(spyTable.isValidRelatedTable());
+        Assertions.assertTrue(spyTable.isValidRelatedTable(icebergTable));
         Assertions.assertTrue(spyTable.isValidRelatedTableCached());
         Assertions.assertTrue(spyTable.validRelatedTableCache());
         Mockito.verify(schema, Mockito.times(1)).findColumnName(ArgumentMatchers.anyInt());
@@ -134,13 +257,13 @@ public class IcebergExternalTableTest {
         Mockito.when(field.sourceId()).thenReturn(1);
         spyTable.setIsValidRelatedTableCached(false);
         Assertions.assertFalse(spyTable.isValidRelatedTableCached());
-        Assertions.assertTrue(spyTable.isValidRelatedTable());
+        Assertions.assertTrue(spyTable.isValidRelatedTable(icebergTable));
 
         Mockito.doReturn(mockTransform("month")).when(field).transform();
         Mockito.when(field.sourceId()).thenReturn(1);
         spyTable.setIsValidRelatedTableCached(false);
         Assertions.assertFalse(spyTable.isValidRelatedTableCached());
-        Assertions.assertTrue(spyTable.isValidRelatedTable());
+        Assertions.assertTrue(spyTable.isValidRelatedTable(icebergTable));
         Assertions.assertTrue(spyTable.isValidRelatedTableCached());
         Assertions.assertTrue(spyTable.validRelatedTableCache());
     }
@@ -250,6 +373,37 @@ public class IcebergExternalTableTest {
 
     // ── helpers ────────────────────────────────────────────────────────────
 
+    @Test
+    public void testFullSchemaAndColumnWithoutConnectContextUseScopedSnapshotProjection() {
+        ConnectContext.remove();
+        IcebergExternalTable table = createSpyTable();
+        Column column = new Column("id", PrimitiveType.INT);
+        IcebergSchemaCacheValue schemaValue = new IcebergSchemaCacheValue(
+                Lists.newArrayList(column), Lists.newArrayList());
+        IcebergSnapshotCacheValue snapshotValue = Mockito.mock(IcebergSnapshotCacheValue.class);
+        Mockito.when(snapshotValue.getIcebergTable()).thenReturn(java.util.Optional.of(icebergTable));
+        Mockito.when(icebergTable.properties()).thenReturn(java.util.Collections.emptyMap());
+        Mockito.doThrow(new AssertionError("must not reacquire a statement-only table"))
+                .when(table).getIcebergTable();
+
+        try (MockedStatic<IcebergUtils> icebergUtils = Mockito.mockStatic(
+                IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            icebergUtils.when(() -> IcebergUtils.getSchemaCacheValue(table, snapshotValue))
+                    .thenReturn(schemaValue);
+            icebergUtils.when(() -> IcebergUtils.withLatestSnapshotCacheValue(
+                            Mockito.eq(table), Mockito.<Function<IcebergSnapshotCacheValue, Object>>any()))
+                    .thenAnswer(invocation -> {
+                        Function<IcebergSnapshotCacheValue, Object> action = invocation.getArgument(1);
+                        return action.apply(snapshotValue);
+                    });
+
+            Assertions.assertEquals(Lists.newArrayList(column), table.getFullSchema());
+            Assertions.assertSame(column, table.getColumn("ID"));
+            Assertions.assertSame(schemaValue, table.getSchemaCacheValue().orElseThrow(AssertionError::new));
+        }
+        Mockito.verify(table, Mockito.never()).getIcebergTable();
+    }
+
     private IcebergExternalTable createSpyTable() {
         IcebergExternalDatabase db = new IcebergExternalDatabase(mockCatalog, 1L, "db", "db");
         IcebergExternalTable t = new IcebergExternalTable(1, "tbl", "tbl", mockCatalog, db);
@@ -264,7 +418,7 @@ public class IcebergExternalTableTest {
         IcebergExternalTable spy = createSpyTable();
         Map<String, String> properties = Maps.newHashMap();
         properties.put("comment", "my-table-comment");
-        Mockito.when(icebergTable.properties()).thenReturn(properties);
+        Mockito.doReturn(properties).when(spy).properties();
 
         Assertions.assertEquals("my-table-comment", spy.getComment());
 

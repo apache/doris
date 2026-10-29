@@ -37,8 +37,8 @@ import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
@@ -356,19 +356,17 @@ public class ShowPartitionsCommand extends ShowCommand {
         String dbName = ClusterNamespace.getNameFromFullName(tableName.getDb());
         List<String> partitionNames;
 
-        // catalog.getClient().listPartitionNames() returned string is the encoded string.
+        // HMS partition names are encoded strings.
         // example: insert into tmp partition(pt="1=3/3") values( xxx );
         //          show partitions from tmp: pt=1%3D3%2F3
         // Need to consider whether to call `HiveUtil.toPartitionColNameAndValues` method
-        ExternalTable dorisTable = hmsCatalog.getDbOrAnalysisException(dbName)
+        HMSExternalTable dorisTable = (HMSExternalTable) hmsCatalog.getDbOrAnalysisException(dbName)
                 .getTableOrAnalysisException(tableName.getTbl());
 
         if (limit >= 0 && offset == 0 && (orderByPairs == null || !orderByPairs.get(0).isDesc())) {
-            partitionNames = hmsCatalog.getClient()
-                    .listPartitionNames(dorisTable.getRemoteDbName(), dorisTable.getRemoteName(), limit);
+            partitionNames = dorisTable.listPartitionNames(limit);
         } else {
-            partitionNames = hmsCatalog.getClient()
-                    .listPartitionNames(dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
+            partitionNames = dorisTable.listPartitionNames();
         }
 
         /* Filter add rows */

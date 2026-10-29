@@ -34,6 +34,7 @@ import org.apache.iceberg.view.View;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * all external metadata operations use this interface
@@ -78,14 +79,46 @@ public interface ExternalMetadataOps {
      * @param force
      * @throws DdlException
      */
-    default void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
-        dropDbImpl(dbName, ifExists, force);
-        afterDropDb(dbName);
+    default boolean dropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
+        return dropDbWithResolvedName(dbName, ifExists, force).isPresent();
     }
 
-    void dropDbImpl(String dbName, boolean ifExists, boolean force) throws DdlException;
+    default Optional<String> dropDbWithResolvedName(String dbName, boolean ifExists, boolean force)
+            throws DdlException {
+        Optional<String> resolvedDbName = dropDbImplWithResolvedName(dbName, ifExists, force);
+        if (!resolvedDbName.isPresent()) {
+            // No remote mutation happened, so do not run the post-drop hook or journal the
+            // operation. A retained local incarnation may still need cleanup (for example a lost
+            // case-insensitive name mapping), so give the implementation a separate hook.
+            afterDropDbNoOp(dbName);
+            return Optional.empty();
+        }
+        afterDropDb(resolvedDbName.get());
+        return resolvedDbName;
+    }
+
+    /**
+     * @return the local name of the database actually dropped, or empty when the remote operation
+     *         was a no-op (for example {@code IF EXISTS} on a missing database).
+     */
+    default Optional<String> dropDbImplWithResolvedName(String dbName, boolean ifExists, boolean force)
+            throws DdlException {
+        return dropDbImpl(dbName, ifExists, force) ? Optional.of(dbName) : Optional.empty();
+    }
+
+    /** Retained for existing connector implementations on release branches. */
+    boolean dropDbImpl(String dbName, boolean ifExists, boolean force) throws DdlException;
 
     void afterDropDb(String dbName);
+
+    /**
+     * Cleanup hook for a drop that did not mutate the remote metastore (for example
+     * {@code DROP DATABASE IF EXISTS} on a database that does not exist). Remote state did not
+     * change, so a connector must opt in to any cache-only cleanup. Calling
+     * {@code afterDropDb} here could turn an absent name into catalog-wide invalidation.
+     */
+    default void afterDropDbNoOp(String dbName) {
+    }
 
     /**
      * @param createTableInfo

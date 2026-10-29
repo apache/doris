@@ -30,6 +30,7 @@ suite("test_iceberg_timestamp_tz", "p0,external,doris,external_docker,external_d
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     
     sql """drop catalog if exists ${catalog_name_with_mapping}"""
+    // A legacy false option must not erase the source timestamp's instant semantics.
     sql """
     CREATE CATALOG ${catalog_name_with_mapping} PROPERTIES (
         'type'='iceberg',
@@ -42,7 +43,7 @@ suite("test_iceberg_timestamp_tz", "p0,external,doris,external_docker,external_d
         "s3.path.style.access" = "true",
         "s3.connection.ssl.enabled" = "false",
         "enable.mapping.varbinary"="true",
-        "enable.mapping.timestamp_tz"="true"
+        "enable.mapping.timestamp_tz"="false"
     );"""
 
 

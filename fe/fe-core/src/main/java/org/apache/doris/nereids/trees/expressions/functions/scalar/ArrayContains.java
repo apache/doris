@@ -59,6 +59,11 @@ public class ArrayContains extends ScalarFunction
         super(functionParams);
     }
 
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        ArrayFunctionUtils.checkNoVarBinaryArguments(this);
+    }
+
     /**
      * withChildren.
      */

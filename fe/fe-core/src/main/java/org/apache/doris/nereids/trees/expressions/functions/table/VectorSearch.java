@@ -28,8 +28,15 @@ import java.util.Map;
 
 /** Lance vector_search relation TVF. */
 public class VectorSearch extends TableValuedFunction {
+    private final boolean deferQueryVector;
+
     public VectorSearch(Properties properties) {
+        this(properties, false);
+    }
+
+    public VectorSearch(Properties properties, boolean deferQueryVector) {
         super(VectorSearchTableValuedFunction.NAME, properties);
+        this.deferQueryVector = deferQueryVector;
     }
 
     @Override
@@ -41,7 +48,7 @@ public class VectorSearch extends TableValuedFunction {
     protected TableValuedFunctionIf toCatalogFunction() {
         try {
             Map<String, String> arguments = getTVFProperties().getMap();
-            return new VectorSearchTableValuedFunction(arguments);
+            return new VectorSearchTableValuedFunction(arguments, deferQueryVector);
         } catch (Throwable t) {
             throw new AnalysisException("Can not build vector_search(): " + t.getMessage(), t);
         }

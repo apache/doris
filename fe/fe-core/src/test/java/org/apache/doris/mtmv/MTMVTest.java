@@ -211,6 +211,30 @@ public class MTMVTest {
     }
 
     @Test
+    public void testHasRefreshSnapshotIgnoresPartitionsWithoutSnapshot() {
+        // A partition that partition sync just added has no snapshot yet. The baseline is still there as
+        // long as another partition has one, otherwise that single new partition forces a full refresh.
+        MTMV mtmv = new MTMV() {
+            @Override
+            public Set<String> getPartitionNames() {
+                return Sets.newHashSet("p1", "p2");
+            }
+        };
+        MTMVRefreshSnapshot refreshSnapshot = new MTMVRefreshSnapshot();
+        refreshSnapshot.getPartitionSnapshots().put("p1", new MTMVRefreshPartitionSnapshot());
+        mtmv.setRefreshSnapshot(refreshSnapshot);
+        Assert.assertTrue(mtmv.hasRefreshSnapshot());
+
+        // An emptied snapshot map is what ALTER excluded_trigger_tables leaves behind, and it must still
+        // be read as a lost baseline.
+        mtmv.setRefreshSnapshot(new MTMVRefreshSnapshot());
+        Assert.assertFalse(mtmv.hasRefreshSnapshot());
+
+        mtmv.setRefreshSnapshot(null);
+        Assert.assertFalse(mtmv.hasRefreshSnapshot());
+    }
+
+    @Test
     public void testAlterMvPropertiesWithSameExcludedTriggerTables() {
         Map<String, String> mvProperties = Maps.newHashMap();
         mvProperties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, "t1,t2");

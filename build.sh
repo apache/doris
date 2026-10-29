@@ -446,59 +446,31 @@ else
     LAST_THIRDPARTY_LIB='hadoop_hdfs/native/libhdfs.a'
 fi
 
-# The final-library sentinel only proves that some third-party build completed. It cannot
-# distinguish an older prebuilt whose Arrow/Paimon closure predates the selected sources.
-# shellcheck source=thirdparty/arrow-paimon-vars.sh
-. "${DORIS_HOME}/thirdparty/arrow-paimon-vars.sh"
-NEED_ARROW_PAIMON_THIRDPARTY=false
-if [[ "${BUILD_BE}" -eq 1 || "${BUILD_CLOUD}" -eq 1 ||
-    "${BUILD_META_TOOL}" == "ON" || "${BUILD_FILE_CACHE_MICROBENCH_TOOL}" == "ON" ||
-    "${BUILD_INDEX_TOOL}" == "ON" ]]; then
-    NEED_ARROW_PAIMON_THIRDPARTY=true
-fi
-
-rebuild_thirdparty_libraries() {
-    local remove_installed="$1"
-    shift
-    local build_script="${DORIS_THIRDPARTY}/build-thirdparty.sh"
-    local build_args=(-j "${PARALLEL}")
-    local selected_thirdparty_root
-    local checkout_thirdparty_root
-
-    if [[ ! -f "${build_script}" ]]; then
-        echo "Cannot rebuild thirdparty libraries: ${build_script} is missing." >&2
-        echo "DORIS_THIRDPARTY=${DORIS_THIRDPARTY} is an install-only or incomplete prefix. Use a matching compilation image/prebuilt, or unset DORIS_THIRDPARTY to rebuild with this checkout's thirdparty tree." >&2
+# Old installs can contain the sentinel but predate Paimon. Rebuild the whole
+# dependency set so Lance and Paimon also use the same selected Rust toolchain.
+# An interrupted header/archive publication must be repaired before either file is reused.
+if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ||
+      ! -f "${DORIS_THIRDPARTY}/installed/lib64/liblance_c.a" ||
+      ! -f "${DORIS_THIRDPARTY}/installed/lib64/libpaimon_c.a" ||
+      ! -f "${DORIS_THIRDPARTY}/installed/include/paimon_rust/paimon.h" ||
+      ! -s "${DORIS_THIRDPARTY}/installed/lib64/libpaimon_c.a" ||
+      ! -s "${DORIS_THIRDPARTY}/installed/include/paimon_rust/paimon.h" ||
+      -e "${DORIS_THIRDPARTY}/installed/lib64/.paimon-installing" ]]; then
+    # Compilation images may contain only installed artifacts; never erase them without a rebuild source.
+    if [[ ! -f "${DORIS_THIRDPARTY}/build-thirdparty.sh" ]]; then
+        echo "Third-party dependencies require a rebuild, but build-thirdparty.sh is missing." >&2
+        echo "Refresh the compilation image or set DORIS_THIRDPARTY to a complete third-party source tree." >&2
         exit 1
     fi
-    selected_thirdparty_root="$(cd "${DORIS_THIRDPARTY}" && pwd -P)"
-    checkout_thirdparty_root="$(cd "${DORIS_HOME}/thirdparty" && pwd -P)"
-    if [[ "${selected_thirdparty_root}" != "${checkout_thirdparty_root}" ]]; then
-        echo "Cannot rebuild thirdparty libraries with an external source tree: ${selected_thirdparty_root}." >&2
-        echo "Unset DORIS_THIRDPARTY to rebuild with this checkout's thirdparty tree, then use the resulting version-matched installation." >&2
-        exit 1
-    fi
-    build_script="${checkout_thirdparty_root}/build-thirdparty.sh"
-    if [[ "${remove_installed}" == "true" ]]; then
-        # Some libraries, such as lz4, fail when an earlier installation remains.
-        rm -rf "${DORIS_THIRDPARTY}/installed"
-    fi
-    if [[ "${CLEAN}" -eq 1 ]]; then
-        build_args+=(--clean)
-    fi
-    bash "${build_script}" "${build_args[@]}" "$@"
-    if ! arrow_paimon_prebuilt_valid "${DORIS_THIRDPARTY}/installed"; then
-        echo "Rebuilt Arrow/Paimon artifacts do not match this checkout's selected inputs." >&2
-        exit 1
-    fi
-}
-
-if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ]]; then
     echo "Thirdparty libraries need to be build ..."
-    rebuild_thirdparty_libraries true
-elif [[ "${NEED_ARROW_PAIMON_THIRDPARTY}" == "true" ]] &&
-    ! arrow_paimon_prebuilt_valid "${DORIS_THIRDPARTY}/installed"; then
-    echo "Arrow/Paimon thirdparty libraries need to be rebuilt ..."
-    rebuild_thirdparty_libraries false "${ARROW_PAIMON_BUILD_PACKAGES[@]}"
+    # need remove all installed pkgs because some lib like lz4 will throw error if its lib alreay exists
+    rm -rf "${DORIS_THIRDPARTY}/installed"
+
+    if [[ "${CLEAN}" -eq 0 ]]; then
+        bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}"
+    else
+        bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" --clean
+    fi
 fi
 
 update_submodule() {
@@ -1043,7 +1015,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
 
     #cp -r -p "${DORIS_HOME}/docs/build/help-resource.zip" "${DORIS_OUTPUT}/fe/lib"/
 
-    # Third-party filesystem jars (JuiceFS, JindoFS) are packaged by post-build.sh
+    # Third-party filesystem JARs and the Lance JNI library are packaged by post-build.sh
     "${DORIS_HOME}/post-build.sh" --fe --output "${DORIS_OUTPUT}"
 
     cp -r -p "${DORIS_HOME}/webroot/static" "${DORIS_OUTPUT}/fe/webroot"/

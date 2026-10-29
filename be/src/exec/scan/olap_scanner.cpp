@@ -72,6 +72,7 @@ using ReadSource = TabletReadSource;
 OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& params)
         : Scanner(params.state, parent, params.limit, params.profile),
           _key_ranges(std::move(params.key_ranges)),
+          _tablet_collection_statistics(std::move(params.tablet_collection_statistics)),
           _tablet_reader_params({.tablet = std::move(params.tablet),
                                  .tablet_schema {},
                                  .aggregation = params.aggregation,
@@ -168,6 +169,11 @@ io::IOContext build_score_runtime_collection_io_context(RuntimeState* state, Rea
     };
     if (auto* query_ctx = state->get_query_ctx(); query_ctx != nullptr) {
         io_ctx.remote_scan_cache_write_limiter = query_ctx->remote_scan_cache_write_limiter();
+    }
+    // The statistics read the index before the scan does, so they follow the query's file cache
+    // choice as the scan's reads do.
+    if (reader_type == ReaderType::READER_QUERY) {
+        io_ctx.is_disposable = state->query_options().disable_file_cache;
     }
     return io_ctx;
 }
@@ -292,12 +298,32 @@ Status OlapScanner::prepare() {
         _tablet_reader_params.collection_statistics = std::make_shared<CollectionStatistics>();
 
         auto io_ctx = build_score_runtime_collection_io_context(
-                _state, ReaderType::READER_QUERY, tablet->ttl_seconds(),
+                _state, ReaderType::READER_QUERY, tablet->file_cache_ttl_expiration_time(),
                 &_tablet_reader->mutable_stats()->file_cache_stats);
 
-        RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
-                _state, _tablet_reader_params.rs_splits, _tablet_reader_params.tablet_schema,
-                _tablet_reader_params.common_expr_ctxs_push_down, &io_ctx));
+        // A merge-on-write scan leaves out rows its segments still hold, which replicas drop
+        // at different times, so the statistics count only the rows the scan returns.
+        std::optional<MowHiddenRows> hidden_rows;
+        if (_tablet_reader_params.delete_bitmap != nullptr) {
+            const auto& query_options = _state->query_options();
+            hidden_rows = MowHiddenRows {
+                    .delete_bitmap = _tablet_reader_params.delete_bitmap,
+                    .version = _tablet_reader_params.version.second,
+                    .use_segment_cache = !query_options.__isset.enable_segment_cache ||
+                                         query_options.enable_segment_cache,
+                    .use_page_cache = _state->enable_page_cache()};
+        }
+        const MowHiddenRows* hidden_rows_ptr = hidden_rows ? &*hidden_rows : nullptr;
+        if (_tablet_collection_statistics != nullptr) {
+            RETURN_IF_ERROR(_tablet_collection_statistics->copy_to(
+                    _state, _tablet_reader_params.tablet_schema,
+                    _tablet_reader_params.common_expr_ctxs_push_down, &io_ctx, hidden_rows_ptr,
+                    _tablet_reader_params.collection_statistics.get()));
+        } else {
+            RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
+                    _state, _tablet_reader_params.rs_splits, _tablet_reader_params.tablet_schema,
+                    _tablet_reader_params.common_expr_ctxs_push_down, &io_ctx, hidden_rows_ptr));
+        }
     }
 
     _has_prepared = true;

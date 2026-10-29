@@ -22,7 +22,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.lance.LanceFragmentInfo;
+import org.apache.doris.datasource.lance.metadata.LanceFragmentInfo;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.AzureProperties;
 import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
@@ -96,6 +96,18 @@ public class FileTableValuedFunction extends ExternalFileTableValuedFunction {
     }
 
     @Override
+    public boolean requiresCurrentLanceReader(String columnName) {
+        // Schema discovery records reader requirements on the delegate, not this wrapper.
+        return delegateTvf.requiresCurrentLanceReader(columnName);
+    }
+
+    @Override
+    public long getBackendIdForExecution() {
+        // Local Lance must run on its schema backend, including through the generic file() entry point.
+        return delegateTvf.getBackendIdForExecution();
+    }
+
+    @Override
     public long getLanceDatasetVersion() {
         return delegateTvf.getLanceDatasetVersion();
     }
@@ -123,6 +135,11 @@ public class FileTableValuedFunction extends ExternalFileTableValuedFunction {
     @Override
     public TFileAttributes getFileAttributes() {
         return delegateTvf.getFileAttributes();
+    }
+
+    @Override
+    public String getHiveParquetTimeZone() {
+        return delegateTvf.getHiveParquetTimeZone();
     }
 
     @Override

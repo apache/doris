@@ -53,6 +53,8 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -389,7 +391,8 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
                     false,
                     TPartialUpdateNewRowPolicy.APPEND,
                     sink.getDMLCommandType(),
-                    (LogicalPlan) (sink.child(0)));
+                    (LogicalPlan) (sink.child(0)),
+                    sink.getStaticPartitionKeyValues());
             insertCtx = new HiveInsertCommandContext();
             ((HiveInsertCommandContext) insertCtx).setOverwrite(true);
         } else if (logicalQuery instanceof UnboundIcebergTableSink) {
@@ -487,7 +490,11 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
             for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
                 Expression expr = entry.getValue();
                 if (expr instanceof Literal) {
-                    staticPartitionValues.put(entry.getKey(), ((Literal) expr).getStringValue());
+                    // Binary literals expose bare hex, while BE partition parsing and FE commit
+                    // conversion require an explicit byte representation, distinct from text.
+                    // Keep SQL NULL distinct from the literal text "null" through FE commit.
+                    String value = expr instanceof NullLiteral ? null : ((Literal) expr).getStringValue();
+                    staticPartitionValues.put(entry.getKey(), expr instanceof VarBinaryLiteral ? "0x" + value : value);
                 } else {
                     throw new AnalysisException(
                             String.format("Static partition value must be a literal, but got: %s", expr));

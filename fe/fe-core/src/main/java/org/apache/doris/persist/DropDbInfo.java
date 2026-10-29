@@ -34,6 +34,8 @@ public class DropDbInfo implements Writable, GsonPostProcessable {
     private String ctlName;
     @SerializedName(value = "dbName")
     private String dbName;
+    @SerializedName(value = "resolvedDbName")
+    private String resolvedDbName;
     @SerializedName(value = "forceDrop")
     private boolean forceDrop = false;
     @SerializedName(value = "recycleTime")
@@ -49,6 +51,12 @@ public class DropDbInfo implements Writable, GsonPostProcessable {
         this.dbName = dbName;
     }
 
+    // New external logs retain the database actually resolved by the leader. Older logs lack this field.
+    public DropDbInfo(String ctlName, String dbName, String resolvedDbName) {
+        this(ctlName, dbName);
+        this.resolvedDbName = resolvedDbName;
+    }
+
     // for internal table
     public DropDbInfo(String dbName, boolean forceDrop, long recycleTime) {
         this.dbName = dbName;
@@ -62,6 +70,10 @@ public class DropDbInfo implements Writable, GsonPostProcessable {
 
     public String getDbName() {
         return dbName;
+    }
+
+    public String getResolvedDbName() {
+        return resolvedDbName;
     }
 
     public boolean isForceDrop() {
