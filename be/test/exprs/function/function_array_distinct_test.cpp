@@ -162,7 +162,7 @@ TEST_F(FunctionArrayDistinctTest, NullAfterManyStrings) {
     check_both_paths({input}, {input}, true);
 }
 
-TEST_F(FunctionArrayDistinctTest, SelectorGrowsAcrossArrays) {
+TEST_F(FunctionArrayDistinctTest, ManyDistinctStringsAcrossArrays) {
     StringRow input;
     StringRow expected;
     for (size_t i = 0; i < 40000; ++i) {

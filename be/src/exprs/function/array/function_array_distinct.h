@@ -199,7 +199,11 @@ private:
         ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
         ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
         IColumn::Selector selector;
-        if constexpr (!batch_copy) {
+        if constexpr (batch_copy) {
+            // _execute_by_type() passes nullptr after ruling out NULL elements.
+            DCHECK(src_null_map == nullptr);
+            selector.reserve(src_column.size());
+        } else {
             column_string_chars.reserve(src_column.size());
         }
 
@@ -213,20 +217,18 @@ private:
             set.clear();
             size_t null_size = 0;
             for (size_t j = prev_src_offset; j < curr_src_offset; ++j) {
-                if (null_size != 0 && src_null_map && (*src_null_map)[j]) {
-                    // ignore duplicated nulls
-                    continue;
-                }
-                if (src_null_map && (*src_null_map)[j]) {
-                    DCHECK(dest_null_map != nullptr);
-                    if constexpr (batch_copy) {
-                        selector.push_back(static_cast<IColumn::ColumnIndex>(j));
-                    } else {
-                        column_string_offsets.push_back(column_string_offsets.back());
+                if constexpr (!batch_copy) {
+                    if (null_size != 0 && src_null_map && (*src_null_map)[j]) {
+                        // ignore duplicated nulls
+                        continue;
                     }
-                    (*dest_null_map).push_back(true);
-                    null_size++;
-                    continue;
+                    if (src_null_map && (*src_null_map)[j]) {
+                        DCHECK(dest_null_map != nullptr);
+                        column_string_offsets.push_back(column_string_offsets.back());
+                        (*dest_null_map).push_back(true);
+                        null_size++;
+                        continue;
+                    }
                 }
 
                 StringRef src_str_ref = src_data_concrete.get_data_at(j);
