@@ -80,9 +80,9 @@ Status execute_single_pattern(const TQueryOptions& query_options, const std::str
                                        ? ColumnPtr(std::move(patterns))
                                        : ColumnConst::create(std::move(patterns), 1);
 
-    std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_columns(2);
+    std::vector<std::shared_ptr<ConstantExprResult>> constant_columns(2);
     if (mode == PatternMode::CONST_AT_OPEN) {
-        constant_columns[1] = std::make_shared<ColumnPtrWrapper>(pattern_column);
+        constant_columns[1] = std::make_shared<ConstantExprResult>(pattern_column);
     }
     context->set_constant_cols(constant_columns);
 
@@ -141,8 +141,8 @@ void check_constant_pattern_batch(const std::vector<std::string>& values,
     pattern_data->insert_data(pattern.data(), pattern.size());
     ColumnPtr pattern_column = ColumnConst::create(std::move(pattern_data), values.size());
 
-    std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_columns(2);
-    constant_columns[1] = std::make_shared<ColumnPtrWrapper>(pattern_column);
+    std::vector<std::shared_ptr<ConstantExprResult>> constant_columns(2);
+    constant_columns[1] = std::make_shared<ConstantExprResult>(pattern_column);
     context->set_constant_cols(constant_columns);
 
     Function function;
@@ -616,7 +616,7 @@ TEST(FunctionLikeTest, regexp_extract_all_boost_zero_width_match) {
         query_options.__set_enable_extended_regex(true);
         fn_ctx->state()->set_query_options(query_options);
         fn_ctx->set_constant_cols(
-                {nullptr, std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column)});
+                {nullptr, std::make_shared<ConstantExprResult>(block.get_by_position(1).column)});
 
         ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
         ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
