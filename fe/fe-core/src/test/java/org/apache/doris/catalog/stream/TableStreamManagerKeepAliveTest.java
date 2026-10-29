@@ -30,6 +30,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.TableStreamCleanupInfo;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.tso.TSOService;
 import org.apache.doris.tso.TSOTimestamp;
 import org.apache.doris.utframe.TestWithFeService;
@@ -428,6 +429,55 @@ public class TableStreamManagerKeepAliveTest extends TestWithFeService {
         Assertions.assertEquals(1, requests.size());
     }
 
+    @Test
+    public void testCloudKeepAliveFencesTheWatermarkBeforeAnyRead() throws Exception {
+        StreamContext first = createStreamContext("cloud_fence_1");
+        StreamContext second = createStreamContext("cloud_fence_2");
+        long offset = tsoSecondsAgo(60);
+        Map<Long, Cloud.TableStreamPartitionReadStatePB> states = new HashMap<>();
+        for (StreamContext context : ImmutableList.of(first, second)) {
+            for (String name : ImmutableList.of("p1", "p2")) {
+                long partitionId = context.partition(name).getId();
+                states.put(partitionId, consumed(partitionId, offset, offset));
+            }
+        }
+        long committedTso = tsoSecondsAgo(0);
+
+        // A commit at or below the watermark that the FE gave up on after a response it may outlive, such as a
+        // MetaService transaction that timed out once its commit was sent, can still land. MetaService is fenced at
+        // the watermark once a round, before any of its reads, so such a commit either shows in them or never lands.
+        List<String> calls = new ArrayList<>();
+        cloudKeepAlive(ImmutableList.of(first.stream, second.stream), tsoStatus(committedTso), 2, states,
+                new ArrayList<>(), new ArrayList<>(), true, calls);
+
+        Assertions.assertEquals(ImmutableList.of("fence " + committedTso, "read", "read"), calls);
+        for (StreamContext context : ImmutableList.of(first, second)) {
+            assertKeepAlive(context, context.partition("p1").getId(), offset, committedTso);
+            assertKeepAlive(context, context.partition("p2").getId(), offset, committedTso);
+        }
+    }
+
+    @Test
+    public void testCloudKeepAliveSkipsRoundWhenTheFenceFails() throws Exception {
+        StreamContext context = createStreamContext("cloud_fence_failure");
+        long p1 = context.partition("p1").getId();
+        long offset = tsoSecondsAgo(60);
+        Map<Long, Cloud.TableStreamPartitionReadStatePB> states = new HashMap<>();
+        states.put(p1, consumed(p1, offset, offset));
+        long committedTso = tsoSecondsAgo(0);
+
+        // Without the fence, a read cannot tell a partition with no change up to the watermark from one whose change
+        // at or below it has not landed yet: nothing is read, and nothing is recorded.
+        List<String> calls = new ArrayList<>();
+        List<TableStreamCleanupInfo> logged = new ArrayList<>();
+        cloudKeepAlive(Collections.singletonList(context.stream), tsoStatus(committedTso), 10, states,
+                new ArrayList<>(), logged, false, calls);
+
+        Assertions.assertEquals(ImmutableList.of("fence " + committedTso), calls);
+        Assertions.assertTrue(logged.isEmpty());
+        Assertions.assertNull(context.stream.getKeepAlive(p1));
+    }
+
     private void keepAlive(StreamContext context, long keepAliveTso, List<TableStreamCleanupInfo> logged)
             throws Exception {
         TSOService tsoService = Env.getCurrentEnv().getTSOService();
@@ -452,13 +502,33 @@ public class TableStreamManagerKeepAliveTest extends TestWithFeService {
     }
 
     // Runs a cloud keep-alive round with the TSO status and the read states given, and records the reads asked
-    // for and the entries logged; null read states make the read fail.
+    // for and the entries logged; null read states make the read fail. MetaService takes every TSO fence.
     private void cloudKeepAlive(List<OlapTableStream> streams, TSOService.TSOStatusSnapshot tsoStatus,
             int batchPartitions, Map<Long, Cloud.TableStreamPartitionReadStatePB> states,
-            List<Map<Cloud.TableStreamIdentityPB, Set<Long>>> requests, List<TableStreamCleanupInfo> logged) {
+            List<Map<Cloud.TableStreamIdentityPB, Set<Long>>> requests, List<TableStreamCleanupInfo> logged)
+            throws Exception {
+        cloudKeepAlive(streams, tsoStatus, batchPartitions, states, requests, logged, true, new ArrayList<>());
+    }
+
+    // The same, and also records the calls to MetaService in the order they are made: "fence <tso>" for a TSO
+    // fence and "read" for a read of the offsets. A fence MetaService does not take fails.
+    private void cloudKeepAlive(List<OlapTableStream> streams, TSOService.TSOStatusSnapshot tsoStatus,
+            int batchPartitions, Map<Long, Cloud.TableStreamPartitionReadStatePB> states,
+            List<Map<Cloud.TableStreamIdentityPB, Set<Long>>> requests, List<TableStreamCleanupInfo> logged,
+            boolean fenceTaken, List<String> calls) throws Exception {
         TSOService tsoService = Env.getCurrentEnv().getTSOService();
         TSOService fixedTso = Mockito.mock(TSOService.class);
         Mockito.when(fixedTso.getStatusSnapshot()).thenReturn(tsoStatus);
+        GlobalTransactionMgrIface globalTransactionMgr = Env.getCurrentEnv().getGlobalTransactionMgr();
+        GlobalTransactionMgrIface spyGlobalTransactionMgr = Mockito.spy(globalTransactionMgr);
+        Mockito.doAnswer(invocation -> {
+            long proposedFenceTso = invocation.getArgument(0);
+            calls.add("fence " + proposedFenceTso);
+            if (!fenceTaken) {
+                throw new UserException("Failed to advance TSO fence");
+            }
+            return proposedFenceTso;
+        }).when(spyGlobalTransactionMgr).advanceTsoFence(Mockito.anyLong());
         EditLog editLog = Env.getCurrentEnv().getEditLog();
         EditLog spyEditLog = Mockito.spy(editLog);
         Mockito.doAnswer(invocation -> {
@@ -466,11 +536,13 @@ public class TableStreamManagerKeepAliveTest extends TestWithFeService {
             return Mockito.mock(EditLog.EditLogItem.class);
         }).when(spyEditLog).logTableStreamCleanup(Mockito.any(TableStreamCleanupInfo.class));
         Deencapsulation.setField(Env.getCurrentEnv(), "tsoService", fixedTso);
+        Deencapsulation.setField(Env.getCurrentEnv(), "globalTransactionMgr", spyGlobalTransactionMgr);
         Env.getCurrentEnv().setEditLog(spyEditLog);
         int loggedBefore = logged.size();
         try (MockedStatic<CloudTableStreamReadStateHelper> helper =
                 Mockito.mockStatic(CloudTableStreamReadStateHelper.class)) {
             helper.when(() -> CloudTableStreamReadStateHelper.getReadStates(Mockito.any())).thenAnswer(invocation -> {
+                calls.add("read");
                 Map<Cloud.TableStreamIdentityPB, Set<Long>> request = invocation.getArgument(0);
                 requests.add(new LinkedHashMap<>(request));
                 if (states == null) {
@@ -495,6 +567,7 @@ public class TableStreamManagerKeepAliveTest extends TestWithFeService {
             Assertions.assertEquals(logged.size() - loggedBefore, items.size());
         } finally {
             Env.getCurrentEnv().setEditLog(editLog);
+            Deencapsulation.setField(Env.getCurrentEnv(), "globalTransactionMgr", globalTransactionMgr);
             Deencapsulation.setField(Env.getCurrentEnv(), "tsoService", tsoService);
         }
     }

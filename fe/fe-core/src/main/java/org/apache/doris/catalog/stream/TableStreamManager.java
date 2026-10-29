@@ -412,8 +412,11 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
      * The cloud mode counterpart of {@link #keepAliveIdlePartitions(OlapTableStream)}, for the IVM streams of one
      * round, whose offsets live in MetaService and are read from it in batches.
      *
-     * <p>The keep-alive TSO is the committed TSO watermark, taken before any of the offsets is read. Every commit
-     * at or below the watermark has finished by then, so a read made afterwards shows all of them, and a commit
+     * <p>The keep-alive TSO is the committed TSO watermark, and MetaService is fenced at it before any of the
+     * offsets is read. Every commit at or below the watermark is unregistered from the TSO service by then, which
+     * does not mean it is over: one the FE gave up on after a response it may outlive, such as a MetaService
+     * transaction that timed out once its commit was sent, can still land. The fence settles every such commit --
+     * it has landed before the fence, and a read made afterwards shows it, or it can no longer land -- and a commit
      * that lands later gets a larger TSO. A partition whose offset is at its end in that read thus holds no change
      * in (offset, watermark], for good. A partition qualifies on what shared-nothing mode checks, as MetaService
      * reports it -- a real offset past the initial snapshot, at the end of the partition, whose newer of it and its
@@ -441,6 +444,17 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
             return Collections.emptyList();
         }
         long keepAliveTso = tsoStatus.getCommittedTso();
+        // One fence a round, before any of its reads. The commits MetaService is applying at that moment conflict
+        // on it once and are retried, as on any commit conflict.
+        long fenceTso;
+        try {
+            fenceTso = Env.getCurrentEnv().getGlobalTransactionMgr().advanceTsoFence(keepAliveTso);
+        } catch (UserException e) {
+            LOG.warn("skip keeping IVM stream offsets alive because MetaService cannot be fenced at tso {}",
+                    keepAliveTso, e);
+            return Collections.emptyList();
+        }
+        Preconditions.checkState(fenceTso >= keepAliveTso, "MetaService TSO fence must not regress");
         List<EditLogItem> editLogItems = new ArrayList<>();
         // One MetaService read covers the offsets and versions it is asked for in one transaction, so a round is
         // read in batches of about as many partitions as one INSERT may consume.
