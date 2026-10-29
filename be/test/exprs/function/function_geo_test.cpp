@@ -944,6 +944,15 @@ TEST(VGeoFunctionsTest, GeographyRejectsRoundedOnlyLineEndpointContact) {
     expect_geography_relation("st_disjoint", left, separated, true);
 }
 
+TEST(VGeoFunctionsTest, GeographyKeepsDateLineEndpointAliasesEquivalent) {
+    const std::string left = "LINESTRING (180 0,179 0)";
+    const std::string right = "LINESTRING (-180 0,-179 0)";
+    expect_geography_relation("st_intersects", left, right, true);
+    expect_geography_relation("st_intersects", right, left, true);
+    expect_geography_relation("st_disjoint", left, right, false);
+    expect_geography_relation("st_disjoint", right, left, false);
+}
+
 TEST(VGeoFunctionsTest, GeographyAdjacentPolygonSubdivisionKeepsBoundaryContact) {
     const std::string a = "POLYGON ((0 58,1 58,1 59,0 59,0 58))";
     const std::vector<std::string> neighbours {

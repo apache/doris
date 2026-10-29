@@ -43,14 +43,16 @@ final class SpatialFunctionSignature {
     static FunctionSignature calculationBinary(Expression left, Expression right, DataType returnType) {
         if ((isSpatial(left) && !isSupportedCalculationType(left.getDataType()))
                 || (isSpatial(right) && !isSupportedCalculationType(right.getDataType()))) {
-            return null;
+            DataType unsupported = isSpatial(left) && !isSupportedCalculationType(left.getDataType())
+                    ? left.getDataType() : right.getDataType();
+            throw unsupportedCalculationType(unsupported);
         }
         return spatialArguments(returnType, left, right);
     }
 
     static FunctionSignature calculationUnary(Expression argument, DataType returnType) {
         if (isSpatial(argument) && !isSupportedCalculationType(argument.getDataType())) {
-            return null;
+            throw unsupportedCalculationType(argument.getDataType());
         }
         return unary(argument, returnType);
     }
@@ -59,7 +61,7 @@ final class SpatialFunctionSignature {
             DataType returnType) {
         for (Expression argument : new Expression[] {first, second, third}) {
             if (isSpatial(argument) && !isSupportedCalculationType(argument.getDataType())) {
-                return null;
+                throw unsupportedCalculationType(argument.getDataType());
             }
         }
         return spatialArguments(returnType, first, second, third);
@@ -108,5 +110,9 @@ final class SpatialFunctionSignature {
 
     private static boolean isSupportedCalculationType(DataType type) {
         return type.equals(new GeographyType("OGC:CRS84", "spherical"));
+    }
+
+    private static AnalysisException unsupportedCalculationType(DataType type) {
+        return new AnalysisException("Spatial calculation does not support typed " + type);
     }
 }
