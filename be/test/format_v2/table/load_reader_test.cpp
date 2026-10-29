@@ -30,6 +30,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "format_v2/parquet/parquet_profile.h"
 #include "io/fs/kafka_consumer_pipe.h"
 #include "load/stream_load/new_load_stream_mgr.h"
 #include "load/stream_load/stream_load_context.h"
@@ -130,6 +131,7 @@ public:
     TestLoadTableReader(std::unique_ptr<SourceReader> source_reader, TupleDescriptor* source,
                         TupleDescriptor* destination)
             : LoadTableReader(source, destination), _input(std::move(source_reader)) {}
+    parquet::ParquetProfileCache* parquet_profile_cache() const { return _parquet_profile_cache; }
     Status init(TableReadOptions&& options) override {
         RETURN_IF_ERROR(LoadTableReader::init(std::move(options)));
         _input->columns = _projected_columns;
@@ -236,7 +238,8 @@ protected:
         cast.__set_num_children(1);
         params.expr_of_dest_slot[20].nodes.insert(params.expr_of_dest_slot[20].nodes.begin(), cast);
     }
-    Status init(LoadTableReader& reader, FileFormat format = FileFormat::CSV) {
+    Status init(LoadTableReader& reader, FileFormat format = FileFormat::CSV,
+                parquet::ParquetProfileCache* parquet_profile_cache = nullptr) {
         TTupleDescriptor tuple;
         tuple.__set_id(0);
         tuple.__set_byteSize(0);
@@ -259,7 +262,8 @@ protected:
                             .scan_params = &params,
                             .io_ctx = io,
                             .runtime_state = &state,
-                            .scanner_profile = &profile});
+                            .scanner_profile = &profile,
+                            .parquet_profile_cache = parquet_profile_cache});
     }
     void add_partial_update_columns(bool key) {
         TTupleDescriptor tuple;
@@ -339,6 +343,15 @@ protected:
     std::unique_ptr<TupleDescriptor> source, destination;
     std::unique_ptr<SlotDescriptor> source_slot, destination_slot;
 };
+
+TEST_F(LoadReaderTest, ForwardsParquetProfileCacheToBaseReader) {
+    parquet::ParquetProfileCache cache(&profile);
+    TestLoadTableReader reader(std::make_unique<SourceReader>(), source.get(), destination.get());
+    const auto status = init(reader, FileFormat::PARQUET, &cache);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(reader.parquet_profile_cache(), &cache);
+    ASSERT_TRUE(reader.close().ok());
+}
 
 class LoadJsonPipeTest : public LoadReaderTest {
 protected:

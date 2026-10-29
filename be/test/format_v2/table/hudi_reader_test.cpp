@@ -38,6 +38,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/field.h"
 #include "format_v2/column_data.h"
+#include "format_v2/parquet/parquet_reader.h"
 #include "gen_cpp/ExternalTableSchema_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "io/io_common.h"
@@ -156,9 +157,51 @@ public:
     int refresh_count = 0;
 };
 
+class ProfileCacheTrackingTableReader final : public TableReader {
+public:
+    Status init(TableReadOptions&& options) override {
+        observed_cache = options.parquet_profile_cache;
+        return TableReader::init(std::move(options));
+    }
+
+    Status prepare_split(const SplitReadOptions&) override { return Status::OK(); }
+
+    parquet::ParquetProfileCache* observed_cache = nullptr;
+};
+
 // Scenario: FileScannerV2 Hudi native reader uses the split schema id to annotate the physical
 // file schema before TableColumnMapper runs. This keeps schema-evolved Hudi files on field-id
 // mapping, including renamed nested children.
+TEST(HudiReaderTest, CustomParquetFactoryReusesScannerCounters) {
+    RuntimeProfile profile("hudi");
+    parquet::ParquetProfileCache cache(&profile);
+    TQueryOptions options;
+    TQueryGlobals globals;
+    RuntimeState state(options, globals);
+    TFileScanRangeParams scan_params;
+    hudi::HudiReader reader;
+    ASSERT_TRUE(reader.init({.projected_columns = {},
+                             .conjuncts = {},
+                             .format = FileFormat::PARQUET,
+                             .scan_params = &scan_params,
+                             .io_ctx = nullptr,
+                             .runtime_state = &state,
+                             .scanner_profile = &profile,
+                             .parquet_profile_cache = &cache})
+                        .ok());
+    reader._current_task = std::make_unique<ScanTask>();
+    for (int i = 0; i < 2; ++i) {
+        reader._current_task->data_file = std::make_unique<io::FileDescription>();
+        std::unique_ptr<FileReader> file;
+        ASSERT_TRUE(reader.create_file_reader(&file).ok());
+        auto* parquet = dynamic_cast<parquet::ParquetReader*>(file.get());
+        ASSERT_NE(parquet, nullptr);
+        EXPECT_EQ(parquet->_profile_cache, &cache);
+        parquet->_init_profile();
+        EXPECT_EQ(parquet->_parquet_profile.total_time, cache.get().total_time);
+    }
+}
+
 TEST(HudiReaderTest, AnnotatesFileSchemaFromSplitHistorySchema) {
     TFileScanRangeParams scan_params;
     scan_params.__set_current_schema_id(200);
@@ -275,6 +318,37 @@ TEST(HudiHybridReaderTest, AdaptiveBatchSizeReachesBothChildReaders) {
     const auto child_batch_sizes = reader.TEST_child_batch_sizes();
     EXPECT_EQ(child_batch_sizes.first, 123);
     EXPECT_EQ(child_batch_sizes.second, 123);
+}
+
+TEST(HudiHybridReaderTest, ForwardsParquetProfileCacheToNativeChild) {
+    RuntimeProfile profile("hudi_hybrid");
+    parquet::ParquetProfileCache cache(&profile);
+    TFileScanRangeParams scan_params;
+    scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    hudi::HudiHybridReader reader;
+    ProfileCacheTrackingTableReader* native = nullptr;
+    reader.TEST_set_child_reader_factories(
+            [&] {
+                auto child = std::make_unique<ProfileCacheTrackingTableReader>();
+                native = child.get();
+                return child;
+            },
+            [] { return std::make_unique<TableReader>(); });
+    ASSERT_TRUE(reader.init({.projected_columns = {},
+                             .conjuncts = {},
+                             .format = FileFormat::PARQUET,
+                             .scan_params = &scan_params,
+                             .io_ctx = nullptr,
+                             .runtime_state = nullptr,
+                             .scanner_profile = &profile,
+                             .parquet_profile_cache = &cache})
+                        .ok());
+    SplitReadOptions split;
+    split.current_split_format = FileFormat::PARQUET;
+    split.current_range.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    ASSERT_TRUE(reader.prepare_split(split).ok());
+    ASSERT_NE(native, nullptr);
+    EXPECT_EQ(native->observed_cache, &cache);
 }
 
 TEST(HudiHybridReaderTest, AggregatesConditionCacheHitsFromBothChildren) {

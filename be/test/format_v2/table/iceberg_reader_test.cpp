@@ -75,6 +75,7 @@
 #include "format/format_common.h"
 #include "format/orc/orc_memory_stream_test.h"
 #include "format/table/deletion_vector_reader.h"
+#include "format_v2/parquet/parquet_reader.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/ExternalTableSchema_types.h"
@@ -5969,6 +5970,42 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteFileSizeUnknownFallsBackToStat) {
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergTableReaderTest, DeleteParquetFactoryReusesScannerCounters) {
+    RuntimeProfile profile("iceberg");
+    doris::format::parquet::ParquetProfileCache cache(&profile);
+    doris::format::iceberg::IcebergTableReader reader;
+    reader._scanner_profile = &profile;
+    reader._parquet_profile_cache = &cache;
+    TFileScanRangeParams params;
+    TQueryOptions options;
+    TQueryGlobals globals;
+    RuntimeState state(options, globals);
+    reader._runtime_state = &state;
+    IcebergDeleteFileIOContext io_context(&state);
+    const auto file_path =
+            (std::filesystem::temp_directory_path() /
+             ("iceberg_profile_" +
+              std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+              ".parquet"))
+                    .string();
+    write_single_int_parquet_file(file_path, "id", {1}, 1);
+    for (int i = 0; i < 2; ++i) {
+        TIcebergDeleteFileDesc desc;
+        desc.__set_file_format(TFileFormatType::FORMAT_PARQUET);
+        desc.__set_path(file_path);
+        desc.__set_file_size(std::filesystem::file_size(file_path));
+        std::unique_ptr<doris::format::FileReader> file;
+        const auto status = reader._create_delete_file_reader(desc, params, &io_context, &file);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        auto* parquet = dynamic_cast<doris::format::parquet::ParquetReader*>(file.get());
+        ASSERT_NE(parquet, nullptr);
+        EXPECT_EQ(parquet->_profile_cache, &cache);
+        parquet->_init_profile();
+        EXPECT_EQ(parquet->_parquet_profile.total_time, cache.get().total_time);
+    }
+    std::filesystem::remove(file_path);
 }
 
 } // namespace
