@@ -88,6 +88,7 @@ Status LoadTableReader::init(TableReadOptions&& options) {
                               .io_ctx = options.io_ctx,
                               .runtime_state = options.runtime_state,
                               .scanner_profile = options.scanner_profile,
+                              .parquet_profile_cache = options.parquet_profile_cache,
                               .file_slot_descs = &_source_file_slots,
                               .push_down_agg_type = TPushAggOp::NONE,
                               .condition_cache_digest = 0});
