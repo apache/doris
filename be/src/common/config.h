@@ -1442,6 +1442,10 @@ DECLARE_mInt32(snii_prx_zstd_level);
 // import); compaction rewrites at snii_prx_zstd_level so settled segments are
 // unaffected. Full contract at the DEFINE in config.cpp.
 DECLARE_mInt32(snii_prx_zstd_level_direct_load);
+// A SNII batch read of at most this many physical segments (and 256 KiB) is read on the calling
+// thread when the index file is on the local filesystem and recent small reads were fast, i.e. hit
+// the page cache. 0 always fans out to the buffered-reader prefetch pool.
+DECLARE_mInt32(snii_inline_read_max_segments);
 // G16-d: target SNII dict block size in bytes; 0 = format default (64 KiB).
 // Bigger blocks -> better per-block zstd on the dict region, larger cold
 // fetch+decompress unit per dict-block miss. Write side only.
