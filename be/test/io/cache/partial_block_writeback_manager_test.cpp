@@ -412,6 +412,100 @@ TEST_F(PartialBlockWritebackManagerTest, SkipsDownloadedBlockWithoutAllocating) 
     EXPECT_EQ(read_cached_block(cache.get(), hash), content);
 }
 
+TEST_F(PartialBlockWritebackManagerTest, SkipsMixedIrregularCoverageWithoutAllocating) {
+    auto cache = create_cache("partial_block_irregular_coverage");
+    auto* writer = cache->async_write_manager();
+    const auto hash = BlockFileCache::hash("partial_block_irregular_coverage");
+    const auto content = patterned_content('i');
+    ReadStatistics stats;
+    CacheContext context;
+    context.stats = &stats;
+
+    // Historical upload boundaries can leave [0, 1 KiB) and [1, 4 KiB) in one grid block.
+    auto left = cache->get_or_set(hash, 0, 1024, context);
+    ASSERT_EQ(left.file_blocks.size(), 1);
+    auto left_block = left.file_blocks.front();
+    ASSERT_EQ(left_block->get_or_set_downloader(), FileBlock::get_caller_id());
+    ASSERT_TRUE(left_block->append(Slice(content.data(), 1024)).ok());
+    ASSERT_TRUE(left_block->finalize().ok());
+    auto right = cache->get_or_set(hash, 1024, kBlockSize - 1024, context);
+    ASSERT_EQ(right.file_blocks.size(), 1);
+    auto right_block = right.file_blocks.front();
+    EXPECT_FALSE(writer->should_skip_block_writeback(hash, 0, kBlockSize, {}, nullptr));
+
+    ASSERT_EQ(right_block->get_or_set_downloader(), FileBlock::get_caller_id());
+    EXPECT_TRUE(writer->should_skip_block_writeback(hash, 0, kBlockSize, {}, nullptr));
+    EXPECT_TRUE(writer->should_skip_block_writeback(hash, 512, 1024, {}, nullptr));
+    EXPECT_TRUE(writer->should_skip_block_writeback(hash, 1024, 512, {}, nullptr));
+    EXPECT_FALSE(writer->should_skip_block_writeback(hash, 0, kBlockSize + 1, {}, nullptr));
+    const auto missing_hash = BlockFileCache::hash("partial_block_irregular_missing");
+    EXPECT_FALSE(writer->should_skip_block_writeback(missing_hash, 0, kBlockSize, {}, nullptr));
+    EXPECT_TRUE(cache->get_blocks_by_key(missing_hash).empty());
+
+    auto manager = create_manager();
+    auto reader = std::make_shared<ControlledFileReader>(content);
+    EXPECT_EQ(manager->try_submit(make_request(writer, nullptr, reader, hash, content, 0, 512)),
+              PartialBlockSubmitResult::CACHE_BLOCK_PRESENT);
+    EXPECT_EQ(manager->pending_count(), 0);
+    EXPECT_EQ(writer->buffer_memory_bytes(), 0);
+    EXPECT_EQ(reader->read_calls(), 0);
+    EXPECT_EQ(right_block->state(), FileBlock::State::DOWNLOADING);
+    EXPECT_EQ(right_block->get_downloader(), FileBlock::get_caller_id());
+}
+
+TEST_F(PartialBlockWritebackManagerTest, FillsRestoredIrregularCacheGap) {
+    const std::string name = "partial_block_restored_irregular_gap";
+    const auto hash = BlockFileCache::hash(name);
+    const auto content = patterned_content('h') + patterned_content('n');
+    {
+        auto cache = create_cache(name);
+        ReadStatistics stats;
+        CacheContext context;
+        context.stats = &stats;
+        // Persist [2, 6 KiB): it overlaps the [0, 4 KiB) target, with a hole at its start.
+        auto holder = cache->get_or_set(hash, kBlockSize / 2, kBlockSize, context);
+        ASSERT_EQ(holder.file_blocks.size(), 1);
+        auto block = holder.file_blocks.front();
+        ASSERT_EQ(block->get_or_set_downloader(), FileBlock::get_caller_id());
+        ASSERT_TRUE(block->append(Slice(content.data() + kBlockSize / 2, kBlockSize)).ok());
+        ASSERT_TRUE(block->finalize().ok());
+    }
+
+    auto cache = std::make_unique<BlockFileCache>((caches_dir / name).string(),
+                                                  partial_writeback_cache_settings());
+    ASSERT_TRUE(cache->initialize().ok());
+    wait_until_cache_ready(*cache);
+    const auto restored = cache->get_blocks_by_key(hash);
+    ASSERT_EQ(restored.size(), 1);
+    EXPECT_EQ(restored.begin()->second->range().left, kBlockSize / 2);
+    EXPECT_EQ(restored.begin()->second->range().right, kBlockSize * 3 / 2 - 1);
+    auto* writer = cache->async_write_manager();
+    ASSERT_TRUE(writer->start().ok());
+    auto manager = create_manager();
+    auto reader = std::make_shared<ControlledFileReader>(content);
+
+    ASSERT_EQ(manager->try_submit(make_request(writer, nullptr, reader, hash, content, 1024, 1024)),
+              PartialBlockSubmitResult::QUEUED);
+    ASSERT_TRUE(wait_until([&]() { return manager->pending_count() == 0; }));
+    ASSERT_TRUE(wait_until([&]() { return writer->pending_count() == 0; }));
+    EXPECT_EQ(reader->read_calls(), 2);
+
+    ReadStatistics stats;
+    CacheContext context;
+    context.stats = &stats;
+    FileBlocks blocks;
+    bool fully_covered = false;
+    ASSERT_TRUE(cache->get_downloaded_blocks_if_fully_covered(hash, 0, kBlockSize, context, &blocks,
+                                                              &fully_covered)
+                        .ok());
+    ASSERT_TRUE(fully_covered);
+    ASSERT_EQ(blocks.size(), 2);
+    std::string cached(kBlockSize, '\0');
+    ASSERT_TRUE(blocks.front()->read(Slice(cached.data(), kBlockSize / 2), 0).ok());
+    ASSERT_TRUE(blocks.back()->read(Slice(cached.data() + kBlockSize / 2, kBlockSize / 2), 0).ok());
+    EXPECT_EQ(cached, content.substr(0, kBlockSize));
+}
+
 TEST_F(PartialBlockWritebackManagerTest, SkipsInflightBlockWithoutProbingCache) {
     auto cache = create_cache("partial_block_inflight_before_probe");
     auto* writer = cache->async_write_manager();
