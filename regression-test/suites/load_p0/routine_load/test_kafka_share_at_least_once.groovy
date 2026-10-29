@@ -80,6 +80,19 @@ suite("test_kafka_share_at_least_once", "kafka_share,nonConcurrent") {
         producerProperties.put("acks", "all")
         def producer = new KafkaProducer<String, String>(producerProperties)
         try {
+            def transactionalProperties = new Properties()
+            transactionalProperties.putAll(producerProperties)
+            transactionalProperties.put("transactional.id", "${group}_source".toString())
+            def transactionalProducer = new KafkaProducer<String, String>(transactionalProperties)
+            try {
+                transactionalProducer.initTransactions()
+                transactionalProducer.beginTransaction()
+                transactionalProducer.send(new ProducerRecord<String, String>(topic, "-1,aborted"))
+                        .get(30, TimeUnit.SECONDS)
+                transactionalProducer.abortTransaction()
+            } finally {
+                transactionalProducer.close()
+            }
             def sendBatch = { int firstId, int lastId ->
                 for (int id = firstId; id <= lastId; ++id) {
                     producer.send(new ProducerRecord<String, String>(topic, "${id},value_${id}".toString()))
@@ -96,6 +109,22 @@ suite("test_kafka_share_at_least_once", "kafka_share,nonConcurrent") {
                         FROM test_kafka_share_at_least_once GROUP BY id ORDER BY id
                     """
                     rows == (1..expected).collect { [it, "value_${it}".toString(), "value_${it}".toString()] }
+                }
+            }
+            def restart = { String encodedCommand ->
+                def command = new JsonSlurper().parseText(encodedCommand)
+                assertTrue(command instanceof List && !command.isEmpty(), "Provide a JSON command array")
+                def log = File.createTempFile("doris-share-restart-", ".log")
+                try {
+                    def process = new ProcessBuilder(command.collect { it.toString() })
+                            .redirectErrorStream(true).redirectOutput(log).start()
+                    if (!process.waitFor(90, TimeUnit.SECONDS)) {
+                        process.destroyForcibly().waitFor(5, TimeUnit.SECONDS)
+                        throw new IllegalStateException("Restart command timed out")
+                    }
+                    assertEquals(0, process.exitValue(), log.text)
+                } finally {
+                    log.delete()
                 }
             }
 
@@ -141,6 +170,51 @@ suite("test_kafka_share_at_least_once", "kafka_share,nonConcurrent") {
             sendBatch(21, 40)
             sql "RESUME ROUTINE LOAD FOR ${job}"
             waitForRows(40)
+
+            def restartCommand = context.config.otherConfigs.get("kafkaShareRestartBeCommand")
+            int expected = 40
+            if (restartCommand) {
+                def ackInjection = "RoutineLoadTaskExecutor.before_share_ack"
+                try {
+                    GetDebugPoint().enableDebugPointForAllBEs(ackInjection)
+                    sendBatch(41, 60)
+                    awaitUntil(60) {
+                        (sql "SELECT count(*) FROM test_kafka_share_at_least_once WHERE id BETWEEN 41 AND 60")[0][0] > 0
+                    }
+                    restart(restartCommand.toString())
+                    awaitUntil(180) {
+                        def status = sql_return_maparray "SHOW ROUTINE LOAD FOR ${job}"
+                        if (status[0].State == "PAUSED") {
+                            sql "RESUME ROUTINE LOAD FOR ${job}"
+                        }
+                        def duplicated = sql """
+                            SELECT count(*) FROM (
+                                SELECT id FROM test_kafka_share_at_least_once
+                                WHERE id BETWEEN 41 AND 60 GROUP BY id HAVING count(*) > 1
+                            ) replayed
+                        """
+                        duplicated[0][0] > 0
+                    }
+                    waitForRows(60)
+                    expected = 60
+                    logger.info("Verified BE crash after Doris commit: redelivery duplicated rows without missing IDs")
+                } finally {
+                    GetDebugPoint().disableDebugPointForAllBEs(ackInjection)
+                }
+            } else {
+                logger.info("Skipping BE crash window: kafkaShareRestartBeCommand is not configured")
+            }
+            def restartKafka = context.config.otherConfigs.get("kafkaShareRestartKafkaCommand")
+            if (restartKafka) {
+                sql "PAUSE ROUTINE LOAD FOR ${job}"
+                sendBatch(expected + 1, expected + 20)
+                restart(restartKafka.toString())
+                sql "RESUME ROUTINE LOAD FOR ${job}"
+                waitForRows(expected + 20)
+                logger.info("Verified broker restart: same share group recovered all expected IDs and payloads")
+            } else {
+                logger.info("Skipping broker restart: kafkaShareRestartKafkaCommand is not configured")
+            }
         } finally {
             producer.close()
         }

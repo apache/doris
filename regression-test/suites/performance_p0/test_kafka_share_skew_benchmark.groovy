@@ -49,11 +49,16 @@ suite("test_kafka_share_skew_benchmark", "kafka_share_benchmark,nonConcurrent") 
     int records = (config.get("kafkaShareBenchmarkRecords") ?: "100000") as int
     int payloadBytes = (config.get("kafkaShareBenchmarkPayloadBytes") ?: "256") as int
     int repetitions = (config.get("kafkaShareBenchmarkRepetitions") ?: "3") as int
+    int timeoutSeconds = (config.get("kafkaShareBenchmarkTimeoutSeconds") ?: "600") as int
     def readers = (config.get("kafkaShareBenchmarkReaders") ?: "1,3,9").toString()
             .split(",").collect { it.trim() as int }
     assertTrue(records > 0 && payloadBytes > 0 && payloadBytes <= 1024 && repetitions >= 3)
+    assertTrue(timeoutSeconds >= 60)
     assertTrue(readers.every { it > 0 } && readers.toSet().size() == readers.size())
     def broker = RoutineLoadTestUtils.getKafkaBroker(context)
+    def progressPaths = new JsonSlurper().parseText(config.get("kafkaShareBenchmarkBeLogs")?.toString() ?: "[]")
+    assertTrue(progressPaths instanceof List, "kafkaShareBenchmarkBeLogs must be a JSON array")
+    def progressLogs = progressPaths.collect { new File(it.toString()) }
     def tables = [standard: "kafka_skew_classic", share: "kafka_skew_share"]
     def properties = new Properties()
     properties.put("bootstrap.servers", broker)
@@ -79,8 +84,11 @@ suite("test_kafka_share_skew_benchmark", "kafka_share_benchmark,nonConcurrent") 
               frontends: sql_return_maparray("SHOW FRONTENDS"), backends: sql_return_maparray("SHOW BACKENDS"),
               jvm: System.getProperty("java.version"), platform: System.getProperty("os.name"),
               doris_build_type: config.get("kafkaShareBenchmarkBuildType") ?: "unknown",
+              source_progress_checked: !progressLogs.isEmpty(),
               payload_bytes: payloadBytes, repetitions: repetitions, readers: readers,
-              producer: [acks: "all", idempotent: true, batch_size: 65536, linger_ms: 5, compression: "lz4"],
+              timeout_seconds: timeoutSeconds,
+              producer: [acks: "all", idempotent: true, batch_size: 65536, linger_ms: 5, compression: "lz4",
+                         request_timeout_ms: 10000, delivery_timeout_ms: 30000],
               timing: "job creation to first query observing all unique IDs; poll interval 0.5 seconds"])
         scenarios.each { scenario ->
             readers.each { concurrency ->
@@ -99,7 +107,8 @@ suite("test_kafka_share_skew_benchmark", "kafka_share_benchmark,nonConcurrent") 
                         producerProperties.putAll(["key.serializer": "org.apache.kafka.common.serialization.StringSerializer",
                                 "value.serializer": "org.apache.kafka.common.serialization.StringSerializer",
                                 "acks": "all", "enable.idempotence": "true", "batch.size": "65536",
-                                "linger.ms": "5", "compression.type": "lz4", "delivery.timeout.ms": "30000"])
+                                "linger.ms": "5", "compression.type": "lz4", "delivery.timeout.ms": "30000",
+                                "request.timeout.ms": "10000"])
                         def deliveries = new AtomicLongArray(scenario.partitions as int)
                         def failure = new AtomicReference<Exception>()
                         def producer = new KafkaProducer<String, String>(producerProperties)
@@ -132,7 +141,7 @@ suite("test_kafka_share_skew_benchmark", "kafka_share_benchmark,nonConcurrent") 
                             boolean started = false
                             def samples = []
                             def result = [event: "result", scenario: scenario.name, partitions: scenario.partitions,
-                                    requested_readers: concurrency, repetition: repetition, warmup: warmup,
+                                    requested_tasks: concurrency, repetition: repetition, warmup: warmup,
                                     mode: mode, order: orderIndex, expected: count, topic: topic, job: job,
                                     producer_partition_counts: (0..<scenario.partitions).collect { deliveries.get(it) },
                                     passed: false]
@@ -153,6 +162,7 @@ suite("test_kafka_share_skew_benchmark", "kafka_share_benchmark,nonConcurrent") 
                                     DISTRIBUTED BY HASH(event_id) BUCKETS 3
                                     PROPERTIES ("replication_num" = "1", "compression" = "zstd")
                                 """
+                                def logPositions = progressLogs.collectEntries { [(it.path): it.length()] }
                                 long begin = System.nanoTime()
                                 def offset = mode == "standard" ?
                                         ', "property.kafka_default_offsets" = "OFFSET_BEGINNING", "property.isolation.level" = "read_committed"' : ""
@@ -166,7 +176,7 @@ suite("test_kafka_share_skew_benchmark", "kafka_share_benchmark,nonConcurrent") 
                                         "kafka_consumer_type" = "${mode}", "property.group.id" = "${group}" ${offset})
                                 """
                                 started = true
-                                awaitUntil(300, 0.5) {
+                                awaitUntil(timeoutSeconds, 0.5) {
                                     def rows = sql "SELECT count(*), count(DISTINCT event_id) FROM ${tables[mode]}"
                                     def status = sql_return_maparray "SHOW ROUTINE LOAD FOR ${job}"
                                     assertTrue(status[0].State in ["NEED_SCHEDULE", "RUNNING"], "${status}")
@@ -175,8 +185,34 @@ suite("test_kafka_share_skew_benchmark", "kafka_share_benchmark,nonConcurrent") 
                                     rows[0][1] == count
                                 }
                                 double seconds = samples[-1].seconds
-                                sql "PAUSE ROUTINE LOAD FOR ${job}"
                                 def status = (sql_return_maparray "SHOW ROUTINE LOAD FOR ${job}")[0]
+                                if (!progressLogs.isEmpty()) {
+                                    awaitUntil(60, 0.5) {
+                                        long completed = 0
+                                        long failed = 0
+                                        progressLogs.each { log ->
+                                            new RandomAccessFile(log, "r").withCloseable { file ->
+                                                file.seek(logPositions[log.path] as long)
+                                                String line
+                                                while ((line = file.readLine()) != null) {
+                                                    def match = line =~ /kafka_reader_stage job=${status.Id} reader=\S+ mode=\S+ stage=(task_ack_ok|task_ack_failed|task_offset_submit).* records=(\d+)/
+                                                    if (match.find()) {
+                                                        if (match.group(1) == "task_ack_failed") {
+                                                            ++failed
+                                                        } else {
+                                                            completed += match.group(2) as long
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        assertEquals(0L, failed, "Performance trial had an acknowledgement failure")
+                                        completed >= count
+                                    }
+                                    result.putAll([source_progress_checked: true,
+                                            source_progress_seconds: (System.nanoTime() - begin) / 1e9])
+                                }
+                                sql "PAUSE ROUTINE LOAD FOR ${job}"
                                 def jobProperties = new JsonSlurper().parseText(status.JobProperties)
                                 int effective = jobProperties.current_concurrent_number as int
                                 assertEquals(mode == "share" ? concurrency : Math.min(concurrency, scenario.partitions as int),
@@ -195,7 +231,7 @@ suite("test_kafka_share_skew_benchmark", "kafka_share_benchmark,nonConcurrent") 
                                 """)[0]
                                 result.putAll([job_id: status.Id, seconds: seconds, unique_rows: verified[1] as long,
                                         duplicates: (verified[0] as long) - (verified[1] as long),
-                                        bad_rows: verified[2] as long, effective_readers: effective,
+                                        bad_rows: verified[2] as long, scheduled_tasks: effective,
                                         unique_rows_per_second: count / seconds,
                                         visible_95_percent_seconds: samples.find { it.unique >= Math.ceil(count * 0.95) }.seconds,
                                         samples: samples, statistic: new JsonSlurper().parseText(status.Statistic)])

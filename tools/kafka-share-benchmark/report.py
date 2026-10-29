@@ -45,7 +45,13 @@ def summarize(events):
             raise ValueError(f"Invalid correctness or timing evidence: {run.get('job')}")
         if sum(run["producer_partition_counts"]) != run["expected"]:
             raise ValueError("Producer confirmation count differs from expected input")
-        key = (run["scenario"], run["requested_readers"], run["repetition"])
+        if environment.get("source_progress_checked") and not run.get("source_progress_checked"):
+            raise ValueError("Missing declared source progress verification")
+        if run.get("source_progress_checked") and (
+                not math.isfinite(run.get("source_progress_seconds", float("nan")))
+                or run["source_progress_seconds"] < run["seconds"]):
+            raise ValueError("Invalid source progress completion time")
+        key = (run["scenario"], run["requested_tasks"], run["repetition"])
         modes = groups.setdefault(key, {})
         if run["mode"] in modes:
             raise ValueError(f"Duplicate mode in pair: {key}")
@@ -77,7 +83,7 @@ def summarize(events):
             raise ValueError(f"Wrong source skew: {key}")
         for mode, run in modes.items():
             expected_readers = key[1] if mode == "share" else min(key[1], expected_partitions)
-            if run["effective_readers"] != expected_readers:
+            if run["scheduled_tasks"] != expected_readers:
                 raise ValueError(f"Concurrency capped unexpectedly: {key}, {mode}")
     summaries = []
     for scenario in ("balanced", "hot95", "single"):
@@ -91,13 +97,24 @@ def summarize(events):
                 samples = [groups[scenario, readers, r][mode]
                            for r in range(1, environment["repetitions"] + 1)]
                 rates = [r["unique_rows"] / r["seconds"] for r in samples]
-                summaries.append(dict(scenario=scenario, requested_readers=readers, mode=mode,
-                                      effective_readers=samples[0]["effective_readers"],
+                summaries.append(dict(scenario=scenario, requested_tasks=readers, mode=mode,
+                                      scheduled_tasks=samples[0]["scheduled_tasks"],
                                       measured_runs=len(samples), median_unique_rows_s=statistics.median(rates),
                                       minimum_unique_rows_s=min(rates), maximum_unique_rows_s=max(rates),
                                       median_drain_seconds=statistics.median(r["seconds"] for r in samples),
                                       median_visible_95_percent_seconds=statistics.median(
                                           r["visible_95_percent_seconds"] for r in samples),
+                                      median_source_progress_seconds=statistics.median(
+                                          r["source_progress_seconds"] for r in samples)
+                                      if all("source_progress_seconds" in r for r in samples) else None,
+                                      median_committed_tasks=statistics.median(
+                                          r["statistic"]["committedTaskNum"] for r in samples)
+                                      if all("statistic" in r for r in samples) else None,
+                                      median_rows_per_commit=statistics.median(
+                                          r["statistic"]["loadedRows"] / r["statistic"]["committedTaskNum"]
+                                          for r in samples)
+                                      if all(r.get("statistic", {}).get("committedTaskNum", 0) > 0
+                                             for r in samples) else None,
                                       duplicate_rows=sum(r["duplicates"] for r in samples),
                                       median_paired_share_over_classic=statistics.median(paired_rates)))
     return {"environment": environment, "summary": summaries, "runs": runs}
@@ -135,13 +152,15 @@ def main():
         writer = csv.DictWriter(stream, fieldnames=list(result["summary"][0]))
         writer.writeheader()
         writer.writerows(result["summary"])
-    columns = ["scenario", "requested_readers", "mode", "effective_readers", "measured_runs",
+    columns = ["scenario", "requested_tasks", "mode", "scheduled_tasks", "measured_runs",
                "median_unique_rows_s", "minimum_unique_rows_s", "maximum_unique_rows_s",
-               "median_drain_seconds", "median_visible_95_percent_seconds", "duplicate_rows",
+               "median_drain_seconds", "median_visible_95_percent_seconds", "median_source_progress_seconds",
+               "median_committed_tasks", "median_rows_per_commit", "duplicate_rows",
                "median_paired_share_over_classic"]
     rows = []
     for row in result["summary"]:
-        values = [f"{row[c]:.3f}" if isinstance(row[c], float) else str(row[c]) for c in columns]
+        values = [f"{row[c]:.3f}" if isinstance(row[c], float) else
+                  ("not measured" if row[c] is None else str(row[c])) for c in columns]
         rows.append("<tr>" + "".join(f"<td>{html.escape(v)}</td>" for v in values) + "</tr>")
     page = """<!doctype html><html lang="en"><meta charset="utf-8">
 <title>Native Kafka Routine Load comparison</title>
@@ -152,9 +171,12 @@ pre{white-space:pre-wrap}section{overflow:auto}</style>
 <p>Sequential runs on identical preloaded topics. Warmups excluded; medians and ranges shown.
 Throughput counts unique visible IDs. The 95% time is backlog completion time,
 not a per-record latency percentile. Scheduling, job creation and polling are included.
+Source progress time, when checked, additionally waits for successful share acknowledgements
+or classic offset submission attempts; it is separate from visible-row throughput.
 Three buckets, one replica, LZ4 producer batches and ZSTD Doris tables.
 No simulated handler delay. Default development ASAN builds are not production capacity measurements.
-Effective readers means scheduled task concurrency, not simultaneous readers receiving data.</p>
+Scheduled tasks are Routine Load transactions in flight, not observed reader threads.
+The classic path may use several consumers within one task for its assigned partitions.</p>
 <section><table><thead><tr>"""
     page += "".join(f"<th>{html.escape(c)}</th>" for c in columns) + "</tr></thead><tbody>"
     page += "".join(rows) + "</tbody></table></section><h2>Recorded environment</h2><pre>"

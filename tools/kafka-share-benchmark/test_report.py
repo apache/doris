@@ -30,7 +30,7 @@ def evidence():
         for repetition in range(4):
             for mode in ("standard", "share"):
                 events.append(dict(event="result", passed=True, scenario=scenario, partitions=partitions,
-                                   requested_readers=3, effective_readers=3 if mode == "share" else partitions,
+                                   requested_tasks=3, scheduled_tasks=3 if mode == "share" else partitions,
                                    repetition=repetition, warmup=repetition == 0, mode=mode,
                                    order=0 if mode == "standard" else 1, topic=f"{scenario}_{repetition}",
                                    expected=100, unique_rows=100, bad_rows=0, duplicates=0,
@@ -59,7 +59,7 @@ class ReportTest(unittest.TestCase):
 
     def test_rejects_incorrect_or_incomparable_results(self):
         for field, value in (("unique_rows", 99), ("bad_rows", 1), ("passed", False),
-                             ("topic", "different"), ("effective_readers", 1),
+                             ("topic", "different"), ("scheduled_tasks", 1),
                              ("seconds", float("nan")), ("producer_partition_counts", [90, 5, 5])):
             events = copy.deepcopy(evidence())
             events[3][field] = value
@@ -70,6 +70,20 @@ class ReportTest(unittest.TestCase):
         events = evidence()
         events[9]["producer_partition_counts"] = [90, 5, 5]
         events[10]["producer_partition_counts"] = [90, 5, 5]
+        with self.assertRaises(ValueError):
+            summarize(events)
+
+    def test_requires_declared_source_progress_verification(self):
+        events = evidence()
+        events[0]["source_progress_checked"] = True
+        with self.assertRaises(ValueError):
+            summarize(events)
+        for event in events:
+            if event.get("event") == "result":
+                event.update(source_progress_checked=True, source_progress_seconds=event["seconds"] + 1)
+        result = summarize(events)["summary"]
+        self.assertEqual(result[0]["median_source_progress_seconds"], 11)
+        events[3]["source_progress_seconds"] = 0
         with self.assertRaises(ValueError):
             summarize(events)
 
