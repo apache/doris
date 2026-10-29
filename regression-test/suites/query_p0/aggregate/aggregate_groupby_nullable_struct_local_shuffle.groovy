@@ -49,10 +49,9 @@ suite("aggregate_groupby_nullable_struct_local_shuffle") {
     """
 
     // Force a local hash shuffle on the struct key before the single-phase aggregation.
-    sql """ SET enable_local_shuffle_planner = true """
+    sql """ SET force_to_local_shuffle = true """
     sql """ SET enable_query_cache = false """
     sql """ SET agg_phase = 1 """
-    sql """ SET enable_bucketed_hash_agg = false """
     sql """ SET experimental_use_serial_exchange = true """
     sql """ SET ignore_storage_data_distribution = true """
     sql """ SET parallel_pipeline_task_num = 3 """
