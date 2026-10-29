@@ -117,13 +117,14 @@ struct S3ClientConf {
     std::string to_string() const {
         return fmt::format(
                 "(ak={}, token={}, endpoint={}, region={}, bucket={}, max_connections={}, "
-                "request_timeout_ms={}, connect_timeout_ms={}, token_expiration_time_ms={}, use_virtual_addressing={}, "
+                "request_timeout_ms={}, connect_timeout_ms={}, token_expiration_time_ms={}, "
+                "use_virtual_addressing={}, "
                 "cred_provider_type={},role_arn={}, external_id={}, credential_type={}, "
                 "is_internal_bucket={}",
-                hide_access_key(ak), token.empty() ? "<not set>" : "<set>", endpoint, region, bucket,
-                max_connections, request_timeout_ms, connect_timeout_ms, token_expiration_time_ms, use_virtual_addressing,
-                cred_provider_type, role_arn, external_id, credential_type_name(credential),
-                is_internal_bucket);
+                hide_access_key(ak), token.empty() ? "<not set>" : "<set>", endpoint, region,
+                bucket, max_connections, request_timeout_ms, connect_timeout_ms,
+                token_expiration_time_ms, use_virtual_addressing, cred_provider_type, role_arn,
+                external_id, credential_type_name(credential), is_internal_bucket);
     }
 };
 

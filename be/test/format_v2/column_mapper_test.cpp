@@ -3785,16 +3785,12 @@ TEST_F(ColumnMapperCastTest, ScalarConjunctStaysTableLevelForNullableFileMappedT
     TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
     ASSERT_TRUE(mapper.create_mapping({table_column}, {}, {file_column}).ok());
     FileScanRequest request;
-    FilterLocalizationResult localization_result;
-    const auto status = mapper.create_scan_request({filter}, {table_column}, &request, &state,
-                                                   &localization_result);
+    const auto status = mapper.create_scan_request({filter}, {table_column}, &request, &state);
     ASSERT_TRUE(status.ok()) << status;
 
     // A Delta NOT NULL column can still be physically optional in Parquet. Rewriting the slot
     // and literal to Nullable(BIGINT) would make the unchanged non-nullable `ge` return nullable
     // BOOL. More importantly, file filtering must not hide NULL from table-schema validation.
-    ASSERT_EQ(localization_result.localized_filters.size(), 1);
-    EXPECT_FALSE(localization_result.localized_filters[0]);
     EXPECT_TRUE(request.conjuncts.empty());
     EXPECT_TRUE(request.predicate_columns.empty());
     EXPECT_EQ(projection_ids(request.non_predicate_columns), std::vector<int32_t>({7}));
@@ -3825,12 +3821,8 @@ TEST_F(ColumnMapperCastTest, ScalarConjunctRemainsFileLocalWhenNullabilityDoesNo
         TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
         ASSERT_TRUE(mapper.create_mapping({table_column}, {}, {file_column}).ok());
         FileScanRequest request;
-        FilterLocalizationResult localization_result;
-        auto status = mapper.create_scan_request({filter}, {table_column}, &request, &state,
-                                                 &localization_result);
+        auto status = mapper.create_scan_request({filter}, {table_column}, &request, &state);
         ASSERT_TRUE(status.ok()) << status;
-        ASSERT_EQ(localization_result.localized_filters.size(), 1);
-        EXPECT_TRUE(localization_result.localized_filters[0]);
         ASSERT_EQ(request.conjuncts.size(), 1);
         EXPECT_EQ(projection_ids(request.predicate_columns), std::vector<int32_t>({7}));
         EXPECT_TRUE(request.non_predicate_columns.empty());

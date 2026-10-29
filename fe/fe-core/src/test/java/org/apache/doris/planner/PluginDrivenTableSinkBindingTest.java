@@ -326,7 +326,8 @@ public class PluginDrivenTableSinkBindingTest {
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
         PluginDrivenTableSink sink = new PluginDrivenTableSink(table, provider, session, latest,
-                Collections.emptyList(), null, null, false, metadata);
+                Collections.emptyList(), Collections.emptyList(), null, WriteOperation.OVERWRITE,
+                true, false, null, metadata, Config.max_be_exec_version);
         PluginDrivenInsertCommandContext context = new PluginDrivenInsertCommandContext();
         context.setOverwrite(true);
         context.setOverwriteBaseHandle(selectedBase);

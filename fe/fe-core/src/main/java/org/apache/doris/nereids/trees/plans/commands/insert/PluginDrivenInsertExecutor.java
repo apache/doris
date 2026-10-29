@@ -105,12 +105,6 @@ public class PluginDrivenInsertExecutor extends BaseExternalTableInsertExecutor 
     }
 
     @Override
-    public boolean requiresTransaction() {
-        // Preserve stream-offset commits from the base class and deletion-only empty overwrites.
-        return overwrite || super.requiresTransaction();
-    }
-
-    @Override
     public void beginTransaction() {
         ensureConnectorSetup();
         // Single transaction model: every plugin-driven write opens a ConnectorTransaction and

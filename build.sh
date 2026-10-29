@@ -1349,7 +1349,10 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
         # named): a new connector ships a template and needs no change here.
         for conn_conf_tpl in "${conn_plugin_target}"/*.conf.template; do
             [ -e "${conn_conf_tpl}" ] || continue
-            cp -n "${conn_conf_tpl}" "${conn_conf_tpl%.template}"
+            # BSD cp -n returns failure when it skips an existing file under set -e.
+            if [[ ! -e "${conn_conf_tpl%.template}" && ! -L "${conn_conf_tpl%.template}" ]]; then
+                cp "${conn_conf_tpl}" "${conn_conf_tpl%.template}"
+            fi
         done
     done
     unset CONN_PLUGIN_DIR conn_module conn_plugin_target conn_module_dir conn_zip conn_conf_tpl

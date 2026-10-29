@@ -42,11 +42,13 @@
 #include <cerrno>
 #include <chrono>
 #include <csignal>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <utility>
 
 #include "common/config.h"
 #include "gtest/gtest_pred_impl.h"
@@ -130,6 +132,10 @@ TEST(HttpClientResetTest, ReleasesCopiedPayloadWithoutDestroyingHandle) {
 class HttpClientTlsTest : public testing::Test {
 protected:
     void SetUp() override {
+        // libcurl uses CURLOPT_NOSIGNAL, so a rejected TLS peer can signal the client thread too.
+        sigemptyset(&_blocked_signals);
+        sigaddset(&_blocked_signals, SIGPIPE);
+        ASSERT_EQ(pthread_sigmask(SIG_BLOCK, &_blocked_signals, &_original_signal_mask), 0);
         {
             std::scoped_lock lock(*config::get_mutable_string_config_lock());
             _original_ca_paths = config::ca_cert_file_paths;
@@ -292,6 +298,8 @@ protected:
             EXPECT_EQ(unlink(_ca_path.c_str()), 0);
         }
         stop_server();
+        drain_pending_sigpipe(_blocked_signals);
+        ASSERT_EQ(pthread_sigmask(SIG_SETMASK, &_original_signal_mask, nullptr), 0);
     }
 
     void stop_server() {
@@ -338,6 +346,8 @@ protected:
     std::thread _server_thread;
     std::string _ca_path;
     std::string _original_ca_paths;
+    sigset_t _blocked_signals {};
+    sigset_t _original_signal_mask {};
 };
 
 TEST_F(HttpClientTlsTest, tls_listener_stops_without_connections) {
@@ -548,9 +558,12 @@ public:
 
 class HttpDownloadFileHandler : public HttpHandler {
 public:
-    void handle(HttpRequest* req) override {
-        do_file_response("/proc/self/exe", req, nullptr, true);
-    }
+    void set_file_path(std::string file_path) { _file_path = std::move(file_path); }
+
+    void handle(HttpRequest* req) override { do_file_response(_file_path, req, nullptr, true); }
+
+private:
+    std::string _file_path;
 };
 
 class HttpBatchDownloadFileHandler : public HttpHandler {
@@ -878,6 +891,17 @@ TEST_F(HttpClientTest, content_md5_uses_final_response_headers) {
 }
 
 TEST_F(HttpClientTest, download_file_md5) {
+    char file_path[] = ".http_client_md5_XXXXXX";
+    const int fd = mkstemp(file_path);
+    ASSERT_GE(fd, 0);
+    Defer cleanup {[&] {
+        close(fd);
+        unlink(file_path);
+    }};
+    const std::string payload = "HTTP download MD5 fixture";
+    ASSERT_EQ(write(fd, payload.data(), payload.size()), payload.size());
+    s_download_file_handler.set_file_path(file_path);
+
     std::string url = hostname + "/download_file";
     HttpClient client;
     auto st = client.init(url);
@@ -891,8 +915,6 @@ TEST_F(HttpClientTest, download_file_md5) {
     st = client.get_content_md5(&md5_value);
     EXPECT_TRUE(st.ok());
 
-    int fd = open("/proc/self/exe", O_RDONLY);
-    ASSERT_TRUE(fd >= 0);
     struct stat stat;
     ASSERT_TRUE(fstat(fd, &stat) >= 0);
 
@@ -904,7 +926,6 @@ TEST_F(HttpClientTest, download_file_md5) {
     munmap(buf, file_size);
 
     EXPECT_EQ(md5_value, md5.hex());
-    close(fd);
 }
 
 TEST_F(HttpClientTest, escape_url) {

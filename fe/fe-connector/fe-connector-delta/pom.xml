@@ -72,6 +72,7 @@ under the License.
         <dependency>
             <groupId>com.google.cloud.bigdataoss</groupId>
             <artifactId>gcs-connector</artifactId>
+            <version>4.0.0</version>
             <classifier>shaded</classifier>
             <exclusions>
                 <exclusion>

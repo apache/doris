@@ -727,23 +727,6 @@ void write_parquet_file(const std::string& file_path, int32_t id, const std::str
                                                       builder.build()));
 }
 
-void write_single_int_parquet_file(const std::string& file_path, const std::string& column_name,
-                                   int32_t value) {
-    auto schema = arrow::schema({arrow::field(column_name, arrow::int32(), false)});
-    auto table = arrow::Table::Make(schema, {build_int32_array({value})});
-
-    auto file_result = arrow::io::FileOutputStream::Open(file_path);
-    ASSERT_TRUE(file_result.ok()) << file_result.status();
-    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
-
-    ::parquet::WriterProperties::Builder builder;
-    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
-    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
-    builder.compression(::parquet::Compression::UNCOMPRESSED);
-    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 1,
-                                                      builder.build()));
-}
-
 void write_nullable_bigint_pair_parquet_file(const std::string& file_path, bool contains_null) {
     arrow::Int64Builder values;
     if (contains_null) {
@@ -3039,9 +3022,13 @@ TEST(TableReaderTest, FieldIdLookupUsesExternalScanSemanticsForCurrentAndHistori
         scan_params.__set_history_schema_info(std::move(schemas));
         RuntimeState state;
         TableReader reader;
-        ASSERT_TRUE(reader.init({.format = FileFormat::PARQUET,
+        ASSERT_TRUE(reader.init({.projected_columns = {},
+                                 .conjuncts = {},
+                                 .format = FileFormat::PARQUET,
                                  .scan_params = &scan_params,
-                                 .runtime_state = &state})
+                                 .io_ctx = nullptr,
+                                 .runtime_state = &state,
+                                 .scanner_profile = nullptr})
                             .ok());
 
         const auto legacy_column =
@@ -5739,6 +5726,8 @@ TEST(TableReaderTest, RequiredBigintValidatesNullabilityBeforeComparisonFilter) 
                         << status;
             } else {
                 ASSERT_TRUE(status.ok()) << status;
+                // Scanner applies table-level predicates after required-column validation.
+                ASSERT_TRUE(VExprContext::filter_block(conjuncts, &block, block.columns()).ok());
                 const auto expected_ids =
                         with_filter ? std::vector<int64_t> {2} : std::vector<int64_t> {1, 2};
                 ASSERT_EQ(block.rows(), expected_ids.size());

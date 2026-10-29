@@ -1,3 +1,7 @@
+// The macOS SDK's math.h requests only infinity/NaN from float.h. Load all floating-point limits
+// first so libc++ 22's float.h include guard cannot hide them from later third-party headers.
+#include <cfloat>
+
 #ifndef __APPLE__
 #if defined(__aarch64__)
 #include <sse2neon.h>
@@ -398,7 +402,6 @@
 #include <cassert>
 #include <cctype>
 #include <cerrno>
-#include <cfloat>
 #include <charconv>
 #include <chrono>
 #include <cinttypes>

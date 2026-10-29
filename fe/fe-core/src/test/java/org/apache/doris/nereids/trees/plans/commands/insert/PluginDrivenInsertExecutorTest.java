@@ -76,14 +76,13 @@ public class PluginDrivenInsertExecutorTest {
         Assertions.assertFalse(PluginDrivenInsertExecutor.canSkipEmptyInput(true, true));
         Assertions.assertFalse(PluginDrivenInsertExecutor.canSkipEmptyInput(false, true));
 
-        PluginDrivenInsertExecutor exec = newUnconstructedExecutor();
-        Deencapsulation.setField(exec, "emptyInsert", true);
+        PluginDrivenInsertExecutor exec = emptyInsertExecutor(Optional.empty());
         Assertions.assertFalse(exec.requiresTransaction());
-        Deencapsulation.setField(exec, "overwrite", true);
-        Assertions.assertTrue(exec.requiresTransaction(),
+        PluginDrivenInsertCommandContext overwrite = new PluginDrivenInsertCommandContext();
+        overwrite.setOverwrite(true);
+        Assertions.assertTrue(emptyInsertExecutor(Optional.of(overwrite)).requiresTransaction(),
                 "the new insert lifecycle must still open and finalize an empty overwrite transaction");
 
-        Deencapsulation.setField(exec, "overwrite", false);
         exec.setStreamUpdateInfos(Collections.singletonList(Mockito.mock(TableStreamUpdateInfo.class)));
         Assertions.assertTrue(exec.requiresTransaction(), "the upstream empty stream-offset commit must remain intact");
     }
@@ -182,7 +181,8 @@ public class PluginDrivenInsertExecutorTest {
         ConnectorSession sinkSession = ConnectorSessionBuilder.create().build();
         RecordingWritePlanProvider provider = new RecordingWritePlanProvider();
         PluginDrivenTableSink sink = new PluginDrivenTableSink(
-                null, provider, sinkSession, latest, Collections.emptyList());
+                null, provider, sinkSession, latest, Collections.emptyList(), Collections.emptyList(), null,
+                WriteOperation.OVERWRITE, true, false, null, null, Config.max_be_exec_version);
 
         exec.beginTransaction();
         try {

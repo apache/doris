@@ -59,7 +59,7 @@ public class PluginDrivenExternalCatalogTruncateTest {
     @Test
     public void testTruncateRejectsMissingRemoteTable() {
         try (PluginDrivenCatalogTestFixture fixture = new PluginDrivenCatalogTestFixture()) {
-            Mockito.when(fixture.metadata.getTableHandle(fixture.session, "remote_db", "events"))
+            Mockito.when(fixture.metadata.getTableHandleForDdl(fixture.session, "remote_db", "events"))
                     .thenReturn(Optional.empty());
 
             Assertions.assertThrows(DdlException.class,

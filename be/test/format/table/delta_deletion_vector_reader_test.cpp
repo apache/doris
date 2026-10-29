@@ -82,7 +82,7 @@ std::vector<char> portable_payload(
 std::vector<char> wrap_sidecar(const std::vector<char>& payload) {
     std::vector<char> result(payload.size() + 8);
     BigEndian::Store32(result.data(), payload.size());
-    std::copy(payload.begin(), payload.end(), result.begin() + 4);
+    std::ranges::copy(payload, result.begin() + 4);
     BigEndian::Store32(result.data() + 4 + payload.size(),
                        HashUtil::zlib_crc_hash(payload.data(), payload.size(), 0));
     return result;

@@ -21,6 +21,11 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/test")
 # where to put generated libraries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test")
 
+# Test targets do not reuse the PCH, which loads floating-point limits before the macOS SDK's math.h.
+if (OS_MACOSX AND USE_LIBCPP AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "22")
+    add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include cfloat>")
+endif()
+
 file(GLOB_RECURSE UT_FILES CONFIGURE_DEPENDS
     agent/*.cpp
     ai/*.cpp

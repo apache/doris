@@ -23,6 +23,7 @@
 #include <string_view>
 #include <vector>
 
+#include "common/config.h"
 #include "exec/pipeline/pipeline_fragment_context.h"
 #include "exec/sink/writer/vhive_partition_writer.h"
 #include "format/transformer/vfile_format_transformer.h"
@@ -30,6 +31,7 @@
 #include "io/fs/s3_file_writer.h"
 #include "runtime/exec_env.h"
 #include "testutil/mock/mock_runtime_state.h"
+#include "util/defer_op.h"
 
 namespace doris {
 namespace {
@@ -133,6 +135,11 @@ std::unique_ptr<VHivePartitionWriter> create_closed_hive_writer(
     client_conf.provider = provider;
     auto holder = std::make_shared<io::ObjClientHolder>(client_conf);
     holder->_client = client;
+    // The mock storage writer does not initialize a file-cache environment.
+    const bool old_enable_file_cache = config::enable_file_cache;
+    config::enable_file_cache = false;
+    Defer restore_file_cache {
+            [old_enable_file_cache] { config::enable_file_cache = old_enable_file_cache; }};
     io::FileWriterOptions options {.used_by_s3_committer = true};
     auto file_writer =
             std::make_unique<io::S3FileWriter>(holder, "bucket", "table/part.parquet", &options);

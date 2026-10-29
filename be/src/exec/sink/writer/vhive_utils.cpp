@@ -38,8 +38,7 @@ std::string VHiveUtils::make_partition_name(const std::vector<THiveColumn>& colu
         std::string column = columns[partition_columns_input_index[i]].name;
         std::string value = values[i];
         if (use_hive_partition_encoding) {
-            std::transform(column.begin(), column.end(), column.begin(),
-                           [&](char c) { return std::tolower(c); });
+            std::ranges::transform(column, column.begin(), [&](char c) { return std::tolower(c); });
         }
         partition_name_stream << escape_path_name(column, use_hive_partition_encoding) << '='
                               << escape_path_name(value, use_hive_partition_encoding);

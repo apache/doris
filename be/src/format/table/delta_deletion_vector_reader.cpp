@@ -73,8 +73,8 @@ Status append_roaring_bitmap(const char* data, size_t size, uint64_t high,
         if (bitmap_size > size) {
             return Status::DataQualityError("Delta Roaring bitmap exceeds serialized payload");
         }
-        for (auto iter = bitmap.begin(); iter != bitmap.end(); ++iter) {
-            deletion_vector->add((high << 32) | static_cast<uint32_t>(*iter));
+        for (auto value : bitmap) {
+            deletion_vector->add((high << 32) | static_cast<uint32_t>(value));
         }
         *consumed = bitmap_size;
     } catch (const std::runtime_error& e) {
@@ -197,7 +197,7 @@ Status decode_uuid(std::string_view encoded, boost::uuids::uuid* uuid) {
     }
     std::string bytes;
     RETURN_IF_ERROR(decode_z85(encoded, 16, &bytes));
-    std::copy(bytes.begin(), bytes.end(), uuid->begin());
+    std::ranges::copy(bytes, uuid->begin());
     return Status::OK();
 }
 

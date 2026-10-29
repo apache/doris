@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorMetadata;
@@ -31,9 +32,12 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.statistics.repository.ResultRow;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /** Safety checks shared by connector copy-on-write DML commands. */
@@ -88,10 +92,10 @@ final class ConnectorCopyOnWriteUtils {
             throw new AnalysisException(
                     "Connector copy-on-write DML does not support row filter policies");
         }
-        boolean hasDataMask = table.getBaseSchema(true).stream().anyMatch(column ->
-                accessManager.evalDataMaskPolicy(ctx.getCurrentUserIdentity(), catalogName,
-                        databaseName, tableName, column.getName()).isPresent());
-        if (hasDataMask) {
+        Set<String> columns = table.getBaseSchema(true).stream()
+                .map(Column::getName).collect(Collectors.toSet());
+        if (!accessManager.evalDataMaskPolicies(ctx.getCurrentUserIdentity(), catalogName,
+                databaseName, tableName, columns).isEmpty()) {
             throw new AnalysisException(
                     "Connector copy-on-write DML does not support data masking policies");
         }
@@ -108,7 +112,7 @@ final class ConnectorCopyOnWriteUtils {
 
     static long countRows(ConnectContext ctx, String sql, String operation) {
         try (AutoCloseConnectContext internalContext =
-                new AutoCloseConnectContext(ctx.cloneContext())) {
+                new AutoCloseConnectContext(createCountContext(ctx))) {
             List<ResultRow> rows = new StmtExecutor(
                     internalContext.connectContext, sql).executeInternalQuery();
             if (rows.size() != 1 || rows.get(0).getValues().size() != 1) {
@@ -120,5 +124,24 @@ final class ConnectorCopyOnWriteUtils {
             throw new AnalysisException(
                     "Connector " + operation + " affected-row query returned a non-numeric result", e);
         }
+    }
+
+    static ConnectContext createCountContext(ConnectContext source) {
+        ConnectContext context = new ConnectContext(null, false, source.getSessionId());
+        context.setEnv(source.getEnv());
+        context.restoreNameSpaceContext(source.getNameSpaceContext());
+        context.setCurrentUserIdentity(source.getCurrentUserIdentity());
+        context.setAuthenticatedPrincipal(source.getAuthenticatedPrincipal());
+        context.setAuthenticatedRoles(source.getAuthenticatedRoles());
+        context.setRemoteIP(source.getRemoteIP());
+        context.setConnectAttributes(source.getConnectAttributes());
+        context.setSessionVariable(VariableMgr.cloneSessionVariable(source.getSessionVariable()));
+        context.setUserVars(new HashMap<>(source.getUserVars()));
+        context.setEffectiveCloudCluster(source.getEffectiveCloudCluster());
+        if (source.isSetComputeGroup()) {
+            context.setComputeGroup(source.getComputeGroupSafely());
+        }
+        context.setStartTime();
+        return context;
     }
 }

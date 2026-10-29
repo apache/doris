@@ -42,7 +42,7 @@ public class PluginDrivenExternalCatalogDropTest {
     @Test
     public void testDropIfExistsCleansStaleLocalTable() throws Exception {
         try (PluginDrivenCatalogTestFixture fixture = new PluginDrivenCatalogTestFixture()) {
-            Mockito.when(fixture.metadata.getTableHandle(fixture.session, "remote_db", "events"))
+            Mockito.when(fixture.metadata.getTableHandleForDdl(fixture.session, "remote_db", "events"))
                     .thenReturn(Optional.empty());
 
             fixture.catalog.dropTable("local_db", "events", false, false, false, true, false, false);

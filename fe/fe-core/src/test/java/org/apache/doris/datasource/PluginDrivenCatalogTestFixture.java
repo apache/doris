@@ -52,7 +52,8 @@ final class PluginDrivenCatalogTestFixture implements AutoCloseable {
 
     PluginDrivenCatalogTestFixture() {
         Mockito.when(connector.getMetadata(session)).thenReturn(metadata);
-        Mockito.when(metadata.getTableHandle(session, "remote_db", "events")).thenReturn(Optional.of(handle));
+        Mockito.when(metadata.getTableHandleForDdl(session, "remote_db", "events")).thenReturn(Optional.of(handle));
+        Mockito.when(metadata.tableExists(session, "remote_db", "events")).thenReturn(true);
         Mockito.when(database.getFullName()).thenReturn("local_db");
         Mockito.when(database.getRemoteName()).thenReturn("remote_db");
         Mockito.when(database.isInitialized()).thenReturn(true);

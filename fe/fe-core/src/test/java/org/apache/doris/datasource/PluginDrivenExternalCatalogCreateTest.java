@@ -30,15 +30,14 @@ import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 public class PluginDrivenExternalCatalogCreateTest {
     @Test
     public void testDelegatesStructuredCreateRequest() throws Exception {
         try (PluginDrivenCatalogTestFixture fixture = new PluginDrivenCatalogTestFixture()) {
             Mockito.when(fixture.database.getTableNullable("events")).thenReturn(null);
-            Mockito.when(fixture.metadata.getTableHandle(fixture.session, "remote_db", "events"))
-                    .thenReturn(Optional.empty());
+            Mockito.when(fixture.metadata.tableExists(fixture.session, "remote_db", "events"))
+                    .thenReturn(false);
             CreateTableInfo info = createInfo();
 
             Assertions.assertFalse(fixture.catalog.createTable(info));

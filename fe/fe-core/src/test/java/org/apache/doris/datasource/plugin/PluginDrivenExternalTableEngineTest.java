@@ -31,6 +31,8 @@ import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
+import org.apache.doris.connector.spi.write.ConnectorSinkPlan;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.SchemaCacheValue;
@@ -314,7 +316,9 @@ public class PluginDrivenExternalTableEngineTest {
     public void testCopyOnWriteCapabilityDefaultsToFalse() {
         Connector connector = createMockConnector(true, false);
         Mockito.when(connector.getWritePlanProvider(Mockito.any(ConnectorTableHandle.class)))
-                .thenReturn(new ConnectorWritePlanProvider() {});
+                .thenReturn((session, handle) -> {
+                    throw new AssertionError("Capability lookup must not plan a write");
+                });
 
         Assertions.assertFalse(createTableWithCatalogType("custom_type", connector)
                 .connectorSupportsCopyOnWriteDml());
@@ -324,6 +328,11 @@ public class PluginDrivenExternalTableEngineTest {
     public void testCopyOnWriteCapabilityUsesPerTableProviderAndPluginClassLoader() {
         Connector connector = createMockConnector(true, false);
         ConnectorWritePlanProvider provider = new ConnectorWritePlanProvider() {
+            @Override
+            public ConnectorSinkPlan planWrite(ConnectorSession session, ConnectorWriteHandle handle) {
+                throw new AssertionError("Capability lookup must not plan a write");
+            }
+
             @Override
             public boolean supportsCopyOnWriteDml() {
                 Assertions.assertSame(getClass().getClassLoader(),

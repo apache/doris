@@ -33,9 +33,12 @@ import org.apache.thrift.protocol.TBinaryProtocol;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Golden-equivalence tests for {@link CommitDataSerializer} and the write
@@ -53,6 +56,13 @@ import java.util.List;
  * mismatch corrupts the round trip and fails these tests.</p>
  */
 public class CommitDataSerializerTest {
+
+    @Test
+    public void connectorReportsKeepShippedPaimonFieldId() {
+        Assertions.assertEquals(34, TReportExecStatusParams._Fields.PAIMON_COMMIT_MESSAGES.getThriftFieldId());
+        Assertions.assertEquals(35, TReportExecStatusParams._Fields.CONNECTOR_COMMIT_DATA.getThriftFieldId());
+        Assertions.assertEquals(36, TReportExecStatusParams._Fields.CONNECTOR_FILE_COMMIT_DATAS.getThriftFieldId());
+    }
 
     private static TMCCommitData mcData(String session, long rowCount, String commitMessage) {
         return new TMCCommitData()
@@ -90,8 +100,8 @@ public class CommitDataSerializerTest {
                 .setRowCount(rowCount)
                 .setFileSize(rowCount * 32)
                 .setModificationTime(1234L)
-                .setPartitionValues(java.util.Map.of("year", "2026", "month", "06"))
-                .setNullPartitionColumns(java.util.Set.of("region"));
+                .setPartitionValues(Map.of("year", "2026", "month", "06"))
+                .setNullPartitionColumns(Set.of("region"));
     }
 
     private static void assertBinaryRoundTrip(TBase<?, ?> original, TBase<?, ?> target)
