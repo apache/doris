@@ -20,7 +20,9 @@
 
 package org.apache.doris.arrowflight;
 
+import org.apache.doris.arrowflight.FlightSqlQuerySchema.UndiscoverableSchemaException;
 import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
+import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter.PreparedQuery;
 import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.arrowflight.results.FlightSqlResultCacheEntry;
 import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
@@ -29,9 +31,11 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -93,6 +97,8 @@ import org.apache.arrow.util.AutoCloseables;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.WriteChannel;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
+import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -102,7 +108,6 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
@@ -132,6 +137,10 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     private final SqlInfoBuilder sqlInfoBuilder;
     private final FlightSessionsManager flightSessionsManager;
     private final ExecutorService executorService = Executors.newFixedThreadPool(100);
+    // What Prepare advertises for a statement whose result schema it cannot tell: a client takes a
+    // prepared statement with an empty dataset schema for an update (arrow#38911).
+    private static final Schema PLACEHOLDER_DATASET_SCHEMA = new Schema(
+            Collections.singletonList(Field.nullable("ResultMeta", new ArrowType.Utf8())));
 
     public DorisFlightSqlProducer(final Location location, FlightSessionsManager flightSessionsManager) {
         this.location = location;
@@ -202,10 +211,8 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             final StreamListener<Result> listener) {
         executorService.submit(() -> {
             try {
-                String[] handleParts = request.getPreparedStatementHandle().toStringUtf8().split(":");
-                String executedPeerIdentity = handleParts[0];
-                String preparedStatementId = handleParts[1];
-                ConnectContext connectContext = flightSessionsManager.getConnectContext(executedPeerIdentity);
+                String preparedStatementId = preparedStatementId(context, request.getPreparedStatementHandle());
+                ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
                 FlightProtocolAdapter.of(connectContext).runCommand(connectContext,
                         () -> connectContext.removePreparedQuery(preparedStatementId));
             } catch (final Throwable e) {
@@ -216,7 +223,21 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         });
     }
 
-    private FlightInfo executeQueryStatement(String peerIdentity, ConnectContext connectContext, String query,
+    // What a request answers GetFlightInfo with, and the executor of its last statement and where that
+    // statement left its result -- taken before the processor's close clears them from the session.
+    private static final class ExecutedQuery {
+        private final FlightInfo info;
+        private final StmtExecutor executor;
+        private final boolean resultFromLocal;
+
+        private ExecutedQuery(FlightInfo info, StmtExecutor executor, boolean resultFromLocal) {
+            this.info = info;
+            this.executor = executor;
+            this.resultFromLocal = resultFromLocal;
+        }
+    }
+
+    private ExecutedQuery executeQueryStatement(String peerIdentity, ConnectContext connectContext, String query,
             final FlightDescriptor descriptor) {
         try {
             Preconditions.checkState(null != connectContext);
@@ -232,6 +253,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                     throw new RuntimeException("after executeQueryStatement handleQuery");
                 }
 
+                StmtExecutor executor = connectContext.getExecutor();
                 if (connectContext.isReturnResultFromLocal()) {
                     // set/use etc. stmt returns an OK result by default.
                     if (connectContext.getFlightSqlChannel().resultNum() == 0) {
@@ -242,9 +264,9 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                         final ByteString handle = ByteString.copyFromUtf8(peerIdentity + ":" + queryId);
                         TicketStatementQuery ticketStatement = TicketStatementQuery.newBuilder()
                                 .setStatementHandle(handle).build();
-                        return getFlightInfoForSchema(ticketStatement, descriptor,
+                        return new ExecutedQuery(getFlightInfoForSchema(ticketStatement, descriptor,
                                 connectContext.getFlightSqlChannel().getResult(queryId).getVectorSchemaRoot()
-                                        .getSchema());
+                                        .getSchema()), executor, true);
                     } else {
                         // A Flight Sql request can only contain one statement that returns result,
                         // otherwise expected thrown exception during execution.
@@ -257,9 +279,10 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                                 peerIdentity + ":" + DebugUtil.printId(connectContext.queryId()));
                         TicketStatementQuery ticketStatement = TicketStatementQuery.newBuilder()
                                 .setStatementHandle(handle).build();
-                        return getFlightInfoForSchema(ticketStatement, descriptor, connectContext.getFlightSqlChannel()
-                                .getResult(DebugUtil.printId(connectContext.queryId())).getVectorSchemaRoot()
-                                .getSchema());
+                        return new ExecutedQuery(getFlightInfoForSchema(ticketStatement, descriptor,
+                                connectContext.getFlightSqlChannel()
+                                        .getResult(DebugUtil.printId(connectContext.queryId()))
+                                        .getVectorSchemaRoot().getSchema()), executor, true);
                     }
                 } else {
                     // Now only query stmt will pull results from BE.
@@ -309,7 +332,8 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                         endpoints.add(new FlightEndpoint(ticket, location));
                     }
                     // TODO Set in BE callback after query end, Client will not callback.
-                    return new FlightInfo(flightSQLConnectProcessor.getArrowSchema(), descriptor, endpoints, -1, -1);
+                    return new ExecutedQuery(new FlightInfo(flightSQLConnectProcessor.getArrowSchema(), descriptor,
+                            endpoints, -1, -1), executor, false);
                 }
             }
         } catch (Throwable e) {
@@ -350,7 +374,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
             return FlightProtocolAdapter.of(connectContext).callCommand(connectContext,
                     () -> executeQueryStatement(context.peerIdentity(), connectContext, request.getQuery(),
-                            descriptor));
+                            descriptor).info);
         } catch (FlightRuntimeException e) {
             // Already carries the status meant for the client - UNAVAILABLE from the session's
             // command lock or from an incremental window that is not ready (queryFailure, with its
@@ -368,19 +392,126 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public FlightInfo getFlightInfoPreparedStatement(final CommandPreparedStatementQuery command,
             final CallContext context, final FlightDescriptor descriptor) {
-        String[] handleParts = command.getPreparedStatementHandle().toStringUtf8().split(":");
-        String executedPeerIdentity = handleParts[0];
-        String preparedStatementId = handleParts[1];
-        ConnectContext connectContext = flightSessionsManager.getConnectContext(executedPeerIdentity);
+        String preparedStatementId = preparedStatementId(context, command.getPreparedStatementHandle());
+        ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
         return FlightProtocolAdapter.of(connectContext).callCommand(connectContext,
-                () -> executeQueryStatement(executedPeerIdentity, connectContext,
-                        connectContext.getPreparedQuery(preparedStatementId), descriptor));
+                () -> executePreparedStatement(context.peerIdentity(), connectContext, preparedStatementId,
+                        descriptor));
+    }
+
+    private FlightInfo executePreparedStatement(String peerIdentity, ConnectContext connectContext,
+            String preparedStatementId, FlightDescriptor descriptor) {
+        PreparedQuery prepared = preparedQuery(connectContext, preparedStatementId);
+        if (prepared.getSchema() == null) {
+            // Prepare could not tell this statement's result schema and advertised the placeholder, so
+            // its executions have no schema to be checked against.
+            return executeQueryStatement(peerIdentity, connectContext, prepared.getSql(), descriptor).info;
+        }
+        Schema schema = checkPreparedSchema(connectContext, preparedStatementId, prepared);
+        ExecutedQuery executed = executeQueryStatement(peerIdentity, connectContext, prepared.getSql(), descriptor);
+        // Another session's DDL can change the result after reanalysis but before execution
+        // acquires table locks. Reject the actual schema before publishing a DoGet ticket.
+        boolean matches = executed.resultFromLocal
+                // A frontend-side result is a header of nullable strings, exactly as Prepare advertised it.
+                ? schema.equals(executed.info.getSchema())
+                // BE labels may carry the SQL text of an expression or a TVF prefix, and constant folding
+                // can narrow nullability: compare the final planner's labels and the positional types.
+                : FlightSqlQuerySchema.matchesExecutionSchema(schema, executed.info.getSchema(),
+                        ((LogicalPlanAdapter) executed.executor.getParsedStmt()).getColLabels());
+        if (!matches) {
+            connectContext.removePreparedQuery(preparedStatementId);
+            try {
+                executed.executor.cancel(new Status(TStatusCode.CANCELLED, "prepared statement schema changed"));
+            } catch (Exception e) {
+                LOG.warn("Failed to cancel Flight query after prepared schema changed", e);
+            } finally {
+                // No DoGet will pull this result: drop what the request left behind as the next request
+                // would -- its deferred coordinator, the result cached on the channel and its endpoints.
+                FlightProtocolAdapter.of(connectContext).beginRequest();
+            }
+            throw CallStatus.NOT_FOUND.withDescription("Prepared statement schema changed; prepare again")
+                    .toRuntimeException();
+        }
+        // A successful USE or SWITCH in this statement moves its namespace. Rebind only this handle;
+        // the other handles still reject a namespace change made outside them.
+        prepared.rebind(connectContext.getDefaultCatalog(), connectContext.getDatabase());
+        return executed.info;
     }
 
     @Override
     public SchemaResult getSchemaStatement(final CommandStatementQuery command, final CallContext context,
             final FlightDescriptor descriptor) {
-        throw CallStatus.UNIMPLEMENTED.withDescription("getSchemaStatement unimplemented").toRuntimeException();
+        ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
+        return FlightProtocolAdapter.of(connectContext).callCommand(connectContext,
+                () -> new SchemaResult(discoverSchema(connectContext, command.getQuery())));
+    }
+
+    @Override
+    public SchemaResult getSchemaPreparedStatement(final CommandPreparedStatementQuery command,
+            final CallContext context, final FlightDescriptor descriptor) {
+        String preparedStatementId = preparedStatementId(context, command.getPreparedStatementHandle());
+        ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
+        return FlightProtocolAdapter.of(connectContext).callCommand(connectContext, () -> {
+            PreparedQuery prepared = preparedQuery(connectContext, preparedStatementId);
+            if (prepared.getSchema() == null) {
+                throw CallStatus.UNIMPLEMENTED.withDescription(
+                        "The result schema of this statement is only known once it runs").toRuntimeException();
+            }
+            return new SchemaResult(checkPreparedSchema(connectContext, preparedStatementId, prepared));
+        });
+    }
+
+    // The id of a prepared statement this session created: a handle is "<peer identity>:<id>".
+    private static String preparedStatementId(CallContext context, ByteString handleBytes) {
+        String prefix = context.peerIdentity() + ":";
+        String handle = handleBytes.toStringUtf8();
+        if (!handle.startsWith(prefix) || handle.length() == prefix.length()) {
+            throw CallStatus.INVALID_ARGUMENT.withDescription("Invalid prepared statement handle").toRuntimeException();
+        }
+        return handle.substring(prefix.length());
+    }
+
+    private static PreparedQuery preparedQuery(ConnectContext connectContext, String preparedStatementId) {
+        PreparedQuery prepared = connectContext.getPreparedQuery(preparedStatementId);
+        if (prepared == null) {
+            throw CallStatus.NOT_FOUND.withDescription("Prepared statement expired; prepare again")
+                    .toRuntimeException();
+        }
+        // A checked handle must not run its unqualified SQL in another namespace than its schema was told in.
+        if (prepared.getSchema() != null
+                && !prepared.isPreparedIn(connectContext.getDefaultCatalog(), connectContext.getDatabase())) {
+            connectContext.removePreparedQuery(preparedStatementId);
+            throw CallStatus.NOT_FOUND
+                    .withDescription("Prepared statement expired; prepare again in the current namespace")
+                    .toRuntimeException();
+        }
+        return prepared;
+    }
+
+    // Execution parses the SQL again in the current session. Never silently replace the schema Prepare
+    // advertised when a setting such as sql_mode or time_zone changes the result.
+    private static Schema checkPreparedSchema(ConnectContext connectContext, String preparedStatementId,
+            PreparedQuery prepared) {
+        Schema schema = discoverSchema(connectContext, prepared.getSql());
+        if (!schema.equals(prepared.getSchema())) {
+            connectContext.removePreparedQuery(preparedStatementId);
+            throw CallStatus.NOT_FOUND.withDescription("Prepared statement schema changed; prepare again")
+                    .toRuntimeException();
+        }
+        return schema;
+    }
+
+    private static Schema discoverSchema(ConnectContext connectContext, String query) {
+        try {
+            return FlightSqlQuerySchema.analyze(connectContext, query);
+        } catch (UndiscoverableSchemaException e) {
+            throw CallStatus.UNIMPLEMENTED.withDescription(e.getMessage()).withCause(e).toRuntimeException();
+        } catch (FlightRuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw CallStatus.INVALID_ARGUMENT.withDescription("Cannot determine query schema: " + e.getMessage())
+                    .withCause(e).toRuntimeException();
+        }
     }
 
     @Override
@@ -426,43 +557,38 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
 
     private void createPreparedStatement(final ActionCreatePreparedStatementRequest request, String peerIdentity,
             ConnectContext connectContext, final StreamListener<Result> listener) {
+        String preparedStatementId = UUID.randomUUID().toString();
         try {
-            connectContext.setCommand(MysqlCommand.COM_QUERY);
             final String query = request.getQuery();
-            String preparedStatementId = UUID.randomUUID().toString();
+            // ADBC ExecuteSchema reads this dataset schema directly without calling GetSchema. Analyze
+            // before registering a handle so that a statement that cannot run leaves none behind. A
+            // statement whose schema only running it can tell keeps the placeholder: the Arrow Flight
+            // SQL JDBC driver prepares every statement and does not fall back when Prepare refuses one.
+            Schema schema;
+            try {
+                schema = FlightSqlQuerySchema.analyze(connectContext, query);
+            } catch (UndiscoverableSchemaException e) {
+                schema = null;
+            } catch (FlightRuntimeException e) {
+                throw e;
+            } catch (Exception e) {
+                throw CallStatus.INVALID_ARGUMENT.withDescription("Cannot determine query schema: " + e.getMessage())
+                        .withCause(e).toRuntimeException();
+            }
             final ByteString handle = ByteString.copyFromUtf8(peerIdentity + ":" + preparedStatementId);
-            connectContext.addPreparedQuery(preparedStatementId, query);
-
-            // Close the temporary VectorSchemaRoot after extracting its Schema, otherwise the
-            // off-heap buffers backing its vectors are leaked on every prepare (FE direct memory leak).
-            final Schema parameterSchema;
-            try (VectorSchemaRoot emptyVectorSchemaRoot =
-                    new VectorSchemaRoot(new ArrayList<>(), new ArrayList<>())) {
-                parameterSchema = emptyVectorSchemaRoot.getSchema();
-            }
-            // TODO FE does not have the ability to convert root fragment output expr into arrow schema.
-            // However, the metaData schema returned by createPreparedStatement is usually not used by the client,
-            // but it cannot be empty, otherwise it will be mistaken by the client as an updata statement.
-            // see: https://github.com/apache/arrow/issues/38911
-            final Schema metaData;
-            try (VectorSchemaRoot metaSchemaRoot = connectContext.getFlightSqlChannel()
-                    .createOneOneSchemaRoot("ResultMeta", "UNIMPLEMENTED")) {
-                metaData = metaSchemaRoot.getSchema();
-            }
-            listener.onNext(new Result(
-                    Any.pack(buildCreatePreparedStatementResult(handle, parameterSchema, metaData)).toByteArray()));
-        } catch (Exception e) {
-            String errMsg = "create prepared statement failed, " + e.getMessage() + ", " + Util.getRootCauseMessage(
-                    e) + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
-                    + connectContext.getState().getErrorMessage();
-            LOG.error(errMsg, e);
-            listener.onError(CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException());
+            Result result = new Result(Any.pack(buildCreatePreparedStatementResult(handle,
+                    new Schema(Collections.emptyList()), schema == null ? PLACEHOLDER_DATASET_SCHEMA : schema))
+                    .toByteArray());
+            connectContext.addPreparedQuery(preparedStatementId, new PreparedQuery(query, schema,
+                    connectContext.getDefaultCatalog(), connectContext.getDatabase()));
+            listener.onNext(result);
+        } catch (final Throwable e) {
+            connectContext.removePreparedQuery(preparedStatementId);
+            LOG.warn("create prepared statement failed", e);
+            listener.onError(e instanceof FlightRuntimeException ? e
+                    : CallStatus.INTERNAL.withDescription("Create prepared statement failed: " + e.getMessage())
+                            .withCause(e).toRuntimeException());
             return;
-        } catch (final Throwable t) {
-            listener.onError(CallStatus.INTERNAL.withDescription("Unknown error: " + t).toRuntimeException());
-            return;
-        } finally {
-            connectContext.setCommand(MysqlCommand.COM_SLEEP);
         }
         listener.onCompleted();
     }
