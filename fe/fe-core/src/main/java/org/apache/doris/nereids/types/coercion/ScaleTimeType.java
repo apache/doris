@@ -21,7 +21,8 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.types.DataType;
 
 /**
- * ScaleTimeType is a marker interface for types that have a scale, such as TimeV2Type and DateTimeV2Type.
+ * Precision metadata for temporal types, including the fixed scale of TIMESTAMP_NS.
+ * Types that participate in signature precision promotion implement {@link AdjustableScaleTimeType}.
  */
 public interface ScaleTimeType {
 

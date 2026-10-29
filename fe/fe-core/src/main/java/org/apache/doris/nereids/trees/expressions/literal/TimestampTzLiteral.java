@@ -22,7 +22,6 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -110,10 +109,7 @@ public class TimestampTzLiteral extends DateTimeLiteral {
      */
     public static TimestampTzLiteral fromTimeZone(TimeStampTzType dateType, DateTimeV2Literal literal,
             String timeZone) {
-        DateTimeV2Literal utcLiteral = (DateTimeV2Literal) DateTimeExtractAndTransform.convertTz(
-                literal,
-                new StringLiteral(timeZone),
-                new StringLiteral("UTC"));
+        DateTimeV2Literal utcLiteral = literal.inTimeZone(timeZone, "UTC");
         return new TimestampTzLiteral(dateType,
                 utcLiteral.year,
                 utcLiteral.month,
@@ -174,19 +170,14 @@ public class TimestampTzLiteral extends DateTimeLiteral {
         } else if (targetType instanceof TimeStampNsType) {
             DateTimeV2Literal dtV2Lit = new DateTimeV2Literal(DateTimeV2Type.MAX,
                     year, month, day, hour, minute, second, microSecond);
-            dtV2Lit = (DateTimeV2Literal) DateTimeExtractAndTransform.convertTz(
-                    dtV2Lit, new StringLiteral("UTC"),
-                    new StringLiteral(getSessionTimeZone()));
+            dtV2Lit = dtV2Lit.inTimeZone("UTC", getSessionTimeZone());
             return new TimeStampNsLiteral(dtV2Lit.getYear(), dtV2Lit.getMonth(), dtV2Lit.getDay(),
                     dtV2Lit.getHour(), dtV2Lit.getMinute(), dtV2Lit.getSecond(),
                     dtV2Lit.getMicroSecond() * 1000L);
         } else if (targetType.isDateTimeV2Type()) {
             DateTimeV2Literal dtV2Lit = new DateTimeV2Literal((DateTimeV2Type) targetType,
                     year, month, day, hour, minute, second, microSecond);
-            dtV2Lit = (DateTimeV2Literal) (DateTimeExtractAndTransform.convertTz(
-                    dtV2Lit,
-                    new StringLiteral("UTC"),
-                    new StringLiteral(getSessionTimeZone())));
+            dtV2Lit = dtV2Lit.inTimeZone("UTC", getSessionTimeZone());
             return dtV2Lit;
         }
         throw new AnalysisException(String.format("Cast from %s to %s not supported", this, targetType));

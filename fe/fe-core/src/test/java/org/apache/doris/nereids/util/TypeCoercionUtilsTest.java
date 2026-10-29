@@ -679,17 +679,17 @@ public class TypeCoercionUtilsTest {
                             ImmutableList.of(new WhenClause(flag, source)), target));
                     Expression coalesce = TypeCoercionUtils.processBoundFunction(new Coalesce(source, target));
                     for (Expression cast : ImmutableList.of(
-                            TypeCoercionUtils.castIfNotSameTypeForTimeStampNsCoercion(source, targetType),
-                            TypeCoercionUtils.castIfNotSameTypeStrictForTimeStampNsCoercion(source, targetType),
+                            TypeCoercionUtils.castForCommonType(source, targetType),
+                            TypeCoercionUtils.castForCommonTypeWithExactTarget(source, targetType),
                             caseWhen.child(0).child(1), coalesce.child(0))) {
                         Assertions.assertInstanceOf(Cast.class, cast);
                         Assertions.assertFalse(((Cast) cast).isStrict(), cast.toSql());
                         Assertions.assertEquals(source, cast.child(0));
                     }
                     for (Expression cast : ImmutableList.of(
-                            TypeCoercionUtils.castIfNotSameTypeForTimeStampNsCoercion(
+                            TypeCoercionUtils.castForCommonType(
                                     source, temporalTargets.get(i)),
-                            TypeCoercionUtils.castIfNotSameTypeStrictForTimeStampNsCoercion(
+                            TypeCoercionUtils.castForCommonTypeWithExactTarget(
                                     source, temporalTargets.get(i)))) {
                         Assertions.assertInstanceOf(Cast.class, cast);
                         Assertions.assertTrue(((Cast) cast).isStrict(), cast.toSql());
