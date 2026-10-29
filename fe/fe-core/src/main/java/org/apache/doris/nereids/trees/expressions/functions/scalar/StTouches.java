@@ -72,7 +72,8 @@ public class StTouches extends ScalarFunction
 
     @Override
     public FunctionSignature searchSignature(List<FunctionSignature> signatures) {
-        FunctionSignature signature = SpatialFunctionSignature.calculationBinary(child(0), child(1), BooleanType.INSTANCE);
+        FunctionSignature signature = SpatialFunctionSignature.calculationBinary(
+                child(0), child(1), BooleanType.INSTANCE);
         return signature != null ? signature : ExplicitlyCastableSignature.super.searchSignature(signatures);
     }
 
