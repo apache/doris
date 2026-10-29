@@ -66,10 +66,6 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
     public Rule build() {
         return logicalCTE().thenApply(ctx -> {
             LogicalCTE<Plan> logicalCTE = ctx.root;
-            if (logicalCTE.isRecursive()
-                    && !ctx.connectContext.getSessionVariable().isEnableNereidsDistributePlanner()) {
-                throw new AnalysisException("please set enable_nereids_distribute_planner=true to use RECURSIVE CTE");
-            }
 
             // step 0. check duplicate cte name
             Set<String> uniqueAlias = Sets.newHashSet();

@@ -944,9 +944,7 @@ public class StmtExecutorTest extends TestWithFeService {
                     return coordinator;
                 });
 
-        try (MockedStatic<EnvFactory> factories = Mockito.mockStatic(EnvFactory.class);
-                MockedConstruction<NereidsCoordinator> coordinators = Mockito.mockConstruction(NereidsCoordinator.class,
-                        (coordinator, construction) -> configureCoordinator.configure(coordinator))) {
+        try (MockedStatic<EnvFactory> factories = Mockito.mockStatic(EnvFactory.class)) {
             factories.when(EnvFactory::getInstance).thenReturn(factory);
             Config.cloud_unique_id = "profile-replan-test";
             Config.max_query_retry_time = "EXHAUSTED".equals(outcome) ? 0 : 1;
@@ -1029,7 +1027,9 @@ public class StmtExecutorTest extends TestWithFeService {
             JsonObject finalAttempt = attemptDetails.getAsJsonObject(DebugUtil.printId(context.queryId()));
             Assertions.assertEquals(context.getState().getStateType() == QueryState.MysqlStateType.ERR ? "FAILED" : "SUCCEEDED",
                     finalAttempt.get("state").getAsString());
-            Assertions.assertEquals(fetchFailure ? 1 : 0, coordinators.constructed().size());
+            // Every dispatch, including a replanned query, now obtains its coordinator from the same factory.
+            Mockito.verify(factory, Mockito.times(executions.size())).createCoordinator(
+                    Mockito.eq(context), Mockito.eq(planner), Mockito.any());
             Assertions.assertNotEquals(Long.MAX_VALUE, profile.getQueryFinishTimestamp());
             Assertions.assertEquals(context.getStartTime(), profile.getSummaryProfile().getQueryBeginTime());
             for (ExecutionProfile execution : executions) {
@@ -1384,10 +1384,7 @@ public class StmtExecutorTest extends TestWithFeService {
         // a query to the master FE), the StmtExecutor is created via the proxy
         // constructor which creates a fresh StatementContext without a
         // parsedStatement. Without the fix, statementContext.getParsedStatement()
-        // remains null, causing SessionVariable.canUseNereidsDistributePlanner()
-        // to return false, which leads EnvFactory.createCoordinator() to create
-        // a legacy Coordinator instead of NereidsCoordinator, resulting in
-        // "fragment has no children" error.
+        // remains null until parsing propagates it to the statement context.
 
         // Simulate the proxy flow: StmtExecutor(ConnectContext, OriginStatement, boolean isProxy)
         StmtExecutor executor = new StmtExecutor(connectContext,

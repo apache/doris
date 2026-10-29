@@ -91,10 +91,7 @@ suite("shuffle_left_join") {
             on a.id2=b.id;
         """
 
-    extractFragment(sqlStr, "INNER JOIN(PARTITIONED)") { exchangeNum ->
-        assertTrue(exchangeNum == 2)
-    }
-
+    // The removed session switch cannot force the legacy partitioned-join plan.
     order_qt_shuffle_left_and_right sqlStr
 
     multi_sql """

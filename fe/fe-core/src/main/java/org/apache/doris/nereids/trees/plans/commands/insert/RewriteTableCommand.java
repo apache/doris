@@ -209,9 +209,9 @@ public class RewriteTableCommand extends Command implements NeedAuditEncryption,
         FastInsertIntoValuesPlanner planner = new FastInsertIntoValuesPlanner(
                 ctx.getStatementContext(), supportFastInsertIntoValues) {
             @Override
-            protected void doDistribute(boolean canUseNereidsDistributePlanner, ExplainLevel explainLevel) {
+            protected void doDistribute(ExplainLevel explainLevel) {
                 executorFactoryRef.set(selectInsertExecutorFactory(this, ctx, stmtExecutor, targetTableIf));
-                super.doDistribute(canUseNereidsDistributePlanner, explainLevel);
+                super.doDistribute(explainLevel);
             }
         };
 

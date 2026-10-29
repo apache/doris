@@ -914,15 +914,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
                             unboundRelation.getTableSnapshot(),
                             Optional.ofNullable(unboundRelation.getScanParams()), Optional.empty());
                 case DORIS_EXTERNAL_TABLE:
-                    ConnectContext ctx = cascadesContext.getConnectContext();
                     RemoteDorisExternalTable externalTable = (RemoteDorisExternalTable) table;
                     if (!externalTable.useArrowFlight()) {
-                        if (!ctx.getSessionVariable().isEnableNereidsDistributePlanner()) {
-                            // use isEnableNereidsDistributePlanner instead of canUseNereidsDistributePlanner
-                            // because it cannot work in explain command
-                            throw new AnalysisException("query remote doris only support NereidsDistributePlanner"
-                                    + " when catalog use_arrow_flight is false");
-                        }
                         OlapTable olapTable = externalTable.getOlapTable();
                         return makeOlapScan(olapTable, unboundRelation, qualifierWithoutTableName, cascadesContext);
                     }
