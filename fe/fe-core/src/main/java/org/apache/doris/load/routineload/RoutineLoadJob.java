@@ -1847,6 +1847,9 @@ public abstract class RoutineLoadJob
         appendProperties(sb, JsonFileFormatProperties.PROP_JSON_ROOT, getJsonRoot(), false);
         appendProperties(sb, LoadCommand.STRICT_MODE, isStrictMode(), false);
         appendProperties(sb, LoadCommand.TIMEZONE, getTimezone(), false);
+        // Only a declared group, which follows ALTER. Writing the effective group instead would turn
+        // a group inherited from the creating session into a pinned one when the statement is replayed.
+        appendProperties(sb, CreateRoutineLoadInfo.COMPUTE_GROUP, getDeclaredComputeGroup(), false);
         appendProperties(sb, LoadCommand.EXEC_MEM_LIMIT, getMemLimit(), true);
         sb.append(")\n");
         // 6. data_source

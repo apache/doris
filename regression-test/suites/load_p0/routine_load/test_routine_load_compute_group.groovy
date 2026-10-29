@@ -169,6 +169,10 @@ suite("test_routine_load_compute_group", "p0") {
         sql """ALTER ROUTINE LOAD FOR ${jobName} PROPERTIES("compute_group" = "${cgName}");"""
         def showAfterAlter = sql_return_maparray("SHOW ROUTINE LOAD FOR ${jobName}").get(0)
         assertEquals(cgName, showAfterAlter.ComputeGroup)
+        // SHOW CREATE carries the declaration, so a job recreated from its output is pinned the same way.
+        def showCreate = sql_return_maparray("SHOW CREATE ROUTINE LOAD FOR ${jobName}").get(0)
+        logger.info("show create routine load: ${showCreate}")
+        assertTrue(showCreate.CreateStmt.contains("\"compute_group\" = \"${cgName}\""))
 
         sql "RESUME ROUTINE LOAD FOR ${jobName}"
     } finally {
