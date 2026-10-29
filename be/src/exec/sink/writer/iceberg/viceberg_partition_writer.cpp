@@ -132,13 +132,33 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
     }
     }
     if (!open_status.ok()) {
-        // A transformer failure happens after object creation, so remove any published file.
-        WARN_IF_ERROR(_fs->delete_file(_path), "failed to delete Iceberg file after open error");
+        // Defer deletion until the output stream has finished closing so an asynchronous upload
+        // cannot publish the failed file later.
+        _defer_file_cleanup();
     }
     return open_status;
 }
 
+void VIcebergPartitionWriter::_defer_file_cleanup() {
+    if (_fs == nullptr || _file_cleanup_deferred) {
+        return;
+    }
+    _file_cleanup_deferred = true;
+    // The output stream may still own an asynchronous upload after a failed close. Destroy it
+    // before the outer writer deletes the physical object.
+    _file_format_transformer.reset();
+    _file_writer.reset();
+    if (_closed_file_callback) {
+        _closed_file_callback(_fs, _path);
+    } else {
+        WARN_IF_ERROR(_fs->delete_file(_path), "failed to delete Iceberg file");
+    }
+}
+
 Status VIcebergPartitionWriter::close(const Status& status) {
+    if (_file_cleanup_deferred) {
+        return _terminal_close_status;
+    }
     Status result_status;
     if (_file_format_transformer != nullptr) {
         result_status = _file_format_transformer->close();
@@ -149,22 +169,15 @@ Status VIcebergPartitionWriter::close(const Status& status) {
     }
     bool status_ok = result_status.ok() && status.ok();
     if (!status_ok && _fs != nullptr) {
-        // delete the actual created file, otherwise an orphan file is left behind
-        Status st = _fs->delete_file(_path);
-        if (!st.ok()) {
-            LOG(WARNING) << fmt::format("Delete file {} failed, reason: {}", _path, st.to_string());
-        }
+        _terminal_close_status = result_status;
+        _defer_file_cleanup();
     }
     if (status_ok) {
         TIcebergCommitData commit_data;
         Status commit_status = _build_iceberg_commit_data(&commit_data);
         if (!commit_status.ok()) {
-            // A closed object without commit data can never be published, so remove it immediately.
-            Status delete_status = _fs->delete_file(_path);
-            if (!delete_status.ok()) {
-                LOG(WARNING) << fmt::format("Delete file {} failed, reason: {}", _path,
-                                            delete_status.to_string());
-            }
+            _terminal_close_status = commit_status;
+            _defer_file_cleanup();
             return commit_status;
         }
         _state->add_iceberg_commit_datas(commit_data);
