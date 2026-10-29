@@ -49,12 +49,15 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.CommitFailedException;
+import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.expressions.Binder;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.UnboundPredicate;
 import org.apache.iceberg.hadoop.HadoopCatalog;
 import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.PositionOutputStream;
 import org.apache.iceberg.io.WriteResult;
 import org.apache.iceberg.transforms.Transform;
 import org.apache.iceberg.transforms.Transforms;
@@ -1197,6 +1200,120 @@ public class IcebergTransactionTest {
             Assert.assertFalse("begin must retain the catalog generation", released.get());
             txn.rollback();
             Assert.assertTrue("rollback must release the catalog generation", released.get());
+        }
+    }
+
+    @Test
+    public void testRollbackDeletesReportedFilesAndClearsCommitData() throws Exception {
+        Table table = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithoutPartition));
+        String path = table.location() + "/data/uncommitted.parquet";
+        try (PositionOutputStream stream = table.io().newOutputFile(path).create()) {
+            stream.write(1);
+        }
+        IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(dorisTable.getName()).thenReturn(tbWithoutPartition);
+        try (MockedStatic<IcebergUtils> mockedUtils = Mockito.mockStatic(IcebergUtils.class)) {
+            mockWritableTable(mockedUtils, table);
+            IcebergTransaction txn = getTxn();
+            txn.beginInsert(dorisTable, table, Optional.empty());
+            TIcebergCommitData data = new TIcebergCommitData();
+            data.setFilePath(path);
+            txn.updateIcebergCommitData(Arrays.asList(data, data));
+
+            txn.rollback();
+
+            Assert.assertFalse(table.io().newInputFile(path).exists());
+            Assert.assertTrue(txn.getCommitDataList().isEmpty());
+            Assert.assertNull("rollback must not publish a snapshot", table.currentSnapshot());
+            txn.rollback();
+        }
+    }
+
+    @Test
+    public void testRollbackContinuesCleanupAfterDeleteFailureBeforeReleasingLease() throws Exception {
+        Table table = Mockito.mock(Table.class);
+        FileIO fileIO = Mockito.mock(FileIO.class);
+        Mockito.when(table.io()).thenReturn(fileIO);
+        Mockito.when(table.newTransaction()).thenReturn(Mockito.mock(org.apache.iceberg.Transaction.class));
+        Mockito.doThrow(new RuntimeException("injected delete failure")).when(fileIO).deleteFile("failed.parquet");
+        AtomicBoolean released = new AtomicBoolean();
+        try (MockedStatic<IcebergUtils> mockedUtils = Mockito.mockStatic(IcebergUtils.class)) {
+            mockedUtils.when(() -> IcebergUtils.acquireWritableIcebergTable(
+                    ArgumentMatchers.any(ExternalTable.class), ArgumentMatchers.eq(ops)))
+                    .thenReturn(new IcebergExternalMetaCache.WritableTableLease(
+                            table, ops, testRuntimeContext(), false, false, () -> {
+                                Mockito.verify(fileIO).deleteFile("failed.parquet");
+                                Mockito.verify(fileIO).deleteFile("other.orc");
+                                released.set(true);
+                            }));
+            IcebergTransaction txn = getTxn();
+            txn.beginInsert(Mockito.mock(IcebergExternalTable.class), table, Optional.empty());
+            TIcebergCommitData failed = new TIcebergCommitData();
+            failed.setFilePath("failed.parquet");
+            TIcebergCommitData other = new TIcebergCommitData();
+            other.setFilePath("other.orc");
+            txn.updateIcebergCommitData(Arrays.asList(failed, failed, other));
+
+            txn.rollback();
+
+            Assert.assertTrue(released.get());
+            Assert.assertTrue(txn.getCommitDataList().isEmpty());
+        }
+    }
+
+    @Test
+    public void testFailedCommitCleansReportedFilesBeforeReleasingLease() throws Exception {
+        Table table = Mockito.mock(Table.class);
+        FileIO fileIO = Mockito.mock(FileIO.class);
+        org.apache.iceberg.Transaction icebergTxn = Mockito.mock(org.apache.iceberg.Transaction.class);
+        Mockito.when(table.io()).thenReturn(fileIO);
+        Mockito.when(table.newTransaction()).thenReturn(icebergTxn);
+        Mockito.doThrow(new CommitFailedException("injected commit failure")).when(icebergTxn).commitTransaction();
+        AtomicBoolean released = new AtomicBoolean();
+        try (MockedStatic<IcebergUtils> mockedUtils = Mockito.mockStatic(IcebergUtils.class)) {
+            mockedUtils.when(() -> IcebergUtils.acquireWritableIcebergTable(
+                    ArgumentMatchers.any(ExternalTable.class), ArgumentMatchers.eq(ops)))
+                    .thenReturn(new IcebergExternalMetaCache.WritableTableLease(
+                            table, ops, testRuntimeContext(), false, false, () -> {
+                                Mockito.verify(fileIO).deleteFile("uncommitted.parquet");
+                                released.set(true);
+                            }));
+            IcebergTransaction txn = getTxn();
+            txn.beginInsert(Mockito.mock(IcebergExternalTable.class), table, Optional.empty());
+            TIcebergCommitData data = new TIcebergCommitData();
+            data.setFilePath("uncommitted.parquet");
+            txn.updateIcebergCommitData(Collections.singletonList(data));
+
+            Assert.assertThrows(CommitFailedException.class, txn::commit);
+
+            Assert.assertTrue(released.get());
+            Assert.assertTrue(txn.getCommitDataList().isEmpty());
+            txn.rollback();
+            Mockito.verify(fileIO).deleteFile("uncommitted.parquet");
+        }
+    }
+
+    @Test
+    public void testUnknownCommitStatePreservesPotentiallyCommittedFiles() throws Exception {
+        Table table = Mockito.mock(Table.class);
+        FileIO fileIO = Mockito.mock(FileIO.class);
+        org.apache.iceberg.Transaction icebergTxn = Mockito.mock(org.apache.iceberg.Transaction.class);
+        Mockito.when(table.io()).thenReturn(fileIO);
+        Mockito.when(table.newTransaction()).thenReturn(icebergTxn);
+        Mockito.doThrow(new CommitStateUnknownException(new IOException("injected unknown commit state")))
+                .when(icebergTxn).commitTransaction();
+        try (MockedStatic<IcebergUtils> mockedUtils = Mockito.mockStatic(IcebergUtils.class)) {
+            mockWritableTable(mockedUtils, table);
+            IcebergTransaction txn = getTxn();
+            txn.beginInsert(Mockito.mock(IcebergExternalTable.class), table, Optional.empty());
+            TIcebergCommitData data = new TIcebergCommitData();
+            data.setFilePath("possibly-committed.parquet");
+            txn.updateIcebergCommitData(Collections.singletonList(data));
+
+            Assert.assertThrows(CommitStateUnknownException.class, txn::commit);
+            txn.rollback();
+
+            Mockito.verify(fileIO, Mockito.never()).deleteFile(ArgumentMatchers.anyString());
         }
     }
 
