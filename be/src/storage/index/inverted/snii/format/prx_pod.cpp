@@ -1057,9 +1057,22 @@ Status decode_payload_csr_selective(Slice plain, std::span<const uint32_t> doc_o
     uint64_t total_pos = 0;
     uint32_t decoded_max_frequency = 0;
     bool decoded_zero_frequency = false;
+    // The loop below runs once per document of the window, selected or not, so it keeps the cursor
+    // in a register and builds no Status on the usual path: a single-byte count, a skipped run of
+    // short varints, a selected run of single-byte deltas. Anything else -- a multi-byte value, a
+    // run that does not fit, a prefix sum that would overflow -- is handed to the checked decoders
+    // with the cursor where it was, so they decide and report exactly as they always did.
+    const uint8_t* const end = src.end();
+    const uint8_t* p = src.cursor();
     for (uint32_t d = 0; d < doc_count; ++d) {
         uint32_t pos_count = 0;
-        RETURN_IF_ERROR(src.get_varint32_fast(&pos_count));
+        if (p < end && *p < 0x80) {
+            pos_count = *p++;
+        } else {
+            src.set_cursor(p);
+            RETURN_IF_ERROR(src.get_varint32(&pos_count));
+            p = src.cursor();
+        }
         decoded_max_frequency = std::max(decoded_max_frequency, pos_count);
         decoded_zero_frequency |= pos_count == 0;
         total_pos += pos_count;
@@ -1069,24 +1082,54 @@ Status decode_payload_csr_selective(Slice plain, std::span<const uint32_t> doc_o
         }
         const bool selected = next_doc < doc_ordinals.size() && doc_ordinals[next_doc] == d;
         if (!selected) {
-            // Skip this doc's position deltas without decoding them -- the CSR
-            // layout is sequential so we must advance past them, but only the
-            // candidate (selected) docs' positions are ever used. With a sparse
-            // candidate set (the common phrase / phrase-prefix case after docid
-            // narrowing) most docs in a window are skipped, so this avoids the
-            // dominant varint-decode cost.
-            RETURN_IF_ERROR(src.skip_varints(pos_count));
+            // The CSR layout is sequential, so a skipped doc's deltas are walked past without being
+            // decoded. With a sparse candidate set most docs of a window are skipped.
+            const uint8_t* q = p;
+            uint32_t skipped = 0;
+            for (; skipped < pos_count && q < end; ++skipped) {
+                while (q < end && (*q & 0x80) != 0) {
+                    ++q;
+                }
+                if (q >= end) {
+                    break;
+                }
+                ++q;
+            }
+            if (skipped != pos_count) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                        "byte_source: varint skip past end");
+            }
+            p = q;
             continue;
         }
-        // Selected doc: decode its `pos_count` ascending position deltas with a
-        // tight inline prefix-sum decoder (single-byte fast path, no per-value
-        // get_varint32/Status call chain). This is the CPU hotspot for narrowed
-        // phrase/phrase-prefix candidate sets, where each selected doc's varint
-        // run dominates after non-selected docs are skipped.
-        RETURN_IF_ERROR(src.decode_delta_run(pos_count, pos_flat));
+        // Selected doc: its `pos_count` ascending deltas become positions. A single-byte delta is
+        // below 0x80, so the running sum cannot overflow unless it is checked.
+        const size_t flat_before = pos_flat->size();
+        const uint8_t* q = p;
+        uint32_t position = 0;
+        uint32_t decoded = 0;
+        if (static_cast<size_t>(end - q) >= pos_count) {
+            for (; decoded < pos_count; ++decoded) {
+                const uint8_t byte = *q;
+                if (byte >= 0x80 || __builtin_add_overflow(position, uint32_t {byte}, &position)) {
+                    break;
+                }
+                pos_flat->push_back(position);
+                ++q;
+            }
+        }
+        if (decoded == pos_count) {
+            p = q;
+        } else {
+            pos_flat->resize(flat_before);
+            src.set_cursor(p);
+            RETURN_IF_ERROR(src.decode_delta_run(pos_count, pos_flat));
+            p = src.cursor();
+        }
         pos_off->push_back(static_cast<uint32_t>(pos_flat->size()));
         ++next_doc;
     }
+    src.set_cursor(p);
     if (!src.eof())
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "prx: trailing bytes after payload");
@@ -1148,7 +1191,7 @@ Status decode_csr_frame(const PrxFrameView& encoded, std::span<const uint32_t> d
                         bool decode_all_docs, bool all_docs_selected,
                         std::vector<uint32_t>* pos_flat, std::vector<uint32_t>* pos_off,
                         PrxDecodeStats* stats, PrxDecodedShape* shape,
-                        PrxCsrAllocationGate* allocation_gate) {
+                        PrxCsrAllocationGate* allocation_gate, ZstdDecompressor* zstd) {
     if (!decode_all_docs && allocation_gate != nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "prx: selective decode cannot use an allocation gate");
@@ -1163,7 +1206,9 @@ Status decode_csr_frame(const PrxFrameView& encoded, std::span<const uint32_t> d
 
     std::vector<uint8_t> local_decompressed;
     Slice plain = encoded.payload;
-    if (encoded.codec == PrxCodec::kZstd) {
+    if (encoded.codec == PrxCodec::kZstd && allocation_gate == nullptr && zstd != nullptr) {
+        RETURN_IF_ERROR(zstd->decompress(encoded.payload, encoded.uncompressed_length, &plain));
+    } else if (encoded.codec == PrxCodec::kZstd) {
         std::vector<uint8_t>* decompressed = &local_decompressed;
         if (allocation_gate != nullptr) {
             RETURN_IF_ERROR(allocation_gate->reserve_decompression(encoded.uncompressed_length,
@@ -1238,7 +1283,8 @@ Status read_prx_window_csr_impl(ByteSource* source, std::span<const uint32_t> do
     RETURN_IF_ERROR(decode_csr_frame(encoded, doc_ordinals, decode_all_docs, all_docs_selected,
                                      pos_flat, pos_off, stats,
                                      context == nullptr ? nullptr : context->shape,
-                                     context == nullptr ? nullptr : context->allocation_gate));
+                                     context == nullptr ? nullptr : context->allocation_gate,
+                                     context == nullptr ? nullptr : context->zstd));
     if (collect_stats) {
         // Exclude the logical-selection scan from decode timing.
         frame_stats.decode_ns = elapsed_ns(decode_start);
