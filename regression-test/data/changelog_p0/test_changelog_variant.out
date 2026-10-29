@@ -20,6 +20,17 @@
 1	1	11	1	x2	x	11	10	d1b	d1
 2	2	2	2	\N	\N	20	20	d2	d2
 
+-- !union_with_changelog_sub_paths --
+1	1	x
+1	11	x2
+1	11	x2
+2	2	\N
+2	2	\N
+3	3	z
+3	3	z
+4	4	\N
+4	4	\N
+
 -- !min_delta_stream --
 1	{"a":1,"arr":[1,2],"b":{"c":"x"}}	1	x	10	p	d1	UPDATE_BEFORE
 1	{"a":11,"b":{"c":"x2"},"new":true}	11	x2	11	p2	d1b	UPDATE_AFTER

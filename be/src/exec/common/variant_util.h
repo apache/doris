@@ -77,7 +77,8 @@ inline bool should_check_variant_path_stats(const TabletColumn& column) {
 struct VariantExtendedInfo {
     PathToNoneNullValues path_to_none_null_values; // key: path, value: number of none null values
     std::unordered_set<std::string> sparse_paths;  // sparse paths in this variant column
-    std::unordered_set<std::string> typed_paths;   // typed paths in this variant column
+    std::unordered_set<std::string> materialized_paths; // paths some input stores as a subcolumn
+    std::unordered_set<std::string> typed_paths;        // typed paths in this variant column
     std::unordered_set<PathInData, PathInData::Hash>
             nested_paths;               // nested paths in this variant column
     PathToDataTypes path_to_data_types; // key: path, value: data types

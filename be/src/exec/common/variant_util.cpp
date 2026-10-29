@@ -834,6 +834,7 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
 
                 for (const auto& [path, size] : source_stats->subcolumns_non_null_size) {
                     extended_info.path_to_none_null_values[path] += size;
+                    extended_info.materialized_paths.emplace(path);
                 }
             }
 
@@ -1241,11 +1242,11 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
             get_subpaths(column->variant_max_subcolumns_count(),
                          extended_info.path_to_none_null_values, paths_set_info);
         } else {
-            // Every input path of a V2 count-0 column is in the sparse column(s) or typed. Nothing
-            // would carry a materialized dynamic subcolumn into the output, so its data would be lost.
-            for (const auto& [path, _] : extended_info.path_to_none_null_values) {
-                if (!extended_info.sparse_paths.contains(path) &&
-                    !extended_info.typed_paths.contains(path)) {
+            // No input of a V2 count-0 column materializes a dynamic path. Nothing would carry such
+            // a subcolumn into the output, so its data would be lost, even when another input keeps
+            // the same path in its sparse column.
+            for (const auto& path : extended_info.materialized_paths) {
+                if (!extended_info.typed_paths.contains(path)) {
                     return Status::InternalError(
                             "variant column {} uses serialize type V2 with max subcolumns count 0, "
                             "but its compaction input materializes dynamic path {}",

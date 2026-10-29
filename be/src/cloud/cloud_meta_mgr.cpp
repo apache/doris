@@ -62,6 +62,7 @@
 #include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
+#include "storage/changelog.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_factory.h"
@@ -1694,8 +1695,20 @@ Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta, int64_t table_
                << ", rowset_id: " << rs_meta.rowset_id()
                << ", attach_changelog_tablet_id: " << attach_changelog->tablet_id()
                << ", attach_changelog_rowset_id: " << attach_changelog->rowset_id();
-    DCHECK_EQ(rs_meta.tablet_schema()->num_variant_columns(),
-              attach_changelog->tablet_schema()->num_variant_columns());
+    // The changelog keeps an AFTER image of every source VARIANT column and, with historical values,
+    // a BEFORE image too.
+    const TabletSchema& source_schema = *rs_meta.tablet_schema();
+    const TabletSchema& changelog_schema = *attach_changelog->tablet_schema();
+    size_t before_variant_columns = 0;
+    for (const auto& column : source_schema.columns()) {
+        if (column->is_variant_type() &&
+            changelog_schema.field_index(changelog::build_before_column_name(column->name())) !=
+                    -1) {
+            ++before_variant_columns;
+        }
+    }
+    DCHECK_EQ(source_schema.num_variant_columns() + before_variant_columns,
+              changelog_schema.num_variant_columns());
     RETURN_IF_ERROR(do_update_tmp_rowset(*attach_changelog, table_id));
     return do_update_tmp_rowset(rs_meta, table_id);
 }

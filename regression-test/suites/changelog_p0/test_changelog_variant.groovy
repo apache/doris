@@ -97,6 +97,14 @@ suite("test_changelog_variant", "nonConcurrent") {
             FROM changelog("table" = "test_changelog_variant")
         """
 
+        // sub-paths over a UNION of the base table and its changelog
+        order_qt_union_with_changelog_sub_paths """
+            SELECT k, v['a'], v['b']['c']
+            FROM (SELECT k, v FROM test_changelog_variant
+                  UNION ALL
+                  SELECT k, v FROM changelog("table" = "test_changelog_variant")) u
+        """
+
         // an UPDATE_BEFORE row carries the old value of every sub-path
         order_qt_min_delta_stream """
             SELECT k, v, v['a'], v['b']['c'], CAST(t['a'] AS INT), t['b'], d['k'],
