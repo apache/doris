@@ -809,10 +809,20 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " PARALLEL_HASHMAP " ]]; then
             patch -p1 <"${TP_PATCH_DIR}/parallel-hashmap-1.3.8-aarch64-int128.patch"
             touch "${PATCHED_MARK}_aarch64_int128"
         fi
-        if [[ ! -f "${PATCHED_MARK}_arm_neon" ]]; then
-            patch --batch --fuzz=0 -p1 <"${TP_PATCH_DIR}/parallel-hashmap-1.3.8-arm-neon.patch"
-            touch "${PATCHED_MARK}_arm_neon"
+        neon_patch="${TP_PATCH_DIR}/parallel-hashmap-1.3.8-arm-neon.patch"
+        # A run can stop after patching but before writing the marker. Check the
+        # source even when the marker exists: the old insertion-only patch could
+        # be applied twice and still leave a marker claiming success.
+        # --forward prevents either dry-run probe from automatically changing direction.
+        if ! patch --dry-run --batch --forward --reverse --fuzz=0 -p1 \
+            <"${neon_patch}" >/dev/null 2>&1; then
+            rm -f "${PATCHED_MARK}_arm_neon"
+            # Check every hunk before modifying any file; partial or incompatible
+            # sources must fail without accepting or further applying the patch.
+            patch --dry-run --batch --forward --fuzz=0 -p1 <"${neon_patch}"
+            patch --batch --forward --fuzz=0 -p1 <"${neon_patch}"
         fi
+        touch "${PATCHED_MARK}_arm_neon"
     )
     echo "Finished patching ${PARALLEL_HASHMAP_SOURCE} (AArch64 int128 and ARM NEON)"
 fi

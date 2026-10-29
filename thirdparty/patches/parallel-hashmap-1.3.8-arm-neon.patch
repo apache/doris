@@ -1,6 +1,11 @@
 --- a/parallel_hashmap/phmap.h
 +++ b/parallel_hashmap/phmap.h
-@@ -466,0 +467,49 @@
+@@ -462,10 +462,59 @@
+      #pragma warning(pop)  
+ #endif
+ 
+ #endif  // PHMAP_HAVE_SSE2
+ 
 +#if PHMAP_HAVE_ARM_NEON && defined(PHMAP_IS_LITTLE_ENDIAN)
 +
 +struct GroupAArch64Impl {
@@ -50,15 +55,35 @@
 +
 +#endif  // PHMAP_HAVE_ARM_NEON && defined(PHMAP_IS_LITTLE_ENDIAN)
 +
-@@ -523,0 +573,5 @@
+ // --------------------------------------------------------------------------
+ // --------------------------------------------------------------------------
+ struct GroupPortableImpl 
+ {
+     enum { kWidth = 8 };
+@@ -519,10 +568,15 @@
+     uint64_t ctrl;
+ };
+ 
+ #if PHMAP_HAVE_SSE2  
+     using Group = GroupSse2Impl;
 +#elif PHMAP_HAVE_ARM_NEON && defined(PHMAP_IS_LITTLE_ENDIAN)
 +    using Group = GroupAArch64Impl;
 +    static_assert(static_cast<size_t>(Group::kWidth) ==
 +                  static_cast<size_t>(GroupPortableImpl::kWidth),
 +                  "ARM NEON must preserve the portable phmap dump/load layout");
+ #else
+     using Group = GroupPortableImpl;
+ #endif
+ 
+ // The number of cloned control bytes that we copy from the beginning to the
 --- a/parallel_hashmap/phmap_config.h
 +++ b/parallel_hashmap/phmap_config.h
-@@ -664,0 +665,13 @@
+@@ -660,10 +660,23 @@
+ 
+ #if PHMAP_HAVE_SSE2
+     #include <emmintrin.h>
+ #endif
+ 
 +// ARM NEON comparisons use the same eight control bytes as the portable group.
 +#ifndef PHMAP_HAVE_ARM_NEON
 +    #if defined(__ARM_NEON) && defined(__aarch64__) && defined(PHMAP_IS_LITTLE_ENDIAN)
@@ -72,3 +97,8 @@
 +    #include <arm_neon.h>
 +#endif
 +
+ #if PHMAP_HAVE_SSSE3
+     #include <tmmintrin.h>
+ #endif
+ 
+ 
