@@ -23,8 +23,8 @@
 #include <s2/s2closest_edge_query.h>
 #include <s2/s2closest_point_query.h>
 #include <s2/s2contains_point_query.h>
-#include <s2/s2edge_distances.h>
 #include <s2/s2earth.h>
+#include <s2/s2edge_distances.h>
 #include <s2/s2lax_polygon_shape.h>
 #include <s2/s2loop.h>
 #include <s2/s2loop_measures.h>
@@ -1189,19 +1189,16 @@ static int geography_raw_side(const GeoCoordinate& a, const GeoCoordinate& b,
                               const GeoCoordinate& point) {
     using RawSideFloat = boost::multiprecision::cpp_bin_float_quad;
     const auto vector = [](const GeoCoordinate& coordinate) {
-        const auto [sin_lon, cos_lon] =
-                geography_degree_sincos<RawSideFloat>(coordinate.x);
-        const auto [sin_lat, cos_lat] =
-                geography_degree_sincos<RawSideFloat>(coordinate.y);
+        const auto [sin_lon, cos_lon] = geography_degree_sincos<RawSideFloat>(coordinate.x);
+        const auto [sin_lat, cos_lat] = geography_degree_sincos<RawSideFloat>(coordinate.y);
         return std::array<RawSideFloat, 3> {cos_lat * cos_lon, cos_lat * sin_lon, sin_lat};
     };
     const auto first = vector(a);
     const auto second = vector(b);
     const auto query = vector(point);
-    const RawSideFloat determinant =
-            (first[1] * second[2] - first[2] * second[1]) * query[0] +
-            (first[2] * second[0] - first[0] * second[2]) * query[1] +
-            (first[0] * second[1] - first[1] * second[0]) * query[2];
+    const RawSideFloat determinant = (first[1] * second[2] - first[2] * second[1]) * query[0] +
+                                     (first[2] * second[0] - first[0] * second[2]) * query[1] +
+                                     (first[0] * second[1] - first[1] * second[0]) * query[2];
     return (determinant > 0) - (determinant < 0);
 }
 
@@ -1216,8 +1213,8 @@ static bool geography_raw_rounded_side_mismatch(const GeographyCoordinates& poly
                 S2::GetDistance(point.point, start.point, end.point) > conversion_error) {
                 continue;
             }
-            const int raw_side = geography_raw_side(start.coordinate, end.coordinate,
-                                                     point.coordinate);
+            const int raw_side =
+                    geography_raw_side(start.coordinate, end.coordinate, point.coordinate);
             const int rounded_side =
                     s2pred::ExpensiveSign(start.point, end.point, point.point, false);
             if (raw_side != 0 && rounded_side != 0 && raw_side != rounded_side) {
@@ -1346,6 +1343,26 @@ Status geography_relation(std::string_view name, const GeoShape& lhs, const GeoS
         return std::ranges::any_of(
                 left_edges.line, [&](const auto& edge) { return right_edges.line.contains(edge); });
     };
+    const auto has_rounded_only_endpoint = [&] {
+        if (lhs.type() != GeoShapeType::GEO_SHAPE_LINE_STRING ||
+            rhs.type() != GeoShapeType::GEO_SHAPE_LINE_STRING) {
+            return false;
+        }
+        const auto endpoint = [](const GeographyCoordinates& shape, size_t index) {
+            const auto& line = shape.sequences.front();
+            return line[index == 0 ? 0 : line.size() - 1];
+        };
+        for (size_t left_index : {size_t {0}, size_t {1}}) {
+            for (size_t right_index : {size_t {0}, size_t {1}}) {
+                const auto left = endpoint(nodes.left, left_index);
+                const auto right = endpoint(nodes.right, right_index);
+                if (left != right && left.point == right.point) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
     if (name == "st_equals") {
         *result = left_edges.line == right_edges.line &&
                   left_edges.polygon == right_edges.polygon &&
@@ -1416,6 +1433,11 @@ Status geography_relation(std::string_view name, const GeoShape& lhs, const GeoS
         return Status::OK();
     }
     bool intersects = S2BooleanOperation::Intersects(left, right, options);
+    if ((name == "st_intersects" || name == "st_disjoint") && has_rounded_only_endpoint()) {
+        return Status::NotSupported(
+                "{} does not support ambiguous spherical Polygon boundary line endpoint contact",
+                name);
+    }
     // A nearby disjoint curve must not become a boundary contact through the legacy
     // conversion-distance fallback used below by Intersects/Disjoint.
     if (name == "st_touches") {

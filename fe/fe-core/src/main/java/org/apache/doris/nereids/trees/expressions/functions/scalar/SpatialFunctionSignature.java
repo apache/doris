@@ -40,6 +40,14 @@ final class SpatialFunctionSignature {
         return spatialArguments(returnType, left, right);
     }
 
+    static FunctionSignature calculationBinary(Expression left, Expression right, DataType returnType) {
+        if ((isSpatial(left) && !isSupportedCalculationType(left.getDataType()))
+                || (isSpatial(right) && !isSupportedCalculationType(right.getDataType()))) {
+            return null;
+        }
+        return spatialArguments(returnType, left, right);
+    }
+
     static FunctionSignature ternary(Expression first, Expression second, Expression third, DataType returnType) {
         return spatialArguments(returnType, first, second, third);
     }
@@ -79,5 +87,9 @@ final class SpatialFunctionSignature {
     private static boolean isSpatial(Expression expression) {
         return expression.getDataType() instanceof GeometryType
                 || expression.getDataType() instanceof GeographyType;
+    }
+
+    private static boolean isSupportedCalculationType(DataType type) {
+        return type.equals(new GeographyType("OGC:CRS84", "spherical"));
     }
 }

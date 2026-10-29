@@ -70,7 +70,8 @@ public class StDistance extends ScalarFunction
 
     @Override
     public FunctionSignature searchSignature(List<FunctionSignature> signatures) {
-        FunctionSignature signature = SpatialFunctionSignature.binary(child(0), child(1), DoubleType.INSTANCE);
+        FunctionSignature signature = SpatialFunctionSignature.calculationBinary(
+                child(0), child(1), DoubleType.INSTANCE);
         return signature != null ? signature : ExplicitlyCastableSignature.super.searchSignature(signatures);
     }
 

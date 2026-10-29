@@ -908,8 +908,7 @@ TEST(VGeoFunctionsTest, GeographyRejectsRoundedPointPolygonStrictSide) {
     // Unlike a rounded vertex collision, this exterior point becomes strictly inside S2.
     const std::string point = "POINT (6.999999999999999 10.25)";
     const std::vector<std::string> polygons {
-            "POLYGON ((7 10,8 10,8 11,7 11,7 10))",
-            "POLYGON ((7 10,7 11,8 11,8 10,7 10))",
+            "POLYGON ((7 10,8 10,8 11,7 11,7 10))", "POLYGON ((7 10,7 11,8 11,8 10,7 10))",
             "POLYGON ((6 9,9 9,9 12,6 12,6 9),(7 10,8 10,8 11,7 11,7 10))"};
     for (const auto& polygon : polygons) {
         expect_rounded_polygon_interior_error("st_contains", polygon, point);
@@ -928,6 +927,21 @@ TEST(VGeoFunctionsTest, GeographyRejectsRoundedPointPolygonStrictSide) {
     expect_geography_relation("st_contains", polygon, "POINT (7 10.25)", false);
     expect_geography_relation("st_intersects", polygon, "POINT (7 10.25)", true);
     expect_geography_relation("st_touches", polygon, "POINT (7 10.25)", true);
+}
+
+TEST(VGeoFunctionsTest, GeographyRejectsRoundedOnlyLineEndpointContact) {
+    const std::string left = "LINESTRING (0 57,0 58)";
+    const std::string right = "LINESTRING (0 58.00000000000001,0 59)";
+    for (const auto* name : {"st_intersects", "st_disjoint"}) {
+        expect_rounded_polygon_interior_error(name, left, right);
+        expect_rounded_polygon_interior_error(name, right, left);
+    }
+    const std::string exact = "LINESTRING (0 58,0 59)";
+    expect_geography_relation("st_intersects", left, exact, true);
+    expect_geography_relation("st_intersects", exact, left, true);
+    const std::string separated = "LINESTRING (0 58.0000000001,0 59)";
+    expect_geography_relation("st_intersects", left, separated, false);
+    expect_geography_relation("st_disjoint", left, separated, true);
 }
 
 TEST(VGeoFunctionsTest, GeographyAdjacentPolygonSubdivisionKeepsBoundaryContact) {
