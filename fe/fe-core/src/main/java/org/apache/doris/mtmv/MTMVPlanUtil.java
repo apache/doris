@@ -96,11 +96,9 @@ import javax.annotation.Nullable;
 
 public class MTMVPlanUtil {
     private static final Logger LOG = LogManager.getLogger(MTMVPlanUtil.class);
-    // The rules should be disabled when generate MTMV cache
-    // Because these rules may change the plan structure and cause the plan can not match the mv
-    // this is mainly for final CBO phase rewrite, pre RBO phase does not need to consider, because
-    // maintain tmp plan alone for rewrite when pre RBO rewrite
-    public static final List<RuleType> DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE = ImmutableList.of(
+    // These rules keep the generated query plan aligned with the MV definition while avoiding rewrites
+    // that can change its shape.
+    public static final List<RuleType> DISABLE_RULES_WHEN_RUN_MTMV_TASK = ImmutableList.of(
             RuleType.COMPRESSED_MATERIALIZE_AGG,
             RuleType.COMPRESSED_MATERIALIZE_SORT,
             RuleType.ELIMINATE_CONST_JOIN_CONDITION,
@@ -113,8 +111,13 @@ public class MTMVPlanUtil {
             RuleType.ELIMINATE_GROUP_BY,
             RuleType.SALT_JOIN
     );
-    // The rules should be disabled when run MTMV task
-    public static final List<RuleType> DISABLE_RULES_WHEN_RUN_MTMV_TASK = DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE;
+
+    // Preserve the definition's scans and filters even when source partitions currently have no data.
+    // Empty-partition pruning would erase predicates needed for MV matching and output guarantees.
+    public static final List<RuleType> DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE = ImmutableList.<RuleType>builder()
+            .addAll(DISABLE_RULES_WHEN_RUN_MTMV_TASK)
+            .add(RuleType.PRUNE_EMPTY_PARTITION)
+            .build();
 
     public static ConnectContext createMTMVContext(MTMV mtmv, List<RuleType> disableRules) {
         ConnectContext ctx = createBasicMvContext(null, disableRules, mtmv.getSessionVariables());
