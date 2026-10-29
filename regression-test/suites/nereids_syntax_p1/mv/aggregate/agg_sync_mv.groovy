@@ -387,7 +387,8 @@ suite("agg_sync_mv") {
 
     qt_select_stddev_pop """select id, stddev_pop(kint) from agg_mv_test group by id order by id;"""
     sql """drop materialized view if exists mv_sync41 on agg_mv_test;"""
-    createMV("""create materialized view mv_sync41 as select id as g3, stddev_pop(kint) from agg_mv_test group by id order by id;""")
+    // Synonyms share generated column names; give each rollup a distinct aggregate alias.
+    createMV("""create materialized view mv_sync41 as select id as g3, stddev_pop(kint) as stddev_pop_value from agg_mv_test group by id order by id;""")
     mv_rewrite_any_success("select id, stddev_pop(kint) from agg_mv_test group by id order by id;", ["mv_sync40", "mv_sync41"])
     qt_select_stddev_pop_mv """select id, stddev_pop(kint) from agg_mv_test group by id order by id;"""
 
@@ -429,7 +430,7 @@ suite("agg_sync_mv") {
 
     qt_select_var_pop """select id, var_pop(kint) from agg_mv_test group by id order by id;"""
     sql """drop materialized view if exists mv_sync48 on agg_mv_test;"""
-    createMV("""create materialized view mv_sync48 as select id as s4, var_pop(kint) from agg_mv_test group by id order by id;""")
+    createMV("""create materialized view mv_sync48 as select id as s4, var_pop(kint) as var_pop_value from agg_mv_test group by id order by id;""")
     mv_rewrite_any_success("select id, var_pop(kint) from agg_mv_test group by id order by id;", ["mv_sync47", "mv_sync48"])
     qt_select_var_pop_mv """select id, var_pop(kint) from agg_mv_test group by id order by id;"""
 
@@ -441,7 +442,7 @@ suite("agg_sync_mv") {
 
     qt_select_var_samp """select id, var_samp(kint) from agg_mv_test group by id order by id;"""
     sql """drop materialized view if exists mv_sync50 on agg_mv_test;"""
-    createMV("""create materialized view mv_sync50 as select id as s6, var_samp(kint) from agg_mv_test group by id order by id;""")
+    createMV("""create materialized view mv_sync50 as select id as s6, var_samp(kint) as var_samp_value from agg_mv_test group by id order by id;""")
     mv_rewrite_any_success("select id, var_samp(kint) from agg_mv_test group by id order by id;", ["mv_sync49", "mv_sync50"])
     qt_select_var_samp_mv """select id, var_samp(kint) from agg_mv_test group by id order by id;"""
 
@@ -512,5 +513,14 @@ suite("agg_sync_mv") {
     sql "insert into agg_mv_test select * from agg_mv_test;"
 
     sql "set parallel_pipeline_task_num=1"
-    qt_test "select kbint, map_agg(id, kstr) from agg_mv_test group by kbint order by kbint;"
+    qt_test """
+        select kbint, map_size(m), map_contains_key(m, cast(null as int)),
+               m[cast(null as int)], m[cast(kbint - 1 as int)]
+        from (
+            select kbint, map_agg(id, kstr) as m
+            from agg_mv_test
+            group by kbint
+        ) t
+        order by kbint;
+    """
 }
