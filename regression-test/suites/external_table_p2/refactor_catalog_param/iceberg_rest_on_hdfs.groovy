@@ -49,6 +49,24 @@ suite("iceberg_rest_on_hdfs", "p2,external") {
         sql """
             use ${db_name};
         """
+        // The HDFS REST fixture runs tabulario/iceberg-rest:1.6.0. Dropping the highest field ID must
+        // preserve the table's historical last-column-id in add-schema commits to this older server.
+        sql """DROP TABLE IF EXISTS rest_drop_highest_three"""
+        sql """CREATE TABLE rest_drop_highest_three (c1 INT, c2 INT, c3 INT)"""
+        sql """INSERT INTO rest_drop_highest_three VALUES (1, 2, 3)"""
+        sql """ALTER TABLE rest_drop_highest_three DROP COLUMN c3"""
+        sql """INSERT INTO rest_drop_highest_three VALUES (4, 5)"""
+        sql """ALTER TABLE rest_drop_highest_three DROP COLUMN c2"""
+        sql """ALTER TABLE rest_drop_highest_three ADD COLUMN c4 INT"""
+        sql """ALTER TABLE rest_drop_highest_three DROP COLUMN c4"""
+        sql """INSERT INTO rest_drop_highest_three VALUES (6)"""
+
+        sql """DROP TABLE IF EXISTS rest_drop_highest_two"""
+        sql """CREATE TABLE rest_drop_highest_two (c1 INT, c2 INT)"""
+        sql """INSERT INTO rest_drop_highest_two VALUES (1, 2)"""
+        sql """ALTER TABLE rest_drop_highest_two DROP COLUMN c2"""
+        sql """INSERT INTO rest_drop_highest_two VALUES (3)"""
+
         // =======  BASIC TABLE OPERATIONS TEST  =======
         def table_name = prefix + "_table"
         sql """
