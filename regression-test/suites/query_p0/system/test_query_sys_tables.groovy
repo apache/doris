@@ -271,6 +271,14 @@ suite("test_query_sys_tables", "query,p0") {
         if (tab[0].contains("encryption_keys") || tab[0].contains("cluster_snapshot")) {
             continue
         }
-        sql "select * from ${tab[0]} limit 10"
+        // TSO status is queryable only when the changelog feature is enabled.
+        if (tab[0] == "tso_status" && getFeConfig("experimental_enable_feature_changelog") == "false") {
+            test {
+                sql "select * from ${tab[0]} limit 10"
+                exception "TSO feature is disabled"
+            }
+        } else {
+            sql "select * from ${tab[0]} limit 10"
+        }
     }
 }
