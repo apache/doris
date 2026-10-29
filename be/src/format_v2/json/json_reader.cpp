@@ -1097,7 +1097,7 @@ Status JsonReader::_write_data_to_column(simdjson::ondemand::value& value,
                 continue;
             }
             const auto sub_column_idx = it->second;
-            auto sub_column_ptr = struct_column_ptr->get_column(sub_column_idx).get_ptr();
+            auto* sub_column_ptr = &struct_column_ptr->get_column(sub_column_idx);
             if (has_value[sub_column_idx]) {
                 // Struct fields follow Hive-style duplicate handling: the last matching nested key
                 // wins. Remove the earlier nested value before appending the new one.
@@ -1106,7 +1106,7 @@ Status JsonReader::_write_data_to_column(simdjson::ondemand::value& value,
             has_value[sub_column_idx] = true;
             auto sub_value = sub.value().value();
             RETURN_IF_ERROR(_write_data_to_column<use_string_cache>(
-                    sub_value, type_struct->get_element(sub_column_idx), sub_column_ptr.get(),
+                    sub_value, type_struct->get_element(sub_column_idx), sub_column_ptr,
                     column_name + "." + sub_key, sub_serdes[sub_column_idx], valid));
         }
         for (size_t sub_col_idx = 0; sub_col_idx < type_struct->get_elements().size();
@@ -1114,7 +1114,7 @@ Status JsonReader::_write_data_to_column(simdjson::ondemand::value& value,
             if (has_value[sub_col_idx]) {
                 continue;
             }
-            auto sub_column_ptr = struct_column_ptr->get_column(sub_col_idx).get_ptr();
+            auto* sub_column_ptr = &struct_column_ptr->get_column(sub_col_idx);
             if (!is_column_nullable(*sub_column_ptr)) {
                 return Status::DataQualityError(
                         "Json file structColumn miss field {} and this column isn't nullable.",
