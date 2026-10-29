@@ -20,6 +20,8 @@ package org.apache.doris.metric;
 import org.apache.doris.catalog.CloudTabletStatMgr;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.changelog.ChangelogIvmMonitor;
+import org.apache.doris.changelog.ChangelogIvmMonitorSnapshot;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.monitor.jvm.JvmStats;
@@ -59,6 +61,15 @@ public class PrometheusMetricVisitor extends MetricVisitor {
     private static final String JVM_THREAD = "jvm_thread";
 
     private static final String JVM_GC = "jvm_gc";
+
+    // changelog and IVM monitor
+    private static final String CHANGELOG_IVM_MONITOR_LAST_SAMPLE_TIMESTAMP =
+            "doris_fe_changelog_ivm_monitor_last_sample_timestamp_seconds";
+    private static final String CHANGELOG_IVM_MONITOR_SAMPLE_DURATION =
+            "doris_fe_changelog_ivm_monitor_sample_duration_seconds";
+    private static final String CHANGELOG_IVM_MONITOR_SAMPLE_FAILURES =
+            "doris_fe_changelog_ivm_monitor_sample_failures_total";
+    private static final String CHANGELOG_RETAINED_BYTES = "doris_fe_changelog_retained_bytes";
 
     private static final String HELP = "# HELP ";
     private static final String TYPE = "# TYPE ";
@@ -339,6 +350,48 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         sb.append(totalRecycleSize);
         sb.append("\n");
         return;
+    }
+
+    @Override
+    public void visitChangelogIvmMonitor() {
+        // Only the Master samples, and a Master that has been demoted must not export what it sampled before.
+        if (!Env.getCurrentEnv().isMaster() || !ChangelogIvmMonitor.isEnabled()) {
+            return;
+        }
+        ChangelogIvmMonitor monitor = Env.getCurrentEnv().getChangelogIvmMonitor();
+        appendFamilyHeader(CHANGELOG_IVM_MONITOR_SAMPLE_FAILURES, "counter",
+                "number of the rounds of the changelog and IVM monitor that failed");
+        sb.append(CHANGELOG_IVM_MONITOR_SAMPLE_FAILURES).append(" ").append(monitor.getSampleFailures())
+                .append("\n");
+
+        // Until a round completes, the sampled series are missing rather than 0.
+        ChangelogIvmMonitorSnapshot snapshot = monitor.getSnapshot();
+        if (snapshot == null) {
+            return;
+        }
+        appendFamilyHeader(CHANGELOG_IVM_MONITOR_LAST_SAMPLE_TIMESTAMP, "gauge",
+                "the time the latest round of the changelog and IVM monitor completed, in seconds since the epoch");
+        sb.append(CHANGELOG_IVM_MONITOR_LAST_SAMPLE_TIMESTAMP).append(" ")
+                .append(snapshot.getSampleTimeMs() / 1000).append("\n");
+        appendFamilyHeader(CHANGELOG_IVM_MONITOR_SAMPLE_DURATION, "gauge",
+                "how long the latest round of the changelog and IVM monitor took, in seconds");
+        sb.append(CHANGELOG_IVM_MONITOR_SAMPLE_DURATION).append(" ")
+                .append(snapshot.getSampleDurationMs() / 1000.0).append("\n");
+
+        appendFamilyHeader(CHANGELOG_RETAINED_BYTES, "gauge",
+                "size of the changelog kept by the tables, of one replica of each tablet or of all the replicas");
+        sb.append(CHANGELOG_RETAINED_BYTES).append("{scope=\"single_replica\"} ")
+                .append(snapshot.getChangelogSize()).append("\n");
+        // a tablet of cloud mode keeps one copy of its data, in the shared storage
+        if (Config.isNotCloudMode()) {
+            sb.append(CHANGELOG_RETAINED_BYTES).append("{scope=\"all_replicas\"} ")
+                    .append(snapshot.getTotalReplicaChangelogSize()).append("\n");
+        }
+    }
+
+    private void appendFamilyHeader(String name, String type, String help) {
+        sb.append(HELP).append(name).append(" ").append(help).append("\n");
+        sb.append(TYPE).append(name).append(" ").append(type).append("\n");
     }
 
     @Override

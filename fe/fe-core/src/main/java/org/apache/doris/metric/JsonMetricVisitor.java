@@ -231,6 +231,11 @@ public class JsonMetricVisitor extends MetricVisitor {
         return;
     }
 
+    @Override
+    public void visitChangelogIvmMonitor() {
+        return;
+    }
+
     private void setNodeInfo(StringBuilder sb, String metric, String type,
                              String status, long value, boolean lastMetric) {
         sb.append("{\n\t\"tags\":\n\t{\n");
