@@ -64,7 +64,8 @@ suite("test_olap_table_stream_reset", "nonConcurrent") {
     sql """
         CREATE TABLE dup_np_true (
             id INT,
-            v INT
+            v INT,
+            jv VARIANT NULL
         )
         DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -73,7 +74,7 @@ suite("test_olap_table_stream_reset", "nonConcurrent") {
             "changelog.enable" = "true"
         )
     """
-    sql "INSERT INTO dup_np_true VALUES (1, 10), (2, 20)"
+    sql "INSERT INTO dup_np_true VALUES (1, 10, parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 10\"}}')), (2, 20, parse_to_variant('{\"k\": 2, \"d\": {\"row\": \"2 20\"}}'))"
     waitVisible()
     sql """
         CREATE STREAM s_dup_np_true ON TABLE dup_np_true
@@ -82,7 +83,7 @@ suite("test_olap_table_stream_reset", "nonConcurrent") {
             "show_initial_rows" = "true"
         )
     """
-    sql "INSERT INTO dup_np_true VALUES (3, 30), (4, 40)"
+    sql "INSERT INTO dup_np_true VALUES (3, 30, parse_to_variant('{\"k\": 3, \"d\": {\"row\": \"3 30\"}}')), (4, 40, parse_to_variant('{\"k\": 4, \"d\": {\"row\": \"4 40\"}}'))"
     waitVisible()
     checkRows([["1", "10"], ["2", "20"], ["3", "30"], ["4", "40"]],
             "SELECT id, v FROM s_dup_np_true@reset() ORDER BY id")
@@ -90,13 +91,16 @@ suite("test_olap_table_stream_reset", "nonConcurrent") {
     sql """
         CREATE TABLE reset_sink_dup_true (
             id INT,
-            v INT
+            v INT,
+            jv VARIANT NULL
         )
         DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES ("replication_num" = "1")
     """
-    sql "INSERT INTO reset_sink_dup_true SELECT id, v FROM s_dup_np_true@reset()"
+    sql "INSERT INTO reset_sink_dup_true SELECT id, v, jv FROM s_dup_np_true@reset()"
+    assertEquals(sql("SELECT count(*) FROM reset_sink_dup_true")[0][0],
+            sql("SELECT count(*) FROM reset_sink_dup_true WHERE CAST(jv['k'] AS INT) = id")[0][0])
     waitVisible()
     assertEquals(0, sql("SELECT id, v FROM s_dup_np_true ORDER BY id").size())
     checkLagZero("s_dup_np_true")
@@ -106,7 +110,8 @@ suite("test_olap_table_stream_reset", "nonConcurrent") {
     sql """
         CREATE TABLE dup_np_false (
             id INT,
-            v INT
+            v INT,
+            jv VARIANT NULL
         )
         DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -115,7 +120,7 @@ suite("test_olap_table_stream_reset", "nonConcurrent") {
             "changelog.enable" = "true"
         )
     """
-    sql "INSERT INTO dup_np_false VALUES (1, 10), (2, 20)"
+    sql "INSERT INTO dup_np_false VALUES (1, 10, parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 10\"}}')), (2, 20, parse_to_variant('{\"k\": 2, \"d\": {\"row\": \"2 20\"}}'))"
     waitVisible()
     sql """
         CREATE STREAM s_dup_np_false ON TABLE dup_np_false
@@ -124,23 +129,26 @@ suite("test_olap_table_stream_reset", "nonConcurrent") {
             "show_initial_rows" = "false"
         )
     """
-    sql "INSERT INTO dup_np_false VALUES (3, 30)"
+    sql "INSERT INTO dup_np_false VALUES (3, 30, parse_to_variant('{\"k\": 3, \"d\": {\"row\": \"3 30\"}}'))"
     waitVisible()
     checkRows([["1", "10"], ["2", "20"], ["3", "30"]],
             "SELECT id, v FROM s_dup_np_false@reset() ORDER BY id")
     sql """
         CREATE TABLE reset_sink_dup_false (
             id INT,
-            v INT
+            v INT,
+            jv VARIANT NULL
         )
         DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES ("replication_num" = "1")
     """
-    sql "INSERT INTO reset_sink_dup_false SELECT id, v FROM s_dup_np_false@reset()"
+    sql "INSERT INTO reset_sink_dup_false SELECT id, v, jv FROM s_dup_np_false@reset()"
+    assertEquals(sql("SELECT count(*) FROM reset_sink_dup_false")[0][0],
+            sql("SELECT count(*) FROM reset_sink_dup_false WHERE CAST(jv['k'] AS INT) = id")[0][0])
     waitVisible()
     assertEquals(0, sql("SELECT id, v FROM s_dup_np_false ORDER BY id").size())
-    sql "INSERT INTO dup_np_false VALUES (4, 40)"
+    sql "INSERT INTO dup_np_false VALUES (4, 40, parse_to_variant('{\"k\": 4, \"d\": {\"row\": \"4 40\"}}'))"
     waitVisible()
     checkRows([["4", "40"]],
             "SELECT id, v FROM s_dup_np_false ORDER BY id")
@@ -150,7 +158,8 @@ suite("test_olap_table_stream_reset", "nonConcurrent") {
     sql """
         CREATE TABLE mow_md_true (
             id INT,
-            v INT
+            v INT,
+            jv VARIANT NULL
         )
         UNIQUE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -161,7 +170,7 @@ suite("test_olap_table_stream_reset", "nonConcurrent") {
             "changelog.need_historical_value" = "true"
         )
     """
-    sql "INSERT INTO mow_md_true VALUES (1, 10), (2, 20), (3, 30)"
+    sql "INSERT INTO mow_md_true VALUES (1, 10, parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 10\"}}')), (2, 20, parse_to_variant('{\"k\": 2, \"d\": {\"row\": \"2 20\"}}')), (3, 30, parse_to_variant('{\"k\": 3, \"d\": {\"row\": \"3 30\"}}'))"
     waitVisible()
     sql """
         CREATE STREAM s_mow_md_true ON TABLE mow_md_true
@@ -170,22 +179,25 @@ suite("test_olap_table_stream_reset", "nonConcurrent") {
             "show_initial_rows" = "true"
         )
     """
-    sql "INSERT INTO mow_md_true VALUES (1, 11)"
+    sql "INSERT INTO mow_md_true VALUES (1, 11, parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 11\"}}'))"
     sql "DELETE FROM mow_md_true WHERE id = 2"
-    sql "INSERT INTO mow_md_true VALUES (4, 40)"
+    sql "INSERT INTO mow_md_true VALUES (4, 40, parse_to_variant('{\"k\": 4, \"d\": {\"row\": \"4 40\"}}'))"
     waitVisible()
     checkRows([["1", "11"], ["3", "30"], ["4", "40"]],
             "SELECT id, v FROM s_mow_md_true@reset() ORDER BY id")
     sql """
         CREATE TABLE reset_sink_mow_md_true (
             id INT,
-            v INT
+            v INT,
+            jv VARIANT NULL
         )
         DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES ("replication_num" = "1")
     """
-    sql "INSERT INTO reset_sink_mow_md_true SELECT id, v FROM s_mow_md_true@reset()"
+    sql "INSERT INTO reset_sink_mow_md_true SELECT id, v, jv FROM s_mow_md_true@reset()"
+    assertEquals(sql("SELECT count(*) FROM reset_sink_mow_md_true")[0][0],
+            sql("SELECT count(*) FROM reset_sink_mow_md_true WHERE CAST(jv['k'] AS INT) = id")[0][0])
     waitVisible()
     assertEquals(0, sql("SELECT id, v FROM s_mow_md_true ORDER BY id").size())
     checkLagZero("s_mow_md_true")
@@ -195,7 +207,8 @@ suite("test_olap_table_stream_reset", "nonConcurrent") {
     sql """
         CREATE TABLE mow_append_false (
             id INT,
-            v INT
+            v INT,
+            jv VARIANT NULL
         )
         UNIQUE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -206,7 +219,7 @@ suite("test_olap_table_stream_reset", "nonConcurrent") {
             "changelog.need_historical_value" = "true"
         )
     """
-    sql "INSERT INTO mow_append_false VALUES (1, 10), (2, 20)"
+    sql "INSERT INTO mow_append_false VALUES (1, 10, parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 10\"}}')), (2, 20, parse_to_variant('{\"k\": 2, \"d\": {\"row\": \"2 20\"}}'))"
     waitVisible()
     sql """
         CREATE STREAM s_mow_append_false ON TABLE mow_append_false
@@ -215,9 +228,9 @@ suite("test_olap_table_stream_reset", "nonConcurrent") {
             "show_initial_rows" = "false"
         )
     """
-    sql "INSERT INTO mow_append_false VALUES (1, 11)"
+    sql "INSERT INTO mow_append_false VALUES (1, 11, parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 11\"}}'))"
     sql "DELETE FROM mow_append_false WHERE id = 2"
-    sql "INSERT INTO mow_append_false VALUES (3, 30)"
+    sql "INSERT INTO mow_append_false VALUES (3, 30, parse_to_variant('{\"k\": 3, \"d\": {\"row\": \"3 30\"}}'))"
     waitVisible()
     checkRows([["3", "30"]],
             "SELECT id, v FROM s_mow_append_false ORDER BY id")
@@ -226,13 +239,16 @@ suite("test_olap_table_stream_reset", "nonConcurrent") {
     sql """
         CREATE TABLE reset_sink_mow_append_false (
             id INT,
-            v INT
+            v INT,
+            jv VARIANT NULL
         )
         DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES ("replication_num" = "1")
     """
-    sql "INSERT INTO reset_sink_mow_append_false SELECT id, v FROM s_mow_append_false@reset()"
+    sql "INSERT INTO reset_sink_mow_append_false SELECT id, v, jv FROM s_mow_append_false@reset()"
+    assertEquals(sql("SELECT count(*) FROM reset_sink_mow_append_false")[0][0],
+            sql("SELECT count(*) FROM reset_sink_mow_append_false WHERE CAST(jv['k'] AS INT) = id")[0][0])
     waitVisible()
     assertEquals(0, sql("SELECT id, v FROM s_mow_append_false ORDER BY id").size())
 
@@ -241,7 +257,8 @@ suite("test_olap_table_stream_reset", "nonConcurrent") {
     sql """
         CREATE TABLE dup_part_true (
             id INT,
-            v INT
+            v INT,
+            jv VARIANT NULL
         )
         DUPLICATE KEY(id)
         PARTITION BY RANGE(id)
@@ -255,7 +272,7 @@ suite("test_olap_table_stream_reset", "nonConcurrent") {
             "changelog.enable" = "true"
         )
     """
-    sql "INSERT INTO dup_part_true VALUES (1, 10)"
+    sql "INSERT INTO dup_part_true VALUES (1, 10, parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 10\"}}'))"
     waitVisible()
     sql """
         CREATE STREAM s_dup_part_true ON TABLE dup_part_true
@@ -264,24 +281,27 @@ suite("test_olap_table_stream_reset", "nonConcurrent") {
             "show_initial_rows" = "true"
         )
     """
-    sql "INSERT INTO dup_part_true VALUES (11, 110)"
+    sql "INSERT INTO dup_part_true VALUES (11, 110, parse_to_variant('{\"k\": 11, \"d\": {\"row\": \"11 110\"}}'))"
     waitVisible()
     checkRows([["1", "10"], ["11", "110"]],
             "SELECT id, v FROM s_dup_part_true@reset() ORDER BY id")
     sql """
         CREATE TABLE reset_sink_part_true (
             id INT,
-            v INT
+            v INT,
+            jv VARIANT NULL
         )
         DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES ("replication_num" = "1")
     """
-    sql "INSERT INTO reset_sink_part_true SELECT id, v FROM s_dup_part_true@reset()"
+    sql "INSERT INTO reset_sink_part_true SELECT id, v, jv FROM s_dup_part_true@reset()"
+    assertEquals(sql("SELECT count(*) FROM reset_sink_part_true")[0][0],
+            sql("SELECT count(*) FROM reset_sink_part_true WHERE CAST(jv['k'] AS INT) = id")[0][0])
     waitVisible()
     assertEquals(0, sql("SELECT id, v FROM s_dup_part_true ORDER BY id").size())
     checkLagZero("s_dup_part_true")
-    sql "INSERT INTO dup_part_true VALUES (12, 120)"
+    sql "INSERT INTO dup_part_true VALUES (12, 120, parse_to_variant('{\"k\": 12, \"d\": {\"row\": \"12 120\"}}'))"
     waitVisible()
     checkRows([["12", "120"]],
             "SELECT id, v FROM s_dup_part_true ORDER BY id")

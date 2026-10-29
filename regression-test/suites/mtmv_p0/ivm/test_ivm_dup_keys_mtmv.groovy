@@ -28,7 +28,8 @@ suite("test_ivm_dup_keys_mtmv") {
         CREATE TABLE test_ivm_dup_keys_mtmv_base (
             k1 INT,
             v1 INT,
-            v2 VARCHAR(50)
+            v2 VARCHAR(50),
+            jv VARIANT NULL
         )
         DUPLICATE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
@@ -41,9 +42,9 @@ suite("test_ivm_dup_keys_mtmv") {
     // 2. Insert initial rows (DUP_KEYS allows duplicates on k1)
     sql """
         INSERT INTO test_ivm_dup_keys_mtmv_base VALUES
-            (1, 10, 'aaa'),
-            (2, 20, 'bbb'),
-            (3, 30, 'ccc');
+            (1, 10, 'aaa', parse_to_variant('{"k": 1, "d": {"row": "1 10 aaa"}}')),
+            (2, 20, 'bbb', parse_to_variant('{"k": 2, "d": {"row": "2 20 bbb"}}')),
+            (3, 30, 'ccc', parse_to_variant('{"k": 3, "d": {"row": "3 30 ccc"}}'));
     """
 
     // 3. Create IVM MV. The aggregate is what keeps it on the unique-key model, which is the model the
@@ -77,8 +78,8 @@ suite("test_ivm_dup_keys_mtmv") {
     // 7. Insert more rows into base table (including a duplicate k1=1)
     sql """
         INSERT INTO test_ivm_dup_keys_mtmv_base VALUES
-            (4, 40, 'ddd'),
-            (1, 11, 'aaa_dup');
+            (4, 40, 'ddd', parse_to_variant('{"k": 4, "d": {"row": "4 40 ddd"}}')),
+            (1, 11, 'aaa_dup', parse_to_variant('{"k": 1, "d": {"row": "1 11 aaa_dup"}}'));
     """
 
     // 8. Second COMPLETE refresh — should reflect all 5 rows (DUP_KEYS allows k1 duplicates)

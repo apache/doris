@@ -22,7 +22,8 @@ suite("test_ivm_mtmv_changelog") {
     sql """
         CREATE TABLE test_ivm_mtmv_changelog_base (
             k1 INT,
-            v1 INT
+            v1 INT,
+            jv VARIANT NULL
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 1
@@ -34,7 +35,7 @@ suite("test_ivm_mtmv_changelog") {
         );
     """
 
-    sql """INSERT INTO test_ivm_mtmv_changelog_base VALUES (1, 10), (2, 20);"""
+    sql """INSERT INTO test_ivm_mtmv_changelog_base VALUES (1, 10, parse_to_variant('{"k": 1, "d": {"row": "1 10"}}')), (2, 20, parse_to_variant('{"k": 2, "d": {"row": "2 20"}}'));"""
 
     sql """
         CREATE MATERIALIZED VIEW test_ivm_mtmv_changelog_mv

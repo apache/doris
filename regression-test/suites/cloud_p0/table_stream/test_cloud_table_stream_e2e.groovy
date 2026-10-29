@@ -27,7 +27,8 @@ suite("test_cloud_table_stream_e2e") {
     sql """
         CREATE TABLE stream_source (
             id INT,
-            value INT
+            value INT,
+            jv VARIANT NULL
         )
         DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -39,14 +40,15 @@ suite("test_cloud_table_stream_e2e") {
     sql """
         CREATE TABLE stream_sink (
             id INT,
-            value INT
+            value INT,
+            jv VARIANT NULL
         )
         DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES ("replication_num" = "1")
     """
 
-    sql "INSERT INTO stream_source VALUES (1, 10), (2, 20)"
+    sql "INSERT INTO stream_source VALUES (1, 10, parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 10\"}}')), (2, 20, parse_to_variant('{\"k\": 2, \"d\": {\"row\": \"2 20\"}}'))"
     sql "sync"
     sql """
         CREATE STREAM cloud_stream ON TABLE stream_source
@@ -56,26 +58,34 @@ suite("test_cloud_table_stream_e2e") {
         )
     """
 
-    sql "INSERT INTO stream_source VALUES (3, 30), (4, 40)"
+    sql "INSERT INTO stream_source VALUES (3, 30, parse_to_variant('{\"k\": 3, \"d\": {\"row\": \"3 30\"}}')), (4, 40, parse_to_variant('{\"k\": 4, \"d\": {\"row\": \"4 40\"}}'))"
     sql "sync"
 
     order_qt_incremental_before_consume """
-        SELECT id, value
+        SELECT id, value,
+               jv,
+               jv['d']['row']
         FROM cloud_stream
         ORDER BY id
     """
     order_qt_select_does_not_advance_offset """
-        SELECT id, value
+        SELECT id, value,
+               jv,
+               jv['d']['row']
         FROM cloud_stream
         ORDER BY id
     """
     order_qt_snapshot_at_initial_offset """
-        SELECT id, value
+        SELECT id, value,
+               jv,
+               jv['d']['row']
         FROM cloud_stream@snapshot()
         ORDER BY id
     """
     order_qt_reset_to_current_base_table """
-        SELECT id, value
+        SELECT id, value,
+               jv,
+               jv['d']['row']
         FROM cloud_stream@reset()
         ORDER BY id
     """
@@ -90,16 +100,16 @@ suite("test_cloud_table_stream_e2e") {
         ORDER BY UNIT
     """
 
-    sql "INSERT INTO stream_sink SELECT id, value FROM cloud_stream"
-    order_qt_first_consumption_target "SELECT id, value FROM stream_sink ORDER BY id"
+    sql "INSERT INTO stream_sink SELECT id, value, jv FROM cloud_stream"
+    order_qt_first_consumption_target "SELECT id, value, jv, jv['d']['row'] FROM stream_sink ORDER BY id"
     qt_stream_empty_after_first_consumption "SELECT count(*) FROM cloud_stream"
 
-    sql "INSERT INTO stream_source VALUES (5, 50)"
+    sql "INSERT INTO stream_source VALUES (5, 50, parse_to_variant('{\"k\": 5, \"d\": {\"row\": \"5 50\"}}'))"
     sql "sync"
-    order_qt_second_incremental_batch "SELECT id, value FROM cloud_stream ORDER BY id"
+    order_qt_second_incremental_batch "SELECT id, value, jv, jv['d']['row'] FROM cloud_stream ORDER BY id"
 
-    sql "INSERT INTO stream_sink SELECT id, value FROM cloud_stream"
-    order_qt_second_consumption_target "SELECT id, value FROM stream_sink ORDER BY id"
+    sql "INSERT INTO stream_sink SELECT id, value, jv FROM cloud_stream"
+    order_qt_second_consumption_target "SELECT id, value, jv, jv['d']['row'] FROM stream_sink ORDER BY id"
     qt_stream_empty_after_second_consumption "SELECT count(*) FROM cloud_stream"
     order_qt_consumption_visible_after_insert """
         SELECT STREAM_NAME,

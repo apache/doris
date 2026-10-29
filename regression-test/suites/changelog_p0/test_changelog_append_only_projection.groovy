@@ -47,7 +47,8 @@ suite("test_changelog_append_only_projection", "nonConcurrent") {
                 k1 BIGINT,
                 k2 INT,
                 v1 INT,
-                v2 VARCHAR(16) NULL
+                v2 VARCHAR(16) NULL,
+                jv VARIANT NULL
             ) ENGINE=OLAP
             DUPLICATE KEY(k1, k2)
             DISTRIBUTED BY HASH(k1) BUCKETS 1
@@ -57,8 +58,8 @@ suite("test_changelog_append_only_projection", "nonConcurrent") {
             )
         """
 
-        sql "INSERT INTO ${dupTable} VALUES (1, 1, 10, 'seed1')"
-        sql "INSERT INTO ${dupTable} VALUES (2, 2, 20, 'seed2')"
+        sql "INSERT INTO ${dupTable} VALUES (1, 1, 10, 'seed1', parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 1 10 seed1\"}}'))"
+        sql "INSERT INTO ${dupTable} VALUES (2, 2, 20, 'seed2', parse_to_variant('{\"k\": 2, \"d\": {\"row\": \"2 2 20 seed2\"}}'))"
         sql "sync"
         sleep(1200)
         def t0 = incrTimeFormat.format(new Date())
@@ -66,14 +67,14 @@ suite("test_changelog_append_only_projection", "nonConcurrent") {
 
         // Each INSERT produces its own rowset; interleaved keys make the rowsets'
         // key ranges overlap, so a key-ordered read would need a real merge.
-        sql "INSERT INTO ${dupTable} VALUES (1, 3, 30, 'w1'), (9, 1, 31, 'w1')"
-        sql "INSERT INTO ${dupTable} VALUES (2, 4, 40, NULL), (8, 2, 41, 'w2')"
-        sql "INSERT INTO ${dupTable} VALUES (1, 5, 50, 'w3'), (9, 3, 51, NULL)"
+        sql "INSERT INTO ${dupTable} VALUES (1, 3, 30, 'w1', parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 3 30 w1\"}}')), (9, 1, 31, 'w1', parse_to_variant('{\"k\": 9, \"d\": {\"row\": \"9 1 31 w1\"}}'))"
+        sql "INSERT INTO ${dupTable} VALUES (2, 4, 40, NULL, parse_to_variant('{\"k\": 2, \"d\": {\"row\": \"2 4 40 NULL\"}}')), (8, 2, 41, 'w2', parse_to_variant('{\"k\": 8, \"d\": {\"row\": \"8 2 41 w2\"}}'))"
+        sql "INSERT INTO ${dupTable} VALUES (1, 5, 50, 'w3', parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 5 50 w3\"}}')), (9, 3, 51, NULL, parse_to_variant('{\"k\": 9, \"d\": {\"row\": \"9 3 51 NULL\"}}'))"
         sql "sync"
         sleep(1200)
         def t1 = incrTimeFormat.format(new Date())
         sleep(1200)
-        sql "INSERT INTO ${dupTable} VALUES (7, 7, 70, 'late')"
+        sql "INSERT INTO ${dupTable} VALUES (7, 7, 70, 'late', parse_to_variant('{\"k\": 7, \"d\": {\"row\": \"7 7 70 late\"}}'))"
         sql "sync"
 
         // 1. Project a single value column: 1 projected column < 2 key columns.

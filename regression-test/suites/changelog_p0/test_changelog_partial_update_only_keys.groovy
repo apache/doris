@@ -23,7 +23,8 @@ suite("test_changelog_partial_update_only_keys", "nonConcurrent") {
             k1 INT,
             k2 INT,
             v_default INT NOT NULL DEFAULT "7",
-            v_nullable STRING NULL
+            v_nullable STRING NULL,
+            jv VARIANT NULL
         )
         UNIQUE KEY(k1, k2)
         DISTRIBUTED BY HASH(k1) BUCKETS 1
@@ -37,8 +38,8 @@ suite("test_changelog_partial_update_only_keys", "nonConcurrent") {
 
     sql """
         INSERT INTO test_changelog_partial_update_only_keys VALUES
-            (1, 10, 100, 'old-1'),
-            (2, 20, 200, 'old-2')
+            (1, 10, 100, 'old-1', parse_to_variant('{"k": 1, "d": {"row": "1 10 100 old-1"}}')),
+            (2, 20, 200, 'old-2', parse_to_variant('{"k": 2, "d": {"row": "2 20 200 old-2"}}'))
     """
 
     sql "SET enable_unique_key_partial_update = true"

@@ -24,7 +24,8 @@ suite("test_time_travel_dup", "nonConcurrent") {
     sql """
         CREATE TABLE test_time_travel_dup (
             k INT,
-            v INT
+            v INT,
+            jv VARIANT NULL
         )
         DUPLICATE KEY(k)
         DISTRIBUTED BY HASH(k) BUCKETS 1
@@ -37,13 +38,13 @@ suite("test_time_travel_dup", "nonConcurrent") {
     sql "SET show_hidden_columns = true"
 
     // batch 1
-    sql "INSERT INTO test_time_travel_dup VALUES (1, 10), (2, 20)"
+    sql "INSERT INTO test_time_travel_dup VALUES (1, 10, parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 10\"}}')), (2, 20, parse_to_variant('{\"k\": 2, \"d\": {\"row\": \"2 20\"}}'))"
     def tso1 = sql("SELECT MAX(__DORIS_COMMIT_TSO_COL__) FROM test_time_travel_dup")[0][0] as Long
     // batch 2
-    sql "INSERT INTO test_time_travel_dup VALUES (3, 30)"
+    sql "INSERT INTO test_time_travel_dup VALUES (3, 30, parse_to_variant('{\"k\": 3, \"d\": {\"row\": \"3 30\"}}'))"
     def tso2 = sql("SELECT MAX(__DORIS_COMMIT_TSO_COL__) FROM test_time_travel_dup")[0][0] as Long
     // batch 3
-    sql "INSERT INTO test_time_travel_dup VALUES (4, 40)"
+    sql "INSERT INTO test_time_travel_dup VALUES (4, 40, parse_to_variant('{\"k\": 4, \"d\": {\"row\": \"4 40\"}}'))"
     def tso3 = sql("SELECT MAX(__DORIS_COMMIT_TSO_COL__) FROM test_time_travel_dup")[0][0] as Long
 
     sql "SET show_hidden_columns = false"
@@ -67,6 +68,8 @@ suite("test_time_travel_dup", "nonConcurrent") {
     def r1c = sql("SELECT k, v FROM test_time_travel_dup FOR VERSION AS OF ${tso1} ORDER BY k")
     assertEquals([[1, 10], [2, 20]], r1c)
     order_qt_future_after_compaction "SELECT k, v FROM test_time_travel_dup FOR VERSION AS OF 9223372036854775807"
+    // the variant column of an older version, after compaction
+    order_qt_tso2_variant_after_compaction "SELECT k, jv, jv['d']['row'] FROM test_time_travel_dup FOR VERSION AS OF ${tso2}"
 
     // ---- error path: AS OF on a table without changelog ----
     sql "DROP TABLE IF EXISTS test_time_travel_dup_nochangelog FORCE"
