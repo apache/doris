@@ -919,8 +919,9 @@ Status VariantCompactionUtil::check_path_stats(const std::vector<RowsetSharedPtr
         }
     }
 #endif
-    // only check path stats for dup_keys since the rows may be merged in other models
-    if (tablet->keys_type() != KeysType::DUP_KEYS) {
+    // only check path stats for dup_keys since the rows may be merged in other models; a changelog
+    // tablet is dup_keys, but its compaction drops the rows its delete bitmap marks
+    if (tablet->keys_type() != KeysType::DUP_KEYS || tablet->is_changelog_tablet()) {
         return Status::OK();
     }
     // if there is a delete predicate in the input rowsets, we skip the path stats check
