@@ -441,6 +441,10 @@ public:
 
     RowDescriptor(TupleDescriptor* tuple_desc);
 
+    // Concatenated layout: lhs's tuples followed by rhs's. Used when a single expression ranges
+    // over two inputs, e.g. an aggregate argument over both the probe and the build side of a join.
+    RowDescriptor(const RowDescriptor& lhs, const RowDescriptor& rhs);
+
     // Empty layout for expressions that do not reference slots.
     RowDescriptor() = default;
 
