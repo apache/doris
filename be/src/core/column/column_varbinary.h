@@ -139,6 +139,11 @@ public:
     void update_crc32c_single(size_t start, size_t end, uint32_t& hash,
                               const uint8_t* __restrict null_map) const override;
 
+    // Matches the scalar RawValue::identity_hash TYPE_VARBINARY case: values hash by their raw
+    // bytes, so the same bytes get the same bucket as ColumnString and the tablet-routing path.
+    void update_identity_hash(uint32_t* __restrict hashes, uint32_t mod,
+                              const uint8_t* __restrict null_map) const override;
+
     void deserialize(StringRef* keys, const size_t num_rows) override;
 
     void serialize(StringRef* keys, const size_t num_rows) const override;

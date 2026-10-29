@@ -21,6 +21,8 @@
 #include <memory>
 #include <vector>
 
+#include "gen_cpp/PlanNodes_types.h"
+
 namespace doris {
 
 struct OlapScanRange;
@@ -31,7 +33,10 @@ struct OlapScanRange;
 class ScanKeyBucketPruner {
 public:
     // Returns false for non-point ranges, including ranges coalesced by max_scan_key_num.
-    bool init(const std::vector<std::unique_ptr<OlapScanRange>>& ranges, int32_t bucket_num);
+    // hash_type must match the function the table's buckets were built with; BE groups the
+    // ranges with the same function so pruned buckets stay consistent with tablet routing.
+    bool init(const std::vector<std::unique_ptr<OlapScanRange>>& ranges, int32_t bucket_num,
+              TDistributionHashType::type hash_type = TDistributionHashType::CRC32);
 
     const std::vector<OlapScanRange*>& ranges_for_bucket(int32_t bucket_seq) const;
 

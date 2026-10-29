@@ -2034,9 +2034,12 @@ public class Config extends ConfigBase {
     public static final int ICEBERG_TRANSFORM_ROUTING_MIN_BE_EXEC_VERSION = 18;
     // Older backends cannot hash VARBINARY values in a shuffle or partition exchange.
     public static final int VARBINARY_SHUFFLE_HASH_MIN_BE_EXEC_VERSION = 19;
+    // Older backends fall back to CRC32 for IDENTITY distribution and would shuffle data
+    // into wrong buckets.
+    public static final int DISTRIBUTION_HASH_TYPE_MIN_BE_EXEC_VERSION = 20;
 
     @ConfField(mutable = false)
-    public static int max_be_exec_version = VARBINARY_SHUFFLE_HASH_MIN_BE_EXEC_VERSION;
+    public static int max_be_exec_version = DISTRIBUTION_HASH_TYPE_MIN_BE_EXEC_VERSION;
 
     /**
      * Min data version of backends serialize block.

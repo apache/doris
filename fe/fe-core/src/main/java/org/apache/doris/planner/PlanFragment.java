@@ -318,8 +318,16 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         return parallelExecNum;
     }
 
+    public StorageHashLayout validateStorageHashLayout() {
+        StorageHashLayout layout = planRoot == null ? StorageHashLayout.NONE : planRoot.getStorageHashLayout();
+        return layout.checkNoConflict("fragment " + fragmentId);
+    }
+
     public TPlanFragment toThrift() {
         TPlanFragment result = new TPlanFragment();
+        // Translation validates the same contract before distribution/local-exchange planning.
+        // Re-derive once here to assert it after plan rewrites, including passthrough insertion.
+        StorageHashLayout layout = validateStorageHashLayout();
         if (planRoot != null) {
             result.setPlan(planRoot.treeToThrift());
         }
@@ -333,6 +341,9 @@ public class PlanFragment extends TreeNode<PlanFragment> {
             result.setPartition(dataPartition.toThrift());
         } else {
             result.setPartition(dataPartitionForThrift.toThrift());
+        }
+        if (layout.isKnown()) {
+            result.setDistributionHashType(DataPartition.toTHashType(layout.getHashType()));
         }
 
         // TODO chenhao , calculated by cost

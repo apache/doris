@@ -237,6 +237,8 @@ public:
     void update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type, uint32_t rows,
                                 uint32_t offset,
                                 const uint8_t* __restrict null_data) const override;
+    void update_identity_hash(uint32_t* __restrict hashes, uint32_t mod,
+                              const uint8_t* __restrict null_map) const override;
     void update_crc32c_batch(uint32_t* __restrict hashes,
                              const uint8_t* __restrict null_map) const override;
 

@@ -392,7 +392,8 @@ public class RuntimeFilterTranslator {
         runtimeFilter.setTargetPartitionMonotonicity(
                 scanNode.getId(), nereidsFilter.getPartitionMonotonicity());
         if (nereidsFilter.canPruneBuckets()) {
-            runtimeFilter.markTargetCanPruneBuckets(scanNode.getId());
+            runtimeFilter.markTargetCanPruneBuckets(
+                    scanNode.getId(), nereidsFilter.getBucketPruningHashType());
         }
     }
 
