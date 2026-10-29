@@ -87,8 +87,8 @@ arrow::Result<std::shared_ptr<arrow::DataType>> input_binding_type(
     if (wire->Equals(declared)) {
         return declared;
     }
-    // SerDe owns datetime rounding and naive/aware interpretation. Casting timestamp[us]
-    // to the declared timestamp[ms] first would reject .123789 instead of rounding to .124.
+    // SerDe owns fractional precision and naive/aware interpretation. Casting timestamp[us]
+    // to the declared timestamp[ms] first would reject valid sub-millisecond input.
     if (wire->id() == arrow::Type::TIMESTAMP && declared->id() == arrow::Type::TIMESTAMP) {
         return wire;
     }

@@ -431,6 +431,13 @@ protected:
     }
     void set_column_type(const DataTypePtr& type) {
         auto descriptor = type->to_thrift();
+        // The test-only Thrift helper omits Variant's physical version on this branch. Native
+        // carriers require V2 at every nesting level rather than the legacy Variant default.
+        for (auto& node : descriptor.types) {
+            if (node.__isset.scalar_type && node.scalar_type.type == TPrimitiveType::VARIANT) {
+                node.scalar_type.__set_variant_is_v2(true);
+            }
+        }
         if (remove_nullable(type)->get_primitive_type() == TYPE_AGG_STATE) {
             // AGG_STATE's function signature lives on TTypeDesc, outside its scalar type node.
             const auto& state_type = assert_cast<const DataTypeAggState&>(*remove_nullable(type));
@@ -462,19 +469,26 @@ protected:
         destination->add_slot(destination_slot.get());
         params.expr_of_dest_slot[20].nodes[0].__set_type(descriptor);
     }
-    void check_timestamp_rounding(bool nested) {
+    void check_timestamp_serde(bool nested) {
         const auto time_type = make_nullable(std::make_shared<DataTypeDateTimeV2>(3));
         set_column_type(nested ? make_nullable(std::make_shared<DataTypeArray>(time_type))
                                : time_type);
         const auto wire_type = arrow::timestamp(arrow::TimeUnit::MICRO);
         arrow::TimestampBuilder builder(wire_type, arrow::default_memory_pool());
-        ASSERT_TRUE(builder.Append(123789).ok());
+        ASSERT_TRUE(builder.AppendValues({123789, -876211, 999999, 0}).ok());
         auto timestamps = builder.Finish();
         ASSERT_TRUE(timestamps.ok());
+        // The branch's SerDe owns fractional precision; Arrow must not rescale the input first.
+        const auto expected_type = remove_nullable(time_type);
+        auto expected = expected_type->create_column();
+        ASSERT_TRUE(expected_type->get_serde()
+                            ->read_column_from_arrow(*expected, timestamps->get(), 0, 4,
+                                                     cctz::utc_time_zone())
+                            .ok());
         std::shared_ptr<arrow::Array> values = *timestamps;
         if (nested) {
             arrow::Int32Builder offsets;
-            ASSERT_TRUE(offsets.AppendValues({0, 1}).ok());
+            ASSERT_TRUE(offsets.AppendValues({0, 4}).ok());
             auto offset_values = offsets.Finish();
             ASSERT_TRUE(offset_values.ok());
             auto lists = arrow::ListArray::FromArrays(**offset_values, *values);
@@ -482,7 +496,7 @@ protected:
             values = *lists;
         }
         auto schema = arrow::schema({arrow::field("raw_value", values->type())});
-        append_batch(arrow::RecordBatch::Make(schema, 1, {values}));
+        append_batch(arrow::RecordBatch::Make(schema, nested ? 1 : 4, {values}));
         ASSERT_TRUE(_pipe->finish().ok());
         LoadTableReader reader(source.get(), destination.get());
         ASSERT_TRUE(prepare(reader, FileFormat::ARROW).ok());
@@ -490,14 +504,23 @@ protected:
         bool eos = false;
         const auto status = reader.get_block(&output, &eos);
         ASSERT_TRUE(status.ok()) << status;
-        ASSERT_EQ(output.rows(), 1);
+        ASSERT_EQ(output.rows(), nested ? 1 : 4);
         const IColumn* value_column = output.get_by_position(0).column.get();
         if (nested) {
             const auto& nullable = assert_cast<const ColumnNullable&>(*value_column);
             value_column =
                     &assert_cast<const ColumnArray&>(nullable.get_nested_column()).get_data();
         }
-        EXPECT_EQ(time_type->to_string(*value_column, 0), "1970-01-01 00:00:00.124");
+        ASSERT_EQ(value_column->size(), expected->size());
+        for (size_t row = 0; row < expected->size(); ++row) {
+            Field actual_value;
+            Field expected_value;
+            value_column->get(row, actual_value);
+            expected->get(row, expected_value);
+            EXPECT_EQ(actual_value, expected_value);
+            EXPECT_EQ(time_type->to_string(*value_column, row),
+                      expected_type->to_string(*expected, row));
+        }
         ASSERT_TRUE(reader.close().ok());
     }
     void append_stream(const std::vector<std::optional<std::string>>& values,
@@ -1273,11 +1296,11 @@ TEST_F(LoadArrowPipeTest, ReadsCompressedIpcBatches) {
 }
 
 TEST_F(LoadArrowPipeTest, TimestampRoundingUsesTheDorisSerde) {
-    check_timestamp_rounding(false);
+    check_timestamp_serde(false);
 }
 
 TEST_F(LoadArrowPipeTest, NestedTimestampRoundingUsesTheDorisSerde) {
-    check_timestamp_rounding(true);
+    check_timestamp_serde(true);
 }
 
 TEST_F(LoadArrowPipeTest, MalformedIpcReturnsAnError) {

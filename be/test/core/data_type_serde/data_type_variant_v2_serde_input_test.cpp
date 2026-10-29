@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <arrow/api.h>
+#include <arrow/extension/parquet_variant.h>
 #include <gtest/gtest.h>
 
 #include <limits>
@@ -285,8 +287,99 @@ TEST(DataTypeVariantV2SerdeInputTest, PbAndArrowReadKeepExplicitGuards) {
     EXPECT_EQ(serde.write_column_to_pb(*column, values, 0, 0).code(),
               ErrorCode::NOT_IMPLEMENTED_ERROR);
     EXPECT_EQ(serde.read_column_from_pb(*column, values).code(), ErrorCode::NOT_IMPLEMENTED_ERROR);
+    // Native Arrow input needs a real array even when the requested row range is empty.
     EXPECT_EQ(serde.read_column_from_arrow(*column, nullptr, 0, 0, cctz::utc_time_zone()).code(),
-              ErrorCode::NOT_IMPLEMENTED_ERROR);
+              ErrorCode::INVALID_ARGUMENT);
+}
+
+TEST(DataTypeVariantV2SerdeInputTest, NativeArrowSlicesAppendOwnedValues) {
+    DataTypeVariantV2SerDe serde;
+    for (bool extension : {false, true}) {
+        auto output = ColumnVariantV2::create();
+        ASSERT_TRUE(deserialize_json(serde, *output, "42").ok());
+        {
+            auto input = ColumnVariantV2::create();
+            for (const auto* json : {"0", "null", R"({"key":[true,"value"]})"}) {
+                ASSERT_TRUE(deserialize_json(serde, *input, json).ok());
+            }
+            auto type = arrow::struct_({arrow::field("metadata", arrow::binary(), false),
+                                        arrow::field("value", arrow::binary(), false)});
+            std::unique_ptr<arrow::ArrayBuilder> builder;
+            ASSERT_TRUE(arrow::MakeBuilder(arrow::default_memory_pool(), type, &builder).ok());
+            ASSERT_TRUE(serde.write_column_to_arrow(*input, nullptr, builder.get(), 0, 3,
+                                                    cctz::utc_time_zone())
+                                .ok());
+            auto result = builder->Finish();
+            ASSERT_TRUE(result.ok());
+            auto array = *result;
+            if (extension) {
+                array = arrow::ExtensionType::WrapArray(arrow::extension::variant(type), array);
+            }
+            ASSERT_TRUE(
+                    serde.read_column_from_arrow(*output, array.get(), 1, 3, cctz::utc_time_zone())
+                            .ok());
+            EXPECT_TRUE(
+                    serde.read_column_from_arrow(*output, array.get(), 3, 3, cctz::utc_time_zone())
+                            .ok());
+            EXPECT_EQ(
+                    serde.read_column_from_arrow(*output, array.get(), -1, 1, cctz::utc_time_zone())
+                            .code(),
+                    ErrorCode::INVALID_ARGUMENT);
+            EXPECT_EQ(
+                    serde.read_column_from_arrow(*output, array.get(), 0, 4, cctz::utc_time_zone())
+                            .code(),
+                    ErrorCode::INVALID_ARGUMENT);
+        }
+        // All Arrow buffers have been released; the destination must own both dictionary and value.
+        ASSERT_EQ(output->size(), 3);
+        EXPECT_EQ(json_at(serde, *output, 0), "42");
+        EXPECT_EQ(json_at(serde, *output, 1), "null");
+        EXPECT_EQ(json_at(serde, *output, 2), R"({"key":[true,"value"]})");
+    }
+}
+
+TEST(DataTypeVariantV2SerdeInputTest, MalformedNativeArrowDoesNotPublishPartialRows) {
+    DataTypeVariantV2SerDe serde;
+    auto output = ColumnVariantV2::create();
+    ASSERT_TRUE(deserialize_json(serde, *output, "42").ok());
+    const auto value = output->get_value_ref(0);
+    for (int malformed = 0; malformed < 5; ++malformed) {
+        SCOPED_TRACE(malformed);
+        arrow::BinaryBuilder metadata;
+        arrow::BinaryBuilder values;
+        const std::string meta(value.metadata.data, value.metadata.size);
+        const std::string bytes(value.value.data, value.value.size);
+        ASSERT_TRUE(metadata.Append(meta).ok());
+        ASSERT_TRUE(values.Append(bytes).ok());
+        ASSERT_TRUE((malformed == 2 ? metadata.AppendNull()
+                                    : metadata.Append(malformed == 0 ? "" : meta))
+                            .ok());
+        ASSERT_TRUE((malformed == 3 ? values.AppendNull()
+                                    : values.Append(malformed == 1   ? ""
+                                                    : malformed == 4 ? bytes + "x"
+                                                                     : bytes))
+                            .ok());
+        auto metadata_array = metadata.Finish();
+        auto value_array = values.Finish();
+        ASSERT_TRUE(metadata_array.ok());
+        ASSERT_TRUE(value_array.ok());
+        auto array = arrow::StructArray::Make({*metadata_array, *value_array},
+                                              std::vector<std::string> {"metadata", "value"});
+        ASSERT_TRUE(array.ok());
+        EXPECT_FALSE(
+                serde.read_column_from_arrow(*output, array->get(), 0, 2, cctz::utc_time_zone())
+                        .ok());
+        ASSERT_EQ(output->size(), 1);
+        EXPECT_EQ(json_at(serde, *output, 0), "42");
+    }
+    arrow::StringBuilder strings;
+    ASSERT_TRUE(strings.Append("42").ok());
+    auto array = strings.Finish();
+    ASSERT_TRUE(array.ok());
+    EXPECT_EQ(
+            serde.read_column_from_arrow(*output, array->get(), 0, 1, cctz::utc_time_zone()).code(),
+            ErrorCode::INVALID_ARGUMENT);
+    EXPECT_EQ(output->size(), 1);
 }
 
 } // namespace doris

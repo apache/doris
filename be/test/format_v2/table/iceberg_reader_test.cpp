@@ -1896,10 +1896,11 @@ TEST(IcebergV2ReaderTest, TopNPruningSkipsNativeAndHiddenDeleteConversionsOnlyFo
                 if (scenario == 1) {
                     EXPECT_EQ(rows, 3 * 4096);
                 } else {
-                    EXPECT_NE(status.to_string().find(
-                                      hidden_delete ? "TIMESTAMP_NS overflow"
-                                                    : "Parquet DATE value is out of range"),
-                              std::string::npos)
+                    // The native decoder reports invalid DATE values through this branch's SerDe.
+                    EXPECT_NE(
+                            status.to_string().find(hidden_delete ? "TIMESTAMP_NS overflow"
+                                                                  : "outside the Doris DATE range"),
+                            std::string::npos)
                             << status;
                 }
                 ASSERT_TRUE(reader.close().ok());

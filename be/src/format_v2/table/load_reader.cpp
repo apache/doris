@@ -315,7 +315,11 @@ Status LoadTableReader::_convert(Block* output) {
 }
 
 Status LoadTableReader::validate_file_mapping(const TableColumnMapper& mapper) const {
-    RETURN_IF_ERROR(TableReader::validate_file_mapping(mapper));
+    // Arrow ingestion carries native Variant values, including nested ones. The external-file
+    // restriction belongs to query scans; source-slot default validation still applies below.
+    if (_format != FileFormat::ARROW) {
+        RETURN_IF_ERROR(TableReader::validate_file_mapping(mapper));
+    }
     for (const auto& mapping : mapper.mappings()) {
         const auto position = mapping.global_index.value();
         if (mapping.file_local_id.has_value() || _projected_columns[position].is_partition_key) {
