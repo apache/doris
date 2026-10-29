@@ -47,6 +47,8 @@ Status CloudIndexChangeCompaction::prepare_compact() {
         return Status::InternalError("invalid tablet state. tablet_id={}", _tablet->tablet_id());
     }
 
+    // Index change is an explicit DDL routed to the submitting compute group, like schema
+    // change, so it is not subject to the compaction owner check.
     RETURN_IF_ERROR(cloud_tablet()->sync_rowsets());
 
     {

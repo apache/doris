@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <random>
 
+#include "cloud/cloud_cluster_info.h"
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"
@@ -32,6 +33,7 @@
 #include "common/metrics/doris_metrics.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
+#include "runtime/exec_env.h"
 #include "service/backend_options.h"
 #include "storage/compaction/compaction.h"
 #include "storage/compaction/cumulative_compaction_policy.h"
@@ -156,7 +158,8 @@ Status CloudCumulativeCompaction::prepare_compact() {
         std::shared_lock rlock(_tablet->get_header_lock());
         // If number of rowsets is equal to approximate_num_rowsets, it is very likely that this tablet has been
         // synchronized with meta-service.
-        if (_tablet->tablet_meta()->all_rs_metas().size() >=
+        if (!config::enable_compaction_rw_separation &&
+            _tablet->tablet_meta()->all_rs_metas().size() >=
                     cloud_tablet()->fetch_add_approximate_num_rowsets(0) &&
             cloud_tablet()->last_sync_rowsets_time_s > 0) {
             need_sync_tablet = false;
@@ -165,6 +168,12 @@ Status CloudCumulativeCompaction::prepare_compact() {
     if (need_sync_tablet) {
         st = cloud_tablet()->sync_rowsets();
         RETURN_IF_ERROR(st);
+    }
+    if (config::enable_compaction_rw_separation &&
+        static_cast<CloudClusterInfo*>(ExecEnv::GetInstance()->cluster_info())
+                ->should_skip_compaction(cloud_tablet())) {
+        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>(
+                "tablet is owned by another active compute group");
     }
     snapshot_changelog_ttl();
 
@@ -225,6 +234,11 @@ Status CloudCumulativeCompaction::request_global_lock() {
     compaction_job->set_type(cloud::TabletCompactionJobPB::CUMULATIVE);
     compaction_job->set_base_compaction_cnt(_base_compaction_cnt);
     compaction_job->set_cumulative_compaction_cnt(_cumulative_compaction_cnt);
+    if (!static_cast<CloudClusterInfo*>(ExecEnv::GetInstance()->cluster_info())
+                 ->prepare_compaction_job(cloud_tablet(), compaction_job)) {
+        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>(
+                "tablet is not authorized for compaction by this compute group");
+    }
     using namespace std::chrono;
     int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
     _expiration = now + config::compaction_timeout_seconds;
@@ -952,6 +966,13 @@ void CloudCumulativeCompaction::update_cumulative_point(int64_t input_cumulative
     compaction_job->set_type(cloud::TabletCompactionJobPB::EMPTY_CUMULATIVE);
     compaction_job->set_base_compaction_cnt(_base_compaction_cnt);
     compaction_job->set_cumulative_compaction_cnt(_cumulative_compaction_cnt);
+    if (!static_cast<CloudClusterInfo*>(ExecEnv::GetInstance()->cluster_info())
+                 ->prepare_compaction_job(cloud_tablet(), compaction_job)) {
+        LOG_WARNING("skip cumulative point update without compaction authorization")
+                .tag("job_id", _uuid)
+                .tag("tablet_id", _tablet->tablet_id());
+        return;
+    }
     compaction_job->add_input_versions(input_cumulative_point);
     compaction_job->add_input_versions(output_cumulative_point - 1);
     compaction_job->set_check_input_versions_range(_enable_parallel_cumu_compaction);
