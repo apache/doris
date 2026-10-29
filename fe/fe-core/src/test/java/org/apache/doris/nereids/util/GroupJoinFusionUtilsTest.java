@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
@@ -46,6 +47,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -155,5 +157,46 @@ class GroupJoinFusionUtilsTest {
                 new AssertTrue(BooleanLiteral.TRUE, new StringLiteral("check")), "checked");
         Mockito.when(project.getProjects()).thenReturn(List.of(key, errorCheck));
         Assertions.assertNull(GroupJoinFusionUtils.inlineJoinBasedProject(aggregate, project));
+    }
+
+    @Test
+    void testSessionVarGuardExpressionRejectsFusion() {
+        SlotReference leftKey = new SlotReference("left_key", IntegerType.INSTANCE);
+        SlotReference rightKey = new SlotReference("right_key", IntegerType.INSTANCE);
+        SlotReference leftValue = new SlotReference("left_value", IntegerType.INSTANCE);
+        PhysicalPlan left = Mockito.mock(PhysicalPlan.class);
+        PhysicalPlan right = Mockito.mock(PhysicalPlan.class);
+        Mockito.when(left.getOutputSet()).thenReturn(Set.of(leftKey, leftValue));
+        Mockito.when(right.getOutputSet()).thenReturn(Set.of(rightKey));
+        PhysicalHashJoin<?, ?> join = Mockito.mock(PhysicalHashJoin.class);
+        Mockito.doReturn(left).when(join).left();
+        Mockito.doReturn(right).when(join).right();
+        Mockito.when(join.getJoinType()).thenReturn(JoinType.INNER_JOIN);
+        Mockito.when(join.getOtherJoinConjuncts()).thenReturn(List.of());
+        EqualTo conjunct = new EqualTo(leftKey, rightKey);
+        Mockito.when(join.getHashJoinConjuncts()).thenReturn(List.of(conjunct));
+        AggregateExpression sum = new AggregateExpression(
+                new Sum(leftValue), AggregateParam.GLOBAL_RESULT);
+        PhysicalHashAggregate<?> aggregate = Mockito.mock(PhysicalHashAggregate.class);
+        Mockito.when(aggregate.getAggregateParam()).thenReturn(AggregateParam.GLOBAL_RESULT);
+        Mockito.when(aggregate.getGroupByExpressions()).thenReturn(List.of(leftKey));
+        Mockito.when(aggregate.getInputSlots()).thenReturn(Set.of(leftKey, leftValue));
+
+        // Unguarded aggregate over the join is eligible.
+        Mockito.when(aggregate.getOutputExpressions())
+                .thenReturn(List.of(leftKey, new Alias(sum, "sum")));
+        Assertions.assertEquals(List.of(conjunct),
+                GroupJoinFusionUtils.alignedConjunctsForGroupJoin(aggregate, null, join));
+
+        // A view/MV output bound under a different result-affecting session variable (e.g.
+        // enable_decimal256) is wrapped in SessionVarGuardExpr. Fusing it would translate the bare
+        // aggregate and compute its signature with the caller's variables, so it must stay on the
+        // regular HashJoin + Aggregate path.
+        SessionVarGuardExpr guarded = new SessionVarGuardExpr(
+                sum, Map.of("enable_decimal256", "true"));
+        Mockito.when(aggregate.getOutputExpressions())
+                .thenReturn(List.of(leftKey, new Alias(guarded, "sum")));
+        Assertions.assertNull(
+                GroupJoinFusionUtils.alignedConjunctsForGroupJoin(aggregate, null, join));
     }
 }
