@@ -5216,8 +5216,10 @@ TEST_F(InvertedIndexReaderTest, FulltextMatchPhraseAloneConsumesCandidateRows) {
     EXPECT_FALSE(run.context->candidate_rows_consumed);
 }
 
-// A phrase prefix of one token runs as a prefix of it and publishes no score.
-TEST_F(InvertedIndexReaderTest, FulltextOneTokenPhrasePrefixPublishesNoScore) {
+// A phrase prefix of one token runs as a prefix of it and scores every match 1, as SNII does. A
+// match left unscored would read 0, and `score() > 0` would then drop every row the prefix
+// matched.
+TEST_F(InvertedIndexReaderTest, FulltextOneTokenPhrasePrefixScoresMatchesAsAConstant) {
     TabletIndex meta;
     auto reader =
             english_fulltext_reader("fulltext_prefix_score",
@@ -5225,7 +5227,10 @@ TEST_F(InvertedIndexReaderTest, FulltextOneTokenPhrasePrefixPublishesNoScore) {
     MatchContext run(/*scoring=*/true);
     EXPECT_EQ(match(*reader, run.context, InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, "qui"),
               rows({0, 1}));
-    EXPECT_TRUE(run.context->collection_similarity->_bm25_scores.empty());
+    const auto& scores = run.context->collection_similarity->_bm25_scores;
+    EXPECT_EQ(scores.size(), 2U);
+    EXPECT_FLOAT_EQ(scores.at(0), 1.0F);
+    EXPECT_FLOAT_EQ(scores.at(1), 1.0F);
 }
 
 // A keyword MATCH_PHRASE takes a trailing " ~N" or " ~N+" as its slop, as SNII does, and reading
