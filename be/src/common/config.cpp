@@ -1515,6 +1515,13 @@ DEFINE_mInt32(tablet_path_check_batch_size, "1000");
 
 // it must be larger than or equal to 5MB
 DEFINE_mInt64(s3_write_buffer_size, "5242880");
+// Startup checks this alignment too. Reject runtime updates such as 5.5 MiB with 1 MiB
+// cache blocks, which would let upload writers create non-grid cache blocks.
+DEFINE_Validator(s3_write_buffer_size, [](int64_t value) {
+    return !enable_file_cache ||
+           (file_cache_each_block_size > 0 && value >= file_cache_each_block_size &&
+            value % file_cache_each_block_size == 0);
+});
 // Log interval when doing s3 upload task
 DEFINE_mInt32(s3_file_writer_log_interval_second, "60");
 DEFINE_mInt64(file_cache_max_file_reader_cache_size, "1000000");
