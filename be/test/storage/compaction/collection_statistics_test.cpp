@@ -1809,6 +1809,52 @@ TEST_F(CollectionStatisticsTest, CollectSkipsIndexWithoutAnalyzer) {
 // L2: Index whose analyzer is set (should_analyzer returns true) but does
 // not declare "support_phrase=true". MockVExpr drives MATCH_PHRASE opcode,
 // so is_need_similarity_score returns false and the index is skipped.
+// A regexp scores a constant, so it collects no statistics even on an index whose MATCH_ANY does:
+// analyzing its pattern 'ap.*' would register the made-up term "ap".
+TEST_F(CollectionStatisticsTest, RegexpCollectsNoStatistics) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+
+    constexpr int32_t kColUid = 1360;
+    TabletColumn col;
+    col.set_unique_id(kColUid);
+    col.set_name("body");
+    col.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    tablet_schema->append_column(col);
+
+    TabletIndexPB index_pb;
+    index_pb.set_index_id(2360);
+    index_pb.set_index_name("body_idx");
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.add_col_unique_id(kColUid);
+    (*index_pb.mutable_properties())["parser"] = "english";
+    (*index_pb.mutable_properties())["support_phrase"] = "true";
+    TabletIndex index;
+    index.init_from_pb(index_pb);
+    tablet_schema->append_index(std::move(index));
+
+    constexpr int kSlotId = 86;
+    runtime_state_->_mock_desc_tbl->add_slot_descriptor(SlotId(kSlotId), kColUid, "body", {});
+
+    auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+    match_expr->_children.push_back(
+            std::make_shared<collection_statistics::MockVSlotRef>("body", SlotId(kSlotId)));
+    match_expr->_children.push_back(std::make_shared<collection_statistics::MockVLiteral>("ap.*"));
+
+    MatchPredicateCollector collector;
+    std::unordered_map<std::wstring, CollectInfo> collect_infos;
+    match_expr->_opcode = TExprOpcode::MATCH_ANY;
+    auto status =
+            collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
+    ASSERT_TRUE(status.ok()) << status.msg();
+    EXPECT_EQ(collect_infos.size(), 1U);
+
+    collect_infos.clear();
+    match_expr->_opcode = TExprOpcode::MATCH_REGEXP;
+    status = collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
+    ASSERT_TRUE(status.ok()) << status.msg();
+    EXPECT_TRUE(collect_infos.empty());
+}
+
 TEST_F(CollectionStatisticsTest, CollectSkipsIndexWithoutSimilarityScore) {
     auto tablet_schema = std::make_shared<TabletSchema>();
 

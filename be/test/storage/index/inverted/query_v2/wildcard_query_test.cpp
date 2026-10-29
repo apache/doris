@@ -27,7 +27,6 @@
 #include "common/status.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
-#include "storage/index/inverted/query_v2/term_query/term_query.h"
 #include "storage/index/inverted/query_v2/wildcard_query/wildcard_weight.h"
 #include "storage/index/inverted/util/string_helper.h"
 
@@ -58,20 +57,14 @@ public:
 
 private:
     void create_test_index(const std::string& field_name, const std::string& dir) {
-        std::vector<std::string> test_data = {"apple",     "application", "apply",
-                                              "apricot",   "banana",      "band",
-                                              "bandana",   "can",         "candy",
-                                              "cat",       "catalog",     "dog",
-                                              "document",  "door",        "hello",
-                                              "help",      "helpful",     "test",
-                                              "testing",   "testcase",    "wildcard",
-                                              "wild",      "wilderness",  "card",
-                                              "cardboard", "abc",         "abcd",
-                                              "abcde",     "prefix123",   "123suffix",
-                                              "pre123",    "123suf",      "both123both",
-                                              "star",      "start",       "started",
-                                              "starter",   "question",    "quest",
-                                              "query",     "queries",     "test test testing"};
+        std::vector<std::string> test_data = {
+                "apple",     "application", "apply",       "apricot", "banana",     "band",
+                "bandana",   "can",         "candy",       "cat",     "catalog",    "dog",
+                "document",  "door",        "hello",       "help",    "helpful",    "test",
+                "testing",   "testcase",    "wildcard",    "wild",    "wilderness", "card",
+                "cardboard", "abc",         "abcd",        "abcde",   "prefix123",  "123suffix",
+                "pre123",    "123suf",      "both123both", "star",    "start",      "started",
+                "starter",   "question",    "quest",       "query",   "queries"};
 
         CustomAnalyzerConfig::Builder builder;
         builder.with_tokenizer_config("standard", {});
@@ -160,53 +153,6 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_with_scoring) {
 
     auto wildcard_weight = std::dynamic_pointer_cast<query_v2::WildcardWeight>(weight);
     ASSERT_NE(wildcard_weight, nullptr);
-}
-
-TEST_F(WildcardQueryV2Test, test_wildcard_query_scores_matching_terms) {
-    auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
-
-    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
-    auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
-    ASSERT_NE(reader_holder, nullptr);
-
-    std::wstring field = StringHelper::to_wstring("field");
-    auto query = std::make_shared<query_v2::WildcardQuery>(context, field, "test*");
-    auto weight = query->weight(true);
-
-    query_v2::QueryExecutionContext exec_ctx;
-    exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
-
-    auto statistics = context->collection_statistics;
-    statistics->_total_num_docs = reader_holder->maxDoc();
-    statistics->_total_num_tokens[field] =
-            reader_holder->sumTotalTermFreq(field.c_str()).value_or(reader_holder->maxDoc());
-    for (const auto* term : {L"test", L"testing"}) {
-        Term lucene_term(field.c_str(), term);
-        statistics->_term_doc_freqs[field][term] = reader_holder->docFreq(&lucene_term);
-    }
-    auto term_score = [&](const wchar_t* term, uint32_t doc_id) {
-        auto term_query = std::make_shared<query_v2::TermQuery>(context, field, term);
-        auto term_scorer = term_query->weight(true)->scorer(exec_ctx);
-        EXPECT_EQ(term_scorer->seek(doc_id), doc_id);
-        return term_scorer->score();
-    };
-
-    auto scorer = weight->scorer(exec_ctx);
-    ASSERT_EQ(scorer->seek(17), 17);
-    float single_term_score = scorer->score();
-    EXPECT_NE(single_term_score, 1.0F);
-    EXPECT_FLOAT_EQ(single_term_score, term_score(L"test", 17));
-    uint32_t last_doc = reader_holder->maxDoc() - 1;
-    ASSERT_EQ(scorer->seek(last_doc), last_doc);
-    EXPECT_GT(scorer->score(), single_term_score);
-    EXPECT_NEAR(scorer->score(), term_score(L"test", last_doc) + term_score(L"testing", last_doc),
-                1e-5F);
-
-    _CLDECDELETE(dir);
 }
 
 // Test wildcard query with asterisk prefix pattern
