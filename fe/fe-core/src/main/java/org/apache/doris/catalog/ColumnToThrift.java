@@ -77,8 +77,13 @@ public class ColumnToThrift {
 
         if (column.getType().isAggStateType()) {
             AggStateType aggState = (AggStateType) column.getType();
+            aggState.checkBeExecVersion();
             tColumn.setAggregation(aggState.getFunctionName());
             tColumn.setResultIsNullable(aggState.getResultIsNullable());
+            // Preserve absent signatures in pre-v20 table metadata.
+            if (aggState.getResultType() != null) {
+                tColumn.setAggStateResultType(aggState.getResultType().toThrift());
+            }
             if (column.getChildren() != null) {
                 for (Column child : column.getChildren()) {
                     tColumn.addToChildrenColumn(toThrift(child));

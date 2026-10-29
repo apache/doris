@@ -26,6 +26,7 @@ import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
+import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.qe.ConnectContext;
@@ -35,7 +36,8 @@ import com.google.common.base.Preconditions;
 import java.util.List;
 
 /** AggregateFunction 'avg_map'. */
-public class AvgMap extends MapAggregateFunction implements NeedSessionVarGuard {
+public class AvgMap extends MapAggregateFunction
+        implements NeedSessionVarGuard, LegacyAggStateResultTypeResolver {
 
     public AvgMap(Expression arg) {
         this(false, arg);
@@ -47,6 +49,19 @@ public class AvgMap extends MapAggregateFunction implements NeedSessionVarGuard 
 
     private AvgMap(AggregateFunctionParams functionParams) {
         super(functionParams);
+    }
+
+    @Override
+    public DataType resolveLegacyAggStateResultType(DataType storedInput) {
+        MapType map = (MapType) storedInput;
+        if (!(map.getValueType() instanceof DecimalV3Type)) {
+            return getDataType();
+        }
+        DecimalV3Type value = (DecimalV3Type) map.getValueType();
+        int resultPrecision = LegacyAggStateResultTypeResolver.legacyMapValuePrecision(value);
+        int resultScale = Math.max(value.getScale(), ScalarType.DEFAULT_MIN_AVG_DECIMAL128_SCALE);
+        DecimalV3Type resultValue = DecimalV3Type.createDecimalV3TypeNotCheck256(resultPrecision, resultScale);
+        return MapType.of(map.getKeyType(), resultValue);
     }
 
     @Override

@@ -187,6 +187,7 @@ public:
     std::string get_aggregation_name() const { return _aggregation_name; }
     bool get_result_is_nullable() const { return _result_is_nullable; }
     int get_be_exec_version() const { return _be_exec_version; }
+    const DataTypePtr& get_agg_state_result_type() const { return _agg_state_result_type; }
     bool has_path_info() const { return _column_path != nullptr && !_column_path->empty(); }
     const PathInDataPtr& path_info_ptr() const { return _column_path; }
     // If it is an extracted column from variant column
@@ -323,6 +324,7 @@ private:
 
     bool _result_is_nullable = false;
     int _be_exec_version = -1;
+    DataTypePtr _agg_state_result_type;
 
     // The extracted sub-columns from "variant" contain the following information:
     int32_t _parent_col_unique_id = -1; // "variant" -> col_unique_id

@@ -82,6 +82,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.rules.expression.check.CheckCast;
 import org.apache.doris.nereids.trees.plans.commands.AlterCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBuildIndexCommand;
@@ -97,6 +98,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyTablePropertiesOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReorderColumnsOp;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.persist.AlterLightSchemaChangeInfo;
 import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
@@ -1655,6 +1657,16 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
+    static void checkColumnTypeConversion(Column source, Column target) throws DdlException {
+        DataType sourceType = DataType.fromCatalogType(source.getType());
+        DataType targetType = DataType.fromCatalogType(target.getType());
+        if (!CheckCast.check(sourceType, targetType, false, false)) {
+            throw new DdlException("Cannot change column '" + source.getNonShadowName()
+                    + "' from " + sourceType.toSql() + " to " + targetType.toSql()
+                    + ": incompatible cast or aggregate state signature");
+        }
+    }
+
     private void createJob(String rawSql, long dbId, OlapTable olapTable, Map<Long, LinkedList<Column>> indexSchemaMap,
             Map<String, String> propertyMap, List<Index> indexes,
             Map<String, List<String>> sequenceMapping) throws UserException {
@@ -1924,6 +1936,10 @@ public class SchemaChangeHandler extends AlterHandler {
                         if (!alterColumn.equals(oriColumn)) {
                             // 3.1 check type
                             oriColumn.checkSchemaChangeAllowed(alterColumn);
+                            // Validate the rewrite before creating shadow tablets or persisting the job.
+                            if (!Objects.equals(oriColumn.getType(), alterColumn.getType())) {
+                                checkColumnTypeConversion(oriColumn, alterColumn);
+                            }
                         }
                     }
                 } // end for ori

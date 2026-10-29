@@ -16,25 +16,13 @@
 // under the License.
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
-import java.util.concurrent.TimeUnit
-import org.awaitility.Awaitility
 
 suite ("test_modify_struct") {
-    def waitUntilSchemaChangeDone = { tableName, insert_sql, canceled=false ->
-        if (canceled) {
-            Awaitility.await().atMost(300, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
-                def jobStateResult = sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${tableName}' ORDER BY createtime DESC LIMIT 1  """
-                if (jobStateResult[0][9].toString().toUpperCase() == "CANCELLED") {
-                    return true
-                }
-                return false
-            })
-        } else {
-            waitForSchemaChangeDone({
-                sql " SHOW ALTER TABLE COLUMN WHERE TableName='${tableName}' ORDER BY createtime DESC LIMIT 1 "
-                time 600
-            }, insert_sql)
-        }
+    def waitUntilSchemaChangeDone = { tableName, insert_sql ->
+        waitForSchemaChangeDone({
+            sql " SHOW ALTER TABLE COLUMN WHERE TableName='${tableName}' ORDER BY createtime DESC LIMIT 1 "
+            time 600
+        }, insert_sql)
     }
 
     def tableNamePrefix = "test_struct_add_sub_column"
@@ -165,10 +153,12 @@ suite ("test_modify_struct") {
             sql """ insert into ${tableName} values (11, 61.16, named_struct('col','commiter'), named_struct('col','amory6','col1', 1, 'col2', 1.1, 'col3', '2021-01-01 00:00:00', 'col4', ['a', 'b'], 'col5', {1:'a', 2:'b'}, 'col6', {1, 'a'}, 'col11', 2, 'col12', 2.1, 'col13', '2021-01-01 00:00:00', 'col14', ['a', 'b'], 'col15', {1:'a', 2:'b'}, 'col16', {1, 'a'}),  named_struct('col','amoryIsBetter', 'col1', 1), 'amory6')"""
             // check new create string column
             qt_sql_after4 """ select * from ${tableName} where c0 = 11; """
-            // add sub-column + re-order struct column: which sc task will failed
-            sql """ alter table ${tableName} modify column c_s_1 STRUCT<col:VARCHAR(30), col1:INT, col2:decimal(10,2)> ${defaultValue} after str_col """
+            // Adding a struct field while moving the column is rejected before creating a schema change job.
+            test {
+                sql """ alter table ${tableName} modify column c_s_1 STRUCT<col:VARCHAR(30), col1:INT, col2:decimal(10,2)> ${defaultValue} after str_col """
+                exception "incompatible cast or aggregate state signature"
+            }
             def insert_sql13 = "insert into ${tableName} values (12, 71.17, named_struct('col','commiter'), named_struct('col','amory7','col1', 1, 'col2', 1.1, 'col3', '2021-01-01 00:00:00', 'col4', ['a', 'b'], 'col5', {1:'a', 2:'b'}, 'col6', {1, 'a'}, 'col11', 2, 'col12', 2.1, 'col13', '2021-01-01 00:00:00', 'col14', ['a', 'b'], 'col15', {1:'a', 2:'b'}, 'col16', {1, 'a'}), 'amory7', named_struct('col','amoryIsBetter', 'col1', 1, 'col2', 12.2))"
-            waitUntilSchemaChangeDone.call(tableName, insert_sql13, true)
             // check data
             qt_sql_after5 """ select * from ${tableName} where c0 = 12; """
             // then we add subcolumn then re-order struct column

@@ -90,7 +90,6 @@ import org.apache.doris.nereids.trees.expressions.functions.RequiresShortCircuit
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
-import org.apache.doris.nereids.trees.expressions.functions.agg.NotNullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.FinalizeCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.ForEachCombinator;
@@ -128,7 +127,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Deque;
 import java.util.List;
 import java.util.Optional;
@@ -888,100 +886,51 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitFinalizeCombinator(FinalizeCombinator combinator, PlanTranslatorContext context) {
+        return translateScalarStateCombinator(combinator, context);
+    }
+
+    @Override
+    public Expr visitStateCombinator(StateCombinator combinator, PlanTranslatorContext context) {
+        return translateScalarStateCombinator(combinator, context);
+    }
+
+    private FunctionCallExpr translateScalarStateCombinator(ScalarFunction combinator,
+            PlanTranslatorContext context) {
         FunctionCallExpr functionCallExpr = (FunctionCallExpr) visitScalarFunction(combinator, context);
         functionCallExpr.getFn().setBinaryType(Function.BinaryType.AGG_STATE);
         return functionCallExpr;
     }
 
     @Override
-    public Expr visitStateCombinator(StateCombinator combinator, PlanTranslatorContext context) {
-        List<Expr> arguments = combinator.getArguments().stream()
-                .map(arg -> {
-                    Expr expr;
-                    if (arg instanceof OrderExpression) {
-                        expr = ((OrderExpression) arg).accept(this, context);
-                    } else {
-                        expr = arg.accept(this, context);
-                    }
-                    return expr;
-                })
-                .collect(Collectors.toList());
-        boolean isReturnNullable = !(combinator.getNestedFunction() instanceof NotNullableAggregateFunction);
-        FunctionCallExpr functionCallExpr = new FunctionCallExpr(
-                visitAggregateFunction(combinator.getNestedFunction(), context).getFn(),
-                new FunctionParams(false, arguments), isReturnNullable);
-        return convertToStateCombinator(combinator.getName(), functionCallExpr,
-                combinator.getDataType().toCatalogDataType());
-    }
-
-    private FunctionCallExpr convertToStateCombinator(String name, FunctionCallExpr fnCall, Type returnType) {
-        Function aggFunction = fnCall.getFn();
-        List<Type> arguments = Arrays.asList(aggFunction.getArgs());
-        org.apache.doris.catalog.ScalarFunction fn = new org.apache.doris.catalog.ScalarFunction(
-                new FunctionName(name), arguments,
-                returnType,
-                aggFunction.hasVarArgs(), aggFunction.isUserVisible());
-        fn.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
-        fn.setBinaryType(Function.BinaryType.AGG_STATE);
-        return new FunctionCallExpr(fn, new FunctionParams(fnCall.getChildren()), false);
-    }
-
-    @Override
     public Expr visitCombineCombinator(CombineCombinator combinator, PlanTranslatorContext context) {
-        List<Expr> arguments = combinator.children().stream()
-                .map(arg -> new SlotRef(arg.getDataType().toCatalogDataType(), arg.nullable()))
-                .collect(ImmutableList.toImmutableList());
-        FunctionCallExpr functionCallExpr = new FunctionCallExpr(
-                visitAggregateFunction(combinator.getNestedFunction(), context).getFn(),
-                new FunctionParams(false, arguments), false);
-        Function aggregateFunction = functionCallExpr.getFn();
-        aggregateFunction.setName(new FunctionName(combinator.getName()));
-        aggregateFunction.setArgs(arguments.stream().map(Expr::getType).collect(Collectors.toList()));
-        aggregateFunction.setBinaryType(Function.BinaryType.AGG_STATE);
-        aggregateFunction.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
-        Type returnType = combinator.getDataType().toCatalogDataType();
-        aggregateFunction.setReturnType(returnType);
-        functionCallExpr.setType(returnType);
-        return functionCallExpr;
+        return translateAggregateStateCombinator(combinator);
     }
 
     @Override
     public Expr visitMergeCombinator(MergeCombinator combinator, PlanTranslatorContext context) {
-        List<Expr> arguments = combinator.children().stream()
-                .map(arg -> new SlotRef(arg.getDataType().toCatalogDataType(), arg.nullable()))
-                .collect(ImmutableList.toImmutableList());
-        return convertToMergeCombinator(combinator.getName(),
-                new FunctionCallExpr(visitAggregateFunction(combinator.getNestedFunction(), context).getFn(),
-                        new FunctionParams(false, arguments), combinator.nullable()));
-    }
-
-    private FunctionCallExpr convertToMergeCombinator(String name, FunctionCallExpr fnCall) {
-        Function aggFunction = fnCall.getFn();
-        aggFunction.setName(new FunctionName(name));
-        aggFunction.setArgs(Arrays.asList(fnCall.getChildren().get(0).getType()));
-        aggFunction.setBinaryType(Function.BinaryType.AGG_STATE);
-        return fnCall;
+        return translateAggregateStateCombinator(combinator);
     }
 
     @Override
     public Expr visitUnionCombinator(UnionCombinator combinator, PlanTranslatorContext context) {
+        return translateAggregateStateCombinator(combinator);
+    }
+
+    private FunctionCallExpr translateAggregateStateCombinator(AggregateFunction combinator) {
         List<Expr> arguments = combinator.children().stream()
                 .map(arg -> new SlotRef(arg.getDataType().toCatalogDataType(), arg.nullable()))
                 .collect(ImmutableList.toImmutableList());
-        return convertToUnionCombinator(combinator.getName(),
-                new FunctionCallExpr(visitAggregateFunction(combinator.getNestedFunction(), context).getFn(),
-                        new FunctionParams(false, arguments), combinator.nullable()));
-    }
-
-    private FunctionCallExpr convertToUnionCombinator(String name, FunctionCallExpr fnCall) {
-        Function aggFunction = fnCall.getFn();
-        aggFunction.setName(new FunctionName(name));
-        aggFunction.setArgs(Arrays.asList(fnCall.getChildren().get(0).getType()));
-        aggFunction.setBinaryType(Function.BinaryType.AGG_STATE);
-        aggFunction.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
-        aggFunction.setReturnType(fnCall.getChildren().get(0).getType());
-        fnCall.setType(fnCall.getChildren().get(0).getType());
-        return fnCall;
+        // Use the combinator's resolved signature. Re-inferring a stored state's nested
+        // aggregate would apply the current session's decimal precision to its producer's inputs.
+        org.apache.doris.catalog.AggregateFunction function = new org.apache.doris.catalog.AggregateFunction(
+                new FunctionName(combinator.getName()),
+                arguments.stream().map(Expr::getType).collect(Collectors.toList()),
+                combinator.getDataType().toCatalogDataType(),
+                combinator.getIntermediateTypes().toCatalogDataType(),
+                combinator.hasVarArguments(), null, "", "", null, "", null, "", null, false, false, false,
+                Function.BinaryType.AGG_STATE, true, true,
+                combinator.nullable() ? NullableMode.ALWAYS_NULLABLE : NullableMode.ALWAYS_NOT_NULLABLE);
+        return new FunctionCallExpr(function, new FunctionParams(false, arguments), combinator.nullable());
     }
 
     @Override

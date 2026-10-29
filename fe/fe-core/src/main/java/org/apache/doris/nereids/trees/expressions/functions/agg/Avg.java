@@ -48,7 +48,7 @@ import java.util.List;
  */
 public class Avg extends NullableAggregateFunction
         implements UnaryExpression, ExplicitlyCastableSignature, ComputePrecision, SupportWindowAnalytic,
-        NeedSessionVarGuard, NullIgnoringAggregateFunction {
+        NeedSessionVarGuard, NullIgnoringAggregateFunction, LegacyAggStateResultTypeResolver {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE),
@@ -82,6 +82,18 @@ public class Avg extends NullableAggregateFunction
     /** constructor for withChildren and reuse signature */
     private Avg(NullableAggregateFunctionParams functionParams) {
         super(functionParams);
+    }
+
+    @Override
+    public DataType resolveLegacyAggStateResultType(DataType storedInput) {
+        if (!(storedInput instanceof DecimalV3Type)) {
+            return getDataType();
+        }
+        DecimalV3Type input = (DecimalV3Type) storedInput;
+        int resultPrecision = input.getPrecision() <= DecimalV3Type.MAX_DECIMAL128_PRECISION
+                ? DecimalV3Type.MAX_DECIMAL128_PRECISION : DecimalV3Type.MAX_DECIMAL256_PRECISION;
+        int resultScale = Math.max(input.getScale(), ScalarType.DEFAULT_MIN_AVG_DECIMAL128_SCALE);
+        return DecimalV3Type.createDecimalV3TypeNotCheck256(resultPrecision, resultScale);
     }
 
     @Override

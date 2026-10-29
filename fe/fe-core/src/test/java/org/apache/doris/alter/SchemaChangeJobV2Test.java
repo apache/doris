@@ -199,6 +199,37 @@ public class SchemaChangeJobV2Test {
         Assertions.assertFalse((Boolean) Deencapsulation.getField(schemaChangeJob, "hasBfChange"));
     }
 
+    @Test
+    public void testPersistedIncompatibleConversionIsCancelled() throws Exception {
+        FakeEnv.setEnv(masterEnv);
+        SchemaChangeHandler handler = Env.getCurrentEnv().getSchemaChangeHandler();
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        handler.process(Lists.newArrayList(addColumnOp), db, table);
+        SchemaChangeJobV2 job = (SchemaChangeJobV2) handler.getAlterJobsV2().values().iterator().next();
+        handler.runAfterCatalogReady();
+        Assertions.assertEquals(JobState.WAITING_TXN, job.getJobState());
+
+        // Simulate a job accepted by an older FE, bypassing the new DDL-time validation.
+        for (List<Column> schema : job.indexSchemaMap.values()) {
+            for (int i = 0; i < schema.size(); i++) {
+                if (schema.get(i).getName().equals("v")) {
+                    Column incompatible = new Column(schema.get(i));
+                    incompatible.setName(Column.SHADOW_NAME_PREFIX + "v");
+                    incompatible.setType(Type.HLL);
+                    schema.set(i, incompatible);
+                }
+            }
+        }
+        handler.runAfterCatalogReady();
+        Assertions.assertEquals(JobState.CANCELLED, job.getJobState());
+        Assertions.assertTrue(AgentTaskQueue.getTask(TTaskType.ALTER).isEmpty());
+        Assertions.assertEquals(OlapTableState.NORMAL, table.getState());
+        Assertions.assertTrue(table.getPartition(CatalogTestUtil.testPartitionId1)
+                .getMaterializedIndices(IndexExtState.SHADOW).isEmpty());
+        Assertions.assertEquals(Type.DOUBLE, table.getColumn("v").getType());
+    }
+
     // start a schema change, then finished
     @Test
     public void testSchemaChange1() throws Exception {

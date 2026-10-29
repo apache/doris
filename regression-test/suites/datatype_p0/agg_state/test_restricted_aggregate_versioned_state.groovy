@@ -23,7 +23,6 @@ suite("test_restricted_aggregate_versioned_state", "nonConcurrent") {
     def originalVersion = sql("ADMIN SHOW FRONTEND CONFIG LIKE 'be_exec_version'")[0][1]
     try {
         sql "ADMIN SET FRONTEND CONFIG ('be_exec_version' = '15')"
-        sql "SET enable_agg_state = true"
         sql "DROP TABLE IF EXISTS test_restricted_aggregate_versioned_source"
         sql """
             CREATE TABLE test_restricted_aggregate_versioned_source (
@@ -38,31 +37,11 @@ suite("test_restricted_aggregate_versioned_state", "nonConcurrent") {
             SELECT stddev_samp(x) FROM test_restricted_aggregate_versioned_source
         """
 
-        sql "DROP TABLE IF EXISTS test_restricted_aggregate_versioned_state"
-        sql """
-            CREATE TABLE test_restricted_aggregate_versioned_state (
-                k INT,
-                state AGG_STATE<stddev_samp(DOUBLE)> GENERIC
-            ) AGGREGATE KEY(k)
-            DISTRIBUTED BY HASH(k) BUCKETS 1
-            PROPERTIES ("replication_num" = "1")
-        """
-        sql """
-            INSERT INTO test_restricted_aggregate_versioned_state
-            SELECT 1, stddev_samp_state(x) FROM test_restricted_aggregate_versioned_source
-        """
-
         sql "ADMIN SET FRONTEND CONFIG ('be_exec_version' = '16')"
-        order_qt_stored_version_15_at_16 """
-            SELECT stddev_samp_merge(state) FROM test_restricted_aggregate_versioned_state
-        """
         order_qt_direct_version_16 """
             SELECT stddev_samp(x) FROM test_restricted_aggregate_versioned_source
         """
         sql "ADMIN SET FRONTEND CONFIG ('be_exec_version' = '17')"
-        order_qt_stored_version_15_at_17 """
-            SELECT stddev_samp_merge(state) FROM test_restricted_aggregate_versioned_state
-        """
         order_qt_direct_version_17 """
             SELECT stddev_samp(x) FROM test_restricted_aggregate_versioned_source
         """

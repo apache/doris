@@ -37,26 +37,28 @@ namespace doris {
 class DataTypeAggState : public DataTypeString {
 public:
     DataTypeAggState(DataTypes sub_types, bool result_is_nullable, std::string function_name,
-                     int be_exec_version)
+                     int be_exec_version, DataTypePtr result_type)
             : _result_is_nullable(result_is_nullable),
               _sub_types(std::move(sub_types)),
               _function_name(std::move(function_name)),
-              _be_exec_version(be_exec_version) {
-        DataTypePtr result_type;
-        auto arg_primitive_type = _sub_types[0]->get_primitive_type();
-        if (is_decimalv3(arg_primitive_type)) {
-            // TODO: handle decimal256 correctly according to session var enable_decimal256
-            int precision = 0;
-            if (arg_primitive_type == PrimitiveType::TYPE_DECIMAL256) {
-                precision = BeConsts::MAX_DECIMAL256_PRECISION;
+              _be_exec_version(be_exec_version),
+              _result_type(result_type) {
+        // Pre-v20 tables have no result signature. Reproduce the old factory argument exactly:
+        // decimal inputs up to Decimal128 use a Decimal128 accumulator, even when the new
+        // session enables Decimal256. Keep _result_type absent when forwarding old metadata.
+        if (!result_type) {
+            DORIS_CHECK(!_sub_types.empty());
+            const auto& input = _sub_types.front();
+            auto primitive = input->get_primitive_type();
+            if (is_decimalv3(primitive)) {
+                int precision = primitive == PrimitiveType::TYPE_DECIMAL256
+                                        ? BeConsts::MAX_DECIMAL256_PRECISION
+                                        : BeConsts::MAX_DECIMAL128_PRECISION;
+                result_type = DataTypeFactory::instance().create_data_type(
+                        primitive, input->is_nullable(), precision, input->get_scale());
             } else {
-                precision = BeConsts::MAX_DECIMAL128_PRECISION;
+                result_type = input;
             }
-            result_type = DataTypeFactory::instance().create_data_type(
-                    arg_primitive_type, _sub_types[0]->is_nullable(), precision,
-                    _sub_types[0]->get_scale());
-        } else {
-            result_type = _sub_types[0];
         }
         _agg_function = AggregateFunctionSimpleFactory::instance().get(
                 _function_name, _sub_types, result_type, _result_is_nullable, _be_exec_version);
@@ -74,11 +76,37 @@ public:
 
     const std::string get_family_name() const override { return "AggState"; }
 
+    bool equals(const IDataType& rhs) const override {
+        const auto* other = typeid_cast<const DataTypeAggState*>(&rhs);
+        if (!other) {
+            return false;
+        }
+        if (_function_name != other->_function_name ||
+            _result_is_nullable != other->_result_is_nullable ||
+            _sub_types.size() != other->_sub_types.size()) {
+            return false;
+        }
+        for (size_t i = 0; i < _sub_types.size(); ++i) {
+            if (!_sub_types[i]->equals(*other->_sub_types[i])) {
+                return false;
+            }
+        }
+        // Default-constructed types only represent the primitive AggState type and have no function.
+        if (_function_name.empty()) {
+            return true;
+        }
+        // Legacy SUM(INT) and explicit SUM(INT) both return BIGINT. Compare the effective
+        // result, not whether it was persisted; different Decimal128/256 results still differ.
+        return _agg_function->get_return_type()->equals(*other->_agg_function->get_return_type());
+    }
+
     std::string do_get_name() const override {
         return fmt::format(
-                "AggState(function_name={},result_is_nullable={},arguments=[{}],be_exec_version={}"
-                ")",
-                _function_name, _result_is_nullable, get_types_string(), _be_exec_version);
+                       "AggState(function_name={},result_is_nullable={},arguments=[{}],be_exec_"
+                       "version={}"
+                       ")",
+                       _function_name, _result_is_nullable, get_types_string(), _be_exec_version) +
+               (_result_type ? " result=" + _result_type->get_name() : "");
     }
 
     std::string get_function_name() const { return _function_name; }
@@ -95,6 +123,10 @@ public:
         col_meta->set_function_name(_function_name);
         col_meta->set_result_is_nullable(_result_is_nullable);
         col_meta->set_be_exec_version(_be_exec_version);
+        // Preserve the legacy marker across block exchanges.
+        if (_result_type) {
+            _result_type->to_protobuf(col_meta->mutable_agg_state_result_type());
+        }
     }
 
     AggregateFunctionPtr get_nested_function() const { return _agg_function; }
@@ -145,13 +177,14 @@ private:
         return types;
     }
 
-    bool _result_is_nullable;
+    bool _result_is_nullable = false;
     //because the agg_state type maybe mapped to ColumnString or ColumnFixedLengthObject
     DataTypePtr _agg_serialized_type;
     AggregateFunctionPtr _agg_function;
     DataTypes _sub_types;
     std::string _function_name;
-    int _be_exec_version;
+    int _be_exec_version = -1;
+    DataTypePtr _result_type;
 };
 
 inline DataTypePtr get_serialized_type(const DataTypePtr& type) {

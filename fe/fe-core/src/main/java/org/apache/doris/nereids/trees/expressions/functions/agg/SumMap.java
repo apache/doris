@@ -28,6 +28,7 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.qe.ConnectContext;
@@ -37,7 +38,8 @@ import com.google.common.base.Preconditions;
 import java.util.List;
 
 /** AggregateFunction 'sum_map'. */
-public class SumMap extends MapAggregateFunction implements NeedSessionVarGuard {
+public class SumMap extends MapAggregateFunction
+        implements NeedSessionVarGuard, LegacyAggStateResultTypeResolver {
 
     public SumMap(Expression arg) {
         this(false, arg);
@@ -49,6 +51,18 @@ public class SumMap extends MapAggregateFunction implements NeedSessionVarGuard 
 
     private SumMap(AggregateFunctionParams functionParams) {
         super(functionParams);
+    }
+
+    @Override
+    public DataType resolveLegacyAggStateResultType(DataType storedInput) {
+        MapType map = (MapType) storedInput;
+        if (!(map.getValueType() instanceof DecimalV3Type)) {
+            return getDataType();
+        }
+        DecimalV3Type value = (DecimalV3Type) map.getValueType();
+        int resultPrecision = LegacyAggStateResultTypeResolver.legacyMapValuePrecision(value);
+        DecimalV3Type resultValue = DecimalV3Type.createDecimalV3TypeNotCheck256(resultPrecision, value.getScale());
+        return MapType.of(map.getKeyType(), resultValue);
     }
 
     @Override
