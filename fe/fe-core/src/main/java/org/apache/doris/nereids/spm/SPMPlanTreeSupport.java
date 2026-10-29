@@ -5855,6 +5855,29 @@ public final class SPMPlanTreeSupport {
             return "order|" + (order.isAsc() ? "asc" : "desc") + "|"
                     + (order.isNullFirst() ? "nulls_first" : "nulls_last");
         }
+        if (expression instanceof org.apache.doris.nereids.trees.expressions.literal.Interval) {
+            // The INTERVAL UNIT is part of the value (round-86): `d + INTERVAL 1 DAY` and
+            // `d + INTERVAL 1 MONTH` are the same class over the same common child (1), so an
+            // alias permutation between them passed this comparison - the bind HAVING filtered
+            // days_add's value while the frozen replay filtered months_add's, dropping the row
+            // the caller returns.
+            return expression.getClass().getName() + "|unit="
+                    + ((org.apache.doris.nereids.trees.expressions.literal.Interval) expression)
+                            .timeUnit();
+        }
+        if (expression instanceof org.apache.doris.nereids.trees.expressions.functions.scalar
+                .Lambda) {
+            // The ORDERED PARAMETER NAMES of a LAMBDA are part of what the body MEANS
+            // (round-86): `array_map((p,q)->p-q, a, b)` and `array_map((q,p)->p-q, a, b)` have
+            // the same parsed children (the body p-q), but LambdaBindingSpecs binds the names to
+            // the inputs BY POSITION, so the first subtracts a-b and the second b-a. An alias
+            // permutation between them passed this comparison and the frozen replay dropped the
+            // row the caller returns.
+            org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda lambda =
+                    (org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda) expression;
+            return expression.getClass().getName() + "|args="
+                    + String.join(",", lambda.getLambdaArgumentNames());
+        }
         if (expression instanceof org.apache.doris.nereids.trees.expressions.Match) {
             // The MATCH ANALYZER is the fifth such attribute (round-85): it lives in a field of
             // the node and decides how the pattern is tokenized, so `s MATCH_ANY 'hello' USING
@@ -7836,6 +7859,44 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
+     * Snapshots the PARTITION NAMES of every OLAP table in the collection, WHILE the planning
+     * locks are held (round-86).
+     *
+     * A user-pinned scan is frozen as `PARTITION(name)`, but the pinned list is a set of
+     * PARTITION IDS and the renderer runs AFTER the planning locks were released: a
+     * `ALTER TABLE ... RENAME PARTITION p0 p1` in that window made it read the LIVE name and emit
+     * `PARTITION(p1)` while the stored bind text still said `PARTITION(p0)`. A later caller
+     * pinning p0 (now a DIFFERENT, newly added partition) matched the bind text and was answered
+     * from p1 - the metadata guards hash table identity / base schema / nullability only, and the
+     * admission selector check compares the SUBMITTED trees. Recording the names here, under the
+     * lock, gives the renderer the names the ADMITTED plan resolved; a pin whose live partition
+     * no longer carries that name makes the CREATE decline the freeze instead
+     * (see SPMPlan2SQLBuilder#renderPartitionSelection).
+     *
+     * @param out    table id to (partition id to name); an already recorded table is OVERWRITTEN,
+     *               because only the LOCKED state counts
+     * @param tables the statement's resolved tables (may be null)
+     */
+    public static void recordPartitionNames(Map<Long, Map<Long, String>> out,
+            java.util.Collection<TableIf> tables) {
+        if (out == null || tables == null) {
+            return;
+        }
+        for (TableIf table : tables) {
+            if (!(table instanceof org.apache.doris.catalog.OlapTable)) {
+                continue;
+            }
+            org.apache.doris.catalog.OlapTable olapTable =
+                    (org.apache.doris.catalog.OlapTable) table;
+            Map<Long, String> names = new java.util.concurrent.ConcurrentHashMap<>();
+            for (org.apache.doris.catalog.Partition partition : olapTable.getPartitions()) {
+                names.put(partition.getId(), partition.getName());
+            }
+            out.put(olapTable.getId(), names);
+        }
+    }
+
+    /**
      * Records the fingerprint entry of ONE table under every name shape a bind relation may
      * resolve to (bare / db-qualified / catalog.db-qualified, in the cluster's table-name case
      * form - see tableNameKey).
@@ -8712,7 +8773,45 @@ public final class SPMPlanTreeSupport {
         return "other:" + builder.functionClass().getName() + "|" + signature
                 + "|" + planBehaviorOf(builder.functionClass())
                 + "|m=" + instanceNullableModeOf(builder)
-                + "|vol=" + instanceVolatilityOf(builder);
+                + "|vol=" + instanceVolatilityOf(builder)
+                + "|exec=" + executableIdentityOf(builder);
+    }
+
+    /**
+     * The EXECUTABLE DEFINITION identity of an ordinary (non-alias) UDF candidate (round-86).
+     *
+     * An ordinary UDF's outcome is decided by the CODE the catalog holds, and the capture may
+     * never see that code: with `enable_fold_constant_by_be` the BE folds an IMMUTABLE call
+     * whose arguments are constant (`Udf.foldable` only blocks the FE folder), so
+     * `SELECT * REPLACE(g(1) AS x) FROM t` freezes the folded LITERAL and the frozen SQL contains
+     * no call at all. Re-creating `g` with the same name, signature, nullability and volatility
+     * but another implementation then left this entry unchanged and the frozen SQL kept the old
+     * constant. The definition id / binary checksum / location are hashed for exactly that
+     * reason: they change whenever the implementation changes.
+     *
+     * @param builder the candidate builder
+     * @return the executable identity, or '-' when the builder carries none
+     */
+    private static String executableIdentityOf(
+            org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder builder) {
+        try {
+            if (!(builder instanceof org.apache.doris.nereids.trees.expressions.functions.udf
+                    .UdfBuilder)) {
+                return "-";
+            }
+            org.apache.doris.catalog.Function function =
+                    ((org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder) builder)
+                            .getUdf().getCatalogFunction();
+            if (function == null) {
+                return "-";
+            }
+            return function.getId() + "|" + function.getChecksum() + "|"
+                    + (function.getLocation() == null ? "-" : function.getLocation().toString());
+        } catch (org.apache.doris.common.AnalysisException | RuntimeException e) {
+            // a definition whose executable metadata cannot be read is not certified by a
+            // stable entry: every caller sees the same placeholder, so both sides agree
+            return "-";
+        }
     }
 
     /**

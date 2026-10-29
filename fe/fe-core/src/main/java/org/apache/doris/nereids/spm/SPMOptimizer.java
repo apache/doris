@@ -441,6 +441,21 @@ public class SPMOptimizer {
         // a baseline whose expansion and fingerprint disagree (round-77 #4).
         java.util.TreeSet<String> bindFunctionSnapshot =
                 SPMPlanTreeSupport.bindFunctionDependencyEntries(ctx, logicalPlan);
+        // The alias-body safety check of the CREATE entry point ran BEFORE this snapshot, so a
+        // definition REPLACED in between (`f() -> abs(1)` swapped for `f() -> current_user()`)
+        // was certified by both dependency snapshots (they already describe the unsafe body)
+        // while the capture inlined it and folded the CREATOR's identity into the frozen SQL
+        // (round-86). Re-running the check against the SAME registry state the snapshot
+        // describes closes that window: any LATER change is caught by the registry version
+        // fence below.
+        if (SPMPlanTreeSupport.containsReplayContextInAliasBodies(ctx, logicalPlan)) {
+            throw new AnalysisException("SPM does not support replay-time context expressions"
+                    + " inside a resolved ALIAS FUNCTION body (an alias whose body calls"
+                    + " current_user() / session_user() / database() / @v / a clock function,"
+                    + " possibly through another alias): analysis INLINES the body and the"
+                    + " creator-context folding then persists the CREATOR's value in the frozen"
+                    + " SQL: " + originSql);
+        }
         // The registry's monotonic UDF version at the SAME instant: equal entry sets before /
         // after analysis do not prove nothing changed - a definition recreated and then restored
         // leaves both snapshots identical while the expansion inlined the INTERMEDIATE body, so
@@ -539,7 +554,10 @@ public class SPMOptimizer {
                             ? ((CaptureStatementContext) statementContext).getTableFingerprints()
                             : java.util.Map.of(),
                     bindFunctionSnapshot,
-                    functionRegistryVersionBefore);
+                    functionRegistryVersionBefore,
+                    statementContext instanceof CaptureStatementContext
+                            ? ((CaptureStatementContext) statementContext).getPartitionNames()
+                            : java.util.Map.of());
         } finally {
             sessionVar.setTopNLazyMaterializationThreshold(originalTopnLazyThreshold);
             sessionVar.enableCTEMaterialize = originalCteMaterialize;
@@ -565,7 +583,22 @@ public class SPMOptimizer {
      */
     private static StatementContext createNestedStatementContext(ConnectContext ctx,
             String originSql) {
-        return nestedContextFactory.apply(ctx, originSql);
+        StatementContext nested = nestedContextFactory.apply(ctx, originSql);
+        // The plan tree handed to optimize() was PARSED under the caller's statement context, and
+        // parsing already allocates ExprIds: LogicalPlanBuilder builds a BOUND Alias for a literal
+        // select item (`SELECT 7 AS b`), so such an item carries an id from the OUTER generator.
+        // A nested context starts its own generators at 0, so the scan columns bound below get the
+        // SAME small ids, and because SlotReference#equals / hashCode compare only the exprId,
+        // every Map<Slot, Expression> substitution (projection merging / column pruning) then
+        // conflates the derived constant column with a real one: `SELECT k, ... FROM
+        // (SELECT k, 7 AS b FROM t) x` froze as `SELECT _spm_const_var(1) AS k, ...` and replayed
+        // the CONSTANT for every k. Continuing the generators keeps every id this statement
+        // allocates above the ids the swapped-in tree already carries.
+        StatementContext outer = ctx.getStatementContext();
+        if (outer != null && outer != nested) {
+            nested.continueIdGeneratorsFrom(outer);
+        }
+        return nested;
     }
 
     /**
@@ -757,6 +790,17 @@ public class SPMOptimizer {
          */
         private final Long functionRegistryVersion;
 
+        /**
+         * The PARTITION NAMES of every OLAP table the statement resolved, snapshotted WHILE the
+         * planning locks were held (round-86): table id to partition id to name. The frozen
+         * PARTITION(...) clause names partitions by id, and the renderer runs AFTER
+         * {@link #optimize} released the locks - a `RENAME PARTITION` in that window made it emit
+         * the NEW name while the stored bind text still said the old one, so a later caller
+         * pinning the old name (on another partition) matched the bind and replayed the renamed
+         * one.
+         */
+        private final java.util.Map<Long, java.util.Map<Long, String>> partitionNames;
+
         public OptimizeResult(PhysicalPlan physicalPlan, double cost) {
             this(physicalPlan, cost, java.util.Map.of(), java.util.Map.of(), null, null);
         }
@@ -798,6 +842,27 @@ public class SPMOptimizer {
                 java.util.Map<String, String> tableFingerprints,
                 java.util.Set<String> bindFunctionDependencies,
                 Long functionRegistryVersion) {
+            this(physicalPlan, cost, tableSnapshot, tableFingerprints, bindFunctionDependencies,
+                    functionRegistryVersion, java.util.Map.of());
+        }
+
+        /**
+         * The full result including the under-lock PARTITION NAMES (see the field javadoc).
+         *
+         * @param physicalPlan            the optimized physical plan
+         * @param cost                    its estimated cost
+         * @param tableSnapshot           the under-lock bind-side tables
+         * @param tableFingerprints       the under-lock table fingerprint entries
+         * @param bindFunctionDependencies the pre-analysis function entries, or null
+         * @param functionRegistryVersion the pre-analysis UDF registry version, or null
+         * @param partitionNames          table id to partition id to the ADMITTED name
+         */
+        public OptimizeResult(PhysicalPlan physicalPlan, double cost,
+                java.util.Map<String, org.apache.doris.catalog.TableIf> tableSnapshot,
+                java.util.Map<String, String> tableFingerprints,
+                java.util.Set<String> bindFunctionDependencies,
+                Long functionRegistryVersion,
+                java.util.Map<Long, java.util.Map<Long, String>> partitionNames) {
             this.physicalPlan = physicalPlan;
             this.cost = cost;
             this.tableSnapshot = tableSnapshot == null ? java.util.Map.of() : tableSnapshot;
@@ -805,10 +870,16 @@ public class SPMOptimizer {
                     ? java.util.Map.of() : tableFingerprints;
             this.bindFunctionDependencies = bindFunctionDependencies;
             this.functionRegistryVersion = functionRegistryVersion;
+            this.partitionNames = partitionNames == null ? java.util.Map.of() : partitionNames;
         }
 
         public PhysicalPlan getPhysicalPlan() {
             return physicalPlan;
+        }
+
+        /** The under-lock partition-name snapshot (see the field javadoc). */
+        public java.util.Map<Long, java.util.Map<Long, String>> getPartitionNames() {
+            return partitionNames;
         }
 
         public double getCost() {
@@ -870,6 +941,11 @@ public class SPMOptimizer {
         private final java.util.Map<String, String> tableFingerprints =
                 new java.util.concurrent.ConcurrentHashMap<>();
 
+        /** table id -> partition id -> the name the LOCKED bind resolved (see
+         * OptimizeResult#getPartitionNames). */
+        private final java.util.Map<Long, java.util.Map<Long, String>> partitionNames =
+                new java.util.concurrent.ConcurrentHashMap<>();
+
         CaptureStatementContext(ConnectContext ctx, String originSql) {
             super(ctx, new OriginStatement(originSql, 0));
         }
@@ -881,6 +957,8 @@ public class SPMOptimizer {
             org.apache.doris.catalog.TableIf table =
                     super.getAndCacheTable(tableQualifier, tableFrom, unboundRelation);
             SPMPlanTreeSupport.recordTableFingerprint(tableFingerprints, table, tableQualifier);
+            SPMPlanTreeSupport.recordPartitionNames(partitionNames,
+                    java.util.List.of(table));
             return table;
         }
 
@@ -904,10 +982,18 @@ public class SPMOptimizer {
         public synchronized void lock() {
             super.lock();
             SPMPlanTreeSupport.recordTableFingerprints(tableFingerprints, getTables());
+            // the PARTITION NAMES of the locked bind, snapshotted in the same window (round-86):
+            // a RENAME PARTITION committing after this point must not change the name the
+            // frozen PARTITION(...) clause carries
+            SPMPlanTreeSupport.recordPartitionNames(partitionNames, getTables().values());
         }
 
         java.util.Map<String, String> getTableFingerprints() {
             return tableFingerprints;
+        }
+
+        java.util.Map<Long, java.util.Map<Long, String>> getPartitionNames() {
+            return partitionNames;
         }
     }
 

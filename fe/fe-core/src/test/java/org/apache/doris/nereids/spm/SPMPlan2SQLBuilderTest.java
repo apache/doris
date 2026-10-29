@@ -669,6 +669,76 @@ public class SPMPlan2SQLBuilderTest {
                 "the flattened four-part render is not the intended name: " + sql);
     }
 
+    /**
+     * A user-pinned partition is frozen with the name the CAPTURE resolved (round-86): the pin is
+     * a set of PARTITION IDS, so the renderer must not depend on the live catalog name it reads
+     * after the planning locks were released.
+     */
+    @Test
+    public void testPinnedPartitionUsesTheAdmittedName() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(a));
+        OlapTable table = scan.getTable();
+        Mockito.when(table.getId()).thenReturn(42L);
+        Partition pinned = Mockito.mock(Partition.class);
+        Mockito.when(pinned.getName()).thenReturn("p1");
+        Mockito.when(table.getPartition(7L)).thenReturn(pinned);
+        Mockito.when(scan.getManuallySpecifiedPartitions()).thenReturn(List.of(7L));
+
+        java.util.Map<Long, java.util.Map<Long, String>> captured =
+                java.util.Map.of(42L, java.util.Map.of(7L, "p1"));
+        Assertions.assertEquals("t1 PARTITION(p1)",
+                new SPMPlan2SQLBuilder(captured).visitPhysicalRelation(scan, null).getFrom(),
+                "the admitted name is frozen");
+    }
+
+    /**
+     * A `RENAME PARTITION` that lands between the capture and the render makes the admitted name
+     * differ from the live one: freezing the LIVE name would answer an identical caller pinning
+     * the OLD name (now a different partition) from the renamed one, so the CREATE declines the
+     * freeze instead (round-86).
+     */
+    @Test
+    public void testPinnedPartitionRenameDeclinesTheFreeze() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(a));
+        OlapTable table = scan.getTable();
+        Mockito.when(table.getId()).thenReturn(42L);
+        Partition renamed = Mockito.mock(Partition.class);
+        Mockito.when(renamed.getName()).thenReturn("p1");
+        Mockito.when(table.getPartition(7L)).thenReturn(renamed);
+        Mockito.when(scan.getManuallySpecifiedPartitions()).thenReturn(List.of(7L));
+
+        java.util.Map<Long, java.util.Map<Long, String>> captured =
+                java.util.Map.of(42L, java.util.Map.of(7L, "p0"));
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> new SPMPlan2SQLBuilder(captured).visitPhysicalRelation(scan, null),
+                "a renamed pinned partition must not be frozen under the wrong name");
+    }
+
+    /**
+     * A TopN above a pending ASSERT_ROWS keeps the assertion OUTSIDE the cap (round-86): writing
+     * the LIMIT into the assert block let the assertion see one row, so the row-count error the
+     * caller's query raises never fired on replay.
+     */
+    @Test
+    public void testTopNOverAssertNumRowsKeepsTheCapOutsideTheAssertion() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(a));
+        PhysicalAssertNumRows<?> assertNumRows = mockAssert(scan);
+        PhysicalTopN<?> topN = mockTopN(assertNumRows,
+                List.of(new OrderKey(a, true, true)), 1);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(topN);
+        Assertions.assertTrue(sql.contains("ASSERT_ROWS ("),
+                "the assertion must stay in the relation: " + sql);
+        int assertClose = sql.indexOf(") t_", sql.indexOf("ASSERT_ROWS ("));
+        Assertions.assertTrue(assertClose > 0, sql);
+        Assertions.assertTrue(sql.indexOf("LIMIT") > assertClose,
+                "the LIMIT must be applied OUTSIDE the assertion: " + sql);
+        assertReparsesIntoAssertion(sql);
+    }
+
     // ==================== GROUPING SETS (PhysicalRepeat) ====================
 
     @Test

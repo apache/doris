@@ -486,6 +486,30 @@ public class StatementContext implements Closeable {
     }
 
     /**
+     * Continues every id generator from {@code previous}, so ids allocated on THIS context can
+     * never collide with the ids already present in a plan tree the caller carries over.
+     *
+     * <p>{@code ExprId} is the dangerous one: {@code SlotReference.equals} / {@code hashCode}
+     * compare ONLY the exprId (see SlotReference), so two unrelated columns sharing one exprId are
+     * conflated by every {@code Map<Slot, Expression>} substitution (projection merging, column
+     * pruning) and one column silently takes the other's expression. The id-bearing nodes are
+     * created at PARSE time - {@code LogicalPlanBuilder} builds a BOUND {@code Alias} for a
+     * literal select item ({@code SELECT 7 AS b}) - so a caller that re-plans a parsed tree on a
+     * fresh context (SPM capture, prepared-statement re-execution) MUST continue the generators
+     * here: its own allocations then start above every id the tree already carries.
+     *
+     * @param previous the context whose generator positions to continue from
+     */
+    public void continueIdGeneratorsFrom(StatementContext previous) {
+        exprIdGenerator.resetId(previous.exprIdGenerator.getCurrentId());
+        objectIdGenerator.resetId(previous.objectIdGenerator.getCurrentId());
+        relationIdGenerator.resetId(previous.relationIdGenerator.getCurrentId());
+        cteIdGenerator.resetId(previous.cteIdGenerator.getCurrentId());
+        talbeIdGenerator.resetId(previous.talbeIdGenerator.getCurrentId());
+        placeHolderIdGenerator.resetId(previous.placeHolderIdGenerator.getCurrentId());
+    }
+
+    /**
      * Create a fresh StatementContext for the next EXECUTE of a prepared statement.
      *
      * <p>A prepared statement keeps its StatementContext inside {@code PreparedStatementContext}
@@ -515,11 +539,7 @@ public class StatementContext implements Closeable {
         // generator starting at 0 would collide with those ids during this execution's planning.
         StatementContext next = new StatementContext(connectContext, originStatement,
                 exprIdGenerator.getCurrentId());
-        next.objectIdGenerator.resetId(objectIdGenerator.getCurrentId());
-        next.relationIdGenerator.resetId(relationIdGenerator.getCurrentId());
-        next.cteIdGenerator.resetId(cteIdGenerator.getCurrentId());
-        next.talbeIdGenerator.resetId(talbeIdGenerator.getCurrentId());
-        next.placeHolderIdGenerator.resetId(placeHolderIdGenerator.getCurrentId());
+        next.continueIdGeneratorsFrom(this);
         // Placeholder bindings of this EXECUTE, and the comparison-slot registry used to replace
         // conjuncts on the cached short-circuit plan without re-planning.
         next.idToPlaceholderRealExpr.putAll(idToPlaceholderRealExpr);

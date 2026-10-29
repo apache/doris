@@ -1228,7 +1228,8 @@ public class SPMPlanner {
         }
         try {
             return new DecompiledPlan(
-                    new SPMPlan2SQLBuilder().toSQL(optimizeResult.getPhysicalPlan()), true);
+                    new SPMPlan2SQLBuilder(optimizeResult.getPartitionNames())
+                            .toSQL(optimizeResult.getPhysicalPlan()), true);
         } catch (UnsupportedOperationException e) {
             LOG.info("SPM decompile unsupported ({}):\n{}", e.getMessage(),
                     optimizeResult.getPhysicalPlan().treeString());

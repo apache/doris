@@ -146,7 +146,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
 
     private static final Logger LOG = LogManager.getLogger(SPMPlan2SQLBuilder.class);
 
-    /** Generated output names ("c_" + ExprId) produced by re-export labels and dedupe renames. */
+    /** Generated output names ("c_" + position) produced by re-export labels and dedupe renames. */
     private static final Pattern GENERATED_NAME_PATTERN = Pattern.compile("\\bc_\\d+\\b");
 
     /** JOIN distribution HINT prefix constants. */
@@ -220,6 +220,13 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      */
     private final Set<ExprId> distinctMergeBuffers = new HashSet<>();
 
+    /**
+     * Table id to (partition id to the name the CAPTURE resolved), snapshotted while the
+     * planning locks were held (see SPMOptimizer.OptimizeResult#getPartitionNames). Empty when
+     * the caller has none (a direct / test-side decompile).
+     */
+    private final Map<Long, Map<Long, String>> capturedPartitionNames;
+
     /** The OUTERMOST projection of the decompiled tree (by identity). It alone prunes its
      * output to the final user-visible columns; every intermediate projection outputs the
      * full child column set plus its own expressions, so an upper layer (filter / join /
@@ -285,6 +292,25 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * exports do not, so they reserve here instead.
      */
     private final Set<String> reservedOutputNames = new HashSet<>();
+
+    /**
+     * Builds a renderer WITHOUT an under-lock partition-name snapshot (direct / test-side
+     * decompile): a pinned partition is then named from the live catalog.
+     */
+    public SPMPlan2SQLBuilder() {
+        this(java.util.Map.of());
+    }
+
+    /**
+     * Builds a renderer carrying the partition names the CAPTURE resolved while the planning locks
+     * were held (see SPMOptimizer.OptimizeResult#getPartitionNames).
+     *
+     * @param partitionNames table id to (partition id to the ADMITTED name), or null
+     */
+    public SPMPlan2SQLBuilder(Map<Long, Map<Long, String>> partitionNames) {
+        this.capturedPartitionNames = partitionNames == null
+                ? java.util.Map.of() : partitionNames;
+    }
 
     /**
      * Rejects freezing when any expression of the plan carries a
@@ -1255,7 +1281,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * false, and the rewrite replays the parameterized tree, whose own analysis re-applies
      * the pin - so the frozen-text path below is never asked to render one.
      */
-    private static String renderScanModifiers(PhysicalRelation relation) {
+    private String renderScanModifiers(PhysicalRelation relation) {
         StringBuilder modifiers = new StringBuilder();
         if (relation instanceof PhysicalOlapScan) {
             PhysicalOlapScan scan = (PhysicalOlapScan) relation;
@@ -1284,7 +1310,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * selection by replay. Ids are sorted so the frozen text is deterministic (the
      * matcher compares the selection as a set).
      */
-    private static String renderPartitionSelection(PhysicalOlapScan scan) {
+    private String renderPartitionSelection(PhysicalOlapScan scan) {
         List<Long> pinnedIds = scan.getManuallySpecifiedPartitions();
         if (pinnedIds.isEmpty()) {
             return "";
@@ -1303,7 +1329,34 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                         "SPM decompile: a partition pin mixing temporary and formal partitions"
                                 + " has no single-clause rendering");
             }
-            Partition partitionMeta = table.getPartition(sortedIds.get(i));
+            long partitionId = sortedIds.get(i);
+            Partition partitionMeta = table.getPartition(partitionId);
+            Map<Long, String> capturedNames = capturedPartitionNames.get(table.getId());
+            String capturedName = capturedNames == null ? null : capturedNames.get(partitionId);
+            if (capturedName != null) {
+                // The ADMITTED name wins (round-86): the applied pin is a SET OF IDS, while the
+                // stored bind text (and every later caller matching it) names the partition it
+                // wrote. Reading the LIVE name here would freeze a `RENAME PARTITION` that landed
+                // between the capture and this render, so an identical caller pinning the OLD
+                // name - now a different, newly added partition - would be answered from the
+                // renamed one. A partition whose live name already moved makes the CREATE decline
+                // the freeze instead of freezing a text the bind cannot describe.
+                if (partitionMeta == null || !capturedName.equals(partitionMeta.getName())) {
+                    throw new UnsupportedOperationException(
+                            "SPM decompile: the pinned partition " + partitionId + " of table "
+                                    + table.getName() + " was renamed / dropped after the capture"
+                                    + " ('" + capturedName + "' is the admitted name); keeping"
+                                    + " the user planSql so the replay re-resolves the pin");
+                }
+                partition.append(quoteIdentifier(capturedName));
+                continue;
+            }
+            if (partitionMeta == null) {
+                throw new UnsupportedOperationException(
+                        "SPM decompile: the pinned partition " + partitionId + " of table "
+                                + table.getName() + " no longer exists and the capture did not"
+                                + " snapshot its name");
+            }
             partition.append(quoteIdentifier(partitionMeta.getName()));
         }
         return partition.append(')').toString();
@@ -3338,7 +3391,8 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         if (innerTopNNode instanceof PhysicalTopN) {
             PhysicalTopN<?> innerTopN = (PhysicalTopN<?>) innerTopNNode;
             String orderBySql = renderOrderKeys(topN, child);
-            if (isSameTopNContinuation(topN, innerTopN, child, orderBySql)) {
+            if (!child.isAssertRows()
+                    && isSameTopNContinuation(topN, innerTopN, child, orderBySql)) {
                 child.setOrderBy(orderBySql);
                 child.setLimit(topN.getOffset() > 0 ? topN.getOffset() + ", " : "");
                 if (topN.getLimit() != Long.MAX_VALUE) {
@@ -3349,7 +3403,13 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         }
 
         SQLRelation relation;
-        if (child.getLimit().isEmpty() && child.getOrderBy().isEmpty()) {
+        // An ASSERT_ROWS relation is a BOUNDARY (round-86): a cap / sort written INTO its block
+        // would be evaluated before the assertion, so `... FROM ASSERT_ROWS (...) a LIMIT 1`
+        // froze as `ASSERT_ROWS (SELECT ... LIMIT 1)` - the assertion then saw one row and the
+        // row-count error the native query raises never fired. The clause therefore always
+        // lands on a WRAPPER whose FROM is the assert relation.
+        if (!child.isAssertRows() && child.getLimit().isEmpty()
+                && child.getOrderBy().isEmpty()) {
             relation = child;
         } else {
             relation = new SQLRelation();
@@ -3498,7 +3558,9 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             child = process(limit.child(0));
         }
         SQLRelation limitRelation;
-        if (child.getLimit().isEmpty()) {
+        // the same ASSERT_ROWS boundary as visitPhysicalTopN (round-86): a LIMIT written into the
+        // assert block suppresses the row-count error the caller's query raises
+        if (!child.isAssertRows() && child.getLimit().isEmpty()) {
             limitRelation = child;
         } else {
             limitRelation = new SQLRelation();
@@ -3673,7 +3735,11 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             if (core.isEmpty()) {
                 continue;
             }
-            String unique = "c_" + first.key();
+            // The ITEM POSITION, not its ExprId: the ExprId of a captured node depends on how
+            // many ids the enclosing statement had already consumed, so an id-derived name made
+            // the frozen text differ between two CREATEs of the SAME query (see
+            // StatementContext#continueIdGeneratorsFrom). The position is stable.
+            String unique = "c_" + previous;
             while (usedNames.contains(unique.toLowerCase(java.util.Locale.ROOT))) {
                 unique = unique + "_";
             }
@@ -4341,7 +4407,10 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         for (int j = 0; j < outputs.size(); j++) {
             Slot output = outputs.get(j);
             if (outputNameCounts.getOrDefault(normalizedOutputName(output.getName()), 0) > 1) {
-                String unique = "c_" + output.getExprId();
+                // The POSITION, not the ExprId: the frozen text must be reproducible, and the
+                // ExprIds of a capture depend on how many ids the enclosing statement had already
+                // consumed (see StatementContext#continueIdGeneratorsFrom).
+                String unique = "c_" + j;
                 while (usedOutputNames.contains(normalizedOutputName(unique))) {
                     unique = unique + "_";
                 }

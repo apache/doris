@@ -961,6 +961,21 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     private static Literal markerPayload(Literal literal, Expression parent,
             boolean projectionItem, boolean booleanConditionalResult,
             boolean booleanElementContainer) {
+        if (projectionItem && (literal instanceof ArrayLiteral || literal instanceof MapLiteral)
+                && isAllNullContainer(literal)) {
+            // A DERIVED OUTPUT carrying an all-NULL container (round-86): the container is one
+            // leaf marker whose type is ARRAY<NULL_TYPE> / MAP<..., NULL_TYPE>, and the upper
+            // block that consumes it (`k > 0 OR element_at(a, 1)` over `SELECT [NULL] AS a`) is a
+            // DIFFERENT query block - the Boolean context never reaches this projection, so the
+            // payload was left NullType, the consumer erased the outer call together with its
+            // markers, and the `[TRUE]` variant replayed NULL. Retyping the payload to a BOOLEAN
+            // element / value type removes the NullType from the tree while keeping the shape; a
+            // non-container projection keeps its own typing below.
+            Literal derivedPayload = booleanContainerPayload(literal, parent);
+            if (derivedPayload != null) {
+                return derivedPayload;
+            }
+        }
         if (booleanElementContainer) {
             // A bracket ARRAY literal keeps its elements as LITERALS (ArrayLiteral#getValue), so
             // the ELEMENT markers the function spelling gets (see isConditionalResultPosition)
