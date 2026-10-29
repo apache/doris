@@ -224,9 +224,9 @@ public class PhysicalHashJoin<
 
     @Override
     public PhysicalHashJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> resetLogicalProperties() {
-        return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts,
+        return rebuildKeepingStates(this, new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts,
                 markJoinConjuncts, hint, markJoinSlotReference, groupExpression, null,
-                physicalProperties, statistics, left(), right());
+                physicalProperties, statistics, left(), right()));
     }
 
     private @Nullable Pair<Set<Slot>, Set<Slot>> extractNullRejectHashKeys() {
