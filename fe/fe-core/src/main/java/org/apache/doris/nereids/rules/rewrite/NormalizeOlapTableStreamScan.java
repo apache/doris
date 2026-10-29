@@ -239,10 +239,16 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
         long cutoffTso = TSOTimestamp.calculateCutoff(
                 cascadesContext.getStatementContext().getChangelogReferenceTso(),
                 table.getChangelogConfig().getTtlSeconds());
+        // An expired start is rejected for MIN_DELTA and clipped to the first retained TSO otherwise. An IVM read
+        // rejects it whatever its scan type: a duplicate-key base table is read APPEND_ONLY, and a clipped start
+        // would skip the rows written between the offset and the cutoff while the refresh succeeds. The rejection
+        // is what sends the refresh to COMPLETE. A user stream keeps what its scan type does.
+        boolean rejectExpiredStart = scanType == BaseTableStream.StreamScanType.MIN_DELTA
+                || cascadesContext.getStatementContext().isIvmMTMVRewrite();
         return offsetMap.entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, entry -> {
             Pair<Long, Long> range = entry.getValue();
             return Pair.of(ChangelogUtils.effectiveStartTso(range.first, cutoffTso,
-                    range.first != null && scanType == BaseTableStream.StreamScanType.MIN_DELTA), range.second);
+                    range.first != null && rejectExpiredStart), range.second);
         }));
     }
 

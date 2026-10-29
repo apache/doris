@@ -182,6 +182,19 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
                 "create stream if not exists test_stream.s_dup on table test_stream.tbl_dup_stream_base\n"
                         + "properties('show_initial_rows' = 'false')";
         createTable(createDuplicateStream);
+
+        // A stream on a duplicate-key table with a TTL, and data after its offset. bumpPartitionsAndReplicas
+        // stamps a wall-clock millisecond as the partition TSO, far below a TSO composed from the current time,
+        // so under such a reference the offset is expired.
+        createTable("create table test_stream.tbl_dup_stream_ttl_offset (k1 int, k2 int) "
+                + "duplicate key(k1) distributed by hash(k1) buckets 1 properties("
+                + "\"replication_num\"=\"1\",\"changelog.enable\"=\"true\","
+                + "\"changelog.ttl_seconds\"=\"10\")");
+        OlapTable duplicateTtlTable = (OlapTable) db.getTableOrMetaException("tbl_dup_stream_ttl_offset");
+        bumpPartitionsAndReplicas(duplicateTtlTable, 1001L);
+        createTable("create stream if not exists test_stream.s_dup_ttl"
+                + " on table test_stream.tbl_dup_stream_ttl_offset properties('show_initial_rows' = 'false')");
+        bumpPartitionsAndReplicas(duplicateTtlTable, 2002L);
     }
 
     private static void bumpPartitionsAndReplicas(OlapTable table, long newVersion) {
@@ -795,6 +808,48 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
                 org.apache.doris.nereids.exceptions.AnalysisException.class,
                 () -> planner.planWithLock(logicalPlan, PhysicalProperties.ANY));
         Assertions.assertTrue(exception.getMessage().contains(ChangelogUtils.CHANGELOG_OFFSET_EXPIRED));
+    }
+
+    @Test
+    public void testChangelogTtlClipsExpiredAppendOnlyStreamOffset() {
+        // A user stream on a duplicate-key table is read APPEND_ONLY: its expired offset is clipped to the first
+        // retained TSO, and the read goes on from there.
+        long referenceTso = TSOTimestamp.composePhysicalTimestamp(System.currentTimeMillis());
+        long firstRetainedTso = TSOTimestamp.nextTso(TSOTimestamp.calculateCutoff(referenceTso, 10));
+        Plan plan = normalizeStreamRead("select * from test_stream.s_dup_ttl", referenceTso, Optional.empty());
+
+        Set<LogicalOlapScan> changelogScans = plan.collect(node -> node instanceof LogicalOlapScan
+                && ((LogicalOlapScan) node).getTable() instanceof OlapChangelogTableWrapper);
+        Assertions.assertEquals(1, changelogScans.size());
+        OlapChangelogTableWrapper wrapper = (OlapChangelogTableWrapper) changelogScans.iterator().next().getTable();
+        Assertions.assertFalse(wrapper.getPartitionIds().isEmpty());
+        for (Long partitionId : wrapper.getPartitionIds()) {
+            Assertions.assertEquals(firstRetainedTso, wrapper.getPartitionOffset(partitionId).first);
+        }
+    }
+
+    @Test
+    public void testChangelogTtlRejectsExpiredAppendOnlyStreamOffsetForIvm() {
+        // The same read inside an IVM refresh is rejected: clipped, it would leave out the rows written between
+        // the offset and the cutoff while the refresh succeeds.
+        long referenceTso = TSOTimestamp.composePhysicalTimestamp(System.currentTimeMillis());
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> normalizeStreamRead("select * from test_stream.s_dup_ttl", referenceTso,
+                        Optional.of(IvmRewriteContext.incremental(Mockito.mock(MTMV.class)))));
+        Assertions.assertTrue(exception.getMessage().contains(ChangelogUtils.CHANGELOG_OFFSET_EXPIRED),
+                exception.getMessage());
+    }
+
+    private Plan normalizeStreamRead(String sql, long referenceTso, Optional<IvmRewriteContext> ivmRewriteContext) {
+        PlanChecker checker = PlanChecker.from(connectContext).parse(sql);
+        StatementContext statementContext = checker.getCascadesContext().getStatementContext();
+        // Direct rewrite tests bypass the planner's statement reference initialization.
+        statementContext.getOrRegisterChangelogReferenceTso(() -> referenceTso);
+        checker.analyze();
+        // Installed after the analysis, whose IVM rules would rewrite the query as an MV's: only how the stream
+        // read treats its offset inside an IVM statement is under test.
+        statementContext.setIvmRewriteContext(ivmRewriteContext);
+        return checker.applyTopDown(new NormalizeOlapTableStreamScan()).getCascadesContext().getRewritePlan();
     }
 
     @Test

@@ -45,6 +45,7 @@ import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
+import org.apache.doris.mtmv.ivm.IvmFailureClassifier;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.mtmv.ivm.IvmIncrRefreshContext;
 import org.apache.doris.mtmv.ivm.IvmIncrRefreshManager;
@@ -1787,7 +1788,7 @@ public class MTMVTaskTest {
         MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, null,
                 RefreshMode.INCREMENTAL, true, null));
 
-        Object result = runIvmAttemptWhoseRebuildReadsAnExpiredOffset(task);
+        Object result = runIvmAttemptWhoseRebuildFails(task, expiredOffsetFailure());
 
         Assertions.assertEquals("FALLBACK_TO_COMPLETE", result.toString());
         Assertions.assertEquals(IvmFailureReason.CHANGELOG_BROKEN.name(),
@@ -1801,7 +1802,7 @@ public class MTMVTaskTest {
                 RefreshMode.INCREMENTAL, false, null));
 
         JobException failure = Assertions.assertThrows(JobException.class,
-                () -> runIvmAttemptWhoseRebuildReadsAnExpiredOffset(task));
+                () -> runIvmAttemptWhoseRebuildFails(task, expiredOffsetFailure()));
 
         Assertions.assertTrue(failure.getMessage().contains("reason=" + IvmFailureReason.CHANGELOG_BROKEN));
         Assertions.assertTrue(failure.getMessage().contains(ChangelogUtils.CHANGELOG_OFFSET_EXPIRED));
@@ -1810,10 +1811,32 @@ public class MTMVTaskTest {
     }
 
     /**
-     * Runs the incremental attempt with p1 needing a rebuild and p2 caught up, the rebuild's read refused the way
-     * planning refuses a MIN_DELTA read from an expired offset. The delta must not be reached.
+     * Only a rebuild failure whose one repair is COMPLETE becomes a fallback. A missing MV partition is not one: the
+     * sync-and-retry that answers it exists on the delta's path only, so it still fails the attempt, even for a
+     * request that may fall back.
      */
-    private Object runIvmAttemptWhoseRebuildReadsAnExpiredOffset(MTMVTask task) throws Exception {
+    @Test
+    public void testRebuildFailureCompleteDoesNotRepairStillFailsTheAttempt() {
+        MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, null,
+                RefreshMode.INCREMENTAL, true, null));
+
+        JobException failure = Assertions.assertThrows(JobException.class, () -> runIvmAttemptWhoseRebuildFails(
+                task, new RuntimeException(IvmFailureClassifier.MV_PARTITION_NOT_FOUND_MSG)));
+
+        Assertions.assertTrue(failure.getMessage().contains(IvmFailureClassifier.MV_PARTITION_NOT_FOUND_MSG));
+        Assertions.assertNull(Deencapsulation.getField(task, "ivmFallbackReason"));
+    }
+
+    // The failure planning raises for a MIN_DELTA read from an expired offset.
+    private static RuntimeException expiredOffsetFailure() {
+        return Assertions.assertThrows(RuntimeException.class, () -> ChangelogUtils.effectiveStartTso(99L, 100L, true));
+    }
+
+    /**
+     * Runs the incremental attempt with p1 needing a rebuild and p2 caught up, the rebuild's read failing with
+     * {@code failure}. The delta must not be reached.
+     */
+    private Object runIvmAttemptWhoseRebuildFails(MTMVTask task, RuntimeException failure) throws Exception {
         Mockito.when(mtmv.isIvm()).thenReturn(true);
         Mockito.when(mtmv.getName()).thenReturn("test_mv");
         Mockito.when(mtmv.hasRefreshSnapshot()).thenReturn(true);
@@ -1828,8 +1851,6 @@ public class MTMVTaskTest {
         mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.generatePartitionSnapshots(
                 Mockito.same(refreshContext), Mockito.anySet(), Mockito.anySet()))
                 .thenReturn(Collections.emptyMap());
-        RuntimeException expired = Assertions.assertThrows(RuntimeException.class,
-                () -> ChangelogUtils.effectiveStartTso(99L, 100L, true));
 
         ConnectContext mtmvCtx = new ConnectContext();
         mtmvCtx.setQueryId(new TUniqueId(1L, 2L));
@@ -1847,7 +1868,7 @@ public class MTMVTaskTest {
                     .thenReturn(command);
             mtmvPlanUtilStatic.when(() -> MTMVPlanUtil.executeCommand(
                     Mockito.eq(mtmvCtx), Mockito.eq(command), Mockito.any(StatementContext.class),
-                    Mockito.anyString(), Mockito.any(Consumer.class))).thenThrow(expired);
+                    Mockito.anyString(), Mockito.any(Consumer.class))).thenThrow(failure);
 
             Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
             try {
