@@ -63,6 +63,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -92,8 +93,10 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     // record the table update time, like insert/alter/delete
     protected volatile long updateTime = 0;
-    // Fences missing-table responses that started before a metadata-only refresh of this object.
+    // Fences missing-table responses across the full metadata refresh interval.
     private transient volatile long metadataRefreshGeneration;
+    // Guarded by catalog. Refreshes may overlap without holding the monitor across provider IO.
+    private transient int activeMetadataRefreshes;
 
     protected long dbId;
     protected boolean objectCreated;
@@ -344,9 +347,25 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return metadataRefreshGeneration;
     }
 
-    /** Ordered with guarded missing-table cleanup, which holds the same catalog monitor. */
-    public void advanceMetadataRefreshGeneration() {
+    /** Only an idle metadata generation can authorize later missing-table cleanup. */
+    public OptionalLong observeMetadataRefreshGeneration() {
         synchronized (catalog) {
+            return activeMetadataRefreshes == 0
+                    ? OptionalLong.of(metadataRefreshGeneration) : OptionalLong.empty();
+        }
+    }
+
+    /** Ordered with guarded cleanup; the caller releases this fence in its outermost finally. */
+    public void beginMetadataRefresh() {
+        synchronized (catalog) {
+            activeMetadataRefreshes++;
+            metadataRefreshGeneration++;
+        }
+    }
+
+    public void endMetadataRefresh() {
+        synchronized (catalog) {
+            activeMetadataRefreshes--;
             metadataRefreshGeneration++;
         }
     }

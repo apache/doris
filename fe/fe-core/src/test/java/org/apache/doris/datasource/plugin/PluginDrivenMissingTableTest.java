@@ -483,6 +483,92 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
     }
 
     @Test
+    void showCreateStartingDuringRefreshCannotClearTheCompletedRefresh() throws Exception {
+        PluginDrivenExternalTable table = warmTarget();
+        CountDownLatch refreshStarted = new CountDownLatch(1);
+        CountDownLatch finishRefresh = new CountDownLatch(1);
+        Mockito.doAnswer(call -> {
+            refreshStarted.countDown();
+            Assertions.assertTrue(finishRefresh.await(10, TimeUnit.SECONDS));
+            remoteCache.remove("a");
+            return null;
+        }).when(connector).invalidateTable(Mockito.anyString(), Mockito.anyString());
+        Mockito.when(metadata.renderShowCreateTableDdl(Mockito.any(), Mockito.any())).thenAnswer(call -> {
+            remoteTables.remove("a");
+            missingStarted.countDown();
+            Assertions.assertTrue(releaseMissing.await(10, TimeUnit.SECONDS));
+            throw new ConnectorTableNotFoundException("db", "a", null);
+        });
+        Future<?> refresh = worker.submit(() -> new RefreshManager().refreshTableInternal(database, table, 123L));
+        try {
+            Assertions.assertTrue(refreshStarted.await(10, TimeUnit.SECONDS));
+            Future<?> missing = worker.submit(() -> Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                    table::getShowCreateTableDdl));
+            Assertions.assertTrue(missingStarted.await(10, TimeUnit.SECONDS));
+            remoteTables.put("a", "recreated_column");
+            finishRefresh.countDown();
+            refresh.get(10, TimeUnit.SECONDS);
+            List<Column> freshSchema = table.getFullSchema();
+            remoteCache.put("a", "recreated metadata");
+            int loads = catalog.nameLoads.get();
+            releaseMissing.countDown();
+            missing.get(10, TimeUnit.SECONDS);
+            Assertions.assertSame(table, database.getTableNullable(table.getId()));
+            Assertions.assertSame(freshSchema, table.getFullSchema());
+            Assertions.assertEquals("recreated metadata", remoteCache.get("a"));
+            Assertions.assertEquals(loads, catalog.nameLoads.get());
+        } finally {
+            finishRefresh.countDown();
+            releaseMissing.countDown();
+        }
+    }
+
+    @Test
+    void overlappingRefreshesRemainUnobservableUntilBothFinish() throws Exception {
+        PluginDrivenExternalTable table = warmTarget();
+        CountDownLatch firstStarted = new CountDownLatch(1);
+        CountDownLatch secondStarted = new CountDownLatch(1);
+        CountDownLatch firstFinish = new CountDownLatch(1);
+        CountDownLatch secondFinish = new CountDownLatch(1);
+        AtomicInteger calls = new AtomicInteger();
+        Mockito.doAnswer(call -> {
+            boolean first = calls.getAndIncrement() == 0;
+            (first ? firstStarted : secondStarted).countDown();
+            Assertions.assertTrue((first ? firstFinish : secondFinish).await(10, TimeUnit.SECONDS));
+            return null;
+        }).when(connector).invalidateTable(Mockito.anyString(), Mockito.anyString());
+        Future<?> first = worker.submit(() -> new RefreshManager().refreshTableInternal(database, table, 123L));
+        try {
+            Assertions.assertTrue(firstStarted.await(10, TimeUnit.SECONDS));
+            Future<?> second = worker.submit(() -> new RefreshManager().refreshTableInternal(database, table, 124L));
+            Assertions.assertTrue(secondStarted.await(10, TimeUnit.SECONDS));
+            Assertions.assertFalse(database.observeTableLookup(table, () -> { }).isPresent());
+            firstFinish.countDown();
+            first.get(10, TimeUnit.SECONDS);
+            Assertions.assertFalse(database.observeTableLookup(table, () -> { }).isPresent());
+            secondFinish.countDown();
+            second.get(10, TimeUnit.SECONDS);
+            Assertions.assertTrue(database.observeTableLookup(table, () -> { }).isPresent());
+        } finally {
+            firstFinish.countDown();
+            secondFinish.countDown();
+        }
+    }
+
+    @Test
+    void failedRefreshReleasesTheObservationFence() {
+        PluginDrivenExternalTable table = warmTarget();
+        failInvalidation = true;
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> new RefreshManager().refreshTableInternal(database, table, 123L));
+        Assertions.assertTrue(database.observeTableLookup(table, () -> { }).isPresent());
+        failInvalidation = false;
+        remoteTables.remove("a");
+        readMissingHandle(table);
+        Assertions.assertNull(database.getTableNullable(table.getId()));
+    }
+
+    @Test
     void missingTableRepairsNamesObjectsIdsAndConnectorMetadata() {
         PluginDrivenExternalTable old = warmTarget();
         PluginDrivenExternalTable sibling = database.getTableNullable("b");
