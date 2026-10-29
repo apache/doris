@@ -130,11 +130,21 @@ suite("test_mtmv_compute_group") {
         exception "not found"
     }
 
-    // Re-declaring the same group is a no-op and must keep refreshing there.
+    // Re-declaring the same group is a no-op and must keep refreshing there. The new row gives the AUTO
+    // refresh something to do: with an unchanged base table it is NOT_REFRESH, which ends before a
+    // compute group is applied and records none. The task checked is the one this refresh created,
+    // found by id, because tasks() is not ordered and ids created in the same second are not monotonic.
+    def taskIdsBeforeAlter = sql_return_maparray("""select TaskId from tasks("type"="mv") where MvName = '${mvName}'""")
+            .collect { it.TaskId }
     sql """ALTER MATERIALIZED VIEW ${mvName} SET ('compute_group' = '${cgName}');"""
+    sql """insert into ${tableName} values(3, 3);"""
     sql """REFRESH MATERIALIZED VIEW ${mvName} AUTO;"""
     waitingMTMVTaskFinishedByMvName(mvName)
-    def tasksAfterAlter = sql_return_maparray """select * from tasks("type"="mv") where MvName = '${mvName}'"""
+    assertEquals(3, sql("SELECT COUNT(*) FROM ${mvName}").get(0).get(0))
+    def tasksAfterAlter = sql_return_maparray("""select * from tasks("type"="mv") where MvName = '${mvName}'""")
+            .findAll { !taskIdsBeforeAlter.contains(it.TaskId) }
+    logger.info("mv tasks after alter: ${tasksAfterAlter}")
+    assertEquals(1, tasksAfterAlter.size())
     assertEquals(cgName, tasksAfterAlter.get(0).ComputeGroup)
 
     sql """drop materialized view if exists ${mvName};"""
