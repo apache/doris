@@ -71,7 +71,7 @@ public class StAngle extends ScalarFunction
 
     @Override
     public FunctionSignature searchSignature(List<FunctionSignature> signatures) {
-        FunctionSignature signature = SpatialFunctionSignature.ternary(
+        FunctionSignature signature = SpatialFunctionSignature.calculationTernary(
                 child(0), child(1), child(2), DoubleType.INSTANCE);
         return signature != null ? signature : ExplicitlyCastableSignature.super.searchSignature(signatures);
     }

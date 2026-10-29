@@ -48,6 +48,23 @@ final class SpatialFunctionSignature {
         return spatialArguments(returnType, left, right);
     }
 
+    static FunctionSignature calculationUnary(Expression argument, DataType returnType) {
+        if (isSpatial(argument) && !isSupportedCalculationType(argument.getDataType())) {
+            return null;
+        }
+        return unary(argument, returnType);
+    }
+
+    static FunctionSignature calculationTernary(Expression first, Expression second, Expression third,
+            DataType returnType) {
+        for (Expression argument : new Expression[] {first, second, third}) {
+            if (isSpatial(argument) && !isSupportedCalculationType(argument.getDataType())) {
+                return null;
+            }
+        }
+        return spatialArguments(returnType, first, second, third);
+    }
+
     static FunctionSignature ternary(Expression first, Expression second, Expression third, DataType returnType) {
         return spatialArguments(returnType, first, second, third);
     }

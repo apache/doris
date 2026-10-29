@@ -70,7 +70,7 @@ public class StAreaSquareMeters extends ScalarFunction
 
     @Override
     public FunctionSignature searchSignature(List<FunctionSignature> signatures) {
-        FunctionSignature signature = SpatialFunctionSignature.unary(child(0), DoubleType.INSTANCE);
+        FunctionSignature signature = SpatialFunctionSignature.calculationUnary(child(0), DoubleType.INSTANCE);
         return signature != null ? signature : ExplicitlyCastableSignature.super.searchSignature(signatures);
     }
 
