@@ -17,12 +17,14 @@
 
 #pragma once
 
+#include <gen_cpp/PlanNodes_types.h>
+
 #include "core/column/column.h"
 #include "util/simd/bits.h"
 
 namespace doris {
 
-template <int JoinOpType, typename Method>
+template <TJoinOp::type JoinOpType, typename Method>
 void build_join_hash_table(Method& method, const ColumnRawPtrs& columns, uint32_t rows,
                            int batch_size, const uint8_t* null_map, bool has_null_key,
                            bool keep_null_key) {
