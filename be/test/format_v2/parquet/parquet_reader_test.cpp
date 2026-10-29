@@ -2366,7 +2366,8 @@ TEST_F(NewParquetReaderTest, ReusesProfileHandlesAcrossFiles) {
         file->path = _file_path;
         file->file_size = static_cast<int64_t>(std::filesystem::file_size(_file_path));
         format::parquet::ParquetReader reader(properties, file, nullptr, &profile, std::nullopt,
-                                              false, false, std::nullopt, false, &cache);
+                                              false, false, nullptr, -1, -1, std::nullopt, false,
+                                              &cache);
         ASSERT_TRUE(reader.init(&state).ok());
         std::vector<format::ColumnDefinition> schema;
         ASSERT_TRUE(reader.get_schema(&schema).ok());
