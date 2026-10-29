@@ -18,11 +18,16 @@
 #pragma once
 #include <atomic>
 #include <memory>
+#ifdef USE_LIBCPP
+#include <mutex>
+#endif
 
 namespace doris {
 #ifndef USE_LIBCPP
 template <typename T>
 using atomic_shared_ptr = std::atomic<std::shared_ptr<T>>;
+template <typename T>
+using atomic_weak_ptr = std::atomic<std::weak_ptr<T>>;
 #else
 // libcpp do not support atomic<std::shared_ptr<T>>
 // so we implement a simple version of atomic_shared_ptr here
@@ -57,6 +62,30 @@ public:
 
 private:
     mutable std::shared_ptr<T> _ptr;
+};
+
+// libcpp do not support atomic<std::weak_ptr<T>> either, and std::atomic_load has no weak_ptr
+// overload, so this version guards the weak_ptr with a mutex
+template <typename T>
+class atomic_weak_ptr {
+public:
+    atomic_weak_ptr() noexcept = default;
+    atomic_weak_ptr(const atomic_weak_ptr&) = delete;
+    atomic_weak_ptr& operator=(const atomic_weak_ptr&) = delete;
+
+    void store(std::weak_ptr<T> desired, std::memory_order = std::memory_order_seq_cst) noexcept {
+        std::lock_guard<std::mutex> lock(_mutex);
+        _ptr = std::move(desired);
+    }
+
+    std::weak_ptr<T> load(std::memory_order = std::memory_order_seq_cst) const noexcept {
+        std::lock_guard<std::mutex> lock(_mutex);
+        return _ptr;
+    }
+
+private:
+    mutable std::mutex _mutex;
+    std::weak_ptr<T> _ptr;
 };
 #endif
 } // namespace doris

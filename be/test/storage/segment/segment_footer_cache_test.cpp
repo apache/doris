@@ -226,7 +226,7 @@ TEST_F(SegmentFooterCacheTest, GetSegmentFooterPropagatesIoContext) {
     ASSERT_NE(segment_footer_cache, nullptr);
     segment_footer_cache->erase(segment_ptr->get_segment_footer_cache_key(),
                                 segment_v2::PageTypePB::INDEX_PAGE);
-    segment_ptr->_footer_pb.reset();
+    segment_ptr->_footer_pb.store({});
 
     TUniqueId query_id;
     query_id.hi = 100;
