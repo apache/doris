@@ -274,6 +274,16 @@ class RegressionTest {
             }
         }
 
+        // Docker suites also run concurrently with normal suites. Wait for both
+        // groups before starting suites marked nonConcurrent.
+        for (Future future : dockerFutures) {
+            try {
+                future.get()
+            } catch (Throwable t) {
+                // do nothing, because already save to Recorder
+            }
+        }
+
         if (!config.runNonConcurrent) {
             return
         }
@@ -286,15 +296,6 @@ class RegressionTest {
                 runScript(config, source, recorder, GroupExecType.SINGLE)
             }
             futures.add(future)
-        }
-
-        // wait all scripts
-        for (Future future : dockerFutures) {
-            try {
-                future.get()
-            } catch (Throwable t) {
-                // do nothing, because already save to Recorder
-            }
         }
 
         for (Future future : futures) {
