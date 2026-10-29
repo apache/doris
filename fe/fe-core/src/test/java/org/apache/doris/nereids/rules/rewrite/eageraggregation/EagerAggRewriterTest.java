@@ -22,9 +22,13 @@ import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -40,7 +44,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 
 class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatchSupported {
@@ -69,6 +75,15 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
                         + ")\n"
                         + "DUPLICATE KEY(id3)\n"
                         + "DISTRIBUTED BY HASH(id3) BUCKETS 10\n"
+                        + "PROPERTIES (\"replication_num\" = \"1\")\n",
+                "CREATE TABLE IF NOT EXISTS t4 (\n"
+                        + "    id4 int not null,\n"
+                        + "    flag boolean,\n"
+                        + "    tiny tinyint,\n"
+                        + "    qty bigint\n"
+                        + ")\n"
+                        + "DUPLICATE KEY(id4)\n"
+                        + "DISTRIBUTED BY HASH(id4) BUCKETS 10\n"
                         + "PROPERTIES (\"replication_num\" = \"1\")\n"
         );
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
@@ -109,6 +124,45 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
                     .printlnTree();
         } finally {
             connectContext.getSessionVariable().setEagerAggregationMode(0);
+        }
+    }
+
+    @Test
+    void testDecomposedIfKeepsConditionLiteral() {
+        // sum(if(flag > 0, 1, 0)): the condition's literal 0 is the same expression as the false-branch value.
+        // The eager-aggregation rebuild must substitute the two branch VALUES with the pushed slots and leave the
+        // comparison operand alone. Before the fix the plan read `flag > <pushed bigint slot>`: a BE
+        // "not same type in function gt" on BOOLEAN/TINYINT columns (the only columns whose comparison literal
+        // stays equal to the branch literal after type coercion), and for max/min the constant slot by luck.
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            String sql = "select sum(if(t4.flag > 0, 1, 0)), max(if(t4.tiny = 1, 1, 0)),"
+                    + " sum(if(t4.qty > 1, 1, 0)), t2.id2 from t4 join t2 on t4.id4 = t2.id2 group by t2.id2";
+            PlanChecker checker = PlanChecker.from(connectContext).analyze(sql).rewrite();
+            // the rewrite still fires: the decomposed parts sit below the join
+            checker.matches(logicalAggregate(logicalProject(logicalJoin(logicalAggregate(), any()))));
+            LogicalAggregate<?> top = (LogicalAggregate<?>) checker.getPlan()
+                    .collectFirst(LogicalAggregate.class::isInstance).get();
+            List<If> ifs = new ArrayList<>();
+            for (NamedExpression ne : top.getOutputExpressions()) {
+                for (Object obj : ne.collect(If.class::isInstance)) {
+                    ifs.add((If) obj);
+                }
+            }
+            Assertions.assertEquals(3, ifs.size(), top.treeString());
+            for (If body : ifs) {
+                // both branch values became the pushed slots ...
+                Assertions.assertTrue(body.getTrueValue() instanceof SlotReference, body.toSql());
+                Assertions.assertTrue(body.getFalseValue() instanceof SlotReference, body.toSql());
+                // ... and the condition still compares against its literal, never against a pushed slot
+                ComparisonPredicate cmp = (ComparisonPredicate) body.getCondition();
+                Assertions.assertTrue(cmp.child(1) instanceof Literal, cmp.toSql());
+                Assertions.assertFalse(cmp.child(1).anyMatch(SlotReference.class::isInstance), cmp.toSql());
+            }
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
         }
     }
 
