@@ -524,7 +524,7 @@ TEST_F(AIRequestExecutorTest, ScalarReusesConnectionAcrossBatchesAndBlocksWithNu
     state->_query_options.__set_enable_profile(true);
     handler.set_responses(
             {{HttpStatus::OK,
-              R"({"choices":[{"message":{"content":"[\"summary\"]"}}],"usage":{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5}})"}});
+              R"({"choices":[{"message":{"content":"{\"results\":[\"summary\"]}"}}],"usage":{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5}})"}});
     FunctionAISummarize function;
     for (int block_index = 0; block_index < 5; ++block_index) {
         Block block;
@@ -534,7 +534,8 @@ TEST_F(AIRequestExecutorTest, ScalarReusesConnectionAcrossBatchesAndBlocksWithNu
                               {"first", "ignored", "second"}, {0, 1, 0}),
                       make_nullable(std::make_shared<DataTypeString>()), "input"});
         block.insert({nullptr, make_nullable(std::make_shared<DataTypeString>()), "result"});
-        ASSERT_TRUE(function.execute(context.get(), block, {0, 1}, 2, 3, config, adapter).ok());
+        const auto status = function.execute(context.get(), block, {0, 1}, 2, 3, config, adapter);
+        ASSERT_TRUE(status.ok()) << status.to_string();
         const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
         ASSERT_EQ(result.size(), 3);
         EXPECT_EQ(result.get_null_map_data()[1], 1);
@@ -1220,10 +1221,10 @@ TEST_F(AIRequestExecutorTest, ProfileCountsParseFailuresAcrossScalarAndEmbedEarl
     // Exercise parser errors, empty results, row-count mismatches, and successful parsing.
     const std::vector<std::pair<std::string, std::string>> responses = {
             {"malformed json", "malformed json"},
-            {R"({"choices":[{"message":{"content":"[]"}}]})", R"({"data":[]})"},
-            {R"({"choices":[{"message":{"content":"[\"one\"]"}}]})",
+            {R"({"choices":[{"message":{"content":"{\"results\":[]}"}}]})", R"({"data":[]})"},
+            {R"({"choices":[{"message":{"content":"{\"results\":[\"one\"]}"}}]})",
              R"({"data":[{"embedding":[1.0]}]})"},
-            {R"({"choices":[{"message":{"content":"[\"one\",\"two\"]"}}]})",
+            {R"({"choices":[{"message":{"content":"{\"results\":[\"one\",\"two\"]}"}}]})",
              R"({"data":[{"embedding":[1.0]},{"embedding":[2.0]}]})"}};
     int64_t parse_errors = 0;
     for (size_t i = 0; i < responses.size(); ++i) {
