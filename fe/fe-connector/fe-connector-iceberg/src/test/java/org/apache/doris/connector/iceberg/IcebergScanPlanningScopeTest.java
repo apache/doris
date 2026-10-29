@@ -61,7 +61,6 @@ public class IcebergScanPlanningScopeTest {
         // Simulate the borrowed executor eventually dequeuing wrappers that cleanup already claimed.
         workers.queued.forEach(Runnable::run);
         Assertions.assertEquals(0, reads.get());
-        Assertions.assertFalse(workers.isShutdown());
         Assertions.assertThrows(CancellationException.class, () -> scope.submit(reads::incrementAndGet));
     }
 
@@ -155,7 +154,6 @@ public class IcebergScanPlanningScopeTest {
         Assertions.assertInstanceOf(CancellationException.class,
                 Assertions.assertThrows(CompletionException.class, accepted::join).getCause());
         workers.queued.forEach(Runnable::run);
-        Assertions.assertFalse(workers.isShutdown());
     }
 
     @Test

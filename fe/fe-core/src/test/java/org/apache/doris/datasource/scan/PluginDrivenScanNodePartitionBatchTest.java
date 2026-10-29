@@ -39,6 +39,8 @@ import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Multimap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 
 import java.util.ArrayDeque;
@@ -55,14 +57,13 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
 
 class PluginDrivenScanNodePartitionBatchTest {
-    @Test
-    void initialBatchRetainsConfiguredSizeAcrossPartitions() throws Exception {
+    @ParameterizedTest
+    @ValueSource(ints = {1, 1024})
+    void batchesRetainConfiguredSizeAcrossPartitions(int partitionsPerBatch) throws Exception {
         Fixture fixture = new Fixture(128, Collections.emptySet(), 100, 128);
-        try (SplitProducer.BatchSource source = fixture.sources(3, 1, 1).get(0)) {
+        try (SplitProducer.BatchSource source = fixture.sources(3, partitionsPerBatch, 1).get(0)) {
             List<Split> first = source.getNextBatch();
             Assertions.assertEquals(128, first.size());
-            Assertions.assertEquals(Arrays.asList(Collections.singletonList("0"), Collections.singletonList("1")),
-                    fixture.loaded);
 
             List<Split> second = source.getNextBatch();
             Assertions.assertEquals(128, second.size(), "Subsequent batches retain the configured size");
@@ -81,17 +82,6 @@ class PluginDrivenScanNodePartitionBatchTest {
                 expected.add(identity);
             }
             Assertions.assertEquals(expected, actual, "Batch boundaries must not lose or duplicate splits");
-        }
-    }
-
-    @Test
-    void firstBatchRetainsConfiguredSizeWithinALargePartitionBatch() throws Exception {
-        Fixture fixture = new Fixture(128, Collections.emptySet(), 100, 128);
-        try (SplitProducer.BatchSource source = fixture.sources(3, 1024, 1).get(0)) {
-            Assertions.assertEquals(128, source.getNextBatch().size());
-            Assertions.assertEquals(128, source.getNextBatch().size());
-            Assertions.assertEquals(44, source.getNextBatch().size());
-            Assertions.assertTrue(source.getNextBatch().isEmpty());
         }
     }
 

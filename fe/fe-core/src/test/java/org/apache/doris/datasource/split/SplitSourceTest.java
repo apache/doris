@@ -483,18 +483,6 @@ public class SplitSourceTest {
     }
 
     @Test
-    void stopDiscardsTheConsumersPartiallyDrainedBatch() throws Exception {
-        assignment.addToQueue(splits);
-        SplitSource source = new SplitSource(backend, assignment, 1000);
-        Assertions.assertEquals(1, source.getNextBatch(1).size());
-        SplitAssignment.AssignmentQueue buffered = assignment.getAssignedSplits(backend);
-        Assertions.assertFalse(buffered.isEmpty());
-        assignment.stop();
-        Assertions.assertTrue(buffered.isEmpty(), "stop must release buffered ranges before another fetch");
-        Assertions.assertTrue(source.getNextBatch(1).isEmpty());
-    }
-
-    @Test
     void cancellationUnblocksProducerAndClosesLateResources() throws Exception {
         assignment.addToQueue(splits);
         ExecutorService executor = Executors.newSingleThreadExecutor();

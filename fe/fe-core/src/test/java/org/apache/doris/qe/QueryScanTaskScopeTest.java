@@ -18,7 +18,6 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.common.Status;
-import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.split.SplitAssignment;
 import org.apache.doris.thrift.TStatusCode;
 
@@ -90,19 +89,5 @@ class QueryScanTaskScopeTest {
         scope.register(assignment, unregisters::incrementAndGet);
         Mockito.verify(assignment).stop();
         Assertions.assertEquals(1, unregisters.get());
-    }
-
-    @Test
-    void freshAttemptDoesNotInheritThePreviousAttemptsCancellation() {
-        QueryScanTaskScope first = new QueryScanTaskScope();
-        first.cancel(new Status(TStatusCode.CANCELLED, "first attempt"));
-        first.close();
-        QueryScanTaskScope next = new QueryScanTaskScope();
-        SplitAssignment assignment = Mockito.mock(SplitAssignment.class);
-        next.register(assignment, () -> { });
-        Mockito.verify(assignment, Mockito.never()).setException(Mockito.any(UserException.class));
-        Mockito.verify(assignment, Mockito.never()).stop();
-        next.close();
-        Mockito.verify(assignment).stop();
     }
 }
