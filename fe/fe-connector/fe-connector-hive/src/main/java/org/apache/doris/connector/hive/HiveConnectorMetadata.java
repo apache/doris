@@ -40,6 +40,7 @@ import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScopes;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
+import org.apache.doris.connector.spi.ConnectorTableNotFoundException;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorTableStatistics;
 import org.apache.doris.connector.spi.ConnectorViewDefinition;
@@ -787,6 +788,14 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             String comment = tableInfo.getParameters().get(HMS_TABLE_COMMENT_PARAM);
             return comment == null ? "" : comment;
         } catch (HmsClientException e) {
+            // The engine owns lookup cleanup and still degrades this display failure to an empty comment.
+            Optional<ConnectorTableNotFoundException> missing =
+                    org.apache.commons.lang3.exception.ExceptionUtils.getThrowableList(e).stream()
+                            .filter(ConnectorTableNotFoundException.class::isInstance)
+                            .map(ConnectorTableNotFoundException.class::cast).findFirst();
+            if (missing.isPresent()) {
+                throw missing.get();
+            }
             LOG.debug("Table comment lookup: '{}.{}' not readable: {}", dbName, tableName, e.getMessage());
             return "";
         }

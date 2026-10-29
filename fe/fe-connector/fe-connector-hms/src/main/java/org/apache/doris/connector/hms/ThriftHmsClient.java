@@ -18,6 +18,7 @@
 package org.apache.doris.connector.hms;
 
 import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorTableNotFoundException;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.scan.ConnectorScanContext;
 
@@ -55,6 +56,7 @@ import org.apache.hadoop.hive.metastore.api.SQLDefaultConstraint;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.StringColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.Table;
+import org.apache.hadoop.hive.metastore.api.UnknownTableException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import shade.doris.hive.org.apache.thrift.TApplicationException;
@@ -180,8 +182,12 @@ public class ThriftHmsClient implements HmsClient {
     @Override
     public HmsTableInfo getTable(String dbName, String tableName) {
         return execute(client -> {
-            Table table = client.getTable(dbName, tableName);
-            return convertTable(table);
+            try {
+                return convertTable(client.getTable(dbName, tableName));
+            } catch (NoSuchObjectException | UnknownTableException failure) {
+                // execute preserves the HmsClientException boundary while retaining this typed cause.
+                throw new ConnectorTableNotFoundException(dbName, tableName, failure);
+            }
         });
     }
 

@@ -31,6 +31,7 @@ import org.apache.doris.connector.spi.ConnectorColumnStatistics;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorTableNotFoundException;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorTableStatistics;
 import org.apache.doris.connector.spi.ConnectorViewDefinition;
@@ -66,6 +67,7 @@ import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import com.google.common.collect.Maps;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -119,11 +121,24 @@ public class PluginDrivenExternalTable extends ExternalTable {
      */
     public Optional<ConnectorTableHandle> resolveConnectorTableHandle(
             ConnectorSession session, ConnectorMetadata metadata) {
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        Optional<Runnable> observation = observeConnectorTableLookup(connector);
+        String dbName = db != null ? db.getRemoteName() : "";
+        Optional<ConnectorTableHandle> handle = readConnectorMetadata(observation, session, metadata,
+                () -> metadata.getTableHandle(session, dbName, getRemoteName()));
+        // A view has no table handle. Check live view existence before treating an empty handle as a
+        // dropped table; the cached isView flag can outlive a remote view deletion.
+        if (!handle.isPresent() && !metadata.viewExists(session, dbName, getRemoteName())) {
+            observation.ifPresent(Runnable::run);
+        }
+        return handle;
+    }
+
+    private Optional<Runnable> observeConnectorTableLookup(Connector connector) {
         PluginDrivenExternalCatalog owner = (PluginDrivenExternalCatalog) catalog;
-        Connector connector = owner.getConnector();
         ExternalDatabase<?> database = getDb();
         boolean invalidateDatabase = owner.getLowerCaseTableNames() != 0;
-        Optional<Runnable> observation = database.observeTableLookup(this, () -> {
+        return database.observeTableLookup(this, () -> {
             try {
                 if (invalidateDatabase) {
                     connector.invalidateDb(db.getRemoteName());
@@ -139,14 +154,31 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 }
             }
         });
-        String dbName = db != null ? db.getRemoteName() : "";
-        Optional<ConnectorTableHandle> handle = metadata.getTableHandle(session, dbName, getRemoteName());
-        // A view has no table handle. Check live view existence before treating an empty handle as a
-        // dropped table; the cached isView flag can outlive a remote view deletion.
-        if (!handle.isPresent() && !metadata.viewExists(session, dbName, getRemoteName())) {
-            observation.ifPresent(Runnable::run);
+    }
+
+    /** Keep provider IO outside the existing identity guards, including failures after handle resolution. */
+    private <T> T readConnectorMetadata(Optional<Runnable> observation, ConnectorSession session,
+            ConnectorMetadata metadata, Supplier<T> read) {
+        try {
+            return read.get();
+        } catch (RuntimeException failure) {
+            Optional<ConnectorTableNotFoundException> missing = ExceptionUtils.getThrowableList(failure).stream()
+                    .filter(ConnectorTableNotFoundException.class::isInstance)
+                    .map(ConnectorTableNotFoundException.class::cast).findFirst();
+            if (observation.isPresent() && missing.isPresent()
+                    && db.getRemoteName().equals(missing.get().getDatabaseName())
+                    && getRemoteName().equals(missing.get().getTableName())) {
+                try {
+                    // Iceberg table loads also report absence for live views. That is not a dropped relation.
+                    if (!metadata.viewExists(session, db.getRemoteName(), getRemoteName())) {
+                        observation.get().run();
+                    }
+                } catch (RuntimeException cleanupFailure) {
+                    failure.addSuppressed(cleanupFailure);
+                }
+            }
+            throw failure;
         }
-        return handle;
     }
 
     /**
@@ -686,7 +718,9 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 // from the view definition's columns instead. Mirrors legacy IcebergUtils.loadViewSchemaCacheValue
                 // (icebergView.schema()). Gated on isView() => only view-supporting connectors (SUPPORTS_VIEW) reach
                 // here; view-less connectors (jdbc/paimon/maxcompute) keep isView()==false and skip this.
-                ConnectorViewDefinition viewDefinition = metadata.getViewDefinition(session, dbName, tableName);
+                ConnectorViewDefinition viewDefinition = readConnectorMetadata(
+                        observeConnectorTableLookup(connector), session, metadata,
+                        () -> metadata.getViewDefinition(session, dbName, tableName));
                 ConnectorTableSchema viewSchema = new ConnectorTableSchema(
                         tableName, viewDefinition.getColumns(), null, Collections.emptyMap());
                 return Optional.of(toSchemaCacheValue(metadata, session, dbName, tableName, viewSchema));
@@ -697,7 +731,9 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 return Optional.empty();
             }
 
-            ConnectorTableSchema tableSchema = metadata.getTableSchema(session, handleOpt.get());
+            ConnectorTableSchema tableSchema = readConnectorMetadata(
+                    observeConnectorTableLookup(connector), session, metadata,
+                    () -> metadata.getTableSchema(session, handleOpt.get()));
             return Optional.of(toSchemaCacheValue(metadata, session, dbName, tableName, tableSchema));
         } finally {
             closeSchemaSession(session);
@@ -868,7 +904,9 @@ public class PluginDrivenExternalTable extends ExternalTable {
         ConnectorSession session = pluginCatalog.buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         String dbName = db != null ? db.getRemoteName() : "";
-        ConnectorViewDefinition definition = metadata.getViewDefinition(session, dbName, getRemoteName());
+        ConnectorViewDefinition definition = readConnectorMetadata(
+                observeConnectorTableLookup(connector), session, metadata,
+                () -> metadata.getViewDefinition(session, dbName, getRemoteName()));
         return definition.getSql();
     }
 
@@ -894,7 +932,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (!handleOpt.isPresent()) {
             return Optional.empty();
         }
-        return metadata.renderShowCreateTableDdl(session, handleOpt.get());
+        return readConnectorMetadata(observeConnectorTableLookup(connector), session, metadata,
+                () -> metadata.renderShowCreateTableDdl(session, handleOpt.get()));
     }
 
     @Override
@@ -1329,7 +1368,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
             ConnectorSession session = pluginCatalog.buildConnectorSession();
             ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
             String tableName = getRemoteName();
-            String comment = metadata.getTableComment(session, remoteDbName, tableName);
+            String comment = readConnectorMetadata(observeConnectorTableLookup(connector), session, metadata,
+                    () -> metadata.getTableComment(session, remoteDbName, tableName));
             if (escapeQuota && comment != null) {
                 return comment.replace("'", "\\'");
             }

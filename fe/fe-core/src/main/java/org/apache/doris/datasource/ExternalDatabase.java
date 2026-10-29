@@ -359,8 +359,22 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             return Optional.empty();
         }
         NameCacheValue names = getTableNamesValue(false);
-        if (names == null || !table.getRemoteName().equals(names.remoteNameOfLocalName(table.getName()))) {
+        if (names == null) {
             return Optional.empty();
+        }
+        String currentRemote = names.remoteNameOfLocalName(table.getName());
+        if (currentRemote != null && !table.getRemoteName().equals(currentRemote)) {
+            return Optional.empty();
+        }
+        if (currentRemote == null && (isStoredTableNamesLowerCase() || isTableNamesCaseInsensitive())) {
+            String foldedName = table.getName().toLowerCase(Locale.ROOT);
+            // A refreshed list can omit an old hot object. Permit its cleanup unless a current alias
+            // owns the same logical name; the names/object observations below fence later publication.
+            if (names.remoteNameForCaseInsensitiveLookup(table.getRemoteName()) != null
+                    || names.localNames().stream().anyMatch(
+                            local -> local.toLowerCase(Locale.ROOT).equals(foldedName))) {
+                return Optional.empty();
+            }
         }
         long metadataRefreshGeneration = table.getMetadataRefreshGeneration();
         return extCatalog.observeDatabase(this).flatMap(database ->
@@ -384,7 +398,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                                             // Retire names before fencing object loads: a numeric reader may have
                                             // captured its name already and begun loading through the old snapshot.
                                             if (isStoredTableNamesLowerCase() || isTableNamesCaseInsensitive()) {
-                                                tables.invalidateAllAndRun(tableIdNameIndex::clear);
+                                                tables.invalidateAllAndRun(() ->
+                                                        tableIdNameIndex.removeNamesMatching(table.getName(), true));
                                             } else {
                                                 tables.invalidateKeyAndRun(table.getName(),
                                                         () -> tableIdNameIndex.removeName(table.getName()));
@@ -802,7 +817,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         // Folding or comparing local names without case can hide another retained remote spelling.
         // Fence every object/ID load in this database when refreshing that lookup identity.
         if (isStoredTableNamesLowerCase() || isTableNamesCaseInsensitive()) {
-            invalidateAllTableCache();
+            tableNames.invalidateAll();
+            tables.invalidateAllAndRun(() -> tableIdNameIndex.removeNamesMatching(tableName, true));
             return;
         }
         String localTableName = resolveTableNameForInvalidation(tableName);

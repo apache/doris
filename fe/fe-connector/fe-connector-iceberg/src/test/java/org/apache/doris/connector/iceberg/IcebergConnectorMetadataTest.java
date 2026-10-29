@@ -20,6 +20,7 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorDatabaseMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorTableNotFoundException;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorViewDefinition;
 import org.apache.doris.connector.spi.DorisConnectorException;
@@ -167,6 +168,31 @@ public class IcebergConnectorMetadataTest {
         // null / empty -> handle unchanged (full scan), never an empty scope (which would scan nothing).
         Assertions.assertSame(handle, metadata.applyRewriteFileScope(null, handle, null));
         Assertions.assertSame(handle, metadata.applyRewriteFileScope(null, handle, Collections.emptySet()));
+    }
+
+    @Test
+    public void missingViewDefinitionCarriesTheRequestedIdentity() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.loadViewFailure = new org.apache.iceberg.exceptions.NoSuchViewException("gone");
+        ConnectorTableNotFoundException missing = Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                () -> metadataWith(ops).getViewDefinition(null, "db", "v"));
+        Assertions.assertEquals("db", missing.getDatabaseName());
+        Assertions.assertEquals("v", missing.getTableName());
+    }
+
+    @Test
+    public void commentMissingTableCarriesItsIdentityButMissingFilesDoNot() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.loadTableFailure = new RuntimeException(new NoSuchTableException("gone"));
+        IcebergConnectorMetadata metadata = metadataWith(ops);
+        ConnectorTableNotFoundException missing = Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                () -> metadata.getTableComment(null, "db", "t"));
+        Assertions.assertEquals("db", missing.getDatabaseName());
+        Assertions.assertEquals("t", missing.getTableName());
+        ops.loadTableFailure = new RuntimeException(new java.io.FileNotFoundException("metadata.json"));
+        RuntimeException fileFailure = Assertions.assertThrows(RuntimeException.class,
+                () -> metadata.getTableComment(null, "db", "t"));
+        Assertions.assertFalse(fileFailure instanceof ConnectorTableNotFoundException);
     }
 
     @Test
