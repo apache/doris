@@ -45,6 +45,7 @@ import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
+import org.apache.doris.mtmv.ivm.IvmFailureClassifier;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.mtmv.ivm.IvmIncrRefreshContext;
 import org.apache.doris.mtmv.ivm.IvmIncrRefreshManager;
@@ -64,6 +65,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.persist.EditLog.EditLogItem;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -1392,6 +1394,56 @@ public class MTMVTaskTest {
     }
 
     @Test
+    public void testRowTtlBaseTableMarksSchemaChange() throws AnalysisException {
+        String message = "asynchronous materialized views do not support base tables with row ttl";
+        MTMVStatus status = Mockito.mock(MTMVStatus.class);
+        Mockito.when(status.getState()).thenReturn(MTMVState.NORMAL);
+        Mockito.when(mtmv.getStatus()).thenReturn(status);
+        mtmvUtilStatic.when(() -> MTMVUtil.checkNoRowTtlBaseTable(relation))
+                .thenThrow(new AnalysisException(message));
+        EditLogItem editLogItem = Mockito.mock(EditLogItem.class);
+        Mockito.when(mtmv.invalidateWholeMv(Mockito.anyString())).thenReturn(editLogItem);
+        MTMVTask task = new MTMVTask(mtmv, relation,
+                new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+
+        AnalysisException exception = Assertions.assertThrows(
+                AnalysisException.class, task::checkNoRowTtlBaseTable);
+        Assertions.assertEquals(message, exception.getDetailMessage());
+        InOrder inOrder = Mockito.inOrder(mtmv, editLogItem);
+        inOrder.verify(mtmv).invalidateWholeMv(exception.getMessage());
+        inOrder.verify(editLogItem).await();
+    }
+
+    @Test
+    public void testRowTtlBaseTableAlreadySchemaChangeDoesNotAlterStatus() throws AnalysisException {
+        MTMVStatus status = Mockito.mock(MTMVStatus.class);
+        Mockito.when(status.getState()).thenReturn(MTMVState.SCHEMA_CHANGE);
+        Mockito.when(mtmv.getStatus()).thenReturn(status);
+        AnalysisException expected = new AnalysisException(
+                "asynchronous materialized views do not support base tables with row ttl");
+        mtmvUtilStatic.when(() -> MTMVUtil.checkNoRowTtlBaseTable(relation)).thenThrow(expected);
+
+        MTMVTask task = new MTMVTask(mtmv, relation,
+                new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+
+        AnalysisException exception = Assertions.assertThrows(
+                AnalysisException.class, task::checkNoRowTtlBaseTable);
+        Assertions.assertSame(expected, exception);
+        Mockito.verify(mtmv, Mockito.never()).invalidateWholeMv(Mockito.anyString());
+    }
+
+    @Test
+    public void testNonRowTtlBaseTableDoesNotAlterStatus() throws AnalysisException {
+        MTMVTask task = new MTMVTask(mtmv, relation,
+                new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+
+        task.checkNoRowTtlBaseTable();
+
+        mtmvUtilStatic.verify(() -> MTMVUtil.checkNoRowTtlBaseTable(relation));
+        Mockito.verify(mtmv, Mockito.never()).invalidateWholeMv(Mockito.anyString());
+    }
+
+    @Test
     public void testTaskSchemaContainsComputeGroup() {
         Column computeGroupColumn = MTMVTask.SCHEMA.get(MTMVTask.COLUMN_TO_INDEX.get(COMPUTE_GROUP.toLowerCase()));
         Column fallbackReasonColumn = MTMVTask.SCHEMA.get(MTMVTask.COLUMN_TO_INDEX.get("ivmfallbackreason"));
@@ -1787,7 +1839,7 @@ public class MTMVTaskTest {
         MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, null,
                 RefreshMode.INCREMENTAL, true, null));
 
-        Object result = runIvmAttemptWhoseRebuildReadsAnExpiredOffset(task);
+        Object result = runIvmAttemptWhoseRebuildFails(task, expiredOffsetFailure());
 
         Assertions.assertEquals("FALLBACK_TO_COMPLETE", result.toString());
         Assertions.assertEquals(IvmFailureReason.CHANGELOG_BROKEN.name(),
@@ -1801,7 +1853,7 @@ public class MTMVTaskTest {
                 RefreshMode.INCREMENTAL, false, null));
 
         JobException failure = Assertions.assertThrows(JobException.class,
-                () -> runIvmAttemptWhoseRebuildReadsAnExpiredOffset(task));
+                () -> runIvmAttemptWhoseRebuildFails(task, expiredOffsetFailure()));
 
         Assertions.assertTrue(failure.getMessage().contains("reason=" + IvmFailureReason.CHANGELOG_BROKEN));
         Assertions.assertTrue(failure.getMessage().contains(ChangelogUtils.CHANGELOG_OFFSET_EXPIRED));
@@ -1810,10 +1862,32 @@ public class MTMVTaskTest {
     }
 
     /**
-     * Runs the incremental attempt with p1 needing a rebuild and p2 caught up, the rebuild's read refused the way
-     * planning refuses a MIN_DELTA read from an expired offset. The delta must not be reached.
+     * Only a rebuild failure whose one repair is COMPLETE becomes a fallback. A missing MV partition is not one: the
+     * sync-and-retry that answers it exists on the delta's path only, so it still fails the attempt, even for a
+     * request that may fall back.
      */
-    private Object runIvmAttemptWhoseRebuildReadsAnExpiredOffset(MTMVTask task) throws Exception {
+    @Test
+    public void testRebuildFailureCompleteDoesNotRepairStillFailsTheAttempt() {
+        MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, null,
+                RefreshMode.INCREMENTAL, true, null));
+
+        JobException failure = Assertions.assertThrows(JobException.class, () -> runIvmAttemptWhoseRebuildFails(
+                task, new RuntimeException(IvmFailureClassifier.MV_PARTITION_NOT_FOUND_MSG)));
+
+        Assertions.assertTrue(failure.getMessage().contains(IvmFailureClassifier.MV_PARTITION_NOT_FOUND_MSG));
+        Assertions.assertNull(Deencapsulation.getField(task, "ivmFallbackReason"));
+    }
+
+    // The failure planning raises for a MIN_DELTA read from an expired offset.
+    private static RuntimeException expiredOffsetFailure() {
+        return Assertions.assertThrows(RuntimeException.class, () -> ChangelogUtils.effectiveStartTso(99L, 100L, true));
+    }
+
+    /**
+     * Runs the incremental attempt with p1 needing a rebuild and p2 caught up, the rebuild's read failing with
+     * {@code failure}. The delta must not be reached.
+     */
+    private Object runIvmAttemptWhoseRebuildFails(MTMVTask task, RuntimeException failure) throws Exception {
         Mockito.when(mtmv.isIvm()).thenReturn(true);
         Mockito.when(mtmv.getName()).thenReturn("test_mv");
         Mockito.when(mtmv.hasRefreshSnapshot()).thenReturn(true);
@@ -1828,8 +1902,6 @@ public class MTMVTaskTest {
         mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.generatePartitionSnapshots(
                 Mockito.same(refreshContext), Mockito.anySet(), Mockito.anySet()))
                 .thenReturn(Collections.emptyMap());
-        RuntimeException expired = Assertions.assertThrows(RuntimeException.class,
-                () -> ChangelogUtils.effectiveStartTso(99L, 100L, true));
 
         ConnectContext mtmvCtx = new ConnectContext();
         mtmvCtx.setQueryId(new TUniqueId(1L, 2L));
@@ -1847,7 +1919,7 @@ public class MTMVTaskTest {
                     .thenReturn(command);
             mtmvPlanUtilStatic.when(() -> MTMVPlanUtil.executeCommand(
                     Mockito.eq(mtmvCtx), Mockito.eq(command), Mockito.any(StatementContext.class),
-                    Mockito.anyString(), Mockito.any(Consumer.class))).thenThrow(expired);
+                    Mockito.anyString(), Mockito.any(Consumer.class))).thenThrow(failure);
 
             Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
             try {

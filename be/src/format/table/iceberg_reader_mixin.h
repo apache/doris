@@ -362,7 +362,12 @@ protected:
     struct NestedEqualityDeleteColumn {
         int32_t field_id = -1;
         std::string block_name;
+        // The type the key is compared in (equality_delete_key_type).
         DataTypePtr leaf_type;
+        // The type of the leaf in the column it is extracted from, widened to leaf_type afterwards.
+        // A file written before a type promotion holds the old type: payload.existing promoted from
+        // INT to BIGINT is still INT in the delete files and data files written before.
+        DataTypePtr source_leaf_type;
         std::vector<size_t> child_indexes;
         ColumnPtr missing_value;
         // Block column holding the key's root struct. Empty when the key's own column reads the
@@ -677,12 +682,15 @@ Status IcebergReaderMixin<BaseReader>::_build_parquet_equality_delete_read_specs
             return Status::NotSupported(
                     "Iceberg equality delete does not support complex column {}", leaf->name);
         }
+        const auto delete_key_type = make_nullable(leaf->data_type);
         read_specs->push_back({
                 .nested_field =
                         {
                                 .field_id = field_id,
                                 .block_name = leaf->name,
-                                .leaf_type = make_nullable(leaf->data_type),
+                                .leaf_type = equality_delete_key_type(_find_schema_field(field_id),
+                                                                      delete_key_type),
+                                .source_leaf_type = delete_key_type,
                                 .child_indexes = std::move(child_indexes),
                                 .missing_value = nullptr,
                         },
@@ -724,12 +732,15 @@ Status IcebergReaderMixin<BaseReader>::_build_orc_equality_delete_read_specs(
             return Status::NotSupported(
                     "Iceberg equality delete does not support complex column {}", names.back());
         }
+        const auto delete_key_type = make_nullable(reader->convert_to_doris_type(leaf));
         read_specs->push_back({
                 .nested_field =
                         {
                                 .field_id = field_id,
                                 .block_name = names.back(),
-                                .leaf_type = make_nullable(reader->convert_to_doris_type(leaf)),
+                                .leaf_type = equality_delete_key_type(_find_schema_field(field_id),
+                                                                      delete_key_type),
+                                .source_leaf_type = delete_key_type,
                                 .child_indexes = std::move(child_indexes),
                                 .missing_value = nullptr,
                         },
@@ -1109,8 +1120,9 @@ Status IcebergReaderMixin<BaseReader>::_extract_nested_equality_delete_column(
         }
     }
 
-    auto result = ColumnNullable::create(remove_nullable(nested_field.leaf_type)->create_column(),
-                                         ColumnUInt8::create());
+    DORIS_CHECK(nested_field.source_leaf_type != nullptr);
+    auto result = ColumnNullable::create(
+            remove_nullable(nested_field.source_leaf_type)->create_column(), ColumnUInt8::create());
     auto& result_data = result->get_nested_column();
     auto& result_null_map = result->get_null_map_data();
     result_data.reserve(root_column->size());
@@ -1131,8 +1143,9 @@ Status IcebergReaderMixin<BaseReader>::_extract_nested_equality_delete_column(
             result_null_map.push_back(0);
         }
     }
-    *leaf_column = std::move(result);
-    return Status::OK();
+    return widen_equality_delete_key(std::move(result),
+                                     make_nullable(nested_field.source_leaf_type),
+                                     make_nullable(nested_field.leaf_type), leaf_column);
 }
 
 template <typename BaseReader>
@@ -1232,6 +1245,7 @@ Status IcebergReaderMixin<BaseReader>::_create_missing_equality_delete_value(
             .field_id = field_id,
             .block_name = "",
             .leaf_type = delete_key_type,
+            .source_leaf_type = delete_key_type,
             .child_indexes = std::vector<size_t>(table_path.size() - missing_index - 1, 0),
             .missing_value = nullptr,
     };

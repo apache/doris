@@ -298,7 +298,7 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
             database.addTableForTest(replacement);
             schemas().put(new SchemaCacheKey(replacement.getOrBuildNameMapping()), replacement.initSchema().get());
         } else {
-            new RefreshManager().handleRefreshTable(catalog.getName(), "db", "a", false);
+            new RefreshManager().handleRefreshTable(catalog.getName(), "db", "a");
             replacement = database.getTableNullable("a");
         }
         List<Column> newSchema = replacement.getFullSchema();
@@ -464,7 +464,7 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
         try {
             Assertions.assertTrue(captured.await(10, TimeUnit.SECONDS));
             remoteTables.put("a", "new_column");
-            new RefreshManager().handleRefreshTable(catalog.getName(), "db", "a", false);
+            new RefreshManager().handleRefreshTable(catalog.getName(), "db", "a");
             Assertions.assertNull(original.getName(old.getId()));
             proceed.countDown();
             PluginDrivenExternalTable replacement = lookup.get(10, TimeUnit.SECONDS);
@@ -493,7 +493,7 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
         remoteCache.put("FOO", "second");
         remoteTables.remove("FOO");
         remoteTables.put("Foo", "third");
-        new RefreshManager().handleRefreshTable(catalog.getName(), "db", "foo", false);
+        new RefreshManager().handleRefreshTable(catalog.getName(), "db", "foo");
         Assertions.assertTrue(remoteCache.isEmpty());
         PluginDrivenExternalTable replacement = database.getTableNullable("foo");
         Assertions.assertEquals("Foo", replacement.getRemoteName());

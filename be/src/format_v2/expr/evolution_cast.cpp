@@ -99,8 +99,10 @@ Status EvolutionCast::execute_column_impl(VExprContext* context, const Block* bl
 }
 
 void EvolutionCast::configure_cast_options(CastOptions& options) const {
-    if (remove_nullable(_children[0]->data_type())->get_primitive_type() == TYPE_DATEV2 &&
-        remove_nullable(_data_type)->get_primitive_type() == TYPE_TIMESTAMP_NS) {
+    if (_strict) {
+        options.strict_mode = true;
+    } else if (remove_nullable(_children[0]->data_type())->get_primitive_type() == TYPE_DATEV2 &&
+               remove_nullable(_data_type)->get_primitive_type() == TYPE_TIMESTAMP_NS) {
         // Iceberg DATE promotion must fail outside the nanosecond range, even in non-strict SQL
         // sessions. Otherwise a localized IS NOT NULL filter can silently discard retained rows.
         options.strict_mode = true;

@@ -2039,7 +2039,7 @@ void BaseTablet::calc_compaction_output_rowset_delete_bitmap(
                                       << " src loaction: |" << src.rowset_id << "|"
                                       << src.segment_id << "|" << src.row_id
                                       << " version: " << cur_version;
-                        if (missed_rows) {
+                        if (missed_rows && !rowid_conversion.is_visibility_filtered(src)) {
                             missed_rows->insert(src);
                         }
                         continue;
