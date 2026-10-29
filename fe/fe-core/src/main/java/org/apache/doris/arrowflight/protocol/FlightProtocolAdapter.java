@@ -195,7 +195,7 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
 
     /**
      * The short circuit produces no Arrow result at either end. PointQueryExecutor is not a
-     * Coordinator, and Coordinator/NereidsCoordinator are the only places that register a
+     * Coordinator, and Coordinator is the only place that register a
      * FlightSqlEndpointsLocation, so GetFlightInfo found none and failed the query with
      * "no FlightSqlEndpointsLocations"; the backend side cannot be pointed at either, since the
      * lookup rpc serializes with VMysqlResultWriter into PTabletKeyLookupResponse.row_batch and

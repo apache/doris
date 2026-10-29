@@ -60,7 +60,7 @@ public class LoadProcessor extends AbstractJobProcessor {
         this.backendFragmentTasks = Optional.empty();
 
         // only we set is report success, then the backend would report the fragment status,
-        // then we can not the fragment is finished, and we can return in the NereidsCoordinator::join
+        // then we can not the fragment is finished, and we can return in the Coordinator::join
         coordinatorContext.queryOptions.setIsReportSuccess(true);
         // the insert into statement isn't a job
         this.jobId = jobId;

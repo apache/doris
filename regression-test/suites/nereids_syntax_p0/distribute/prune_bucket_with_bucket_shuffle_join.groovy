@@ -72,17 +72,13 @@ suite("prune_bucket_with_bucket_shuffle_join") {
             ON a.c0 = b.c0
             """
 
-    extractFragment(sqlStr, "RIGHT OUTER JOIN(PARTITIONED)") { exchangeNum ->
-        assertTrue(exchangeNum > 1)
-    }
-
     multi_sql """
         set enable_nereids_distribute_planner=true;
         set enable_pipeline_x_engine=true;
         set disable_join_reorder=true;
         """
 
-    // With enable_nereids_distribute_planner=true the RIGHT OUTER JOIN distribution is
+    // The RIGHT OUTER JOIN distribution is
     // non-deterministic between BUCKET_SHUFFLE and PARTITIONED. The choice is sticky within
     // a connection (so retrying in the same connection can not change it), and both plans are
     // correct -- BUCKET_SHUFFLE just saves one exchange. Only run the bucket-shuffle-specific
