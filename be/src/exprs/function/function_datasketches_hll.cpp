@@ -97,13 +97,13 @@ public:
         // `10 + crc32('') % 2`, may not be evaluated in open either, then it is read from the
         // first row in execute.
         if (context->is_col_constant(1)) {
-            RETURN_IF_ERROR(parse_lg_k(*context->get_constant_col(1)->column_ptr, state->lg_k));
+            RETURN_IF_ERROR(parse_lg_k(context->get_constant_col(1)->column(), state->lg_k));
         }
         if (context->get_num_args() == 2) {
             state->tgt_type = datasketches::HLL_4;
         } else if (context->is_col_constant(2)) {
             RETURN_IF_ERROR(
-                    parse_tgt_type(*context->get_constant_col(2)->column_ptr, state->tgt_type));
+                    parse_tgt_type(context->get_constant_col(2)->column(), state->tgt_type));
         }
         context->set_function_state(scope, state);
         return Status::OK();
