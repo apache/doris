@@ -235,6 +235,10 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
         ImmutableList.Builder<NamedExpression> projectBuilder
                 = ImmutableList.builderWithExpectedSize(oldOutputExprs.size());
         boolean containsConstantOutput = false;
+        // the columns the child still produces: when the materialized constant has another nullability than the
+        // aggregate output, keeping the exprId would leave two definitions of the same exprId in the plan
+        Set<ExprId> childOutputExprIds = aggregate.child().getOutput().stream()
+                .map(Slot::getExprId).collect(Collectors.toSet());
 
         // after normal agg, group by expressions and output expressions are slots,
         // after this rule, they may rewrite to literal, since literal are not slot,
@@ -250,13 +254,22 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
             }
 
             if (replacedExpr.isConstant() && !replacedExpr.equals(expr)) {
-                // The constant is materialized above the aggregate, but it keeps the exprId of the aggregate
-                // output instead of getting a fresh one and refreshing the plan above: when the aggregate still
-                // outputs that column, the value is the same constant, and when it removed the column, this
-                // project item is the only definition of the exprId. Renaming the exprId would break the
-                // consumers which rely on the identity of the column, e.g. the materialized view matching, and
-                // would make the plan above be rewritten for nothing.
-                projectBuilder.add(new Alias(expr.getExprId(), replacedExpr, expr.getName()));
+                // The constant is materialized above the aggregate. It keeps the exprId of the aggregate output
+                // when the nullability of the column does not change, or when the child does not produce the
+                // column any more (then this project item is the only definition of the exprId): the consumers
+                // which rely on the identity of the column, e.g. the materialized view matching, keep working.
+                // When the child still produces the column and the constant has another nullability, the exprId
+                // has to be renamed and the references above have to be refreshed: otherwise the plan keeps two
+                // definitions of the same exprId with different nullability, and AdjustNullable widens the
+                // column on the way down.
+                ExprId outputExprId = expr.getExprId();
+                if (childOutputExprIds.contains(outputExprId) && replacedExpr.nullable() != expr.nullable()) {
+                    ExprId freshExprId = replacedExprIds.computeIfAbsent(outputExprId,
+                            id -> StatementScopeIdGenerator.newExprId());
+                    projectBuilder.add(new Alias(freshExprId, replacedExpr, expr.getName()));
+                } else {
+                    projectBuilder.add(new Alias(outputExprId, replacedExpr, expr.getName()));
+                }
                 containsConstantOutput = true;
             } else {
                 Preconditions.checkArgument(newOutputExpr instanceof NamedExpression, newOutputExpr);
@@ -424,16 +437,19 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
         // Alias always yields an Alias again, so only its expression may change
         Expression newExpr = replaceConstants(expr, false, context, equalSet, constants);
         if (!(newExpr instanceof Alias) || newExpr.equals(expr)
-                || !childOutputExprIds.contains(expr.getExprId())) {
-            // unchanged, or the child does not produce the column any more, then this project item is the only
-            // definition of the exprId and it is kept
+                || !childOutputExprIds.contains(expr.getExprId())
+                || newExpr.nullable() == expr.nullable()) {
+            // unchanged; or the child does not produce the column any more, then this project item is the only
+            // definition of the exprId; or the nullability of the column does not change, then the exprId is kept
             return (NamedExpression) newExpr;
         }
-        // the child still produces this column, so the project item would shadow it: materialize the constant with
-        // a fresh exprId and refresh the references above, see replacedExprIds
+        // the child still produces this column and the materialized constant has another nullability than the
+        // column: keeping the exprId would leave two definitions of the same exprId with different nullability in
+        // the plan, so materialize the constant with a fresh exprId and refresh the references above, see
+        // replacedExprIds
         Alias replacedAlias = (Alias) newExpr;
-        ExprId freshExprId = StatementScopeIdGenerator.newExprId();
-        replacedExprIds.put(expr.getExprId(), freshExprId);
+        ExprId freshExprId = replacedExprIds.computeIfAbsent(expr.getExprId(),
+                id -> StatementScopeIdGenerator.newExprId());
         return new Alias(freshExprId, replacedAlias.child(0), replacedAlias.getName());
     }
 
