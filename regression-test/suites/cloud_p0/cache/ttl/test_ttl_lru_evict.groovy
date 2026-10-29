@@ -232,11 +232,35 @@ suite("test_ttl_lru_evict") {
 
     long ttl_cache_evict_size_begin = getMetricValues("ttl_cache_evict_size")[0]
     long ttl_cache_size_begin = getMetricValues("ttl_cache_size")[0]
-    long cache_capacity = getMetricValues("file_cache_capacity").sum()
+    def path_capacities = getMetricValues("file_cache_capacity")
+    // The capacity is reset for all cache paths at once, so it can only be restored when they
+    // have the same capacity.
+    assertEquals(1, path_capacities.unique(false).size(),
+            "cache paths have different capacities: ${path_capacities}")
+    long path_capacity = path_capacities[0]
+    long cache_capacity = path_capacity
+
+    // Sets the capacity of every cache path of the BE.
+    def resetCapacity = { long capacity ->
+        def (code, out, err) = curl("GET", ("http://" + backendIdToBackendIP.get(backendId) + ":" +
+                backendIdToBackendHttpPort.get(backendId) +
+                "/api/file_cache?op=reset&capacity=${capacity}").toString())
+        assertEquals(0, code)
+        assertEquals([capacity] * path_capacities.size(), getMetricValues("file_cache_capacity"))
+        cache_capacity = capacity
+        logger.info("file cache capacity of each path reset to ${capacity}")
+    }
+    onFinish {
+        if (cache_capacity != path_capacity) {
+            resetCapacity(path_capacity)
+        }
+    }
 
     // first, we test whether ttl evict actively.
-    // Load to this dup table until the TTL queue overflows. A fixed number of loads only
-    // overflows it on a small enough cache, so keep loading, bounded by the cache capacity.
+    // Load to this dup table until the TTL queue overflows. TTL blocks are evicted only when the
+    // whole cache is full, and filling a large cache can take longer than the TTL. Once the TTL
+    // expires, the blocks become NORMAL and are no longer evicted as TTL. So the cache is shrunk
+    // to a few loads after the first one.
     long evicted = 0
     long loads = 0
     long max_loads = 10
@@ -244,10 +268,16 @@ suite("test_ttl_lru_evict") {
         load_customer_once("customer_ttl")
         loads++
         if (loads == 1) {
+            // ttl_cache_size is refreshed by the cache monitor, so wait for a refresh that
+            // includes the whole load.
+            sleep(get_be_param("file_cache_background_monitor_interval_ms").toLong() + 1000)
             long bytes_per_load = getMetricValues("ttl_cache_size")[0] - ttl_cache_size_begin
             assertTrue(bytes_per_load > 0, "the first load did not add any TTL cache")
-            // The TTL queue is part of the capacity, so this many loads overflow it for sure.
-            max_loads = Math.max(max_loads, cache_capacity.intdiv(bytes_per_load) + 2)
+            if (bytes_per_load * 4 < path_capacity) {
+                resetCapacity(bytes_per_load * 4)
+            }
+            // This many loads overflow the cache for sure.
+            max_loads = Math.max(max_loads, cache_capacity.intdiv(bytes_per_load) + 3)
             logger.info("cache capacity: ${cache_capacity}, TTL bytes per load: ${bytes_per_load}, " +
                     "max loads: ${max_loads}")
         }
@@ -312,6 +342,11 @@ suite("test_ttl_lru_evict") {
     // doing with TTL cache
     logger.info("skip cache diff:" + (skip_cache_count_end - skip_cache_count_begin).toString())
     assertTrue((skip_cache_count_end - skip_cache_count_begin) < 1000000)
+
+    // The rest of the case does not need a full cache.
+    if (cache_capacity != path_capacity) {
+        resetCapacity(path_capacity)
+    }
 
     // finally, we test whether LRU queue clean itself up when all ttl
     // cache evict after expiration
