@@ -116,6 +116,11 @@ struct RowsetWriterContext {
     // coexist in a single pass. V2/V3 keep columns_to_do_index_compaction:
     // their per-column CLucene directories cannot split an index off a column.
     std::set<std::pair<int32_t, int64_t>> snii_indexes_to_do_compaction;
+
+    bool has_index_compaction() const {
+        return !columns_to_do_index_compaction.empty() || !snii_indexes_to_do_compaction.empty();
+    }
+
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
     // need to figure out the sub type of compaction
     ReaderType compaction_type = ReaderType::UNKNOWN;
