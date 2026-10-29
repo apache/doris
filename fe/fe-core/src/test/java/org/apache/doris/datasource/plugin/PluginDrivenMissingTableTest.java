@@ -255,7 +255,7 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
         Future<String> result = worker.submit(() -> old.getComment());
         Assertions.assertTrue(missingStarted.await(10, TimeUnit.SECONDS));
         remoteTables.put("a", "replacement_column");
-        new RefreshManager().handleRefreshTable(catalog.getName(), "db", "a", false);
+        new RefreshManager().handleRefreshTable(catalog.getName(), "db", "a");
         PluginDrivenExternalTable replacement = database.getTableNullable("a");
         List<Column> schema = replacement.getFullSchema();
         remoteCache.put("a", "replacement");
@@ -306,7 +306,7 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
         catalog.lowerCaseMode = 2;
         PluginDrivenExternalTable old = warmTarget();
         PluginDrivenExternalTable sibling = database.getTableNullable("b");
-        new RefreshManager().handleRefreshTable(catalog.getName(), "db", "a", false);
+        new RefreshManager().handleRefreshTable(catalog.getName(), "db", "a");
         Assertions.assertNotNull(database.getTableNullable(sibling.getId()));
         Assertions.assertNotSame(old, database.getTableNullable("a"));
     }
@@ -425,7 +425,7 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
         Future<?> failure = worker.submit(() -> Assertions.assertThrows(
                 ConnectorTableNotFoundException.class, old::loadLatestSnapshotFence));
         Assertions.assertTrue(missingStarted.await(10, TimeUnit.SECONDS));
-        new RefreshManager().handleRefreshTable(catalog.getName(), "db", "a", false);
+        new RefreshManager().handleRefreshTable(catalog.getName(), "db", "a");
         PluginDrivenExternalTable replacement = database.getTableNullable("a");
         remoteCache.put("a", "replacement");
         releaseMissing.countDown();
