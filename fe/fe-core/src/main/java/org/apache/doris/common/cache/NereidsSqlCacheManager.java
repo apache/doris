@@ -461,14 +461,15 @@ public class NereidsSqlCacheManager {
                 long currentTableVersion = 0L;
                 try {
                     currentTableVersion = olapTable.getVisibleVersion();
+                    if (tableVersion.olapVersion != null && tableVersion.olapVersion.isUsable()) {
+                        if (!tableVersion.olapVersion.matches(olapTable, currentTableVersion)) {
+                            return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
+                        }
+                    } else if (currentTableVersion != tableVersion.version) {
+                        return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
+                    }
                 } catch (RpcException e) {
                     LOG.warn("table {}, in cloud getVisibleVersion exception", olapTable.getName(), e);
-                    return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
-                }
-                long cacheTableVersion = tableVersion.version;
-                // some partitions have been dropped, or delete or updated or replaced,
-                // or insert rows into new partition?
-                if (currentTableVersion != cacheTableVersion) {
                     return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
                 }
                 if (tableIf instanceof MTMV) {
