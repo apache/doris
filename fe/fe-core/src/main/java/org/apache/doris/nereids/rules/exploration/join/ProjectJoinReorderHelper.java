@@ -59,7 +59,7 @@ final class ProjectJoinReorderHelper {
             if (join.isMarkJoin() || projectBothJoinSides(project)) {
                 return Optional.empty();
             }
-            return Optional.of(pushDownLeftSemiProject(project, join));
+            return pushDownLeftSemiProject(project, join);
         }
         if (joinType.isInnerJoin() || joinType.isOuterJoin()
                 || joinType.isAsofInnerJoin() || joinType.isAsofOuterJoin()) {
@@ -76,8 +76,11 @@ final class ProjectJoinReorderHelper {
         return containLeft && containRight;
     }
 
-    private static LogicalProject<LogicalJoin<Plan, Plan>> pushDownLeftSemiProject(
+    private static Optional<LogicalProject<LogicalJoin<Plan, Plan>>> pushDownLeftSemiProject(
             LogicalProject<?> project, LogicalJoin<Plan, Plan> join) {
+        if (refersToNoInputProjectItem(project.getProjects(), join)) {
+            return Optional.empty();
+        }
         Set<Slot> conditionLeftSlots = CBOUtils.joinChildConditionSlots(join, true);
         List<NamedExpression> newProjects = new ArrayList<>(project.getProjects());
         Set<Slot> projectUsedSlots = project.getProjects().stream()
@@ -89,7 +92,18 @@ final class ProjectJoinReorderHelper {
 
         Plan newLeft = new LogicalProject<>(newProjects, join.left());
         LogicalJoin<Plan, Plan> newJoin = join.withChildren(ImmutableList.of(newLeft, join.right()));
-        return new LogicalProject<>(ImmutableList.copyOf(project.getOutput()), newJoin);
+        return Optional.of(new LogicalProject<>(ImmutableList.copyOf(project.getOutput()), newJoin));
+    }
+
+    /**
+     * Whether the join condition refers to a project item which reads no input, e.g. the constant materialized by
+     * constant propagation, now() or 1 + 1. Such an item must not be moved below the join while the condition
+     * refers to it: the condition keeps pointing to it from the other side, so both children of the join would
+     * output the same exprId, see CBOUtils#collectNoInputProjectItemIds.
+     */
+    private static boolean refersToNoInputProjectItem(List<NamedExpression> projectItems,
+            LogicalJoin<Plan, Plan> join) {
+        return CBOUtils.joinConditionRefersTo(join, CBOUtils.collectNoInputProjectItemIds(projectItems));
     }
 
     private static Optional<LogicalProject<LogicalJoin<Plan, Plan>>> pushDownInnerOuterProject(
@@ -103,6 +117,9 @@ final class ProjectJoinReorderHelper {
                     && !rightOutputExprIds.containsAll(inputExprIds);
         });
         if (containsHyperEdge) {
+            return Optional.empty();
+        }
+        if (refersToNoInputProjectItem(project.getProjects(), join)) {
             return Optional.empty();
         }
 
