@@ -107,6 +107,38 @@ public class AIResourceTest {
     }
 
     @Test
+    public void testEnableStructuredOutput() throws Exception {
+        AIResource resource = new AIResource(name);
+        resource.setProperties(ImmutableMap.copyOf(aiProperties));
+        Assertions.assertTrue(resource.toThrift().isEnableStructuredOutput());
+        JsonObject legacyJson = JsonParser.parseString(GsonUtils.GSON.toJson(resource)).getAsJsonObject();
+        legacyJson.getAsJsonObject("properties").remove(AIProperties.ENABLE_STRUCTURED_OUTPUT);
+        AIResource legacy = GsonUtils.GSON.fromJson(legacyJson, AIResource.class);
+        Assertions.assertTrue(legacy.toThrift().isEnableStructuredOutput());
+        resource.modifyProperties(ImmutableMap.of(AIProperties.ENABLE_STRUCTURED_OUTPUT, "false"));
+        Assertions.assertFalse(resource.toThrift().isEnableStructuredOutput());
+
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        resource.write(new DataOutputStream(bytes));
+        AIResource restored = (AIResource) Resource.read(
+                new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
+        Assertions.assertFalse(restored.toThrift().isEnableStructuredOutput());
+        resource.modifyProperties(ImmutableMap.of(AIProperties.ENABLE_STRUCTURED_OUTPUT, "true"));
+        Assertions.assertTrue(resource.toThrift().isEnableStructuredOutput());
+        Assertions.assertThrows(DdlException.class,
+                () -> resource.modifyProperties(ImmutableMap.of(AIProperties.ENABLE_STRUCTURED_OUTPUT, "invalid")));
+        Assertions.assertTrue(resource.toThrift().isEnableStructuredOutput());
+
+        aiProperties.put(AIProperties.ENABLE_STRUCTURED_OUTPUT, "invalid");
+        Assertions.assertThrows(DdlException.class,
+                () -> new AIResource(name).setProperties(ImmutableMap.copyOf(aiProperties)));
+        aiProperties.put(AIProperties.ENABLE_STRUCTURED_OUTPUT, "false");
+        AIResource disabled = new AIResource(name);
+        disabled.setProperties(ImmutableMap.copyOf(aiProperties));
+        Assertions.assertFalse(disabled.toThrift().isEnableStructuredOutput());
+    }
+
+    @Test
     public void testFromCommand(@Mocked Env env, @Injectable AccessControllerManager accessManager)
             throws UserException {
         new Expectations() {
@@ -142,7 +174,7 @@ public class AIResourceTest {
         Assert.assertEquals(AIProperties.DEFAULT_TEMPERATURE, aiResource.getProperty(AIProperties.TEMPERATURE));
         Assert.assertEquals(AIProperties.DEFAULT_MAX_TOKEN, aiResource.getProperty(AIProperties.MAX_TOKEN));
         Assert.assertEquals(AIProperties.DEFAULT_MAX_RETRIES, aiResource.getProperty(AIProperties.MAX_RETRIES));
-        Assert.assertEquals(AIProperties.DEFAULT_RETRY_DELAY_SECOND, aiResource.getProperty(AIProperties.RETRY_DELAY_SECOND));
+        Assert.assertEquals("1", aiResource.getProperty(AIProperties.RETRY_DELAY_SECOND));
 
         // with no default settings
         aiProperties.put(AIProperties.TEMPERATURE, temperature);
@@ -165,6 +197,38 @@ public class AIResourceTest {
         Assert.assertEquals(maxToken, aiResource.getProperty(AIProperties.MAX_TOKEN));
         Assert.assertEquals(maxRetries, aiResource.getProperty(AIProperties.MAX_RETRIES));
         Assert.assertEquals(retryDelaySecond, aiResource.getProperty(AIProperties.RETRY_DELAY_SECOND));
+    }
+
+    @Test
+    public void testRetryDelayDefault() throws DdlException {
+        AIResource aiResource = new AIResource(name);
+        aiResource.setProperties(ImmutableMap.copyOf(aiProperties));
+
+        Assertions.assertEquals("1", aiResource.getProperty(AIProperties.RETRY_DELAY_SECOND));
+        Assertions.assertEquals(1, aiResource.toThrift().getRetryDelaySecond());
+    }
+
+    @Test
+    public void testExplicitZeroRetryDelay() throws DdlException {
+        aiProperties.put(AIProperties.RETRY_DELAY_SECOND, "0");
+        AIResource aiResource = new AIResource(name);
+        aiResource.setProperties(ImmutableMap.copyOf(aiProperties));
+
+        Assertions.assertEquals("0", aiResource.getProperty(AIProperties.RETRY_DELAY_SECOND));
+        Assertions.assertEquals(0, aiResource.toThrift().getRetryDelaySecond());
+    }
+
+    @Test
+    public void testExplicitRetryDelay() throws DdlException {
+        aiProperties.put(AIProperties.RETRY_DELAY_SECOND, retryDelaySecond);
+        aiProperties.put(AIProperties.MAX_RETRIES, maxRetries);
+        AIResource aiResource = new AIResource(name);
+        aiResource.setProperties(ImmutableMap.copyOf(aiProperties));
+
+        Assertions.assertEquals("2", aiResource.getProperty(AIProperties.RETRY_DELAY_SECOND));
+        Assertions.assertEquals(2, aiResource.toThrift().getRetryDelaySecond());
+        Assertions.assertEquals("5", aiResource.getProperty(AIProperties.MAX_RETRIES));
+        Assertions.assertEquals(5, aiResource.toThrift().getMaxRetries());
     }
 
     @Test

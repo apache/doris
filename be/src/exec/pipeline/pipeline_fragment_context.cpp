@@ -121,6 +121,7 @@
 #include "exec/runtime_filter/runtime_filter_mgr.h"
 #include "exec/sort/topn_sorter.h"
 #include "exec/spill/spill_file.h"
+#include "exprs/function/ai/ai_request_executor.h"
 #include "io/fs/stream_load_pipe.h"
 #include "load/stream_load/new_load_stream_mgr.h"
 #include "runtime/exec_env.h"
@@ -2372,6 +2373,11 @@ PipelineFragmentContext::collect_realtime_profile() const {
     // Make sure first profile is fragment level profile
     auto fragment_profile = std::make_shared<TRuntimeProfileTree>();
     _fragment_level_profile->to_thrift(fragment_profile.get(), _runtime_state->profile_level());
+    if (auto statistics = _query_ctx->find_ai_statistics(_fragment_id)) {
+        // Copy into the fragment snapshot exactly once. Tasks never register the shared
+        // profile as a child, and the snapshot retains no pointers into QueryContext.
+        statistics->update_profile_snapshot(*fragment_profile, _runtime_state->profile_level());
+    }
     res.push_back(fragment_profile);
 
     // pipeline_id_to_profile is initialized in prepare stage

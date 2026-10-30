@@ -260,6 +260,11 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
 
     if (_fn.name.function_name == "ai_agg") {
         _function->set_query_context(state->get_query_ctx());
+        // Keep the shared request executor when profiling is off, without collecting usage.
+        _function->set_ai_statistics(
+                state->enable_profile()
+                        ? state->get_query_ctx()->get_ai_statistics(state->fragment_id())
+                        : nullptr);
     }
 
     // Foreachv2, like foreachv1, does not check the return type,

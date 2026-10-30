@@ -108,6 +108,10 @@ public:
 
     size_t align_of_data() const override { return _function->align_of_data(); }
 
+    void set_ai_statistics(std::shared_ptr<AIExecutionStatistics> statistics) override {
+        _function->set_ai_statistics(std::move(statistics));
+    }
+
 protected:
     AggregateFunctionPtr _function;
     DataTypePtr _return_type;

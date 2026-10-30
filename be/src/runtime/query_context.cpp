@@ -38,6 +38,7 @@
 #include "exec/pipeline/pipeline_fragment_context.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exec/spill/spill_file_manager.h"
+#include "exprs/function/ai/ai_request_executor.h"
 #include "io/cache/remote_scan_cache_write_limiter.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -417,6 +418,21 @@ std::string QueryContext::print_all_pipeline_context() {
     return fmt::to_string(debug_string_buffer);
 }
 
+std::shared_ptr<AIExecutionStatistics> QueryContext::get_ai_statistics(int fragment_id) {
+    std::scoped_lock lock(_ai_statistics_mutex);
+    auto& statistics = _ai_statistics[fragment_id];
+    if (!statistics) {
+        statistics = std::make_shared<AIExecutionStatistics>();
+    }
+    return statistics;
+}
+
+std::shared_ptr<AIExecutionStatistics> QueryContext::find_ai_statistics(int fragment_id) const {
+    std::scoped_lock lock(_ai_statistics_mutex);
+    auto it = _ai_statistics.find(fragment_id);
+    return it == _ai_statistics.end() ? nullptr : it->second;
+}
+
 void QueryContext::set_pipeline_context(const int fragment_id,
                                         std::shared_ptr<PipelineFragmentContext> pip_ctx) {
     std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
@@ -478,6 +494,13 @@ void QueryContext::_report_query_profile() {
     std::lock_guard<std::mutex> lg(_profile_mutex);
 
     for (auto& [fragment_id, fragment_profile] : _profile_map) {
+        // Recursive CTE stages reuse fragment IDs, but the saved profile is the first stage's
+        // detached snapshot. Refresh only AI counters from their owner, which accumulates all stages.
+        if (auto statistics = find_ai_statistics(fragment_id)) {
+            const int profile_level =
+                    _query_options.__isset.profile_level ? _query_options.profile_level : 2;
+            statistics->update_profile_snapshot(*fragment_profile.front(), profile_level);
+        }
         std::shared_ptr<TRuntimeProfileTree> load_channel_profile = nullptr;
 
         if (_load_channel_profile_map.contains(fragment_id)) {
