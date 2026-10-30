@@ -308,6 +308,9 @@ public final class MetricRepo {
     public static AutoMappedMetric<LongCounterMetric> COUNTER_AGENT_TASK_TOTAL;
     public static AutoMappedMetric<LongCounterMetric> COUNTER_AGENT_TASK_RESEND_TOTAL;
 
+    // Paimon writes
+    public static AutoMappedMetric<LongCounterMetric> COUNTER_PAIMON_WRITE_EVENTS;
+
     private static Map<Pair<EtlJobType, JobState>, Long> loadJobNum = Maps.newHashMap();
 
     private static final ScheduledThreadPoolExecutor metricTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
@@ -528,6 +531,18 @@ public final class MetricRepo {
         GAUGE_MAX_TABLET_COMPACTION_SCORE = new GaugeMetricImpl<>("max_tablet_compaction_score", MetricUnit.NOUNIT,
                 "max tablet compaction score of all backends", 0L);
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_MAX_TABLET_COMPACTION_SCORE);
+
+        COUNTER_PAIMON_WRITE_EVENTS = new AutoMappedMetric<>(event -> {
+            LongCounterMetric metric = new LongCounterMetric("paimon_write_events_total", MetricUnit.OPERATIONS,
+                    "Paimon write transaction and cleanup events");
+            metric.addLabel(new MetricLabel("event", event));
+            DORIS_METRIC_REGISTER.addMetrics(metric);
+            return metric;
+        });
+        for (String event : new String[] {"committed", "aborted", "outcome_unknown", "commit_retry",
+                "cleanup_failure", "late_report"}) {
+            COUNTER_PAIMON_WRITE_EVENTS.getOrAdd(event);
+        }
 
         // query
         COUNTER_REQUEST_ALL = new LongCounterMetric("request_total", MetricUnit.REQUESTS, "total request");

@@ -37,10 +37,10 @@ namespace doris {
 /// Paimon writes are synchronous: sink_impl() returns only after the SDK has
 /// consumed the input Block. The LocalState is therefore always blockable so
 /// that open, write, and close run on the pipeline blocking scheduler.
-/// Doris-owned Arrow buffers remain under the query MemTracker, while Paimon
-/// pages are allocated lazily under DorisMemorySegmentPool's fixed cap. The
-/// sink uses the generic pipeline minimum reservation only as an admission
-/// guard; it does not try to predict Paimon's future page demand.
+/// Doris-owned Arrow buffers remain under the query MemTracker. JNI pages use
+/// DorisMemorySegmentPool; Rust uses a fixed query credit and an SDK budget
+/// that covers only part of its allocations. The sink is nonspillable, and its
+/// generic pipeline minimum reservation remains an admission guard.
 ///
 /// The upstream sink Exchange may reproduce Paimon's stateless HASH_FIXED
 /// selector to establish unique writer ownership. The writer still passes

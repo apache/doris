@@ -25,6 +25,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.profile.ProfileManager;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.datasource.paimon.PaimonTransaction;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -285,17 +286,26 @@ public final class QeProcessorImpl implements QeProcessor {
             // Currently, the execution of query is splited from the exec status process.
             // So, it is very likely that when exec status arrived on FE asynchronously, coordinator
             // has been removed from coordinatorMap.
+            abortLatePaimonMessages(params);
             return result;
         }
         try {
             info.getCoord().updateFragmentExecStatus(params);
         } catch (Exception e) {
+            // Rollback may remove the transaction after we looked up the coordinator.
+            abortLatePaimonMessages(params);
             LOG.warn("Exception during handle report, response: {}, query: {}, instance: {}", result.toString(),
                     DebugUtil.printId(params.query_id), DebugUtil.printId(params.fragment_instance_id), e);
             return result;
         }
         result.setStatus(new TStatus(TStatusCode.OK));
         return result;
+    }
+
+    private void abortLatePaimonMessages(TReportExecStatusParams params) {
+        if (params.isSetPaimonCommitMessages()) {
+            PaimonTransaction.abortLateCommitMessages(params.getQueryId(), params.getPaimonCommitMessages());
+        }
     }
 
     @Override

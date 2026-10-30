@@ -22,12 +22,15 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
+import org.apache.doris.datasource.paimon.PaimonRustWriteSupport;
 import org.apache.doris.datasource.paimon.PaimonTransaction;
 import org.apache.doris.datasource.paimon.PaimonWriteBinding;
 import org.apache.doris.datasource.paimon.PaimonWriteTarget;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.PaimonInsertCommandContext;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.DataSinksConstants;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
@@ -47,7 +50,7 @@ import java.util.Set;
 /**
  * Paimon table sink.
  *
- * Generates TPaimonTableSink payload consumed by BE, including serialized table
+ * Generates TPaimonTableSink payload consumed by BE, including pinned table
  * metadata, Hadoop authentication config, transaction identity, write mode,
  * and sink column names.
  *
@@ -95,6 +98,12 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
             return strBuilder.toString();
         }
         strBuilder.append(prefix).append("  table: ").append(targetTable.getName()).append("\n");
+        if (tDataSink != null) {
+            TPaimonTableSink sink = tDataSink.getPaimonTableSink();
+            strBuilder.append(prefix).append("  writer: ").append(sink.getBackendType()).append("\n");
+            strBuilder.append(prefix).append("  writer selection: ").append(sink.getBackendSelectionReason())
+                    .append("\n");
+        }
         return strBuilder.toString();
     }
 
@@ -126,11 +135,24 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
         // Arrow conversion and the Java writer schema.
         List<String> outputColumnNames = outputColumnNames();
 
-        // FE owns table metadata resolution. BE and the JNI writer consume this
-        // exact table instance instead of loading catalog metadata independently.
-        tSink.setSerializedTable(binding.getSerializedTable());
-
-        tSink.setBackendType(TPaimonWriteBackendType.JNI);
+        String reason;
+        if (!ConnectContext.get().getSessionVariable().isEnablePaimonRustWriter()) {
+            reason = "rust_writer_disabled";
+        } else if (isChangelogWrite()) {
+            reason = "changelog_write";
+        } else if (ctx.isOverwrite()) {
+            reason = "overwrite_write";
+        } else {
+            reason = PaimonRustWriteSupport.unsupportedReason(binding.getTable(), outputColumnNames,
+                    binding.getStorageOptions()).orElse("supported_append");
+        }
+        boolean useRust = reason.equals("supported_append");
+        tSink.setBackendType(useRust ? TPaimonWriteBackendType.FFI : TPaimonWriteBackendType.JNI);
+        tSink.setBackendSelectionReason(reason);
+        tSink.setTableDesc(binding.getTableDescriptor(useRust));
+        // Old JNI BEs assert on a missing/empty field 1. An invalid marker reaches their
+        // ordinary deserialization error path; updated BEs ignore it and require table_desc.
+        tSink.setSerializedTable(DataSinksConstants.PAIMON_LEGACY_BE_REJECTION_MARKER);
         if (isChangelogWrite()) {
             tSink.setWriteMode(TPaimonWriteMode.CHANGELOG);
         } else if (ctx.isOverwrite()) {

@@ -830,6 +830,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String FORCE_JNI_SCANNER = "force_jni_scanner";
 
     public static final String ENABLE_PAIMON_RUST_READER = "enable_paimon_rust_reader";
+    public static final String ENABLE_PAIMON_RUST_WRITER = "enable_paimon_rust_writer";
 
     public static final String ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE = "enable_count_push_down_for_external_table";
 
@@ -3192,6 +3193,11 @@ public class SessionVariable implements Serializable, Writable {
             description = {"Paimon 非原生文件读取使用 paimon-rust,优先级高于 paimon-cpp",
                     "Use paimon-rust for non-native Paimon reads, higher priority than paimon-cpp"})
     private boolean enablePaimonRustReader = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_PAIMON_RUST_WRITER, needForward = true,
+            description = {"对受支持的追加表使用 Paimon Rust 写入",
+                    "Use the Rust writer for supported Paimon append tables"})
+    private boolean enablePaimonRustWriter = false;
 
     @VariableMgr.VarAttr(name = ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE,
             fuzzy = true,
@@ -6710,6 +6716,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnablePaimonRustReader() {
         return enablePaimonRustReader;
+    }
+
+    public boolean isEnablePaimonRustWriter() {
+        return enablePaimonRustWriter;
+    }
+
+    public void setEnablePaimonRustWriter(boolean enable) {
+        enablePaimonRustWriter = enable;
     }
 
     public String getIgnoreSplitType() {

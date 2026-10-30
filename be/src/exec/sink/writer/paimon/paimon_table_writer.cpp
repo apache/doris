@@ -45,6 +45,19 @@ Status PaimonTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _prepare_commit_timer = ADD_TIMER(profile, "PrepareCommitTime");
     _commit_payload_count = ADD_COUNTER(profile, "CommitPayloadCount", TUnit::UNIT);
     _commit_payload_bytes_counter = ADD_COUNTER(profile, "CommitPayloadBytes", TUnit::BYTES);
+    _abort_timer = ADD_TIMER(profile, "AbortTime");
+    _abort_attempts = ADD_COUNTER(profile, "AbortAttempts", TUnit::UNIT);
+    _abort_failures = ADD_COUNTER(profile, "AbortFailures", TUnit::UNIT);
+    _profile = profile;
+    const auto& sink = _t_sink.paimon_table_sink;
+    profile->add_info_string("PaimonWriteBackend", sink.backend_type == TPaimonWriteBackendType::FFI
+                                                           ? "Rust FFI"
+                                                           : "Java JNI");
+    profile->add_info_string("PaimonWriterSelectionReason", sink.__isset.backend_selection_reason
+                                                                    ? sink.backend_selection_reason
+                                                                    : "legacy_fe");
+    profile->add_info_string("PaimonTableMetadata",
+                             sink.__isset.table_desc ? "Thrift table descriptor" : "missing");
 
     SCOPED_TIMER(_open_timer);
 
@@ -116,15 +129,17 @@ Status PaimonTableWriter::close(Status status) {
     if (!status.ok()) {
         LOG(WARNING) << "Paimon writer closing with error: " << status.to_string();
         if (_writer) {
+            SCOPED_TIMER(_abort_timer);
+            COUNTER_UPDATE(_abort_attempts, 1);
             Status abort_st = _writer->abort();
             if (!abort_st.ok()) {
+                COUNTER_UPDATE(_abort_failures, 1);
                 LOG(WARNING) << "Paimon writer abort failed: " << abort_st.to_string();
             }
         }
     }
 
-    // The adapter only owns Arrow conversion resources. Release it before closing
-    // the backend, whose Java close is the authoritative SDK shutdown boundary.
+    // Release the adapter before stopping the runtime backend it shares.
     _writer.reset();
 
     if (_backend) {
@@ -139,7 +154,7 @@ Status PaimonTableWriter::close(Status status) {
     }
 
     // Only a fully prepared and cleanly stopped writer may contribute payloads
-    // to the FE transaction. A Java close failure therefore aborts the Doris
+    // to the FE transaction. An SDK close failure therefore aborts the Doris
     // transaction instead of allowing it to commit potentially unsafe output.
     if (status.ok()) {
         COUNTER_UPDATE(_commit_payload_count, static_cast<int64_t>(messages.size()));
@@ -154,6 +169,7 @@ Status PaimonTableWriter::close(Status status) {
         }
     }
 
+    _profile->add_info_string("PaimonWriterResult", status.ok() ? "PREPARED" : "FAILED");
     _backend.reset();
     return status;
 }

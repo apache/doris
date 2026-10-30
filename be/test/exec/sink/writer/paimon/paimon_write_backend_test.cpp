@@ -33,7 +33,7 @@ TEST(PaimonWriteBackendFactoryTest, SelectBackendType) {
 
 TEST(JniPaimonWriteBackendTest, OpenAbiAndWriteModes) {
     EXPECT_STREQ(
-            "(Ljava/lang/String;Ljava/util/Map;[Ljava/lang/String;JLjava/lang/String;ZZLjava/lang/"
+            "([BLjava/util/Map;[Ljava/lang/String;JLjava/lang/String;ZZLjava/lang/"
             "String;JJJ)V",
             PAIMON_JNI_WRITER_OPEN_SIGNATURE);
 

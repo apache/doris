@@ -1822,6 +1822,12 @@ DEFINE_mInt64(iceberg_sink_max_file_size, "1073741824"); // 1GB
 DEFINE_mInt64(paimon_jni_writer_memory_pool_limit_bytes, "536870912"); // 512MB
 DEFINE_Validator(paimon_jni_writer_memory_pool_limit_bytes,
                  [](int64_t bytes) -> bool { return bytes > 0; });
+DEFINE_mInt64(paimon_rust_writer_memory_limit_bytes, "67108864"); // 64MB
+DEFINE_Validator(paimon_rust_writer_memory_limit_bytes,
+                 [](int64_t bytes) -> bool { return bytes > 0; });
+DEFINE_mInt32(paimon_rust_writer_max_concurrency, "8");
+DEFINE_Validator(paimon_rust_writer_max_concurrency,
+                 [](int32_t writers) -> bool { return writers > 0; });
 
 DEFINE_mInt32(thrift_client_open_num_tries, "1");
 
