@@ -77,6 +77,12 @@ void* realloc(void* p, size_t size) __THROW ALIAS(doris_realloc);
 void* calloc(size_t n, size_t size) __THROW ALIAS(doris_calloc);
 void cfree(void* ptr) __THROW ALIAS(doris_cfree);
 void* memalign(size_t align, size_t size) __THROW ALIAS(doris_memalign);
+#ifdef __GLIBC__
+// Before glibc 2.25, dlopened modules allocate dynamic TLS with __libc_memalign
+// and release it through free. Route both to jemalloc so thread exit does not
+// pass a glibc allocation to doris_free.
+void* __libc_memalign(size_t align, size_t size) __THROW ALIAS(doris_memalign);
+#endif
 void* aligned_alloc(size_t align, size_t size) __THROW ALIAS(doris_aligned_alloc);
 void* valloc(size_t size) __THROW ALIAS(doris_valloc);
 void* pvalloc(size_t size) __THROW ALIAS(doris_pvalloc);
