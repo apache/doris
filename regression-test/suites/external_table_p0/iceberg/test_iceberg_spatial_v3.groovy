@@ -1478,6 +1478,22 @@ public class CreateIcebergSpatialV3Table {
     sql """refresh table spatial_dml_values"""
     order_qt_spatial_merge_typed_nulls """select id, geom is null, geog is null,
         ST_AsText(geom), ST_AsText(geog) from spatial_dml_values where id in (501,502,503)"""
+    // Retagging a NULL branch must preserve errors in its original explicit cast chain.
+    for (String column : ["geom", "geog"]) {
+        for (String sourceType : ["ARRAY<INT>", "GEOMETRY", "GEOGRAPHY"]) {
+            test {
+                sql """merge into spatial_dml_values t using (select 501 id) s on t.id = s.id
+                    when matched then update set ${column} = cast(cast(null as ${sourceType}) as int)"""
+                exception "can not cast from origin type ${sourceType}"
+            }
+            test {
+                sql """merge into spatial_dml_values t using (select 504 id) s on t.id = s.id
+                    when not matched then insert (id, ${column})
+                        values (s.id, cast(cast(null as ${sourceType}) as int))"""
+                exception "can not cast from origin type ${sourceType}"
+            }
+        }
+    }
 
     // MERGE must retag nested NULL leaves before its eager target casts without changing container values.
     sql """drop table if exists spatial_merge_nested_nulls"""

@@ -60,6 +60,9 @@ import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.qe.AutoCloseConnectContext;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -148,6 +151,87 @@ public class ConnectorSpatialWriteNormalizerTest {
                 LogicalPlan project = new LogicalProject<>(ImmutableList.of(
                         new Alias(source.getOutput().get(0), "renamed")), source);
                 assertNullProjection(target, project, new CTEContext());
+            }
+        }
+    }
+
+    @Test
+    public void testPreBindingPreservesValidNullCastChains() {
+        DataType integers = org.apache.doris.nereids.types.ArrayType.of(IntegerType.INSTANCE);
+        DataType bigints = org.apache.doris.nereids.types.ArrayType.of(BigIntType.INSTANCE);
+        try (AutoCloseConnectContext context = new AutoCloseConnectContext(new ConnectContext())) {
+            for (boolean strictCast : ImmutableList.of(false, true)) {
+                context.connectContext.getSessionVariable().enableStrictCast = strictCast;
+                for (Type target : ImmutableList.of(ScalarType.createGeometryType("OGC:CRS84"),
+                        ScalarType.createGeographyType("OGC:CRS84", "spherical"))) {
+                    DataType targetType = DataType.fromCatalogType(target);
+                    for (Expression value : ImmutableList.of(NullLiteral.INSTANCE,
+                            new NullLiteral(IntegerType.INSTANCE), new NullLiteral(integers),
+                            new Cast(NullLiteral.INSTANCE, IntegerType.INSTANCE),
+                            new Cast(new Cast(NullLiteral.INSTANCE, IntegerType.INSTANCE), BigIntType.INSTANCE),
+                            new Cast(new Cast(NullLiteral.INSTANCE, integers), bigints),
+                            new Cast(new Cast(NullLiteral.INSTANCE, targetType), targetType),
+                            new Cast(NullLiteral.INSTANCE,
+                                    DataType.fromCatalogType(ScalarType.createGeometryType("EPSG:3857"))),
+                            new Cast(NullLiteral.INSTANCE, DataType.fromCatalogType(
+                                    ScalarType.createGeographyType("OGC:CRS84", "vincenty"))))) {
+                        Expression result = ConnectorSpatialWriteNormalizer.normalizeSpatialNullsBeforeBinding(
+                                value, targetType);
+                        Assertions.assertTrue(result.isNullLiteral());
+                        Assertions.assertEquals(targetType, result.getDataType());
+                    }
+                    DataType mapType = DataType.fromCatalogType(new MapType(Type.STRING, target));
+                    Expression ordinaryKey = new SlotReference("key", StringType.INSTANCE);
+                    Expression spatialValue = new SlotReference("value", targetType);
+                    Expression dynamicMap = new CreateMap(ordinaryKey, spatialValue);
+                    Assertions.assertSame(dynamicMap,
+                            ConnectorSpatialWriteNormalizer.normalizeSpatialNullsBeforeBinding(dynamicMap, mapType));
+                    Cast ordinaryCast = new Cast(new StringLiteral("999"), TinyIntType.INSTANCE, true, true);
+                    Expression nullMap = new CreateMap(ordinaryCast,
+                            new Cast(NullLiteral.INSTANCE, IntegerType.INSTANCE));
+                    Expression result = ConnectorSpatialWriteNormalizer.normalizeSpatialNullsBeforeBinding(
+                            nullMap, mapType);
+                    Assertions.assertSame(ordinaryCast, result.child(0));
+                    Assertions.assertTrue(((Cast) result.child(0)).isExplicitType());
+                    Assertions.assertTrue(((Cast) result.child(0)).isStrict());
+                    Assertions.assertTrue(result.child(1).isNullLiteral());
+                    Assertions.assertEquals(targetType, result.child(1).getDataType());
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testPreBindingRejectsInvalidNullCastChains() {
+        List<DataType> sourceTypes = ImmutableList.of(
+                org.apache.doris.nereids.types.ArrayType.of(IntegerType.INSTANCE),
+                DataType.fromCatalogType(new MapType(Type.STRING, Type.INT)),
+                DataType.fromCatalogType(new StructType(new StructField("n", Type.INT))),
+                DataType.fromCatalogType(ScalarType.createGeometryType("OGC:CRS84")),
+                DataType.fromCatalogType(ScalarType.createGeographyType("OGC:CRS84", "spherical")));
+        try (AutoCloseConnectContext context = new AutoCloseConnectContext(new ConnectContext())) {
+            for (boolean strictCast : ImmutableList.of(false, true)) {
+                context.connectContext.getSessionVariable().enableStrictCast = strictCast;
+                for (Type spatial : ImmutableList.of(ScalarType.createGeometryType("OGC:CRS84"),
+                        ScalarType.createGeographyType("OGC:CRS84", "spherical"))) {
+                    List<Type> targets = ImmutableList.of(spatial, new ArrayType(spatial),
+                            new MapType(Type.STRING, spatial), new StructType(new StructField("shape", spatial)));
+                    for (DataType sourceType : sourceTypes) {
+                        Expression invalid = new Cast(new Cast(NullLiteral.INSTANCE, sourceType), IntegerType.INSTANCE);
+                        List<Expression> values = ImmutableList.of(invalid, new Array(invalid),
+                                new CreateMap(new StringLiteral("ordinary-key"), invalid),
+                                new CreateNamedStruct(new StringLiteral("shape"), invalid));
+                        for (int i = 0; i < values.size(); i++) {
+                            Expression value = values.get(i);
+                            DataType target = DataType.fromCatalogType(targets.get(i));
+                            AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                                    () -> ConnectorSpatialWriteNormalizer.normalizeSpatialNullsBeforeBinding(
+                                            value, target));
+                            Assertions.assertEquals("can not cast from origin type " + sourceType
+                                    + " to target type=INT", error.getMessage());
+                        }
+                    }
+                }
             }
         }
     }

@@ -54,6 +54,7 @@ import org.apache.doris.nereids.types.GeographyType;
 import org.apache.doris.nereids.types.GeometryType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -232,6 +233,7 @@ public final class ConnectorSpatialWriteNormalizer {
             origin = origin.child(0);
         }
         if (origin.isNullLiteral()) {
+            validateNullCastChain(input);
             return new NullLiteral(target);
         }
         // Bound container constructors can already be literals. Retain their non-NULL
@@ -300,6 +302,15 @@ public final class ConnectorSpatialWriteNormalizer {
             return input;
         }
         return rebuildConstructor(input, children);
+    }
+
+    private static void validateNullCastChain(Expression input) {
+        if (input instanceof Cast) {
+            Cast cast = (Cast) input;
+            validateNullCastChain(cast.child());
+            // NULL provenance must not erase an unsupported cast such as GEOGRAPHY -> INT.
+            TypeCoercionUtils.checkCanCastTo(cast.child().getDataType(), cast.getDataType());
+        }
     }
 
     private static Expression rebuildConstructor(Expression input, List<Expression> children) {
