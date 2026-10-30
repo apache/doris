@@ -101,6 +101,18 @@ public class CreateTableInfoToConnectorRequestConverterTest {
     }
 
     @Test
+    public void externalPropertiesOverrideOrdinaryProperties() {
+        CreateTableInfo info = stubInfo("events", Collections.emptyList(), null, null,
+                "", ImmutableMap.of("owner", "ordinary", "retained", "value"), false);
+        Mockito.when(info.getExtProperties()).thenReturn(ImmutableMap.of("owner", "external", "extra", "value"));
+
+        ConnectorCreateTableRequest request = CreateTableInfoToConnectorRequestConverter.convert(info, "db");
+
+        Assertions.assertEquals(ImmutableMap.of("owner", "external", "retained", "value", "extra", "value"),
+                request.getProperties());
+    }
+
+    @Test
     public void nestedFieldSpellingIsPreservedForConnectorSchemas() {
         StructType payloadType = new StructType(ImmutableList.of(
                 new StructField("CaseSensitive", IntegerType.INSTANCE, true, "")));

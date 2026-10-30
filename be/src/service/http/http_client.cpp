@@ -358,7 +358,7 @@ void HttpClient::reset() {
 }
 
 Status HttpClient::init(const std::string& url, bool set_fail_on_error,
-                        AuthTokenMode auth_token_mode) {
+                        AuthTokenMode auth_token_mode, bool escape_url) {
     reset();
     if (_curl == nullptr) {
         _curl = curl_easy_init();
@@ -419,14 +419,7 @@ Status HttpClient::init(const std::string& url, bool set_fail_on_error,
         return Status::InternalError("fail to set CURLOPT_WRITEDATA");
     }
 
-    std::string escaped_url;
-    RETURN_IF_ERROR(_escape_url(url, &escaped_url));
-    // set url
-    code = curl_easy_setopt(_curl, CURLOPT_URL, escaped_url.c_str());
-    if (code != CURLE_OK) {
-        LOG(WARNING) << "failed to set CURLOPT_URL, errmsg=" << _to_errmsg(code);
-        return Status::InternalError("fail to set CURLOPT_URL");
-    }
+    RETURN_IF_ERROR(_set_url(url, escape_url));
 
     if (auth_token_mode == AuthTokenMode::CLUSTER) {
 #ifndef BE_TEST
@@ -442,6 +435,19 @@ Status HttpClient::set_ca_cert_file(const std::string& path) {
         return Status::InternalError("failed to set CA certificate file: {}", _to_errmsg(code));
     }
     TEST_SYNC_POINT_CALLBACK("HttpClient::set_ca_cert_file", &path);
+    return Status::OK();
+}
+
+Status HttpClient::_set_url(const std::string& url, bool escape_url) {
+    std::string effective_url = url;
+    if (escape_url) {
+        RETURN_IF_ERROR(_escape_url(url, &effective_url));
+    }
+    auto code = curl_easy_setopt(_curl, CURLOPT_URL, effective_url.c_str());
+    if (code != CURLE_OK) {
+        LOG(WARNING) << "failed to set CURLOPT_URL, errmsg=" << _to_errmsg(code);
+        return Status::InternalError("fail to set CURLOPT_URL");
+    }
     return Status::OK();
 }
 

@@ -93,6 +93,7 @@ import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TAIResource;
 import org.apache.doris.thrift.TBrokerScanRange;
+import org.apache.doris.thrift.TConnectorFileCommitData;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TDescriptorTable;
 import org.apache.doris.thrift.TErrorTabletInfo;
@@ -262,6 +263,8 @@ public class Coordinator implements CoordInterface {
 
     private final List<TTabletCommitInfo> commitInfos = Lists.newArrayList();
     private final List<TErrorTabletInfo> errorTabletInfos = Lists.newArrayList();
+    private final Map<String, TConnectorFileCommitData> connectorFileCommitDatas =
+            Maps.newLinkedHashMap();
 
     // Input parameter
     private long jobId = -1; // job which this task belongs to
@@ -485,6 +488,15 @@ public class Coordinator implements CoordInterface {
 
     public List<TTabletCommitInfo> getCommitInfos() {
         return commitInfos;
+    }
+
+    public List<TConnectorFileCommitData> getConnectorFileCommitDatas() {
+        lock.lock();
+        try {
+            return new ArrayList<>(connectorFileCommitDatas.values());
+        } finally {
+            lock.unlock();
+        }
     }
 
     public List<TErrorTabletInfo> getErrorTabletInfos() {
@@ -1239,6 +1251,18 @@ public class Coordinator implements CoordInterface {
             Map<Pair<Long, Long>, TTabletCommitInfo> commitInfoMap = Maps.newHashMap();
             commitInfos.forEach(info -> commitInfoMap.put(Pair.of(info.getBackendId(), info.getTabletId()), info));
             this.commitInfos.addAll(commitInfoMap.values());
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private void updateConnectorFileCommitDatas(
+            List<TConnectorFileCommitData> connectorFileCommitDatas) {
+        lock.lock();
+        try {
+            for (TConnectorFileCommitData commitData : connectorFileCommitDatas) {
+                this.connectorFileCommitDatas.put(commitData.getFilePath(), commitData);
+            }
         } finally {
             lock.unlock();
         }
@@ -2850,6 +2874,9 @@ public class Coordinator implements CoordInterface {
             if (params.isSetErrorTabletInfos()) {
                 updateErrorTabletInfos(params.getErrorTabletInfos());
             }
+            if (params.isSetConnectorFileCommitDatas()) {
+                updateConnectorFileCommitDatas(params.getConnectorFileCommitDatas());
+            }
             if (CommitDataSerializer.hasCommitData(params)) {
                 Transaction txn = Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(reportTxnId);
                 CommitDataSerializer.feed(txn, params);
@@ -2859,7 +2886,6 @@ public class Coordinator implements CoordInterface {
         } finally {
             ctx.finishPipelineStatus(accepted);
         }
-
         if (accepted) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Query {} fragment {} is marked done",

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.datasource.connector.converter.ConnectorWriteValueConverter;
 import org.apache.doris.nereids.rules.analysis.BindSink;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -40,6 +41,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 
 /**
@@ -58,6 +60,9 @@ import java.util.Set;
  */
 public class PluginDrivenInsertCommandContext extends BaseExternalTableInsertCommandContext {
 
+    private Optional<ConnectorTableHandle> overwriteBaseHandle = Optional.empty();
+    private boolean reportRemovedRows;
+    private OptionalLong affectedRowCount = OptionalLong.empty();
     private Map<String, String> staticPartitionSpec = Collections.emptyMap();
     private Set<String> staticPartitionNullKeys = Collections.emptySet();
     private Map<String, Literal> staticPartitionLiterals = Collections.emptyMap();
@@ -70,6 +75,30 @@ public class PluginDrivenInsertCommandContext extends BaseExternalTableInsertCom
     // writer schema.
     private Optional<List<Column>> normalizedWriteSchema = Optional.empty();
     private Optional<String> normalizedWriteMetadataIdentity = Optional.empty();
+
+    public Optional<ConnectorTableHandle> getOverwriteBaseHandle() {
+        return overwriteBaseHandle;
+    }
+
+    public void setOverwriteBaseHandle(ConnectorTableHandle overwriteBaseHandle) {
+        this.overwriteBaseHandle = Optional.of(overwriteBaseHandle);
+    }
+
+    public boolean isReportRemovedRows() {
+        return reportRemovedRows;
+    }
+
+    public void setReportRemovedRows(boolean reportRemovedRows) {
+        this.reportRemovedRows = reportRemovedRows;
+    }
+
+    public OptionalLong getAffectedRowCount() {
+        return affectedRowCount;
+    }
+
+    public void setAffectedRowCount(long affectedRowCount) {
+        this.affectedRowCount = OptionalLong.of(affectedRowCount);
+    }
 
     public Map<String, String> getStaticPartitionSpec() {
         return staticPartitionSpec;

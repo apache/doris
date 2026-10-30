@@ -17,6 +17,8 @@
 
 #include "exec/sink/writer/vhive_table_writer.h"
 
+#include <algorithm>
+
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/block/materialize_block.h"
@@ -81,6 +83,22 @@ Status VHiveTableWriter::open(RuntimeState* state, RuntimeProfile* operator_prof
         }
         }
     }
+    if (_t_sink.hive_table_sink.__isset.connector_file_sink &&
+        _t_sink.hive_table_sink.connector_file_sink &&
+        _t_sink.hive_table_sink.__isset.connector_partition_columns) {
+        _partition_columns_input_index.clear();
+        for (const auto& partition_column : _t_sink.hive_table_sink.connector_partition_columns) {
+            auto column = std::find_if(_t_sink.hive_table_sink.columns.begin(),
+                                       _t_sink.hive_table_sink.columns.end(),
+                                       [&](const THiveColumn& candidate) {
+                                           return candidate.name == partition_column;
+                                       });
+            DORIS_CHECK(column != _t_sink.hive_table_sink.columns.end());
+            DORIS_CHECK(column->column_type == THiveColumnType::PARTITION_KEY);
+            _partition_columns_input_index.emplace_back(static_cast<int>(
+                    std::distance(_t_sink.hive_table_sink.columns.begin(), column)));
+        }
+    }
     return Status::OK();
 }
 
@@ -118,7 +136,7 @@ Status VHiveTableWriter::write(RuntimeState* state, Block& block) {
                     int file_name_index = writer_iter->second->file_name_index();
                     {
                         SCOPED_RAW_TIMER(&_close_ns);
-                        static_cast<void>(writer_iter->second->close(Status::OK()));
+                        RETURN_IF_ERROR(writer_iter->second->close(Status::OK()));
                     }
                     _partitions_to_writers.erase(writer_iter);
                     try {
@@ -150,7 +168,9 @@ Status VHiveTableWriter::write(RuntimeState* state, Block& block) {
                 return e.to_status();
             }
             std::string partition_name = VHiveUtils::make_partition_name(
-                    hive_table_sink.columns, _partition_columns_input_index, partition_values);
+                    hive_table_sink.columns, _partition_columns_input_index, partition_values,
+                    !(_t_sink.hive_table_sink.__isset.connector_file_sink &&
+                      _t_sink.hive_table_sink.connector_file_sink));
 
             auto create_and_open_writer =
                     [&](const std::string& partition_name, int position,
@@ -194,7 +214,7 @@ Status VHiveTableWriter::write(RuntimeState* state, Block& block) {
                     int file_name_index = writer_iter->second->file_name_index();
                     {
                         SCOPED_RAW_TIMER(&_close_ns);
-                        static_cast<void>(writer_iter->second->close(Status::OK()));
+                        RETURN_IF_ERROR(writer_iter->second->close(Status::OK()));
                     }
                     writer_positions.erase(writer_iter->second);
                     _partitions_to_writers.erase(writer_iter);
@@ -287,7 +307,9 @@ std::shared_ptr<VHivePartitionWriter> VHiveTableWriter::_create_partition_writer
     if (!_partition_columns_input_index.empty()) {
         partition_values = _create_partition_values(block, position);
         partition_name = VHiveUtils::make_partition_name(
-                hive_table_sink.columns, _partition_columns_input_index, partition_values);
+                hive_table_sink.columns, _partition_columns_input_index, partition_values,
+                !(_t_sink.hive_table_sink.__isset.connector_file_sink &&
+                  _t_sink.hive_table_sink.connector_file_sink));
     }
     const std::vector<THivePartition>& partitions = hive_table_sink.partitions;
     const THiveLocationParams& write_location = hive_table_sink.location;
@@ -391,9 +413,25 @@ std::shared_ptr<VHivePartitionWriter> VHiveTableWriter::_create_partition_writer
             column_names.emplace_back(hive_table_sink.columns[i].name);
         }
     }
+    std::map<std::string, std::string> connector_partition_values;
+    std::set<std::string> connector_null_partition_columns;
+    for (int i = 0; i < _partition_columns_input_index.size(); ++i) {
+        int partition_column_index = _partition_columns_input_index[i];
+        const std::string& partition_column_name =
+                hive_table_sink.columns[partition_column_index].name;
+        connector_partition_values.emplace(partition_column_name, partition_values[i]);
+        DORIS_CHECK(position >= 0);
+        const auto& partition_column = block.get_by_position(partition_column_index);
+        if (const auto* nullable_column =
+                    check_and_get_column<ColumnNullable>(*partition_column.column);
+            nullable_column != nullptr && nullable_column->is_null_at(position)) {
+            connector_null_partition_columns.emplace(partition_column_name);
+        }
+    }
     return std::make_shared<VHivePartitionWriter>(
             _t_sink, std::move(partition_name), update_mode, _write_output_vexpr_ctxs,
-            std::move(column_names), std::move(write_info),
+            std::move(column_names), std::move(write_info), std::move(connector_partition_values),
+            std::move(connector_null_partition_columns),
             (file_name == nullptr) ? _compute_file_name() : *file_name, file_name_index,
             file_format_type, write_compress_type, &hive_table_sink.serde_properties,
             hive_table_sink.hadoop_config);

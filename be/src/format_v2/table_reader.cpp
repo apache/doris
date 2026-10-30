@@ -534,7 +534,7 @@ const schema::external::TField* find_external_root_field(const TFileScanRangePar
     if (!schema->__isset.root_field || !schema->root_field.__isset.fields) {
         return nullptr;
     }
-    if (!supports_iceberg_scan_semantics_v1(params)) {
+    if (!supports_external_scan_semantics_v1(params)) {
         // Old BEs used one ordered current-name/alias pass. Preserve that result for old-FE plans
         // until the explicit scan-semantics marker makes exact-name precedence cluster-wide.
         for (const auto& field_ptr : schema->root_field.fields) {
@@ -639,21 +639,6 @@ Status build_table_filters_from_conjunct(const VExprContextSPtr& conjunct, Runti
     return Status::OK();
 }
 
-Status parse_deletion_vector(const char* buf, size_t buffer_size, DeleteFileDesc::Format format,
-                             DeletionVector* deletion_vector) {
-    DORIS_CHECK(buf != nullptr);
-    DORIS_CHECK(deletion_vector != nullptr);
-    DORIS_CHECK(format == DeleteFileDesc::Format::PAIMON ||
-                format == DeleteFileDesc::Format::ICEBERG);
-
-    if (format == DeleteFileDesc::Format::PAIMON) {
-        RETURN_IF_ERROR(decode_paimon_deletion_vector_buffer(buf, buffer_size, deletion_vector));
-        return Status::OK();
-    }
-
-    return decode_iceberg_deletion_vector_buffer(buf, buffer_size, deletion_vector);
-}
-
 } // namespace
 
 std::shared_ptr<io::FileSystemProperties> create_system_properties(
@@ -741,7 +726,7 @@ Status TableReader::annotate_projected_column(const TFileScanSlotInfo& slot_info
     if (schema_field == nullptr) {
         return Status::OK();
     }
-    const bool use_current_semantics = supports_iceberg_scan_semantics_v1(context->scan_params);
+    const bool use_current_semantics = supports_external_scan_semantics_v1(context->scan_params);
     context->schema_column = build_schema_column_from_external_field(*schema_field, column->type,
                                                                      use_current_semantics);
     if (!use_current_semantics) {
@@ -783,7 +768,7 @@ std::optional<ColumnDefinition> TableReader::_find_table_column_by_field_id(
     }
     if (const auto* field = find_field(*current_schema); field != nullptr) {
         return build_schema_column_from_external_field(
-                *field, std::move(type), supports_iceberg_scan_semantics_v1(_scan_params));
+                *field, std::move(type), supports_external_scan_semantics_v1(_scan_params));
     }
     if (!include_historical_schemas) {
         return std::nullopt;
@@ -810,7 +795,7 @@ std::optional<ColumnDefinition> TableReader::_find_table_column_by_field_id(
         return std::nullopt;
     }
     return build_schema_column_from_external_field(
-            *latest_field, std::move(type), supports_iceberg_scan_semantics_v1(_scan_params));
+            *latest_field, std::move(type), supports_external_scan_semantics_v1(_scan_params));
 }
 
 std::optional<std::vector<ColumnDefinition>> TableReader::_find_table_column_path_by_field_id(
@@ -1052,7 +1037,7 @@ Status TableReader::init(TableReadOptions&& options) {
     _initial_condition_cache_digest = options.condition_cache_digest;
     _condition_cache_digest = _initial_condition_cache_digest;
     _projected_columns = std::move(options.projected_columns);
-    if (supports_iceberg_scan_semantics_v1(_scan_params)) {
+    if (supports_external_scan_semantics_v1(_scan_params)) {
         for (auto& projected_column : _projected_columns) {
             const auto* schema_field = find_external_root_field(_scan_params, projected_column);
             if (schema_field != nullptr) {
@@ -1632,6 +1617,46 @@ Status TableReader::_build_partition_prune_block(Block* block) const {
     return Status::OK();
 }
 
+Status TableReader::_parse_deletion_vector_file(const TTableFormatFileDesc&, DeleteFileDesc* desc,
+                                                bool* has_delete_file) {
+    DORIS_CHECK(desc != nullptr);
+    DORIS_CHECK(has_delete_file != nullptr);
+    *has_delete_file = false;
+    return Status::OK();
+}
+
+Status TableReader::_load_deletion_vector(const TTableFormatFileDesc&, const DeleteFileDesc& desc,
+                                          DeletionVector* deletion_vector) {
+    DeletionVectorReader dv_reader(_runtime_state, _scanner_profile, *_scan_params, desc,
+                                   _io_ctx.get());
+    RETURN_IF_ERROR(dv_reader.open());
+
+    const size_t bytes_read = desc.size;
+    std::vector<char> buffer(bytes_read);
+    const auto read_status = dv_reader.read_at(desc.start_offset, {buffer.data(), bytes_read});
+    const auto& file_cache_stats = dv_reader.file_cache_statistics();
+    COUNTER_UPDATE(_profile.dv_file_cache_hit_count, file_cache_stats.num_local_io_total);
+    COUNTER_UPDATE(_profile.dv_file_cache_miss_count, file_cache_stats.num_remote_io_total);
+    COUNTER_UPDATE(_profile.dv_file_cache_peer_read_count, file_cache_stats.num_peer_io_total);
+    RETURN_IF_ERROR(read_status);
+
+    SCOPED_TIMER(_profile.parse_delete_file_time);
+    return _decode_deletion_vector(buffer.data(), bytes_read, desc, deletion_vector);
+}
+
+Status TableReader::_decode_deletion_vector(const char* buf, size_t buffer_size,
+                                            const DeleteFileDesc& desc,
+                                            DeletionVector* deletion_vector) {
+    DORIS_CHECK(buf != nullptr);
+    DORIS_CHECK(deletion_vector != nullptr);
+    DORIS_CHECK(desc.format == DeleteFileDesc::Format::PAIMON ||
+                desc.format == DeleteFileDesc::Format::ICEBERG);
+    if (desc.format == DeleteFileDesc::Format::PAIMON) {
+        return decode_paimon_deletion_vector_buffer(buf, buffer_size, deletion_vector);
+    }
+    return decode_iceberg_deletion_vector_buffer(buf, buffer_size, deletion_vector);
+}
+
 Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
     DeleteFileDesc desc {.fs_name = options.current_range.fs_name};
     bool has_delete_file = false;
@@ -1646,16 +1671,9 @@ Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
                 desc.key,
                 [&]() -> DeletionVector* {
                     auto deletion_vector = std::make_unique<DeletionVector>();
-
-                    DeletionVectorReader dv_reader(_runtime_state, _scanner_profile, *_scan_params,
-                                                   desc, _io_ctx.get());
-                    create_status = dv_reader.open();
-                    if (!create_status.ok()) [[unlikely]] {
-                        return nullptr;
+                    if (desc.cardinality == 0) {
+                        return deletion_vector.release();
                     }
-
-                    size_t bytes_read = desc.size;
-                    std::vector<char> buffer(bytes_read);
                     DBUG_EXECUTE_IF("TableReader.parse_deletion_vector.io_error", {
                         create_status =
                                 Status::IOError("injected format v2 deletion vector read failure");
@@ -1665,23 +1683,8 @@ Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
                         create_status = Status::EndOfFile("stop read.");
                         return nullptr;
                     });
-                    create_status =
-                            dv_reader.read_at(desc.start_offset, {buffer.data(), bytes_read});
-                    const auto& file_cache_stats = dv_reader.file_cache_statistics();
-                    COUNTER_UPDATE(_profile.dv_file_cache_hit_count,
-                                   file_cache_stats.num_local_io_total);
-                    COUNTER_UPDATE(_profile.dv_file_cache_miss_count,
-                                   file_cache_stats.num_remote_io_total);
-                    COUNTER_UPDATE(_profile.dv_file_cache_peer_read_count,
-                                   file_cache_stats.num_peer_io_total);
-                    if (!create_status.ok()) [[unlikely]] {
-                        return nullptr;
-                    }
-
-                    const char* buf = buffer.data();
-                    SCOPED_TIMER(_profile.parse_delete_file_time);
-                    create_status = parse_deletion_vector(buf, bytes_read, desc.format,
-                                                          deletion_vector.get());
+                    create_status = _load_deletion_vector(options.current_range.table_format_params,
+                                                          desc, deletion_vector.get());
                     if (!create_status.ok()) [[unlikely]] {
                         return nullptr;
                     }

@@ -82,8 +82,9 @@ TEST(AzureObjStorageClientMultipartHelperTest, create_upload_is_provider_free) {
 using namespace Azure::Storage::Blobs;
 
 TEST(AzureAuthFactoryTest, AllowsEmptySharedKeyCredentials) {
-    auto result = AzureAuthFactory::create("https://account.blob.core.windows.net/container",
-                                           {.account_name = "", .account_key = ""}, {});
+    auto result =
+            AzureAuthFactory::create("https://account.blob.core.windows.net/container",
+                                     {.account_name = "", .account_key = "", .sas_token = ""}, {});
 
     EXPECT_TRUE(result);
 }

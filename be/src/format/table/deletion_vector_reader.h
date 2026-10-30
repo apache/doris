@@ -48,6 +48,7 @@ struct DeleteFileDesc {
     enum class Format {
         PAIMON,
         ICEBERG,
+        DELTA,
     };
 
     std::string key = "";
@@ -55,6 +56,7 @@ struct DeleteFileDesc {
     std::string fs_name = "";
     int64_t start_offset = 0;
     int64_t size = 0;
+    int64_t cardinality = -1;
     int64_t file_size = -1;
     int64_t modification_time = 0;
     Format format = Format::PAIMON;

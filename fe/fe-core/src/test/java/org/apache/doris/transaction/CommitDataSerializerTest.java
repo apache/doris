@@ -17,6 +17,7 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.thrift.TConnectorFileCommitData;
 import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.THivePartitionUpdate;
 import org.apache.doris.thrift.TIcebergCommitData;
@@ -32,9 +33,12 @@ import org.apache.thrift.protocol.TBinaryProtocol;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Golden-equivalence tests for {@link CommitDataSerializer} and the write
@@ -52,6 +56,13 @@ import java.util.List;
  * mismatch corrupts the round trip and fails these tests.</p>
  */
 public class CommitDataSerializerTest {
+
+    @Test
+    public void connectorReportsKeepShippedPaimonFieldId() {
+        Assertions.assertEquals(34, TReportExecStatusParams._Fields.PAIMON_COMMIT_MESSAGES.getThriftFieldId());
+        Assertions.assertEquals(35, TReportExecStatusParams._Fields.CONNECTOR_COMMIT_DATA.getThriftFieldId());
+        Assertions.assertEquals(36, TReportExecStatusParams._Fields.CONNECTOR_FILE_COMMIT_DATAS.getThriftFieldId());
+    }
 
     private static TMCCommitData mcData(String session, long rowCount, String commitMessage) {
         return new TMCCommitData()
@@ -83,6 +94,16 @@ public class CommitDataSerializerTest {
         return new TPaimonCommitMessage().setPayload(payload);
     }
 
+    private static TConnectorFileCommitData connectorFileData(String filePath, long rowCount) {
+        return new TConnectorFileCommitData()
+                .setFilePath(filePath)
+                .setRowCount(rowCount)
+                .setFileSize(rowCount * 32)
+                .setModificationTime(1234L)
+                .setPartitionValues(Map.of("year", "2026", "month", "06"))
+                .setNullPartitionColumns(Set.of("region"));
+    }
+
     private static void assertBinaryRoundTrip(TBase<?, ?> original, TBase<?, ?> target)
             throws Exception {
         byte[] bytes = new TSerializer(new TBinaryProtocol.Factory()).serialize(original);
@@ -101,6 +122,7 @@ public class CommitDataSerializerTest {
         assertBinaryRoundTrip(hiveData("dt=2026-06-06", 7L, "f1", "f2"), new THivePartitionUpdate());
         assertBinaryRoundTrip(icebergData("s3://b/data/0.parquet", 11L), new TIcebergCommitData());
         assertBinaryRoundTrip(paimonData((byte) 1, (byte) 2), new TPaimonCommitMessage());
+        assertBinaryRoundTrip(connectorFileData("s3://b/data/0.parquet", 11L), new TConnectorFileCommitData());
     }
 
     /**
@@ -174,6 +196,41 @@ public class CommitDataSerializerTest {
         TPaimonCommitMessage roundTripped = new TPaimonCommitMessage();
         new TDeserializer(new TBinaryProtocol.Factory()).deserialize(roundTripped, payloads.get(0));
         Assertions.assertEquals(input, roundTripped);
+    }
+
+    @Test
+    public void reportFeedRecognizesTypedFilesAlongsideOpaqueConnectorData() throws Exception {
+        List<byte[]> payloads = new ArrayList<>();
+        Transaction collector = new Transaction() {
+            @Override
+            public void commit() {
+                throw new UnsupportedOperationException("commit not expected in this test");
+            }
+
+            @Override
+            public void rollback() {
+                throw new UnsupportedOperationException("rollback not expected in this test");
+            }
+
+            @Override
+            public void addCommitData(byte[] commitFragment) {
+                payloads.add(commitFragment);
+            }
+        };
+        TConnectorFileCommitData file = connectorFileData("s3://b/data/0.parquet", 11L);
+        TReportExecStatusParams report = new TReportExecStatusParams()
+                .setConnectorFileCommitDatas(Arrays.asList(file));
+        Assertions.assertTrue(CommitDataSerializer.hasCommitData(report),
+                "a file-only report must enter the external commit-data final-report gate");
+        report.setConnectorCommitData(Arrays.asList(ByteBuffer.wrap(new byte[] {6, 7})));
+
+        CommitDataSerializer.feed(collector, report);
+
+        Assertions.assertEquals(2, payloads.size());
+        Assertions.assertArrayEquals(new byte[] {6, 7}, payloads.get(0));
+        TConnectorFileCommitData decoded = new TConnectorFileCommitData();
+        new TDeserializer(new TBinaryProtocol.Factory()).deserialize(decoded, payloads.get(1));
+        Assertions.assertEquals(file, decoded);
     }
 
 }

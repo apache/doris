@@ -247,6 +247,9 @@ public class LoadProcessor extends AbstractJobProcessor {
         if (params.isSetErrorTabletInfos()) {
             loadContext.updateErrorTabletInfos(params.getErrorTabletInfos());
         }
+        if (params.isSetConnectorFileCommitDatas()) {
+            loadContext.updateConnectorFileCommitDatas(params.getConnectorFileCommitDatas());
+        }
         long txnId = loadContext.getTransactionId();
         if (CommitDataSerializer.hasCommitData(params)) {
             Transaction txn = Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId);

@@ -1,0 +1,2 @@
+{"protocol":{"minReaderVersion":3,"minWriterVersion":7,"readerFeatures":["catalogManaged"],"writerFeatures":["catalogManaged"]}}
+{"metaData":{"id":"c79de738-d13c-44a5-8e75-8435123d60c7","format":{"provider":"parquet","options":{}},"schemaString":"{\"type\":\"struct\",\"fields\":[{\"name\":\"id\",\"type\":\"long\",\"nullable\":false,\"metadata\":{}}]}","partitionColumns":[],"configuration":{"delta.feature.catalogManaged":"supported","delta.enableInCommitTimestamps":"true","io.unitycatalog.tableId":"c79de738-d13c-44a5-8e75-8435123d60c7"},"createdTime":1700000000000}}

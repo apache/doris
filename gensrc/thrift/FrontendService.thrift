@@ -339,11 +339,13 @@ struct TReportExecStatusParams {
   31: optional list<TFragmentInstanceReport> fragment_instance_reports;
 
   32: optional list<DataSinks.TMCCommitData> mc_commit_datas
-
   33: optional string first_error_msg
 
   // Paimon commit messages prepared by BE and committed by FE.
   34: optional list<DataSinks.TPaimonCommitMessage> paimon_commit_messages
+  // Opaque, connector-owned commit fragments; FE routes them to the transaction.
+  35: optional list<binary> connector_commit_data
+  36: optional list<DataSinks.TConnectorFileCommitData> connector_file_commit_datas
 }
 
 struct TFeResult {

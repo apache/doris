@@ -405,10 +405,16 @@ protected:
 
     // Parse deletion vector information from table format specific file description.
     virtual Status _parse_deletion_vector_file(const TTableFormatFileDesc& t_desc,
-                                               DeleteFileDesc* desc, bool* has_delete_file) {
-        *has_delete_file = false;
-        return Status::OK();
-    }
+                                               DeleteFileDesc* desc, bool* has_delete_file);
+
+    // Called only on a decoded-vector cache miss. Table formats may supply an inline vector;
+    // file-backed vectors share the base I/O, profiling and format-specific decode hook.
+    virtual Status _load_deletion_vector(const TTableFormatFileDesc& t_desc,
+                                         const DeleteFileDesc& desc,
+                                         DeletionVector* deletion_vector);
+    virtual Status _decode_deletion_vector(const char* buf, size_t buffer_size,
+                                           const DeleteFileDesc& desc,
+                                           DeletionVector* deletion_vector);
 
     // Advance to the next reader. This closes the current reader first and then opens the next
     // concrete reader. Subclasses should not duplicate this loop.
@@ -1534,6 +1540,11 @@ protected:
                 ColumnPtr result_column = current_block->get_by_position(res_id).column;
                 *column = _detach_column(std::move(result_column));
             }
+            // Projection results are materialized directly from the file block, so they need the
+            // same nullability normalization as direct file-column mappings. In particular, a
+            // Parquet optional field can be mapped to a required Doris column when this batch has
+            // no NULL values.
+            RETURN_IF_ERROR(_align_column_nullability(column, mapping.table_type));
             return Status::OK();
         }
         return _materialize_default_or_missing_column(mapping, current_block, rows, column);

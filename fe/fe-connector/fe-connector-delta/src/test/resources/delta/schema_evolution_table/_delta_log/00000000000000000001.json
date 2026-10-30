@@ -1,0 +1,2 @@
+{"metaData":{"id":"5ebd4750-dff4-4209-92f5-eecb3741aa00","format":{"provider":"parquet","options":{}},"schemaString":"{\"type\":\"struct\",\"fields\":[{\"name\":\"id\",\"type\":\"long\",\"nullable\":false,\"metadata\":{}},{\"name\":\"name\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}}]}","partitionColumns":[],"configuration":{},"createdTime":1700000001000}}
+{"add":{"path":"part-00001.parquet","partitionValues":{},"size":200,"modificationTime":1700000001000,"dataChange":true}}

@@ -51,6 +51,12 @@ public class NoOpConnectorTransactionTest {
     }
 
     @Test
+    public void originalRowCountRemainsUnknownForNonCopyOnWriteTransactions() {
+        Assertions.assertFalse(new NoOpConnectorTransaction(457L, "JDBC").getOriginalRowCount().isPresent(),
+                "unknown original cardinality must not be confused with an empty copy-on-write base");
+    }
+
+    @Test
     public void commitRollbackCloseAreNoOps() {
         NoOpConnectorTransaction txn = new NoOpConnectorTransaction(789L, "JDBC");
         // Auto-committed by BE; FE-side lifecycle must do nothing and never throw.

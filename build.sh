@@ -832,7 +832,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # Keep this list identical to the deploy loop's (search CONN_PLUGIN_DIR). A module missing here
     # but present there is not a no-op: the deploy step unzips whatever archive is left in the
     # module's target/ from some earlier build, so the plugin silently ships stale.
-    for _conn_mod in es jdbc maxcompute trino hms hive paimon hudi iceberg adbc fluss; do
+    for _conn_mod in es jdbc maxcompute trino hms hive paimon hudi iceberg adbc fluss delta; do
         if [[ -d "${DORIS_HOME}/fe/fe-connector/fe-connector-${_conn_mod}" ]]; then
             modules+=("fe-connector/fe-connector-${_conn_mod}")
         fi
@@ -1323,7 +1323,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # Deploy connector provider plugins as independent plugin directories.
     # Each sub-directory is one connector backend loaded at runtime by ConnectorPluginManager.
     CONN_PLUGIN_DIR="${DORIS_OUTPUT}/fe/plugins/connector"
-    for conn_module in es jdbc maxcompute trino hms hive paimon hudi iceberg adbc fluss; do
+    for conn_module in es jdbc maxcompute trino hms hive paimon hudi iceberg adbc fluss delta; do
         conn_plugin_target="${CONN_PLUGIN_DIR}/${conn_module}"
         conn_module_dir="${DORIS_HOME}/fe/fe-connector/fe-connector-${conn_module}"
         if [ ! -d "${conn_module_dir}" ]; then
@@ -1349,7 +1349,10 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
         # named): a new connector ships a template and needs no change here.
         for conn_conf_tpl in "${conn_plugin_target}"/*.conf.template; do
             [ -e "${conn_conf_tpl}" ] || continue
-            cp -n "${conn_conf_tpl}" "${conn_conf_tpl%.template}"
+            # BSD cp -n returns failure when it skips an existing file under set -e.
+            if [[ ! -e "${conn_conf_tpl%.template}" && ! -L "${conn_conf_tpl%.template}" ]]; then
+                cp "${conn_conf_tpl}" "${conn_conf_tpl%.template}"
+            fi
         done
     done
     unset CONN_PLUGIN_DIR conn_module conn_plugin_target conn_module_dir conn_zip conn_conf_tpl

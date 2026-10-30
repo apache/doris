@@ -59,7 +59,7 @@ public:
     // this function must call before other function,
     // you can call this multiple times to reuse this object
     Status init(const std::string& url, bool set_fail_on_error = true,
-                AuthTokenMode auth_token_mode = AuthTokenMode::CLUSTER);
+                AuthTokenMode auth_token_mode = AuthTokenMode::CLUSTER, bool escape_url = true);
 
     // Release request-owned options and callbacks while retaining reusable connections.
     void reset();
@@ -230,6 +230,7 @@ public:
 private:
     static std::string _get_ca_certificate_path(const std::string& configured_paths);
     Status _set_ca_certificate_from_config();
+    Status _set_url(const std::string& url, bool escape_url);
     const char* _to_errmsg(CURLcode code) const;
     const char* _get_url() const;
 

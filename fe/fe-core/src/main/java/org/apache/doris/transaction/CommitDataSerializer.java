@@ -24,6 +24,7 @@ import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 import org.apache.thrift.protocol.TBinaryProtocol;
 
+import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -45,7 +46,8 @@ public final class CommitDataSerializer {
     /** Returns whether a fragment report carries any external connector commit data. */
     public static boolean hasCommitData(TReportExecStatusParams params) {
         return params.isSetHivePartitionUpdates() || params.isSetIcebergCommitDatas()
-                || params.isSetMcCommitDatas() || params.isSetPaimonCommitMessages();
+                || params.isSetMcCommitDatas() || params.isSetPaimonCommitMessages()
+                || params.isSetConnectorCommitData() || params.isSetConnectorFileCommitDatas();
     }
 
     /** Delivers every commit-data representation carried by one fragment report. */
@@ -61,6 +63,12 @@ public final class CommitDataSerializer {
         }
         if (params.isSetPaimonCommitMessages()) {
             feed(txn, params.getPaimonCommitMessages());
+        }
+        if (params.isSetConnectorCommitData()) {
+            feedRaw(txn, params.getConnectorCommitData());
+        }
+        if (params.isSetConnectorFileCommitDatas()) {
+            feed(txn, params.getConnectorFileCommitDatas());
         }
     }
 
@@ -88,6 +96,20 @@ public final class CommitDataSerializer {
             throw new RuntimeException("failed to initialize connector commit-data serialization", e);
         } catch (CommitDataSerializationException e) {
             throw new RuntimeException("failed to serialize connector commit data", e.getCause());
+        }
+    }
+
+    /**
+     * Delivers opaque commit fragments without interpreting connector-owned bytes in FE core.
+     * Thrift exposes binary values as {@link ByteBuffer}; copy each remaining slice before
+     * passing it to a transaction, which may keep the byte array after the RPC is released.
+     */
+    public static void feedRaw(Transaction txn, List<ByteBuffer> fragments) {
+        for (ByteBuffer fragment : fragments) {
+            ByteBuffer source = fragment.duplicate();
+            byte[] bytes = new byte[source.remaining()];
+            source.get(bytes);
+            txn.addCommitData(bytes);
         }
     }
 

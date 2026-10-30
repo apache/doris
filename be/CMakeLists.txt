@@ -502,8 +502,11 @@ if (OS_MACOSX)
     add_definitions(-D_DARWIN_C_SOURCE)
     # macOS 27's math.h requests only INFINITY/NAN from float.h. libc++'s
     # float.h include guard then hides the remaining macros on later includes
-    # (e.g. DBL_EPSILON in S2). Load the full header before any source or PCH.
-    add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include float.h>")
+    # (e.g. DBL_EPSILON in S2). The PCH loads the full header itself; an earlier
+    # forced include would prevent Clang from using the PCH.
+    if (NOT ENABLE_PCH)
+        add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include float.h>")
+    endif()
 endif()
 
 if (RECORD_COMPILER_SWITCHES)

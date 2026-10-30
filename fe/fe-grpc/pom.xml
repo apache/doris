@@ -33,6 +33,7 @@ under the License.
     <properties>
         <doris.home>${basedir}/../../</doris.home>
         <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
+        <grpc.java.command/>
     </properties>
     <profiles>
         <profile>
@@ -57,6 +58,20 @@ under the License.
             <properties>
                 <protoc.artifact>com.google.protobuf:protoc:${protobuf.version}:exe:osx-x86_64</protoc.artifact>
                 <grpc.java.artifact>io.grpc:protoc-gen-grpc-java:${grpc-java.version}:exe:osx-x86_64</grpc.java.artifact>
+            </properties>
+        </profile>
+        <profile>
+            <id>grpc_java_command</id>
+            <activation>
+                <file>
+                    <exists>${basedir}/../../thirdparty/installed/bin/protoc-gen-grpc-java</exists>
+                </file>
+            </activation>
+            <properties>
+                <!-- A locally built generator supports hosts without an executable Maven artifact. -->
+                <grpc.java.command>${doris.thirdparty}/installed/bin/protoc-gen-grpc-java</grpc.java.command>
+                <!-- protoc-jar gives pluginArtifact precedence over pluginPath. -->
+                <grpc.java.artifact/>
             </properties>
         </profile>
         <profile>
@@ -136,6 +151,7 @@ under the License.
                                 </outputTarget>
                                 <outputTarget>
                                     <type>grpc-java</type>
+                                    <pluginPath>${grpc.java.command}</pluginPath>
                                     <pluginArtifact>${grpc.java.artifact}</pluginArtifact>
                                 </outputTarget>
                             </outputTargets>
