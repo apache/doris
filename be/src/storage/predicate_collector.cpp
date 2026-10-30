@@ -295,6 +295,11 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
         if (!IndexReaderHelper::is_need_similarity_score(expr->op(), index_meta)) {
             continue;
         }
+        // A regexp scores a constant and reads no statistics. Its value is a pattern, not text, so
+        // analyzing it would collect statistics for made-up terms: 'ap.*' would become "ap".
+        if (expr->op() == TExprOpcode::MATCH_REGEXP) {
+            continue;
+        }
 
         auto options = DataTypeSerDe::get_default_format_options();
         options.timezone = &state->timezone_obj();
