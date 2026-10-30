@@ -36,6 +36,7 @@
 #include "runtime/thread_context.h"
 #include "util/countdown_latch.h"
 #include "util/defer_op.h"
+#include "util/threadpool.h"
 #include "util/time.h"
 
 namespace doris::io {

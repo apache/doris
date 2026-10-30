@@ -46,6 +46,7 @@
 #include "core/data_type/data_type_date_time.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
 #include "core/pod_array_fwd.h"

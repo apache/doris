@@ -26,6 +26,7 @@
 #include "storage/tablet/base_tablet.h"
 
 namespace doris {
+class TTabletInfo;
 
 class CloudStorageEngine;
 

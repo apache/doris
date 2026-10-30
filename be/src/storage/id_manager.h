@@ -18,7 +18,6 @@
 #pragma once
 
 #include <butil/macros.h>
-#include <gen_cpp/BackendService_types.h>
 #include <gen_cpp/Types_types.h>
 #include <stddef.h>
 #include <stdint.h>

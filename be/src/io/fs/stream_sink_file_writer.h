@@ -19,6 +19,7 @@
 
 #include <brpc/stream.h>
 #include <gen_cpp/olap_common.pb.h>
+#include <gen_cpp/types.pb.h>
 
 #include <queue>
 #include <unordered_set>

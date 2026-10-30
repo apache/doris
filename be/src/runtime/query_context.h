@@ -37,6 +37,7 @@
 #include "exec/common/memory.h"
 #include "exec/runtime_filter/runtime_filter_mgr.h"
 #include "exec/scan/scanner_scheduler.h"
+#include "io/cache/block_file_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/runtime_predicate.h"

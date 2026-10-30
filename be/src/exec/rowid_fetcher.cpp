@@ -52,8 +52,10 @@
 #include "runtime/exec_env.h"      // ExecEnv
 #include "runtime/fragment_mgr.h"  // FragmentMgr
 #include "runtime/runtime_state.h" // RuntimeState
+#include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "semaphore"
+#include "service/backend_options.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/segment/column_reader.h"

@@ -51,6 +51,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
 #include "core/pod_array.h"

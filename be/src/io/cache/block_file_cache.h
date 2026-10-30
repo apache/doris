@@ -43,7 +43,6 @@
 #include "io/cache/file_cache_storage.h"
 #include "io/cache/lru_queue_recorder.h"
 #include "runtime/runtime_profile.h"
-#include "util/threadpool.h"
 
 namespace doris::io {
 using RecycleFileCacheKeys = moodycamel::ConcurrentQueue<FileCacheKey>;

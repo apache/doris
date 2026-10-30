@@ -18,7 +18,6 @@
 #pragma once
 
 #include <butil/macros.h>
-#include <gen_cpp/BackendService_types.h>
 #include <gen_cpp/Types_types.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -49,6 +48,9 @@ class MemTracker;
 class TCreateTabletReq;
 class TTablet;
 class TTabletInfo;
+class TTabletStat;
+class TTabletStatResult;
+class TCheckStorageFormatResult;
 
 // TabletManager provides get, add, delete tablet method for storage engine
 // NOTE: If you want to add a method that needs to hold meta-lock before you can call it,
@@ -272,8 +274,7 @@ private:
     std::mutex _gc_tablets_lock;
 
     std::mutex _tablet_stat_cache_mutex;
-    std::shared_ptr<std::vector<TTabletStat>> _tablet_stat_list_cache =
-            std::make_shared<std::vector<TTabletStat>>();
+    std::shared_ptr<std::vector<TTabletStat>> _tablet_stat_list_cache;
 
     tablet_map_t& _get_tablet_map(TTabletId tablet_id);
 
