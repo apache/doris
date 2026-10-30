@@ -35,7 +35,7 @@ struct alignas(16) SelectionLookupTable {
         for (unsigned mask = 0; mask < 256; ++mask) {
             for (unsigned bit = 0; bit < 8; ++bit) {
                 if (mask & (1U << bit)) {
-                    positions[mask][counts[mask]++] = bit;
+                    positions[mask][counts[mask]++] = static_cast<uint16_t>(bit);
                 }
             }
         }
@@ -57,7 +57,8 @@ ALWAYS_INLINE inline uint16_t append_selected_indices(
         const auto part = static_cast<uint8_t>(mask >> offset);
         uint16_t indices[8];
         for (unsigned lane = 0; lane < 8; ++lane) {
-            indices[lane] = base + offset + detail::SELECTION_LOOKUP_TABLE.positions[part][lane];
+            indices[lane] = static_cast<uint16_t>(
+                    base + offset + detail::SELECTION_LOOKUP_TABLE.positions[part][lane]);
         }
         // count <= offset, so the fixed-width store stays within 32 output entries.
         std::memcpy(output + count, indices, sizeof(indices));
