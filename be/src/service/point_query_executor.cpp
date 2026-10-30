@@ -26,6 +26,7 @@
 #include <google/protobuf/extension_set.h>
 #include <stdlib.h>
 
+#include <algorithm>
 #include <climits>
 #include <memory>
 #include <unordered_map>
@@ -60,6 +61,7 @@
 #include "util/jsonb/serialize.h"
 #include "util/lru_cache.h"
 #include "util/simd/bits.h"
+#include "util/string_util.h"
 #include "util/thrift_util.h"
 
 namespace doris {
@@ -137,6 +139,42 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
     _runtime_state->set_query_options(query_options);
     RETURN_IF_ERROR(DescriptorTbl::create(_runtime_state->obj_pool(), t_desc_tbl, &_desc_tbl));
     _runtime_state->set_desc_tbl(_desc_tbl);
+    for (const auto* slot : tuple_desc()->slots()) {
+        const auto& all_paths = slot->all_access_paths();
+        const auto& predicate_paths = slot->predicate_access_paths();
+        if (all_paths.empty() && predicate_paths.empty()) {
+            continue;
+        }
+        auto is_whole_column_path = [&](const TColumnAccessPath& path) {
+            return path.type == TAccessPathType::DATA && path.__isset.data_access_path &&
+                   path.data_access_path.path.size() == 1 &&
+                   iequal(path.data_access_path.path[0], slot->col_name());
+        };
+        const bool whole_column_only = std::ranges::all_of(all_paths, is_whole_column_path) &&
+                                       std::ranges::all_of(predicate_paths, is_whole_column_path);
+        int column_idx = schema.field_index(slot->col_unique_id());
+        if (column_idx < 0) {
+            column_idx = schema.field_index(slot->col_name());
+        }
+        bool full_type = false;
+        if (whole_column_only && column_idx >= 0) {
+            auto slot_type = slot->get_data_type_ptr();
+            auto stored_type = DataTypeFactory::instance().create_data_type(
+                    schema.column(column_idx), slot->is_nullable());
+            // Struct::equals ignores field names, which are needed to interpret nested paths.
+            full_type = slot_type && stored_type && slot_type->equals(*stored_type) &&
+                        slot_type->get_name() == stored_type->get_name();
+        }
+        // Older FEs may attach a harmless root path, but a pruned STRUCT layout cannot decode
+        // the full row-store payload. Require both a root-only path and the full stored type.
+        if (!whole_column_only || !full_type) {
+            return Status::InternalError(
+                    "Short-circuit point query does not support nested column access paths, "
+                    "slot: {}. Please upgrade FE to disable nested column pruning for "
+                    "short-circuit point queries.",
+                    slot->col_name());
+        }
+    }
     _block_pool.resize(block_size);
     for (auto& i : _block_pool) {
         i = Block::create_unique(tuple_desc()->slots(), 2);
