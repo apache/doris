@@ -1017,6 +1017,15 @@ private:
     int32_t _saved;
 };
 
+// For a test that a batch stays on the calling thread: on a busy host even a read from memory can
+// take longer than the slow-read threshold, which would send the rest of the batch to the pool.
+struct NoSlowReadHandOffGuard {
+    NoSlowReadHandOffGuard() { DorisSniiFileReader::set_slow_read_hand_off_for_test(false); }
+    ~NoSlowReadHandOffGuard() { DorisSniiFileReader::set_slow_read_hand_off_for_test(true); }
+    NoSlowReadHandOffGuard(const NoSlowReadHandOffGuard&) = delete;
+    NoSlowReadHandOffGuard& operator=(const NoSlowReadHandOffGuard&) = delete;
+};
+
 // Reads `segments` disjoint 4-byte ranges through a reader backed by a two-thread pool and returns
 // how many of the physical reads ran on the calling thread.
 size_t reads_on_calling_thread(
@@ -1062,6 +1071,7 @@ size_t reads_on_calling_thread(
 // pool costs more than the reads. The serial rounds then equal the segment count.
 TEST(DorisSniiFileReaderInlineReadTest, SmallLocalBatchRunsOnCallingThread) {
     InlineReadConfigGuard config_guard(4);
+    NoSlowReadHandOffGuard no_hand_off;
     io::FileCacheStatistics stats;
     EXPECT_EQ(reads_on_calling_thread(/*local_fs=*/true, 4, &stats), 4U);
     EXPECT_EQ(stats.inverted_index_range_read_count, 4);
@@ -1086,8 +1096,8 @@ TEST(DorisSniiFileReaderInlineReadTest, RemoteSmallBatchStillFansOut) {
 }
 
 // Reads that miss the page cache overlap in the pool, so once recent reads were slow a small batch
-// fans out again: the first batches are read inline while the average catches up, the later ones
-// are not.
+// fans out again: the first batch starts inline, while the average is still low, but sends the
+// segments it has left to the pool at its first slow read; the later ones fan out from the start.
 TEST(DorisSniiFileReaderInlineReadTest, SlowReadsReturnToThePool) {
     InlineReadConfigGuard config_guard(4);
     size_t on_caller_first = 0;
@@ -1101,14 +1111,49 @@ TEST(DorisSniiFileReaderInlineReadTest, SlowReadsReturnToThePool) {
         }
         on_caller_last = on_caller;
     }
-    EXPECT_EQ(on_caller_first, 4U);
+    EXPECT_EQ(on_caller_first, 1U);
     EXPECT_EQ(on_caller_last, 0U);
+}
+
+// A phrase prefix reads the postings of every term its prefix expands to, in batches of up to 16
+// segments; while reads are fast those stay on the calling thread too. One more fans out.
+TEST(DorisSniiFileReaderInlineReadTest, PhrasePrefixSizedBatchRunsOnCallingThread) {
+    InlineReadConfigGuard config_guard(16);
+    NoSlowReadHandOffGuard no_hand_off;
+    io::FileCacheStatistics stats;
+    EXPECT_EQ(reads_on_calling_thread(/*local_fs=*/true, 16, &stats), 16U);
+    EXPECT_EQ(stats.inverted_index_serial_read_rounds, 16);
+    io::FileCacheStatistics over_stats;
+    EXPECT_EQ(reads_on_calling_thread(/*local_fs=*/true, 17, &over_stats), 0U);
+    EXPECT_EQ(over_stats.inverted_index_serial_read_rounds, 2);
+}
+
+// The average can be low while this batch's data is not in the page cache. Its first slow read then
+// sends the segments it has left to the pool, so the batch pays one read on the calling thread and
+// overlaps the rest: one inline round plus one pool wave.
+TEST(DorisSniiFileReaderInlineReadTest, SlowReadSendsTheSegmentsLeftToThePool) {
+    InlineReadConfigGuard config_guard(16);
+    io::FileCacheStatistics stats;
+    EXPECT_EQ(reads_on_calling_thread(/*local_fs=*/true, 8, &stats, std::chrono::microseconds(300)),
+              1U);
+    EXPECT_EQ(stats.inverted_index_range_read_count, 8);
+    EXPECT_EQ(stats.inverted_index_serial_read_rounds, 2);
+}
+
+// One segment left after a slow read is read on the calling thread: alone it overlaps nothing.
+TEST(DorisSniiFileReaderInlineReadTest, LastSegmentAfterSlowReadStaysInline) {
+    InlineReadConfigGuard config_guard(16);
+    io::FileCacheStatistics stats;
+    EXPECT_EQ(reads_on_calling_thread(/*local_fs=*/true, 2, &stats, std::chrono::microseconds(300)),
+              2U);
+    EXPECT_EQ(stats.inverted_index_serial_read_rounds, 2);
 }
 
 // Slow remote reads must not lower the local reads' chance of being read inline: with tiered
 // storage one BE serves local and remote rowsets, and only local readers consult the average.
 TEST(DorisSniiFileReaderInlineReadTest, RemoteReadsDoNotSlowTheLocalEstimate) {
     InlineReadConfigGuard config_guard(4);
+    NoSlowReadHandOffGuard no_hand_off;
     for (int batch = 0; batch < 12; ++batch) {
         io::FileCacheStatistics remote_stats;
         EXPECT_EQ(reads_on_calling_thread(/*local_fs=*/false, 4, &remote_stats,
