@@ -66,6 +66,15 @@
 1	0.290716
 4	0.268636
 
+-- !V2_variant_numeric_path --
+1	0
+3	0
+4	0.287682
+
+-- !V2_variant_text_path --
+1	0.693147
+4	0.693147
+
 -- !V3_single_row_match --
 1	0.287682
 
@@ -133,6 +142,15 @@
 1	0.290716
 4	0.268636
 
+-- !V3_variant_numeric_path --
+1	0
+3	0
+4	0.287682
+
+-- !V3_variant_text_path --
+1	0.693147
+4	0.693147
+
 -- !SNII_single_row_match --
 1	0.287682
 
@@ -199,4 +217,13 @@
 -- !SNII_analyzed_and_numeric_cast --
 1	0.290716
 4	0.268636
+
+-- !SNII_variant_numeric_path --
+1	0
+3	0
+4	0.287682
+
+-- !SNII_variant_text_path --
+1	0.693147
+4	0.693147
 

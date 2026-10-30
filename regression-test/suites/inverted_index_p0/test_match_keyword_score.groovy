@@ -93,5 +93,45 @@ suite("test_match_keyword_score", "p0") {
                 ) hits ORDER BY id
             """, true)
         }
+
+        // A VARIANT path is typed per segment: n holds numbers, indexed as BKD, in the first
+        // insert and text in the second. The plain VARIANT index makes every path a keyword
+        // index, so CAST(v['n'] AS STRING) MATCH collects statistics for n; the BKD segment adds
+        // none instead of failing, and its rows match without the index with score 0.
+        sql "set default_variant_enable_typed_paths_to_sparse = false"
+        sql "set default_variant_enable_doc_mode = false"
+        sql "DROP TABLE IF EXISTS test_match_keyword_score_variant"
+        sql """
+            CREATE TABLE test_match_keyword_score_variant (
+                id INT NOT NULL,
+                v VARIANT NULL,
+                INDEX idx_v(v) USING INVERTED
+            ) ENGINE=OLAP
+            DUPLICATE KEY(id)
+            DISTRIBUTED BY HASH(id) BUCKETS 1
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default:1",
+                "inverted_index_storage_format" = "${storageFormat}",
+                "disable_auto_compaction" = "true"
+            )
+        """
+        sql """INSERT INTO test_match_keyword_score_variant VALUES
+            (1, parse_to_variant('{"n": 1, "s": "abc"}')), (2, parse_to_variant('{"n": 2, "s": "abd"}')),
+            (3, parse_to_variant('{"n": 1, "s": "xyz"}'))
+        """
+        sql """INSERT INTO test_match_keyword_score_variant VALUES
+            (4, parse_to_variant('{"n": "1", "s": "abc"}'))
+        """
+        sql "sync"
+        for (def query : [
+                ["variant_numeric_path", "CAST(v['n'] AS STRING) MATCH '1'"],
+                ["variant_text_path", "CAST(v['s'] AS STRING) MATCH 'abc'"]]) {
+            quickTest("${storageFormat}_${query[0]}", """
+                SELECT id, ROUND(s, 6) FROM (
+                    SELECT id, score() AS s FROM test_match_keyword_score_variant
+                    WHERE ${query[1]} ORDER BY s DESC LIMIT 10
+                ) hits ORDER BY id
+            """, true)
+        }
     }
 }

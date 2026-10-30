@@ -73,6 +73,15 @@ Result<std::shared_ptr<lucene::search::IndexSearcher>> open_optional_clucene_sta
         }
         return ResultError(status);
     }
+    // A segment can index a field with BKD although the tablet schema calls it text: a VARIANT
+    // path is typed per segment, so CAST(v['n'] AS STRING) MATCH '1' collects statistics for v.n,
+    // which a segment holding numbers indexed as BKD. That index has no terms and no segments file
+    // to open, so it adds no statistics, as a segment without the path does; its rows match
+    // without the index and score nothing.
+    if (compound.value()->fileExists(
+                InvertedIndexDescriptor::get_temporary_bkd_index_data_file_name())) {
+        return std::shared_ptr<lucene::search::IndexSearcher> {};
+    }
     lucene::index::IndexReader* reader = nullptr;
     try {
         reader = lucene::index::IndexReader::open(compound.value().get());
@@ -87,6 +96,17 @@ Result<std::shared_ptr<lucene::search::IndexSearcher>> open_optional_clucene_sta
     stream->setIoContext(nullptr);
     stream->setIndexFile(false);
     return std::make_shared<lucene::search::IndexSearcher>(reader, true);
+}
+
+// Whether a SNII segment indexed this field with BKD; see open_optional_clucene_stats_searcher.
+Result<bool> is_snii_bkd_index(const segment_v2::IndexFileReader& file_reader,
+                               const TabletIndex& index) {
+    const auto entries = DORIS_TRY(file_reader.snii_logical_indexes());
+    const auto entry = std::ranges::find_if(entries, [&](const auto& candidate) {
+        return candidate.index_id == static_cast<uint64_t>(index.index_id()) &&
+               candidate.index_suffix == index.get_index_suffix();
+    });
+    return entry != entries.end() && entry->kind == ::doris::snii::format::LogicalIndexKind::kBkd;
 }
 
 } // namespace
@@ -547,6 +567,11 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
         segment_v2::snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(io_ctx);
         SniiScoringSegmentAccumulator segment_accumulator;
         for (const auto& [ws_field_name, collect_info] : collect_infos) {
+            const bool bkd =
+                    DORIS_TRY(is_snii_bkd_index(*idx_file_reader, *collect_info.index_meta));
+            if (bkd) {
+                continue; // The field holds numbers in this segment: no terms, no statistics.
+            }
             auto logical_reader_result =
                     idx_file_reader->open_snii_index(collect_info.index_meta, io_ctx);
             if (!logical_reader_result.has_value()) {
