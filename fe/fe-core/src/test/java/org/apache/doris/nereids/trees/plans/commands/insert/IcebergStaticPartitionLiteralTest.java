@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
@@ -29,10 +30,18 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.MetricsConfig;
+import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.SortOrder;
+import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
 
@@ -58,5 +67,35 @@ public class IcebergStaticPartitionLiteralTest {
         Assertions.assertNull(context.getStaticPartitionValues().get("null_value"));
         Assertions.assertEquals("null", context.getStaticPartitionValues().get("text_value"));
         Assertions.assertEquals("0x", context.getStaticPartitionValues().get("empty_bytes"));
+    }
+
+    @Test
+    public void renameIdentityStaticPartitionKeyToFieldName() throws Exception {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "value", Types.StringType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("id", "id_identity").build();
+        org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext writeContext =
+                org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext.forSchema(
+                        schema, 2, spec, SortOrder.unsorted(), FileFormat.PARQUET,
+                        MetricsConfig.getDefault(), TableProperties.PARQUET_COMPRESSION_DEFAULT_SINCE_1_4_0,
+                        "file:///tmp/test_table/data",
+                        ImmutableMap.of(TableProperties.FORMAT_VERSION, "2"), true, true);
+        LogicalPlan child = new LogicalOneRowRelation(new RelationId(1), ImmutableList.of());
+        UnboundIcebergTableSink<LogicalPlan> sink = new UnboundIcebergTableSink<>(
+                ImmutableList.of("catalog", "db", "table"), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
+                DMLCommandType.INSERT, Optional.empty(), Optional.empty(), child,
+                Collections.singletonMap("id", new IntegerLiteral(2)), false, Optional.empty(),
+                Optional.of(writeContext));
+        InsertOverwriteTableCommand command = new InsertOverwriteTableCommand(
+                sink, Optional.empty(), Optional.empty(), Optional.empty());
+        IcebergInsertCommandContext context = new IcebergInsertCommandContext();
+        Method method = InsertOverwriteTableCommand.class.getDeclaredMethod("setStaticPartitionToContext",
+                UnboundIcebergTableSink.class, IcebergInsertCommandContext.class);
+        method.setAccessible(true);
+        method.invoke(command, sink, context);
+
+        Assertions.assertEquals(Collections.singletonMap("id_identity", "2"),
+                context.getStaticPartitionValues());
     }
 }
