@@ -1117,6 +1117,52 @@ TEST(VGeoFunctionsTest, GeographyTouchesRejectsRoundedPolygonContact) {
     expect_geography_relation("st_touches", square, crossing, false);
 }
 
+TEST(VGeoFunctionsTest, GeographyIntersectsRejectsRoundedPolygonContact) {
+    const std::string polygon = "POLYGON ((0 58.00000000000001,1 59,-1 59,0 58.00000000000001))";
+    for (const auto& other : {"LINESTRING (0 57,0 58)", "POLYGON ((0 58,1 57,-1 57,0 58))"}) {
+        for (const auto* name : {"st_intersects", "st_disjoint"}) {
+            expect_rounded_polygon_interior_error(name, polygon, other);
+            expect_rounded_polygon_interior_error(name, other, polygon);
+        }
+    }
+    const std::string separated = "LINESTRING (0 57,0 57.9)";
+    expect_geography_relation("st_intersects", separated, polygon, false);
+    expect_geography_relation("st_intersects", polygon, separated, false);
+    expect_geography_relation("st_disjoint", separated, polygon, true);
+    expect_geography_relation("st_disjoint", polygon, separated, true);
+}
+
+TEST(VGeoFunctionsTest, GeographyIntersectsKeepsIndependentPolygonWitnesses) {
+    // The first five pairs retain a rounded-only collision, but another raw contact or
+    // admitted interior vertex proves intersection. The first vertex need not be that witness.
+    const std::vector<std::pair<std::string, std::string>> cases {
+            {"POLYGON ((0 58.00000000000001,1 59,-1 59,0 58.00000000000001))",
+             "LINESTRING (0 57,0 58,1 59)"},
+            {"POLYGON ((0 58.00000000000001,1 59,-1 59,0 58.00000000000001))",
+             "LINESTRING (0 58,0.1 58.8)"},
+            {"POLYGON ((0 58.00000000000001,1 59,-1 59,0 58.00000000000001))",
+             "LINESTRING (0 57,0 58,0 58.5)"},
+            {"POLYGON ((0 58.00000000000001,1 59,-1 59,0 58.00000000000001))",
+             "POLYGON ((0 58,1 57,1 59,0 58))"},
+            {"POLYGON ((0 58.00000000000001,1 59,-1 59,0 58.00000000000001))",
+             "POLYGON ((0 58,0.1 58.8,-0.1 58.8,0 58))"},
+            {"POLYGON ((0 0,2 0,2 2,0 2,0 0))", "LINESTRING (-1 1,3 1)"},
+            {"POLYGON ((0 0,2 0,2 2,0 2,0 0))", "LINESTRING (0.5 0.5,1.5 0.5)"},
+            {"POLYGON ((-2 -2,2 -2,2 2,-2 2,-2 -2),(0 -1,0 1,1 1,1 -1,0 -1))",
+             "LINESTRING (0.5 0,0 0)"},
+            {"POLYGON ((180 58,-179 59,-179 57,180 58))", "LINESTRING (-180 57,-180 59)"},
+            {"POLYGON ((0 90,0 80,90 80,0 90))", "LINESTRING (0 90,90 90)"},
+            {"POLYGON ((0 58,1 58,1 59,0 59,0 58))",
+             "POLYGON ((0 58,0 58.00000000000001,0 59,-1 59,-1 58,0 58))"},
+    };
+    for (const auto& [left, right] : cases) {
+        expect_geography_relation("st_intersects", left, right, true);
+        expect_geography_relation("st_intersects", right, left, true);
+        expect_geography_relation("st_disjoint", left, right, false);
+        expect_geography_relation("st_disjoint", right, left, false);
+    }
+}
+
 TEST(VGeoFunctionsTest, GeographyTouchesRejectsCollapsedLinePolygonInterior) {
     const std::vector<std::pair<std::string, std::string>> cases {
             {"LINESTRING (0 57,0 58.00000000000001)", "POLYGON ((0 58,1 59,-1 59,0 58))"},

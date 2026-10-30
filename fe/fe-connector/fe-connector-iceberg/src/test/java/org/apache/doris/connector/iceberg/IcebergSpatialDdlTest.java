@@ -29,6 +29,7 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.types.EdgeAlgorithm;
 import org.apache.iceberg.types.Type;
@@ -122,9 +123,9 @@ public class IcebergSpatialDdlTest {
                     .dbName("db1").tableName("t1").columns(Collections.singletonList(column(type)))
                     .properties(Map.of(TableProperties.FORMAT_VERSION, "3"))
                     .partitionSpec(identityPartition("shape")).build();
-            DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+            ValidationException error = Assertions.assertThrows(ValidationException.class,
                     () -> metadata(ops, Collections.emptyMap()).createTable(null, request));
-            Assertions.assertTrue(error.getMessage().contains("spatial columns cannot be partition sources"),
+            Assertions.assertTrue(error.getMessage().contains("for transform: identity"),
                     error.getMessage());
             Assertions.assertTrue(ops.log.isEmpty());
         }

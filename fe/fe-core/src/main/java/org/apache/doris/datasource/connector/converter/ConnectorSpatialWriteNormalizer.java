@@ -165,6 +165,9 @@ public final class ConnectorSpatialWriteNormalizer {
             // SELECT reaches sink binding before constant folding: CAST(NULL AS INT)
             // and CAST(NULL AS GEOMETRY('EPSG:3857')) are still value-independent NULLs.
             if (value instanceof Cast && children.get(0).isNullLiteral()) {
+                // A bound SELECT/UPDATE can still contain GEOGRAPHY -> INT. Retain its
+                // analysis error before NULL retagging and project merging erase the cast.
+                validateNullCastChain(value);
                 return new NullLiteral(value.getDataType());
             }
             return children.equals(value.children()) ? value : value.withChildren(children);

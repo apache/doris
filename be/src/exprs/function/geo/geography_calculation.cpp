@@ -1225,6 +1225,61 @@ static bool geography_raw_rounded_side_mismatch(const GeographyCoordinates& poly
     return false;
 }
 
+static bool geography_polygon_boundary_contains_point(const GeographyCoordinates& polygon,
+                                                      const GeographyEdgeNodes& nodes,
+                                                      const GeographyVertex& point) {
+    for (const auto& ring : polygon.sequences) {
+        for (size_t i = 0; i + 1 < ring.size(); ++i) {
+            if (nodes.contains_point(ring[i], ring[i + 1], point)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+enum class GeographyPolygonInterior { OUTSIDE, INSIDE, ROUNDED_BOUNDARY, ROUNDED_SIDE };
+
+// The caller has already excluded exact raw boundary contact. Reuse this admission for both
+// point relations and independent interior witnesses in a pair with a rounded vertex collision.
+static GeographyPolygonInterior geography_polygon_point_interior(
+        const GeographyCoordinates& polygon, const S2ShapeIndex& index,
+        const GeographyVertex& point) {
+    MutableS2ShapeIndex point_index;
+    point_index.Add(std::make_unique<S2PointVectorShape>(std::vector<S2Point> {point.point}));
+    S2BooleanOperation::Options options;
+    options.set_polygon_model(S2BooleanOperation::PolygonModel::CLOSED);
+    const bool closed = S2BooleanOperation::Contains(index, point_index, options);
+    options.set_polygon_model(S2BooleanOperation::PolygonModel::OPEN);
+    const bool interior = S2BooleanOperation::Contains(index, point_index, options);
+    // A raw vertex can round onto a different boundary vertex without owning its interior.
+    if (closed && !interior) {
+        return GeographyPolygonInterior::ROUNDED_BOUNDARY;
+    }
+    if (geography_raw_rounded_side_mismatch(polygon, point)) {
+        return GeographyPolygonInterior::ROUNDED_SIDE;
+    }
+    return interior ? GeographyPolygonInterior::INSIDE : GeographyPolygonInterior::OUTSIDE;
+}
+
+static bool geography_has_polygon_intersection_witness(const GeographyCoordinates& polygon,
+                                                       const S2ShapeIndex& index,
+                                                       const GeographyCoordinates& other,
+                                                       const GeographyEdgeNodes& nodes) {
+    for (const auto& sequence : other.sequences) {
+        for (const auto& point : sequence) {
+            if (geography_polygon_boundary_contains_point(polygon, nodes, point) ||
+                geography_polygon_point_interior(polygon, index, point) ==
+                        GeographyPolygonInterior::INSIDE) {
+                return true;
+            }
+            // An uncertain vertex proves nothing about the rest of the shape. In particular,
+            // a later endpoint can lie strictly inside even if the first rounds onto the boundary.
+        }
+    }
+    return false;
+}
+
 static Status geography_point_relation(std::string_view name, const GeoShape& lhs,
                                        const GeoShape& rhs, const GeographyEdgeNodes& nodes,
                                        bool* result) {
@@ -1245,33 +1300,21 @@ static Status geography_point_relation(std::string_view name, const GeoShape& lh
         interior = member && !boundary;
     } else {
         DCHECK(other.type() == GeoShapeType::GEO_SHAPE_POLYGON);
-        for (const auto& ring : other_raw.sequences) {
-            for (size_t j = 0; j + 1 < ring.size(); ++j) {
-                boundary = boundary || nodes.contains_point(ring[j], ring[j + 1], point);
-            }
-        }
+        boundary = geography_polygon_boundary_contains_point(other_raw, nodes, point);
         if (!boundary && name != "st_touches") {
             MutableS2ShapeIndex index;
-            MutableS2ShapeIndex point_index;
             geography_shape_index(other, other_raw, nodes, &index);
-            geography_shape_index(lhs.type() == GeoShapeType::GEO_SHAPE_POINT ? lhs : rhs,
-                                  point_raw, nodes, &point_index);
-            S2BooleanOperation::Options options;
-            options.set_polygon_model(S2BooleanOperation::PolygonModel::CLOSED);
-            const bool closed = S2BooleanOperation::Contains(index, point_index, options);
-            options.set_polygon_model(S2BooleanOperation::PolygonModel::OPEN);
-            interior = S2BooleanOperation::Contains(index, point_index, options);
-            // Raw POINT(58+ulp 0) is not on the boundary at vertex (58,0). Do not let
-            // SEMI_OPEN vertex ownership turn this rounded boundary coincidence into an interior.
-            if (closed && !interior) {
+            const auto location = geography_polygon_point_interior(other_raw, index, point);
+            if (location == GeographyPolygonInterior::ROUNDED_BOUNDARY) {
                 return Status::NotSupported(
                         "{} does not support ambiguous spherical Polygon boundary ownership", name);
             }
-            if (geography_raw_rounded_side_mismatch(other_raw, point)) {
+            if (location == GeographyPolygonInterior::ROUNDED_SIDE) {
                 return Status::NotSupported(
                         "{} does not support ambiguous spherical Polygon boundary side conversion",
                         name);
             }
+            interior = location == GeographyPolygonInterior::INSIDE;
         }
     }
     if (name == "st_intersects") {
@@ -1286,8 +1329,8 @@ static Status geography_point_relation(std::string_view name, const GeoShape& lh
     return Status::OK();
 }
 
-// Preserve the existing operation-specific raw/S2 admission order in this mechanical move;
-// decomposing these precision branches would mix algorithm changes into the extraction.
+// Keep operation-specific raw/S2 admission together so uncertain rounded boundaries are checked
+// before accepting a Boolean, while independent raw contact or interior witnesses stay valid.
 // NOLINTNEXTLINE(readability-function-size,readability-function-cognitive-complexity)
 Status geography_relation(std::string_view name, const GeoShape& lhs, const GeoShape& rhs,
                           StringRef left_wkb, StringRef right_wkb, bool* result) {
@@ -1444,6 +1487,24 @@ Status geography_relation(std::string_view name, const GeoShape& lhs, const GeoS
         return Status::NotSupported(
                 "{} does not support ambiguous spherical Polygon boundary line endpoint contact",
                 name);
+    }
+    if (intersects && (name == "st_intersects" || name == "st_disjoint") &&
+        (lhs.type() == GeoShapeType::GEO_SHAPE_POLYGON ||
+         rhs.type() == GeoShapeType::GEO_SHAPE_POLYGON) &&
+        geography_rounded_vertex_collision(left_edges, nodes.left, right_edges, nodes.right) &&
+        !shares_raw_vertex()) {
+        // CLOSED indexes can turn a raw endpoint/apex gap into contact. An unrelated collision
+        // must not hide genuine contact or a strict interior point elsewhere in either shape.
+        const bool has_witness =
+                (lhs.type() == GeoShapeType::GEO_SHAPE_POLYGON &&
+                 geography_has_polygon_intersection_witness(nodes.left, left, nodes.right,
+                                                            nodes)) ||
+                (rhs.type() == GeoShapeType::GEO_SHAPE_POLYGON &&
+                 geography_has_polygon_intersection_witness(nodes.right, right, nodes.left, nodes));
+        if (!has_witness) {
+            return Status::NotSupported(
+                    "{} does not support ambiguous spherical Polygon boundary intersection", name);
+        }
     }
     // A nearby disjoint curve must not become a boundary contact through the legacy
     // conversion-distance fallback used below by Intersects/Disjoint.

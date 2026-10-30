@@ -23,6 +23,8 @@
 #include <parquet/api/reader.h>
 #include <parquet/arrow/reader.h>
 #include <parquet/schema.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
 
 #include <algorithm>
 #include <optional>
@@ -182,13 +184,18 @@ protected:
         const auto& identity = assert_cast<const DataTypeSpatial&>(*spatial);
         const bool geography = identity.get_primitive_type() == TYPE_GEOGRAPHY;
         const std::string schema_type =
-                geography ? "geography(" + identity.crs() + "," + identity.algorithm() + ")"
+                geography ? "geography(" + identity.crs() + ", " + identity.algorithm() + ")"
                           : "geometry(" + identity.crs() + ")";
+        rapidjson::StringBuffer json_type;
+        rapidjson::Writer<rapidjson::StringBuffer> json_writer(json_type);
+        ASSERT_TRUE(json_writer.String(schema_type.data(),
+                                       static_cast<rapidjson::SizeType>(schema_type.size())));
         const std::string json =
                 "{\"type\":\"struct\",\"fields\":[{\"id\":1,\"name\":\"shape\","
-                "\"required\":false,\"type\":\"" +
-                schema_type + "\"}]}";
+                "\"required\":false,\"type\":" +
+                std::string(json_type.GetString(), json_type.GetSize()) + "}]}";
         auto schema = iceberg::SchemaParser::from_json(json);
+        EXPECT_EQ(schema->columns()[0].field_type()->to_string(), schema_type);
         auto expressions = MockSlotRef::create_mock_contexts(DataTypes {type});
         io::FileWriterPtr output;
         ASSERT_TRUE(_fs->create_file(_file_path, &output).ok());
@@ -209,6 +216,15 @@ protected:
         check_spatial_annotation(assert_cast<const DataTypeSpatial&>(*spatial),
                                  *reader->metadata()->schema()->Column(0));
         check_spatial_values(*reader, wkb);
+    }
+
+    void check_spatial_crs_files(const std::string& crs) {
+        check_spatial_file(std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY, crs));
+        for (const std::string algorithm :
+             {"spherical", "vincenty", "thomas", "andoyer", "karney"}) {
+            SCOPED_TRACE(algorithm);
+            check_spatial_file(std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, crs, algorithm));
+        }
     }
 
     void check_split_offsets(int row_groups, bool dictionary) {
@@ -326,6 +342,25 @@ TEST_F(VParquetWriterTest, SpatialOptionalFilesPreserveAnnotationsBytesAndNullRo
             std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "OGC:CRS84", "karney")};
     for (const auto& spatial : types) {
         check_spatial_file(spatial);
+    }
+}
+
+TEST_F(VParquetWriterTest, SpatialEmbeddedNullCrsSurvivesSchemaJsonAndParquetRoundTrip) {
+    // Java 1.12 reload retains an internal NUL for either kind. Geography also admits custom)\0zone,
+    // which previously became geography(custom) and wrote a different CRS into the footer.
+    for (const auto& crs : {std::string("custom:\0zone", 12), std::string("custom)\0zone", 12)}) {
+        SCOPED_TRACE(crs);
+        check_spatial_crs_files(crs);
+    }
+}
+
+TEST_F(VParquetWriterTest, SpatialSchemaObjectCrsBytesSurviveParquetRoundTrip) {
+    // SDK-created schema objects preserve these identities. Java 1.12 metadata reload may trim
+    // edge whitespace or reject delimiters; this test covers the supplied-schema/BE boundary.
+    for (const std::string crs : {" custom:zone ", "\tcustom:zone\t", " \t",
+                                  "Custom:Zone(Inner(A))", "Custom:Comma,Token"}) {
+        SCOPED_TRACE(crs);
+        check_spatial_crs_files(crs);
     }
 }
 

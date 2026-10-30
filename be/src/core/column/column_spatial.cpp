@@ -289,13 +289,23 @@ struct ColumnSpatial::less {
     }
 };
 
-void ColumnSpatial::get_permutation(bool reverse, size_t /* limit */, int /* nan_direction_hint */,
+void ColumnSpatial::get_permutation(bool reverse, size_t limit, int /* nan_direction_hint */,
                                     HybridSorter& sorter, IColumn::Permutation& result) const {
     result.resize(size());
     for (size_t i = 0; i < size(); ++i) {
         result[i] = i;
     }
-    if (reverse) {
+    // SortBlock consumes only the LIMIT prefix for a selective single-key TopN.
+    // Use the same size/8 policy as ColumnVector; zero/nonselective limits retain full sorting.
+    if (limit && static_cast<double>(limit) <= static_cast<double>(size()) / 8.0) {
+        if (reverse) {
+            std::partial_sort(result.begin(), result.begin() + limit, result.end(),
+                              less<false> {*this});
+        } else {
+            std::partial_sort(result.begin(), result.begin() + limit, result.end(),
+                              less<true> {*this});
+        }
+    } else if (reverse) {
         sorter.sort(result.begin(), result.end(), less<false> {*this});
     } else {
         sorter.sort(result.begin(), result.end(), less<true> {*this});

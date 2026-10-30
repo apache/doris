@@ -229,6 +229,35 @@ public class CreateIcebergSpatialV3Table {
         }
     }
 
+    private static void createEmbeddedNullCrsSources(Catalog catalog, Namespace namespace,
+            Map<String, String> properties) throws Exception {
+        for (boolean geography : new boolean[] {false, true}) {
+            String suffix = geography ? "geog" : "geom";
+            // Geography's ')' survives the SDK parser. A C-string truncation would turn
+            // its serialized prefix into the valid, different geography(custom) type.
+            String crs = (geography ? "custom)" : "custom:") + (char) 0 + "zone";
+            org.apache.iceberg.types.Type type = geography
+                    ? Types.GeographyType.of(crs, org.apache.iceberg.types.EdgeAlgorithm.SPHERICAL)
+                    : Types.GeometryType.of(crs);
+            Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                    Types.NestedField.optional(2, "shape", type));
+            for (boolean copy : new boolean[] {false, true}) {
+                TableIdentifier name = TableIdentifier.of(namespace,
+                        "spatial_nul_crs_" + suffix + (copy ? "_copy" : ""));
+                if (catalog.tableExists(name)) {
+                    catalog.dropTable(name);
+                }
+                Table table = catalog.createTable(name, schema, PartitionSpec.unpartitioned(), properties);
+                if (!copy) {
+                    MessageType message = MessageTypeParser.parseMessageType(
+                            "message spatial_nul_crs { required int32 id = 1; optional binary shape = 2; }");
+                    appendParquetRow(table, message, new SimpleGroupFactory(message).newGroup().append("id", 1)
+                            .append("shape", binary("0101000000000000000000F03F0000000000000040")));
+                }
+            }
+        }
+    }
+
     public static void main(String[] args) throws Exception {
         Map<String, String> properties = new HashMap<>();
         properties.put("type", "rest");
@@ -337,6 +366,7 @@ public class CreateIcebergSpatialV3Table {
         appendParquetRow(nestedTable, nestedMessage, nestedRow);
         createNestedSource(catalog, namespace, tableProperties);
         createOrcWriteTargets(catalog, namespace, tableProperties);
+        createEmbeddedNullCrsSources(catalog, namespace, tableProperties);
     }
 }
 '''
@@ -753,11 +783,11 @@ public class CreateIcebergSpatialV3Table {
     for (String column : ["geom", "geog"]) {
         test {
             sql """alter table spatial_partitioned_copy add partition key ${column}"""
-            exception "Iceberg spatial columns cannot be partition sources"
+            exception "Unsupported type for identity"
         }
         test {
             sql """alter table spatial_partitioned_copy replace partition key id with ${column}"""
-            exception "Iceberg spatial columns cannot be partition sources"
+            exception "Unsupported type for identity"
         }
     }
     // Rejected changes keep the ordinary identity partition usable with spatial values.
@@ -882,7 +912,7 @@ public class CreateIcebergSpatialV3Table {
         test {
             sql """create table spatial_create_rejected (id int, shape ${kind}) engine=iceberg
                 partition by list(shape) () properties ('format-version' = '3')"""
-            exception "Iceberg spatial columns cannot be partition sources"
+            exception "for transform: identity"
         }
         String suffix = kind == "geometry" ? "geom" : "geog"
         for (String nesting : ["", "_nested"]) {
@@ -1069,9 +1099,8 @@ public class CreateIcebergSpatialV3Table {
         array_map(x -> hex(ST_AsBinary(struct_element(x, 'shape'))), g_deep['shapes']),
         array_map(x -> hex(ST_AsBinary(struct_element(x, 'shape'))), gg_deep['shapes'])
         from spatial_nested_source"""
-    // Real nested scan slots also bypass unsupported scalar runtime-filter factories.
-    for (String column : ["g_array", "gg_array", "g_map", "gg_map",
-            "g_struct", "gg_struct", "g_deep", "gg_deep"]) {
+    // Array equality is admitted; real scan slots must bypass scalar runtime-filter factories.
+    for (String column : ["g_array", "gg_array"]) {
         for (int filterType : [1, 2, 8]) {
             String joinSql = """select /*+ SET_VAR(enable_runtime_filter_prune=false,
                 runtime_filter_type=${filterType}) */ count(*) from spatial_nested_source l
@@ -1081,6 +1110,14 @@ public class CreateIcebergSpatialV3Table {
                 sql joinSql
                 notContains "RF"
             }
+        }
+    }
+    // MAP/STRUCT equality is rejected by existing analysis, independently of runtime filters.
+    for (String column : ["g_map", "gg_map", "g_struct", "gg_struct", "g_deep", "gg_deep"]) {
+        test {
+            sql """explain select count(*) from spatial_nested_source l
+                join spatial_nested_source r on l.${column} = r.${column}"""
+            exception "comparison predicate could not contains complex type"
         }
     }
     for (String function : ["min_by", "max_by"]) {
@@ -1470,6 +1507,52 @@ public class CreateIcebergSpatialV3Table {
         "qt_spatial_plain_lists_${column}"("""select size(array_agg(${column})),
             size(collect_list(${column})), size(collect_list(${column}, 2))
             from geometry_values where id in (101, 102, 103)""")
+    }
+
+    // Bound NULL proof must validate the original cast before a project merge can erase it.
+    sql """drop table if exists spatial_bound_cast_values"""
+    sql """create table spatial_bound_cast_values (id int, geom geometry, geog geography)
+        properties ('format-version'='3')"""
+    sql """insert into spatial_bound_cast_values values (1,
+        ST_GeometryFromWKBTyped('0101000000000000000000F03F0000000000000040'),
+        ST_GeogFromWKB('0101000000000000000000F03F0000000000000040'))"""
+    String savedSpatialStrictCast = sql("show variables like 'enable_strict_cast'")[0][1]
+    try {
+        for (boolean strictCast : [false, true]) {
+            sql "set enable_strict_cast = ${strictCast}"
+            for (String column : ["geom", "geog"]) {
+                for (String sourceKind : ["geometry", "geography"]) {
+                    String invalid = "cast(cast(null as ${sourceKind}) as int)"
+                    test {
+                        sql """insert into spatial_bound_cast_values (id, ${column}) select 2, ${invalid}"""
+                        exception "can not cast from origin type"
+                    }
+                    test {
+                        sql """insert into spatial_bound_cast_values (id, ${column})
+                            with source as (select cast(null as ${sourceKind}) shape)
+                            select 2, cast(shape as int) from source"""
+                        exception "can not cast from origin type"
+                    }
+                    test {
+                        sql """update spatial_bound_cast_values set ${column} = ${invalid} where id = 1"""
+                        exception "can not cast from origin type"
+                    }
+                }
+            }
+        }
+    } finally {
+        sql "set enable_strict_cast = ${savedSpatialStrictCast}"
+    }
+    sql """insert into spatial_bound_cast_values select 2, cast(null as int),
+        cast(null as geometry('EPSG:3857'))"""
+    sql """update spatial_bound_cast_values set geom = cast(null as geography),
+        geog = cast(null as int) where id = 1"""
+    order_qt_spatial_bound_null_casts """select id, geom is null, geog is null
+        from spatial_bound_cast_values"""
+    for (String kind : ["geom", "geog"]) {
+        sql """insert into spatial_nul_crs_${kind}_copy select * from spatial_nul_crs_${kind}"""
+        "order_qt_spatial_nul_crs_${kind}_roundtrip"("""select id, ST_AsText(shape), hex(ST_AsBinary(shape))
+            from spatial_nul_crs_${kind}_copy""")
     }
 
     // SELECT is bound before constant folding; preserve NULL identity through projects and CTEs.

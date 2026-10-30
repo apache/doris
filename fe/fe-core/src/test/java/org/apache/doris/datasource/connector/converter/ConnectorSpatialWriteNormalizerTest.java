@@ -237,6 +237,42 @@ public class ConnectorSpatialWriteNormalizerTest {
     }
 
     @Test
+    public void testBoundNullNormalizationRejectsInvalidCastChains() {
+        try (AutoCloseConnectContext context = new AutoCloseConnectContext(new ConnectContext())) {
+            for (boolean strictCast : ImmutableList.of(false, true)) {
+                context.connectContext.getSessionVariable().enableStrictCast = strictCast;
+                for (Type spatial : ImmutableList.of(ScalarType.createGeometryType("OGC:CRS84"),
+                        ScalarType.createGeographyType("OGC:CRS84", "spherical"))) {
+                    List<Type> targets = ImmutableList.of(spatial, new ArrayType(spatial),
+                            new MapType(Type.STRING, spatial), new StructType(new StructField("shape", spatial)));
+                    for (DataType sourceType : ImmutableList.of(
+                            DataType.fromCatalogType(ScalarType.createGeometryType("OGC:CRS84")),
+                            DataType.fromCatalogType(ScalarType.createGeographyType("OGC:CRS84", "spherical")))) {
+                        Expression invalid = new Cast(new Cast(NullLiteral.INSTANCE, sourceType),
+                                IntegerType.INSTANCE, true, strictCast);
+                        List<Expression> values = ImmutableList.of(invalid, new Array(invalid),
+                                new CreateMap(new StringLiteral("ordinary-key"), invalid),
+                                new CreateNamedStruct(new StringLiteral("shape"), invalid));
+                        for (int i = 0; i < values.size(); i++) {
+                            Column target = new Column("shape", targets.get(i));
+                            LogicalPlan source = row(values.get(i));
+                            LogicalPlan projected = new LogicalProject<>(ImmutableList.of(
+                                    new Alias(source.getOutput().get(0), "renamed")), source);
+                            for (LogicalPlan plan : ImmutableList.of(source, projected)) {
+                                AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                                        () -> ConnectorSpatialWriteNormalizer.normalize(
+                                                ImmutableList.of(target), plan, new CTEContext()));
+                                Assertions.assertEquals("can not cast from origin type " + sourceType
+                                        + " to target type=INT", error.getMessage());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
     public void testTypedNullCteProvenanceBeforeAndAfterAnchoring() {
         Type target = ScalarType.createGeometryType("OGC:CRS84");
         LogicalSubQueryAlias<Plan> producer = new LogicalSubQueryAlias<>("source",

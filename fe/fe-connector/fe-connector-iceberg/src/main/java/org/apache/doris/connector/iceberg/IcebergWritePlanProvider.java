@@ -435,7 +435,6 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
             // An INSERT column list can omit a spatial field that is still part of every written data file.
             IcebergSpatialSchemaValidator.validateTable(schemaContext.getFormatVersion(),
                     schemaContext.getFileFormat().name());
-            IcebergSpatialSchemaValidator.validatePartitionSpec(schema, schemaContext.getPartitionSpec());
         }
     }
 

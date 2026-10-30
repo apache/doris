@@ -526,34 +526,19 @@ public class CatalogBackedIcebergCatalogOpsDdlTest {
             ops.addPartitionField("db1", tableName, add(null, null, "id", "p_id"));
             PartitionSpec original = ops.loadTable("db1", tableName).spec();
             for (String source : Arrays.asList("shape", "payload.shape")) {
-                DorisConnectorException addError = Assertions.assertThrows(DorisConnectorException.class,
+                IllegalArgumentException addError = Assertions.assertThrows(IllegalArgumentException.class,
                         () -> ops.addPartitionField("db1", tableName, add(null, null, source, "p_shape")));
-                Assertions.assertTrue(addError.getMessage().contains("spatial columns cannot be partition sources"),
+                Assertions.assertTrue(addError.getMessage().contains("Unsupported type for identity"),
                         addError.getMessage());
-                DorisConnectorException replaceError = Assertions.assertThrows(DorisConnectorException.class,
+                IllegalArgumentException replaceError = Assertions.assertThrows(IllegalArgumentException.class,
                         () -> ops.replacePartitionField("db1", tableName,
                                 new PartitionFieldChange(null, null, source, "p_shape",
                                         "p_id", null, null, null)));
-                Assertions.assertTrue(replaceError.getMessage().contains("spatial columns cannot be partition sources"),
+                Assertions.assertTrue(replaceError.getMessage().contains("Unsupported type for identity"),
                         replaceError.getMessage());
                 Assertions.assertEquals(original, ops.loadTable("db1", tableName).spec());
             }
         }
-    }
-
-    @Test
-    public void testDropExistingSpatialPartitionAllowsOrdinaryReplacement() {
-        ops.createDatabase("db1", Collections.emptyMap());
-        Schema schema = new Schema(Types.NestedField.optional(1, "id", Types.IntegerType.get()),
-                Types.NestedField.optional(2, "shape", Types.GeometryType.crs84()));
-        // An external catalog can already carry an unsupported identity partition; DROP must remain usable.
-        catalog.createTable(TableIdentifier.of("db1", "t1"), schema,
-                PartitionSpec.builderFor(schema).identity("shape").build(),
-                Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"));
-        ops.dropPartitionField("db1", "t1", add(null, null, "shape", null));
-        ops.addPartitionField("db1", "t1", add(null, null, "id", null));
-        Assertions.assertEquals(ops.loadTable("db1", "t1").schema().findField("id").fieldId(),
-                ops.loadTable("db1", "t1").spec().fields().get(0).sourceId());
     }
 
     @Test

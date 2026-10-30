@@ -201,11 +201,11 @@ std::unique_ptr<PrimitiveType> Types::from_primitive_string(const std::string& t
             return std::make_unique<DecimalType>(precision, scale);
         }
 
-        // Iceberg serializes CRS text verbatim: geometry(custom:zone(A)) contains an inner ')'.
-        std::regex geometry(R"(geometry\s*(?:\(\s*([\s\S]*?)\s*\))?)", std::regex::icase);
+        // Iceberg serializes CRS text verbatim, including edge whitespace and inner ')'.
+        // geometry( custom:zone(A) ) must retain the spaces as part of the CRS identity.
+        std::regex geometry(R"(geometry\s*(?:\(([\s\S]*)\))?)", std::regex::icase);
         if (std::regex_match(type_string, match, geometry, std::regex_constants::match_default)) {
-            const std::string crs =
-                    match[1].matched ? trim(match[1].str()) : GeometryType::DEFAULT_CRS;
+            const std::string crs = match[1].matched ? match[1].str() : GeometryType::DEFAULT_CRS;
             if (crs.empty()) {
                 throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                        "Invalid CRS: (empty string)");
@@ -213,17 +213,16 @@ std::unique_ptr<PrimitiveType> Types::from_primitive_string(const std::string& t
             return std::make_unique<GeometryType>(crs);
         }
 
-        std::regex geography(R"(geography\s*(?:\(\s*([^,]*?)\s*(?:,\s*(\w*)\s*)?\))?)",
+        std::regex geography(R"(geography\s*(?:\(([^,]*?)(?:,\s*(\w*)\s*)?\))?)",
                              std::regex::icase);
         // GeographyType.toString() appends the algorithm after the raw CRS. Only the final comma
         // separates it in geography(projjson:{"a":1,"b":2}, spherical); retain legacy defaults too.
-        std::regex geography_with_algorithm(R"(geography\s*\(\s*([\s\S]*?)\s*,\s*(\w*)\s*\))",
+        std::regex geography_with_algorithm(R"(geography\s*\(([\s\S]*),\s*(\w*)\s*\))",
                                             std::regex::icase);
         if (std::regex_match(type_string, match, geography_with_algorithm,
                              std::regex_constants::match_default) ||
             std::regex_match(type_string, match, geography, std::regex_constants::match_default)) {
-            const std::string crs =
-                    match[1].matched ? trim(match[1].str()) : GeographyType::DEFAULT_CRS;
+            const std::string crs = match[1].matched ? match[1].str() : GeographyType::DEFAULT_CRS;
             const std::string algorithm =
                     match[2].matched ? trim(match[2].str()) : GeographyType::DEFAULT_ALGORITHM;
             if (crs.empty() || algorithm.empty()) {

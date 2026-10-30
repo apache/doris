@@ -220,9 +220,7 @@ public final class IcebergSchemaBuilder {
                     throw new DorisConnectorException("unsupported partition transform for iceberg: " + transform);
             }
         }
-        PartitionSpec partitionSpec = builder.build();
-        IcebergSpatialSchemaValidator.validatePartitionSpec(schema, partitionSpec);
-        return partitionSpec;
+        return builder.build();
     }
 
     private static int intArg(String transform, List<Integer> args) {

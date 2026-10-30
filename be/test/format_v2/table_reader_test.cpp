@@ -2965,7 +2965,7 @@ TEST(TableReaderTest, SchemaEvolutionKeepsResolvedSpatialIdentity) {
             scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
             scan_params.__set_current_schema_id(100);
             scan_params.__set_history_schema_info({external_schema(100, {field})});
-            ColumnDefinition column {.name = "shape", .type = resolved};
+            ColumnDefinition column {.identifier = {}, .name = "shape", .type = resolved};
             ProjectedColumnBuildContext context {.scan_params = &scan_params};
             ASSERT_TRUE(reader.annotate_projected_column(slot_info, &context, &column).ok());
             ASSERT_TRUE(context.schema_column.has_value());
@@ -2990,14 +2990,18 @@ TEST(TableReaderTest, SchemaEvolutionKeepsResolvedSpatialIdentity) {
             const auto nested = std::make_shared<DataTypeStruct>(DataTypes {array, map},
                                                                  Strings {"items", "props"});
             scan_params.__set_history_schema_info({external_schema(100, {nested_field})});
-            ColumnDefinition payload {.name = "payload", .type = nested};
+            ColumnDefinition payload {.identifier = {}, .name = "payload", .type = nested};
             ASSERT_TRUE(reader.annotate_projected_column(slot_info, &context, &payload).ok());
             ASSERT_TRUE(context.schema_column.has_value());
             ASSERT_EQ(context.schema_column->children.size(), 2);
             ASSERT_EQ(context.schema_column->children[0].children.size(), 1);
             ASSERT_EQ(context.schema_column->children[1].children.size(), 2);
-            EXPECT_EQ(context.schema_column->children[0].children[0].type, resolved);
+            // Array elements use their canonical nullable type independently of Iceberg optionality.
+            EXPECT_EQ(context.schema_column->children[0].children[0].type,
+                      array->get_nested_type());
+            EXPECT_EQ(context.schema_column->children[0].children[0].is_optional, nullable);
             EXPECT_EQ(context.schema_column->children[1].children[1].type, resolved);
+            EXPECT_EQ(context.schema_column->children[1].children[1].is_optional, nullable);
             EXPECT_TRUE(context.schema_column->children[1].children[0].type->equals(
                     *map->get_key_type()));
         }

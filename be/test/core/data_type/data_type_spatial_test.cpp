@@ -20,6 +20,7 @@
 #include <gen_cpp/data.pb.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <string>
@@ -128,6 +129,89 @@ TEST(DataTypeSpatialTest, MultiColumnSortSupportsNullableSpatial) {
                     for (const size_t limit : {0, 1, 3, 4}) {
                         check_spatial_multikey_sort(primitive, nullable, direction, nulls_direction,
                                                     limit);
+                    }
+                }
+            }
+        }
+    }
+}
+
+static std::vector<int> spatial_topn_expected(size_t rows, int nullable, int direction,
+                                              int nulls_direction, size_t limit) {
+    std::vector<int> expected;
+    size_t null_count = 0;
+    for (size_t rank = 0; rank < rows; ++rank) {
+        const auto coordinate = direction == 1 ? rank : rows - rank - 1;
+        if (nullable == 2 && coordinate % 11 == 0) {
+            ++null_count;
+        } else {
+            expected.push_back(static_cast<int>(coordinate));
+        }
+    }
+    const auto null_position = direction * nulls_direction < 0 ? expected.begin() : expected.end();
+    expected.insert(null_position, null_count, -1);
+    expected.resize(limit == 0 ? rows : std::min(limit, rows));
+    return expected;
+}
+
+static void check_spatial_topn_row(const IColumn& sorted, const ColumnNullable* nullable,
+                                   size_t row, int coordinate) {
+    if (coordinate == -1) {
+        ASSERT_NE(nullptr, nullable);
+        EXPECT_TRUE(nullable->is_null_at(row));
+    } else {
+        EXPECT_FALSE(nullable != nullptr && nullable->is_null_at(row));
+        const auto value = sorted.get_data_at(row);
+        ASSERT_EQ(21, value.size);
+        EXPECT_EQ(coordinate, static_cast<uint8_t>(value.data[13]));
+    }
+}
+
+static void check_spatial_topn(PrimitiveType primitive, int nullable, int direction,
+                               int nulls_direction, size_t limit) {
+    constexpr size_t rows = 128;
+    auto values = ColumnSpatial::create(primitive);
+    auto nulls = ColumnUInt8::create();
+    for (size_t row = 0; row < rows; ++row) {
+        const auto coordinate = (row * 37) % rows;
+        std::string point(21, '\0');
+        point[0] = 1;
+        point[1] = 1;
+        point[13] = static_cast<char>(coordinate);
+        values->insert_data(point.data(), point.size());
+        nulls->insert_value(nullable == 2 && coordinate % 11 == 0);
+    }
+    ColumnPtr column = std::move(values);
+    DataTypePtr type = std::make_shared<DataTypeSpatial>(primitive);
+    if (nullable != 0) {
+        column = ColumnNullable::create(column, std::move(nulls));
+        type = make_nullable(type);
+    }
+    Block input {{column, type, "shape"}};
+    Block output = input.clone_empty();
+    HybridSorter sorter;
+    ASSERT_NO_THROW(sort_block(input, output, {{0, direction, nulls_direction}}, sorter, limit));
+
+    const auto expected = spatial_topn_expected(rows, nullable, direction, nulls_direction, limit);
+    ASSERT_EQ(expected.size(), output.rows());
+    const IColumn* sorted = output.get_by_position(0).column.get();
+    const ColumnNullable* sorted_nullable = nullptr;
+    if (nullable != 0) {
+        sorted_nullable = &assert_cast<const ColumnNullable&>(*sorted);
+        sorted = &sorted_nullable->get_nested_column();
+    }
+    for (size_t row = 0; row < expected.size(); ++row) {
+        check_spatial_topn_row(*sorted, sorted_nullable, row, expected[row]);
+    }
+}
+
+TEST(DataTypeSpatialTest, SingleColumnTopNPreservesBinaryOrderAndNullPlacement) {
+    for (const auto primitive : {TYPE_GEOMETRY, TYPE_GEOGRAPHY}) {
+        for (int nullable = 0; nullable < 3; ++nullable) {
+            for (const int direction : {1, -1}) {
+                for (const int nulls_direction : {1, -1}) {
+                    for (const size_t limit : {0, 1, 16, 17, 64, 128, 129}) {
+                        check_spatial_topn(primitive, nullable, direction, nulls_direction, limit);
                     }
                 }
             }

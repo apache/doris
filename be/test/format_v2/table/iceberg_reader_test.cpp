@@ -463,12 +463,11 @@ DataTypes schema_evolution_spatial_types() {
             std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "EPSG:4326", "karney")};
 }
 
-// Keep the actual spatial logical annotation and field id on data/delete fixtures.
-// An unannotated BYTE_ARRAY would exercise VARBINARY instead of the spatial fallback.
+// Keep field ids while allowing newer spatial annotations and older writers' raw WKB.
 void write_iceberg_spatial_key_parquet_file(const std::string& file_path,
                                             const DataTypeSpatial& spatial,
                                             const std::vector<std::optional<std::string>>& values,
-                                            bool include_id) {
+                                            bool include_id, bool spatial_annotation = true) {
     ::parquet::schema::NodeVector fields;
     if (include_id) {
         fields.push_back(::parquet::schema::PrimitiveNode::Make(
@@ -478,9 +477,12 @@ void write_iceberg_spatial_key_parquet_file(const std::string& file_path,
     using Algorithm = ::parquet::LogicalType::EdgeInterpolationAlgorithm;
     const auto algorithm =
             spatial.algorithm() == "karney" ? Algorithm::KARNEY : Algorithm::SPHERICAL;
-    const auto annotation = spatial.get_primitive_type() == TYPE_GEOMETRY
-                                    ? ::parquet::LogicalType::Geometry(spatial.crs())
-                                    : ::parquet::LogicalType::Geography(spatial.crs(), algorithm);
+    const auto annotation =
+            !spatial_annotation
+                    ? ::parquet::LogicalType::None()
+                    : (spatial.get_primitive_type() == TYPE_GEOMETRY
+                               ? ::parquet::LogicalType::Geometry(spatial.crs())
+                               : ::parquet::LogicalType::Geography(spatial.crs(), algorithm));
     fields.push_back(
             ::parquet::schema::PrimitiveNode::Make("shape", ::parquet::Repetition::OPTIONAL,
                                                    annotation, ::parquet::Type::BYTE_ARRAY, -1, 1));
@@ -6302,6 +6304,191 @@ TEST(IcebergV2ReaderTest, EqualityDeletesPreserveSpatialSchemaIdentityAndMissing
                 EXPECT_TRUE(remove_nullable(key_type)->equals(*type));
                 ASSERT_TRUE(reader.close().ok());
             }
+        }
+    }
+}
+
+std::vector<int32_t> read_iceberg_ids_and_check_spatial_values(
+        iceberg::IcebergTableReader* reader, const std::vector<ColumnDefinition>& columns,
+        const std::array<std::string, 2>& points) {
+    std::vector<int32_t> ids;
+    bool eos = false;
+    while (!eos) {
+        Block block = build_table_block(columns);
+        const auto status = reader->get_block(&block, &eos);
+        if (!status.ok()) {
+            ADD_FAILURE() << status;
+            return ids;
+        }
+        const auto& id_column =
+                assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 0));
+        if (columns.size() == 2) {
+            const auto& shape = block.get_by_position(1);
+            EXPECT_TRUE(shape.type->equals(*columns[1].type));
+            const auto& nullable = assert_cast<const ColumnNullable&>(*shape.column);
+            EXPECT_NE(check_and_get_column<ColumnSpatial>(nullable.get_nested_column()), nullptr);
+        }
+        for (size_t row = 0; row < block.rows(); ++row) {
+            const auto id = id_column.get_element(row);
+            ids.push_back(id);
+            if (columns.size() == 2) {
+                const auto& shape = block.get_by_position(1).column;
+                EXPECT_EQ(shape->is_null_at(row), id == 3);
+                if (id != 3) {
+                    const auto bytes = shape->get_data_at(row);
+                    EXPECT_EQ(std::string(bytes.data, bytes.size), points[id == 1 ? 0 : 1]);
+                }
+            }
+        }
+    }
+    return ids;
+}
+
+TEST(IcebergV2ReaderTest, EqualityDeletesMatchSpatialAndRawWkbRepresentations) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_spatial_raw_wkb_equality_delete_test";
+    std::filesystem::create_directories(test_dir);
+    Defer cleanup([&] { std::filesystem::remove_all(test_dir); });
+    const std::string first_point(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
+    std::string second_point = first_point;
+    second_point[19] = '\x08';
+    size_t fixture_id = 0;
+    for (const auto& type : schema_evolution_spatial_types()) {
+        const auto& spatial = assert_cast<const DataTypeSpatial&>(*type);
+        // The mixed assignments exercise both the data-side cast and converted delete block/hash.
+        // Same-representation controls retain annotated identity and hidden STRING carriers.
+        for (const auto& [data_annotation, delete_annotation] :
+             {std::pair {false, false}, std::pair {false, true}, std::pair {true, false},
+              std::pair {true, true}}) {
+            for (bool null_delete : {false, true}) {
+                for (bool project_spatial : {false, true}) {
+                    SCOPED_TRACE(::testing::Message()
+                                 << type->get_name() << " data_annotation=" << data_annotation
+                                 << " delete_annotation=" << delete_annotation << " null_delete="
+                                 << null_delete << " project_spatial=" << project_spatial);
+                    const auto suffix = std::to_string(fixture_id++);
+                    const auto file_path = (test_dir / ("data-" + suffix + ".parquet")).string();
+                    const auto delete_path =
+                            (test_dir / ("delete-" + suffix + ".parquet")).string();
+                    write_iceberg_spatial_key_parquet_file(
+                            file_path, spatial, {first_point, second_point, std::nullopt}, true,
+                            data_annotation);
+                    const std::optional<std::string> deleted =
+                            null_delete ? std::nullopt : std::make_optional(first_point);
+                    write_iceberg_spatial_key_parquet_file(delete_path, spatial, {deleted}, false,
+                                                           delete_annotation);
+                    std::vector<ColumnDefinition> columns {
+                            make_table_column(0, "id", std::make_shared<DataTypeInt32>())};
+                    if (project_spatial) {
+                        columns.push_back(make_table_column(1, "shape", type));
+                    }
+                    auto scan_params = make_local_parquet_scan_params();
+                    scan_params.__set_enable_mapping_varbinary(true);
+                    scan_params.__set_iceberg_scan_semantics_version(
+                            ICEBERG_SCAN_SEMANTICS_VERSION_2);
+                    scan_params.__set_current_schema_id(100);
+                    scan_params.__set_history_schema_info({external_schema(
+                            100,
+                            {external_schema_field("id", 0),
+                             external_schema_field("shape", 1, {}, std::nullopt,
+                                                   external_primitive_type(TPrimitiveType::STRING),
+                                                   false, true)})});
+                    RuntimeProfile profile("spatial_raw_wkb_equality_delete");
+                    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+                    io::FileReaderStats stats;
+                    io::FileCacheStatistics cache_stats;
+                    auto io_ctx = make_io_context(&stats, &cache_stats);
+                    ShardedKVCache cache(1);
+                    iceberg::IcebergTableReader reader;
+                    init_iceberg_reader(&reader, columns, &scan_params, io_ctx, &state, &profile);
+                    auto split = build_split_options(file_path);
+                    split.cache = &cache;
+                    split.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+                            file_path, {make_iceberg_equality_delete_file(delete_path, {1})}, 3));
+                    ASSERT_TRUE(reader.prepare_split(split).ok());
+                    const auto ids = read_iceberg_ids_and_check_spatial_values(
+                            &reader, columns, {first_point, second_point});
+                    EXPECT_EQ(ids, null_delete ? std::vector<int32_t>({1, 2})
+                                               : std::vector<int32_t>({2, 3}));
+                    ASSERT_EQ(reader._equality_delete_filters.size(), 1);
+                    const auto& filter = reader._equality_delete_filters[0];
+                    EXPECT_EQ(remove_nullable(filter.delete_key_types[0])->get_primitive_type(),
+                              delete_annotation ? spatial.get_primitive_type() : TYPE_VARBINARY);
+                    if (delete_annotation) {
+                        EXPECT_TRUE(remove_nullable(filter.key_types[0])->equals(*type));
+                    } else {
+                        EXPECT_EQ(remove_nullable(filter.key_types[0])->get_primitive_type(),
+                                  TYPE_STRING);
+                    }
+                    ASSERT_TRUE(reader.close().ok());
+                }
+            }
+        }
+    }
+}
+
+TEST(IcebergV2ReaderTest, EqualityDeletesRejectIncompatibleAnnotatedSpatialKeys) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_incompatible_spatial_equality_delete_test";
+    std::filesystem::create_directories(test_dir);
+    Defer cleanup([&] { std::filesystem::remove_all(test_dir); });
+    const std::string point(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
+    const std::vector<std::pair<DataTypePtr, DataTypePtr>> incompatible_types {
+            {std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY),
+             std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY)},
+            {std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY),
+             std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY, "EPSG:3857")},
+            {std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY),
+             std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "EPSG:4326")},
+            {std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY),
+             std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "OGC:CRS84", "karney")}};
+    size_t fixture_id = 0;
+    for (const auto& [first_type, second_type] : incompatible_types) {
+        for (bool reverse : {false, true}) {
+            const auto& data_type = reverse ? second_type : first_type;
+            const auto& delete_type = reverse ? first_type : second_type;
+            SCOPED_TRACE(::testing::Message() << "data=" << data_type->get_name()
+                                              << " delete=" << delete_type->get_name());
+            const auto suffix = std::to_string(fixture_id++);
+            const auto file_path = (test_dir / ("data-" + suffix + ".parquet")).string();
+            const auto delete_path = (test_dir / ("delete-" + suffix + ".parquet")).string();
+            write_iceberg_spatial_key_parquet_file(
+                    file_path, assert_cast<const DataTypeSpatial&>(*data_type), {point}, true);
+            write_iceberg_spatial_key_parquet_file(
+                    delete_path, assert_cast<const DataTypeSpatial&>(*delete_type), {point}, false);
+            std::vector<ColumnDefinition> columns {
+                    make_table_column(0, "id", std::make_shared<DataTypeInt32>())};
+            auto scan_params = make_local_parquet_scan_params();
+            scan_params.__set_enable_mapping_varbinary(true);
+            scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+            scan_params.__set_current_schema_id(100);
+            scan_params.__set_history_schema_info({external_schema(
+                    100, {external_schema_field("id", 0),
+                          external_schema_field("shape", 1, {}, std::nullopt,
+                                                external_primitive_type(TPrimitiveType::STRING),
+                                                false, true)})});
+            RuntimeProfile profile("incompatible_spatial_equality_delete");
+            RuntimeState state {TQueryOptions(), TQueryGlobals()};
+            io::FileReaderStats stats;
+            io::FileCacheStatistics cache_stats;
+            auto io_ctx = make_io_context(&stats, &cache_stats);
+            ShardedKVCache cache(1);
+            iceberg::IcebergTableReader reader;
+            init_iceberg_reader(&reader, columns, &scan_params, io_ctx, &state, &profile);
+            auto split = build_split_options(file_path);
+            split.cache = &cache;
+            split.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+                    file_path, {make_iceberg_equality_delete_file(delete_path, {1})}, 3));
+            ASSERT_TRUE(reader.prepare_split(split).ok());
+            Block block = build_table_block(columns);
+            bool eos = false;
+            const auto status = reader.get_block(&block, &eos);
+            EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+            EXPECT_NE(status.to_string().find("neither type converts exactly to the other"),
+                      std::string::npos);
+            ASSERT_TRUE(reader.close().ok());
         }
     }
 }

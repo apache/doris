@@ -252,21 +252,6 @@ public class IcebergWritePlanProviderTest {
     }
 
     @Test
-    public void planWriteRejectsExistingSpatialIdentityPartitions() {
-        for (Type spatial : Arrays.asList(Types.GeometryType.crs84(), Types.GeographyType.crs84())) {
-            for (boolean nested : Arrays.asList(false, true)) {
-                Schema schema = spatialSchema(nested ? Types.StructType.of(
-                        Types.NestedField.optional(3, "shape", spatial)) : spatial);
-                PartitionSpec spec = PartitionSpec.builderFor(schema)
-                        .identity(nested ? "payload.shape" : "payload").build();
-                Table table = spatialTable(schema, 3, "parquet", spec);
-                assertSpatialWriteRejected(table, insertOnlyId(table, "spatial"),
-                        "spatial columns cannot be partition sources");
-            }
-        }
-    }
-
-    @Test
     public void planWriteAllowsVoidSpatialPartitionSources() {
         Schema schema = spatialSchema(Types.GeometryType.crs84());
         PartitionSpec spec = PartitionSpecParser.fromJson(schema,

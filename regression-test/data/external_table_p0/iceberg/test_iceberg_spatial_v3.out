@@ -231,6 +231,9 @@ true	true	false	false	true	true
 3	POINT (3 4)	\N
 4	\N	POINT (3 4)
 
+-- !spatial_partition_after_rejection --
+101	POINT (1 2)	POINT (1 2)
+
 -- !spatial_analyze_geometry_values --
 id	geometry_values	5.0	5.0	0.0
 
@@ -299,6 +302,24 @@ payload	struct<stamp:datetime(6),shape:array<GEOMETRY('custom\\\\crs')>>	Yes	tru
 4	2	["010200000000000000", null]	["010200000000000000", null]	010200000000000000	010200000000000000	010200000000000000	010200000000000000	["010200000000000000", null, null]	["010200000000000000", null, null]
 5	\N	\N	\N	\N	\N	\N	\N	\N	\N
 6	0	[]	[]	\N	\N	\N	\N	\N	\N
+
+-- !spatial_nested_scan_join_g_array_1 --
+5
+
+-- !spatial_nested_scan_join_g_array_2 --
+5
+
+-- !spatial_nested_scan_join_g_array_8 --
+5
+
+-- !spatial_nested_scan_join_gg_array_1 --
+5
+
+-- !spatial_nested_scan_join_gg_array_2 --
+5
+
+-- !spatial_nested_scan_join_gg_array_8 --
+5
 
 -- !spatial_min_by_nested_values --
 0101000000000000000000F03F0000000000000040	0101000000000000000000F03F0000000000000040	0101000000000000000000F03F0000000000000040	0101000000000000000000F03F0000000000000040	0101000000000000000000F03F0000000000000040	0101000000000000000000F03F0000000000000040
@@ -506,6 +527,16 @@ POINT (1 2)	0101000000000000000000F03F0000000000000040
 
 -- !spatial_plain_lists_geog --
 3	2	2
+
+-- !spatial_bound_null_casts --
+1	true	true
+2	true	true
+
+-- !spatial_nul_crs_geom_roundtrip --
+1	POINT (1 2)	0101000000000000000000F03F0000000000000040
+
+-- !spatial_nul_crs_geog_roundtrip --
+1	POINT (1 2)	0101000000000000000000F03F0000000000000040
 
 -- !spatial_select_typed_nulls --
 201	true	true
