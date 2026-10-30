@@ -119,7 +119,9 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
                 return Collections.emptyList();
             }
             Map<String, ConnectorPartitionInfo> partitions = new LinkedHashMap<>();
+            long[] files = {0};
             DeltaLakeScanFiles.forEach(snapshot, runtime.engine, false, row -> {
+                files[0]++;
                 Map<String, String> values = DeltaLakePartitionValues.normalize(
                         snapshot, DeltaKernelCompat.partitionValues(row));
                 String name = DeltaLakePartitionValues.partitionName(values);
@@ -128,6 +130,7 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
                                 .collect(Collectors.toList()),
                         values.values().stream().map(value -> value == null).collect(Collectors.toList())));
             });
+            DeltaLakeStatementScope.fileCount(session, (DeltaLakeTableHandle) handle).value = files[0];
             return List.copyOf(partitions.values());
         });
     }

@@ -264,6 +264,101 @@ class DeltaLakeScanPlanProviderTest {
         }
     }
 
+    @Test
+    void profilesDistinguishFilesSplitsAndPartitionsAndKeepCountMetadata() throws Exception {
+        createTable();
+        appendStatsFile("a.parquet", "a", 1, 10);
+        appendStatsFile("b.parquet", "b", 11, 20);
+        TestingConnectorSession session = new TestingConnectorSession("metrics", Map.of("file_split_size", "10"));
+        try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(session)) {
+            ConnectorTableHandle handle = metadata.getTableHandle(session, "db", "table").orElseThrow();
+            ConnectorScanPlanProvider provider = connector.getScanPlanProvider();
+            ConnectorComparison dataFilter = new ConnectorComparison(ConnectorComparison.Operator.LT,
+                    new ConnectorColumnRef("id", ConnectorType.of("BIGINT")), ConnectorLiteral.ofLong(5));
+            provider.planScan(session, request(handle).filter(Optional.of(dataFilter)).build());
+            // No CRC or prior partition listing: the exhaustive Kernel report supplies the total.
+            assertMetrics(provider, session, "2", "1", "1", "3", true);
+            StringBuilder explain = new StringBuilder();
+            provider.appendExplainInfo(explain, "", provider.getScanNodeProperties(session, handle,
+                    Collections.emptyList(), Optional.of(dataFilter)));
+            Assertions.assertTrue(explain.toString().contains("Delta files: 1/2, selected partitions: 1, splits: 3"));
+            provider.planScan(session, request(handle).countPushdown(true).build());
+            assertMetrics(provider, session, "2", "2", "2", "1", true);
+            // A different producer reuses statement COUNT facts, not the representative range's partition.
+            ConnectorScanPlanProvider another = connector.getScanPlanProvider();
+            another.planScan(session, request(handle).countPushdown(true).build());
+            assertMetrics(another, session, "2", "2", "2", "1", true);
+        }
+    }
+
+    @Test
+    void streamingProfilesPublishAfterCloseAndIdentifyPartialEnumeration() throws Exception {
+        createTable();
+        appendFile(0, "a.parquet", "a", 25);
+        appendFile(0, "b.parquet", "b", 25);
+        TestingConnectorSession session = new TestingConnectorSession("stream-metrics",
+                Map.of("file_split_size", "10"));
+        try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(session)) {
+            ConnectorTableHandle handle = metadata.getTableHandle(session, "db", "table").orElseThrow();
+            metadata.listPartitions(session, handle, Optional.empty());
+            ConnectorScanPlanProvider provider = connector.getScanPlanProvider();
+            ConnectorComparison filter = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                    new ConnectorColumnRef("p", ConnectorType.of("STRING")), ConnectorLiteral.ofString("a"));
+            try (ConnectorSplitSource source = provider.streamSplits(session, handle,
+                    Collections.emptyList(), Optional.of(filter), -1)) {
+                Assertions.assertTrue(provider.collectScanProfiles(session).isEmpty());
+                source.next();
+            }
+            assertMetrics(provider, session, "2", "1", "1", "1", false);
+            try (ConnectorSplitSource source = provider.streamSplits(session, handle,
+                    Collections.emptyList(), Optional.of(filter), -1)) {
+                while (source.hasNext()) {
+                    source.next();
+                }
+            }
+            // The partition predicate's replay counter must not replace the complete table total.
+            assertMetrics(provider, session, "2", "1", "1", "3", true);
+            provider.planScan(session, request(handle).partitionsPrunedToEmpty(true).build());
+            assertMetrics(provider, session, "2", "0", "0", "0", true);
+            Assertions.assertTrue(DeltaLakeStatementScope.FILE_COUNT_NAMESPACE.startsWith("deltalake."));
+        }
+    }
+
+    @Test
+    void checkpointPartitionPruningDoesNotTurnTheReplayCounterIntoATableTotal() throws Exception {
+        Path resources = Path.of(getClass().getResource("/deltalake").toURI()).getParent();
+        TestingConnectorSession session = new TestingConnectorSession("checkpoint-metrics");
+        try (Connector connector = new DeltaLakeConnectorProvider().create(
+                Map.of("warehouse", resources.toString()), new RecordingConnectorContext());
+                ConnectorMetadata metadata = connector.getMetadata(session)) {
+            ConnectorTableHandle handle = metadata.getTableHandle(session,
+                    "deltalake", "dv-partitioned-with-checkpoint").orElseThrow();
+            metadata.listPartitions(session, handle, Optional.empty());
+            ConnectorScanPlanProvider provider = connector.getScanPlanProvider();
+            ConnectorComparison filter = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                    new ConnectorColumnRef("part", ConnectorType.of("INT")), ConnectorLiteral.ofLong(1));
+            List<ConnectorScanRange> ranges = provider.planScan(session,
+                    request(handle).filter(Optional.of(filter)).build());
+            Assertions.assertFalse(ranges.isEmpty());
+            Assertions.assertTrue(ranges.size() < 15);
+            Map<String, String> metrics = provider.collectScanProfiles(session).get(0).getMetrics();
+            Assertions.assertEquals("15", metrics.get("TotalFiles"));
+            Assertions.assertEquals(Integer.toString(ranges.size()), metrics.get("SelectedFiles"));
+            Assertions.assertEquals("1", metrics.get("SelectedPartitions"));
+        }
+    }
+
+    private static void assertMetrics(ConnectorScanPlanProvider provider, TestingConnectorSession session,
+            String total, String selected, String partitions, String splits, boolean complete) {
+        Map<String, String> metrics = provider.collectScanProfiles(session).get(0).getMetrics();
+        Assertions.assertEquals("0", metrics.get("SnapshotVersion"));
+        Assertions.assertEquals(total, metrics.get("TotalFiles"));
+        Assertions.assertEquals(selected, metrics.get("SelectedFiles"));
+        Assertions.assertEquals(partitions, metrics.get("SelectedPartitions"));
+        Assertions.assertEquals(splits, metrics.get("GeneratedSplits"));
+        Assertions.assertEquals(Boolean.toString(complete), metrics.get("EnumerationComplete"));
+    }
+
     private void appendStatsFile(String path, String partition, long minimum, long maximum) throws Exception {
         ObjectMapper mapper = new ObjectMapper();
         String stats = mapper.writeValueAsString(Map.of("numRecords", maximum - minimum + 1,

@@ -122,6 +122,8 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -565,11 +567,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             operationCompleted = true;
             profileFinalizer.run();
             return result;
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | Error failure) {
             if (!operationCompleted) {
                 try {
                     profileFinalizer.run();
-                } catch (RuntimeException profileFailure) {
+                } catch (RuntimeException | Error profileFailure) {
                     failure.addSuppressed(profileFailure);
                 }
             }
