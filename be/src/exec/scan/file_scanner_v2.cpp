@@ -60,6 +60,7 @@
 #include "format_v2/jni/max_compute_jni_reader.h"
 #include "format_v2/jni/trino_connector_jni_reader.h"
 #include "format_v2/table/adbc_reader.h"
+#include "format_v2/table/deltalake_reader.h"
 #include "format_v2/table/es_reader.h"
 #include "format_v2/table/fluss_hybrid_reader.h"
 #include "format_v2/table/hive_reader.h"
@@ -664,6 +665,8 @@ Status FileScannerV2::_create_table_reader_for_format(
         *reader = std::make_unique<format::paimon::PaimonHybridReader>();
     } else if (table_format == "hudi") {
         *reader = std::make_unique<format::hudi::HudiHybridReader>();
+    } else if (table_format == "deltalake") {
+        *reader = std::make_unique<format::deltalake::DeltaReader>();
     } else if (table_format == "fluss") {
         *reader = std::make_unique<format::fluss::FlussHybridReader>();
     } else if (table_format == "jdbc") {
