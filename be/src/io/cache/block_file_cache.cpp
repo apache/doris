@@ -55,6 +55,7 @@
 #include "io/cache/remote_scan_cache_write_limiter.h"
 #include "runtime/runtime_profile.h"
 #include "util/concurrency_stats.h"
+#include "util/defer_op.h"
 #include "util/mem_info.h"
 #include "util/stack_util.h"
 #include "util/stopwatch.hpp"
@@ -808,6 +809,14 @@ Status BlockFileCache::get_downloaded_blocks_if_fully_covered(const UInt128Wrapp
         return Status::OK();
     }
 
+    // Async touch defers LRU moves; queue them after the cache lock is released, as get_or_set()
+    // does. Declared before the lock so it runs after the lock guard is destroyed.
+    std::vector<FileBlockSPtr> need_update_lru_blocks;
+    Defer queue_lru_updates {[&]() {
+        for (auto& block : need_update_lru_blocks) {
+            add_need_update_lru_block(std::move(block));
+        }
+    }};
     FileBlock::Range range(offset, offset + size - 1);
     std::lock_guard cache_lock(_mutex);
     auto it = _files.find(hash);
@@ -878,9 +887,13 @@ Status BlockFileCache::get_downloaded_blocks_if_fully_covered(const UInt128Wrapp
     if (!*fully_covered) {
         return Status::OK();
     }
+    const bool async_touch = config::enable_file_cache_async_touch_on_get_or_set;
     for (const auto* cell : covered_cells) {
-        use_cell(*cell, blocks, need_to_move(cell->file_block->cache_type(), context.cache_type),
-                 cache_lock);
+        const bool move_iter = need_to_move(cell->file_block->cache_type(), context.cache_type);
+        use_cell(*cell, blocks, move_iter, cache_lock);
+        if (async_touch && move_iter) {
+            need_update_lru_blocks.push_back(cell->file_block);
+        }
     }
     return Status::OK();
 }
