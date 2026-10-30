@@ -595,7 +595,10 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         List<Expression> rewrittenExpressions = new ArrayList<>();
         for (int exprIndex = 0; exprIndex < sourceShuttledExpressions.size(); exprIndex++) {
             Expression expressionShuttledToRewrite = sourceShuttledExpressions.get(exprIndex);
-            if (expressionShuttledToRewrite instanceof Literal) {
+            if (expressionShuttledToRewrite.isConstant()) {
+                // a constant expression needs no counterpart in the view: e.g. the query column is pinned to a
+                // literal by a predicate, or it is materialized as a constant above an aggregate, so the view does
+                // not have to output it
                 rewrittenExpressions.add(expressionShuttledToRewrite);
                 continue;
             }
