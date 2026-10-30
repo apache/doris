@@ -37,6 +37,7 @@ import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.scan.ScanNodePropertiesResult;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
@@ -56,6 +57,7 @@ import org.apache.doris.datasource.scan.PluginDrivenScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.AfterEach;
@@ -481,15 +483,64 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
 
     @Test
     void sysSplitPlanningMissingRepairsSource() throws Exception {
-        verifySysSplitPlanningMissing(false);
+        verifySysPlanningReadMissing(false, false);
     }
 
     @Test
     void delayedSysSplitPlanningMissingPreservesRecreatedSource() throws Exception {
-        verifySysSplitPlanningMissing(true);
+        verifySysPlanningReadMissing(true, false);
     }
 
-    private void verifySysSplitPlanningMissing(boolean recreate) throws Exception {
+    @Test
+    void sysPropertiesBeforeSplitPlanningRepairDroppedSource() throws Exception {
+        verifySysPlanningReadMissing(false, true);
+    }
+
+    @Test
+    void delayedSysPropertiesMissingPreservesRecreatedSource() throws Exception {
+        verifySysPlanningReadMissing(true, true);
+    }
+
+    @Test
+    void successfulScanPropertiesRemainMemoizedWithoutNameReload() {
+        PluginDrivenExternalTable table = warmTarget();
+        ConnectorScanPlanProvider provider = Mockito.mock(ConnectorScanPlanProvider.class);
+        Mockito.when(provider.getScanNodePropertiesResult(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(ScanNodePropertiesResult.of(Collections.emptyMap()));
+        PluginDrivenScanNode scan = scanForProperties(table, provider);
+        int loads = catalog.nameLoads.get();
+        scan.getNodeExplainString("", TExplainLevel.NORMAL);
+        scan.getNodeExplainString("", TExplainLevel.NORMAL);
+        Mockito.verify(provider).getScanNodePropertiesResult(
+                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
+        Assertions.assertSame(table, database.getTableNullable(table.getId()));
+        Assertions.assertEquals(loads, catalog.nameLoads.get());
+    }
+
+    @Test
+    void otherScanPropertyFailureDoesNotRetireTheSource() {
+        PluginDrivenExternalTable table = warmTarget();
+        ConnectorScanPlanProvider provider = Mockito.mock(ConnectorScanPlanProvider.class);
+        IllegalStateException denied = new IllegalStateException("permission denied");
+        Mockito.when(provider.getScanNodePropertiesResult(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenThrow(denied);
+        PluginDrivenScanNode scan = scanForProperties(table, provider);
+        Assertions.assertSame(denied, Assertions.assertThrows(IllegalStateException.class,
+                () -> scan.getNodeExplainString("", TExplainLevel.NORMAL)));
+        Assertions.assertSame(table, database.getTableNullable(table.getId()));
+        Assertions.assertEquals("old", remoteCache.get("a"));
+    }
+
+    private PluginDrivenScanNode scanForProperties(PluginDrivenExternalTable table,
+            ConnectorScanPlanProvider provider) {
+        TupleDescriptor tuple = new TupleDescriptor(new TupleId(0));
+        tuple.setTable(table);
+        Mockito.when(connector.getScanPlanProvider(Mockito.any())).thenReturn(provider);
+        return PluginDrivenScanNode.create(new PlanNodeId(0), tuple, false,
+                new SessionVariable(), ScanContext.EMPTY, catalog, table);
+    }
+
+    private void verifySysPlanningReadMissing(boolean recreate, boolean properties) throws Exception {
         PluginDrivenExternalTable old = warmTarget();
         PluginDrivenSysExternalTable sys = new PluginDrivenSysExternalTable(old, "labels");
         Mockito.when(metadata.getSysTableHandle(Mockito.any(), Mockito.any(), Mockito.anyString()))
@@ -500,14 +551,25 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
         Mockito.when(connector.getScanPlanProvider(Mockito.any())).thenReturn(provider);
         PluginDrivenScanNode scan = PluginDrivenScanNode.create(new PlanNodeId(0), tuple, false,
                 new SessionVariable(), ScanContext.EMPTY, catalog, sys);
-        Mockito.when(provider.planScan(Mockito.any(), Mockito.any())).thenAnswer(call -> {
+        org.mockito.stubbing.Answer<?> missingRead = call -> {
             remoteTables.remove("a");
             missingStarted.countDown();
             Assertions.assertTrue(releaseMissing.await(10, TimeUnit.SECONDS));
             throw new ConnectorTableNotFoundException("db", "a", null);
-        });
-        Future<?> missing = worker.submit(() -> Assertions.assertThrows(ConnectorTableNotFoundException.class,
-                () -> scan.getSplits(1)));
+        };
+        if (properties) {
+            Mockito.when(provider.getScanNodePropertiesResult(Mockito.any(), Mockito.any(), Mockito.any(),
+                    Mockito.any())).thenAnswer(missingRead);
+        } else {
+            Mockito.when(provider.planScan(Mockito.any(), Mockito.any())).thenAnswer(missingRead);
+        }
+        Future<?> missing = worker.submit(() -> Assertions.assertThrows(ConnectorTableNotFoundException.class, () -> {
+            if (properties) {
+                scan.getNodeExplainString("", TExplainLevel.NORMAL);
+            } else {
+                scan.getSplits(1);
+            }
+        }));
         try {
             Assertions.assertTrue(missingStarted.await(10, TimeUnit.SECONDS));
             PluginDrivenExternalTable replacement = null;

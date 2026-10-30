@@ -2556,9 +2556,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 // rebuilds it over the full schema (no-op for every non-lazy-mat read / every connector
                 // without a pruned dictionary).
                 pinTopnLazyMaterialize();
-                cachedPropertiesResult = onPluginClassLoader(scanProvider,
+                cachedPropertiesResult = readMetadata(() -> onPluginClassLoader(scanProvider,
                         () -> scanProvider.getScanNodePropertiesResult(
-                                connectorSession, currentHandle, columns, filter));
+                                connectorSession, currentHandle, columns, filter)));
             }
             if (cachedPropertiesResult == null) {
                 cachedPropertiesResult = ScanNodePropertiesResult.of(Collections.emptyMap());
