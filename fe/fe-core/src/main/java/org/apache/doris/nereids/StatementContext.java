@@ -1199,6 +1199,32 @@ public class StatementContext implements Closeable {
     }
 
     /**
+     * Starts a fresh planning attempt on a reused StatementContext after {@link #resetConnectorStatementScope}
+     * revoked the replaced plan's partition-policy proofs.
+     *
+     * <p>The revocation must keep the discarded plan unusable, but a caller that replans from the logical
+     * statement (a query replan retry, or {@code InsertIntoTableCommand}'s plan retry) needs fresh proof state.
+     * Without it, every later collect/preload/lock/pre-explain step of the new attempt throws "Partition policy
+     * planning state was invalidated; replan in a fresh statement" even though the replaced attempt's plan is
+     * already gone. The preload candidates are dropped as well: their filtered views are pinned to the connector
+     * scope that was just closed, and the new attempt registers and re-materializes them from its own scope.</p>
+     */
+    public synchronized void beginPartitionPolicyReplan() {
+        dataMaskEvaluations.clear();
+        partitionPolicyObservedTables.clear();
+        partitionPolicyProofs.clear();
+        usedPartitionPolicyProofs.clear();
+        partitionProofRowPolicies.clear();
+        executionPolicyContexts.clear();
+        partitionPolicyPlanningInvalidated = false;
+        partitionPolicyExecutionInvalidated = false;
+        partitionPolicyRetryPending = false;
+        partitionPolicyPlanner = null;
+        partitionPolicyEpoch++;
+        externalTablePreloadInfos.clear();
+    }
+
+    /**
      * Some value of the cacheKey may change, invalid cache when value change
      */
     public synchronized void invalidCache(String cacheKey) {

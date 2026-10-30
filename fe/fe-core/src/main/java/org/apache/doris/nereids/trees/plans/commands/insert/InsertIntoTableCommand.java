@@ -312,6 +312,9 @@ public class InsertIntoTableCommand extends Command
             // Each internal attempt must repin connector metadata; retaining the previous writer schema can
             // plan defaults and partition fields against the table version that triggered the retry.
             ctx.getStatementContext().resetConnectorStatementScope();
+            // A retry rebuilds the logical query from scratch, so the previous attempt's revoked partition-policy
+            // proofs must not block this attempt's collect/preload/lock planning.
+            ctx.getStatementContext().beginPartitionPolicyReplan();
             TableIf targetTableIf = getTargetTableIf(ctx, qualifiedTargetTableName);
             DatabaseIf<?> targetDatabase = getTargetDatabase(targetTableIf);
             // check auth

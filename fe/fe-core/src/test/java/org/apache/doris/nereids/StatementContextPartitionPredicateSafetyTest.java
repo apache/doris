@@ -199,6 +199,23 @@ public class StatementContextPartitionPredicateSafetyTest {
     }
 
     @Test
+    public void replanRetryStartsWithFreshPolicyStateAfterTheScopeReset() throws Exception {
+        try (Fixture fixture = new Fixture(Type.STRING, ordinaryUser(), List.of("x", "y"), "x")) {
+            fixture.bindMixed("h.p = 'x'");
+            fixture.statement.releasePlannerResources();
+            // A replan retry first drops the replaced attempt's connector scope, which revokes its proofs...
+            fixture.statement.resetConnectorStatementScope();
+            Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                    fixture.statement::lock);
+            // ...and then plans again from the logical statement, so the new attempt must not inherit the
+            // revocation of the attempt it replaced.
+            fixture.statement.beginPartitionPolicyReplan();
+            fixture.lock();
+            fixture.statement.preloadDeferredScanPartitionViewsBeforeLock(true);
+        }
+    }
+
+    @Test
     public void preparedNextContextDoesNotInheritPolicyProofs() throws Exception {
         try (Fixture fixture = new Fixture(Type.STRING, ordinaryUser(), List.of("x", "y"), "x")) {
             fixture.bindMixed("h.p = 'x'");
