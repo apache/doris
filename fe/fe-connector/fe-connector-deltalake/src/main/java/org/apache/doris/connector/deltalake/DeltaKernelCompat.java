@@ -25,7 +25,9 @@ import io.delta.kernel.internal.InternalScanFileUtils;
 import io.delta.kernel.internal.actions.DeletionVectorDescriptor;
 import io.delta.kernel.internal.actions.Protocol;
 import io.delta.kernel.internal.tablefeatures.TableFeature;
+import io.delta.kernel.internal.util.PartitionUtils;
 import io.delta.kernel.statistics.DataFileStatistics;
+import io.delta.kernel.types.DataType;
 import io.delta.kernel.utils.FileStatus;
 
 import java.util.Map;
@@ -49,6 +51,10 @@ final class DeltaKernelCompat {
 
     static Map<String, String> partitionValues(Row file) {
         return InternalScanFileUtils.getPartitionValues(file);
+    }
+
+    static Object partitionLiteral(DataType type, String value) {
+        return PartitionUtils.literalForPartitionValue(type, value).getValue();
     }
 
     static OptionalLong numRecords(Row file) {
