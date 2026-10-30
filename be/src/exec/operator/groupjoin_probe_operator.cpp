@@ -490,9 +490,17 @@ size_t GroupJoinProbeOperatorX::get_reserve_mem_size(RuntimeState* state) {
                 state->batch_size() * (_states_size + sizeof(uint32_t) + sizeof(AggregateDataPtr));
     }
     if (!local._initialized) {
-        reserve += local._shared_state->build_block.rows() * sizeof(AggregateDataPtr);
-    } else if (!local._probe_eos) {
-        reserve += local._state_by_build_row.capacity() * sizeof(AggregateDataPtr);
+        // The row-to-state array and BUILD argument results are allocated only once.
+        const auto build_rows = local._shared_state->build_block.rows();
+        reserve += build_rows * sizeof(AggregateDataPtr);
+        for (size_t i = 0; i < local._evaluators.size(); ++i) {
+            if (_sides[i] != TGroupJoinAggSide::BUILD) {
+                continue;
+            }
+            for (const auto& expr : local._evaluators[i]->input_exprs_ctxs()) {
+                reserve += expr->root()->estimate_memory(build_rows);
+            }
+        }
     }
     return reserve;
 }
