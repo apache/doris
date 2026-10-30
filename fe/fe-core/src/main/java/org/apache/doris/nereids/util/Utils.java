@@ -673,5 +673,4 @@ public class Utils {
         String sql = "SELECT " + columnJoiner + " FROM " + tableName.toSql() + " " + whereClause;
         return new NereidsParser().parseSingle(sql);
     }
-
 }
