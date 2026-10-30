@@ -49,7 +49,7 @@
 #include "io/fs/broker_file_reader.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
-#include "io/fs/s3_file_reader.h"
+#include "io/fs/obj_storage_file_reader.h"
 #include "io/fs/tracing_file_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
@@ -231,6 +231,7 @@ void CsvReader::_init_system_properties() {
         _system_properties.system_type = _params.file_type;
     }
     _system_properties.properties = _params.properties;
+    _system_properties.azure_client_config = io::azure_client_config_of(_params);
     _system_properties.hdfs_params = _params.hdfs_params;
     if (_params.__isset.broker_addresses) {
         _system_properties.broker_addresses.assign(_params.broker_addresses.begin(),

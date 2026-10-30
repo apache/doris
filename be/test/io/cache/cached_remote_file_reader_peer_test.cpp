@@ -67,9 +67,9 @@ bool test_try_reject_if_queue_timed_out(std::chrono::steady_clock::time_point en
 namespace doris::io {
 
 extern bvar::Adder<uint64_t> peer_cache_reader_read_counter;
-extern bvar::Adder<uint64_t> s3_read_counter;
+extern bvar::Adder<uint64_t> remote_read_counter;
 extern bvar::Adder<uint64_t> g_peer_race_peer_win;
-extern bvar::Adder<uint64_t> g_peer_race_s3_skipped_after_queue;
+extern bvar::Adder<uint64_t> g_peer_race_remote_skipped_after_queue;
 
 namespace {
 
@@ -2558,8 +2558,8 @@ protected:
         register_cross_cg_candidate("127.0.0.1", addr.port);
 
         const uint64_t peer_wins_before = g_peer_race_peer_win.get_value();
-        const uint64_t s3_reads_before = s3_read_counter.get_value();
-        const uint64_t s3_skips_before = g_peer_race_s3_skipped_after_queue.get_value();
+        const uint64_t s3_reads_before = remote_read_counter.get_value();
+        const uint64_t s3_skips_before = g_peer_race_remote_skipped_after_queue.get_value();
 
         auto* sp = SyncPoint::get_instance();
         sp->clear_all_call_backs();
@@ -2610,8 +2610,8 @@ protected:
 
         // The losing S3 task outlives read_at(); wait for it before reading its counters.
         ExecEnv::GetInstance()->peer_race_s3_thread_pool()->wait();
-        *s3_reads = s3_read_counter.get_value() - s3_reads_before;
-        *s3_skips = g_peer_race_s3_skipped_after_queue.get_value() - s3_skips_before;
+        *s3_reads = remote_read_counter.get_value() - s3_reads_before;
+        *s3_skips = g_peer_race_remote_skipped_after_queue.get_value() - s3_skips_before;
     }
 
 private:

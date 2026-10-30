@@ -150,8 +150,19 @@ void FileScanner::_configure_file_scan_handlers() {
     }
 }
 
+Status FileScanner::_check_storage_access(const TFileScanRangeParams& params) {
+    if (params.__isset.azure_client_config &&
+        !params.azure_client_config.credential.__isset.shared_key) {
+        return Status::NotSupported(
+                "Azure SAS and OAuth2 access requires FileScannerV2; set "
+                "enable_file_scanner_v2=true");
+    }
+    return Status::OK();
+}
+
 Status FileScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
     RETURN_IF_ERROR(validate_file_scan_support(*_params));
+    RETURN_IF_ERROR(_check_storage_access(*_params));
     RETURN_IF_ERROR(Scanner::init(state, conjuncts));
     _get_block_timer =
             ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), "FileScannerGetBlockTime", 1);
@@ -1576,6 +1587,7 @@ Status FileScanner::_generate_truncate_columns(bool need_to_get_parsed_schema) {
 
 Status FileScanner::prepare_for_read_lines(const TFileRangeDesc& range) {
     RETURN_IF_ERROR(validate_file_scan_support(*_params, &range));
+    RETURN_IF_ERROR(_check_storage_access(*_params));
     _current_range = range;
 
     _file_cache_statistics.reset(new io::FileCacheStatistics());

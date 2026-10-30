@@ -127,6 +127,32 @@ TEST(FileScannerTest, V1CountPushdownRequiresExplicitCountStarArguments) {
                                                 TPushAggOp::type::MINMAX, std::nullopt));
 }
 
+TEST(FileScannerTest, V1RejectsAzureSasAndOAuth2Access) {
+    TFileScanRangeParams params;
+    EXPECT_TRUE(FileScanner::TEST_check_storage_access(params).ok());
+
+    TAzureClientConfig azure;
+    azure.__set_endpoint("https://account.blob.core.windows.net");
+    TAzureCredential shared_key;
+    shared_key.__set_shared_key(TAzureSharedKey());
+    azure.__set_credential(shared_key);
+    params.__set_azure_client_config(azure);
+    // SharedKey keeps working on V1: the S3-style keys that V1 readers fall back to carry it.
+    EXPECT_TRUE(FileScanner::TEST_check_storage_access(params).ok());
+
+    TAzureCredential sas;
+    sas.__set_sas(TAzureSas());
+    params.azure_client_config.__set_credential(sas);
+    EXPECT_TRUE(
+            FileScanner::TEST_check_storage_access(params).is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+
+    TAzureCredential client_secret;
+    client_secret.__set_client_secret(TAzureClientSecret());
+    params.azure_client_config.__set_credential(client_secret);
+    EXPECT_TRUE(
+            FileScanner::TEST_check_storage_access(params).is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+}
+
 TEST(FileScannerTest, CountStarPlaceholderIsNotASemanticProjection) {
     EXPECT_TRUE(ScanLocalStateBase::is_count_star_pushdown(TPushAggOp::type::COUNT,
                                                            std::vector<int32_t> {}));

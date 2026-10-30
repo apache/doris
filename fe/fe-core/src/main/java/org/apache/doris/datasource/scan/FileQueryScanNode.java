@@ -46,6 +46,7 @@ import org.apache.doris.datasource.split.FileSplitter;
 import org.apache.doris.datasource.split.SplitAssignment;
 import org.apache.doris.datasource.split.SplitSource;
 import org.apache.doris.datasource.split.SplitSourceManager;
+import org.apache.doris.datasource.storage.AzureThriftAdapter;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
@@ -581,6 +582,13 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 || locationType == TFileType.FILE_HTTP)
                 && !params.isSetProperties()) {
             params.setProperties(locationProperties);
+        }
+
+        // JNI scans may set properties before a split selects native IO. Bind typed Azure
+        // access independently of that map, once for the shared scan parameters.
+        if (locationType == TFileType.FILE_S3 && !params.isSetAzureClientConfig()) {
+            AzureThriftAdapter.fromBackendProperties(locationProperties)
+                    .ifPresent(params::setAzureClientConfig);
         }
 
         if (!params.isSetFileType()) {

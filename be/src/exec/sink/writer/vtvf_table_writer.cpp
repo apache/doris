@@ -100,7 +100,8 @@ Status VTVFTableWriter::_create_file_writer(const std::string& file_name) {
 
         _file_writer_impl = DORIS_TRY(FileFactory::create_file_writer(
                 file_type, _state->exec_env(), {}, properties, file_name,
-                {.write_file_cache = false, .sync_file_data = false}));
+                {.write_file_cache = false, .sync_file_data = false},
+                _tvf_sink.__isset.azure_client_config ? &_tvf_sink.azure_client_config : nullptr));
     }
 
     // Factory creates either JNI or native transformer

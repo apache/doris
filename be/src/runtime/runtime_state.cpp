@@ -43,7 +43,7 @@
 #include "exec/runtime_filter/runtime_filter_mgr.h"
 #include "exec/runtime_filter/runtime_filter_producer.h"
 #include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
-#include "io/fs/s3_file_system.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "load/load_path_mgr.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -467,7 +467,7 @@ const int64_t MAX_ERROR_NUM = 50;
 
 Status RuntimeState::create_error_log_file() {
     if (config::save_load_error_log_to_s3 && config::is_cloud_mode()) {
-        _s3_error_fs = std::dynamic_pointer_cast<io::S3FileSystem>(
+        _s3_error_fs = std::dynamic_pointer_cast<io::ObjStorageFileSystem>(
                 ExecEnv::GetInstance()->storage_engine().to_cloud().latest_fs());
         if (_s3_error_fs) {
             std::stringstream ss;
@@ -562,7 +562,7 @@ std::string RuntimeState::get_first_error_msg() const {
 
 std::string RuntimeState::get_error_log_file_path() {
     std::lock_guard<std::mutex> s3_lock(_s3_error_log_file_lock);
-    std::shared_ptr<io::S3FileSystem> s3_error_fs;
+    std::shared_ptr<io::ObjStorageFileSystem> s3_error_fs;
     std::string local_error_log_file_path;
     std::string remote_error_log_file_path;
     {

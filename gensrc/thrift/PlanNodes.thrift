@@ -541,6 +541,45 @@ struct TLanceScanParams {
     3: optional map<string, string> lance_storage_options
 }
 
+// Native Azure Blob access configuration sent from FE to BE. Unlike the S3-style properties
+// map, each field has an Azure meaning and the authentication method is explicit, so BE does not
+// infer it from which keys happen to be present.
+struct TAzureSharedKey {
+    1: optional string account_key
+}
+
+struct TAzureSas {
+    // SAS query string without the leading '?'.
+    1: optional string token
+    // Known expiry in Unix milliseconds. BE also reads the expiry ("se") from the token itself and
+    // uses the earlier of the two.
+    2: optional i64 expires_at_ms
+}
+
+struct TAzureClientSecret {
+    1: optional string tenant_id
+    2: optional string client_id
+    3: optional string client_secret
+    // Root of the Entra ID authority, e.g. https://login.microsoftonline.com/. BE requests access
+    // tokens from this host. Unset means the Azure public cloud.
+    4: optional string authority_host
+}
+
+union TAzureCredential {
+    1: TAzureSharedKey shared_key
+    2: TAzureSas sas
+    3: TAzureClientSecret client_secret
+}
+
+struct TAzureClientConfig {
+    1: optional string endpoint
+    // Required by SharedKey, which signs requests with the account name.
+    2: optional string account_name
+    // When unset, BE takes the container from the file location; when set, the two must match.
+    3: optional string container
+    4: optional TAzureCredential credential
+}
+
 struct TFileScanRangeParams {
     // deprecated, move to TFileScanRange
     1: optional Types.TFileType file_type;
@@ -636,6 +675,9 @@ struct TFileScanRangeParams {
     // Fluss scan-level properties (bootstrap servers, table identity, client/table options,
     // projected columns). Set at ScanNode level to avoid redundant serialization in each split.
     41: optional map<string, string> fluss_properties
+    // Native Azure access for FILE_S3 ranges. When set, BE builds the Azure client from it and does
+    // not read the S3-style Azure keys in `properties`, which old BEs still use for SharedKey.
+    42: optional TAzureClientConfig azure_client_config
 }
 
 struct TFileRangeDesc {
@@ -795,6 +837,8 @@ struct TParquetMetadataParams {
   4: optional map<string, string> properties
   5: optional string bloom_column
   6: optional string bloom_literal
+  // Typed native Azure access, as in TFileScanRangeParams.azure_client_config.
+  7: optional TAzureClientConfig azure_client_config
 }
 
 // Partition boundary descriptor for BE-side runtime filter partition pruning.

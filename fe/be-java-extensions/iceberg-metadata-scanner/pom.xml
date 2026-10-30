@@ -79,6 +79,25 @@ under the License.
             <artifactId>iceberg-aws</artifactId>
             <version>${iceberg.version}</version>
         </dependency>
+        <!-- Serialized Azure system-table tasks carry ADLSFileIO from FE. This plugin needs
+             that implementation and its compile-only Azure SDK clients to deserialize and read them.
+             The SDK modules use the shared Azure BOM and avoid the bundle's duplicate classes. -->
+        <dependency>
+            <groupId>org.apache.iceberg</groupId>
+            <artifactId>iceberg-azure</artifactId>
+            <version>${iceberg.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-storage-file-datalake</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-identity</artifactId>
+            <scope>runtime</scope>
+        </dependency>
         <!--
           iceberg-aws declares no AWS SDK dependency of its own (they are compileOnly upstream), so
           every client a deserialized FileIO reaches has to be named here.

@@ -39,7 +39,7 @@
 #include "io/file_factory.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
-#include "io/fs/s3_file_reader.h"
+#include "io/fs/obj_storage_file_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 

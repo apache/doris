@@ -166,6 +166,10 @@ struct TResultFileSinkOptions {
     // padding, preserving the historical name format. Used to make rollover
     // files sort lexicographically (so _00011 sorts after _00002).
     23: optional i32 file_name_padding
+    // Typed native Azure access for the data and success files, as in
+    // TFileScanRangeParams.azure_client_config. Without it BE parses the S3-style keys in
+    // broker_properties, which can express only SharedKey.
+    24: optional PlanNodes.TAzureClientConfig azure_client_config
 }
 
 struct TMemoryScratchSink {
@@ -397,6 +401,9 @@ struct THiveTableSink {
     13: optional bool supports_deferred_azure_multipart
     // Absent: legacy session timezone; empty: wall-clock INT96; otherwise: named catalog timezone.
     14: optional string hive_parquet_time_zone
+    // Typed Azure access for writes. The write path stays as FE built it: the coordinator
+    // completes Azure multipart uploads by that path.
+    15: optional PlanNodes.TAzureClientConfig azure_client_config
 }
 
 enum TUpdateMode {
@@ -512,6 +519,8 @@ struct TIcebergTableSink {
     // Unset or empty means count nothing: an older FE does not read nan_value_counts back, so counting for it
     // would be pure waste, and a table whose float fields are all metrics-disabled has nothing to report.
     20: optional list<i32> nan_count_field_ids;
+    // Typed Azure access for writes; output paths then keep their native Azure form.
+    21: optional PlanNodes.TAzureClientConfig azure_client_config
 }
 
 struct TIcebergRewritableDeleteFileSet {
@@ -530,6 +539,10 @@ struct TIcebergDeleteSink {
     5: optional PlanNodes.TFileFormatType file_format
     6: optional PlanNodes.TFileCompressType compress_type
     7: optional string output_path
+    // The raw (un-normalized) data location: the same directory as output_path, in the table's
+    // own form. BE writes delete files under output_path and commits them under table_location,
+    // e.g. written to s3://b/db/t/data/delete_x.parquet, committed as oss://b/db/t/data/delete_x.parquet.
+    // It must not be the table root, or committed paths would miss the data directory.
     8: optional string table_location
     9: optional map<string, string> hadoop_config
     10: optional Types.TFileType file_type
@@ -540,6 +553,8 @@ struct TIcebergDeleteSink {
     14: optional i32 format_version
     // Only for format_version >= 3. Existing live delete files that should be merged into the new DV.
     15: optional list<TIcebergRewritableDeleteFileSet> rewritable_delete_file_sets
+    // Typed Azure access for writes; output paths then keep their native Azure form.
+    16: optional PlanNodes.TAzureClientConfig azure_client_config
 }
 
 // Merge sink for Iceberg UPDATE: mix of position delete + data insert
@@ -573,6 +588,7 @@ struct TIcebergMergeSink {
 
     // delete side (position delete only)
     20: optional TFileContent delete_type
+    // Same contract as TIcebergDeleteSink.table_location: the raw form of output_path's directory.
     21: optional string table_location
     22: optional i32 partition_spec_id_for_delete
     23: optional string partition_data_json_for_delete
@@ -580,6 +596,8 @@ struct TIcebergMergeSink {
     24: optional i32 format_version
     // Only for format_version >= 3. Existing live delete files that should be merged into the new DV.
     25: optional list<TIcebergRewritableDeleteFileSet> rewritable_delete_file_sets
+    // Typed Azure access for writes; output paths then keep their native Azure form.
+    26: optional PlanNodes.TAzureClientConfig azure_client_config
 }
 
 enum TDictLayoutType {
@@ -629,6 +647,8 @@ struct TTVFTableSink {
     // Zero-pad the per-file index in the output file name to this many digits.
     // 0 or unset means no padding. Mirrors TResultFileSinkOptions.file_name_padding.
     16: optional i32 file_name_padding
+    // Typed native Azure access, as in TResultFileSinkOptions.azure_client_config.
+    17: optional PlanNodes.TAzureClientConfig azure_client_config
 }
 
 struct TMCCommitData {

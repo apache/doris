@@ -20,7 +20,7 @@
 #include <fstream>
 
 #include "io/fs/benchmark/benchmark_factory.hpp"
-#include "io/fs/s3_file_bufferpool.h"
+#include "io/fs/obj_storage_file_buffer_pool.h"
 #include "util/cpu_info.h"
 #include "util/threadpool.h"
 

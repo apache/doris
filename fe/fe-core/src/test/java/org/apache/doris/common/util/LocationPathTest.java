@@ -282,6 +282,29 @@ public class LocationPathTest {
     }
 
     @Test
+    public void testNativeAccessKeepsAzureLocations() {
+        String azure = "abfss://mycontainer@mystorageaccount.dfs.core.windows.net/data/f.parquet";
+        // Requests without typed Azure access still get the s3-style form.
+        Assertions.assertEquals("s3://mycontainer/data/f.parquet",
+                LocationPath.ofAdapters(azure, STORAGE_PROPERTIES_MAP).getNormalizedLocation());
+
+        LocationPath nativePath = LocationPath.ofAdaptersForNativeAccess(azure, STORAGE_PROPERTIES_MAP);
+        Assertions.assertEquals(azure, nativePath.getNormalizedLocation());
+        Assertions.assertEquals(azure, nativePath.toStorageLocation().toString());
+        Assertions.assertEquals(TFileType.FILE_S3, nativePath.getTFileTypeForBE());
+
+        // Other object stores are normalized exactly as before.
+        String oss = "oss://bucket/path/f.parquet";
+        Assertions.assertEquals(LocationPath.ofAdapters(oss, STORAGE_PROPERTIES_MAP).getNormalizedLocation(),
+                LocationPath.ofAdaptersForNativeAccess(oss, STORAGE_PROPERTIES_MAP).getNormalizedLocation());
+
+        // An unsupported scheme on the Azure binding is still rejected.
+        StorageAdapter azureAdapter = STORAGE_PROPERTIES_MAP.get(StorageTypeId.AZURE);
+        Assertions.assertThrows(StoragePropertiesException.class,
+                () -> azureAdapter.validateAndNormalizeUriForNativeAccess("ftp://mycontainer/data/f.parquet"));
+    }
+
+    @Test
     public void testOnelakeStorageLocationConvert() {
         String location = "abfss://1a2b3c4d-1234-5678-abcd-9876543210ef@onelake.dfs.fabric.microsoft.com/myworkspace/lakehouse/default/Files/data/test.parquet";
         LocationPath locationPath = LocationPath.ofAdapters(location, STORAGE_PROPERTIES_MAP);
