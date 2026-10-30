@@ -1411,7 +1411,11 @@ public class SessionVariable implements Serializable, Writable {
     // time zone are rejected at creation instead, because BE evaluates them in the write/load session zone
     // and the captured zone cannot survive execution. Objects created before this key was persisted have
     // no time_zone entry; SessionVarGuardRewriter treats that as an unknown creation zone and always
-    // guards their time-zone sensitive expressions (metadata compatibility fence).
+    // guards their time-zone sensitive expressions (metadata compatibility fence), so they never match a
+    // query session unconditionally and must be recreated to be rewritten across zones. The reverse
+    // upgrade direction is an explicit migration requirement: an old read-serving FE ignores this key and
+    // does not classify TIMESTAMPTZ functions, so an object created by a new FE must be rebuilt (or not be
+    // read by the old FE at all) while the cluster is mixed-version.
     @VarAttrDef.VarAttr(name = TIME_ZONE, needForward = true, affectQueryResultInPlan = true,
             affectQueryResultInExecution = true)
     public String timeZone = TimeUtils.getSystemTimeZone().getID();

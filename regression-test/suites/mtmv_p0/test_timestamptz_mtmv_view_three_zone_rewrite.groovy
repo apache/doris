@@ -27,7 +27,9 @@ import org.junit.Assert;
  * Three pairwise-distinct zones are used: the view is created in +08:00, the MTMV over it is
  * created/refreshed in +00:00 (UTC), and the query runs in -05:00. For the instant 2024-01-01 02:30Z the
  * UTC day is 2024-01-01 while the -05:00 day is 2023-12-31, so substituting the UTC-materialized value
- * into the -05:00 query is wrong.
+ * into the -05:00 query is wrong. Both rewrite phases are covered: the default CBO phase
+ * (TRY_IN_RBO with no NEED_PRE_REWRITE rule) and FORCE_IN_RBO, which records the pre-RBO plan while the
+ * query still holds the view's non-cache guard.
  */
 suite("test_timestamptz_mtmv_view_three_zone_rewrite","mtmv") {
     def dbName = "timestamptz_mtmv_view_three_zone_rewrite"
@@ -115,4 +117,29 @@ suite("test_timestamptz_mtmv_view_three_zone_rewrite","mtmv") {
     Assert.assertEquals(1, crossZoneOn.size())
     Assert.assertTrue("expected 2023-12-31 00:00:00.000000-05:00, got " + crossZoneOn[0][1],
             crossZoneOn[0][1].toString().contains("2023-12-31"))
+
+    // FORCE_IN_RBO: the pre-RBO plan is recorded during RBO, where the query frame still carries the
+    // view's non-cache guard. The RBO rewrite must not substitute the UTC-materialized day either. The
+    // same-zone assertion first proves the pre-RBO path is actually live (otherwise the cross-zone
+    // assertion would be vacuous); a rewritten plan scans the MV, i.e. contains "TABLE: <db>.<mv>(<mv>)".
+    sql "SET pre_materialized_view_rewrite_strategy = 'FORCE_IN_RBO'"
+
+    sql "SET time_zone = '${mvTz}'"
+    explain {
+        sql("SELECT id, d FROM ${viewName}")
+        contains(".${mvName}(")
+    }
+
+    sql "SET time_zone = '${queryTz}'"
+    explain {
+        sql("SELECT id, d FROM ${viewName}")
+        check { result ->
+            Assert.assertFalse("pre-RBO cross-zone rewrite must not scan the MV: " + result,
+                    result.contains(".${mvName}("))
+        }
+    }
+    def crossZoneRbo = sql "SELECT id, CAST(d AS STRING) FROM ${viewName} ORDER BY 1"
+    Assert.assertEquals("pre-RBO cross-zone query must not read the UTC-materialized MV day",
+            crossZoneOff, crossZoneRbo)
+    sql "SET pre_materialized_view_rewrite_strategy = 'TRY_IN_RBO'"
 }

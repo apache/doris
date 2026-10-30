@@ -169,7 +169,7 @@ public class MTMVPlanUtil {
      */
     private static Map<String, String> effectiveSessionVariables(MTMV mtmv) {
         Map<String, String> sessionVariables = mtmv.getSessionVariables();
-        if (sessionVariables != null && sessionVariables.containsKey(SessionVariable.TIME_ZONE)) {
+        if (SessionVarGuardRewriter.isCreationSessionKnown(sessionVariables)) {
             return sessionVariables;
         }
         if (!usesUtcTimeStampTzPartition(mtmv.getMvPartitionInfo())) {

@@ -51,6 +51,7 @@ suite("test_timestamptz_partition_mtmv_refresh_timezone","mtmv") {
         CREATE TABLE ${tableName} (
             id INT,
             ts TIMESTAMPTZ(6),
+            ts2 TIMESTAMPTZ(6),
             v INT
         )
         DUPLICATE KEY(id)
@@ -62,9 +63,10 @@ suite("test_timestamptz_partition_mtmv_refresh_timezone","mtmv") {
         PROPERTIES('replication_num' = '1')
     """
 
+    // ts2 is deliberately on a different day in UTC (2024-01-01) than in +08:00 (2024-01-02).
     sql """
         INSERT INTO ${tableName} VALUES
-        (1, '2024-01-01 00:30:00+00:00', 10)
+        (1, '2024-01-01 00:30:00+00:00', '2024-01-01 20:30:00+00:00', 10)
     """
     sql "sync"
 
@@ -123,4 +125,52 @@ suite("test_timestamptz_partition_mtmv_refresh_timezone","mtmv") {
     Assert.assertTrue("expected 2024-01-01 00:00:00.000000+00:00, got " + mvRes[0][0],
             mvRes[0][0].toString().contains("2024-01-01 00:00:00.000000+00:00"))
     Assert.assertEquals(10, mvRes[0][1])
+
+    // A date_trunc-on-TIMESTAMPTZ partition makes the whole definition's effective session zone UTC: the MV
+    // partition boundaries are UTC-aligned and the definition's session variables are persisted with
+    // time_zone=UTC. An unrelated zone-sensitive expression in the same definition is part of that same
+    // persisted semantics, so it is materialized in UTC as well - it must not be re-evaluated in the
+    // system-default zone of the background refresh session, and it must not be rewriteable from a
+    // different zone. ts2 is 2024-01-01 20:30Z, i.e. 2024-01-01 in UTC but 2024-01-02 in +08:00.
+    def otherMvName = "timestamptz_partition_mtmv_refresh_timezone_other_mv"
+    sql "SET time_zone = '${creationTz}'"
+    sql "DROP MATERIALIZED VIEW IF EXISTS ${otherMvName}"
+    sql """
+        CREATE MATERIALIZED VIEW ${otherMvName}
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        PARTITION BY(day_ts)
+        DISTRIBUTED BY RANDOM BUCKETS 1
+        PROPERTIES('replication_num' = '1')
+        AS
+        SELECT date_trunc(ts, 'day') AS day_ts, SUM(v) AS total,
+               MIN(CAST(date_trunc(ts2, 'day') AS STRING)) AS other_day
+        FROM ${tableName}
+        GROUP BY date_trunc(ts, 'day')
+    """
+    waitingMTMVTaskFinishedByMvName(otherMvName, dbName)
+    def otherTasks = sql """
+        SELECT Status, ErrorMsg
+        FROM tasks('type' = 'mv')
+        WHERE MvDatabaseName = '${dbName}' AND MvName = '${otherMvName}'
+        ORDER BY CreateTime DESC
+        LIMIT 1
+    """
+    Assert.assertEquals("SUCCESS", otherTasks[0][0].toString())
+
+    sql "SET time_zone = '+00:00'"
+    def otherRes = sql "SELECT CAST(day_ts AS STRING), total, other_day FROM ${otherMvName} ORDER BY 1"
+    Assert.assertEquals(1, otherRes.size())
+    Assert.assertEquals(10, otherRes[0][1])
+    Assert.assertTrue("unrelated zone-sensitive expression must be materialized in the persisted UTC "
+            + "semantics, got " + otherRes[0][2],
+            otherRes[0][2].toString().contains("2024-01-01 00:00:00.000000+00:00"))
+
+    def otherQuery = """
+        SELECT date_trunc(ts, 'day'), SUM(v), MIN(CAST(date_trunc(ts2, 'day') AS STRING))
+        FROM ${tableName}
+        GROUP BY date_trunc(ts, 'day')
+    """
+    mv_rewrite_success(otherQuery, otherMvName)
+    sql "SET time_zone = '+08:00'"
+    mv_rewrite_fail(otherQuery, otherMvName)
 }

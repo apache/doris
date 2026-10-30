@@ -292,12 +292,11 @@ public class InitMaterializationContextHook implements PlannerHook {
                         // The sync MV rewrite keeps its narrow sql_mode exception: a difference confined to
                         // the STRICT_TRANS_TABLES / STRICT_ALL_TABLES bits does not change the semantics of
                         // the rewritten expressions, so it must not force a guard family. Any other
-                        // difference selects the guard families through the same mask as async MVs.
-                        int guardMask = SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(
-                                currentVars, meta.getSessionVariables())
-                                        ? SessionVarGuardRewriter.GUARD_NONE
-                                        : SessionVarGuardRewriter.computeGuardMask(
-                                                currentVars, meta.getSessionVariables());
+                        // difference - including an empty or time_zone-less persisted map from pre-change
+                        // metadata - selects the guard families through the same mask as async MVs, so a
+                        // legacy map is never treated as an unconditional match.
+                        int guardMask = SessionVarGuardRewriter.computeSyncMvGuardMask(
+                                currentVars, meta.getSessionVariables());
                         MTMVCache mtmvCache = MTMVCache.from(querySql.get(),
                                 basicMvContext, true,
                                 false, cascadesContext.getConnectContext(), guardMask);

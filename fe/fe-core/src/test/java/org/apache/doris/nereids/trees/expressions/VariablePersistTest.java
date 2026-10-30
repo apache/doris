@@ -927,4 +927,98 @@ public class VariablePersistTest extends ExpressionRewriteTestHelper {
         Assertions.assertTrue(((SessionVarGuardExpr) cacheGuard.withChildren(ImmutableList.of(child)))
                 .isCacheGuard());
     }
+
+    /**
+     * Only a persisted map that carries time_zone identifies the creation zone. Everything else is the
+     * old-metadata upgrade direction and must stay behind the metadata compatibility fence: it is never an
+     * unconditional match, so it cannot be rewritten across zones until it is recreated.
+     */
+    @Test
+    public void testCreationSessionKnown() {
+        Assertions.assertFalse(SessionVarGuardRewriter.isCreationSessionKnown(null));
+        Assertions.assertFalse(SessionVarGuardRewriter.isCreationSessionKnown(new HashMap<>()));
+        Assertions.assertFalse(SessionVarGuardRewriter.isCreationSessionKnown(
+                ImmutableMap.of(SessionVariable.SQL_MODE, "0")));
+        Assertions.assertTrue(SessionVarGuardRewriter.isCreationSessionKnown(
+                ImmutableMap.of(SessionVariable.TIME_ZONE, "+00:00")));
+        Assertions.assertTrue(SessionVarGuardRewriter.isCreationSessionKnown(
+                ImmutableMap.of(SessionVariable.TIME_ZONE, "+00:00", SessionVariable.SQL_MODE, "0")));
+    }
+
+    /**
+     * The synchronous MV cache must not treat a legacy (empty or time_zone-less) persisted map as a match.
+     * The narrow strict-table sql_mode exception is still honored, but only for the other guard family.
+     */
+    @Test
+    public void testSyncMvGuardMaskFencesUnknownCreationZone() {
+        long baseMode = SqlModeHelper.MODE_ONLY_FULL_GROUP_BY;
+        long strictMode = baseMode
+                | SqlModeHelper.MODE_STRICT_TRANS_TABLES
+                | SqlModeHelper.MODE_STRICT_ALL_TABLES;
+        Map<String, String> current = ImmutableMap.of(
+                SessionVariable.TIME_ZONE, "+08:00",
+                SessionVariable.SQL_MODE, Long.toString(strictMode));
+        Map<String, String> persisted = ImmutableMap.of(
+                SessionVariable.TIME_ZONE, "+08:00",
+                SessionVariable.SQL_MODE, Long.toString(baseMode));
+
+        // matching creation session -> no guard
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_NONE,
+                SessionVarGuardRewriter.computeSyncMvGuardMask(current, current));
+        // strict-table sql_mode-only difference keeps the historical exemption
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_NONE,
+                SessionVarGuardRewriter.computeSyncMvGuardMask(current, persisted));
+        // an empty or time_zone-less map is an unknown creation zone, never an unconditional match
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE,
+                SessionVarGuardRewriter.computeSyncMvGuardMask(current, new HashMap<>()));
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE,
+                SessionVarGuardRewriter.computeSyncMvGuardMask(current, null));
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE,
+                SessionVarGuardRewriter.computeSyncMvGuardMask(current,
+                        ImmutableMap.of(SessionVariable.SQL_MODE, Long.toString(strictMode))));
+        // the strict-table exemption must not rescue an unknown creation zone: the zone family is still
+        // guarded, and the legacy sql_mode difference only adds the (otherwise exempted) other family
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE | SessionVarGuardRewriter.GUARD_OTHER,
+                SessionVarGuardRewriter.computeSyncMvGuardMask(current,
+                        ImmutableMap.of(SessionVariable.SQL_MODE, Long.toString(baseMode))));
+        // a zone difference is a mismatch even without any other difference
+        Map<String, String> otherZone = ImmutableMap.of(
+                SessionVariable.TIME_ZONE, "+00:00",
+                SessionVariable.SQL_MODE, Long.toString(strictMode));
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE,
+                SessionVarGuardRewriter.computeSyncMvGuardMask(current, otherZone));
+        // the sql_mode exemption must not hide a non-sql_mode variable difference
+        Map<String, String> otherVarDiff = ImmutableMap.of(
+                SessionVariable.TIME_ZONE, "+08:00",
+                SessionVariable.SQL_MODE, Long.toString(baseMode),
+                "enable_decimal256", "true");
+        Map<String, String> currentNoDecimal = ImmutableMap.of(
+                SessionVariable.TIME_ZONE, "+08:00",
+                SessionVariable.SQL_MODE, Long.toString(strictMode));
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_OTHER,
+                SessionVarGuardRewriter.computeSyncMvGuardMask(currentNoDecimal, otherVarDiff));
+    }
+
+    /**
+     * New-metadata -> old-FE direction of the compatibility fence. The new FE persists time_zone, which an
+     * old FE does not register: its whole-map comparison still sees a mismatch (so it never uses the
+     * unconditional-match cache), but its guarded cache does not classify TIMESTAMPTZ expressions, so the
+     * object must be rebuilt/recreated before an old read-serving FE is used. This test only pins the
+     * observable part of that contract: the persisted map is a whole-map mismatch for a session that does
+     * not know the key, and the same map reports a known creation session on the new FE.
+     */
+    @Test
+    public void testNewMetadataMismatchesWholeMapComparison() {
+        Map<String, String> newMetadata = ImmutableMap.of(
+                SessionVariable.TIME_ZONE, "+00:00",
+                SessionVariable.SQL_MODE, "0");
+        Map<String, String> oldFeSession = ImmutableMap.of(SessionVariable.SQL_MODE, "0");
+
+        Assertions.assertNotEquals(oldFeSession, newMetadata,
+                "an old FE's whole-map comparison must not treat new metadata as identical");
+        Assertions.assertTrue(SessionVarGuardRewriter.isCreationSessionKnown(newMetadata));
+        // the old FE's own (time_zone-less) map stays fenced on the new FE
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE,
+                SessionVarGuardRewriter.computeGuardMask(newMetadata, oldFeSession));
+    }
 }

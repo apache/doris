@@ -386,26 +386,38 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
     }
 
     /**
+     * Whether the persisted session-variable map identifies the creation time zone.
+     *
+     * <p>A missing, empty or time_zone-less map means the creation zone is unknown: the object was created
+     * before time_zone was persisted (old FE), or its metadata was replayed by a new FE without the key.
+     * Such an object is the old-metadata -> new-FE upgrade direction of the metadata compatibility fence:
+     * its zone-sensitive expressions are guarded forever and it must be recreated on the new FE before it
+     * can participate in a cross-zone rewrite. The reverse direction (new metadata read by an old FE)
+     * cannot be repaired from the new code: an old read-serving FE neither registers this key nor
+     * classifies TIMESTAMPTZ functions, so it keeps building its nominal-mismatch cache without the time
+     * zone guard. New-metadata objects therefore have to be rebuilt/recreated before an old FE serves
+     * their reads, or the old FE must not be used for reads until it is upgraded.
+     */
+    public static boolean isCreationSessionKnown(Map<String, String> persistSessionVars) {
+        return persistSessionVars != null && !persistSessionVars.isEmpty()
+                && persistSessionVars.containsKey(SessionVariable.TIME_ZONE);
+    }
+
+    /**
      * Computes which session-variable dependency families differ between the query session and the
      * persisted (creation) session, as a bitmask of {@link #GUARD_TIME_ZONE} and {@link #GUARD_OTHER}.
      * Per-family scoping lets a time-zone-only difference keep rewriting expressions that depend on other
      * variables (and vice versa).
      *
-     * <p>An empty or missing persisted map is treated as "creation time zone unknown": objects created
-     * before time_zone was part of the persisted plan variables (old FE, or old metadata replayed on a new
-     * FE) carry no time_zone key, so their zone-sensitive expressions must always be guarded. This is the
-     * metadata compatibility fence in the old-metadata -> new-FE direction; a new-FE-created object always
-     * persists time_zone (see {@link SessionVariable#TIME_ZONE}). The reverse direction cannot be repaired
-     * from the new code: an old read-serving FE neither knows this key nor classifies TIMESTAMPTZ
-     * functions, so such objects must be rebuilt on the new FE to get a guarded rewrite cache.
+     * <p>An unknown creation session (see {@link #isCreationSessionKnown}) always selects the time-zone
+     * family, never an unconditional match.
      */
     public static int computeGuardMask(Map<String, String> currentSessionVars,
             Map<String, String> persistSessionVars) {
         int mask = GUARD_NONE;
         // The creation zone is unknown (pre-change metadata, including an empty map) or differs from the
         // current zone.
-        if (persistSessionVars == null || persistSessionVars.isEmpty()
-                || !persistSessionVars.containsKey(SessionVariable.TIME_ZONE)
+        if (!isCreationSessionKnown(persistSessionVars)
                 || !timeZonesEquivalent(persistSessionVars.get(SessionVariable.TIME_ZONE),
                         currentSessionVars == null ? null : currentSessionVars.get(SessionVariable.TIME_ZONE))) {
             mask |= GUARD_TIME_ZONE;
@@ -415,6 +427,27 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
             mask |= GUARD_OTHER;
         }
         return mask;
+    }
+
+    /**
+     * Guard mask for the rewrite cache of a synchronous materialized view.
+     *
+     * <p>Sync MVs keep one deliberate exception: a difference confined to the strict-table sql_mode bits
+     * does not change the semantics of the rewritten expressions, so it must not disable rewrite (see
+     * {@link #checkSessionVariablesMatchForSyncMv}). The exception is only consulted when the mask selects
+     * the non-time-zone family on its own, and it can therefore never suppress the time-zone fence: a
+     * legacy sync MV whose persisted map is empty or time_zone-less is still guarded for the time zone
+     * (the full mask is returned), so an empty map is never an unconditional match and the cache cannot be
+     * rewritten in a different zone.
+     */
+    public static int computeSyncMvGuardMask(Map<String, String> currentSessionVars,
+            Map<String, String> persistSessionVars) {
+        int guardMask = computeGuardMask(currentSessionVars, persistSessionVars);
+        if (guardMask == GUARD_OTHER
+                && checkSessionVariablesMatchForSyncMv(currentSessionVars, persistSessionVars)) {
+            return GUARD_NONE;
+        }
+        return guardMask;
     }
 
     /**
