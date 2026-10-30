@@ -559,7 +559,9 @@ LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in, TrackedNullDoci
                                            : in.mem_reporter->make_reservation()),
           bsbf_bytes_reservation_(in.mem_reporter == nullptr
                                           ? MemoryReporter::Reservation()
-                                          : in.mem_reporter->make_reservation()) {}
+                                          : in.mem_reporter->make_reservation()) {
+    prx_window_limits_.zstd_budget = in.prx_zstd_budget ? &prx_zstd_budget_ : nullptr;
+}
 
 Status LogicalIndexWriter::reserve_term_hash_for_append() {
     if (memory_reporter_ == nullptr || term_hashes_.size() < term_hashes_.capacity()) {

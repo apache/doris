@@ -45,6 +45,11 @@
 #include "util/slice.h"
 
 namespace doris::segment_v2 {
+
+// index_file_writer.cpp keeps it out of its anonymous namespace for this test.
+void snii_resolve_index_write_params(bool is_direct_load, bool has_norms,
+                                     doris::snii::writer::SniiIndexInput* input);
+
 namespace {
 
 constexpr int64_t kIndexId = 9;
@@ -252,6 +257,25 @@ uint64_t golden_digest(const std::string& name, const TabletIndex& meta) {
     return fnv1a64(bytes);
 }
 
+// Writes `rows` through the production stack and returns the size of the segment file.
+size_t written_size(const std::string& name, const TabletIndex& meta,
+                    const std::vector<std::string>& rows) {
+    const std::string path = std::string(kTestDir) + "/" + name + ".idx";
+    io::FileWriterPtr file_writer;
+    EXPECT_TRUE(io::global_local_filesystem()->create_file(path, &file_writer).ok());
+    IndexFileWriter index_file_writer(io::global_local_filesystem(), path, "size_rowset",
+                                      /*seg_id=*/0, InvertedIndexStorageFormatPB::SNII,
+                                      std::move(file_writer), /*can_use_ram_dir=*/true,
+                                      /*tablet_id=*/901);
+    SniiIndexColumnWriter writer(&index_file_writer, &meta, FieldType::OLAP_FIELD_TYPE_VARCHAR);
+    EXPECT_TRUE(writer.init().ok());
+    add_batch(&writer, rows);
+    EXPECT_TRUE(writer.finish().ok());
+    EXPECT_TRUE(index_file_writer.begin_close().ok());
+    EXPECT_TRUE(index_file_writer.finish_close().ok());
+    return read_file_bytes(path).size();
+}
+
 class SniiWriterGoldenBytes : public testing::Test {
 protected:
     void SetUp() override {
@@ -260,17 +284,20 @@ protected:
         _saved_dict_lvl = config::snii_dict_block_zstd_level;
         _saved_prx_lvl = config::snii_prx_zstd_level;
         _saved_prx_load_lvl = config::snii_prx_zstd_level_direct_load;
+        _saved_prx_saving = config::snii_prx_zstd_min_saving_percent;
         assert_ok(io::global_local_filesystem()->delete_directory(kTestDir));
         assert_ok(io::global_local_filesystem()->create_directory(kTestDir));
         config::snii_dict_block_zstd_level = 3;
         config::snii_prx_zstd_level = 3;
         config::snii_prx_zstd_level_direct_load = 3;
+        config::snii_prx_zstd_min_saving_percent = 0;
     }
 
     void TearDown() override {
         config::snii_dict_block_zstd_level = _saved_dict_lvl;
         config::snii_prx_zstd_level = _saved_prx_lvl;
         config::snii_prx_zstd_level_direct_load = _saved_prx_load_lvl;
+        config::snii_prx_zstd_min_saving_percent = _saved_prx_saving;
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
     }
 
@@ -278,6 +305,7 @@ private:
     int32_t _saved_dict_lvl = 3;
     int32_t _saved_prx_lvl = 3;
     int32_t _saved_prx_load_lvl = 3;
+    int32_t _saved_prx_saving = 0;
 };
 
 // Whole-image digests re-harvested after core metadata stopped writing an empty
@@ -293,6 +321,58 @@ private:
 constexpr uint64_t kGoldenEnglishPhrase = 0x8157f9dd81c5397cULL;
 constexpr uint64_t kGoldenUnicodePhrase = 0x9e2a4ba4abedaef9ULL;
 constexpr uint64_t kGoldenKeywordDocsOnly = 0x27cec04c70573201ULL;
+
+// The default of the knob is part of the written format's behavior: the fixture above pins it to 0
+// for the digests, so this reads the value a fresh process starts with.
+TEST(SniiWriterPrxZstdSaving, DefaultLetsEachIndexSpendItsBudget) {
+    EXPECT_EQ(config::snii_prx_zstd_min_saving_percent, -1);
+}
+
+TEST(SniiWriterPrxZstdSaving, NegativeConfigGivesEachIndexABudget) {
+    const int32_t saved = config::snii_prx_zstd_min_saving_percent;
+    const auto resolve = [](int32_t value) {
+        config::snii_prx_zstd_min_saving_percent = value;
+        doris::snii::writer::SniiIndexInput input;
+        input.config = doris::snii::format::IndexConfig::kDocsPositions;
+        snii_resolve_index_write_params(/*is_direct_load=*/true, /*has_norms=*/false, &input);
+        return input;
+    };
+    EXPECT_TRUE(resolve(-1).prx_zstd_budget);
+    EXPECT_FALSE(resolve(0).prx_zstd_budget);
+    EXPECT_EQ(resolve(0).prx_window_limits.zstd_min_saving_percent, 0);
+    EXPECT_FALSE(resolve(30).prx_zstd_budget);
+    EXPECT_EQ(resolve(30).prx_window_limits.zstd_min_saving_percent, 30);
+    EXPECT_EQ(resolve(150).prx_window_limits.zstd_min_saving_percent, 100);
+    config::snii_prx_zstd_min_saving_percent = saved;
+}
+
+// Every document repeats the same positions, so a window is far smaller as zstd than as PFOR.
+// 0, 30 and the budget keep zstd; 100 never picks it, so the segment is larger.
+TEST_F(SniiWriterGoldenBytes, PrxZstdMinSavingConfigReachesTheWriter) {
+    std::vector<std::string> rows;
+    for (int doc = 0; doc < 2000; ++doc) {
+        std::string row;
+        for (int token = 0; token < 31; ++token) {
+            row += (token == 1 || token == 5 || token == 6 || token == 17 || token == 30)
+                           ? "x "
+                           : "t" + std::to_string(token) + " ";
+        }
+        rows.push_back(row);
+    }
+    const TabletIndex meta =
+            make_meta({{"parser", "unicode"}, {"lower_case", "true"}, {"support_phrase", "true"}});
+    config::snii_prx_zstd_min_saving_percent = 0;
+    const size_t smallest = written_size("saving_0", meta, rows);
+    config::snii_prx_zstd_min_saving_percent = 30;
+    const size_t thirty = written_size("saving_30", meta, rows);
+    config::snii_prx_zstd_min_saving_percent = 100;
+    const size_t never_zstd = written_size("saving_100", meta, rows);
+    config::snii_prx_zstd_min_saving_percent = -1;
+    const size_t budgeted = written_size("saving_budget", meta, rows);
+    EXPECT_EQ(thirty, smallest);
+    EXPECT_EQ(budgeted, smallest);
+    EXPECT_GT(never_zstd, smallest + 1000) << "smallest=" << smallest;
+}
 
 TEST_F(SniiWriterGoldenBytes, EnglishPhrase) {
     const TabletIndex meta =
