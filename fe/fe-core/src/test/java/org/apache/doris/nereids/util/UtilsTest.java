@@ -24,6 +24,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TUniqueId;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -39,15 +40,26 @@ public class UtilsTest {
     @Test
     public void testExecutePlanRestoresShowStatement() {
         StatementContext statementContext = new StatementContext();
-        ConnectContext ctx = Mockito.mock(ConnectContext.class);
+        ConnectContext ctx = new ConnectContext();
+        ctx.setStatementContext(statementContext);
         StmtExecutor executor = Mockito.mock(StmtExecutor.class);
         NereidsParser parser = new NereidsParser();
         LogicalPlanAdapter showStmt = new LogicalPlanAdapter(
                 parser.parseSingle("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'"), statementContext);
         LogicalPlan selectPlan = parser.parseSingle("SELECT 1");
-        Mockito.when(ctx.getStatementContext()).thenReturn(statementContext);
+        TUniqueId showQueryId = new TUniqueId(1, 2);
+        ctx.setQueryId(showQueryId);
+        ctx.setSqlHash("show-hash");
+        ctx.getState().setNereids(true);
         Mockito.when(executor.getParsedStmt()).thenReturn(showStmt);
-        Mockito.when(executor.executeInternalQueryWithoutAudit()).thenReturn(Collections.emptyList());
+        Mockito.when(executor.executeInternalQueryWithoutAudit()).thenAnswer(invocation -> {
+            ctx.setQueryId(new TUniqueId(3, 4));
+            ctx.setSqlHash("select-hash");
+            ctx.getState().setInternal(true);
+            ctx.getState().setIsQuery(true);
+            ctx.getState().setNereids(true);
+            return Collections.emptyList();
+        });
 
         Utils.executePlan(ctx, executor, selectPlan);
 
@@ -57,6 +69,41 @@ public class UtilsTest {
         calls.verify(executor).executeInternalQueryWithoutAudit();
         calls.verify(executor).setParsedStmt(showStmt);
         Assertions.assertEquals(StmtType.SHOW, showStmt.getLogicalPlan().stmtType());
+        Assertions.assertEquals(showQueryId, ctx.queryId());
+        Assertions.assertEquals("show-hash", ctx.getSqlHash());
+        Assertions.assertFalse(ctx.getState().isInternal());
+        Assertions.assertFalse(ctx.getState().isQuery());
+        Assertions.assertTrue(ctx.getState().isNereids());
+    }
+
+    @Test
+    public void testExecutePlanRestoresShowStatementAndContextOnFailure() {
+        StatementContext statementContext = new StatementContext();
+        ConnectContext ctx = new ConnectContext();
+        ctx.setStatementContext(statementContext);
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        LogicalPlanAdapter showStmt = new LogicalPlanAdapter(
+                new NereidsParser().parseSingle("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'"), statementContext);
+        TUniqueId showQueryId = new TUniqueId(1, 2);
+        ctx.setQueryId(showQueryId);
+        ctx.setSqlHash("show-hash");
+        Mockito.when(executor.getParsedStmt()).thenReturn(showStmt);
+        Mockito.when(executor.executeInternalQueryWithoutAudit()).thenAnswer(invocation -> {
+            ctx.setQueryId(new TUniqueId(3, 4));
+            ctx.setSqlHash("select-hash");
+            ctx.getState().setInternal(true);
+            ctx.getState().setIsQuery(true);
+            throw new IllegalStateException("internal SELECT failed");
+        });
+
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> Utils.executePlan(ctx, executor, new NereidsParser().parseSingle("SELECT 1")));
+
+        Mockito.verify(executor).setParsedStmt(showStmt);
+        Assertions.assertEquals(showQueryId, ctx.queryId());
+        Assertions.assertEquals("show-hash", ctx.getSqlHash());
+        Assertions.assertFalse(ctx.getState().isInternal());
+        Assertions.assertFalse(ctx.getState().isQuery());
     }
 
     @Test

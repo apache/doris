@@ -111,4 +111,30 @@ public class StmtExecutorInternalQueryTest {
         Assertions.assertEquals("select * from table1", auditEvent.stmt);
         Assertions.assertEquals("a8ec30e5ad0820f8c5bd16a82a4491ca", auditEvent.sqlHash);
     }
+
+    @Test
+    public void testExecuteInternalQueryWithoutAuditSkipsEventOnFailure() {
+        ConnectContext ctx = new ConnectContext();
+        StmtExecutor executor = new StmtExecutor(ctx, "select * from table1");
+        Env env = Env.getCurrentEnv();
+        WorkloadRuntimeStatusMgr originalWorkloadRuntimeStatusMgr = env.getWorkloadRuntimeStatusMgr();
+        WorkloadRuntimeStatusMgr workloadRuntimeStatusMgr = Mockito.mock(WorkloadRuntimeStatusMgr.class);
+
+        Deencapsulation.setField(env, "workloadRuntimeStatusMgr", workloadRuntimeStatusMgr);
+        try {
+            try (MockedConstruction<NereidsPlanner> mockedPlanner = Mockito.mockConstruction(NereidsPlanner.class,
+                    (mock, context) -> {
+                        Mockito.when(mock.getStatementContext()).thenReturn(ctx.getStatementContext());
+                        Mockito.doThrow(new RuntimeException("mock plan failure"))
+                                .when(mock).plan(Mockito.any(StatementBase.class), Mockito.any(TQueryOptions.class));
+                    })) {
+                Assertions.assertThrows(RuntimeException.class, executor::executeInternalQueryWithoutAudit);
+            }
+            Mockito.verify(workloadRuntimeStatusMgr, Mockito.never())
+                    .submitFinishQueryToAudit(Mockito.any(AuditEvent.class));
+        } finally {
+            Deencapsulation.setField(env, "workloadRuntimeStatusMgr", originalWorkloadRuntimeStatusMgr);
+        }
+        Assertions.assertEquals(QueryState.MysqlStateType.ERR, ctx.getState().getStateType());
+    }
 }

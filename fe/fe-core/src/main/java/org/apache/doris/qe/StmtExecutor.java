@@ -2432,8 +2432,10 @@ public class StmtExecutor {
             if (collectMode && coord != null) {
                 coord.close();
             }
-            AuditLogHelper.logAuditLog(context, originStmt == null ? null : originStmt.originStmt,
-                    parsedStmt, getQueryStatisticsForAuditLog(), true);
+            if (audit) {
+                AuditLogHelper.logAuditLog(context, originStmt == null ? null : originStmt.originStmt,
+                        parsedStmt, getQueryStatisticsForAuditLog(), true);
+            }
             scanTaskScope.close();
             QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
             updateProfile(true);

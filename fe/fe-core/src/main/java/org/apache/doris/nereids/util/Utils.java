@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.repository.ResultRow;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -690,12 +691,23 @@ public class Utils {
     public static List<List<String>> executePlan(ConnectContext ctx, StmtExecutor executor, LogicalPlan plan) {
         LogicalPlanAdapter adapter = new LogicalPlanAdapter(plan, ctx.getStatementContext());
         StatementBase originalStmt = executor.getParsedStmt();
+        // The internal SELECT shares the SHOW connection; preserve its audit identity and flags.
+        TUniqueId originalQueryId = ctx.queryId();
+        String originalSqlHash = ctx.getSqlHash();
+        boolean wasInternal = ctx.getState().isInternal();
+        boolean wasQuery = ctx.getState().isQuery();
+        boolean wasNereids = ctx.getState().isNereids();
         try {
             executor.setParsedStmt(adapter);
             List<ResultRow> resultRows = executor.executeInternalQueryWithoutAudit();
             return resultRows.stream().map(ResultRow::getValues).collect(Collectors.toList());
         } finally {
             executor.setParsedStmt(originalStmt);
+            ctx.setQueryId(originalQueryId);
+            ctx.setSqlHash(originalSqlHash);
+            ctx.getState().setInternal(wasInternal);
+            ctx.getState().setIsQuery(wasQuery);
+            ctx.getState().setNereids(wasNereids);
         }
     }
 }
