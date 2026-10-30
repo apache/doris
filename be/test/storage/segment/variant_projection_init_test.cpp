@@ -87,7 +87,7 @@ protected:
                 iterator->_storage_name_and_type[0].second, _opts.io_ctx.reader_type);
         ASSERT_TRUE(iterator->next_batch(&block).ok());
         EXPECT_EQ(block.rows(), select_nulls ? 8 : 0);
-        EXPECT_EQ(iterator->_column_iterators[1] != nullptr, select_nulls);
+        EXPECT_NE(iterator->_column_iterators[1], nullptr);
         EXPECT_EQ(_stats.raw_rows_read, later_survivors ? 4 : 8);
         if (select_nulls) {
             EXPECT_TRUE(block.get_by_position(1).column->is_null_at(0));
@@ -98,8 +98,8 @@ protected:
     }
 
     void check_later_survivors(SegmentIterator& iterator, Block& block) const {
-        // The first four rows were rejected. The next batch must open and
-        // read the projection at rowid 4 rather than treating it as EOF.
+        // The first four rows were rejected. The next batch must read the
+        // initialized projection at rowid 4 rather than treating it as EOF.
         iterator._pre_eval_block_predicate[0] =
                 NullPredicate::create_shared(0, "k", true, PrimitiveType::TYPE_INT);
         ASSERT_TRUE(iterator.next_batch(&block).ok());
@@ -115,14 +115,14 @@ protected:
     StorageReadOptions _opts {_stats};
 };
 
-TEST_F(VariantProjectionInitTest, InitializeProjectionAtFirstRead) {
+TEST_F(VariantProjectionInitTest, InitializeProjectionAfterStoragePruning) {
     auto iterator = make_iterator();
     ASSERT_TRUE(iterator->init(_opts).ok());
     EXPECT_NE(iterator->_column_iterators[0], nullptr);
     EXPECT_EQ(iterator->_column_iterators[1], nullptr);
     auto block = iterator->schema().create_read_block();
     ASSERT_TRUE(iterator->_lazy_init(&block).ok());
-    EXPECT_EQ(iterator->_column_iterators[1], nullptr);
+    EXPECT_NE(iterator->_column_iterators[1], nullptr);
     EXPECT_EQ(iterator->_row_bitmap.cardinality(), 8);
     ASSERT_TRUE(iterator->next_batch(&block).ok());
     EXPECT_EQ(block.rows(), 8);
@@ -130,15 +130,15 @@ TEST_F(VariantProjectionInitTest, InitializeProjectionAtFirstRead) {
     EXPECT_TRUE(block.get_by_position(1).column->is_null_at(0));
 }
 
-TEST_F(VariantProjectionInitTest, VectorPredicateRejectsRowsWithoutOpeningProjection) {
+TEST_F(VariantProjectionInitTest, VectorPredicateRejectsRowsAfterProjectionInitialization) {
     check_vector_filter(false);
 }
 
-TEST_F(VariantProjectionInitTest, VectorPredicateSurvivorsReadDeferredProjection) {
+TEST_F(VariantProjectionInitTest, VectorPredicateSurvivorsReadInitializedProjection) {
     check_vector_filter(true);
 }
 
-TEST_F(VariantProjectionInitTest, LaterBatchSurvivorsReadDeferredProjection) {
+TEST_F(VariantProjectionInitTest, LaterBatchSurvivorsReadInitializedProjection) {
     check_vector_filter(false, true);
 }
 

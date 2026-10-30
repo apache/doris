@@ -69,8 +69,8 @@ suite("test_variant_projection_deferred_init", "p0") {
         SELECT k, CAST(attrs AS STRING) FROM variant_projection_deferred_init WHERE tag = 'null'
     """
 
-    // Computed predicates require row evaluation; rejected rowsets must not
-    // open the wide VARIANT projection before that evaluation finishes.
+    // Computed predicates require row evaluation. Cover root, empty and NULL
+    // results after surviving projections are initialized following storage pruning.
     order_qt_computed_root """
         SELECT k, CAST(attrs AS STRING) FROM variant_projection_deferred_init
         WHERE md5(tag) = md5('match')
