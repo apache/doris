@@ -69,7 +69,15 @@ public class FlightSqlSchemaHelperTableTypesTest {
                 Arguments.of(includeSchema, Arrays.asList("SYSTEM VIEW"), Arrays.asList("system")),
                 Arguments.of(includeSchema, Arrays.asList("VIEW"), Arrays.asList("view")),
                 Arguments.of(includeSchema, Arrays.asList("UNKNOWN"), Collections.emptyList()),
-                Arguments.of(includeSchema, Arrays.asList("UNKNOWN", "VIEW", "VIEW"), Arrays.asList("view"))));
+                Arguments.of(includeSchema, Arrays.asList("UNKNOWN", "VIEW", "VIEW"), Arrays.asList("view")),
+                // The names Flight SQL calls common, in the spellings clients send: the ADBC Flight SQL
+                // driver asks for "table", JDBC tools for "TABLE".
+                Arguments.of(includeSchema, Arrays.asList("table"), Arrays.asList("base")),
+                Arguments.of(includeSchema, Arrays.asList("TABLE", "VIEW"), Arrays.asList("base", "view")),
+                Arguments.of(includeSchema, Arrays.asList("view"), Arrays.asList("view")),
+                Arguments.of(includeSchema, Arrays.asList("SYSTEM TABLE"), Arrays.asList("system")),
+                Arguments.of(includeSchema, Arrays.asList("base table", "System View"),
+                        Arrays.asList("base", "system"))));
     }
 
     @ParameterizedTest

@@ -86,6 +86,11 @@ suite("test_table_types_over_arrow_flight", "arrow_flight_sql") {
     assertEquals([], getTables(["SYSTEM VIEW"]))
     assertEquals([], getTables(["UNKNOWN"]))
     assertEquals([view], getTables(["UNKNOWN", "VIEW", "VIEW"]))
+    // Flight SQL calls TABLE, VIEW and SYSTEM TABLE the commonly supported names, and clients send them
+    // in either case: the ADBC Flight SQL driver asks for "table", JDBC tools for "TABLE".
+    assertEquals([baseTable], getTables(["TABLE"]))
+    assertEquals([baseTable], getTables(["table"]))
+    assertEquals([baseTable, view], getTables(["table", "view"]))
 
     // The same RPCs from a plain Flight SQL client, called repeatedly: GetFlightInfo carries the
     // GetTableTypes schema and one endpoint, DoGet returns the same sorted types every time, and

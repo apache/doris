@@ -65,6 +65,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -84,7 +85,7 @@ public class FlightSqlSchemaHelper {
     private String catalogFilterPattern = null;
     private String dbSchemaFilterPattern = null;
     private String tableNameFilterPattern = null;
-    private List<String> tableTypesList = null;
+    private Set<String> tableTypeFilter = null;
 
     public FlightSqlSchemaHelper(ConnectContext context) {
         ctx = context;
@@ -170,7 +171,28 @@ public class FlightSqlSchemaHelper {
         catalogFilterPattern = command.hasCatalog() ? command.getCatalog() : "internal";
         dbSchemaFilterPattern = command.hasDbSchemaFilterPattern() ? command.getDbSchemaFilterPattern() : null;
         tableNameFilterPattern = command.hasTableNameFilterPattern() ? command.getTableNameFilterPattern() : null;
-        tableTypesList = command.getTableTypesList().isEmpty() ? null : command.getTableTypesList();
+        tableTypeFilter = command.getTableTypesList().isEmpty() ? null
+                : command.getTableTypesList().stream().map(FlightSqlSchemaHelper::toDorisTableType)
+                        .collect(Collectors.toSet());
+    }
+
+    /**
+     * Maps a type a GetTables request filters on to the name GetTableTypes advertises. Flight SQL leaves the
+     * names to the server but calls TABLE, VIEW and SYSTEM TABLE the commonly supported ones, and clients send
+     * those in either case: the ADBC Flight SQL driver asks for "table", JDBC tools for "TABLE". So a type
+     * matches case-insensitively, and TABLE and SYSTEM TABLE select BASE TABLE and SYSTEM VIEW. Any other name
+     * matches only a type of that name.
+     */
+    private static String toDorisTableType(String requestedType) {
+        String type = requestedType.toUpperCase(Locale.ROOT);
+        switch (type) {
+            case "TABLE":
+                return "BASE TABLE";
+            case "SYSTEM TABLE":
+                return "SYSTEM VIEW";
+            default:
+                return type;
+        }
     }
 
     /**
@@ -353,10 +375,10 @@ public class FlightSqlSchemaHelper {
             String dbName = getDbsResult.getDbs().get(dbIndex);
             String catalogName = getDbsResult.isSetCatalogs() ? getDbsResult.getCatalogs().get(dbIndex) : "";
             List<TTableStatus> tables = listTableStatus(dbName, catalogName).getTables();
-            if (tableTypesList != null) {
+            if (tableTypeFilter != null) {
                 // The service's single-type filter only handles VIEW. Match all requested types here
                 // against the authorized results, before collecting their optional schemas.
-                tables = tables.stream().filter(table -> tableTypesList.contains(table.getType()))
+                tables = tables.stream().filter(table -> tableTypeFilter.contains(table.getType()))
                         .collect(Collectors.toList());
             }
             if (tables.isEmpty()) {
