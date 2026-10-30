@@ -51,6 +51,9 @@ namespace doris {
 #include "common/compile_check_begin.h"
 static constexpr int64_t MAX_ROWSET_ID = 1L << 56;
 static constexpr int64_t LOW_56_BITS = 0x00ffffffffffffff;
+namespace io {
+struct ReadAheadStatistics;
+}
 
 using SchemaHash = int32_t;
 using int128_t = __int128;
@@ -461,6 +464,8 @@ struct OlapReaderStatistics {
     int64_t total_segment_number = 0;
 
     io::FileCacheStatistics file_cache_stats;
+    // Shared with range tasks so asynchronous completion never writes into this reader's lifetime.
+    std::shared_ptr<io::ReadAheadStatistics> read_ahead_stats;
     int64_t load_segments_timer = 0;
 
     int64_t collect_iterator_merge_next_timer = 0;
