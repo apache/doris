@@ -2,11 +2,23 @@
 -- !without_short_circuit --
 \N
 
+-- !existing_key_without_short_circuit --
+13
+
 -- !without_pruning --
 \N
+
+-- !existing_key_without_pruning --
+13
 
 -- !short_circuit_with_pruning --
 \N
 
+-- !existing_key_short_circuit_with_pruning --
+13
+
 -- !short_circuit_with_pruning_cached --
 \N
+
+-- !existing_key_short_circuit_with_pruning_repeated --
+13

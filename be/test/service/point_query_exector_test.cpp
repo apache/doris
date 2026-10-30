@@ -23,6 +23,8 @@
 
 #include "common/object_pool.h"
 #include "core/block/block.h"
+#include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
 #include "exprs/vexpr.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
@@ -229,6 +231,59 @@ TEST(PointQueryReusableTest, RejectNestedAccessPaths) {
     ASSERT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("nested column access paths"), std::string::npos);
     EXPECT_NE(status.to_string().find("k1"), std::string::npos);
+}
+
+TEST(PointQueryReusableTest, AcceptFullStructRootPathFromOlderFe) {
+    TabletSchema schema;
+    schema.copy_from(*ReusableTestHelper::tablet_schema);
+    TabletColumn struct_column;
+    struct_column.set_name("typed");
+    struct_column.set_unique_id(100);
+    struct_column.set_type(FieldType::OLAP_FIELD_TYPE_STRUCT);
+    for (const auto* name : {"first", "second"}) {
+        TabletColumn child;
+        child.set_name(name);
+        child.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+        struct_column.add_sub_column(child);
+    }
+    schema.append_column(struct_column);
+
+    auto desc_tbl = ReusableTestHelper::create_descriptor_tablet();
+    desc_tbl.slotDescriptors[0].__set_colName("typed");
+    desc_tbl.slotDescriptors[0].__set_col_unique_id(100);
+    DataTypePtr full_type = std::make_shared<DataTypeStruct>(
+            DataTypes {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()},
+            Strings {"first", "second"});
+    desc_tbl.slotDescriptors[0].__set_slotType(full_type->to_thrift());
+    TColumnAccessPath root_path;
+    root_path.type = TAccessPathType::DATA;
+    TDataAccessPath root_data_path;
+    root_data_path.__set_path({"typed"});
+    root_path.__set_data_access_path(root_data_path);
+    desc_tbl.slotDescriptors[0].__set_all_access_paths({root_path});
+
+    auto init = [&](const TDescriptorTable& descriptor) {
+        Reusable reusable;
+        return reusable.init(descriptor, ReusableTestHelper::output_exprs,
+                             ReusableTestHelper::query_options, schema, 2);
+    };
+    ASSERT_TRUE(init(desc_tbl).ok());
+
+    desc_tbl.slotDescriptors[0].__set_predicate_access_paths({root_path});
+    ASSERT_TRUE(init(desc_tbl).ok());
+
+    DataTypePtr narrowed_type = std::make_shared<DataTypeStruct>(
+            DataTypes {std::make_shared<DataTypeString>()}, Strings {"first"});
+    desc_tbl.slotDescriptors[0].__set_slotType(narrowed_type->to_thrift());
+    auto status = init(desc_tbl);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("nested column access paths"), std::string::npos);
+
+    DataTypePtr reordered_fields = std::make_shared<DataTypeStruct>(
+            DataTypes {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()},
+            Strings {"second", "first"});
+    desc_tbl.slotDescriptors[0].__set_slotType(reordered_fields->to_thrift());
+    ASSERT_FALSE(init(desc_tbl).ok());
 }
 
 // RowCache test class

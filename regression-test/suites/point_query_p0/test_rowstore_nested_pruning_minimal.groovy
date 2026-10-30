@@ -44,12 +44,22 @@ suite("test_rowstore_nested_pruning_minimal", "p0,nonConcurrent") {
             struct_element(typed, 'typed_map'), 'tail'), 'string_leaf')) AS character_len
         FROM rowstore_nested_pruning_minimal WHERE pk=2
     """
+    order_qt_existing_key_without_short_circuit """
+        SELECT CHARACTER_LENGTH(struct_element(element_at(
+            struct_element(typed, 'typed_map'), 'b_key'), 'string_leaf')) AS character_len
+        FROM rowstore_nested_pruning_minimal WHERE pk=2
+    """
 
     sql "SET enable_short_circuit_query=true"
     sql "SET enable_prune_nested_column=false"
     order_qt_without_pruning """
         SELECT CHARACTER_LENGTH(struct_element(element_at(
             struct_element(typed, 'typed_map'), 'tail'), 'string_leaf')) AS character_len
+        FROM rowstore_nested_pruning_minimal WHERE pk=2
+    """
+    order_qt_existing_key_without_pruning """
+        SELECT CHARACTER_LENGTH(struct_element(element_at(
+            struct_element(typed, 'typed_map'), 'b_key'), 'string_leaf')) AS character_len
         FROM rowstore_nested_pruning_minimal WHERE pk=2
     """
 
@@ -67,9 +77,19 @@ suite("test_rowstore_nested_pruning_minimal", "p0,nonConcurrent") {
             struct_element(typed, 'typed_map'), 'tail'), 'string_leaf')) AS character_len
         FROM rowstore_nested_pruning_minimal WHERE pk=2
     """
+    order_qt_existing_key_short_circuit_with_pruning """
+        SELECT CHARACTER_LENGTH(struct_element(element_at(
+            struct_element(typed, 'typed_map'), 'b_key'), 'string_leaf')) AS character_len
+        FROM rowstore_nested_pruning_minimal WHERE pk=2
+    """
     order_qt_short_circuit_with_pruning_cached """
         SELECT CHARACTER_LENGTH(struct_element(element_at(
             struct_element(typed, 'typed_map'), 'tail'), 'string_leaf')) AS character_len
+        FROM rowstore_nested_pruning_minimal WHERE pk=2
+    """
+    order_qt_existing_key_short_circuit_with_pruning_repeated """
+        SELECT CHARACTER_LENGTH(struct_element(element_at(
+            struct_element(typed, 'typed_map'), 'b_key'), 'string_leaf')) AS character_len
         FROM rowstore_nested_pruning_minimal WHERE pk=2
     """
 }
