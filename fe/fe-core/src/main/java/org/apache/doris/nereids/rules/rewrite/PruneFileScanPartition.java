@@ -124,9 +124,14 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
         boolean enableBinarySearch = ctx.getConnectContext() == null
                 || ctx.getConnectContext().getSessionVariable().enableBinarySearchFilteringPartitions;
         if (enableBinarySearch && !nameToPartitionItem.isEmpty()) {
-            sortedPartitionRanges = scan.getSelectedPartitions().sortedPartitionRanges
-                    .or(() -> (Optional) externalTable.getSortedPartitionRanges(scan))
-                    .or(() -> Optional.ofNullable(SortedPartitionRanges.build(nameToPartitionItem)));
+            if (nameToPartitionItem.size() < scan.getSelectedPartitions().totalPartitionNum) {
+                sortedPartitionRanges = Optional.ofNullable(
+                        SortedPartitionRanges.build(nameToPartitionItem));
+            } else {
+                sortedPartitionRanges = scan.getSelectedPartitions().sortedPartitionRanges
+                        .or(() -> (Optional) externalTable.getSortedPartitionRanges(scan))
+                        .or(() -> Optional.ofNullable(SortedPartitionRanges.build(nameToPartitionItem)));
+            }
         }
         PartitionPruneResult<String> result = PartitionPruner.pruneWithResult(
                 partitionSlots, filter.getPredicate(), nameToPartitionItem, ctx,
@@ -141,7 +146,9 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
                     "pruned partition %s is missing in the selected partitions snapshot", name);
             selectedPartitionItems.put(name, item);
         }
-        return new SelectedPartitions(nameToPartitionItem.size(), selectedPartitionItems, true,
-                result.hasPartitionPredicate);
+        boolean hasPartitionPredicate = result.hasPartitionPredicate
+                || scan.getSelectedPartitions().hasPartitionPredicate;
+        return new SelectedPartitions(scan.getSelectedPartitions().totalPartitionNum, selectedPartitionItems, true,
+                hasPartitionPredicate);
     }
 }
