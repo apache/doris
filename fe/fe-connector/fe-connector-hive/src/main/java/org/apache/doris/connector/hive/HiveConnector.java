@@ -81,6 +81,7 @@ public class HiveConnector implements Connector {
     // string HudiConnectorProvider registers, which declares isStandaloneCatalogType() == false so that the
     // engine can never build a hudi catalog. Sibling lookup does not consult that flag, so this stays valid.
     private static final String HUDI_CONNECTOR_TYPE = "hudi";
+    private static final String DELTA_CONNECTOR_TYPE = "deltalake";
 
     private final Map<String, String> properties;
     // Bound + validated once here: an existing HiveConnector always has usable catalog properties. Built on
@@ -132,6 +133,8 @@ public class HiveConnector implements Connector {
     // zip (a second AWS SDK would poison S3 JVM-wide). Held ONLY as the parent-first Connector interface and
     // NEVER cast (a cast would CCE across the loader split).
     private volatile Connector hudiSibling;
+    // Like the other siblings, Delta is created only for a matching HMS table in its own plugin loader.
+    private volatile Connector deltaSibling;
 
     // Set FIRST in close(), under the same monitor the getOrCreate* holders below take, and never cleared.
     // Every one of those holders is a plain double-checked lazy build over a field close() nulls out, so
@@ -212,7 +215,8 @@ public class HiveConnector implements Connector {
      */
     HiveConnectorMetadata newMetadata(HmsClient client) {
         return new HiveConnectorMetadata(client, props, context,
-                this::getOrCreateIcebergSibling, this::getOrCreateHudiSibling, this::resolveSiblingOwnerLabeled,
+                this::getOrCreateIcebergSibling, this::getOrCreateHudiSibling, this::getOrCreateDeltaSibling,
+                this::resolveSiblingOwnerLabeled,
                 fileListingCache, partitionViewCache);
     }
 
@@ -240,6 +244,10 @@ public class HiveConnector implements Connector {
         Connector hudi = hudiSibling;
         if (hudi != null && hudi.ownsHandle(handle)) {
             return new SiblingOwner(hudi, SiblingOwner.HUDI_LABEL);
+        }
+        Connector delta = deltaSibling;
+        if (delta != null && delta.ownsHandle(handle)) {
+            return new SiblingOwner(delta, SiblingOwner.DELTA_LABEL);
         }
         throw new DorisConnectorException("Cannot route a foreign table handle in catalog '"
                 + context.getCatalogName() + "': no embedded sibling connector owns it");
@@ -466,6 +474,10 @@ public class HiveConnector implements Connector {
         if (hudi != null) {
             action.accept(hudi);
         }
+        Connector delta = deltaSibling;
+        if (delta != null) {
+            action.accept(delta);
+        }
     }
 
     /** The connector-owned directory-listing cache, exposed for unit tests (mirrors iceberg manifestCacheForTest). */
@@ -580,6 +592,26 @@ public class HiveConnector implements Connector {
             }
         }
         return hudiSibling;
+    }
+
+    /** Builds the Delta sibling under the same close/build monitor as the other plugins. */
+    Connector getOrCreateDeltaSibling() {
+        if (deltaSibling == null) {
+            synchronized (this) {
+                throwIfClosed();
+                if (deltaSibling == null) {
+                    Connector sibling = context.createSiblingConnector(
+                            DELTA_CONNECTOR_TYPE, DeltaSiblingProperties.synthesize(properties));
+                    if (sibling == null) {
+                        throw new DorisConnectorException(
+                                "Cannot serve delta-on-HMS tables in catalog '" + context.getCatalogName()
+                                        + "': the deltalake connector plugin is not available");
+                    }
+                    deltaSibling = sibling;
+                }
+            }
+        }
+        return deltaSibling;
     }
 
     private HmsClient createClient() {
@@ -765,6 +797,7 @@ public class HiveConnector implements Connector {
         HmsClient client;
         Connector iceberg;
         Connector hudi;
+        Connector delta;
         synchronized (this) {
             closed = true;
             client = hmsClient;
@@ -773,11 +806,14 @@ public class HiveConnector implements Connector {
             icebergSibling = null;
             hudi = hudiSibling;
             hudiSibling = null;
+            delta = deltaSibling;
+            deltaSibling = null;
         }
         IOException failure = closeStage(metaCache, "metadata cache", null);
         failure = closeStage(client, "hive metastore client", failure);
         failure = closeStage(iceberg, "iceberg-on-HMS sibling connector", failure);
         failure = closeStage(hudi, "hudi-on-HMS sibling connector", failure);
+        failure = closeStage(delta, "delta-on-HMS sibling connector", failure);
         if (failure != null) {
             throw failure;
         }

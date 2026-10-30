@@ -262,6 +262,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     // HiveConnector.getOrCreateHudiSibling; used ONLY through the parent-first Connector / ConnectorMetadata
     // interfaces — its concrete hudi types are never cast here (cross-loader CCE).
     private final Supplier<Connector> hudiSiblingSupplier;
+    private final Supplier<Connector> deltaSiblingSupplier;
     // Resolves the embedded sibling connector that OWNS a foreign (non-hive) table handle, for the per-handle
     // guard-and-forward methods below. Backed by HiveConnector.resolveSiblingOwner (a 3-way ownsHandle dispatch
     // over the ALREADY-BUILT iceberg / hudi siblings). Used ONLY through the parent-first Connector /
@@ -307,7 +308,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Full ctor used by {@link HiveConnector#newMetadata}, adding the PERF-06 derived partition-view cache
+     * Constructor for callers without a Delta sibling, adding the PERF-06 derived partition-view cache
      * (cache A): {@code partitionViewCache} memoizes {@link #listPartitions}'s built
      * {@code List<ConnectorPartitionInfo>}, keyed by {@code (db, table, -1, -1)}. {@code null} for the
      * convenience/test ctors (no cross-query derived layer -&gt; compute directly every call).
@@ -318,10 +319,23 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             Function<ConnectorTableHandle, SiblingOwner> siblingOwnerResolver,
             HiveFileListingCache fileListingCache,
             ConnectorMetadataCache<List<ConnectorPartitionInfo>> partitionViewCache) {
+        this(hmsClient, properties, context, icebergSiblingSupplier, hudiSiblingSupplier, () -> {
+            throw new DorisConnectorException("no deltalake sibling connector configured for this hive metadata");
+        }, siblingOwnerResolver, fileListingCache, partitionViewCache);
+    }
+
+    /** Gateway constructor: all sibling factories are lazy and share the same owner resolver. */
+    HiveConnectorMetadata(HmsClient hmsClient, HiveCatalogProperties properties, ConnectorContext context,
+            Supplier<Connector> icebergSiblingSupplier, Supplier<Connector> hudiSiblingSupplier,
+            Supplier<Connector> deltaSiblingSupplier,
+            Function<ConnectorTableHandle, SiblingOwner> siblingOwnerResolver,
+            HiveFileListingCache fileListingCache,
+            ConnectorMetadataCache<List<ConnectorPartitionInfo>> partitionViewCache) {
         this.hmsClient = hmsClient;
         this.context = context;
         this.icebergSiblingSupplier = icebergSiblingSupplier;
         this.hudiSiblingSupplier = hudiSiblingSupplier;
+        this.deltaSiblingSupplier = deltaSiblingSupplier;
         this.siblingOwnerResolver = siblingOwnerResolver;
         this.fileListingCache = fileListingCache;
         this.partitionViewCache = partitionViewCache;
@@ -457,6 +471,10 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         }
         if (tableType == HiveTableType.HUDI) {
             return hudiSiblingMetadata(session).getTableHandle(session, dbName, tableName);
+        }
+        if (tableType == HiveTableType.DELTA) {
+            return memoizedSiblingMetadata(session, deltaSiblingSupplier.get(), SiblingOwner.DELTA_LABEL)
+                    .getTableHandle(session, dbName, tableName);
         }
         // Fail-loud parity with legacy HMSExternalTable.supportedHiveTable(), which threw on a null or
         // unrecognized input format instead of silently degrading (the old detector returned UNKNOWN). A view
