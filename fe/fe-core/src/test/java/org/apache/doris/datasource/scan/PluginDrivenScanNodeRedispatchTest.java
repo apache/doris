@@ -20,6 +20,7 @@ package org.apache.doris.datasource.scan;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.datasource.split.PluginDrivenSplit;
+import org.apache.doris.datasource.split.SplitAssignment;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -60,6 +61,13 @@ public class PluginDrivenScanNodeRedispatchTest {
                 return singleUse;
             }
         };
+    }
+
+    @Test
+    public void consumedSplitEndpointsRequireReplanningForRetry() {
+        PluginDrivenScanNode node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
+        Deencapsulation.setField(node, "splitAssignment", Mockito.mock(SplitAssignment.class));
+        Assertions.assertTrue(node.cannotBeRedispatched());
     }
 
     @Test

@@ -20,6 +20,7 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScopes;
 import org.apache.doris.connector.spi.ConnectorTaskScheduler;
+import org.apache.doris.connector.spi.scan.ConnectorScanContext;
 
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileMetadata;
@@ -233,7 +234,8 @@ class IcebergManifestReadContextTest {
         switch (path) {
             case "streaming":
                 methodName = "streamingFileScanTasks";
-                arguments = new Object[] {scan, session, table, Optional.empty(), 128L, null, handle};
+                arguments = new Object[] {scan, session, table, Optional.empty(), 128L, null, handle,
+                        new ConnectorScanContext()};
                 break;
             case "materialized":
                 methodName = "planFileScanTask";
