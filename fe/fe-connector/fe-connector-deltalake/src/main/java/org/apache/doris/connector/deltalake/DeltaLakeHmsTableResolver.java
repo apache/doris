@@ -59,7 +59,9 @@ final class DeltaLakeHmsTableResolver implements DeltaLakeTableResolver {
         if (!isDelta(info)) {
             return Optional.empty();
         }
-        String location = info.getLocation();
+        // Spark's data-source tables can put a dummy location ending in -__PLACEHOLDER__ in
+        // StorageDescriptor. The SerDe path is the authoritative Delta root in that representation.
+        String location = info.getSdParameters().getOrDefault("path", info.getLocation());
         if (location == null || location.isEmpty()) {
             throw new DorisConnectorException("Delta table " + database + "." + table + " has no HMS location");
         }

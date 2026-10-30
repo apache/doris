@@ -49,6 +49,17 @@ class DeltaLakeHmsTableResolverTest {
     }
 
     @Test
+    void sparkSerdePathOverridesTheHmsPlaceholderLocation() {
+        RecordingClient client = new RecordingClient();
+        client.tables.put("spark", HmsTableInfo.builder().dbName("db").tableName("spark")
+                .location("s3a://bucket/table-__PLACEHOLDER__")
+                .sdParameters(Collections.singletonMap("path", "s3a://bucket/table"))
+                .parameters(Collections.singletonMap("spark.sql.sources.provider", "delta")).build());
+        DeltaLakeHmsTableResolver resolver = new DeltaLakeHmsTableResolver(client);
+        Assertions.assertEquals("s3a://bucket/table", resolver.tableLocation("db", "spark").orElseThrow());
+    }
+
+    @Test
     void missingLocationAndMetastoreFailuresRemainErrors() {
         RecordingClient client = new RecordingClient();
         client.tables.put("broken", table("broken", "delta", null));
