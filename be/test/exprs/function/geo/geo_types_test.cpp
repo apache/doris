@@ -65,6 +65,41 @@ TEST_F(GeoTypesTest, point_normal) {
     }
 }
 
+TEST_F(GeoTypesTest, bounding_box_point) {
+    GeoPoint point;
+    auto status = point.from_coord(116.123, 63.546);
+    EXPECT_EQ(GEO_PARSE_OK, status);
+    auto box = point.bounding_box();
+    EXPECT_DOUBLE_EQ(116.123, box.x_max);
+    EXPECT_DOUBLE_EQ(116.123, box.x_min);
+    EXPECT_DOUBLE_EQ(63.546, box.y_max);
+    EXPECT_DOUBLE_EQ(63.546, box.y_min);
+}
+
+TEST_F(GeoTypesTest, bounding_box_linestring) {
+    const char* wkt = "LINESTRING (30 10, 10 30, 40 40)";
+    GeoParseStatus status;
+    auto line = GeoShape::from_wkt(wkt, strlen(wkt), status);
+    EXPECT_NE(nullptr, line.get());
+    auto box = line->bounding_box();
+    EXPECT_NEAR(40.0, box.x_max, 1e-9);
+    EXPECT_NEAR(10.0, box.x_min, 1e-9);
+    EXPECT_NEAR(40.0, box.y_max, 1e-9);
+    EXPECT_NEAR(10.0, box.y_min, 1e-9);
+}
+
+TEST_F(GeoTypesTest, bounding_box_polygon) {
+    const char* wkt = "POLYGON ((0 0, 4 0, 4 3, 0 3, 0 0))";
+    GeoParseStatus status;
+    auto polygon = GeoShape::from_wkt(wkt, strlen(wkt), status);
+    EXPECT_NE(nullptr, polygon.get());
+    auto box = polygon->bounding_box();
+    EXPECT_NEAR(4.0, box.x_max, 1e-9);
+    EXPECT_NEAR(0.0, box.x_min, 1e-9);
+    EXPECT_NEAR(3.0, box.y_max, 1e-9);
+    EXPECT_NEAR(0.0, box.y_min, 1e-9);
+}
+
 TEST_F(GeoTypesTest, point_invalid) {
     GeoPoint point;
 
