@@ -23,10 +23,15 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "format/arrow/arrow_utils.h"
+#include "udf/python/python_server.h"
 #include "udf/python/python_udf_meta.h"
 #include "udf/python/python_udf_runtime.h"
 
 namespace doris {
+
+PythonClient::~PythonClient() {
+    WARN_IF_ERROR(close(), "Failed to close Python client");
+}
 
 Status PythonClient::init(const PythonUDFMeta& func_meta, ProcessPtr process) {
     if (_inited) {
@@ -78,14 +83,17 @@ Status PythonClient::close() {
             LOG(WARNING) << "Error closing Python client writer: " << writer_res.message();
         }
     }
-    // Error handling may already have reset the writer; still release the pool lease.
+    // Release the client count even when error handling has already reset the writer.
     _inited = false;
     _begin = false;
     _arrow_client.reset();
     _writer.reset();
     _reader.reset();
     _process.reset();
-    _pool_lease.reset();
+    if (_runtime) {
+        _runtime->release_client();
+        _runtime.reset();
+    }
 
     return Status::OK();
 }

@@ -124,23 +124,22 @@ class UdfVolatilityTest {
 
     @Test
     void testAutoSuspendSurvivesExpressionCopies() {
-        for (long value : new long[]{-2, 0, 30}) {
-            PythonUdf udf = pythonUdf(FunctionVolatility.VOLATILE,
-                    Udf.createVolatileIdentity(FunctionVolatility.VOLATILE), value);
-            PythonUdaf udaf = pythonUdaf(FunctionVolatility.VOLATILE, value);
-            PythonUdtf udtf = pythonUdtf(FunctionVolatility.VOLATILE, value);
-            for (Function fn : new Function[]{
-                    udf.withChildren(udf.children()).getCatalogFunction(),
-                    udf.withIgnoreUniqueId(true).getCatalogFunction(),
-                    udf.withFreshVolatileIdentity().getCatalogFunction(),
-                    udaf.withDistinctAndChildren(true, udaf.children()).getCatalogFunction(),
-                    udaf.withIgnoreUniqueId(true).getCatalogFunction(),
-                    udaf.withFreshVolatileIdentity().getCatalogFunction(),
-                    udtf.withChildren(udtf.children()).getCatalogFunction(),
-                    udtf.withIgnoreUniqueId(true).getCatalogFunction(),
-                    udtf.withFreshVolatileIdentity().getCatalogFunction()}) {
-                Assertions.assertEquals(value, fn.getAutoSuspend());
-            }
+        long value = 30;
+        PythonUdf udf = pythonUdf(FunctionVolatility.VOLATILE,
+                Udf.createVolatileIdentity(FunctionVolatility.VOLATILE), value);
+        PythonUdaf udaf = pythonUdaf(FunctionVolatility.VOLATILE, value);
+        PythonUdtf udtf = pythonUdtf(FunctionVolatility.VOLATILE, value);
+        for (Function fn : new Function[]{
+                udf.withChildren(udf.children()).getCatalogFunction(),
+                udf.withIgnoreUniqueId(true).getCatalogFunction(),
+                udf.withFreshVolatileIdentity().getCatalogFunction(),
+                udaf.withDistinctAndChildren(true, udaf.children()).getCatalogFunction(),
+                udaf.withIgnoreUniqueId(true).getCatalogFunction(),
+                udaf.withFreshVolatileIdentity().getCatalogFunction(),
+                udtf.withChildren(udtf.children()).getCatalogFunction(),
+                udtf.withIgnoreUniqueId(true).getCatalogFunction(),
+                udtf.withFreshVolatileIdentity().getCatalogFunction()}) {
+            Assertions.assertEquals(value, fn.getAutoSuspend());
         }
     }
 

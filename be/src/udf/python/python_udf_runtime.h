@@ -21,6 +21,7 @@
 #include <chrono>
 #include <memory>
 
+#include "common/status.h"
 #include "udf/python/python_env.h"
 
 namespace doris {
@@ -57,6 +58,8 @@ using ProcessPtr = std::shared_ptr<PythonUDFProcess>;
 
 class PythonUDFProcess {
 public:
+    static Status create(const PythonVersion& version, ProcessPtr* process);
+
     PythonUDFProcess(boost::process::child child, boost::process::ipstream output_stream)
             : _is_shutdown(false),
               _child_pid(child.id()),
