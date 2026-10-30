@@ -1330,7 +1330,8 @@ Status geography_relation(std::string_view name, const GeoShape& lhs, const GeoS
             value.type() == GeoShapeType::GEO_SHAPE_LINE_STRING &&
             (containment || name == "st_equals" || name == "st_overlaps" || name == "st_touches");
     const bool raw_coverage = raw_line_coverage || raw_polygon_coverage || containment ||
-                              name == "st_touches" || name == "st_overlaps";
+                              name == "st_touches" || name == "st_overlaps" ||
+                              name == "st_intersects" || name == "st_disjoint";
     geography_shape_index(container, name == "st_within" ? nodes.right : nodes.left, nodes, &left,
                           raw_coverage ? &left_edges : nullptr);
     geography_shape_index(value, name == "st_within" ? nodes.left : nodes.right, nodes, &right,
@@ -1342,6 +1343,12 @@ Status geography_relation(std::string_view name, const GeoShape& lhs, const GeoS
     const auto shares_raw_line_edge = [&] {
         return std::ranges::any_of(
                 left_edges.line, [&](const auto& edge) { return right_edges.line.contains(edge); });
+    };
+    const auto shares_raw_vertex = [&] {
+        const auto left_vertices = left_edges.vertices(nodes.left);
+        const auto right_vertices = right_edges.vertices(nodes.right);
+        return std::ranges::any_of(
+                left_vertices, [&](const auto& vertex) { return right_vertices.contains(vertex); });
     };
     const auto has_rounded_only_endpoint = [&] {
         if (lhs.type() != GeoShapeType::GEO_SHAPE_LINE_STRING ||
@@ -1470,11 +1477,7 @@ Status geography_relation(std::string_view name, const GeoShape& lhs, const GeoS
             // A line endpoint at latitude 58 and polygon apex at 58+ulp can share an S2Point
             // without raw contact. Existing noding supplies true vertex/edge contacts, including
             // holes and overlapping boundaries, without treating synthetic midpoints as witnesses.
-            const auto left_vertices = left_edges.vertices(nodes.left);
-            const auto right_vertices = right_edges.vertices(nodes.right);
-            *result = std::ranges::any_of(left_vertices, [&](const auto& vertex) {
-                return right_vertices.contains(vertex);
-            });
+            *result = shares_raw_vertex();
             // No raw boundary contact already proves Touches=false; only confirmed contacts
             // require the rounded-interior precision check (e.g. an inward 58+ulp line).
             if (*result) {
@@ -1498,13 +1501,20 @@ Status geography_relation(std::string_view name, const GeoShape& lhs, const GeoS
         }
         return Status::OK();
     }
-    // Independently converted LINESTRING(10 45,10 46) and (10 45.3,10 45.9)
-    // are not exactly coplanar either. Apply the same conversion bound to all
-    // admitted nonpoint pairs, retaining polygon interiors and real open-line edges.
+    // The distance bound only recalls possibly separated raw contacts. For example,
+    // (0,0)->(1,0) and (0,1e-15)->(1,1e-15) are disjoint despite being within it.
+    // Shared raw nodes prove endpoint/overlapping-arc contact, including polygon holes;
+    // without that evidence, rounding proximity cannot decide the original relation.
     if (!intersects) {
         S2ClosestEdgeQuery query(&left);
         S2ClosestEdgeQuery::ShapeIndexTarget target(&right);
-        intersects = query.IsConservativeDistanceLessOrEqual(&target, geography_conversion_error());
+        if (query.IsConservativeDistanceLessOrEqual(&target, geography_conversion_error())) {
+            intersects = shares_raw_vertex();
+            if (!intersects) {
+                return Status::NotSupported(
+                        "{} does not support ambiguous spherical nonpoint proximity", name);
+            }
+        }
     }
     DCHECK(name == "st_intersects" || name == "st_disjoint");
     *result = name == "st_intersects" ? intersects : !intersects;

@@ -944,6 +944,68 @@ TEST(VGeoFunctionsTest, GeographyRejectsRoundedOnlyLineEndpointContact) {
     expect_geography_relation("st_disjoint", left, separated, true);
 }
 
+TEST(VGeoFunctionsTest, GeographyRejectsNonpointProximityWithoutRawContact) {
+    const std::string polygon = "POLYGON ((0 0,1 0,1 1,0 1,0 0))";
+    const std::string hole = "POLYGON ((-2 -2,2 -2,2 2,-2 2,-2 -2),(0 0,1 0,1 1,0 1,0 0))";
+    const std::vector<std::pair<std::string, std::string>> cases {
+            {"LINESTRING (0 0,1 0)", "LINESTRING (0 1e-15,1 1e-15)"},
+            {"LINESTRING (-1 0,-1e-15 0)", "LINESTRING (0 0,1 0)"},
+            {polygon, "LINESTRING (0.25 -1e-15,0.75 -1e-15)"},
+            {polygon, "POLYGON ((0.25 -1,0.75 -1,0.75 -1e-15,0.25 -1e-15,0.25 -1))"},
+            {hole, "LINESTRING (1e-15 0.25,1e-15 0.75)"},
+    };
+    // Distinct raw and S2 endpoints remain separated below the conversion-distance bound.
+    // Neither a parallel arc, endpoint gap, nor proximity to a shell/hole proves contact.
+    const auto type = make_nullable(std::make_shared<DataTypeUInt8>());
+    for (const auto& [a, b] : cases) {
+        for (const bool reverse : {false, true}) {
+            const auto& left = reverse ? b : a;
+            const auto& right = reverse ? a : b;
+            expect_geography_relation("st_touches", left, right, false);
+            for (const auto* function : {"st_intersects", "st_disjoint"}) {
+                SCOPED_TRACE(std::string(function) + " " + left + " versus " + right);
+                Block block;
+                const auto status = execute_geography_test(
+                        function, {geography_test_hex(left), geography_test_hex(right)}, type,
+                        &block);
+                EXPECT_FALSE(status.ok());
+                EXPECT_NE(status.to_string().find("ambiguous spherical nonpoint proximity"),
+                          std::string::npos)
+                        << status.to_string();
+            }
+        }
+    }
+}
+
+TEST(VGeoFunctionsTest, GeographyNonpointContactRetainsRawNodesAndInteriors) {
+    const std::string polygon = "POLYGON ((0 0,1 0,1 1,0 1,0 0))";
+    const std::string hole = "POLYGON ((-2 -2,2 -2,2 2,-2 2,-2 -2),(0 0,1 0,1 1,0 1,0 0))";
+    const std::vector<std::pair<std::string, std::string>> cases {
+            {"LINESTRING (10 45,10 46)", "LINESTRING (10 45.3,10 45.9)"},
+            {"LINESTRING (0 0,2 0)", "LINESTRING (1 0,3 0)"},
+            {"LINESTRING (45 -45,135 45)", "LINESTRING (90 0,135 45)"},
+            {"LINESTRING (-1e-15 0,1e-15 0)", "LINESTRING (0 -1e-15,0 1e-15)"},
+            {polygon, "LINESTRING (0.25 0,0.75 0)"},
+            {polygon, "LINESTRING (0.25 1e-15,0.75 1e-15)"},
+            {polygon, "POLYGON ((0.25 -1,0.75 -1,0.75 0,0.25 0,0.25 -1))"},
+            {polygon, "POLYGON ((0.25 0.25,0.75 0.25,0.75 0.75,0.25 0.75,0.25 0.25))"},
+            {hole, "LINESTRING (0 0.25,0 0.75)"},
+    };
+    // Shared subarcs need not share original vertices. Reuse exact noding, and retain
+    // proper crossings and polygon interiors even without any common boundary node.
+    for (const auto& [a, b] : cases) {
+        for (const bool reverse : {false, true}) {
+            const auto& left = reverse ? b : a;
+            const auto& right = reverse ? a : b;
+            expect_geography_relation("st_intersects", left, right, true);
+            expect_geography_relation("st_disjoint", left, right, false);
+        }
+    }
+    expect_geography_relation("st_intersects", "LINESTRING (0 0,1 0)",
+                              "LINESTRING (0 1e-10,1 1e-10)", false);
+    expect_geography_relation("st_disjoint", hole, "LINESTRING (0.25 0.25,0.75 0.25)", true);
+}
+
 TEST(VGeoFunctionsTest, GeographyKeepsDateLineEndpointAliasesEquivalent) {
     const std::string left = "LINESTRING (180 0,179 0)";
     const std::string right = "LINESTRING (-180 0,-179 0)";

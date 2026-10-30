@@ -335,6 +335,27 @@ suite("test_spatial_wkb_compatibility") {
             ST_GeogFromWKB('010100000000000000008066c001000000008046c0') c,
             ST_GeogFromWKB('010100000000000000000000000000000000004740') n) shapes"""
 
+    // Sub-bound proximity is not evidence of raw line/shell contact. These separated
+    // parallel arcs retain distinct S2 endpoints, unlike rounded endpoint collisions.
+    def proximityPolygonWkb = '0103000000010000000500000000000000000000000000000000000000000000000000f03f0000000000000000000000000000f03f000000000000f03f0000000000000000000000000000f03f00000000000000000000000000000000'
+    [
+        ['01020000000200000000000000000000000000000000000000000000000000f03f0000000000000000',
+         '01020000000200000000000000000000001656e79eaf03d23c000000000000f03f1656e79eaf03d23c'],
+        [proximityPolygonWkb,
+         '010200000002000000000000000000d03f1656e79eaf03d2bc000000000000e83f1656e79eaf03d2bc'],
+        [proximityPolygonWkb,
+         '01030000000100000005000000000000000000d03f000000000000f0bf000000000000e83f000000000000f0bf000000000000e83f1656e79eaf03d2bc000000000000d03f1656e79eaf03d2bc000000000000d03f000000000000f0bf']
+    ].each { pair ->
+        for (String function : ['ST_Intersects', 'ST_Disjoint']) {
+            for (boolean reverse : [false, true]) {
+                test {
+                    sql "select ${function}(ST_GeogFromWKB('${pair[reverse ? 1 : 0]}'), ST_GeogFromWKB('${pair[reverse ? 0 : 1]}'))"
+                    exception 'ambiguous spherical nonpoint proximity'
+                }
+            }
+        }
+    }
+
     // Distinct raw endpoints can collide after degrees-to-radians conversion.
     order_qt_geography_rounded_endpoint_identity """select
         ST_Distance(p, l) < 1, ST_Distance(l, p) < 1,
