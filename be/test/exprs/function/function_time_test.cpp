@@ -1921,6 +1921,22 @@ TEST(WeekdayParserTest, invalid_names) {
     EXPECT_EQ(parse_weekday(std::string_view(input.data(), input.size())), 1);
 }
 
+TEST(WeekdayParserTest, binary_bytes_in_aliases) {
+    for (const std::string_view name : {"mo", "mon", "monday", "tuesday", "wednesday", "thursday",
+                                        "friday", "saturday", "sunday"}) {
+        for (size_t position = 0; position < name.size(); ++position) {
+            for (unsigned int byte = 128; byte < 256; ++byte) {
+                std::string input(name);
+                input[position] = static_cast<char>(byte);
+                EXPECT_EQ(parse_weekday(input), 0);
+            }
+            std::string input(name);
+            input[position] = '\0';
+            EXPECT_EQ(parse_weekday(input), 0);
+        }
+    }
+}
+
 TEST(VTimestampFunctionsTest, next_day_test) {
     std::string func_name = "next_day";
     InputTypeSet input_types = {PrimitiveType::TYPE_DATEV2, PrimitiveType::TYPE_VARCHAR};

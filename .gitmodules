@@ -39,3 +39,6 @@
 	path = doris-skills
 	url = https://github.com/apache/doris-skills
 	branch = main
+[submodule "perfect_hash"]
+	path = contrib/perfect_hash
+	url = https://github.com/ConstexprCore/perfect_hash.git
