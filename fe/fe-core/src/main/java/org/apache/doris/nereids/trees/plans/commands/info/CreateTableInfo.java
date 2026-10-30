@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InvertedIndexUtil;
@@ -62,6 +63,7 @@ import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
+import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -1154,6 +1156,20 @@ public class CreateTableInfo {
                 TypeCoercionUtils.checkCanCastTo(expr.getDataType(), column.getType());
                 ExpressionToExpr translator = new ExpressionToExpr(i, translateMap);
                 Expr e = expr.accept(translator, planTranslatorContext);
+                // Validate the expression AFTER applying the declared target type. The user expression
+                // alone is not enough: `rendered STRING GENERATED ALWAYS AS (ts)` is a plain TIMESTAMPTZ
+                // slot reference, and only the implicit cast to the declared STRING type renders the
+                // instant in the write session zone (BindSink adds that cast later,
+                // in getOutputProjectByCoercion). The reverse implicit cast of an offset-free string slot
+                // into a TIMESTAMPTZ generated column interprets the string in the write session zone and
+                // has the same gap. Both cannot be kept consistent across sessions, because BE evaluates
+                // the stored expression in the write/load session time zone, so they are rejected here.
+                Expr coercedExpr = new CastExpr(column.getType().toCatalogDataType(), e, true);
+                if (SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(coercedExpr)) {
+                    throw new AnalysisException("Generated column '" + column.getName()
+                            + "' contains a time-zone sensitive expression on TIMESTAMPTZ, which is not "
+                            + "supported because it would be evaluated in the write session time zone");
+                }
                 info.get().setExpr(e);
                 exprAndNames.add(new ExprAndName(e.clone(), column.getName()));
             }

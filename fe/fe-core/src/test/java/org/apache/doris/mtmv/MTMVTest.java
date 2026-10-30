@@ -75,6 +75,11 @@ import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class MTMVTest {
+    // Persisted creation session variables of the mocked MTMVs, equal to the mocked query session so the
+    // cache guard mask is GUARD_NONE (a modern MTMV always carries a non-empty persisted map).
+    private static final Map<String, String> SESSION_VARS =
+            Map.of(SessionVariable.TIME_ZONE, "+00:00", SessionVariable.SQL_MODE, "0");
+
     @Test
     public void testToInfoString() {
         String expect
@@ -691,7 +696,7 @@ public class MTMVTest {
         ConnectContext context = Mockito.mock(ConnectContext.class);
         SessionVariable sessionVariable = Mockito.mock(SessionVariable.class);
         Mockito.when(context.getSessionVariable()).thenReturn(sessionVariable);
-        Mockito.when(sessionVariable.getAffectQueryResultInPlanVariables()).thenReturn(Map.of());
+        Mockito.when(sessionVariable.getAffectQueryResultInPlanVariables()).thenReturn(SESSION_VARS);
         return context;
     }
 
@@ -768,6 +773,9 @@ public class MTMVTest {
         mtmv.setQualifiedDbName("db1");
         mtmv.setRefreshInfo(buildMTMVRefreshInfo(mtmv));
         mtmv.setQuerySql("select k1 from t1");
+        // A modern MTMV always persists its creation session variables. They match the mocked query
+        // session so the cache guard mask is GUARD_NONE and these tests stay focused on cache generation.
+        Deencapsulation.setField(mtmv, "sessionVariables", SESSION_VARS);
         mtmv.setStatus(new MTMVStatus(MTMVRefreshState.SUCCESS));
         mtmv.getStatus().setState(MTMVState.NORMAL);
         mtmv.setJobInfo(new MTMVJobInfo("job1"));

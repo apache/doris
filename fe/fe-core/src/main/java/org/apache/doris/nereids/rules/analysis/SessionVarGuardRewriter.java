@@ -17,6 +17,13 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.IsNullPredicate;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.pattern.Pattern;
@@ -25,11 +32,16 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
+import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.Between;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.NeedSessionVarGuard;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -188,13 +200,13 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
          */
         public AddSessionVarGuardRewriter(Map<String, String> var, Map<String, String> currentVars) {
             this(var,
-                    var != null && !var.isEmpty()
-                            // The creation zone is unknown when the persisted map has no time_zone key
-                            // (pre-change metadata); treat it as different so time-zone sensitive expressions
-                            // are always guarded (compatibility fence).
-                            && (!var.containsKey(SessionVariable.TIME_ZONE)
-                                    || !timeZonesEquivalent(var.get(SessionVariable.TIME_ZONE),
-                                            currentVars.get(SessionVariable.TIME_ZONE))),
+                    // The creation zone is unknown when the persisted map is empty (pre-change metadata)
+                    // or has no time_zone key (metadata written before time_zone became a plan variable);
+                    // treat it as different so time-zone sensitive expressions are always guarded
+                    // (compatibility fence). The empty captured map is transparent at execution.
+                    var != null && (var.isEmpty() || !var.containsKey(SessionVariable.TIME_ZONE)
+                            || !timeZonesEquivalent(var.get(SessionVariable.TIME_ZONE),
+                                    currentVars == null ? null : currentVars.get(SessionVariable.TIME_ZONE))),
                     var != null && !var.isEmpty() && differsInNonTimeZoneVars(currentVars, var),
                     false);
         }
@@ -264,14 +276,20 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
          * An expression is time-zone sensitive when its value is a session-time-zone dependent rendering of
          * a TIMESTAMPTZ value (stored as UTC), e.g. date_trunc/cast/floor on a timestamptz column, or a
          * string conversion of a TIMESTAMPTZ nested in a complex type (ARRAY&lt;timestamptz&gt;, MAP, STRUCT).
-         * Zone-invariant operations - plain slot/literal passthroughs, named expressions (their children are
-         * guarded individually), aggregate functions such as COUNT/MIN/MAX (they preserve the UTC instant)
-         * and IS (NOT) NULL checks - must NOT be guarded so that safe rewrites keep working.
+         * Zone-invariant operations must NOT be guarded so that safe rewrites keep working: plain
+         * slot/literal passthroughs (a TIMESTAMPTZ slot holds the UTC instant), named expressions (their
+         * children are guarded individually), aggregate functions such as COUNT/MIN/MAX (they preserve the
+         * instant), IS (NOT) NULL checks, and comparisons / boolean combinations of them (equality,
+         * ordering, BETWEEN and IN over instants compare the UTC instants and do not depend on the session
+         * zone; any zone-dependent operand, e.g. a cast of an offset-free string into TIMESTAMPTZ, is
+         * guarded on its own by the child visit).
          */
         private static boolean isTimeZoneSensitive(Expression expr) {
             if (expr instanceof Slot || expr instanceof Literal || expr instanceof NamedExpression
                     || expr instanceof AggregateFunction || expr instanceof IsNull
-                    || (expr instanceof Not && expr.child(0) instanceof IsNull)
+                    || expr instanceof ComparisonPredicate || expr instanceof Between
+                    || expr instanceof InPredicate || expr instanceof And || expr instanceof Or
+                    || expr instanceof Not
                     // Structural / subtype-constrained expressions must not be replaced by a guard: their
                     // owners rebuild them by casting (e.g. WindowExpression.withChildren casts ORDER BY keys
                     // back to OrderExpression and the frame to WindowFrame; GenerateExpressionRewrite casts
@@ -372,20 +390,28 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
      * persisted (creation) session, as a bitmask of {@link #GUARD_TIME_ZONE} and {@link #GUARD_OTHER}.
      * Per-family scoping lets a time-zone-only difference keep rewriting expressions that depend on other
      * variables (and vice versa).
+     *
+     * <p>An empty or missing persisted map is treated as "creation time zone unknown": objects created
+     * before time_zone was part of the persisted plan variables (old FE, or old metadata replayed on a new
+     * FE) carry no time_zone key, so their zone-sensitive expressions must always be guarded. This is the
+     * metadata compatibility fence in the old-metadata -> new-FE direction; a new-FE-created object always
+     * persists time_zone (see {@link SessionVariable#TIME_ZONE}). The reverse direction cannot be repaired
+     * from the new code: an old read-serving FE neither knows this key nor classifies TIMESTAMPTZ
+     * functions, so such objects must be rebuilt on the new FE to get a guarded rewrite cache.
      */
     public static int computeGuardMask(Map<String, String> currentSessionVars,
             Map<String, String> persistSessionVars) {
-        if (persistSessionVars == null || persistSessionVars.isEmpty()) {
-            return GUARD_NONE;
-        }
         int mask = GUARD_NONE;
-        // The creation zone is unknown (pre-change metadata) or differs from the current zone.
-        if (!persistSessionVars.containsKey(SessionVariable.TIME_ZONE)
+        // The creation zone is unknown (pre-change metadata, including an empty map) or differs from the
+        // current zone.
+        if (persistSessionVars == null || persistSessionVars.isEmpty()
+                || !persistSessionVars.containsKey(SessionVariable.TIME_ZONE)
                 || !timeZonesEquivalent(persistSessionVars.get(SessionVariable.TIME_ZONE),
-                        currentSessionVars.get(SessionVariable.TIME_ZONE))) {
+                        currentSessionVars == null ? null : currentSessionVars.get(SessionVariable.TIME_ZONE))) {
             mask |= GUARD_TIME_ZONE;
         }
-        if (differsInNonTimeZoneVars(currentSessionVars, persistSessionVars)) {
+        if (persistSessionVars != null && !persistSessionVars.isEmpty()
+                && differsInNonTimeZoneVars(currentSessionVars, persistSessionVars)) {
             mask |= GUARD_OTHER;
         }
         return mask;
@@ -438,6 +464,119 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
             return ImmutableMap.of();
         }
         return ctx.getSessionVariable().getAffectQueryResultInPlanVariables();
+    }
+
+    /**
+     * Whether a stored column expression (a generated column or a synchronous materialized view column
+     * definition, including the separately stored WHERE clause) is time-zone sensitive: its materialized
+     * value depends on the session time zone because a TIMESTAMPTZ operand (possibly nested in a complex
+     * type) is rendered or interpreted in that zone.
+     *
+     * <p>Such expressions cannot be kept consistent: they are evaluated by BE in the write/load session
+     * time zone, and the persisted session variables only drive FE binding/cache decisions, so an
+     * expression created in one zone and evaluated in another materializes a different value (the
+     * {@code SessionVarGuardExpr} wrapper is dropped by {@code MergeGuardExpr} and by expression to
+     * thrift translation before execution). They are therefore rejected at creation time instead.
+     *
+     * <p>Every rendering of an instant into another representation is rejected, including STRING: the
+     * string embeds the write-session offset, so the same instant is stored as different strings by
+     * different write sessions and any later grouping/comparison observes that difference. Comparing two
+     * TIMESTAMPTZ instants and copying an instant verbatim are zone invariant and stay allowed; the
+     * comparison operands are still classified individually because they may contain a sensitive cast.
+     */
+    public static boolean isTimeZoneSensitiveStoredExpr(Expr expr) {
+        if (expr == null) {
+            return false;
+        }
+        if (expr instanceof SlotRef || expr instanceof LiteralExpr) {
+            // A bare slot/literal only carries a value; whether that value is zone dependent is decided by
+            // the operation that renders or interprets it (a TIMESTAMPTZ slot holds a zone-independent
+            // instant, an offset-free string slot holds whatever the storage session wrote).
+            return false;
+        }
+        if (expr instanceof IsNullPredicate) {
+            // the boolean result of IS (NOT) NULL does not depend on the time zone
+            return false;
+        }
+        if (expr instanceof CastExpr) {
+            return isTimeZoneSensitiveCast((CastExpr) expr);
+        }
+        if (expr instanceof BinaryPredicate && isInstantComparison((BinaryPredicate) expr)) {
+            // Comparing two TIMESTAMPTZ instants is zone invariant regardless of the operator, but the
+            // operands may themselves be zone-sensitive expressions (e.g. date_trunc(ts, 'day') = ts2), so
+            // recurse. A comparison against an offset-free literal is NOT exempt: the literal is
+            // interpreted in the write/load session zone and falls through to the check below.
+            return isTimeZoneSensitiveStoredExpr(expr.getChild(0))
+                    || isTimeZoneSensitiveStoredExpr(expr.getChild(1));
+        }
+        if (expr instanceof FunctionCallExpr && ((FunctionCallExpr) expr).isAggregateFunction()) {
+            // aggregates preserve the UTC instant; only a time-zone conversion inside their argument
+            // (e.g. MAX(date_trunc(ts, 'day'))) makes the value zone dependent
+            for (Expr child : expr.getChildren()) {
+                if (isTimeZoneSensitiveStoredExpr(child)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        for (Expr child : expr.getChildren()) {
+            if (containsTimeStampTz(child.getType())) {
+                return true;
+            }
+            if (isTimeZoneSensitiveStoredExpr(child)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Classify a cast by both its source and its result type instead of only its children: casting INTO
+     * TIMESTAMPTZ interprets an offset-free source representation (string/datetime) in the session zone,
+     * and casting a TIMESTAMPTZ instant OUT of TIMESTAMPTZ renders it in the session zone - including into
+     * STRING, whose rendering embeds the write-session offset and is therefore not canonical.
+     * TIMESTAMPTZ &lt;-&gt; TIMESTAMPTZ is instant preserving and only recurses into the source.
+     */
+    private static boolean isTimeZoneSensitiveCast(CastExpr castExpr) {
+        Expr source = castExpr.getChild(0);
+        boolean sourceTz = containsTimeStampTz(source.getType());
+        boolean targetTz = containsTimeStampTz(castExpr.getType());
+        if (sourceTz != targetTz) {
+            return true;
+        }
+        return isTimeZoneSensitiveStoredExpr(source);
+    }
+
+    /**
+     * Whether the predicate compares two TIMESTAMPTZ-typed operands, i.e. an instant with an instant.
+     * Equality and ordering of instants are zone invariant; any other binary predicate (e.g. against an
+     * offset-free literal) falls through to the generic child-type check.
+     */
+    private static boolean isInstantComparison(BinaryPredicate binaryPredicate) {
+        return containsTimeStampTz(binaryPredicate.getChild(0).getType())
+                && containsTimeStampTz(binaryPredicate.getChild(1).getType());
+    }
+
+    private static boolean containsTimeStampTz(org.apache.doris.catalog.Type type) {
+        if (type.isTimeStampTz()) {
+            return true;
+        }
+        if (type.isArrayType()) {
+            return containsTimeStampTz(((org.apache.doris.catalog.ArrayType) type).getItemType());
+        }
+        if (type.isMapType()) {
+            org.apache.doris.catalog.MapType mapType = (org.apache.doris.catalog.MapType) type;
+            return containsTimeStampTz(mapType.getKeyType()) || containsTimeStampTz(mapType.getValueType());
+        }
+        if (type.isStructType()) {
+            for (org.apache.doris.catalog.StructField field
+                    : ((org.apache.doris.catalog.StructType) type).getFields()) {
+                if (containsTimeStampTz(field.getType())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**

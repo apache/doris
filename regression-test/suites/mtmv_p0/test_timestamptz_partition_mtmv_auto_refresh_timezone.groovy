@@ -141,4 +141,67 @@ suite("test_timestamptz_partition_mtmv_auto_refresh_timezone","mtmv") {
     """
     Assert.assertEquals("the materialized day boundary must equal the direct UTC computation",
             directRes, mvRes)
+
+    // The effective zone must also be UTC when the partition expression is written inline instead of
+    // referencing the select alias (PARTITION BY(date_trunc(ts, 'day'))). In that form the analyzed
+    // partition column is the date_trunc source column ts, and the definition still projects the aliased
+    // day_ts; the detection must resolve the source column from the analyzed base partition column, not
+    // from the MTMV output columns. REFRESH AUTO probes IVM first and then falls back to the regular path,
+    // so the normalization has to run after either analysis arm.
+    def inlineMvName = "timestamptz_partition_mtmv_auto_refresh_timezone_inline_mv"
+    sql "SET time_zone = '${creationTz}'"
+    sql "DROP MATERIALIZED VIEW IF EXISTS ${inlineMvName}"
+    sql """
+        CREATE MATERIALIZED VIEW ${inlineMvName}
+        BUILD IMMEDIATE REFRESH AUTO ON MANUAL
+        PARTITION BY(date_trunc(ts, 'day'))
+        DISTRIBUTED BY RANDOM BUCKETS 1
+        PROPERTIES('replication_num' = '1')
+        AS
+        SELECT ts, date_trunc(ts, 'day') AS day_ts
+        FROM ${tableName}
+    """
+    waitingMTMVTaskFinishedByMvName(inlineMvName, dbName)
+
+    def inlineTasks = sql """
+        SELECT Status, MvName, ErrorMsg
+        FROM tasks('type' = 'mv')
+        WHERE MvDatabaseName = '${dbName}' AND MvName = '${inlineMvName}'
+        ORDER BY CreateTime DESC
+        LIMIT 1
+    """
+    Assert.assertEquals("SUCCESS", inlineTasks[0][0].toString())
+    def inlineInfos = sql """
+        SELECT Name, State, RefreshState
+        FROM mv_infos('database' = '${dbName}')
+        WHERE Name = '${inlineMvName}'
+    """
+    Assert.assertEquals("NORMAL", inlineInfos[0][1].toString())
+    Assert.assertEquals("SUCCESS", inlineInfos[0][2].toString())
+
+    // The persisted effective zone is UTC, so the rewrite guard compares queries against it consistently.
+    def inlineShowCreate = sql "SHOW CREATE MATERIALIZED VIEW ${inlineMvName}"
+    Assert.assertTrue("the effective creation zone must be persisted as UTC, got " + inlineShowCreate,
+            inlineShowCreate.toString().contains("time_zone=UTC"))
+
+    // A UTC query rewrites to the MV; the materialized day boundary must be the UTC-aligned instant.
+    sql "SET time_zone = '${utcTz}'"
+    mv_rewrite_success("""
+        SELECT ts, date_trunc(ts, 'day')
+        FROM ${tableName}
+    """, inlineMvName)
+    def inlineMvRes = sql "SELECT CAST(day_ts AS STRING) FROM ${inlineMvName} ORDER BY 1"
+    Assert.assertEquals(1, inlineMvRes.size())
+    Assert.assertTrue("expected 2024-01-01 00:00:00.000000+00:00, got " + inlineMvRes[0][0],
+            inlineMvRes[0][0].toString().contains("2024-01-01 00:00:00.000000+00:00"))
+
+    // A creation-zone query must never surface the UTC-materialized day boundary through the guarded
+    // output: whether or not the optimizer picks the MV, the result must equal the direct computation in
+    // the query zone.
+    sql "SET time_zone = '${creationTz}'"
+    sql "SET enable_materialized_view_rewrite=false"
+    def inlineOff = sql "SELECT CAST(date_trunc(ts, 'day') AS STRING) FROM ${tableName} ORDER BY 1"
+    sql "SET enable_materialized_view_rewrite=true"
+    def inlineOn = sql "SELECT CAST(date_trunc(ts, 'day') AS STRING) FROM ${tableName} ORDER BY 1"
+    Assert.assertEquals("cross-zone rewrite must return the query-zone result", inlineOff, inlineOn)
 }

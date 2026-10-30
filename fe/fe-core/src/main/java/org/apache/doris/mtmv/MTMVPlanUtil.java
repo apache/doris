@@ -42,9 +42,11 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
@@ -60,6 +62,7 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -141,7 +144,7 @@ public class MTMVPlanUtil {
     public static final List<RuleType> DISABLE_RULES_WHEN_RUN_MTMV_TASK = DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE;
 
     public static ConnectContext createMTMVContext(MTMV mtmv, List<RuleType> disableRules) {
-        ConnectContext ctx = createBasicMvContext(null, disableRules, mtmv.getSessionVariables());
+        ConnectContext ctx = createBasicMvContext(null, disableRules, effectiveSessionVariables(mtmv));
         Optional<String> workloadGroup = mtmv.getWorkloadGroup();
         if (workloadGroup.isPresent()) {
             ctx.getSessionVariable().setWorkloadGroup(workloadGroup.get());
@@ -151,6 +154,70 @@ public class MTMVPlanUtil {
         // After 1, this logic is no longer needed. This is to be compatible with older versions
         setCatalogAndDb(ctx, mtmv);
         return ctx;
+    }
+
+    /**
+     * The session variables the MV definition must be materialized/cached with. They are the persisted
+     * creation session variables, with one compatibility exception: an object created before time_zone
+     * became a persisted plan variable has no time_zone entry, so a new FE would otherwise overlay the old
+     * map onto a fresh system-default session. For an MTMV whose boundaries are UTC-aligned (date_trunc on
+     * a TIMESTAMPTZ column) that would compute the partition key in the FE default zone and route the row
+     * outside every MV partition, so such a legacy MV is refreshed in UTC. Its creation zone stays
+     * unknown, which the rewrite guard already treats as a mismatch
+     * ({@link SessionVarGuardRewriter#computeGuardMask}), so no cross-zone rewrite can consume the
+     * refreshed values.
+     */
+    private static Map<String, String> effectiveSessionVariables(MTMV mtmv) {
+        Map<String, String> sessionVariables = mtmv.getSessionVariables();
+        if (sessionVariables != null && sessionVariables.containsKey(SessionVariable.TIME_ZONE)) {
+            return sessionVariables;
+        }
+        if (!usesUtcTimeStampTzPartition(mtmv.getMvPartitionInfo())) {
+            return sessionVariables;
+        }
+        Map<String, String> effectiveSessionVariables = Maps.newHashMap();
+        if (sessionVariables != null) {
+            effectiveSessionVariables.putAll(sessionVariables);
+        }
+        effectiveSessionVariables.put(SessionVariable.TIME_ZONE, TimeUtils.getUTCTimeZone().getID());
+        return effectiveSessionVariables;
+    }
+
+    /**
+     * Whether the MTMV partitions by a time-zone converting expression on a TIMESTAMPTZ column, i.e. its
+     * partition expression is date_trunc over a TIMESTAMPTZ base partition column. For such MTMVs
+     * {@link MTMVPartitionExprDateTrunc} derives UTC-aligned partition boundaries, so the effective
+     * semantics of the whole definition are UTC: the partition key value materialized by the refresh query
+     * must be computed in the same zone as the stored boundaries, otherwise it falls outside every MV
+     * partition. The definition's captured session variables are therefore persisted with time_zone=UTC,
+     * which keeps the background refresh, the rewrite cache and the rewrite guard consistent. MTMVs
+     * partitioned by a raw TIMESTAMPTZ slot (no zone conversion in the partition expression) are not
+     * affected: the stored instant is zone independent, so they keep the creation zone and unrelated
+     * zone-sensitive expressions are still materialized per the creation session.
+     *
+     * <p>The source column is resolved from the analyzed pct infos, which carry the base table column the
+     * date_trunc argument reads. It must not be looked up among the MTMV output columns: a definition
+     * usually projects only the aliased expression (e.g. {@code SELECT date_trunc(ts, 'day') AS day_ts})
+     * or a cast of it, so the source column name and its TIMESTAMPTZ type are not visible there.
+     */
+    public static boolean usesUtcTimeStampTzPartition(MTMVPartitionInfo mvPartitionInfo) {
+        if (mvPartitionInfo == null || mvPartitionInfo.getPartitionType() != MTMVPartitionType.EXPR) {
+            return false;
+        }
+        for (BaseColInfo pctInfo : mvPartitionInfo.getPctInfos()) {
+            MTMVRelatedTableIf pctTable = MTMVUtil.getRelatedTable(pctInfo.getTableInfo());
+            Type partitionColumnType;
+            try {
+                partitionColumnType = MTMVPartitionUtil.getPartitionColumnType(pctTable, pctInfo.getColName(),
+                        MvccUtil.getSnapshotFromContext(pctTable));
+            } catch (org.apache.doris.common.AnalysisException e) {
+                throw new AnalysisException(e.getMessage(), e);
+            }
+            if (partitionColumnType.isTimeStampTz()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

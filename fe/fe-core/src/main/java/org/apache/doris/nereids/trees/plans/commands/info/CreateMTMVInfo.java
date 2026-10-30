@@ -189,8 +189,10 @@ public class CreateMTMVInfo extends CreateTableInfo {
         // probe may fall back to the regular path (an aliased date_trunc partition is an EXPR partition,
         // which the IVM probe rejects), and the persisted session map would otherwise keep the non-UTC DDL
         // zone while the physical boundaries stay UTC-aligned, so the refresh computes a day boundary that
-        // falls into no MV partition (or into the preceding UTC one).
-        if (usesUtcTimeZonePartition()) {
+        // falls into no MV partition (or into the preceding UTC one). The detection must use the analyzed
+        // base partition column, not the MTMV output columns: an aliased definition projects only
+        // date_trunc(ts, 'day') AS day_ts, so neither the source column name nor its type is visible there.
+        if (MTMVPlanUtil.usesUtcTimeStampTzPartition(mvPartitionInfo)) {
             Map<String, String> effectiveSessionVariables = Maps.newHashMap(sessionVariables);
             effectiveSessionVariables.put(SessionVariable.TIME_ZONE, TimeUtils.getUTCTimeZone().getID());
             this.sessionVariables = effectiveSessionVariables;
@@ -427,27 +429,6 @@ public class CreateMTMVInfo extends CreateTableInfo {
             }
         }
         throw new AnalysisException("can not find partition column");
-    }
-
-    /**
-     * Whether the MTMV partitions by a time-zone converting expression on a TIMESTAMPTZ column
-     * (date_trunc on a timestamptz column). For such MTMVs the derived partition boundaries are
-     * UTC-aligned (see MTMVPartitionExprDateTrunc), so the effective session zone is UTC: both the
-     * background refresh and the rewrite cache must be built in UTC, and the persisted time zone must be
-     * UTC so the rewrite guard compares queries against the same UTC semantics. MTMVs partitioned by a raw
-     * TIMESTAMPTZ slot (no zone conversion) are not affected: the stored instant is zone independent.
-     */
-    private boolean usesUtcTimeZonePartition() {
-        if (mvPartitionInfo == null || mvPartitionInfo.getPartitionType() != MTMVPartitionType.EXPR) {
-            return false;
-        }
-        String partitionCol = mvPartitionInfo.getPartitionCol();
-        for (ColumnDefinition columnDefinition : columns) {
-            if (columnDefinition.getName().equalsIgnoreCase(partitionCol)) {
-                return columnDefinition.translateToCatalogStyle().getType().isTimeStampTz();
-            }
-        }
-        return false;
     }
 
     private PartitionDesc generatePartitionDesc(ConnectContext ctx) {

@@ -1407,6 +1407,11 @@ public class SessionVariable implements Serializable, Writable {
     // variables for views / materialized views / generated columns, and must be compared when deciding
     // whether a materialized view can be used for rewrite. Otherwise a MV built in one time zone may be
     // rewritten in a session with a different time zone and return stale materialized values.
+    // Stored expressions (generated columns, synchronous MV columns and WHERE) whose value depends on the
+    // time zone are rejected at creation instead, because BE evaluates them in the write/load session zone
+    // and the captured zone cannot survive execution. Objects created before this key was persisted have
+    // no time_zone entry; SessionVarGuardRewriter treats that as an unknown creation zone and always
+    // guards their time-zone sensitive expressions (metadata compatibility fence).
     @VarAttrDef.VarAttr(name = TIME_ZONE, needForward = true, affectQueryResultInPlan = true,
             affectQueryResultInExecution = true)
     public String timeZone = TimeUtils.getSystemTimeZone().getID();
