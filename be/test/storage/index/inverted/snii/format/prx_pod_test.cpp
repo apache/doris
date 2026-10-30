@@ -19,9 +19,11 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <numeric>
+#include <random>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -44,12 +46,19 @@ using doris::snii::pfor_encode;
 using doris::snii::Slice;
 using doris::snii::format::build_prx_window;
 using doris::snii::format::build_prx_window_flat;
+using doris::snii::format::choose_auto_prx_codec;
 using doris::snii::format::kFrqBaseUnit;
+using doris::snii::format::kPrxZstdBudgetPercent;
+using doris::snii::format::kPrxZstdBudgetPriorPercent;
+using doris::snii::format::kPrxZstdBudgetWarmupWindows;
+using doris::snii::format::kReaderPrxWindowLimits;
 using doris::snii::format::PrxCodec;
 using doris::snii::format::PrxCsrAllocationGate;
 using doris::snii::format::PrxDecodeContext;
 using doris::snii::format::PrxDecodeStats;
 using doris::snii::format::PrxDecodedShape;
+using doris::snii::format::PrxWindowLimits;
+using doris::snii::format::PrxZstdBudget;
 using doris::snii::format::read_prx_window;
 using doris::snii::format::read_prx_window_csr;
 using doris::snii::format::read_prx_window_csr_for_selection;
@@ -539,6 +548,80 @@ TEST(PrxPodTest, CodecSelectionMatrixMatchesCsrOracleAtLowAndHighTf) {
                 EXPECT_EQ(stats.selected_positions, expected_flat.size());
                 EXPECT_TRUE(stats.is_valid());
             }
+        }
+    }
+}
+
+// The plain-payload selective decoder keeps a fast path for single-byte counts and deltas and hands
+// everything else to the checked decoders. Random windows mix both kinds of value -- multi-byte
+// deltas, docs without positions, positions near the top of the 32-bit range -- and random
+// selections, and every result must equal the positions the window was built from.
+TEST(PrxPodTest, SelectivePlainDecodeMatchesInputForRandomWindows) {
+    std::mt19937 rng(20261028);
+    // A reader-owned decompressor, shared by every window below as a cursor shares it.
+    doris::snii::ZstdDecompressor shared_zstd;
+    for (int round = 0; round < 300; ++round) {
+        const uint32_t doc_count = 1 + rng() % 400;
+        const uint32_t style = rng() % 4;
+        PerDoc docs(doc_count);
+        for (auto& doc : docs) {
+            const uint32_t count = (style == 3 && rng() % 4 == 0) ? 0 : rng() % 6;
+            uint32_t position = rng() % 200;
+            for (uint32_t i = 0; i < count; ++i) {
+                doc.push_back(position);
+                uint32_t step = 1 + rng() % 100; // single-byte delta
+                if (style >= 1 && rng() % 8 == 0) {
+                    step = 128 + rng() % 20000; // two or three bytes
+                }
+                if (style == 2 && rng() % 40 == 0) {
+                    step = 1U << (21 + rng() % 8); // up to five bytes
+                }
+                position = (UINT32_MAX - position < step) ? position : position + step;
+            }
+            // keep the list strictly valid for the builder: ascending, duplicates allowed
+            std::sort(doc.begin(), doc.end());
+        }
+        std::vector<uint32_t> ordinals;
+        const uint32_t mode = rng() % 4;
+        for (uint32_t d = 0; d < doc_count; ++d) {
+            const bool take = mode == 0   ? (rng() % 10 == 0)
+                              : mode == 1 ? (rng() % 2 == 0)
+                              : mode == 2 ? true
+                                          : (d == 0 || d + 1 == doc_count);
+            if (take) {
+                ordinals.push_back(d);
+            }
+        }
+        for (PrxCodec codec : {PrxCodec::kRaw, PrxCodec::kZstd}) {
+            SCOPED_TRACE("round=" + std::to_string(round) + " docs=" + std::to_string(doc_count) +
+                         " style=" + std::to_string(style) + " mode=" + std::to_string(mode) +
+                         " codec=" + std::to_string(static_cast<uint8_t>(codec)));
+            const std::vector<uint8_t> encoded = BuildProfileFrame(docs, codec);
+            std::vector<uint32_t> expected_flat;
+            std::vector<uint32_t> expected_offsets;
+            ExpectedSelectiveCsr(docs, ordinals, &expected_flat, &expected_offsets);
+            std::vector<uint32_t> flat;
+            std::vector<uint32_t> offsets;
+            ByteSource source((Slice(encoded)));
+            ASSERT_TRUE(read_prx_window_csr_selective(&source, ordinals, &flat, &offsets).ok());
+            EXPECT_EQ(flat, expected_flat);
+            EXPECT_EQ(offsets, expected_offsets);
+
+            // The same window through the shared decompressor, selectively and in full.
+            PrxDecodeContext context {.zstd = &shared_zstd};
+            ByteSource reused_source((Slice(encoded)));
+            ASSERT_TRUE(read_prx_window_csr_selective(&reused_source, ordinals, &flat, &offsets,
+                                                      &context)
+                                .ok());
+            EXPECT_EQ(flat, expected_flat);
+            EXPECT_EQ(offsets, expected_offsets);
+            std::vector<uint32_t> all(doc_count);
+            std::iota(all.begin(), all.end(), 0U);
+            ExpectedSelectiveCsr(docs, all, &expected_flat, &expected_offsets);
+            ByteSource full_source((Slice(encoded)));
+            ASSERT_TRUE(read_prx_window_csr(&full_source, &flat, &offsets, &context).ok());
+            EXPECT_EQ(flat, expected_flat);
+            EXPECT_EQ(offsets, expected_offsets);
         }
     }
 }
@@ -1486,6 +1569,106 @@ TEST(SniiPrxPodTest, ZstdMinSavingAboveOneHundredPercentIsRejected) {
     EXPECT_TRUE(doris::snii::format::validate_prx_window_limits(limits).ok());
     limits.zstd_min_saving_percent = 101;
     EXPECT_FALSE(doris::snii::format::validate_prx_window_limits(limits).ok());
+}
+
+namespace {
+
+// Records a window whose zstd frame is `zstd` bytes and whose PFOR frame is `pfor` bytes.
+bool trade(PrxZstdBudget* budget, uint64_t zstd, uint64_t pfor) {
+    return budget->trade(zstd, pfor - zstd, static_cast<uint32_t>((pfor - zstd) * 100 / pfor));
+}
+
+} // namespace
+
+TEST(SniiPrxZstdBudget, KeepsThePriorShareUntilItHasSeenEnoughWindows) {
+    PrxZstdBudget budget;
+    for (uint32_t i = 0; i + 1 < kPrxZstdBudgetWarmupWindows; ++i) {
+        // zstd saves 50%, above the prior share: the window keeps zstd.
+        EXPECT_FALSE(trade(&budget, 500, 1000));
+        EXPECT_EQ(budget.min_saving_percent(), kPrxZstdBudgetPriorPercent);
+    }
+    EXPECT_FALSE(trade(&budget, 500, 1000));
+    // Trading these windows would double their bytes: the share stops right below their saving.
+    EXPECT_EQ(budget.min_saving_percent(), 50);
+}
+
+// Nine windows in ten save 60% and one saves 5%. Trading the 5% windows costs 50 bytes for every
+// 4,550 bytes of zstd frames, about 1.1%, so every one of them is traded and none of the others.
+TEST(SniiPrxZstdBudget, TradesTheWindowsZstdShrinksLeast) {
+    PrxZstdBudget budget;
+    for (int round = 0; round < 100; ++round) {
+        for (int i = 0; i < 9; ++i) {
+            EXPECT_FALSE(trade(&budget, 400, 1000)) << round;
+        }
+        EXPECT_TRUE(trade(&budget, 950, 1000)) << round;
+    }
+    EXPECT_EQ(budget.min_saving_percent(), 60);
+}
+
+// The share comes from the windows already seen, so a window saving less than all of them is below
+// it whatever it costs. Here every window saves less than the one before; what the segment has
+// actually spent still never exceeds the budget.
+TEST(SniiPrxZstdBudget, NeverSpendsMoreThanTheBudgetWhateverTheOrder) {
+    PrxZstdBudget budget;
+    uint64_t zstd_bytes = 0;
+    uint64_t spent = 0;
+    uint32_t traded = 0;
+    for (uint64_t zstd = 100; zstd <= 990; ++zstd) {
+        zstd_bytes += zstd;
+        if (trade(&budget, zstd, 1000)) {
+            spent += 1000 - zstd;
+            ++traded;
+        }
+        ASSERT_LE(spent * 100, zstd_bytes * kPrxZstdBudgetPercent) << "zstd frame " << zstd;
+    }
+    EXPECT_GT(traded, 0);
+}
+
+// Windows with nothing to trade count toward the bytes the budget is a share of.
+TEST(SniiPrxZstdBudget, WindowsWithNothingToTradeCountTowardTheBudget) {
+    PrxZstdBudget budget;
+    for (int i = 0; i < 640; ++i) {
+        budget.add(1000);
+    }
+    // Nothing traded yet, so every share fits.
+    EXPECT_EQ(budget.min_saving_percent(), 100);
+    for (int i = 0; i < 64; ++i) {
+        EXPECT_TRUE(trade(&budget, 900, 1000)) << i;
+    }
+}
+
+// Frame sizes below: a PFOR payload of p bytes is a (p + 7)-byte frame, a raw payload of r bytes an
+// (r + 7)-byte frame, and a zstd payload of c bytes from a 2000-byte plain payload a (c + 9)-byte
+// frame (for payloads of 128 to 16383 bytes).
+TEST(SniiPrxPodTest, ChooseAutoCodecTradesWithTheBudgetOnlyWhenItHasOne) {
+    PrxWindowLimits limits = kReaderPrxWindowLimits;
+    limits.zstd_min_saving_percent = 30;
+    // zstd frame 900 against PFOR frame 1000 saves 10%: the fixed share stores PFOR.
+    EXPECT_EQ(choose_auto_prx_codec(limits, 993, 2000, 891, true).codec, PrxCodec::kPfor);
+
+    PrxZstdBudget budget;
+    limits.zstd_budget = &budget;
+    // The budget replaces the fixed share. The first window would cost 100 bytes against a budget
+    // of 72, the second fits a budget of 144.
+    EXPECT_EQ(choose_auto_prx_codec(limits, 993, 2000, 891, true).codec, PrxCodec::kZstd);
+    EXPECT_EQ(choose_auto_prx_codec(limits, 993, 2000, 891, true).codec, PrxCodec::kPfor);
+}
+
+TEST(SniiPrxPodTest, ChooseAutoCodecTradesZstdOnlyForAReadableFasterFrame) {
+    PrxZstdBudget budget;
+    for (uint32_t i = 0; i < kPrxZstdBudgetWarmupWindows; ++i) {
+        budget.add(10000);
+    }
+    PrxWindowLimits limits = kReaderPrxWindowLimits;
+    limits.zstd_budget = &budget;
+    // PFOR frame 1107, raw frame 1007, zstd frame 900: the faster frame is raw.
+    EXPECT_EQ(choose_auto_prx_codec(limits, 1100, 1000, 891, true).codec, PrxCodec::kRaw);
+    // PFOR beyond the reader byte limit and the plain payload within it: zstd is the only readable
+    // compressed frame and stays.
+    limits.max_uncomp_bytes = 1500;
+    EXPECT_EQ(choose_auto_prx_codec(limits, 1600, 1400, 500, true).codec, PrxCodec::kZstd);
+    // No zstd frame below kPrxAutoZstdMinBytes: nothing to trade.
+    EXPECT_EQ(choose_auto_prx_codec(limits, 300, 400, 0, false).codec, PrxCodec::kPfor);
 }
 
 // [functional] F-RT-small: a small flat window round-trips through the CSR reader

@@ -364,15 +364,15 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     // 1.2 prepare args for function call
     ColumnNumbers arguments;
     std::vector<DataTypePtr> arg_types;
-    std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_col_ptrs;
-    std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols;
+    std::vector<std::shared_ptr<ConstantExprResult>> constant_col_ptrs;
+    std::vector<std::shared_ptr<ConstantExprResult>> constant_cols;
     for (size_t i = 0; i < descs.size(); ++i) {
         auto& desc = descs[i];
         arguments.push_back(static_cast<unsigned int>(i));
         arg_types.push_back(desc.data_type);
         if (desc.is_const) {
             constant_col_ptrs.push_back(
-                    std::make_shared<ColumnPtrWrapper>(block.get_by_position(i).column));
+                    std::make_shared<ConstantExprResult>(block.get_by_position(i).column));
             constant_cols.push_back(constant_col_ptrs.back());
         } else {
             constant_cols.push_back(nullptr);

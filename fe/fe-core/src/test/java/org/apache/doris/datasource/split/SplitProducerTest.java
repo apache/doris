@@ -20,6 +20,7 @@ package org.apache.doris.datasource.split;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.FairTaskExecutor;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.connector.ConnectorStatementScopeImpl;
 import org.apache.doris.connector.spi.ConnectorTaskScheduler;
 import org.apache.doris.datasource.scan.FederationBackendPolicy;
 import org.apache.doris.spi.Split;
@@ -102,6 +103,28 @@ class SplitProducerTest {
         }
         Assertions.assertEquals(Arrays.asList(0L, 2L, 4L, 6L, 8L), actual);
         Assertions.assertTrue(consumer.getNextBatch(1).isEmpty());
+        Assertions.assertEquals(1, fixture.completions.get());
+    }
+
+    @Test
+    void partiallyOfferedBatchResumesWithoutLosingOrRepeatingSplits() throws Exception {
+        Fixture fixture = new Fixture(3, 3);
+        fixture.assignment.addToQueue(Arrays.asList(split(0), split(2)));
+        ManualExecutor executor = new ManualExecutor();
+        RecordingSource source = new RecordingSource(3, 4, 6, 8);
+        fixture.start(executor, source);
+        executor.runUntilIdle();
+
+        Assertions.assertEquals(3, fixture.assignment.getAssignedSplits(fixture.backend).size());
+        Assertions.assertEquals(0, fixture.completions.get());
+        SplitSource consumer = fixture.source();
+        Assertions.assertEquals(Arrays.asList(0L, 2L, 4L), identities(consumer.getNextBatch(3)));
+        executor.runUntilIdle();
+        Assertions.assertEquals(Arrays.asList(6L, 8L), identities(consumer.getNextBatch(3)));
+        Assertions.assertTrue(consumer.getNextBatch(1).isEmpty());
+        Assertions.assertEquals(1, fixture.conversions.get(4L));
+        Assertions.assertEquals(1, fixture.conversions.get(6L));
+        Assertions.assertEquals(1, fixture.conversions.get(8L));
         Assertions.assertEquals(1, fixture.completions.get());
     }
 
@@ -231,8 +254,8 @@ class SplitProducerTest {
         }).when(second.generator).startSplit(Mockito.anyInt());
         try {
             Future<?> initialized = planner.submit(() -> {
-                first.assignment.init();
-                second.assignment.init();
+                first.assignment.init(1000);
+                second.assignment.init(1000);
                 return null;
             });
             initialized.get(5, TimeUnit.SECONDS);
@@ -257,9 +280,9 @@ class SplitProducerTest {
 
     @Test
     void partialMultiBackendSubmissionDoesNotReplayOrReassignTheBatch() throws Exception {
-        Fixture fixture = new Fixture(2, 1);
+        Fixture fixture = new Fixture(2, 2);
         ManualExecutor executor = new ManualExecutor();
-        fixture.assignment.addToQueue(Collections.singletonList(split(1)));
+        fixture.assignment.addToQueue(Arrays.asList(split(1), split(5)));
         RecordingSource source = new RecordingSource(2, 0, 3);
         fixture.start(executor, source);
         executor.runNext();
@@ -270,6 +293,7 @@ class SplitProducerTest {
         SplitSource other = new SplitSource(fixture.otherBackend, fixture.assignment, 1000);
         Assertions.assertEquals(Collections.singletonList(1L), identities(other.getNextBatch(1)));
         executor.runUntilIdle();
+        Assertions.assertEquals(Collections.singletonList(5L), identities(other.getNextBatch(1)));
         Assertions.assertEquals(Collections.singletonList(3L), identities(other.getNextBatch(1)));
         Assertions.assertTrue(other.getNextBatch(1).isEmpty());
         Assertions.assertTrue(fixture.source().getNextBatch(1).isEmpty());
@@ -287,12 +311,12 @@ class SplitProducerTest {
         fixture.assignment.addToQueue(Collections.singletonList(split(0)));
         SplitSource consumer = fixture.source();
         Mockito.doAnswer(call -> {
-            boolean offered = (boolean) call.callRealMethod();
-            if (!offered) {
+            int accepted = (int) call.callRealMethod();
+            if (accepted == 0) {
                 Assertions.assertEquals(Collections.singletonList(0L), identities(consumer.getNextBatch(1)));
             }
-            return offered;
-        }).when(fixture.assignment).offerBatch(Mockito.any(), Mockito.any(), Mockito.any());
+            return accepted;
+        }).when(fixture.assignment).offerBatch(Mockito.any(), Mockito.any(), Mockito.anyInt(), Mockito.any());
         ManualExecutor executor = new ManualExecutor();
         RecordingSource source = new RecordingSource(1, 2);
         fixture.start(executor, source);
@@ -349,6 +373,53 @@ class SplitProducerTest {
             Assertions.assertEquals(0, source.closeCalls.get());
             release.countDown();
             Assertions.assertTrue(source.closed.await(5, TimeUnit.SECONDS));
+            Assertions.assertEquals(1, source.closeCalls.get());
+            Assertions.assertEquals(1, fixture.completions.get());
+            Mockito.verify(fixture.policy, Mockito.never()).computeScanRangeAssignment(Mockito.any());
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+            Assertions.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    void readThatOutlivesItsStatementLoadsNothingIntoTheClosedScope() throws Exception {
+        // Stopping the scan only flags a producer that is already inside getNextBatch, and the statement then
+        // closes its connector scope. When that read goes on to resolve its table (Iceberg's streamSplits borrows
+        // one through the scope), the closed scope refuses it, so it borrows nothing that would never be returned.
+        // MUTATION: a scope that still loads after closeAll -> loads==1 -> red.
+        Fixture fixture = new Fixture(1, 1);
+        ConnectorStatementScopeImpl scope = new ConnectorStatementScopeImpl();
+        AtomicInteger loads = new AtomicInteger();
+        CountDownLatch reading = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        RecordingSource source = new RecordingSource(1, 0) {
+            @Override
+            public List<Split> getNextBatch() throws IOException {
+                reading.countDown();
+                try {
+                    Assertions.assertTrue(release.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException(e);
+                }
+                scope.computeIfAbsent("iceberg:table:1:db:tbl", () -> {
+                    loads.incrementAndGet();
+                    return (AutoCloseable) () -> { };
+                });
+                return super.getNextBatch();
+            }
+        };
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            fixture.start(executor, source);
+            Assertions.assertTrue(reading.await(5, TimeUnit.SECONDS));
+            fixture.assignment.stop();
+            scope.closeAll();
+            release.countDown();
+            Assertions.assertTrue(source.closed.await(5, TimeUnit.SECONDS));
+            Assertions.assertEquals(0, loads.get(), "the closed scope refuses the late read's load");
             Assertions.assertEquals(1, source.closeCalls.get());
             Assertions.assertEquals(1, fixture.completions.get());
             Mockito.verify(fixture.policy, Mockito.never()).computeScanRangeAssignment(Mockito.any());
@@ -438,12 +509,12 @@ class SplitProducerTest {
                 if (beforeOffer) {
                     fixture.assignment.setException(expected);
                 }
-                boolean offered = (boolean) call.callRealMethod();
+                int accepted = (int) call.callRealMethod();
                 if (!beforeOffer) {
                     fixture.assignment.setException(expected);
                 }
-                return offered;
-            }).when(fixture.assignment).offerBatch(Mockito.any(), Mockito.any(), Mockito.any());
+                return accepted;
+            }).when(fixture.assignment).offerBatch(Mockito.any(), Mockito.any(), Mockito.anyInt(), Mockito.any());
             ManualExecutor executor = new ManualExecutor();
             RecordingSource source = new RecordingSource(1, 2);
             fixture.start(executor, source);
@@ -506,10 +577,10 @@ class SplitProducerTest {
         Fixture fixture = new Fixture(1, 100);
         fixture.assignment = Mockito.spy(fixture.assignment);
         Mockito.doAnswer(call -> {
-            boolean result = (boolean) call.callRealMethod();
+            int result = (int) call.callRealMethod();
             fixture.assignment.stop();
             return result;
-        }).when(fixture.assignment).offerBatch(Mockito.any(), Mockito.any(), Mockito.any());
+        }).when(fixture.assignment).offerBatch(Mockito.any(), Mockito.any(), Mockito.anyInt(), Mockito.any());
         ManualExecutor executor = new ManualExecutor();
         RecordingSource source = new RecordingSource(1, 0, 2, 4);
         fixture.start(executor, source);

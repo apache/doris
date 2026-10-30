@@ -492,7 +492,7 @@ Status FileScannerV2::_open_impl(RuntimeState* state) {
 Status FileScannerV2::_get_next_scan_range(bool* has_next) {
     SCOPED_TIMER(_get_next_range_timer);
     DORIS_CHECK(has_next != nullptr);
-    RETURN_IF_ERROR(_split_source->get_next(has_next, &_current_range));
+    RETURN_IF_ERROR(_split_source->get_next(has_next, &_current_range, &_should_stop));
     if (*has_next) {
         RETURN_IF_ERROR(_validate_scan_range(*_params, _current_range));
     }

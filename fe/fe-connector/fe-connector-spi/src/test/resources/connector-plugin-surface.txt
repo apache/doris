@@ -188,6 +188,7 @@ org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#getScanNodePropert
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#ignorePartitionPruneShortCircuit():boolean
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#planScan(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.scan.ConnectorScanRequest):java.util.List
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#planScanForPartitionBatch(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.scan.ConnectorScanRequest,java.util.List):java.util.List
+org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#partitionBatchSize(org.apache.doris.connector.spi.ConnectorSession,int,int):int
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#populateScanLevelParams(org.apache.doris.thrift.TFileScanRangeParams,java.util.Map):void
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#releaseReadTransaction(java.lang.String):void
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#scannedPartitionCount(java.util.List):java.util.OptionalLong

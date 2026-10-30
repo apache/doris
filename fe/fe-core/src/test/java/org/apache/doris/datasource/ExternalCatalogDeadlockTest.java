@@ -137,7 +137,8 @@ public class ExternalCatalogDeadlockTest {
         }
 
         @Override
-        protected void closeResources() {
+        protected Runnable detachResources() {
+            return () -> { };
         }
 
         @Override

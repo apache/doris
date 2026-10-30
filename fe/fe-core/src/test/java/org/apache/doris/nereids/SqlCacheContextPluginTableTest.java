@@ -20,6 +20,7 @@ package org.apache.doris.nereids;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion;
@@ -165,5 +166,16 @@ public class SqlCacheContextPluginTableTest {
 
         Assertions.assertTrue(context.hasUnsupportedTables());
         Assertions.assertTrue(context.getUsedTables().isEmpty());
+    }
+
+    @Test
+    public void testRowTtlTableDisablesSqlCache() {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.hasRowTtl()).thenReturn(true);
+
+        SqlCacheContext context = new SqlCacheContext(UserIdentity.ROOT);
+        context.addUsedTable(table);
+
+        Assertions.assertTrue(context.hasUnsupportedTables());
     }
 }
