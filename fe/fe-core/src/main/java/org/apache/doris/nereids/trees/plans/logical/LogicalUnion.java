@@ -358,7 +358,7 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
             } else {
                 changed = true;
                 Expression expression = TypeCoercionUtils
-                        .castIfNotSameTypeStrictForTimeStampNsCoercion(constant, commonType);
+                        .castForCommonTypeWithExactTarget(constant, commonType);
                 castedRow.add((NamedExpression) constantAlias.withChildren(expression));
             }
         }

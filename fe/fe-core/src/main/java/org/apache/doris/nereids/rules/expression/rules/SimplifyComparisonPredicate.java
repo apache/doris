@@ -64,6 +64,7 @@ import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.TemporalCastSupport;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
@@ -182,7 +183,7 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
         if (left instanceof Cast && right instanceof DateLiteral
                 && ((Cast) left).getDataType().equals(right.getDataType())) {
             Cast cast = (Cast) left;
-            if (right instanceof TimeStampNsLiteral) {
+            if (TemporalCastSupport.mustPreserveTemporalRangeCheck(cast.getDataType())) {
                 // Other temporal types have a wider calendar range. Removing this cast would
                 // suppress conversion overflow for DATE as well as DATETIME/TIMESTAMPTZ.
                 return cp;

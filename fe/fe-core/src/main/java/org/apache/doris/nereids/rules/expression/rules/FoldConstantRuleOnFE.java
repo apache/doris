@@ -98,6 +98,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.TemporalCastSupport;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
@@ -572,7 +573,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         // }
         try {
             // TODO: support no throw exception in `checkedCastTo` and return Optional<Expression>
-            if ((dataType.isVariantType() && cast.child().getDataType().isTimeStampNsType())
+            if (TemporalCastSupport.requiresBackendEvaluation(child.getDataType(), dataType)
                     || (cast.child().getDataType().isStringLikeType() && dataType.isComplexType())) {
                 return cast;
             }

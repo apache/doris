@@ -23,13 +23,13 @@ import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
+import org.apache.doris.nereids.util.TemporalValueConversion;
 import org.apache.doris.qe.ConnectContext;
 
 import java.time.LocalDateTime;
@@ -189,6 +189,12 @@ public class DateTimeV2Literal extends DateTimeLiteral {
                 (int) (microSecond / Math.pow(10, DateTimeV2Type.MAX_SCALE - scale)));
     }
 
+    /** Convert the value without changing its declared precision or bypassing range validation. */
+    public DateTimeV2Literal inTimeZone(String fromZone, String toZone) {
+        return fromJavaDateType(TemporalValueConversion.convertZone(toJavaDateType(), fromZone, toZone),
+                getDataType().getScale());
+    }
+
     @Override
     protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
         if (this.dataType.equals(targetType)) {
@@ -207,10 +213,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
             }
         }
         if (targetType.isTimeStampTzType()) {
-            DateTimeV2Literal dtV2Lit = (DateTimeV2Literal) (DateTimeExtractAndTransform.convertTz(
-                    this,
-                    new StringLiteral(ConnectContext.get().getSessionVariable().timeZone),
-                    new StringLiteral("UTC")));
+            DateTimeV2Literal dtV2Lit = inTimeZone(ConnectContext.get().getSessionVariable().timeZone, "UTC");
             return new TimestampTzLiteral((TimeStampTzType) targetType,
                     dtV2Lit.getYear(), dtV2Lit.getMonth(), dtV2Lit.getDay(),
                     dtV2Lit.getHour(), dtV2Lit.getMinute(), dtV2Lit.getSecond(), dtV2Lit.getMicroSecond());

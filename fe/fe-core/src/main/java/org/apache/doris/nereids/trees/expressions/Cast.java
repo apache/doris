@@ -34,8 +34,8 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
-import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.util.TemporalCastSupport;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -168,25 +168,7 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         // StringLike to other type is always nullable.
         if (childDataType.isStringLikeType() && !targetType.isStringLikeType()) {
             return true;
-        } else if ((childDataType.isDateLikeType() || childDataType.isTimeType())
-                && targetType instanceof TimeStampNsType) {
-            // Temporal inputs can fail because TIMESTAMP_NS has a narrower signed epoch-nanos range.
-            return true;
-        } else if (childDataType.isDateTimeV2Type() && targetType.isDateTimeV2Type()) {
-            // BE's generic datelike cast creates a nullable result for DATETIMEV2 scale changes:
-            // reducing scale can overflow while rounding at the maximum datetime boundary.
-            // Exact-type casts have already returned above.
-            return true;
-        } else if (childDataType.isTimeStampTzType() && targetType.isDateTimeV2Type()) {
-            // The BE TIMESTAMPTZ -> DATETIMEV2 kernel can fail while converting the instant in the
-            // session time zone, and its non-strict implementation returns a nullable column.
-            return true;
-        } else if ((childDataType.isDateTimeV2Type() || childDataType.isTimeStampNsType())
-                && targetType.isTimeStampTzType()) {
-            // Datetime and timestamp_ns to timestamptz are always nullable
-            return true;
-        } else if (childDataType.isTimeStampTzType() && targetType.isTimeStampTzType()) {
-            // timestamptz to timestamptz is always nullable
+        } else if (TemporalCastSupport.hasNullableResult(childDataType, targetType)) {
             return true;
         } else if (childDataType.isTimeType()) {
             // time to tinyint, smallint, int and time is always nullable.
