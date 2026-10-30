@@ -23,11 +23,33 @@ public class Password {
     @SerializedName(value = "pwd")
     private byte[] password;
 
+    // MySQL-compatible dual password: the previous (retained) password, kept
+    // valid for authentication until the next password change without
+    // "RETAIN CURRENT PASSWORD", or an explicit "DISCARD OLD PASSWORD".
+    // Nullable; absent in images written before this feature (GSON tolerant
+    // in both directions).
+    @SerializedName(value = "pwd2")
+    private byte[] secondaryPassword;
+
     public Password() {
     }
 
     public Password(byte[] password) {
         this.password = password;
+    }
+
+    /**
+     * A new Password holding the same two slots. Every copy of an account's
+     * credentials (the resolved-IP entries the DomainResolver derives from a
+     * domain account, and their immediate refresh after an ALTER) must carry
+     * the retained secondary password as well: a copy built from the primary
+     * alone stops authenticating the old password on that entry right after
+     * a rotation with RETAIN CURRENT PASSWORD.
+     */
+    public static Password copyOf(Password source) {
+        Password copy = new Password(source.getPassword());
+        copy.setSecondaryPassword(source.getSecondaryPassword());
+        return copy;
     }
 
     public byte[] getPassword() {
@@ -36,5 +58,17 @@ public class Password {
 
     public void setPassword(byte[] password) {
         this.password = password;
+    }
+
+    public byte[] getSecondaryPassword() {
+        return secondaryPassword;
+    }
+
+    public void setSecondaryPassword(byte[] secondaryPassword) {
+        this.secondaryPassword = secondaryPassword;
+    }
+
+    public boolean hasSecondaryPassword() {
+        return secondaryPassword != null && secondaryPassword.length > 0;
     }
 }
