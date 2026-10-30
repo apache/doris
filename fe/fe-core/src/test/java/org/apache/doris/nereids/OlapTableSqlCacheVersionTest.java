@@ -203,6 +203,70 @@ class OlapTableSqlCacheVersionTest {
     }
 
     @Test
+    void testConcurrentPartitionRefreshCannotUpgradeScanDependency() throws Exception {
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class);
+                MockedStatic<CloudPartition> cloud = Mockito.mockStatic(CloudPartition.class)) {
+            config.when(Config::isCloudMode).thenReturn(true);
+            OlapTable table = Mockito.spy(table());
+            Mockito.doReturn(2L).when(table).getVisibleVersion();
+            CloudPartition partition = Mockito.spy(new CloudPartition(10, "p10",
+                    new MaterializedIndex(-1, IndexState.NORMAL), table.getDefaultDistributionInfo(),
+                    1, table.getId()));
+            partition.setCachedVisibleVersion(2, 100);
+            table.addPartition(partition);
+            // A singleton MS refresh can update the cache despite the table's version read lock.
+            Mockito.doAnswer(invocation -> {
+                long version = (long) invocation.callRealMethod();
+                partition.setCachedVisibleVersion(3, 200);
+                return version;
+            }).when(partition).getCachedVisibleVersion();
+
+            OlapTableSqlCacheVersion cached = new OlapTableSqlCacheVersion(table, 2);
+            cached.addScan(table, ImmutableMap.of(10L, 2L));
+            cloud.when(() -> CloudPartition.getSnapshotVisibleVersionFromMs(ImmutableList.of(partition)))
+                    .thenReturn(ImmutableList.of(3L));
+            Assertions.assertFalse(cached.isUsable() && cached.matches(table, 3));
+        }
+    }
+
+    @Test
+    void testConcurrentFirstWriteCannotUpgradeEmptyDependency() throws Exception {
+        OlapTable table = table();
+        OlapTableSqlCacheVersion cached = snapshot(table);
+        Partition partition = Mockito.spy(table.getPartition(20));
+        table.addPartition(partition);
+        Mockito.doAnswer(invocation -> {
+            long version = (long) invocation.callRealMethod();
+            partition.updateVisibleVersionAndTime(2, 200);
+            return version;
+        }).when(partition).getCachedVisibleVersion();
+
+        cached.addEmptyPartitions(table, ImmutableSet.of(20L));
+        table.updateVisibleVersionAndTime(3, 200);
+        Assertions.assertFalse(cached.isUsable() && cached.matches(table, 3));
+    }
+
+    @Test
+    void testPrunedMaterializedViewRetainsSourceVersionInBothScanOrders() {
+        OlapTable table = cacheableTable();
+        MTMV mv = Mockito.mock(MTMV.class);
+        for (boolean mvFirst : new boolean[] {true, false}) {
+            SqlCacheContext context = new SqlCacheContext(UserIdentity.ROOT);
+            context.addUsedTable(table);
+            if (mvFirst) {
+                context.addPrunedOlapPartitions(mv, ImmutableSet.of(30L));
+            }
+            context.addOlapScan(table, ImmutableMap.of(10L, 2L));
+            if (!mvFirst) {
+                context.addPrunedOlapPartitions(mv, ImmutableSet.of(30L));
+            }
+            SqlCacheContext.TableVersion version = context.getUsedTables().values().iterator().next();
+            Assertions.assertFalse(version.olapVersion.isUsable());
+            Assertions.assertEquals("2", version.getCacheKey());
+        }
+    }
+
+    @Test
     void testCloudRevalidationBypassesStalePartitionVersionCache() throws Exception {
         try (MockedStatic<Config> config = Mockito.mockStatic(Config.class);
                 MockedStatic<CloudPartition> cloud = Mockito.mockStatic(CloudPartition.class)) {

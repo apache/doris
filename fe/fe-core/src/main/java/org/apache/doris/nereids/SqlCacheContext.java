@@ -413,11 +413,7 @@ public class SqlCacheContext {
         if (table instanceof MTMV) {
             // MV substitution can hide source partitions from the final physical scans. Preserve the
             // logical source tables' versions before the BE key is computed, including partial UNION rewrites.
-            for (TableVersion version : usedTables.values()) {
-                if (version.olapVersion != null) {
-                    version.olapVersion.useTableVersion();
-                }
-            }
+            useSourceTableVersions();
             return;
         }
         for (TableVersion version : usedTables.values()) {
@@ -443,9 +439,22 @@ public class SqlCacheContext {
 
     /** Retain empty partitions that were eligible for this query before empty-partition pruning. */
     public synchronized void addPrunedOlapPartitions(OlapTable table, Set<Long> partitionIds) {
+        if (table instanceof MTMV) {
+            // An empty MV can disappear before physical scan capture, hiding its source dependencies.
+            useSourceTableVersions();
+            return;
+        }
         for (TableVersion version : usedTables.values()) {
             if (version.id == table.getId() && version.olapVersion != null) {
                 version.olapVersion.addEmptyPartitions(table, partitionIds);
+            }
+        }
+    }
+
+    private void useSourceTableVersions() {
+        for (TableVersion version : usedTables.values()) {
+            if (version.olapVersion != null) {
+                version.olapVersion.useTableVersion();
             }
         }
     }

@@ -62,8 +62,7 @@ public class OlapTableSqlCacheVersion {
         return versions;
     }
 
-    private static Pair<Long, Long> version(Partition partition) {
-        long version = partition.getCachedVisibleVersion();
+    private static Pair<Long, Long> version(Partition partition, long version) {
         // MS has no update timestamp for an empty partition and FE may synthesize one on every refresh.
         return Pair.of(version, version == Partition.PARTITION_INIT_VERSION ? 0L : partition.getVisibleVersionTime());
     }
@@ -78,7 +77,7 @@ public class OlapTableSqlCacheVersion {
                 return;
             }
             partitionNames.put(id, partition.getName());
-            partitionVersions.put(id, version(partition));
+            partitionVersions.put(id, version(partition, Partition.PARTITION_INIT_VERSION));
         }
     }
 
@@ -112,8 +111,11 @@ public class OlapTableSqlCacheVersion {
                     return;
                 }
                 partitionNames.put(entry.getKey(), partition.getName());
-                Pair<Long, Long> previous = partitionVersions.putIfAbsent(entry.getKey(), version(partition));
-                if (previous != null && !previous.equals(version(partition))) {
+                // Singleton cloud refreshes can advance the cache despite the table's version read lock.
+                // Keep the version assigned to the scan, rather than reading the mutable cache again.
+                Pair<Long, Long> scanned = version(partition, entry.getValue());
+                Pair<Long, Long> previous = partitionVersions.putIfAbsent(entry.getKey(), scanned);
+                if (previous != null && !previous.equals(scanned)) {
                     usable = false;
                     return;
                 }
