@@ -227,32 +227,41 @@ public class RefreshManager {
                     localDbName, localTableName, catalogId);
             return;
         }
-        Optional<? extends ExternalTable> table = db.get().getTableForReplay(localTableName);
-        if (!table.isPresent()) {
-            try {
-                if (catalog instanceof PluginDrivenExternalCatalog) {
-                    // A cold table object cannot provide the mapped remote table name.
-                    ((PluginDrivenExternalCatalog) catalog).getConnector().invalidateDb(db.get().getRemoteName());
-                }
-            } finally {
+        if (invalidateTableLookup) {
+            db.get().beginTableLookupRefresh();
+        }
+        try {
+            Optional<? extends ExternalTable> table = db.get().getTableForReplay(localTableName);
+            if (!table.isPresent()) {
                 try {
-                    if (invalidateTableLookup) {
-                        db.get().invalidateTableLookup(localTableName);
+                    if (catalog instanceof PluginDrivenExternalCatalog) {
+                        // A cold table object cannot provide the mapped remote table name.
+                        ((PluginDrivenExternalCatalog) catalog).getConnector().invalidateDb(db.get().getRemoteName());
                     }
                 } finally {
-                    if (invalidateDatabase) {
-                        cacheMgr.invalidateDb(catalogId, dbId, db.get().getFullName());
-                    } else {
-                        cacheMgr.invalidateTable(catalogId, dbId, db.get().getFullName(), tableId, localTableName);
+                    try {
+                        if (invalidateTableLookup) {
+                            db.get().invalidateTableLookup(localTableName);
+                        }
+                    } finally {
+                        if (invalidateDatabase) {
+                            cacheMgr.invalidateDb(catalogId, dbId, db.get().getFullName());
+                        } else {
+                            cacheMgr.invalidateTable(catalogId, dbId, db.get().getFullName(), tableId, localTableName);
+                        }
                     }
                 }
+                LOG.info("table object cache is cold when refreshing table; "
+                                + "invalidated caches by local name {}.{} in catalog {}",
+                        db.get().getFullName(), localTableName, catalogId);
+                return;
             }
-            LOG.info("table object cache is cold when refreshing table; "
-                            + "invalidated caches by local name {}.{} in catalog {}",
-                    db.get().getFullName(), localTableName, catalogId);
-            return;
+            refreshTableInternal(db.get(), table.get(), updateTime, invalidateTableLookup);
+        } finally {
+            if (invalidateTableLookup) {
+                db.get().endTableLookupRefresh();
+            }
         }
-        refreshTableInternal(db.get(), table.get(), updateTime, invalidateTableLookup);
     }
 
     private void replayRenameTable(ExternalObjectLog log, ExternalCatalog catalog,
