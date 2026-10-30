@@ -20,7 +20,6 @@ package org.apache.doris.nereids.mv;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
-import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVCache;
@@ -604,13 +603,10 @@ public class RelationImpliedPredicateTest extends SqlTestBase {
 
     private void mockRefreshedPartitions(MTMV mtmv) {
         // Candidate validity alone does not model a completed refresh. Populate definition coverage
-        // and publish a data version so rewrite normalization does not prune the MV as empty.
+        // for every fixture partition, as addTaskResult does after successful refreshes.
         Map<String, MTMVRefreshPartitionSnapshot> snapshots = new HashMap<>();
-        for (Partition partition : mtmv.getPartitions()) {
-            long refreshVersion = partition.getNextVersion();
-            partition.setNextVersion(refreshVersion + 1);
-            partition.updateVisibleVersion(refreshVersion);
-            snapshots.put(partition.getName(), new MTMVRefreshPartitionSnapshot());
+        for (String partitionName : mtmv.getPartitionNames()) {
+            snapshots.put(partitionName, new MTMVRefreshPartitionSnapshot());
         }
         mtmv.getRefreshSnapshot().updateSnapshots(snapshots, mtmv.getPartitionNames());
         mtmv.invalidateRewriteCache();
