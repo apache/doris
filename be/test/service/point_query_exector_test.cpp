@@ -200,6 +200,37 @@ std::shared_ptr<TabletSchema> ReusableTestHelper::tablet_schema = []() {
     return schema;
 }();
 
+TEST(PointQueryReusableTest, RejectNestedAccessPaths) {
+    TColumnAccessPath access_path;
+    access_path.type = TAccessPathType::DATA;
+    TDataAccessPath data_path;
+    data_path.__set_path({"k1", "leaf"});
+    access_path.__set_data_access_path(data_path);
+
+    auto init = [](const TDescriptorTable& desc_tbl) {
+        Reusable reusable;
+        return reusable.init(desc_tbl, ReusableTestHelper::output_exprs,
+                             ReusableTestHelper::query_options, *ReusableTestHelper::tablet_schema,
+                             2);
+    };
+
+    auto desc_tbl = ReusableTestHelper::create_descriptor_tablet();
+    ASSERT_TRUE(init(desc_tbl).ok());
+
+    desc_tbl.slotDescriptors[0].__set_all_access_paths({access_path});
+    auto status = init(desc_tbl);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("nested column access paths"), std::string::npos);
+    EXPECT_NE(status.to_string().find("k1"), std::string::npos);
+
+    desc_tbl = ReusableTestHelper::create_descriptor_tablet();
+    desc_tbl.slotDescriptors[0].__set_predicate_access_paths({access_path});
+    status = init(desc_tbl);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("nested column access paths"), std::string::npos);
+    EXPECT_NE(status.to_string().find("k1"), std::string::npos);
+}
+
 // RowCache test class
 class RowCacheTest : public testing::Test {
 protected:

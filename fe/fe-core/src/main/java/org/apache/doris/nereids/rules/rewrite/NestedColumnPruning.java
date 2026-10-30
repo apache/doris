@@ -81,6 +81,11 @@ public class NestedColumnPruning implements CustomRewriter {
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
         try {
             StatementContext statementContext = jobContext.getCascadesContext().getStatementContext();
+            // Short-circuit point queries decode row-store payloads with the original full schema.
+            // Do not narrow complex slot types or attach nested access paths on this path.
+            if (statementContext.isShortCircuitQuery()) {
+                return plan;
+            }
             SessionVariable sessionVariable = statementContext.getConnectContext().getSessionVariable();
             if (!sessionVariable.enablePruneNestedColumns
                     || (!statementContext.hasNestedColumns() && !containsVariant(plan))) {
