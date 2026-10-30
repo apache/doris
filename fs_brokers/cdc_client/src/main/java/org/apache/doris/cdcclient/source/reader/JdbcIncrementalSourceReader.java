@@ -77,6 +77,7 @@ import java.util.concurrent.Executors;
 import static org.apache.flink.cdc.connectors.base.source.meta.split.StreamSplit.STREAM_SPLIT_ID;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.debezium.jdbc.JdbcConnection;
 import io.debezium.relational.Column;
 import io.debezium.relational.TableId;
 import io.debezium.relational.history.TableChanges;
@@ -124,7 +125,7 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
      * <p>Stateless: each RPC builds a fresh splitter from the (table, nextChunkStart, nextChunkId)
      * triple supplied by FE, fetches up to {@code batchSize} chunks, then closes the splitter.
      *
-     * <p>Only INITIAL/SNAPSHOT startup modes call this RPC; binlog/latest modes never reach here.
+     * <p>FE decides when snapshots are needed, including for tables added to an incremental job.
      */
     @Override
     public List<AbstractSourceSplit> getSourceSplits(FetchTableSplitsRequest ftsReq) {
@@ -185,7 +186,7 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
         if (pkValues == null || pkValues.length == 0) {
             return ChunkSplitterState.NO_SPLITTING_TABLE_STATE;
         }
-        TableChanges.TableChange tableChange = getTableSchemas(ftsReq).get(tableId);
+        TableChanges.TableChange tableChange = getTableSchema(tableId, ftsReq);
         Column splitColumn =
                 JdbcChunkUtils.getSplitColumn(
                         tableChange.getTable(), sourceConfig.getChunkKeyColumn());
@@ -211,6 +212,8 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
 
     @Override
     public SplitReadResult prepareAndSubmitSplit(JobBaseRecordRequest baseReq) throws Exception {
+        // Load tableSchemas from FE if available (avoids re-discover on restart).
+        tryLoadTableSchemasFromRequest(baseReq);
         Map<String, Object> offsetMeta = baseReq.getMeta();
         if (offsetMeta == null || offsetMeta.isEmpty()) {
             throw new RuntimeException("miss meta offset");
@@ -384,8 +387,6 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
     /** Prepare stream split */
     private synchronized SplitReadResult prepareStreamSplit(
             Map<String, Object> offsetMeta, JobBaseRecordRequest baseReq) throws Exception {
-        // Load tableSchemas from FE if available (avoids re-discover on restart)
-        tryLoadTableSchemasFromRequest(baseReq);
         // If still null (incremental-only startup, or snapshot→binlog transition where FE never
         // persisted schema), do a JDBC discover so the deserializer has a baseline to diff against.
         if (this.tableSchemas == null) {
@@ -700,8 +701,7 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
         SnapshotSplit snapshotSplit = objectMapper.convertValue(offset, SnapshotSplit.class);
         TableId tableId = TableId.parse(snapshotSplit.getTableId(), false);
         List<String> splitKeys = snapshotSplit.getSplitKey();
-        Map<TableId, TableChanges.TableChange> tableSchemas = getTableSchemas(jobConfig);
-        TableChanges.TableChange tableChange = tableSchemas.get(tableId);
+        TableChanges.TableChange tableChange = getTableSchema(tableId, jobConfig);
         Preconditions.checkNotNull(
                 tableChange, "Can not find table " + tableId + " in job " + jobConfig.getJobId());
         // only support one split key
@@ -743,6 +743,10 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
 
     private Tuple2<SourceSplitBase, Boolean> createStreamSplit(
             Map<String, Object> meta, JobBaseConfig config) {
+        // Added-table snapshots may finish before their schemas have been committed to FE.
+        for (String table : getSourceConfig(config).getTableList()) {
+            getTableSchema(TableId.parse(table, false), config);
+        }
         BinlogSplit streamSplit = objectMapper.convertValue(meta, BinlogSplit.class);
         List<FinishedSnapshotSplitInfo> finishedSnapshotSplitInfos = new ArrayList<>();
         Offset minOffsetFinishSplits = null;
@@ -978,6 +982,24 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
             LOG.info("Close reader {}", reader.getClass().getCanonicalName());
             reader.close();
         }
+    }
+
+    private TableChanges.TableChange getTableSchema(TableId tableId, JobBaseConfig config) {
+        Map<TableId, TableChanges.TableChange> schemas = getTableSchemas(config);
+        TableChanges.TableChange tableChange = schemas.get(tableId);
+        if (tableChange == null) {
+            // Preserve the retained tables' offset-aligned schemas when adding a missing table.
+            JdbcSourceConfig sourceConfig = getSourceConfig(config);
+            JdbcDataSourceDialect dialect = getDialect(sourceConfig);
+            try (JdbcConnection jdbc = dialect.openJdbcConnection(sourceConfig)) {
+                tableChange = dialect.queryTableSchema(jdbc, tableId);
+                schemas.put(tableId, tableChange);
+                schemaReportRequired = true;
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to resolve table schema for " + tableId, e);
+            }
+        }
+        return tableChange;
     }
 
     protected Map<TableId, TableChanges.TableChange> getTableSchemas(JobBaseConfig config) {

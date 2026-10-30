@@ -77,7 +77,8 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
         }
 
         @Override
-        protected List<SnapshotSplit> rpcFetchSplitsBatch(String table, Object[] startVal, Integer splitId) {
+        protected List<SnapshotSplit> rpcFetchSplitsBatch(
+                String table, Object[] startVal, Integer splitId) {
             rpcCalls.add(new RpcCall(table, startVal, splitId));
             if (mockBatches.isEmpty()) {
                 return Collections.emptyList();

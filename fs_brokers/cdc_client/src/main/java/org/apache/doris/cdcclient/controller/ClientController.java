@@ -31,8 +31,6 @@ import org.apache.doris.job.cdc.response.FetchEndOffsetResult;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
 
-import java.util.List;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -66,8 +64,7 @@ public class ClientController {
     public Object fetchSplits(@RequestBody FetchTableSplitsRequest ftsReq) {
         try {
             SourceReader reader = Env.getCurrentEnv().getReader(ftsReq);
-            List splits = reader.getSourceSplits(ftsReq);
-            return RestResponse.success(splits);
+            return RestResponse.success(reader.getSourceSplits(ftsReq));
         } catch (Exception ex) {
             LOG.error("Failed to fetch splits, jobId={}", ftsReq.getJobId(), ex);
             return RestResponse.internalError(ExceptionUtils.getRootCauseMessage(ex));

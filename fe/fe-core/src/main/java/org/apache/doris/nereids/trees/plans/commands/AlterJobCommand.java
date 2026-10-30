@@ -42,7 +42,10 @@ import org.apache.doris.tablefunction.CdcStreamTableValuedFunction;
 import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -117,6 +120,10 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
     @Override
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate();
+        AbstractJob job = ctx.getEnv().getJobManager().getJobByName(jobName);
+        if (job instanceof StreamingInsertJob) {
+            ((StreamingInsertJob) job).prepareIncludeTables(this);
+        }
         ctx.getEnv().getJobManager().alterJob(this);
     }
 
@@ -178,13 +185,30 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                 if (targetPropModified) {
                     DataSourceConfigValidator.validateTarget(this.getTargetProperties());
                 }
-                if (!propModified && !targetPropModified && !sourcePropModified) {
+                if (!propModified && !targetPropModified && !sourcePropModified
+                        && !sourceProperties.containsKey(DataSourceConfigKeys.INCLUDE_TABLES)) {
                     throw new AnalysisException("No properties or source or target properties changed in ALTER JOB");
                 }
             }
         } else {
             throw new AnalysisException("Unsupported job type for ALTER:" + job.getJobType());
         }
+    }
+
+    /** Return the requested table set, or null when include_tables is unchanged. */
+    public List<String> getIncludeTables() throws AnalysisException {
+        if (!sourceProperties.containsKey(DataSourceConfigKeys.INCLUDE_TABLES)) {
+            return null;
+        }
+        String tables = sourceProperties.get(DataSourceConfigKeys.INCLUDE_TABLES);
+        if (StringUtils.isBlank(tables)) {
+            throw new AnalysisException("include_tables cannot be empty");
+        }
+        List<String> result = new ArrayList<>(new LinkedHashSet<>(Arrays.asList(tables.split(","))));
+        if (result.isEmpty()) {
+            throw new AnalysisException("include_tables cannot be empty");
+        }
+        return result;
     }
 
     private void checkUnmodifiableSourceProperties(Map<String, String> originSourceProperties) {
@@ -207,13 +231,6 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                     originSourceProperties.get(DataSourceConfigKeys.SCHEMA),
                     sourceProperties.get(DataSourceConfigKeys.SCHEMA)),
                     "The schema property cannot be modified in ALTER JOB");
-        }
-
-        if (sourceProperties.containsKey(DataSourceConfigKeys.INCLUDE_TABLES)) {
-            Preconditions.checkArgument(Objects.equals(
-                    originSourceProperties.get(DataSourceConfigKeys.INCLUDE_TABLES),
-                    sourceProperties.get(DataSourceConfigKeys.INCLUDE_TABLES)),
-                    "The include_tables property cannot be modified in ALTER JOB");
         }
 
         if (sourceProperties.containsKey(DataSourceConfigKeys.EXCLUDE_TABLES)) {

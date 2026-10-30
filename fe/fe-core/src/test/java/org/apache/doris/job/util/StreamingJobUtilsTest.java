@@ -25,11 +25,14 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.qe.AutoCloseConnectContext;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 
 import org.junit.jupiter.api.Assertions;
@@ -55,6 +58,26 @@ public class StreamingJobUtilsTest {
     @BeforeEach
     public void setUp() {
         MockitoAnnotations.initMocks(this);
+    }
+
+    @Test
+    public void testInternalContextRestoresCaller() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext caller = new ConnectContext();
+        caller.setThreadLocalInfo();
+        try {
+            try (AutoCloseConnectContext internal = new AutoCloseConnectContext(
+                    Deencapsulation.invoke(StreamingJobUtils.class, "buildConnectContext"))) {
+                Assertions.assertSame(internal.connectContext, ConnectContext.get());
+                Assertions.assertNotSame(caller, ConnectContext.get());
+            }
+            Assertions.assertSame(caller, ConnectContext.get());
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
     }
 
     @Test

@@ -258,7 +258,6 @@ public class StreamingJobUtils {
         ctx.getState().reset();
         ctx.getState().setInternal(true);
         ctx.getState().setNereids(true);
-        ctx.setThreadLocalInfo();
         UUID uuid = UUID.randomUUID();
         TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         ctx.setQueryId(queryId);
@@ -493,6 +492,24 @@ public class StreamingJobUtils {
             return createtblCmds;
         } finally {
             jdbcClient.closeClient();
+        }
+    }
+
+    public static void validateAndCreateTables(String targetDb, DataSourceType sourceType,
+            Map<String, String> properties, Map<String, String> targetProperties,
+            List<String> updatedTables, List<String> addedTables) throws Exception {
+        Map<String, Optional<CreateTableCommand>> commands = generateCreateTableCmds(
+                targetDb, sourceType, properties, targetProperties);
+        for (String table : updatedTables) {
+            if (!commands.containsKey(table)) {
+                throw new JobException("Source table does not exist: " + table);
+            }
+        }
+        for (String table : addedTables) {
+            Optional<CreateTableCommand> command = commands.get(table);
+            if (command.isPresent()) {
+                command.get().run(ConnectContext.get(), null);
+            }
         }
     }
 
