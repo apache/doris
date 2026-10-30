@@ -20,8 +20,12 @@
 #include <gtest/gtest.h>
 
 #include <cstdlib>
+#include <exception>
 #include <string>
+#include <thread>
 
+#include "common/config.h"
+#include "runtime/thread_context.h"
 #include "util/jni-util.h"
 
 namespace doris {
@@ -39,6 +43,37 @@ protected:
             check(env);
         }
         std::_Exit(HasFailure() ? 1 : 0);
+    }
+
+    template <typename Check>
+    static void on_jni_thread(JNIEnv* owner_env, Check&& check) {
+        JavaVM* vm = nullptr;
+        ASSERT_EQ(JNI_OK, owner_env->GetJavaVM(&vm));
+        // BE_TEST skips several allocator checks on context-free threads. Address tracking
+        // still requires ThreadContext, so enable it to catch a tracking scratch allocator.
+        const bool old_tracking = config::crash_in_memory_tracker_inaccurate;
+        config::crash_in_memory_tracker_inaccurate = true;
+        DEFER(config::crash_in_memory_tracker_inaccurate = old_tracking);
+        std::thread callback([&]() {
+            ASSERT_FALSE(pthread_context_ptr_init);
+            ASSERT_EQ(nullptr, thread_context_ptr);
+            JNIEnv* env = nullptr;
+            ASSERT_EQ(JNI_OK, vm->AttachCurrentThread(reinterpret_cast<void**>(&env), nullptr));
+            // Model a foreign JNI callback without bootstrapping Doris's Java plugin SPI.
+            Jni::Env::tls_env_ = env;
+            DEFER({
+                Jni::Env::tls_env_ = nullptr;
+                EXPECT_EQ(JNI_OK, vm->DetachCurrentThread());
+            });
+            try {
+                check(env);
+            } catch (const std::exception& e) {
+                ADD_FAILURE() << "JNI callback threw a native exception: " << e.what();
+            }
+            EXPECT_FALSE(pthread_context_ptr_init);
+            EXPECT_EQ(nullptr, thread_context_ptr);
+        });
+        callback.join();
     }
 
     static void expect_string(JNIEnv* env, jobject value, const std::u16string& expected) {

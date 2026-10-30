@@ -70,6 +70,10 @@ protected:
         expect_string(env, empty.get(), u"");
     }
 
+    static void check_strings_without_context(JNIEnv* env) {
+        on_jni_thread(env, check_all_strings);
+    }
+
     static void check_reads(JNIEnv* env) {
         for (const auto& [expected, input] : valid_cases()) {
             // Build the source independently from new_string_utf8 so paired bugs cannot cancel.
@@ -90,6 +94,8 @@ protected:
             EXPECT_EQ(expected, actual);
         }
     }
+
+    static void check_reads_without_context(JNIEnv* env) { on_jni_thread(env, check_reads); }
 
     template <Jni::RefType Ref>
     static void check_modified_utf8(JNIEnv* env) {
@@ -250,6 +256,14 @@ TEST_F(JniUtf8DeathTest, StringsPreserveUnicode) {
 
 TEST_F(JniUtf8DeathTest, ReadStringsAsStandardUtf8) {
     ASSERT_EXIT(run(check_reads), testing::ExitedWithCode(0), "");
+}
+
+TEST_F(JniUtf8DeathTest, CreateStringsWithoutThreadContext) {
+    ASSERT_EXIT(run(check_strings_without_context), testing::ExitedWithCode(0), "");
+}
+
+TEST_F(JniUtf8DeathTest, ReadStringsWithoutThreadContext) {
+    ASSERT_EXIT(run(check_reads_without_context), testing::ExitedWithCode(0), "");
 }
 
 TEST_F(JniUtf8DeathTest, PreserveLegacyModifiedUtf8) {

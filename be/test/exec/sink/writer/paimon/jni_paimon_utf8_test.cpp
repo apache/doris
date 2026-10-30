@@ -101,6 +101,14 @@ protected:
         check_arrays(env);
     }
 
+    static void check_callbacks_without_context(JNIEnv* env) {
+        on_jni_thread(env, [](JNIEnv* callback_env) {
+            check_arrays(callback_env);
+            check_invalid_array(callback_env);
+            check_exceptions(callback_env);
+        });
+    }
+
     static void check_spill_directory(JNIEnv* env, ExternalSpillSession* session,
                                       std::string* directory) {
         auto handle = reinterpret_cast<jlong>(session);
@@ -180,10 +188,14 @@ protected:
         status = manager.create_external_spill_session("paimon_\u4E2D\u6587_\U0001F600",
                                                        query.get(), &session);
         ASSERT_TRUE(status.ok()) << status;
-        std::string directory;
-        ASSERT_NO_FATAL_FAILURE(check_spill_directory(env, session.get(), &directory));
-        ASSERT_NO_FATAL_FAILURE(check_spill_reservation(env, session.get(), directory, data_dir));
-        ASSERT_NO_FATAL_FAILURE(check_invalid_spill_path(env, session.get(), data_dir));
+        on_jni_thread(env, [&](JNIEnv* callback_env) {
+            std::string directory;
+            ASSERT_NO_FATAL_FAILURE(check_spill_directory(callback_env, session.get(), &directory));
+            ASSERT_NO_FATAL_FAILURE(
+                    check_spill_reservation(callback_env, session.get(), directory, data_dir));
+            ASSERT_NO_FATAL_FAILURE(
+                    check_invalid_spill_path(callback_env, session.get(), data_dir));
+        });
         session.reset();
         EXPECT_EQ(0, data_dir->get_spill_data_bytes());
     }
@@ -199,6 +211,10 @@ TEST_F(JniPaimonUtf8DeathTest, RejectMalformedUtf8Array) {
 
 TEST_F(JniPaimonUtf8DeathTest, ExceptionMessagesPreserveUnicode) {
     ASSERT_EXIT(run(check_exceptions), testing::ExitedWithCode(0), "");
+}
+
+TEST_F(JniPaimonUtf8DeathTest, CallbacksWithoutThreadContext) {
+    ASSERT_EXIT(run(check_callbacks_without_context), testing::ExitedWithCode(0), "");
 }
 
 TEST_F(JniPaimonUtf8DeathTest, SpillPathsRoundTripAndPreserveAccounting) {
