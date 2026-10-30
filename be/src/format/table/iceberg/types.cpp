@@ -201,7 +201,8 @@ std::unique_ptr<PrimitiveType> Types::from_primitive_string(const std::string& t
             return std::make_unique<DecimalType>(precision, scale);
         }
 
-        std::regex geometry(R"(geometry\s*(?:\(\s*([^)]*?)\s*\))?)", std::regex::icase);
+        // Iceberg serializes CRS text verbatim: geometry(custom:zone(A)) contains an inner ')'.
+        std::regex geometry(R"(geometry\s*(?:\(\s*([\s\S]*?)\s*\))?)", std::regex::icase);
         if (std::regex_match(type_string, match, geometry, std::regex_constants::match_default)) {
             const std::string crs =
                     match[1].matched ? trim(match[1].str()) : GeometryType::DEFAULT_CRS;
@@ -214,7 +215,13 @@ std::unique_ptr<PrimitiveType> Types::from_primitive_string(const std::string& t
 
         std::regex geography(R"(geography\s*(?:\(\s*([^,]*?)\s*(?:,\s*(\w*)\s*)?\))?)",
                              std::regex::icase);
-        if (std::regex_match(type_string, match, geography, std::regex_constants::match_default)) {
+        // GeographyType.toString() appends the algorithm after the raw CRS. Only the final comma
+        // separates it in geography(projjson:{"a":1,"b":2}, spherical); retain legacy defaults too.
+        std::regex geography_with_algorithm(R"(geography\s*\(\s*([\s\S]*?)\s*,\s*(\w*)\s*\))",
+                                            std::regex::icase);
+        if (std::regex_match(type_string, match, geography_with_algorithm,
+                             std::regex_constants::match_default) ||
+            std::regex_match(type_string, match, geography, std::regex_constants::match_default)) {
             const std::string crs =
                     match[1].matched ? trim(match[1].str()) : GeographyType::DEFAULT_CRS;
             const std::string algorithm =

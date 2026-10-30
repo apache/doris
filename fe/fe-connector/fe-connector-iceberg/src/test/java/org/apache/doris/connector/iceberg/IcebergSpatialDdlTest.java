@@ -22,6 +22,8 @@ import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.ddl.ConnectorColumnPath;
 import org.apache.doris.connector.spi.ddl.ConnectorCreateTableRequest;
+import org.apache.doris.connector.spi.ddl.ConnectorPartitionField;
+import org.apache.doris.connector.spi.ddl.ConnectorPartitionSpec;
 
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.TableProperties;
@@ -110,6 +112,44 @@ public class IcebergSpatialDdlTest {
                     ? Types.GeometryType.of("EPSG:3857")
                     : Types.GeographyType.of("OGC:CRS84", EdgeAlgorithm.VINCENTY), nativeType);
         }
+    }
+
+    @Test
+    public void testCreateRejectsSpatialIdentityPartitionsBeforeRemoteMutation() {
+        for (ConnectorType type : Arrays.asList(GEOMETRY, GEOGRAPHY)) {
+            RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+            ConnectorCreateTableRequest request = ConnectorCreateTableRequest.builder()
+                    .dbName("db1").tableName("t1").columns(Collections.singletonList(column(type)))
+                    .properties(Map.of(TableProperties.FORMAT_VERSION, "3"))
+                    .partitionSpec(identityPartition("shape")).build();
+            DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> metadata(ops, Collections.emptyMap()).createTable(null, request));
+            Assertions.assertTrue(error.getMessage().contains("spatial columns cannot be partition sources"),
+                    error.getMessage());
+            Assertions.assertTrue(ops.log.isEmpty());
+        }
+    }
+
+    @Test
+    public void testCreateAllowsOrdinaryPartitionKeyAndSpatialMapValue() {
+        for (ConnectorType type : Arrays.asList(GEOMETRY, GEOGRAPHY)) {
+            RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+            ConnectorCreateTableRequest request = ConnectorCreateTableRequest.builder()
+                    .dbName("db1").tableName("t1")
+                    .columns(Arrays.asList(new ConnectorColumn("id", ConnectorType.of("INT"), "", true, null),
+                            column(ConnectorType.mapOf(ConnectorType.of("STRING"), type))))
+                    .properties(Map.of(TableProperties.FORMAT_VERSION, "3"))
+                    .partitionSpec(identityPartition("id")).build();
+            metadata(ops, Collections.emptyMap()).createTable(null, request);
+            Assertions.assertEquals(ops.lastCreateSchema.findField("id").fieldId(),
+                    ops.lastCreateSpec.fields().get(0).sourceId());
+            Assertions.assertTrue(IcebergSpatialSchemaValidator.containsSpatial(ops.lastCreateSchema));
+        }
+    }
+
+    private static ConnectorPartitionSpec identityPartition(String source) {
+        return new ConnectorPartitionSpec(ConnectorPartitionSpec.Style.IDENTITY,
+                Collections.singletonList(new ConnectorPartitionField(source, "identity", Collections.emptyList())));
     }
 
     @Test

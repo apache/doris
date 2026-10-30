@@ -62,10 +62,14 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.GeographyType;
 import org.apache.doris.nereids.types.GeometryType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -1246,8 +1250,17 @@ public class RuntimeFilterTest extends SSBTestBase {
         Mockito.when(scalarScan.getOutputSet()).thenReturn(ImmutableSet.of(scalar));
         Assertions.assertTrue(visitor.visitPhysicalRelation(scalarScan,
                 PushDownContext.createPushDownContext(context, builder, scalar, scalar, TRuntimeFilterType.IN)));
-        for (DataType spatial : List.of(new GeometryType("OGC:CRS84"),
+        List<DataType> spatialTypes = new ArrayList<>();
+        for (DataType leaf : List.of(new GeometryType("OGC:CRS84"),
                 new GeographyType("OGC:CRS84", "spherical"))) {
+            DataType struct = new StructType(List.of(
+                    new StructField("id", IntegerType.INSTANCE, false, ""),
+                    new StructField("shape", leaf, true, "")));
+            spatialTypes.addAll(List.of(leaf, ArrayType.of(leaf),
+                    MapType.of(IntegerType.INSTANCE, leaf), struct,
+                    ArrayType.of(MapType.of(IntegerType.INSTANCE, struct))));
+        }
+        for (DataType spatial : spatialTypes) {
             SlotReference shape = new SlotReference("shape", spatial);
             PhysicalRelation scan = Mockito.mock(PhysicalRelation.class);
             Mockito.when(scan.canPushDownRuntimeFilter()).thenReturn(true);

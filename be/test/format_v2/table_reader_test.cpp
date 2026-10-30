@@ -2944,6 +2944,66 @@ TEST(TableReaderTest, NestedCurrentNameWinsBeforeHistoricalAliasForComplexTypes)
     ASSERT_EQ(context.schema_column->children[1].children.size(), 2);
 }
 
+TEST(TableReaderTest, SchemaEvolutionKeepsResolvedSpatialIdentity) {
+    const DataTypes types {
+            std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY),
+            std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY, "EPSG:3857"),
+            std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY),
+            std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "EPSG:4326", "karney")};
+    TColumnType carrier;
+    carrier.__set_type(TPrimitiveType::STRING);
+    TableReader reader;
+    TFileScanSlotInfo slot_info;
+    for (const auto& spatial : types) {
+        for (bool nullable : {false, true}) {
+            const DataTypePtr resolved = nullable ? make_nullable(spatial) : spatial;
+            SCOPED_TRACE(resolved->get_name());
+            auto field = external_schema_field("shape", 1);
+            field.field_ptr->__set_type(carrier);
+            field.field_ptr->__set_is_optional(nullable);
+            TFileScanRangeParams scan_params;
+            scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+            scan_params.__set_current_schema_id(100);
+            scan_params.__set_history_schema_info({external_schema(100, {field})});
+            ColumnDefinition column {.name = "shape", .type = resolved};
+            ProjectedColumnBuildContext context {.scan_params = &scan_params};
+            ASSERT_TRUE(reader.annotate_projected_column(slot_info, &context, &column).ok());
+            ASSERT_TRUE(context.schema_column.has_value());
+            EXPECT_EQ(context.schema_column->type, resolved);
+            EXPECT_EQ(context.schema_column->is_optional, nullable);
+
+            // Each recursive leaf has the same STRING placeholder, including a MAP's
+            // spatial value beside an ordinary key. Preserve all parameterized types.
+            auto element = external_schema_field("element", 6);
+            element.field_ptr->__set_type(carrier);
+            element.field_ptr->__set_is_optional(nullable);
+            auto value = external_schema_field("value", 7);
+            value.field_ptr->__set_type(carrier);
+            value.field_ptr->__set_is_optional(nullable);
+            auto nested_field = external_struct_field(
+                    "payload", 2,
+                    {external_array_field("items", 3, element),
+                     external_map_field("props", 4, external_schema_field("key", 5), value)});
+            const auto array = std::make_shared<DataTypeArray>(resolved);
+            const auto map =
+                    std::make_shared<DataTypeMap>(std::make_shared<DataTypeString>(), resolved);
+            const auto nested = std::make_shared<DataTypeStruct>(DataTypes {array, map},
+                                                                 Strings {"items", "props"});
+            scan_params.__set_history_schema_info({external_schema(100, {nested_field})});
+            ColumnDefinition payload {.name = "payload", .type = nested};
+            ASSERT_TRUE(reader.annotate_projected_column(slot_info, &context, &payload).ok());
+            ASSERT_TRUE(context.schema_column.has_value());
+            ASSERT_EQ(context.schema_column->children.size(), 2);
+            ASSERT_EQ(context.schema_column->children[0].children.size(), 1);
+            ASSERT_EQ(context.schema_column->children[1].children.size(), 2);
+            EXPECT_EQ(context.schema_column->children[0].children[0].type, resolved);
+            EXPECT_EQ(context.schema_column->children[1].children[1].type, resolved);
+            EXPECT_TRUE(context.schema_column->children[1].children[0].type->equals(
+                    *map->get_key_type()));
+        }
+    }
+}
+
 TEST(TableReaderTest, AnnotateProjectedColumnPrefersCurrentNameOverHistoricalAlias) {
     auto renamed_field = external_schema_field("renamed_b", 1, {"b"});
     renamed_field.field_ptr->__set_name_mapping_is_authoritative(true);

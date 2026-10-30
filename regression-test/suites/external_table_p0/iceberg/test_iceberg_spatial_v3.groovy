@@ -207,6 +207,28 @@ public class CreateIcebergSpatialV3Table {
         }
     }
 
+    private static void createOrcWriteTargets(Catalog catalog, Namespace namespace,
+            Map<String, String> properties) {
+        Map<String, String> orcProperties = new HashMap<>(properties);
+        orcProperties.put("write.format.default", "orc");
+        for (boolean geography : new boolean[] {false, true}) {
+            for (boolean nested : new boolean[] {false, true}) {
+                TableIdentifier name = TableIdentifier.of(namespace, "spatial_existing_orc_"
+                        + (geography ? "geog" : "geom") + (nested ? "_nested" : ""));
+                if (catalog.tableExists(name)) {
+                    catalog.dropTable(name);
+                }
+                org.apache.iceberg.types.Type type = geography
+                        ? Types.GeographyType.crs84() : Types.GeometryType.crs84();
+                catalog.createTable(name, new Schema(
+                        Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                        Types.NestedField.optional(2, "shape", nested
+                                ? Types.ListType.ofOptional(3, type) : type)),
+                        PartitionSpec.unpartitioned(), orcProperties);
+            }
+        }
+    }
+
     public static void main(String[] args) throws Exception {
         Map<String, String> properties = new HashMap<>();
         properties.put("type", "rest");
@@ -314,6 +336,7 @@ public class CreateIcebergSpatialV3Table {
         nestedRow.addGroup("shapes").addGroup("list").append("element", row.getBinary("geog", 0));
         appendParquetRow(nestedTable, nestedMessage, nestedRow);
         createNestedSource(catalog, namespace, tableProperties);
+        createOrcWriteTargets(catalog, namespace, tableProperties);
     }
 }
 '''
@@ -727,6 +750,21 @@ public class CreateIcebergSpatialV3Table {
     sql """insert into spatial_partitioned_copy select id, geom, geog from geometry_values"""
     order_qt_spatial_partitioned_copy """select id, ST_AsText(geom), ST_AsText(geog)
         from spatial_partitioned_copy"""
+    for (String column : ["geom", "geog"]) {
+        test {
+            sql """alter table spatial_partitioned_copy add partition key ${column}"""
+            exception "Iceberg spatial columns cannot be partition sources"
+        }
+        test {
+            sql """alter table spatial_partitioned_copy replace partition key id with ${column}"""
+            exception "Iceberg spatial columns cannot be partition sources"
+        }
+    }
+    // Rejected changes keep the ordinary identity partition usable with spatial values.
+    sql """insert into spatial_partitioned_copy select id + 100, geom, geog
+        from geometry_values where id = 1"""
+    order_qt_spatial_partition_after_rejection """select id, ST_AsText(geom), ST_AsText(geog)
+        from spatial_partitioned_copy where id > 100"""
 
     // FULL collection should still analyze ordinary columns, while excluding every spatial
     // metadata identity. Drop prior stats so an old cache cannot make this check pass.
@@ -840,6 +878,21 @@ public class CreateIcebergSpatialV3Table {
         exception "require Parquet"
     }
     sql """drop table if exists spatial_create_rejected"""
+    for (String kind : ["geometry", "geography"]) {
+        test {
+            sql """create table spatial_create_rejected (id int, shape ${kind}) engine=iceberg
+                partition by list(shape) () properties ('format-version' = '3')"""
+            exception "Iceberg spatial columns cannot be partition sources"
+        }
+        String suffix = kind == "geometry" ? "geom" : "geog"
+        for (String nesting : ["", "_nested"]) {
+            test {
+                // An existing external schema is validated even when only its ordinary id is assigned.
+                sql """insert into spatial_existing_orc_${suffix}${nesting} (id) values (1)"""
+                exception "Iceberg spatial columns require Parquet"
+            }
+        }
+    }
     test {
         sql """create table spatial_create_rejected (geom geometry) engine=iceberg
             properties ('format-version' = '2')"""
@@ -1016,6 +1069,20 @@ public class CreateIcebergSpatialV3Table {
         array_map(x -> hex(ST_AsBinary(struct_element(x, 'shape'))), g_deep['shapes']),
         array_map(x -> hex(ST_AsBinary(struct_element(x, 'shape'))), gg_deep['shapes'])
         from spatial_nested_source"""
+    // Real nested scan slots also bypass unsupported scalar runtime-filter factories.
+    for (String column : ["g_array", "gg_array", "g_map", "gg_map",
+            "g_struct", "gg_struct", "g_deep", "gg_deep"]) {
+        for (int filterType : [1, 2, 8]) {
+            String joinSql = """select /*+ SET_VAR(enable_runtime_filter_prune=false,
+                runtime_filter_type=${filterType}) */ count(*) from spatial_nested_source l
+                join [broadcast] spatial_nested_source r on l.${column} = r.${column}"""
+            "qt_spatial_nested_scan_join_${column}_${filterType}"(joinSql)
+            explain {
+                sql joinSql
+                notContains "RF"
+            }
+        }
+    }
     for (String function : ["min_by", "max_by"]) {
         for (String key : ["g_array", "gg_array"]) {
             for (String suffix : ["", "_state"]) {

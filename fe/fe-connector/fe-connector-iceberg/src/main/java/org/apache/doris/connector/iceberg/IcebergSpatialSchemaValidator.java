@@ -19,12 +19,14 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.spi.DorisConnectorException;
 
+import org.apache.iceberg.PartitionField;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 
-/** Constraints of the Doris spatial Parquet writer, checked before committing schema changes. */
+/** Constraints of the Doris spatial Parquet writer, checked before DDL commits and data writes. */
 final class IcebergSpatialSchemaValidator {
     private IcebergSpatialSchemaValidator() {
     }
@@ -45,6 +47,20 @@ final class IcebergSpatialSchemaValidator {
 
     static boolean containsSpatial(Schema schema) {
         return schema.columns().stream().anyMatch(field -> containsSpatial(field.type()));
+    }
+
+    static void validatePartitionSpec(Schema schema, PartitionSpec spec) {
+        for (PartitionField field : spec.fields()) {
+            // Dropped v1 partition fields retain a void transform, which writes NULL without a source value.
+            if (field.transform().isVoid()) {
+                continue;
+            }
+            // Identity accepts spatial types in Iceberg, but Doris has no spatial partition value/path codec.
+            if (containsSpatial(schema.findType(field.sourceId()))) {
+                throw new DorisConnectorException("Iceberg spatial columns cannot be partition sources: "
+                        + schema.findColumnName(field.sourceId()) + " (" + field.transform() + ")");
+            }
+        }
     }
 
     static void validateTable(int formatVersion, String fileFormat) {

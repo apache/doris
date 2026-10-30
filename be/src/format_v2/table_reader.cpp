@@ -387,6 +387,13 @@ DataTypePtr restore_current_primitive_type(const schema::external::TField& field
         return fallback_type;
     }
     DORIS_CHECK(fallback_type != nullptr);
+    // TColumnType carries no spatial CRS/algorithm, so FE uses STRING for these leaves.
+    // Keep the resolved GEOMETRY('EPSG:3857') or GEOGRAPHY(..., 'karney') instead of
+    // replacing it with that placeholder when restoring defaults and equality-delete keys.
+    const auto fallback_primitive = fallback_type->get_primitive_type();
+    if (fallback_primitive == TYPE_GEOMETRY || fallback_primitive == TYPE_GEOGRAPHY) {
+        return fallback_type;
+    }
     const auto primitive_type = thrift_to_type(field.type.type);
     if (is_complex_type(primitive_type)) {
         return fallback_type;

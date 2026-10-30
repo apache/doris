@@ -41,6 +41,7 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.types.Type;
+import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -509,6 +510,50 @@ public class CatalogBackedIcebergCatalogOpsDdlTest {
         ops.addPartitionField("db1", "t1", add(null, null, "id", null));
         Assertions.assertTrue(hasLiveField("t1", "id"));
         Assertions.assertFalse(ops.loadTable("db1", "t1").spec().isUnpartitioned());
+    }
+
+    @Test
+    public void testSpatialPartitionEvolutionRejectsBeforeCommit() {
+        ops.createDatabase("db1", Collections.emptyMap());
+        for (Type spatial : Arrays.asList(Types.GeometryType.crs84(), Types.GeographyType.crs84())) {
+            String tableName = spatial.typeId().name();
+            Schema schema = new Schema(Types.NestedField.optional(1, "id", Types.IntegerType.get()),
+                    Types.NestedField.optional(2, "shape", spatial),
+                    Types.NestedField.optional(3, "payload", Types.StructType.of(
+                            Types.NestedField.optional(4, "shape", spatial))));
+            ops.createTable("db1", tableName, schema, PartitionSpec.unpartitioned(), null,
+                    Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"));
+            ops.addPartitionField("db1", tableName, add(null, null, "id", "p_id"));
+            PartitionSpec original = ops.loadTable("db1", tableName).spec();
+            for (String source : Arrays.asList("shape", "payload.shape")) {
+                DorisConnectorException addError = Assertions.assertThrows(DorisConnectorException.class,
+                        () -> ops.addPartitionField("db1", tableName, add(null, null, source, "p_shape")));
+                Assertions.assertTrue(addError.getMessage().contains("spatial columns cannot be partition sources"),
+                        addError.getMessage());
+                DorisConnectorException replaceError = Assertions.assertThrows(DorisConnectorException.class,
+                        () -> ops.replacePartitionField("db1", tableName,
+                                new PartitionFieldChange(null, null, source, "p_shape",
+                                        "p_id", null, null, null)));
+                Assertions.assertTrue(replaceError.getMessage().contains("spatial columns cannot be partition sources"),
+                        replaceError.getMessage());
+                Assertions.assertEquals(original, ops.loadTable("db1", tableName).spec());
+            }
+        }
+    }
+
+    @Test
+    public void testDropExistingSpatialPartitionAllowsOrdinaryReplacement() {
+        ops.createDatabase("db1", Collections.emptyMap());
+        Schema schema = new Schema(Types.NestedField.optional(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "shape", Types.GeometryType.crs84()));
+        // An external catalog can already carry an unsupported identity partition; DROP must remain usable.
+        catalog.createTable(TableIdentifier.of("db1", "t1"), schema,
+                PartitionSpec.builderFor(schema).identity("shape").build(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"));
+        ops.dropPartitionField("db1", "t1", add(null, null, "shape", null));
+        ops.addPartitionField("db1", "t1", add(null, null, "id", null));
+        Assertions.assertEquals(ops.loadTable("db1", "t1").schema().findField("id").fieldId(),
+                ops.loadTable("db1", "t1").spec().fields().get(0).sourceId());
     }
 
     @Test

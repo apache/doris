@@ -209,6 +209,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         if (schemaContext != null) {
             // REWRITE resolves its schema after beginWrite and checks it in buildRewriteSink.
             validateVariantWrite(handle, schemaContext);
+            validateSpatialWrite(handle, schemaContext);
         }
         validateNestedPartitionWriteCompatibility(handle, schemaContext);
         IcebergWriteContext writeContext = buildWriteContext(handle, schemaContext);
@@ -419,6 +420,23 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         validateVariantWrite(handle.getBoundTargetColumns(), handle.isWritesDataFiles(),
                 schemaContext.getFormatVersion(), schemaContext.getFileFormat(),
                 schemaContext.getWriterProperties());
+    }
+
+    private static void validateSpatialWrite(ConnectorWriteHandle handle, IcebergWriteSchemaContext schemaContext) {
+        WriteOperation operation = handle.getWriteOperation();
+        // DELETE and delete-only MERGE/UPDATE emit no spatial data values, so their delete-file path stays valid.
+        if (operation == WriteOperation.DELETE
+                || ((operation == WriteOperation.MERGE || operation == WriteOperation.UPDATE)
+                        && !handle.isWritesDataFiles())) {
+            return;
+        }
+        Schema schema = schemaContext.getSchema();
+        if (IcebergSpatialSchemaValidator.containsSpatial(schema)) {
+            // An INSERT column list can omit a spatial field that is still part of every written data file.
+            IcebergSpatialSchemaValidator.validateTable(schemaContext.getFormatVersion(),
+                    schemaContext.getFileFormat().name());
+            IcebergSpatialSchemaValidator.validatePartitionSpec(schema, schemaContext.getPartitionSpec());
+        }
     }
 
     private static void validateNestedPartitionWriteCompatibility(
@@ -933,6 +951,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         // REWRITE resolves its schema after beginWrite, so its Variant check and rolling-upgrade fence must run
         // here against the same schema and partition spec that the compaction sink will actually use.
         validateVariantWrite(handle, rewriteSchemaContext);
+        validateSpatialWrite(handle, rewriteSchemaContext);
         validateNestedPartitionWriteCompatibility(handle, rewriteSchemaContext);
         TIcebergTableSink tSink = buildSink(table, tableHandle, handle, rewriteSchemaContext);
         tSink.setWriteType(TIcebergWriteType.REWRITE);

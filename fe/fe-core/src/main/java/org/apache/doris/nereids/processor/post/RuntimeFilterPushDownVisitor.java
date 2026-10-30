@@ -126,8 +126,8 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         public boolean isValid() {
             return !srcExpr.getDataType().isVariantType()
                     && !probeExpr.getDataType().isVariantType()
-                    && !srcExpr.getDataType().isSpatialType()
-                    && !probeExpr.getDataType().isSpatialType()
+                    && !srcExpr.getDataType().toCatalogDataType().typeContainsSpatialType()
+                    && !probeExpr.getDataType().toCatalogDataType().typeContainsSpatialType()
                     && probeExpr.getInputSlots().size() == 1;
         }
 
@@ -165,10 +165,11 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
 
     @Override
     public Boolean visitPhysicalRelation(PhysicalRelation scan, PushDownContext ctx) {
-        // Recheck after rewrites: a bare Iceberg GEOMETRY/GEOGRAPHY slot otherwise reaches
+        // Recheck after rewrites: direct or nested Iceberg spatial slots otherwise reach
         // the BE predicate factory, which has no spatial IN/Bloom implementation.
         if (ctx.srcExpr.getDataType().isVariantType() || ctx.probeExpr.getDataType().isVariantType()
-                || ctx.srcExpr.getDataType().isSpatialType() || ctx.probeExpr.getDataType().isSpatialType()) {
+                || ctx.srcExpr.getDataType().toCatalogDataType().typeContainsSpatialType()
+                || ctx.probeExpr.getDataType().toCatalogDataType().typeContainsSpatialType()) {
             return false;
         }
         if (!scan.canPushDownRuntimeFilter()) {

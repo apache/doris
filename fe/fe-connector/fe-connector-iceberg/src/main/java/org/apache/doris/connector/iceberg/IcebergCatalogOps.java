@@ -792,6 +792,7 @@ public interface IcebergCatalogOps {
                 } else {
                     updateSpec.addField(transform);
                 }
+                IcebergSpatialSchemaValidator.validatePartitionSpec(table.schema(), updateSpec.apply());
                 updateSpec.commit();
                 return null;
             });
@@ -833,6 +834,7 @@ public interface IcebergCatalogOps {
                 } else {
                     updateSpec.addField(newTransform);
                 }
+                IcebergSpatialSchemaValidator.validatePartitionSpec(table.schema(), updateSpec.apply());
                 updateSpec.commit();
                 return null;
             });

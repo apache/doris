@@ -57,6 +57,7 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_timestamp_ns.h"
@@ -453,6 +454,62 @@ void write_iceberg_binary_equality_delete_parquet_file(const std::string& file_p
     builder.compression(::parquet::Compression::UNCOMPRESSED);
     PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 1,
                                                       builder.build()));
+}
+
+DataTypes schema_evolution_spatial_types() {
+    return {std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY),
+            std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY, "EPSG:3857"),
+            std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY),
+            std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "EPSG:4326", "karney")};
+}
+
+// Keep the actual spatial logical annotation and field id on data/delete fixtures.
+// An unannotated BYTE_ARRAY would exercise VARBINARY instead of the spatial fallback.
+void write_iceberg_spatial_key_parquet_file(const std::string& file_path,
+                                            const DataTypeSpatial& spatial,
+                                            const std::vector<std::optional<std::string>>& values,
+                                            bool include_id) {
+    ::parquet::schema::NodeVector fields;
+    if (include_id) {
+        fields.push_back(::parquet::schema::PrimitiveNode::Make(
+                "id", ::parquet::Repetition::REQUIRED, ::parquet::LogicalType::None(),
+                ::parquet::Type::INT32, -1, 0));
+    }
+    using Algorithm = ::parquet::LogicalType::EdgeInterpolationAlgorithm;
+    const auto algorithm =
+            spatial.algorithm() == "karney" ? Algorithm::KARNEY : Algorithm::SPHERICAL;
+    const auto annotation = spatial.get_primitive_type() == TYPE_GEOMETRY
+                                    ? ::parquet::LogicalType::Geometry(spatial.crs())
+                                    : ::parquet::LogicalType::Geography(spatial.crs(), algorithm);
+    fields.push_back(
+            ::parquet::schema::PrimitiveNode::Make("shape", ::parquet::Repetition::OPTIONAL,
+                                                   annotation, ::parquet::Type::BYTE_ARRAY, -1, 1));
+    auto schema = std::static_pointer_cast<::parquet::schema::GroupNode>(
+            ::parquet::schema::GroupNode::Make("schema", ::parquet::Repetition::REQUIRED, fields));
+    auto out = arrow::io::FileOutputStream::Open(file_path).ValueOrDie();
+    auto writer = ::parquet::ParquetFileWriter::Open(out, schema);
+    auto* group = writer->AppendRowGroup();
+    if (include_id) {
+        auto* ids = static_cast<::parquet::Int32Writer*>(group->NextColumn());
+        for (int32_t id = 1; id <= static_cast<int32_t>(values.size()); ++id) {
+            ids->WriteBatch(1, nullptr, nullptr, &id);
+        }
+        ids->Close();
+    }
+    auto* shapes = static_cast<::parquet::ByteArrayWriter*>(group->NextColumn());
+    for (const auto& value : values) {
+        const int16_t level = value.has_value() ? 1 : 0;
+        ::parquet::ByteArray bytes {};
+        if (value.has_value()) {
+            bytes.ptr = reinterpret_cast<const uint8_t*>(value->data());
+            bytes.len = static_cast<uint32_t>(value->size());
+        }
+        shapes->WriteBatch(1, &level, nullptr, &bytes);
+    }
+    shapes->Close();
+    group->Close();
+    writer->Close();
+    ASSERT_TRUE(out->Close().ok());
 }
 
 // Use the external formats' UUID representations: Parquet's logical annotation and ORC's
@@ -6122,6 +6179,131 @@ TEST(IcebergV2ReaderTest, UuidEqualityDeleteMatchesMissingColumnInitialDefault) 
         }
     }
     std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, MissingOptionalSpatialColumnKeepsTypedNullDefault) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_missing_spatial_null_default_test";
+    std::filesystem::create_directories(test_dir);
+    Defer cleanup([&] { std::filesystem::remove_all(test_dir); });
+    const auto file_path = (test_dir / "old-data.parquet").string();
+    write_single_int_parquet_file(file_path, "id", {1, 2, 3}, 0);
+
+    // Iceberg requires spatial initial/write defaults to be NULL. A newly added
+    // optional spatial field therefore supplies its typed NULL initial default.
+    for (const auto& type : schema_evolution_spatial_types()) {
+        SCOPED_TRACE(type->get_name());
+        auto scan_params = make_local_parquet_scan_params();
+        scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+        scan_params.__set_current_schema_id(100);
+        scan_params.__set_history_schema_info({external_schema(
+                100, {external_schema_field("id", 0),
+                      external_schema_field("shape", 1, {}, std::nullopt,
+                                            external_primitive_type(TPrimitiveType::STRING), false,
+                                            true)})});
+        std::vector<ColumnDefinition> columns {
+                make_table_column(0, "id", std::make_shared<DataTypeInt32>()),
+                make_table_column(1, "shape", type)};
+        iceberg::IcebergTableReader reader;
+        ProjectedColumnBuildContext context {.scan_params = &scan_params};
+        TFileScanSlotInfo slot_info;
+        ASSERT_TRUE(reader.annotate_projected_column(slot_info, &context, &columns[1]).ok());
+        ASSERT_TRUE(context.schema_column.has_value());
+        EXPECT_TRUE(context.schema_column->type->equals(*columns[1].type));
+
+        RuntimeProfile profile("spatial_null_default");
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        io::FileReaderStats stats;
+        io::FileCacheStatistics cache_stats;
+        auto io_ctx = make_io_context(&stats, &cache_stats);
+        init_iceberg_reader(&reader, columns, &scan_params, io_ctx, &state, &profile);
+        ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+        bool eos = false;
+        size_t rows = 0;
+        while (!eos) {
+            Block block = build_table_block(columns);
+            const auto status = reader.get_block(&block, &eos);
+            ASSERT_TRUE(status.ok()) << status;
+            rows += block.rows();
+            const auto& shape = block.get_by_position(1);
+            EXPECT_TRUE(shape.type->equals(*columns[1].type));
+            const auto& nullable = assert_cast<const ColumnNullable&>(*shape.column);
+            EXPECT_NE(check_and_get_column<ColumnSpatial>(nullable.get_nested_column()), nullptr);
+            for (size_t row = 0; row < block.rows(); ++row) {
+                EXPECT_TRUE(nullable.is_null_at(row));
+            }
+        }
+        EXPECT_EQ(rows, 3);
+        ASSERT_TRUE(reader.close().ok());
+    }
+}
+
+TEST(IcebergV2ReaderTest, EqualityDeletesPreserveSpatialSchemaIdentityAndMissingNulls) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_spatial_equality_delete_identity_test";
+    std::filesystem::create_directories(test_dir);
+    Defer cleanup([&] { std::filesystem::remove_all(test_dir); });
+    const std::string first_point(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
+    std::string second_point = first_point;
+    second_point[19] = '\x08';
+    size_t fixture_id = 0;
+    for (const auto& type : schema_evolution_spatial_types()) {
+        const auto& spatial = assert_cast<const DataTypeSpatial&>(*type);
+        for (bool missing_key : {false, true}) {
+            for (bool null_delete : {false, true}) {
+                SCOPED_TRACE(::testing::Message() << type->get_name() << " missing=" << missing_key
+                                                  << " null_delete=" << null_delete);
+                const auto suffix = std::to_string(fixture_id++);
+                const auto file_path = (test_dir / ("data-" + suffix + ".parquet")).string();
+                const auto delete_path = (test_dir / ("delete-" + suffix + ".parquet")).string();
+                if (missing_key) {
+                    write_single_int_parquet_file(file_path, "id", {1, 2, 3}, 0);
+                } else {
+                    write_iceberg_spatial_key_parquet_file(
+                            file_path, spatial, {first_point, second_point, std::nullopt}, true);
+                }
+                const std::optional<std::string> deleted =
+                        null_delete ? std::nullopt : std::make_optional(first_point);
+                write_iceberg_spatial_key_parquet_file(delete_path, spatial, {deleted}, false);
+                std::vector<ColumnDefinition> columns {
+                        make_table_column(0, "id", std::make_shared<DataTypeInt32>())};
+                auto scan_params = make_local_parquet_scan_params();
+                scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+                scan_params.__set_current_schema_id(100);
+                scan_params.__set_history_schema_info({external_schema(
+                        100, {external_schema_field("id", 0),
+                              external_schema_field("shape", 1, {}, std::nullopt,
+                                                    external_primitive_type(TPrimitiveType::STRING),
+                                                    false, true)})});
+                RuntimeProfile profile("spatial_equality_delete");
+                RuntimeState state {TQueryOptions(), TQueryGlobals()};
+                io::FileReaderStats stats;
+                io::FileCacheStatistics cache_stats;
+                auto io_ctx = make_io_context(&stats, &cache_stats);
+                ShardedKVCache cache(1);
+                iceberg::IcebergTableReader reader;
+                init_iceberg_reader(&reader, columns, &scan_params, io_ctx, &state, &profile);
+                auto split = build_split_options(file_path);
+                split.cache = &cache;
+                split.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+                        file_path, {make_iceberg_equality_delete_file(delete_path, {1})}, 3));
+                ASSERT_TRUE(reader.prepare_split(split).ok());
+                const auto ids = read_iceberg_ids(&reader, columns);
+                const std::vector<int32_t> expected =
+                        missing_key ? (null_delete ? std::vector<int32_t> {}
+                                                   : std::vector<int32_t> {1, 2, 3})
+                                    : (null_delete ? std::vector<int32_t> {1, 2}
+                                                   : std::vector<int32_t> {2, 3});
+                EXPECT_EQ(ids, expected);
+                ASSERT_EQ(reader._equality_delete_filters.size(), 1);
+                const auto& key_type = reader._equality_delete_filters[0].key_types[0];
+                EXPECT_TRUE(key_type->is_nullable());
+                EXPECT_TRUE(remove_nullable(key_type)->equals(*type));
+                ASSERT_TRUE(reader.close().ok());
+            }
+        }
+    }
 }
 
 TEST(IcebergV2ReaderTest, IcebergEqualityDeleteMatchesVarbinaryInitialDefaultForMissingColumn) {

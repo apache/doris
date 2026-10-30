@@ -181,7 +181,7 @@ public class IcebergWritePlanProviderTest {
         props.put("write.metadata.metrics.column.payload", "counts");
         Table parquet = catalog.createTable(TableIdentifier.of("db1", "variants"), schema,
                 PartitionSpec.unpartitioned(), props);
-        TIcebergTableSink sink = planSink(parquet, contextWithStorage(), variantInsert(parquet, "variants"));
+        TIcebergTableSink sink = planSink(parquet, contextWithStorage(), insertOnlyId(parquet, "variants"));
         Assertions.assertTrue(sink.getSchemaJson().contains("\"type\":\"variant\""), sink.getSchemaJson());
         Assertions.assertTrue(sink.isCollectColumnStats());
 
@@ -189,7 +189,7 @@ public class IcebergWritePlanProviderTest {
         Table orc = catalog.createTable(TableIdentifier.of("db1", "orc_variants"), schema,
                 PartitionSpec.unpartitioned(), props);
         DorisConnectorException orcError = Assertions.assertThrows(DorisConnectorException.class,
-                () -> planSink(orc, contextWithStorage(), variantInsert(orc, "orc_variants")));
+                () -> planSink(orc, contextWithStorage(), insertOnlyId(orc, "orc_variants")));
         Assertions.assertTrue(orcError.getMessage().contains("require Parquet data files, but found ORC"),
                 orcError.getMessage());
 
@@ -198,17 +198,128 @@ public class IcebergWritePlanProviderTest {
         Table shredded = catalog.createTable(TableIdentifier.of("db1", "shredded_variants"), schema,
                 PartitionSpec.unpartitioned(), props);
         DorisConnectorException shredError = Assertions.assertThrows(DorisConnectorException.class,
-                () -> planSink(shredded, contextWithStorage(), variantInsert(shredded, "shredded_variants")));
+                () -> planSink(shredded, contextWithStorage(), insertOnlyId(shredded, "shredded_variants")));
         Assertions.assertTrue(shredError.getMessage().contains("unshredded"), shredError.getMessage());
     }
 
     /** An INSERT into {@code id} only, bound to the whole write schema of the table. */
-    private static WriteHandle variantInsert(Table table, String tableName) {
+    private static WriteHandle insertOnlyId(Table table, String tableName) {
         RecordingConnectorContext context = contextWithStorage();
         IcebergTableHandle tableHandle = new IcebergTableHandle("db1", tableName);
         List<ConnectorColumn> columns = providerFor(table, context).getWriteColumns(
                 sessionFor(table, context), tableHandle, Optional.empty()).orElseThrow(AssertionError::new);
         return new WriteHandle(tableHandle).columns(columns.subList(0, 1)).boundTargetColumns(columns);
+    }
+
+    @Test
+    public void planWriteValidatesSpatialTableFormatForEveryDataOperation() {
+        for (Type spatial : Arrays.asList(Types.GeometryType.crs84(), Types.GeographyType.crs84())) {
+            for (Type payload : spatialPayloadTypes(spatial)) {
+                Schema schema = spatialSchema(payload);
+                Table alias = spatialTable(schema, 3, "parquet", PartitionSpec.unpartitioned());
+                alias.updateProperties().set("write-format", "orc").commit();
+                for (Table table : Arrays.asList(
+                        spatialTable(schema, 2, "parquet", PartitionSpec.unpartitioned()),
+                        spatialTable(schema, 3, "orc", PartitionSpec.unpartitioned()), alias)) {
+                    for (WriteOperation operation : Arrays.asList(WriteOperation.INSERT, WriteOperation.OVERWRITE,
+                            WriteOperation.UPDATE, WriteOperation.MERGE, WriteOperation.REWRITE)) {
+                        // Even an INSERT into id alone writes a data file with the full spatial target schema.
+                        WriteHandle handle = operation == WriteOperation.INSERT ? insertOnlyId(table, "spatial")
+                                : new WriteHandle(new IcebergTableHandle("db1", "spatial"));
+                        handle.writeOperation(operation).overwrite(operation == WriteOperation.OVERWRITE);
+                        String message = IcebergWriterHelper.getFormatVersion(table) < 3
+                                ? "spatial columns require format-version >= 3" : "spatial columns require Parquet";
+                        assertSpatialWriteRejected(table, handle, message);
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    public void planWriteAllowsOrdinaryPartitionKeyAndSpatialValues() {
+        for (Type spatial : Arrays.asList(Types.GeometryType.crs84(), Types.GeographyType.crs84())) {
+            for (Type payload : spatialPayloadTypes(spatial)) {
+                Schema schema = spatialSchema(payload);
+                Table table = spatialTable(schema, 3, "parquet",
+                        PartitionSpec.builderFor(schema).identity("id").build());
+                TIcebergTableSink sink = planSink(table, contextWithStorage(), insertOnlyId(table, "spatial"));
+                Assertions.assertEquals(TFileFormatType.FORMAT_PARQUET, sink.getFileFormat());
+                Assertions.assertEquals(table.spec().specId(), sink.getPartitionSpecId());
+                Assertions.assertEquals(SchemaParser.toJson(table.schema()), sink.getSchemaJson());
+            }
+        }
+    }
+
+    @Test
+    public void planWriteRejectsExistingSpatialIdentityPartitions() {
+        for (Type spatial : Arrays.asList(Types.GeometryType.crs84(), Types.GeographyType.crs84())) {
+            for (boolean nested : Arrays.asList(false, true)) {
+                Schema schema = spatialSchema(nested ? Types.StructType.of(
+                        Types.NestedField.optional(3, "shape", spatial)) : spatial);
+                PartitionSpec spec = PartitionSpec.builderFor(schema)
+                        .identity(nested ? "payload.shape" : "payload").build();
+                Table table = spatialTable(schema, 3, "parquet", spec);
+                assertSpatialWriteRejected(table, insertOnlyId(table, "spatial"),
+                        "spatial columns cannot be partition sources");
+            }
+        }
+    }
+
+    @Test
+    public void planWriteAllowsVoidSpatialPartitionSources() {
+        Schema schema = spatialSchema(Types.GeometryType.crs84());
+        PartitionSpec spec = PartitionSpecParser.fromJson(schema,
+                "{\"spec-id\":0,\"fields\":[{\"name\":\"retired_shape\",\"transform\":\"void\","
+                        + "\"source-id\":2,\"field-id\":1000}]}");
+        Table table = spatialTable(schema, 3, "parquet", spec);
+        Assertions.assertDoesNotThrow(() -> planSink(table, contextWithStorage(), insertOnlyId(table, "spatial")));
+    }
+
+    @Test
+    public void planWriteAllowsDeleteOnlyPathsForIncompatibleSpatialTables() {
+        for (Type spatial : Arrays.asList(Types.GeometryType.crs84(), Types.GeographyType.crs84())) {
+            Schema schema = spatialSchema(spatial);
+            for (Table table : Arrays.asList(spatialTable(schema, 2, "parquet", PartitionSpec.unpartitioned()),
+                    spatialTable(schema, 3, "orc", PartitionSpec.unpartitioned()))) {
+                Assertions.assertDoesNotThrow(() -> planDeleteSink(table, contextWithStorage(),
+                        new WriteHandle(new IcebergTableHandle("db1", "spatial"))
+                                .writeOperation(WriteOperation.DELETE)));
+                TIcebergMergeSink sink = planMergeSink(table, contextWithStorage(),
+                        new WriteHandle(new IcebergTableHandle("db1", "spatial"))
+                                .writeOperation(WriteOperation.MERGE).writesDataFiles(false));
+                Assertions.assertFalse(sink.isWritesDataFiles());
+            }
+        }
+    }
+
+    private static List<Type> spatialPayloadTypes(Type spatial) {
+        return Arrays.asList(spatial, Types.ListType.ofOptional(3, spatial),
+                Types.MapType.ofOptional(3, 4, Types.StringType.get(), spatial),
+                Types.StructType.of(Types.NestedField.optional(3, "shape", spatial)));
+    }
+
+    private static Schema spatialSchema(Type payload) {
+        return new Schema(Types.NestedField.optional(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "payload", payload));
+    }
+
+    private static Table spatialTable(Schema schema, int formatVersion, String fileFormat, PartitionSpec spec) {
+        Map<String, String> properties = IcebergSchemaBuilder.buildTableProperties(Map.of(
+                TableProperties.FORMAT_VERSION, Integer.toString(formatVersion),
+                TableProperties.DEFAULT_FILE_FORMAT, fileFormat,
+                "write.data.path", "oss://bucket/wh/db1/spatial/data"));
+        // Model an externally supplied V2 spatial schema without asking the SDK to create that invalid table.
+        Table table = freshCatalog().createTable(TableIdentifier.of("db1", "spatial"),
+                formatVersion < 3 ? SCHEMA : schema, spec, properties);
+        return formatVersion < 3 ? withMetadata(table, "schema", schema) : table;
+    }
+
+    private static void assertSpatialWriteRejected(Table table, WriteHandle handle, String message) {
+        RecordingConnectorContext context = contextWithStorage();
+        DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                () -> providerFor(table, context).planWrite(sessionFor(table, context), handle));
+        Assertions.assertTrue(error.getMessage().contains(message), error.getMessage());
     }
 
     private static InMemoryCatalog freshCatalog() {
