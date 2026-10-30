@@ -2344,6 +2344,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             updateScanSlotsMaterialization((ScanNode) inputPlanNode, requiredSlotIdSet,
                     requiredByProjectSlotIdSet, context);
         } else {
+            // These operators publish their row tuples directly before the optional projection.
+            // Capture them before installing the projection's separate output tuple.
+            if (inputPlanNode instanceof SelectNode || inputPlanNode instanceof AggregationNode
+                    || inputPlanNode instanceof SortNode) {
+                inputPlanNode.setProjectionInputTupleDescs(context.getTupleDesc(inputPlanNode));
+            }
             TupleDescriptor tupleDescriptor = generateTupleDesc(slots, null, context);
             inputPlanNode.setProjectList(projectionExprs);
             inputPlanNode.setOutputTupleDesc(tupleDescriptor);

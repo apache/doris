@@ -321,6 +321,20 @@ bool PipelineXLocalStateBase::is_blockable() const {
                        [&](VExprContextSPtr expr) -> bool { return expr->is_blockable(); });
 }
 
+void OperatorXBase::swap_identity_projection(Block* origin_block, Block* output_block) const {
+    DCHECK(has_identity_projection());
+    // Discard temporary expression columns before publishing the operator's output slots.
+    origin_block->erase_tail(_projection->output_row_descriptor.num_slots());
+    // Publish the data block and return the downstream's idle block for the next batch.
+    // Column names travel with the data; slot references address columns by position.
+    origin_block->swap(*output_block);
+    for (size_t i = 0; i < output_block->columns(); ++i) {
+        auto& column = output_block->get_by_position(i).column;
+        column = column->convert_to_full_column_if_const();
+    }
+    origin_block->clear_column_data();
+}
+
 Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
                                      Block* output_block) const {
     auto* local_state = state->get_local_state(operator_id());
@@ -331,6 +345,12 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
         return Status::OK();
     }
     SCOPED_PEAK_MEM(&local_state->_estimate_memory_usage);
+
+    if (has_identity_projection()) {
+        swap_identity_projection(origin_block, output_block);
+        DCHECK_EQ(output_block->rows(), rows);
+        return Status::OK();
+    }
 
     {
         Block input_block = *origin_block;
