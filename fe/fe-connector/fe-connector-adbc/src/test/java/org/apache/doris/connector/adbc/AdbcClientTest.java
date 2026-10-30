@@ -30,6 +30,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -116,7 +118,7 @@ class AdbcClientTest {
 
     @Test
     void closeLeavesAResultACallIsStillReadingAlone(@TempDir Path tempDir) throws Exception {
-        AdbcClient client = sqliteClient(tempDir.resolve("probe.db"));
+        RecordingClient client = new RecordingClient(Files.createFile(tempDir.resolve("driver.so")));
         CountDownLatch insideCall = new CountDownLatch(1);
         CountDownLatch mayContinue = new CountDownLatch(1);
         ExecutorService caller = Executors.newSingleThreadExecutor();
@@ -127,10 +129,9 @@ class AdbcClientTest {
                     insideCall.countDown();
                     Assertions.assertTrue(mayContinue.await(30, TimeUnit.SECONDS));
                     // The getObjects result behind getTableHandle, read after the client was closed, as a
-                    // statistics load reads it when the catalog is dropped under it. Closing the database used to
-                    // release this result along with its connection; here the reader, closed by then, turns that
-                    // into an error ("ArrowArrayStream is already closed"), but a thread that had already handed
-                    // the stream to the driver read it released and took FE down with it (SIGSEGV in
+                    // statistics load reads it when the catalog is dropped under it. Closing the client used to
+                    // release the database, and with it this connection and its result, and then the allocator the
+                    // result lives in; with the SQLite driver, a read caught in between took FE down (SIGSEGV in
                     // get_next_wrapper or PrivateArrowSchemaDeepCopy).
                     return AdbcObjectsReader.readNamespaces(reader);
                 }
@@ -138,10 +139,7 @@ class AdbcClientTest {
             Assertions.assertTrue(insideCall.await(30, TimeUnit.SECONDS));
             closeWithoutWaitingForCalls(client);
             mayContinue.countDown();
-            List<AdbcNamespace> namespaces = call.get(30, TimeUnit.SECONDS);
-            Assertions.assertTrue(
-                    namespaces.stream().anyMatch(namespace -> "main".equals(namespace.dorisDatabaseName())),
-                    namespaces.toString());
+            Assertions.assertEquals(List.of(new AdbcNamespace("main", "")), call.get(30, TimeUnit.SECONDS));
         } finally {
             caller.shutdownNow();
         }
@@ -295,6 +293,7 @@ class AdbcClientTest {
 
         @Override
         AdbcDatabase openDatabase(BufferAllocator allocator, Map<String, Object> parameters) {
+            database.allocator = allocator;
             return database;
         }
     }
@@ -304,6 +303,8 @@ class AdbcClientTest {
         private final AtomicInteger openConnections = new AtomicInteger();
         private final AtomicInteger closes = new AtomicInteger();
         private final boolean closeFails;
+        /** The client's allocator, handed over when the client opens its database, as the JNI driver is given it. */
+        private BufferAllocator allocator;
 
         private RecordingDatabase(boolean closeFails) {
             this.closeFails = closeFails;
@@ -321,6 +322,21 @@ class AdbcClientTest {
                 @Override
                 public ArrowReader getInfo(int[] infoCodes) {
                     throw new AssertionError("these tests ask for no info");
+                }
+
+                @Override
+                public ArrowReader getObjects(AdbcConnection.GetObjectsDepth depth, String catalogPattern,
+                        String dbSchemaPattern, String tableNamePattern, String[] tableTypes,
+                        String columnNamePattern) {
+                    // SQLite's answer, in the client's allocator, which is where a driver's result lives. Not read
+                    // from the SQLite driver itself: reading a driver's result into Arrow needs arrow-c-data's JNI
+                    // shim, which FE UT cannot load on every host -- see AdbcNativeTestSupport.
+                    try {
+                        return AdbcObjectsReaderTest.response(allocator,
+                                AdbcObjectsReaderTest.catalog("main", AdbcObjectsReaderTest.schema("", null)));
+                    } catch (IOException e) {
+                        throw new UncheckedIOException(e);
+                    }
                 }
 
                 @Override
