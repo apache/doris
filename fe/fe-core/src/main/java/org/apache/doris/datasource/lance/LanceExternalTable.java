@@ -42,7 +42,9 @@ import org.apache.doris.thrift.TTableType;
 
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.commons.lang3.StringUtils;
+import org.lance.namespace.model.DescribeTableResponse;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -58,6 +60,14 @@ public class LanceExternalTable extends ExternalTable implements MvccTable {
     public Optional<SchemaCacheValue> initSchema() {
         Schema schema = ((LanceExternalCatalog) catalog).loadTableSchema(db.getRemoteName(), remoteName);
         return Optional.of(new SchemaCacheValue(LanceSchemaHelper.toDorisColumns(schema)));
+    }
+
+    public Map<String, String> getTableProperties() {
+        DescribeTableResponse table = ((LanceExternalCatalog) catalog).describeTable(
+                db.getRemoteName(), remoteName);
+        return table.getProperties() == null
+                ? Collections.emptyMap()
+                : new HashMap<>(table.getProperties());
     }
 
     public LanceTableMetadata loadMetadata() {
