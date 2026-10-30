@@ -116,6 +116,62 @@ import java.util.Optional;
 
 public class TypeCoercionUtilsTest {
     @Test
+    public void testTimestampTzComparisonPreservesScaleInBothModes() {
+        boolean oldBehavior = GlobalVariable.enableNewTypeCoercionBehavior;
+        try {
+            for (boolean newBehavior : ImmutableList.of(false, true)) {
+                GlobalVariable.enableNewTypeCoercionBehavior = newBehavior;
+                for (int leftScale = 0; leftScale <= TimeStampTzType.MAX_SCALE; leftScale++) {
+                    for (int rightScale = 0; rightScale <= TimeStampTzType.MAX_SCALE; rightScale++) {
+                        SlotReference left = new SlotReference("left", TimeStampTzType.of(leftScale));
+                        SlotReference right = new SlotReference("right", TimeStampTzType.of(rightScale));
+                        TimeStampTzType commonType = TimeStampTzType.of(Math.max(leftScale, rightScale));
+                        for (ComparisonPredicate comparison : ImmutableList.of(
+                                new EqualTo(left, right), new NullSafeEqual(left, right),
+                                new LessThan(left, right), new LessThanEqual(left, right),
+                                new GreaterThan(left, right), new GreaterThanEqual(left, right))) {
+                            Expression normalized = TypeCoercionUtils.processComparisonPredicate(comparison);
+                            Assertions.assertEquals(commonType, normalized.child(0).getDataType());
+                            Assertions.assertEquals(commonType, normalized.child(1).getDataType());
+                        }
+                        Expression in = TypeCoercionUtils.processInPredicate(
+                                new InPredicate(left, ImmutableList.of(right)));
+                        Assertions.assertEquals(commonType, in.child(0).getDataType());
+                        Assertions.assertEquals(commonType, in.child(1).getDataType());
+                    }
+                }
+            }
+        } finally {
+            GlobalVariable.enableNewTypeCoercionBehavior = oldBehavior;
+        }
+    }
+
+    @Test
+    public void testTimestampTzStringComparisonPreservesScaleInBothModes() {
+        boolean oldBehavior = GlobalVariable.enableNewTypeCoercionBehavior;
+        try {
+            for (boolean newBehavior : ImmutableList.of(false, true)) {
+                GlobalVariable.enableNewTypeCoercionBehavior = newBehavior;
+                SlotReference timestampTz = new SlotReference("ts_tz", TimeStampTzType.MAX);
+                for (String value : ImmutableList.of(
+                        "0000-01-01 00:00:00 +00:00", "0000-01-01 00:00:00.000001 +00:00",
+                        "2023-08-08 20:20:20.123 +00:00", "2023-08-09 04:20:20 +08:00",
+                        "9999-12-31 23:59:59 +00:00", "9999-12-31 23:59:59.999999 +00:00")) {
+                    EqualTo comparison = new EqualTo(timestampTz, new StringLiteral(value));
+                    for (ComparisonPredicate ordered : ImmutableList.of(comparison, comparison.commute())) {
+                        Expression normalized = TypeCoercionUtils.processComparisonPredicate(ordered);
+                        Assertions.assertEquals(TimeStampTzType.MAX, normalized.child(0).getDataType());
+                        Assertions.assertEquals(TimeStampTzType.MAX, normalized.child(1).getDataType());
+                        Assertions.assertSame(timestampTz, normalized.child(ordered.left() == timestampTz ? 0 : 1));
+                    }
+                }
+            }
+        } finally {
+            GlobalVariable.enableNewTypeCoercionBehavior = oldBehavior;
+        }
+    }
+
+    @Test
     public void testReplaceDateTimeV2WithMaxKeepsTimestampNsIndependent() {
         Assertions.assertEquals(DateTimeV2Type.MAX,
                 TypeCoercionUtils.replaceDateTimeV2WithMax(DateTimeV2Type.of(3)));
