@@ -149,6 +149,9 @@ enableDeltaLakeTest=false
 enableDeltaLakePlanningTest=false
 // Supply a local JSON file with warehouse and storage properties for each storage matrix run.
 enableDeltaLakeStorageTest=false
+// Optional SF1 TPC-H/TPC-DS comparison against the same Parquet files through Hive.
+enableDeltaLakeBenchmarkTest=false
+deltalakeBenchmarkQueryPattern=".*"
 deltalakeStoragePropertiesFile=""
 deltalakeMinioPort=19001
 deltalakeHmsPort=9383
