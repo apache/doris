@@ -44,6 +44,7 @@ import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -1058,6 +1059,11 @@ public class StatementContextTest {
                 new BaseColInfo("p", new BaseTableInfo(hiveExternalTable))));
         MTMV candidateMtmv = Mockito.mock(MTMV.class);
         Mockito.when(candidateMtmv.getMvPartitionInfo()).thenReturn(partitionInfo);
+        Mockito.when(candidateMtmv.isUseForRewrite()).thenReturn(true);
+        // An all-internal MV stays eligible under the default external-MV switch.
+        MTMVRelation mtmvRelation = Mockito.mock(MTMVRelation.class);
+        Mockito.when(mtmvRelation.getBaseTablesOneLevelAndFromView()).thenReturn(Collections.emptySet());
+        Mockito.when(candidateMtmv.getRelation()).thenReturn(mtmvRelation);
 
         StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
         try {
@@ -1078,6 +1084,61 @@ public class StatementContextTest {
             inOrder.verify(candidateMtmv).getMvPartitionInfo();
             inOrder.verify(candidateMtmv).readMvUnlock();
             inOrder.verify(hiveExternalTable).getNameToPartitionItemsForScan(Mockito.any());
+        } finally {
+            statementContext.close();
+        }
+    }
+
+    @Test
+    public void testIneligibleExternalMtmvDoesNotWarmPartitionViewBeforeLock() {
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        TableIf internalTable = Mockito.mock(TableIf.class);
+        PluginDrivenMvccExternalTable hiveExternalTable = Mockito.mock(PluginDrivenMvccExternalTable.class);
+        DatabaseIf<TableIf> database = mockDatabase();
+        CatalogIf<?> catalog = mockCatalog();
+        SessionVariable sessionVariable = new SessionVariable();
+
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(hiveExternalTable.getId()).thenReturn(32L);
+        Mockito.when(hiveExternalTable.getName()).thenReturn("hive_table");
+        Mockito.when(hiveExternalTable.getDatabase()).thenReturn(database);
+        Mockito.when(database.getId()).thenReturn(2L);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getId()).thenReturn(1L);
+        Mockito.when(catalog.getName()).thenReturn("hive_catalog");
+        Mockito.when(hiveExternalTable.supportsExternalMetadataPreload()).thenReturn(true);
+        Mockito.when(hiveExternalTable.supportsConnectorPartitionPruning()).thenReturn(true);
+
+        MTMVPartitionInfo partitionInfo = new MTMVPartitionInfo(MTMVPartitionType.FOLLOW_BASE_TABLE);
+        partitionInfo.setPctInfos(ImmutableList.of(
+                new BaseColInfo("p", new BaseTableInfo(hiveExternalTable))));
+        MTMV candidateMtmv = Mockito.mock(MTMV.class);
+        Mockito.when(candidateMtmv.getMvPartitionInfo()).thenReturn(partitionInfo);
+        Mockito.when(candidateMtmv.isUseForRewrite()).thenReturn(true);
+        MTMVRelation mtmvRelation = Mockito.mock(MTMVRelation.class);
+        BaseTableInfo externalBase = Mockito.mock(BaseTableInfo.class);
+        Mockito.when(externalBase.isInternalTable()).thenReturn(false);
+        Mockito.when(mtmvRelation.getBaseTablesOneLevelAndFromView()).thenReturn(Collections.singleton(externalBase));
+        Mockito.when(candidateMtmv.getRelation()).thenReturn(mtmvRelation);
+        org.junit.jupiter.api.Assertions.assertFalse(
+                sessionVariable.isEnableMaterializedViewRewriteWhenBaseTableUnawareness(),
+                "the default must discard an external MV before MTMV partition validation");
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
+        try {
+            statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
+            statementContext.getCandidateMTMVs().add(candidateMtmv);
+            statementContext.registerExternalTableForPreload(
+                    hiveExternalTable, Optional.empty(), Optional.empty(), true);
+
+            statementContext.preloadDeferredScanPartitionViewsBeforeLock(false);
+
+            ExternalTablePreloadInfo preloadInfo = statementContext.getExternalTablePreloadInfo(32L).get();
+            org.junit.jupiter.api.Assertions.assertFalse(preloadInfo.hasMtmvPartitionView(),
+                    "an ineligible MV never reaches partition mapping, so its full view must not be warmed");
+            Mockito.verify(hiveExternalTable, Mockito.never()).getNameToPartitionItemsForScan(Mockito.any());
         } finally {
             statementContext.close();
         }

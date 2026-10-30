@@ -51,6 +51,7 @@ import org.apache.doris.datasource.plugin.PluginDrivenSchemaCacheValue;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVCache;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.AccessControllerManager.DataPolicyContext;
@@ -1980,8 +1981,20 @@ public class StatementContext implements Closeable {
      * is held. The full external views are materialized only after every MV lock has been released.
      */
     private Set<BaseTableInfo> collectCandidateMtmvPctTables() {
+        ConnectContext connectContext = getConnectContext();
+        SessionVariable variables = connectContext == null ? null : connectContext.getSessionVariable();
+        boolean externalMvEligible = variables != null
+                && (variables.isEnableMaterializedViewRewriteWhenBaseTableUnawareness()
+                || variables.isEnableDmlMaterializedViewRewriteWhenBaseTableUnawareness());
         Set<BaseTableInfo> pctTables = new HashSet<>();
         for (MTMV mtmv : candidateMTMVs) {
+            // Mirror the gates InitMaterializationContextHook / InitConsistentMaterializationContextHook apply
+            // before MTMV partition validation: an ineligible candidate is discarded there, so its complete view
+            // has no consumer. Warming it anyway would restore the O(all partitions) listing this pre-lock pass
+            // exists to move out of the planner's lock window.
+            if (!mtmv.isUseForRewrite() || (!externalMvEligible && MTMVUtil.mtmvContainsExternalTable(mtmv))) {
+                continue;
+            }
             mtmv.readMvLock();
             try {
                 mtmv.getMvPartitionInfo().getPctInfos().forEach(
