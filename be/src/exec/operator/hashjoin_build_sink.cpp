@@ -17,8 +17,10 @@
 
 #include "exec/operator/hashjoin_build_sink.h"
 
+#include <chrono>
 #include <cstdlib>
 #include <string>
+#include <thread>
 #include <variant>
 
 #include "core/block/block.h"
@@ -30,6 +32,7 @@
 #include "exec/operator/hashjoin_probe_operator.h"
 #include "exec/operator/operator.h"
 #include "exec/pipeline/pipeline_task.h"
+#include "util/debug_points.h"
 #include "util/pretty_printer.h"
 #include "util/uid_util.h"
 
@@ -232,6 +235,13 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         return Status::OK();
     }
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
+    // Runs after the runtime filters are published and the shared hash table is signaled below,
+    // also when that fails.
+    Defer release_probe {[&]() {
+        if (_release_probe_on_close) {
+            _dependency->set_ready_to_read(p._use_shared_hash_table ? _task_idx : 0);
+        }
+    }};
     Defer defer {[&]() {
         if (!_should_build_hash_table) {
             return;
@@ -929,11 +939,31 @@ Status HashJoinBuildSinkOperatorX::sink_impl(RuntimeState* state, Block* in_bloc
     }
 
     if (eos) {
-        // If a shared hash table is used, states are shared by all tasks.
-        // Sink and source has n-n relationship If a shared hash table is used otherwise 1-1 relationship.
-        // So we should notify the `_task_idx` source task if a shared hash table is used.
-        local_state._dependency->set_ready_to_read(_use_shared_hash_table ? local_state._task_idx
-                                                                          : 0);
+        // A short-circuited probe returns eos without reading its input. If it runs before this
+        // sink publishes its runtime filters in close(), the probe pipeline closes and wakes up
+        // this task early, and terminate() publishes the filters as DISABLED. A disabled input
+        // disables the merged global filter, so the probe-side scans of all instances lose it.
+        // So release such a probe only after the runtime filters are published.
+        if (local_state._should_build_hash_table && !_runtime_filter_descs.empty() &&
+            local_state._shared_state->short_circuit_for_probe) {
+            local_state._release_probe_on_close = true;
+        } else {
+            // If a shared hash table is used, states are shared by all tasks.
+            // Sink and source has n-n relationship If a shared hash table is used otherwise 1-1
+            // relationship. So we should notify the `_task_idx` source task if a shared hash
+            // table is used.
+            local_state._dependency->set_ready_to_read(
+                    _use_shared_hash_table ? local_state._task_idx : 0);
+        }
+        // Widens the window between eos and close() of a sink whose probe short-circuits.
+        DBUG_EXECUTE_IF("HashJoinBuildSinkOperatorX::sink_impl.short_circuit_eos_sleep", {
+            if (local_state._shared_state->short_circuit_for_probe) {
+                auto sleep_ms = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                        "HashJoinBuildSinkOperatorX::sink_impl.short_circuit_eos_sleep",
+                        "sleep_ms", 2000);
+                std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
+            }
+        });
     }
 
     return Status::OK();

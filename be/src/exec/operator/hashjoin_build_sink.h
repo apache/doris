@@ -71,6 +71,9 @@ protected:
     std::vector<ColumnPtr> _key_columns_holder;
 
     bool _should_build_hash_table = true;
+    // The probe side is released in close() instead of at eos, after the runtime filters are
+    // published. See `HashJoinBuildSinkOperatorX::sink_impl`.
+    bool _release_probe_on_close = false;
 
     size_t _evaluate_mem_usage = 0;
     size_t _build_side_rows = 0;
