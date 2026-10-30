@@ -18,10 +18,7 @@
 suite("st10_drop_table_cleanup") {
     def customBeConfig = [
         enable_evict_file_cache_in_advance : false,
-        file_cache_enter_disk_resource_limit_mode_percent : 99,
-        file_cache_background_ttl_gc_interval_ms : 1000,
-        file_cache_background_ttl_info_update_interval_ms : 1000,
-        file_cache_background_tablet_id_flush_interval_ms : 1000
+        file_cache_enter_disk_resource_limit_mode_percent : 99
     ]
     def customFeConfig = [
         rehash_tablet_after_be_dead_seconds : 5
@@ -180,8 +177,8 @@ suite("st10_drop_table_cleanup") {
             assertTrue(curFinal >= lowerBound, "Metric ${metricNameSubstr} should >= ${lowerBound}, actual=${curFinal}")
         }
 
-            final String ttlMgrSetMetric = "file_cache_ttl_mgr_tablet_id_set_size"
-            long ttlMgrSetSizeBeforeAll = getBrpcMetricSum.call(ttlMgrSetMetric)
+            final String policyNumMetric = "file_cache_tablet_policy_num"
+            long policyNumBeforeAll = getBrpcMetricSum.call(policyNumMetric)
 
             def values = (0..<300).collect { i -> "(${i}, 'drop_tpl_${i}')" }.join(",")
             sql """insert into ${tableName} values ${values}"""
@@ -190,17 +187,17 @@ suite("st10_drop_table_cleanup") {
 
             def tabletIds = getTabletIds.call(tableName)
             waitForFileCacheType.call(tabletIds, "ttl")
-            waitBrpcMetricGE.call(ttlMgrSetMetric, ttlMgrSetSizeBeforeAll + tabletIds.toSet().size())
-            long ttlMgrSetSizeBeforeDropTable = getBrpcMetricSum.call(ttlMgrSetMetric)
+            waitBrpcMetricGE.call(policyNumMetric, policyNumBeforeAll + tabletIds.toSet().size())
+            long policyNumBeforeDropTable = getBrpcMetricSum.call(policyNumMetric)
 
             // ST-10 未覆盖点模板：Drop 后不应残留被删除 tablet 的 file_cache_info 记录
             sql """drop table if exists ${tableName} force"""
             waitDroppedTabletCacheInfoEmpty.call(tabletIds)
             /*
             // be 的 tablet 元信息清理时间较长 取决于recycler回收速度，这里不做检查
-            waitBrpcMetricLE.call(ttlMgrSetMetric, ttlMgrSetSizeBeforeAll)
-            // 可选增强 1：Drop table 前后 file_cache_ttl_mgr_tablet_id_set_size 对比
-            assertTrue(ttlMgrSetSizeBeforeDropTable >= ttlMgrSetSizeBeforeAll)
+            waitBrpcMetricLE.call(policyNumMetric, policyNumBeforeAll)
+            // 可选增强 1：Drop table 前后 file_cache_tablet_policy_num 对比
+            assertTrue(policyNumBeforeDropTable >= policyNumBeforeAll)
             */
         }
     }

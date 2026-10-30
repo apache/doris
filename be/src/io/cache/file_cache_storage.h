@@ -76,9 +76,6 @@ public:
                                  butil::IOBuf* out, size_t* bytes_read) = 0;
     // remove the block
     virtual Status remove(const FileCacheKey& key) = 0;
-    // change the block meta
-    virtual Status change_key_meta_type(const FileCacheKey& key, const FileCacheType type,
-                                        const size_t size) = 0;
     // Restore a file while lazy loading, with its hash absent from the cache.
     virtual void load_file_blocks_directly_unlocked(BlockFileCache* mgr, const UInt128Wrapper& hash,
                                                     int64_t tablet_id,

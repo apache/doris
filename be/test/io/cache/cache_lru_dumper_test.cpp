@@ -38,28 +38,7 @@ static const std::string test_dir = "./cache_lru_dumper_test_dir/";
 
 class MockBlockFileCache : public BlockFileCache {
 public:
-    LRUQueue* dst_queue; // Pointer to the destination queue
-
-    MockBlockFileCache(LRUQueue* queue) : BlockFileCache("", {}), dst_queue(queue) {
-        _cache_base_path = test_dir;
-    }
-
-    FileBlockCell* add_cell(const UInt128Wrapper& hash, const CacheContext& ctx, size_t offset,
-                            size_t size, FileBlock::State state,
-                            std::lock_guard<std::mutex>& lock) {
-        static std::unordered_set<std::string> added_entries;
-        std::string key = hash.to_string() + ":" + std::to_string(offset);
-
-        if (added_entries.find(key) != added_entries.end()) {
-            std::cerr << "Error: Duplicate entry detected for hash: " << key << std::endl;
-            EXPECT_TRUE(false);
-            return nullptr;
-        }
-
-        added_entries.insert(key);
-        dst_queue->add(hash, offset, size, lock);
-        return nullptr;
-    }
+    MockBlockFileCache() : BlockFileCache("", {}) { _cache_base_path = test_dir; }
 
     std::mutex& mutex() { return _mutex; }
 
@@ -72,13 +51,11 @@ private:
 
 class CacheLRUDumperTest : public ::testing::Test {
 protected:
-    LRUQueue dst_queue; // Member variable for destination queue
-
     void SetUp() override {
         std::filesystem::remove_all(test_dir);
         std::filesystem::create_directory(test_dir);
 
-        mock_cache = std::make_unique<NiceMock<MockBlockFileCache>>(&dst_queue);
+        mock_cache = std::make_unique<NiceMock<MockBlockFileCache>>();
         recorder = std::make_unique<LRUQueueRecorder>(mock_cache.get());
 
         dumper = std::make_unique<CacheLRUDumper>(mock_cache.get(), recorder.get());
@@ -141,28 +118,27 @@ TEST_F(CacheLRUDumperTest, test_dump_and_restore_queue) {
     std::string queue_name = "normal";
 
     // Add test data
-    UInt128Wrapper hash(123456789ULL);
-    size_t offset = 1024;
-    size_t size = 4096;
     std::lock_guard<std::mutex> lock(_mutex);
-    src_queue.add(hash, offset, size, lock);
+    for (uint64_t i = 1; i <= 3; ++i) {
+        src_queue.add(UInt128Wrapper(123456789ULL * i), 1024 * i, 4096 * i, lock);
+    }
 
     // Test dump
     dumper->do_dump_queue(src_queue, queue_name);
 
-    // Test restore
+    // Test restore: the blocks go back to the cache's own queue they were dumped from.
     std::lock_guard<std::mutex> cache_lock(mock_cache->mutex());
+    auto& dst_queue = mock_cache->get_queue(FileCacheType::NORMAL);
     dumper->restore_queue(dst_queue, queue_name, cache_lock);
 
     // Verify queue content and order
+    ASSERT_EQ(dst_queue.get_elements_num(cache_lock), src_queue.get_elements_num(lock));
     auto src_it = src_queue.begin();
     auto dst_it = dst_queue.begin();
-    while (src_it != src_queue.end() && dst_it != dst_queue.end()) {
+    for (; src_it != src_queue.end(); ++src_it, ++dst_it) {
         EXPECT_EQ(src_it->hash, dst_it->hash);
         EXPECT_EQ(src_it->offset, dst_it->offset);
         EXPECT_EQ(src_it->size, dst_it->size);
-        ++src_it;
-        ++dst_it;
     }
 }
 

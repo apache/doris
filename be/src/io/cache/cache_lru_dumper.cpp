@@ -486,7 +486,11 @@ void CacheLRUDumper::restore_queue(LRUQueue& queue, const std::string& queue_nam
                 return;
             }
             // TODO(zhengyu): we don't use stats yet, see if this will cause any problem
-            _mgr->add_cell(hash, ctx, offset, size, FileBlock::State::DOWNLOADED, cache_lock);
+            // Each block goes back to the queue it was dumped from. The dump records neither its
+            // tablet nor its class; both are filled in when its metadata is loaded, which also
+            // moves it to the queue they call for, see BlockFileCache::complete_loaded_cell().
+            _mgr->add_cell_in_queue(hash, ctx, ctx.cache_type, offset, size,
+                                    FileBlock::State::DOWNLOADED, cache_lock);
         }
         in.close();
     } else {

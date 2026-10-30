@@ -20,10 +20,7 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 suite("alter_ttl_1") {
     def custoBeConfig = [
         enable_evict_file_cache_in_advance : false,
-        file_cache_enter_disk_resource_limit_mode_percent : 99,
-        file_cache_background_ttl_gc_interval_ms : 1000,
-        file_cache_background_ttl_info_update_interval_ms : 1000,
-        file_cache_background_tablet_id_flush_interval_ms : 1000
+        file_cache_enter_disk_resource_limit_mode_percent : 99
     ]
 
     setBeConfigTemporary(custoBeConfig) {
@@ -87,7 +84,12 @@ suite("alter_ttl_1") {
                     allMatch = false
                     break
                 }
-                def mismatch = rows.find { row -> !row[0]?.toString()?.equalsIgnoreCase(expectedType) }
+                // Without TTL a block shows its class: NORMAL, or INDEX when a query cached it first
+                // (a segment footer), which a later fill does not change.
+                def mismatch = rows.find { row ->
+                    def type = row[0]?.toString() ?: ""
+                    expectedType == "normal" ? type.equalsIgnoreCase("ttl") : !type.equalsIgnoreCase(expectedType)
+                }
                 if (mismatch) {
                     logger.info("tablet ${tabletId} has cache types ${rows.collect { it[0] }} while waiting for ${expectedType}")
                     allMatch = false

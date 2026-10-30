@@ -18,25 +18,17 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 // The file cache TTL deadline is the tablet creation time plus file_cache_ttl_seconds. Once a
-// tablet is past that deadline, the load and query paths must stamp the blocks they create as
-// non-TTL right away, instead of creating TTL blocks for the background sweep to demote again.
+// tablet is past that deadline its blocks are no longer protected, whether a load or a query
+// cached them, while the blocks of a tablet inside its window are.
 //
-// This test deliberately runs with the TTL background threads turned down to a 10 minute
-// interval. That is what gives it teeth: the sweep would otherwise repair the cache type within
-// a second or two and the assertions would hold no matter what the write and read paths did.
-// With the sweep out of the way, the cache type observed here is purely the one chosen at
-// admission, so the expired-tablet cases below fail if the deadline is not applied at the source.
+// TYPE in information_schema.file_cache_info is computed from the tablet's current policy rather
+// than read from what the block stored, so it shows how the cache judges a block right now.
 suite("test_ttl_expired_tablet") {
     def ttlSeconds = 30
-    def sweepOffMs = 600000
 
     def custoBeConfig = [
         enable_evict_file_cache_in_advance : false,
-        file_cache_enter_disk_resource_limit_mode_percent : 99,
-        // Long enough that neither TTL background thread reconciles anything while the test runs.
-        file_cache_background_ttl_gc_interval_ms : sweepOffMs,
-        file_cache_background_ttl_info_update_interval_ms : sweepOffMs,
-        file_cache_background_tablet_id_flush_interval_ms : 1000
+        file_cache_enter_disk_resource_limit_mode_percent : 99
     ]
 
     setBeConfigTemporary(custoBeConfig) {

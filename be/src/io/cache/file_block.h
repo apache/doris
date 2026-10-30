@@ -123,20 +123,17 @@ public:
 
     bool is_downloader() const;
 
+    // The queue the block is in: its class, or TTL while its tablet's TTL protects it.
     FileCacheType cache_type() const { return _key.meta.type; }
 
-    int64_t tablet_id() const { return _key.meta.tablet_id; }
+    // The class of the block, fixed when it was written.
+    FileCacheType cache_class() const { return _key.meta.cache_class; }
 
-    void set_tablet_id(int64_t id) { _key.meta.tablet_id = id; }
+    int64_t tablet_id() const { return _key.meta.tablet_id; }
 
     static uint64_t get_caller_id();
 
     std::string get_info_for_log() const;
-
-    [[nodiscard]] Status change_cache_type(FileCacheType new_type);
-
-    [[nodiscard]] Status change_cache_type_lock(FileCacheType new_type,
-                                                std::lock_guard<std::mutex>&);
 
     uint64_t expiration_time() const { return _key.meta.expiration_time; }
 

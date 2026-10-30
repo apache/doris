@@ -2963,11 +2963,6 @@ TEST_F(ParquetScanTest, SparseRowIdsAvoidCachedRemoteChunkPrefetch) {
     settings.query_queue_size = settings.capacity;
     settings.query_queue_elements = 1024;
     settings.max_file_block_size = 64 * 1024;
-    const auto old_ttl_gc_interval = config::file_cache_background_ttl_gc_interval_ms;
-    const auto old_ttl_info_interval = config::file_cache_background_ttl_info_update_interval_ms;
-    // The TTL workers sleep between iterations, so bound the fixture's shutdown latency.
-    config::file_cache_background_ttl_gc_interval_ms = 100;
-    config::file_cache_background_ttl_info_update_interval_ms = 100;
     const auto old_column_buffer = config::parquet_column_max_buffer_mb;
     config::parquet_column_max_buffer_mb = 1;
     const auto old_block_size = config::file_cache_each_block_size;
@@ -2982,8 +2977,6 @@ TEST_F(ParquetScanTest, SparseRowIdsAvoidCachedRemoteChunkPrefetch) {
         env->_segment_prefetch_thread_pool = std::move(old_pool);
         config::file_cache_each_block_size = old_block_size;
         config::parquet_column_max_buffer_mb = old_column_buffer;
-        config::file_cache_background_ttl_gc_interval_ms = old_ttl_gc_interval;
-        config::file_cache_background_ttl_info_update_interval_ms = old_ttl_info_interval;
     });
     env->set_file_cache_factory(factory.get());
     env->_file_cache_open_fd_cache = std::make_unique<io::FDCache>();

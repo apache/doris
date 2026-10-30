@@ -67,6 +67,11 @@ size_t LRUQueueRecorder::replay_queue_event(FileCacheType type) {
                     limit_shadow_queue_size(shadow_queue, lru_log_lock);
                     break;
                 }
+                case CacheLRULogType::ADDTOFRONT: {
+                    shadow_queue.add_front(log->hash, log->offset, log->size, lru_log_lock);
+                    limit_shadow_queue_size(shadow_queue, lru_log_lock);
+                    break;
+                }
                 case CacheLRULogType::REMOVE: {
                     auto it = shadow_queue.get(log->hash, log->offset, lru_log_lock);
                     if (it != std::list<LRUQueue::FileKeyAndOffset>::iterator()) {

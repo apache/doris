@@ -357,10 +357,10 @@ public:
     // already passed. The deadline is anchored at the tablet creation time, so every tablet
     // of a table shares one deadline regardless of when each rowset was written.
     //
-    // This is the single definition of that deadline. The load, compaction, schema change,
-    // query and warm up paths all stamp the cache blocks they create with this value, and
-    // BlockFileCacheTtlMgr expires those blocks by the very same value, so a block's
-    // recorded expiration time always agrees with the sweep that acts on it.
+    // The load, compaction, schema change, query and warm up paths all stamp the cache blocks
+    // they create with this value. The file cache itself decides protection from the tablet's
+    // current policy (io::TabletCachePolicyRegistry, same rule as TabletCachePolicy::deadline())
+    // and only falls back to the stamped value while it does not know the tablet.
     int64_t file_cache_ttl_expiration_time() const;
 
     int64_t avg_rs_meta_serialize_size() const { return _avg_rs_meta_serialize_size; }

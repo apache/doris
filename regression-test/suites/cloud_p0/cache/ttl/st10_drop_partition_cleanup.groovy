@@ -18,10 +18,7 @@
 suite("st10_drop_partition_cleanup") {
     def customBeConfig = [
         enable_evict_file_cache_in_advance : false,
-        file_cache_enter_disk_resource_limit_mode_percent : 99,
-        file_cache_background_ttl_gc_interval_ms : 1000,
-        file_cache_background_ttl_info_update_interval_ms : 1000,
-        file_cache_background_tablet_id_flush_interval_ms : 1000
+        file_cache_enter_disk_resource_limit_mode_percent : 99
     ]
     def customFeConfig = [
         rehash_tablet_after_be_dead_seconds : 5
@@ -184,13 +181,13 @@ suite("st10_drop_partition_cleanup") {
             def p2Tablets = getPartitionTabletIds.call(tableName, "p2")
             waitForFileCacheType.call((p1Tablets + p2Tablets).unique(), "ttl")
 
-            final String ttlMgrSetMetric = "file_cache_ttl_mgr_tablet_id_set_size"
-            long ttlMgrSetSizeBeforeDropPartition = getBrpcMetricSum.call(ttlMgrSetMetric)
+            final String policyNumMetric = "file_cache_tablet_policy_num"
+            long policyNumBeforeDropPartition = getBrpcMetricSum.call(policyNumMetric)
 
             sql """alter table ${tableName} drop partition p1 force"""
             waitDroppedTabletCacheInfoEmpty.call(p1Tablets)
             waitTabletCacheInfoNonEmpty.call(p2Tablets)
-            waitBrpcMetricLE.call(ttlMgrSetMetric, ttlMgrSetSizeBeforeDropPartition)
+            waitBrpcMetricLE.call(policyNumMetric, policyNumBeforeDropPartition)
 
             sql """select count(*) from ${tableName} where k1 >= 1000"""
             sql """drop table if exists ${tableName}"""
