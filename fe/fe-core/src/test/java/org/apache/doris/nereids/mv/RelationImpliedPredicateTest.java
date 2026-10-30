@@ -22,6 +22,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.job.common.TaskStatus;
+import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
@@ -593,13 +595,36 @@ public class RelationImpliedPredicateTest extends SqlTestBase {
         }
     }
 
-    private MTMV mockRefreshedMtmv(String name) {
+    private MTMV mockRefreshedMtmv(String name) throws Exception {
         Database db = (Database) Env.getCurrentEnv().getInternalCatalog().getDbNullable(connectContext.getDatabase());
         MTMV mtmv = (MTMV) db.getTableNullable(name);
+        // The BUILD IMMEDIATE refresh runs asynchronously and replaces the MV partitions when it
+        // finishes, resetting their visible version. Wait for it first, otherwise a late refresh
+        // can overwrite the data version mocked below and make the MV scan look empty.
+        awaitInitialRefreshTask(mtmv);
         mtmv.getStatus().setState(MTMVState.NORMAL);
         mtmv.getStatus().setRefreshState(MTMVRefreshState.SUCCESS);
         mockRefreshedPartitions(mtmv);
         return mtmv;
+    }
+
+    private void awaitInitialRefreshTask(MTMV mtmv) throws Exception {
+        long deadline = System.currentTimeMillis() + 60_000;
+        while (true) {
+            MTMVTask lastTask = null;
+            for (MTMVTask task : mtmv.getHistoryTasks()) {
+                lastTask = task;
+            }
+            if (lastTask != null) {
+                TaskStatus status = lastTask.getStatus();
+                Assertions.assertTrue(status == TaskStatus.SUCCESS || status == TaskStatus.FAILED
+                        || status == TaskStatus.CANCELED, "refresh task is not finished: " + status);
+                return;
+            }
+            Assertions.assertTrue(System.currentTimeMillis() < deadline,
+                    "BUILD IMMEDIATE refresh task of " + mtmv.getName() + " did not finish in 60s");
+            Thread.sleep(100);
+        }
     }
 
     private void mockRefreshedPartitions(MTMV mtmv) {
