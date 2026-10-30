@@ -192,16 +192,25 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
             setEndpoint(endpoint);
             return;
         }
-        // 2. try getting endpoint from uri
+        // 2. try getting endpoint from the location. isSingleLocationForm decides the single 'uri' form
+        //    vs the multi 'uris' form (and enforces their mutual exclusion); getPrimaryLocation then
+        //    returns the single 'uri' value or the first of 'uris' accordingly. A 'uris' list names
+        //    datasets on one storage provider (one scheme), so its first element is enough to infer the
+        //    endpoint.
+        boolean singleUri = isSingleLocationForm(origProps, URI_KEY);
         try {
-            endpoint = S3PropertyUtils.constructEndpointFromUrl(origProps, getUsePathStyle(),
-                    getForceParsingByStandardUrl());
-            if (StringUtils.isNotBlank(endpoint)) {
-                setEndpoint(endpoint);
+            String location = getPrimaryLocation(singleUri, origProps);
+            if (StringUtils.isNotBlank(location)) {
+                endpoint = S3PropertyUtils.constructEndpointFromUrl(location, getUsePathStyle(),
+                        getForceParsingByStandardUrl());
+                if (StringUtils.isNotBlank(endpoint)) {
+                    setEndpoint(endpoint);
+                }
             }
         } catch (Exception e) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("Failed to construct endpoint from url: {}", e.getMessage(), e);
+                String locationSource = singleUri ? "uri" : "uris[0]";
+                LOG.debug("Failed to construct endpoint from {}: {}", locationSource, e.getMessage(), e);
             }
         }
     }

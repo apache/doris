@@ -235,6 +235,22 @@ public class S3PropertiesTest {
     }
 
     @Test
+    public void testPureUrisInfersEndpointAndRegion() throws UserException {
+        // Pure "uris" form with NO "s3.endpoint", NO "s3.region" and NO single "uri".
+        // Both type detection (guessIsMe) and the endpoint must be inferred from "uris[0]", whose
+        // host carries "amazonaws.com".
+        Map<String, String> origProps = new HashMap<>();
+        origProps.put("uris", "[\"s3://warehouse.s3.us-east-1.amazonaws.com/lance/all_types.lance\"]");
+        origProps.put("s3.access_key", "myAccessKey");
+        origProps.put("s3.secret_key", "mySecretKey");
+        origProps.put("use_path_style", "true");
+        S3Properties s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
+        Assertions.assertTrue(s3Properties.getEndpoint().contains("s3.us-east-1.amazonaws.com"),
+                "endpoint should be inferred from uris[0], but was: " + s3Properties.getEndpoint());
+        Assertions.assertEquals("us-east-1", s3Properties.getRegion());
+    }
+
+    @Test
     public void testS3IamRoleWithExternalId() throws UserException {
         origProps.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
         origProps.put("s3.role_arn", "arn:aws:iam::123456789012:role/MyTestRole");
