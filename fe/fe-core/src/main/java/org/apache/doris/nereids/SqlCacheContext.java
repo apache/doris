@@ -410,6 +410,16 @@ public class SqlCacheContext {
 
     /** Record native scan dependencies before the first SQL cache key is computed. */
     public synchronized void addOlapScan(OlapTable table, Map<Long, Long> partitionVersions) {
+        if (table instanceof MTMV) {
+            // MV substitution can hide source partitions from the final physical scans. Preserve the
+            // logical source tables' versions before the BE key is computed, including partial UNION rewrites.
+            for (TableVersion version : usedTables.values()) {
+                if (version.olapVersion != null) {
+                    version.olapVersion.useTableVersion();
+                }
+            }
+            return;
+        }
         for (TableVersion version : usedTables.values()) {
             if (version.id == table.getId() && version.olapVersion != null) {
                 try {

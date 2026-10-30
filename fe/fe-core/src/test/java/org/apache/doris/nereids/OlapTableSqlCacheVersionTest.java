@@ -19,6 +19,7 @@ package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.OlapTable;
@@ -147,8 +148,7 @@ class OlapTableSqlCacheVersionTest {
         Assertions.assertEquals(cached.getCacheKey(), refreshed.getCacheKey());
     }
 
-    @Test
-    void testVariableAwareCacheKeysRetainTableVersionInBothBindingOrders() throws Exception {
+    private OlapTable cacheableTable() {
         OlapTable table = Mockito.spy(table());
         DatabaseIf database = Mockito.mock(DatabaseIf.class);
         CatalogIf catalog = Mockito.mock(CatalogIf.class);
@@ -158,6 +158,12 @@ class OlapTableSqlCacheVersionTest {
         Mockito.when(database.getFullName()).thenReturn("cache_db");
         Mockito.when(catalog.getName()).thenReturn("internal");
         Mockito.when(catalog.isInternalCatalog()).thenReturn(true);
+        return table;
+    }
+
+    @Test
+    void testVariableAwareCacheKeysRetainTableVersionInBothBindingOrders() throws Exception {
+        OlapTable table = cacheableTable();
         Variable variable = new Variable("partition_id", VariableType.USER, new IntegerLiteral(1));
 
         SqlCacheContext tableFirst = new SqlCacheContext(UserIdentity.ROOT);
@@ -174,6 +180,26 @@ class OlapTableSqlCacheVersionTest {
         variableFirst.addUsedTable(table);
         variableFirst.addOlapScan(table, ImmutableMap.of(10L, 2L));
         Assertions.assertEquals("2", variableFirst.getUsedTables().values().iterator().next().getCacheKey());
+    }
+
+    @Test
+    void testMaterializedViewScanRetainsSourceVersionInBothScanOrders() {
+        OlapTable table = cacheableTable();
+        MTMV mv = Mockito.mock(MTMV.class);
+        for (boolean mvFirst : new boolean[] {true, false}) {
+            SqlCacheContext context = new SqlCacheContext(UserIdentity.ROOT);
+            context.addUsedTable(table);
+            if (mvFirst) {
+                context.addOlapScan(mv, ImmutableMap.of());
+            }
+            context.addOlapScan(table, ImmutableMap.of(10L, 2L));
+            if (!mvFirst) {
+                context.addOlapScan(mv, ImmutableMap.of());
+            }
+            SqlCacheContext.TableVersion version = context.getUsedTables().values().iterator().next();
+            Assertions.assertFalse(version.olapVersion.isUsable());
+            Assertions.assertEquals("2", version.getCacheKey());
+        }
     }
 
     @Test
