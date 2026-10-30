@@ -152,6 +152,14 @@ bool is_orc_stop(const io::IOContext* io_ctx, const std::exception& e) {
     return io_ctx != nullptr && io_ctx->should_stop && std::string_view(e.what()) == "stop";
 }
 
+Status orc_next_batch_error(const std::exception& e) {
+    // SDK callbacks throw Doris statuses; retain their codes after the caller handles clean EOF.
+    if (const auto* status_error = dynamic_cast<const doris::Exception*>(&e)) {
+        return status_error->to_status().prepend("Orc row reader nextBatch failed. reason = ");
+    }
+    return Status::InternalError("Orc row reader nextBatch failed. reason = {}", e.what());
+}
+
 Status fall_back_without_orc_sarg(const char* operation, const std::string& file_path,
                                   ::orc::RowReaderOptions* row_reader_options,
                                   const std::exception& e) {
@@ -1006,7 +1014,24 @@ private:
 
     Status _has_match(const DictionaryColumn& column, ::orc::StringDictionary& dictionary,
                       bool* has_match) const {
-        const auto value_count = dictionary.dictionaryOffset.size() - 1;
+        DBUG_EXECUTE_IF("OrcReader::dictionary_loaded", DBUG_RUN_CALLBACK(&dictionary));
+        const auto offset_count = dictionary.dictionaryOffset.size();
+        const auto* offsets = dictionary.dictionaryOffset.data();
+        // Validate the whole dictionary before a matching prefix can end evaluation early.
+        // Empty, decreasing or oversized offsets can underflow counts/lengths or read past the blob.
+        if (offset_count == 0 || offsets[0] != 0) {
+            return Status::Corruption(
+                    "Invalid ORC dictionary offsets for column {}: missing zero sentinel",
+                    column.name);
+        }
+        for (size_t i = 1; i < offset_count; ++i) {
+            if (offsets[i] < offsets[i - 1] ||
+                std::cmp_greater(offsets[i], dictionary.dictionaryBlob.size())) {
+                return Status::Corruption(
+                        "Invalid ORC dictionary offsets for column {} at entry {}", column.name, i);
+            }
+        }
+        const auto value_count = offset_count - 1;
         const auto batch_size = _reader->_read_batch_size();
         // Include NULL because dictionaries contain only non-null values. A null-safe predicate
         // may accept NULL even when no dictionary value matches. Bound each temporary string block.
@@ -2452,7 +2477,7 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
                 _eof = true;
                 return Status::OK();
             }
-            return Status::InternalError("Orc row reader nextBatch failed. reason = {}", e.what());
+            return orc_next_batch_error(e);
         }
         if (has_next) {
             if (_state->orc_lazy_read_enabled && _state->orc_lazy_selection_valid &&

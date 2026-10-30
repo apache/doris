@@ -99,6 +99,12 @@ public:
         DebugPoints::instance()->add_with_callback(_name, std::move(callback));
     }
 
+    ScopedDebugPoint(std::string name, std::function<void(::orc::StringDictionary*)> callback)
+            : _name(std::move(name)), _enable_debug_points(config::enable_debug_points) {
+        config::enable_debug_points = true;
+        DebugPoints::instance()->add_with_callback(_name, std::move(callback));
+    }
+
     ~ScopedDebugPoint() {
         DebugPoints::instance()->remove(_name);
         config::enable_debug_points = _enable_debug_points;
@@ -8083,6 +8089,48 @@ TEST_F(NewOrcReaderTest, DictionaryNamesPreservePhysicalColumnIdentity) {
                 EXPECT_GT(profile.get_counter("DictionaryValuesEvaluated")->value(), 0);
             }
         }
+    }
+}
+
+TEST_F(NewOrcReaderTest, DictionaryRejectsMalformedOffsetsBeforePruning) {
+    const auto path = (_test_dir / "dictionary_invalid_offsets.orc").string();
+    write_string_filter_orc_file(path, true);
+    const std::vector<std::vector<int64_t>> invalid_offsets {
+            {},
+            {-1},
+            {1, 2},
+            {0, 2, 1},
+            {0, -1},
+            {0, 1024 * 1024},
+            {0, std::numeric_limits<int64_t>::max()}};
+    for (const auto& offsets : invalid_offsets) {
+        SCOPED_TRACE(testing::PrintToString(offsets));
+        auto reader = create_reader_for_path(path);
+        TQueryOptions options;
+        options.__set_enable_orc_filter_by_min_max(false);
+        options.__set_enable_orc_lazy_mat(false);
+        RuntimeState state {options, TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(reader->get_schema(&schema).ok());
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->predicate_columns = {field_projection(0)};
+        request->conjuncts.push_back(
+                VExprContext::create_shared(std::make_shared<NullableStringEqualsExpr>(
+                        0, remove_nullable(schema[0].type), "mm", "value")));
+        ASSERT_TRUE(reader->open(request).ok());
+        ScopedDebugPoint corrupt_dictionary(
+                "OrcReader::dictionary_loaded", [&](::orc::StringDictionary* dictionary) {
+                    dictionary->dictionaryOffset.resize(offsets.size());
+                    std::ranges::copy(offsets, dictionary->dictionaryOffset.data());
+                });
+        Block block = build_file_block({schema[0]});
+        size_t rows = 0;
+        bool eof = false;
+        const auto status = reader->get_block(&block, &rows, &eof);
+        ASSERT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+        EXPECT_NE(status.to_string().find("dictionary offsets"), std::string::npos);
+        EXPECT_EQ(rows, 0);
     }
 }
 

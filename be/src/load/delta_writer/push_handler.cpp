@@ -35,6 +35,7 @@
 #include <queue>
 #include <shared_mutex>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
 
 #include "common/cast_set.h"
@@ -62,6 +63,37 @@
 
 namespace doris {
 using namespace ErrorCode;
+
+namespace {
+
+Status project_broker_source_slots(const TDescriptorTable& descriptors,
+                                   const TBrokerScanRangeParams& params,
+                                   TDescriptorTable* projected) {
+    *projected = descriptors;
+    projected->slotDescriptors.clear();
+    std::unordered_map<SlotId, const TSlotDescriptor*> source_slots;
+    for (const auto& slot : descriptors.slotDescriptors) {
+        if (slot.parent == params.src_tuple_id) {
+            source_slots.emplace(slot.id, &slot);
+        } else {
+            projected->slotDescriptors.push_back(slot);
+        }
+    }
+    // The descriptor may include unused slots or list path slots before file slots. Expressions
+    // and LoadTableReader must see exactly the broker's selected source slots, in wire order.
+    for (const auto slot_id : params.src_slot_ids) {
+        const auto slot = source_slots.find(slot_id);
+        if (slot == source_slots.end()) {
+            return Status::InvalidArgument("Unknown or duplicate broker source slot {} in tuple {}",
+                                           slot_id, params.src_tuple_id);
+        }
+        projected->slotDescriptors.push_back(*slot->second);
+        source_slots.erase(slot);
+    }
+    return Status::OK();
+}
+
+} // namespace
 
 // Process push command, the main logical is as follows:
 //    a. related tablets not exist:
@@ -375,8 +407,11 @@ Status PushBrokerReader::init() {
             fmt::format("PushBrokerReader:dummy_id={}", print_id(dummy_id)));
     _runtime_state = RuntimeState::create_unique(params, query_options, query_globals,
                                                  ExecEnv::GetInstance(), nullptr, tracker);
+    TDescriptorTable projected_descriptors;
+    RETURN_IF_ERROR(project_broker_source_slots(_t_desc_tbl, _params, &projected_descriptors));
     DescriptorTbl* desc_tbl = nullptr;
-    Status status = DescriptorTbl::create(_runtime_state->obj_pool(), _t_desc_tbl, &desc_tbl);
+    Status status =
+            DescriptorTbl::create(_runtime_state->obj_pool(), projected_descriptors, &desc_tbl);
     if (UNLIKELY(!status.ok())) {
         return Status::Error<PUSH_INIT_ERROR>("Failed to create descriptor table, msg: {}", status);
     }
@@ -396,15 +431,15 @@ Status PushBrokerReader::init() {
     if (source == nullptr || _dest_tuple_desc == nullptr) {
         return Status::InternalError("Unknown source or destination tuple in push load");
     }
-    // Older push requests omit the file-column count and read every source slot from Parquet.
+    // An omitted count covers selected broker slots, including when the descriptor has extras.
     if (!_ranges.empty() && !_ranges.front().__isset.num_of_columns_from_file) {
-        _file_params.num_of_columns_from_file = cast_set<int32_t>(source->slots().size());
+        _file_params.num_of_columns_from_file = cast_set<int32_t>(_params.src_slot_ids.size());
     }
     _file_params.__set_file_type(_file_ranges.empty() ? TFileType::FILE_LOCAL
                                                       : _file_ranges.front().file_type);
-    for (size_t i = 0; i < source->slots().size(); ++i) {
+    for (size_t i = 0; i < _params.src_slot_ids.size(); ++i) {
         TFileScanSlotInfo slot;
-        slot.__set_slot_id(source->slots()[i]->id());
+        slot.__set_slot_id(_params.src_slot_ids[i]);
         slot.__set_is_file_slot(std::cmp_less(i, _file_params.num_of_columns_from_file));
         _file_params.required_slots.push_back(std::move(slot));
     }

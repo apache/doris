@@ -1583,6 +1583,121 @@ TEST_F(LoadReaderTest, PushLoadsUseSourceConversionsAcrossParquetRanges) {
     }
 }
 
+void collect_push_rows(PushBrokerReader& reader, bool with_path_column,
+                       std::vector<std::string>* values) {
+    while (!reader.eof()) {
+        Block block;
+        const auto status = reader.next(&block);
+        ASSERT_TRUE(status.ok()) << status;
+        for (size_t row = 0; row < block.rows(); ++row) {
+            const auto& column = *block.get_by_position(0).column;
+            values->push_back(column.is_null_at(row) ? "NULL"
+                                                     : column.get_data_at(row).to_string());
+            if (with_path_column) {
+                EXPECT_EQ(block.get_by_position(1).column->get_data_at(row).to_string(), "route");
+            }
+        }
+    }
+}
+
+TEST_F(LoadReaderTest, PushSourceProjectionOmitsAndReordersSlots) {
+    doris::test::ScopedTempDirectory temp("push_projection");
+    const auto path = (temp.path() / "data.parquet").string();
+    ASSERT_TRUE(write_push_parquet(path, false).ok());
+    for (const bool with_path_column : {false, true}) {
+        SCOPED_TRACE(with_path_column);
+        TTupleDescriptor tuple;
+        tuple.__set_id(0);
+        tuple.__set_byteSize(0);
+        tuple.__set_numNullBytes(1);
+        TDescriptorTable descriptors;
+        descriptors.tupleDescriptors.push_back(tuple);
+        tuple.__set_id(1);
+        descriptors.tupleDescriptors.push_back(tuple);
+        auto unused = source_definition;
+        unused.__set_id(11);
+        unused.__set_colName("unused");
+        auto partition = source_definition;
+        partition.__set_id(12);
+        partition.__set_colName("path_value");
+        auto target = source_definition;
+        target.__set_id(20);
+        target.__set_parent(1);
+        target.__set_colName("value");
+        // Descriptor order deliberately differs from the broker projection; slot 11 is omitted.
+        descriptors.__set_slotDescriptors({partition, unused, source_definition, target});
+        TBrokerScanRange scan;
+        scan.params.__set_src_tuple_id(0);
+        scan.params.__set_dest_tuple_id(1);
+        scan.params.__set_src_slot_ids(with_path_column ? std::vector<int32_t> {10, 12}
+                                                        : std::vector<int32_t> {10});
+        scan.params.__set_expr_of_dest_slot(params.expr_of_dest_slot);
+        scan.params.__set_dest_sid_to_src_sid_without_trans({{20, 10}});
+        if (with_path_column) {
+            auto path_target = target;
+            path_target.__set_id(21);
+            path_target.__set_colName("partition_value");
+            path_target.__set_slotIdx(1);
+            descriptors.slotDescriptors.push_back(path_target);
+            auto expression = params.expr_of_dest_slot.at(20);
+            expression.nodes.front().slot_ref.__set_slot_id(12);
+            scan.params.expr_of_dest_slot.emplace(21, std::move(expression));
+            scan.params.dest_sid_to_src_sid_without_trans.emplace(21, 12);
+        }
+        TBrokerRangeDesc range;
+        range.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+        range.__set_file_type(TFileType::FILE_LOCAL);
+        range.__set_path(path);
+        range.__set_start_offset(0);
+        range.__set_size(std::filesystem::file_size(path));
+        range.__set_file_size(std::filesystem::file_size(path));
+        if (with_path_column) {
+            range.__set_num_of_columns_from_file(1);
+            range.__set_columns_from_path({"route"});
+        }
+        scan.__set_ranges({range});
+        PushBrokerReader reader(scan, descriptors);
+        auto status = reader.init();
+        ASSERT_TRUE(status.ok()) << status;
+        std::vector<std::string> values;
+        collect_push_rows(reader, with_path_column, &values);
+        EXPECT_EQ(values, (std::vector<std::string> {"7", "NULL", "8"}));
+        ASSERT_TRUE(reader.close().ok());
+    }
+}
+
+TEST_F(LoadReaderTest, PushRejectsInvalidSourceProjection) {
+    TTupleDescriptor tuple;
+    tuple.__set_id(0);
+    tuple.__set_byteSize(0);
+    tuple.__set_numNullBytes(1);
+    TDescriptorTable descriptors;
+    descriptors.tupleDescriptors.push_back(tuple);
+    tuple.__set_id(1);
+    descriptors.tupleDescriptors.push_back(tuple);
+    auto target = source_definition;
+    target.__set_id(20);
+    target.__set_parent(1);
+    descriptors.__set_slotDescriptors({source_definition, target});
+    for (const auto& ids :
+         {std::vector<int32_t> {99}, std::vector<int32_t> {20}, std::vector<int32_t> {10, 10}}) {
+        TBrokerScanRange scan;
+        scan.params.__set_src_tuple_id(0);
+        scan.params.__set_dest_tuple_id(1);
+        scan.params.__set_src_slot_ids(ids);
+        scan.params.__set_expr_of_dest_slot(params.expr_of_dest_slot);
+        scan.params.__set_dest_sid_to_src_sid_without_trans({{20, 10}});
+        TBrokerRangeDesc range;
+        range.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+        range.__set_file_type(TFileType::FILE_LOCAL);
+        range.__set_num_of_columns_from_file(1);
+        scan.__set_ranges({range});
+        PushBrokerReader reader(scan, descriptors);
+        const auto status = reader.init();
+        EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
+    }
+}
+
 TEST_F(LoadReaderTest, QueryOnlyConnectorsRejectFileLoads) {
     for (const char* table_format : {"adbc", "fluss"}) {
         params.table_format_params.__set_table_format_type(table_format);
