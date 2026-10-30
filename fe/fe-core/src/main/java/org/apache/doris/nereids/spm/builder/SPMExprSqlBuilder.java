@@ -115,6 +115,21 @@ import java.util.stream.Collectors;
 public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
 
     /**
+     * The INTERNAL pseudo function names {@link #visitSubqueryExpr} emits for a subquery: the
+     * structural DIGEST form, never SQL.
+     *
+     * <p>They are reserved by SPM. A frozen SQL must never be readable as - or shadowed by - a user
+     * function of one of these names: {@code INSUBQUERY(x)[...]} is an ordinary unreserved call, so
+     * a compatible user alias UDF made a frozen text validate and every replay evaluated that UDF
+     * (and its array access) instead of the original {@code IN (SELECT ...)}. Subqueries are
+     * therefore refused before decompilation and a plan calling a function of these names is not
+     * freezable either (see SPMPlan2SQLBuilder#rejectSubqueryExpressions /
+     * #rejectReservedInternalFunctionNames).
+     */
+    public static final java.util.Set<String> INTERNAL_PSEUDO_FUNCTION_NAMES =
+            java.util.Set.of("insubquery", "scalarsubquery");
+
+    /**
      * Prints a single expression.
      *
      * @param expr     the expression to print

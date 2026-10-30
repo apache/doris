@@ -75,6 +75,8 @@ public class SPMRound73ManagerTest {
         long clockJumpOnInsertMillis;
         /** The compact identity state the batched read answers for every slot. */
         SeqReservation batchedState;
+        /** Per-slot override: the state that names the row's OWN incarnation (round-89). */
+        final Map<Long, SeqReservation> batchedStatesBySlot = new ConcurrentHashMap<>();
         /** The state the single (history-reconciling) identity read answers. */
         SeqReservation singleState;
         /** How many rows the first pending-window probe reports (2 = a colliding identity). */
@@ -170,7 +172,8 @@ public class SPMRound73ManagerTest {
             }
             Map<Long, SeqReservation> states = new HashMap<>();
             for (Long compactId : compactIds) {
-                states.put(compactId, batchedState);
+                SeqReservation answer = batchedStatesBySlot.get(compactId);
+                states.put(compactId, answer == null ? batchedState : answer);
             }
             return states;
         }
@@ -306,6 +309,18 @@ public class SPMRound73ManagerTest {
         }
     }
 
+    /** The COMPACT identity slot id of one row (see BaselineManager#compactSeqId). */
+    private static long compactSeqId(BaselinePlan plan) {
+        try {
+            java.lang.reflect.Method method = BaselineManager.class
+                    .getDeclaredMethod("compactSeqId", String.class, long.class);
+            method.setAccessible(true);
+            return (Long) method.invoke(null, plan.getBindSqlDigest(), planSqlHash(plan));
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     // ==================== #4: batched identity-state reads ====================
 
     /**
@@ -321,7 +336,12 @@ public class SPMRound73ManagerTest {
 
         Map<Long, BaselinePlan> snapshot = new LinkedHashMap<>();
         for (long id = 1; id <= 250; id++) {
-            snapshot.put(id, row(id, "digest_" + id, BaselineStatus.ENABLED));
+            BaselinePlan plan = row(id, "digest_" + id, BaselineStatus.ENABLED);
+            snapshot.put(id, plan);
+            // the real compact answer names the row's OWN incarnation: such a slot needs no
+            // history reconciliation (round-89), so the batched read still answers it
+            store.batchedStatesBySlot.put(compactSeqId(plan),
+                    new BaselinePersistence.SeqReservation(id, 1_000L, false, false));
         }
         int surviving = BaselineManagerTestAccess.filterSnapshot(manager, snapshot);
 

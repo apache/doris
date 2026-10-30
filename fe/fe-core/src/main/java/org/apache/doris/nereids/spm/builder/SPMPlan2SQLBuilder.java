@@ -334,6 +334,92 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         });
     }
 
+    /**
+     * Rejects freezing when any expression of the plan still carries a SUBQUERY.
+     *
+     * <p>This builder renders expressions with {@link SPMExprSqlBuilder}, which has no SQL
+     * rendering for a subquery: it emits the structural PSEUDO text
+     * {@code INSUBQUERY(compareExpr)[...]} / {@code EXISTS[...]} / {@code SCALARSUBQUERY[...]}
+     * (see SPMExprSqlBuilder#visitSubqueryExpr) - the digest form, not a query. Stored as frozen
+     * SQL that text is not the user's {@code IN (SELECT ...)}: it is an ordinary, unreserved
+     * function call, so a user alias UDF (or catalog function) of that name with compatible
+     * arguments made capture-time validation SUCCEED, the baseline was stored with
+     * {@code planFrozen = true}, and every replay evaluated the user's UDF / array access instead
+     * of the original subquery - returning different rows than the query it claims to replay
+     * (round-89 review). Rejecting here keeps the baseline on the parameterized-plan-tree path,
+     * which handles subqueries natively; the same refusal covers a plan whose subquery survives in
+     * a projection (scalar subquery) or a filter (IN / EXISTS).
+     *
+     * @param plan the physical plan about to be decompiled
+     */
+    public static void rejectSubqueryExpressions(Plan plan) {
+        org.apache.doris.nereids.spm.SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, node -> {
+            for (org.apache.doris.nereids.trees.expressions.Expression expr
+                    : node.getExpressions()) {
+                if (containsSubqueryExpression(expr)) {
+                    throw new UnsupportedOperationException("SPM cannot freeze an expression"
+                            + " carrying a subquery (its SQL has no subquery rendering): " + expr);
+                }
+            }
+        });
+    }
+
+    /**
+     * Rejects freezing when the plan references a USER function under one of SPM's INTERNAL
+     * pseudo names (see {@link SPMExprSqlBuilder#INTERNAL_PSEUDO_FUNCTION_NAMES}).
+     *
+     * <p>Those names are reserved by SPM: they name the structural markers of the digest text, and
+     * a frozen SQL must never be readable as - or shadowed by - a user function of the same name.
+     * A user (or catalog) function that happens to carry one of them keeps the baseline on the
+     * parameterized-plan-tree path instead of producing text that means two different things.
+     *
+     * @param plan the physical plan about to be decompiled
+     */
+    public static void rejectReservedInternalFunctionNames(Plan plan) {
+        org.apache.doris.nereids.spm.SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, node -> {
+            for (org.apache.doris.nereids.trees.expressions.Expression expr
+                    : node.getExpressions()) {
+                if (containsReservedInternalFunction(expr)) {
+                    throw new UnsupportedOperationException("SPM cannot freeze an expression"
+                            + " that calls the reserved internal name of a subquery marker: "
+                            + expr);
+                }
+            }
+        });
+    }
+
+    private static boolean containsSubqueryExpression(
+            org.apache.doris.nereids.trees.expressions.Expression expr) {
+        if (expr instanceof org.apache.doris.nereids.trees.expressions.SubqueryExpr) {
+            return true;
+        }
+        for (org.apache.doris.nereids.trees.expressions.Expression child : expr.children()) {
+            if (containsSubqueryExpression(child)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean containsReservedInternalFunction(
+            org.apache.doris.nereids.trees.expressions.Expression expr) {
+        if (expr instanceof Function) {
+            // the NAME alone reserves it: an internal marker must never be shadowed by (or
+            // confused with) a user function in ANY namespace
+            Function function = (Function) expr;
+            if (SPMExprSqlBuilder.INTERNAL_PSEUDO_FUNCTION_NAMES.contains(
+                    function.getName().toLowerCase(java.util.Locale.ROOT))) {
+                return true;
+            }
+        }
+        for (org.apache.doris.nereids.trees.expressions.Expression child : expr.children()) {
+            if (containsReservedInternalFunction(child)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static boolean containsSessionVarGuard(
             org.apache.doris.nereids.trees.expressions.Expression expr) {
         if (expr instanceof org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr) {
@@ -808,6 +894,12 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         // still matches. Reject freezing instead (CREATE keeps the user planSql /
         // falls back to the parameterized-plan-tree path).
         rejectSessionVarGuardedExpressions(plan);
+        // A residual SUBQUERY has no SQL rendering here (SPMExprSqlBuilder emits the digest
+        // pseudo form, which a user function of the same name could legally satisfy), and SPM's
+        // pseudo names are reserved - both are refusals, so the baseline stays on the
+        // parameterized-plan-tree path (see rejectSubqueryExpressions).
+        rejectSubqueryExpressions(plan);
+        rejectReservedInternalFunctionNames(plan);
         // reset the per-decompile alias / generated-name sequences: t_N and c_N only
         // need to be unique WITHIN the one produced SQL, so numbering restarts here and
         // the decompiled text stays compact across calls

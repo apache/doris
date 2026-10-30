@@ -7238,6 +7238,31 @@ public class BaselineManager {
     }
 
     /**
+     * Whether one compact identity answer already NAMES the incarnation of every row it is about
+     * to filter (see withIdentityDrops).
+     *
+     * <p>A compact row is the compact COPY of one state change of one incarnation, so an answer
+     * whose {@code baseline_id} equals the row's own id is that row's own state: alive here means
+     * the row was alive when that state was written, and a DROP of it would have appended a
+     * tombstone for the SAME id (the fence republishes it until every reader sees it). An answer
+     * naming a DIFFERENT (necessarily newer) id says nothing about the row's incarnation, so the
+     * caller reconciles with the identity-filtered history instead.
+     *
+     * @param state the compact (batched) answer of the identity
+     * @param rows  the rows the caller is about to filter
+     * @return whether the answer names every row's own incarnation
+     */
+    private static boolean namesEveryIncarnation(BaselinePersistence.SeqReservation state,
+            Collection<BaselinePlan> rows) {
+        for (BaselinePlan row : rows) {
+            if (row == null || row.getId() != state.id()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * Extends one scoped tombstone set with every row whose IDENTITY's newest sequence
      * state is itself a DROP TOMBSTONE. Every tombstone above is keyed by the id of the
      * DROP, so a late INSERT of the SAME baseline under an OLDER id - a demoted master's
@@ -7252,7 +7277,9 @@ public class BaselineManager {
      * @param rows       the rows the caller is about to filter
      * @return the markers plus one identity key per row of a dropped identity
      */
-    private Set<String> withIdentityDrops(Set<String> tombstones, Collection<BaselinePlan> rows) {
+    // package-visible for the review test: the reconciliation of the batched answer with the
+    // identity history is exactly what round-89 fixed
+    Set<String> withIdentityDrops(Set<String> tombstones, Collection<BaselinePlan> rows) {
         Map<String, List<BaselinePlan>> byIdentity = null;
         for (BaselinePlan row : rows) {
             if (row == null || row.getId() <= 0 || row.getBindSqlDigest() == null
@@ -7305,6 +7332,18 @@ public class BaselineManager {
                     // the compact slot cannot answer (a hash slot shared with another identity,
                     // a tombstone that may be older than the newest reservation, or a store
                     // without the batched read): reconcile with the history
+                    state = persistence.readLatestReservation(first.getBindSqlDigest(),
+                            planSqlHash);
+                } else if (!namesEveryIncarnation(state, group.getValue())) {
+                    // A NON-dropped compact answer only proves the incarnation it NAMES is alive:
+                    // the compact copy of a DROP is appended best-effort, so the slot can still
+                    // say "alive" while the history already carries the newer tombstone, and the
+                    // rows about to be filtered can belong to an OLDER incarnation the DROP
+                    // condemned (a demoted master's in-flight INSERT landing under an older id).
+                    // Reconciling is only needed when the answer does NOT name every row's own
+                    // incarnation - the healthy snapshot, where the live row IS the newest
+                    // incarnation, keeps the bounded batched answer and issues no extra query
+                    // (round-89 review).
                     state = persistence.readLatestReservation(first.getBindSqlDigest(),
                             planSqlHash);
                 }
@@ -8097,18 +8136,23 @@ public class BaselineManager {
             throw new RuntimeException("SPM baseline id sequence identity read failed (retry the"
                     + " CREATE): " + e.getMessage(), e);
         }
-        if (compactRes != null && !compactRes.dropped) {
-            return compactRes;
-        }
-        // Reconcile with the append-only HISTORY: a DROPPED compact tombstone (or a
-        // missing compact row) can PREDATE a NEWER reservation of the same identity - the
-        // compact append and the strict history INSERT are SEPARATE writes, so right after
-        // a DROP + re-CREATE the compact slot may still show tombstone N while the history
-        // already carries N+1. Trusting the tombstone made a retry on ANOTHER FE read the
-        // identity as "resolved by a completed DROP" and allocate a SECOND id whose row
-        // could publish beside the first COMMITTED-but-unreadable one (both ENABLED). The
-        // legacy query is correct, only unbounded, and it now runs ONLY when the compact
-        // record is missing or a tombstone - never on the steady reservation path.
+        // Reconcile with the append-only HISTORY, ALWAYS: the compact copy and the strict
+        // history INSERT are SEPARATE writes, so the slot can be stale in EITHER direction.
+        //
+        // A compact TOMBSTONE can PREDATE a newer reservation of the same identity (right after
+        // a DROP + re-CREATE the slot may still show tombstone N while the history already
+        // carries N+1). Trusting it made a retry on ANOTHER FE read the identity as "resolved by
+        // a completed DROP" and allocate a SECOND id whose row could publish beside the first
+        // COMMITTED-but-unreadable one (both ENABLED).
+        //
+        // A compact NON-dropped row is the mirror image (round-89 review): the compact copy of a
+        // DROP is appended best-effort, so the slot can still answer "alive" while the history
+        // already carries the newer tombstone - the reader then published a delayed INSERT of
+        // the same digest / hash under an OLDER baseline id that the DROP had condemned. Only a
+        // record compared against BOTH writes can prove the identity's state, so this read is
+        // now unconditional; it is bounded to one query per identity READ, and the batched
+        // snapshot path asks for it only for the identities whose compact answer does not match
+        // the rows it is about to filter (see withIdentityDrops).
         BaselinePersistence.SeqReservation historyRes;
         try {
             List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
