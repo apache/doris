@@ -22,7 +22,6 @@
 #include "storage/segment/options.h"
 #include "storage/segment/page_builder.h"
 #include "storage/segment/page_decoder.h"
-#include "storage/storage_layout.h"
 #include "storage/types.h"
 #include "util/coding.h"
 #include "util/faststring.h"
@@ -192,8 +191,7 @@ public:
         size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
         const void* src_data = &_data[PLAIN_PAGE_HEADER_SIZE + _cur_idx * SIZE_OF_TYPE];
 
-        StorageLayout<Type>::storage_to_column(static_cast<const uint8_t*>(src_data), max_fetch,
-                                               *dst);
+        dst->insert_many_fix_len_data((const char*)src_data, max_fetch);
 
         *n = max_fetch;
         _cur_idx += max_fetch;
@@ -222,8 +220,7 @@ public:
         }
 
         if (LIKELY(read_count > 0)) {
-            StorageLayout<Type>::storage_to_column(reinterpret_cast<const uint8_t*>(_buffer.data()),
-                                                   read_count, *dst);
+            dst->insert_many_fix_len_data((char*)_buffer.data(), read_count);
         }
 
         *n = read_count;

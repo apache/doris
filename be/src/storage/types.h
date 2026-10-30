@@ -59,189 +59,189 @@ static const std::vector<std::string> DATE_FORMATS {
 // ARRAY / MAP / STRUCT are intentionally NOT specialized here: they are
 // containers of other types, so only their element types have a storage-layer
 // cell representation. The primary template below uses a deferred
-// static_assert so that instantiating `StorageTypeTraits<X>` for any
+// static_assert so that instantiating `CppTypeTraits<X>` for any
 // unspecialized FieldType — most importantly ARRAY/MAP/STRUCT — fails at
 // build time with a clear message, rather than at runtime.
 namespace detail {
 template <FieldType>
-inline constexpr bool storage_type_traits_unspecialized = false;
+inline constexpr bool cpp_type_traits_unspecialized = false;
 } // namespace detail
 
 template <FieldType field_type>
-struct StorageTypeTraits {
-    static_assert(detail::storage_type_traits_unspecialized<field_type>,
-                  "StorageTypeTraits not specialized for this FieldType. "
+struct CppTypeTraits {
+    static_assert(detail::cpp_type_traits_unspecialized<field_type>,
+                  "CppTypeTraits not specialized for this FieldType. "
                   "ARRAY / MAP / STRUCT and similar container types have no "
                   "storage-layer cell representation — operate on the element "
                   "type instead.");
 };
 
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_BOOL> {
-    using StorageType = uint8_t;
-    using UnsignedStorageType = uint8_t;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_BOOL> {
+    using CppType = uint8_t;
+    using UnsignedCppType = uint8_t;
 };
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_TINYINT> {
-    using StorageType = int8_t;
-    using UnsignedStorageType = uint8_t;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_TINYINT> {
+    using CppType = int8_t;
+    using UnsignedCppType = uint8_t;
 };
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_SMALLINT> {
-    using StorageType = int16_t;
-    using UnsignedStorageType = uint16_t;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_SMALLINT> {
+    using CppType = int16_t;
+    using UnsignedCppType = uint16_t;
 };
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_INT> {
-    using StorageType = int32_t;
-    using UnsignedStorageType = uint32_t;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_INT> {
+    using CppType = int32_t;
+    using UnsignedCppType = uint32_t;
 };
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT> {
-    using StorageType = uint32_t;
-    using UnsignedStorageType = uint32_t;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT> {
+    using CppType = uint32_t;
+    using UnsignedCppType = uint32_t;
 };
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_BIGINT> {
-    using StorageType = int64_t;
-    using UnsignedStorageType = uint64_t;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_BIGINT> {
+    using CppType = int64_t;
+    using UnsignedCppType = uint64_t;
 };
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT> {
-    using StorageType = uint64_t;
-    using UnsignedStorageType = uint64_t;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT> {
+    using CppType = uint64_t;
+    using UnsignedCppType = uint64_t;
 };
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_LARGEINT> {
-    using StorageType = int128_t;
-    using UnsignedStorageType = uint128_t;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_LARGEINT> {
+    using CppType = int128_t;
+    using UnsignedCppType = uint128_t;
 };
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_FLOAT> {
-    using StorageType = float;
-    using UnsignedStorageType = uint32_t;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_FLOAT> {
+    using CppType = float;
+    using UnsignedCppType = uint32_t;
 };
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DOUBLE> {
-    using StorageType = double;
-    using UnsignedStorageType = uint64_t;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DOUBLE> {
+    using CppType = double;
+    using UnsignedCppType = uint64_t;
 };
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL> {
-    using StorageType = decimal12_t;
-    using UnsignedStorageType = decimal12_t;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL> {
+    using CppType = decimal12_t;
+    using UnsignedCppType = decimal12_t;
 };
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL32> {
-    using StorageType = int32_t;
-    using UnsignedStorageType = uint32_t;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL32> {
+    using CppType = int32_t;
+    using UnsignedCppType = uint32_t;
 };
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL64> {
-    using StorageType = int64_t;
-    using UnsignedStorageType = uint64_t;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL64> {
+    using CppType = int64_t;
+    using UnsignedCppType = uint64_t;
 };
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL128I> {
-    using StorageType = int128_t;
-    using UnsignedStorageType = uint128_t;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL128I> {
+    using CppType = int128_t;
+    using UnsignedCppType = uint128_t;
 };
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL256> {
-    using StorageType = wide::Int256;
-    using UnsignedStorageType = wide::UInt256;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL256> {
+    using CppType = wide::Int256;
+    using UnsignedCppType = wide::UInt256;
 };
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE> {
-    using StorageType = uint24_t;
-    using UnsignedStorageType = uint24_t;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE> {
+    using CppType = uint24_t;
+    using UnsignedCppType = uint24_t;
 };
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2> {
-    using StorageType = uint32_t;
-    using UnsignedStorageType = uint32_t;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2> {
+    using CppType = uint32_t;
+    using UnsignedCppType = uint32_t;
 };
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMEV2> {
-    using StorageType = uint64_t;
-    using UnsignedStorageType = uint64_t;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMEV2> {
+    using CppType = uint64_t;
+    using UnsignedCppType = uint64_t;
 };
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2> {
-    using StorageType = uint64_t;
-    using UnsignedStorageType = uint64_t;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2> {
+    using CppType = uint64_t;
+    using UnsignedCppType = uint64_t;
 };
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS> {
-    using StorageType = int64_t;
-    using UnsignedStorageType = uint64_t;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS> {
+    using CppType = int64_t;
+    using UnsignedCppType = uint64_t;
 };
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ> {
-    using StorageType = uint64_t;
-    using UnsignedStorageType = uint64_t;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ> {
+    using CppType = uint64_t;
+    using UnsignedCppType = uint64_t;
 };
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME> {
-    using StorageType = int64_t;
-    using UnsignedStorageType = uint64_t;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME> {
+    using CppType = int64_t;
+    using UnsignedCppType = uint64_t;
 };
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV4> {
-    using StorageType = uint32_t;
-    using UnsignedStorageType = uint32_t;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV4> {
+    using CppType = uint32_t;
+    using UnsignedCppType = uint32_t;
 };
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6> {
-    using StorageType = uint128_t;
-    using UnsignedStorageType = uint128_t;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6> {
+    using CppType = uint128_t;
+    using UnsignedCppType = uint128_t;
 };
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_UUID> {
-    using StorageType = uint128_t;
-    using UnsignedStorageType = uint128_t;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_UUID> {
+    using CppType = uint128_t;
+    using UnsignedCppType = uint128_t;
 };
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR> {
-    using StorageType = Slice;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR> {
+    using CppType = Slice;
 };
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_VARCHAR> {
-    using StorageType = Slice;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_VARCHAR> {
+    using CppType = Slice;
 };
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_STRING> {
-    using StorageType = Slice;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_STRING> {
+    using CppType = Slice;
 };
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_JSONB> {
-    using StorageType = Slice;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_JSONB> {
+    using CppType = Slice;
 };
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_VARIANT> {
-    using StorageType = Slice;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_VARIANT> {
+    using CppType = Slice;
 };
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_HLL> {
-    using StorageType = Slice;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_HLL> {
+    using CppType = Slice;
 };
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_BITMAP> {
-    using StorageType = Slice;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_BITMAP> {
+    using CppType = Slice;
 };
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE> {
-    using StorageType = Slice;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE> {
+    using CppType = Slice;
 };
 
 template <>
-struct StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_AGG_STATE> {
-    using StorageType = Slice;
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_AGG_STATE> {
+    using CppType = Slice;
 };
 
 template <FieldType field_type>
-struct BaseFieldTypeTraits : public StorageTypeTraits<field_type> {
-    using CppType = typename StorageTypeTraits<field_type>::StorageType;
+struct BaseFieldTypeTraits : public CppTypeTraits<field_type> {
+    using CppType = typename CppTypeTraits<field_type>::CppType;
 
     static inline CppType get_cpp_type_value(const void* address) {
         if constexpr (field_type == FieldType::OLAP_FIELD_TYPE_LARGEINT) {
@@ -271,7 +271,7 @@ struct BaseFieldTypeTraits : public StorageTypeTraits<field_type> {
 // FieldType::OLAP_FIELD_TYPE_DOUBLE, to reduce redundant code
 template <FieldType fieldType, bool isArithmetic>
 struct NumericFieldTypeTraits : public BaseFieldTypeTraits<fieldType> {
-    using CppType = typename StorageTypeTraits<fieldType>::StorageType;
+    using CppType = typename CppTypeTraits<fieldType>::CppType;
 };
 
 template <FieldType fieldType>
@@ -386,14 +386,14 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_AGG_STATE>
 // Instantiate this template to get static access to the type traits.
 template <FieldType field_type>
 struct TypeTraits : public FieldTypeTraits<field_type> {
-    using CppType = typename StorageTypeTraits<field_type>::StorageType;
+    using CppType = typename CppTypeTraits<field_type>::CppType;
 
     static const FieldType type = field_type;
     static const int32_t size = sizeof(CppType);
 };
 
 // In-memory storage cell footprint for one value of `field_type`,
-// i.e. sizeof(StorageTypeTraits<field_type>::StorageType).
+// i.e. sizeof(CppTypeTraits<field_type>::CppType).
 //
 // This is NOT the schema-declared length:
 //   - CHAR(N) / VARCHAR(N) / STRING / JSONB / VARIANT / HLL / BITMAP /
@@ -417,7 +417,7 @@ inline size_t field_type_size(FieldType field_type) {
     switch (field_type) {
 #define DORIS_FIELD_TYPE_SIZE_CASE(ft) \
     case FieldType::ft:                \
-        return sizeof(typename StorageTypeTraits<FieldType::ft>::StorageType);
+        return sizeof(typename CppTypeTraits<FieldType::ft>::CppType);
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_BOOL)
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_TINYINT)
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_SMALLINT)

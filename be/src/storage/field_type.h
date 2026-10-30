@@ -20,7 +20,7 @@
 namespace doris {
 
 // Storage-engine cell types, used by TabletColumn / KeyCoder and the
-// data_type traits chain. When adding a new value, also extend StorageTypeTraits,
+// data_type traits chain. When adding a new value, also extend CppTypeTraits,
 // FieldTypeTraits and the field_type_size() switch in storage/types.h. Decide how it maps to
 // PrimitiveType and explicitly define its behavior in primitive_type_to_storage_field_type() and
 // storage_field_type_to_primitive_type(), either by providing a mapping or by throwing.

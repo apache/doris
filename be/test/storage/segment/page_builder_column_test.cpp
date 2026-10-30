@@ -142,8 +142,7 @@ Pages drain(PageBuilder& builder, size_t num_rows, AddFn add, size_t append_rows
 // for a fixed-width FieldType, one Slice per row otherwise; CHAR padded to char_length.
 template <FieldType FT>
 struct ReferenceCells {
-    static constexpr bool kSlices =
-            std::is_same_v<typename StorageTypeTraits<FT>::StorageType, Slice>;
+    static constexpr bool kSlices = std::is_same_v<typename CppTypeTraits<FT>::CppType, Slice>;
 
     std::vector<uint8_t> bytes;
     std::vector<Slice> slices;
@@ -169,7 +168,7 @@ struct ReferenceCells {
             using Column = typename PrimitiveTypeTraits<storage_field_type_to_primitive_type(
                     FT)>::ColumnType;
             const auto& data = assert_cast<const Column&>(column).get_data();
-            bytes.resize(n * sizeof(typename StorageTypeTraits<FT>::StorageType));
+            bytes.resize(n * sizeof(typename CppTypeTraits<FT>::CppType));
             for (size_t i = 0; i < n; ++i) {
                 const auto value = StorageLayout<FT>::to_storage(data[i]);
                 memcpy(bytes.data() + i * sizeof(value), &value, sizeof(value));
@@ -183,8 +182,7 @@ struct ReferenceCells {
         if constexpr (kSlices) {
             return builder.add(reinterpret_cast<const uint8_t*>(slices.data() + pos), n);
         } else {
-            return builder.add(
-                    bytes.data() + pos * sizeof(typename StorageTypeTraits<FT>::StorageType), n);
+            return builder.add(bytes.data() + pos * sizeof(typename CppTypeTraits<FT>::CppType), n);
         }
     }
 };
@@ -212,7 +210,7 @@ constexpr EncodingTypePB builder_encoding() {
 
 template <FieldType FT>
 void expect_page_inputs(const RecordingPageBuilder& builder, const IColumn& column) {
-    if constexpr (std::is_floating_point_v<typename StorageTypeTraits<FT>::StorageType>) {
+    if constexpr (std::is_floating_point_v<typename CppTypeTraits<FT>::CppType>) {
         using Column =
                 typename PrimitiveTypeTraits<storage_field_type_to_primitive_type(FT)>::ColumnType;
         const auto& values = assert_cast<const Column&>(column).get_data();
@@ -262,7 +260,7 @@ void expect_same_pages(const IColumn& source, PageBuilderOptions options, size_t
     meta.set_column_id(0);
     meta.set_unique_id(0);
     meta.set_type(int(FT));
-    meta.set_length(sizeof(typename StorageTypeTraits<FT>::StorageType));
+    meta.set_length(sizeof(typename CppTypeTraits<FT>::CppType));
     meta.set_encoding(builder_encoding<Builder, FT>());
     meta.set_compression(NO_COMPRESSION);
     meta.set_is_nullable(false);

@@ -161,6 +161,11 @@ public:
         _null_map->insert_from(src_concrete.get_null_map_column(), n);
     }
 
+    void insert_many_fix_len_data(const char* pos, size_t num) override {
+        push_false_to_nullmap(num);
+        get_nested_column().insert_many_fix_len_data(pos, num);
+    }
+
     void insert_many_raw_data(const char* pos, size_t num) override {
         DCHECK(pos);
         push_false_to_nullmap(num);

@@ -38,7 +38,6 @@
 #include "storage/segment/options.h"
 #include "storage/segment/page_builder.h"
 #include "storage/segment/page_decoder.h"
-#include "storage/storage_layout.h"
 #include "storage/types.h"
 #include "util/alignment.h"
 #include "util/coding.h"
@@ -394,8 +393,7 @@ public:
 
         size_t max_fetch = std::min(*n, _num_elements - _cur_index);
 
-        StorageLayout<Type>::storage_to_column(
-                reinterpret_cast<const uint8_t*>(get_data(_cur_index)), max_fetch, *dst);
+        dst->insert_many_fix_len_data(get_data(_cur_index), max_fetch);
         *n = max_fetch;
         if constexpr (forward_index) {
             _cur_index += max_fetch;
@@ -427,8 +425,7 @@ public:
         }
 
         if (LIKELY(read_count > 0)) {
-            StorageLayout<Type>::storage_to_column(reinterpret_cast<const uint8_t*>(_buffer.data()),
-                                                   read_count, *dst);
+            dst->insert_many_fix_len_data((char*)_buffer.data(), read_count);
         }
 
         *n = read_count;

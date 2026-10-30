@@ -39,7 +39,6 @@
 #include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type_serde/orc_serde_utils.h"
 #include "core/data_type_serde/parquet_decode_source.h"
-#include "core/decimal12.h"
 #include "core/types.h"
 #include "exec/common/arithmetic_overflow.h"
 #include "exec/common/endian.h"
