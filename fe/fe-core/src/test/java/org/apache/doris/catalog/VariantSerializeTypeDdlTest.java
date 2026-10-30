@@ -80,4 +80,14 @@ public class VariantSerializeTypeDdlTest extends TestWithFeService {
         alterTableSync("ALTER TABLE t MODIFY COLUMN c VARIANT COMMENT 'restated'");
         Assertions.assertEquals("restated", table.getColumn("c").getComment());
     }
+
+    @Test
+    public void testPlainScalarVariantReplaysAsV1CountZero() {
+        // Metadata older than VariantType deserializes as a plain ScalarType and predates the serialize type.
+        String printed = new ScalarType(PrimitiveType.VARIANT).toSql();
+        org.apache.doris.nereids.types.VariantType replayed =
+                (org.apache.doris.nereids.types.VariantType) new NereidsParser().parseDataType(printed);
+        Assertions.assertEquals(TVariantSerializeType.V1, replayed.getVariantSerializeType());
+        Assertions.assertEquals(0, replayed.getVariantMaxSubcolumnsCount());
+    }
 }

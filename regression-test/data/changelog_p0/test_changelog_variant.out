@@ -31,6 +31,12 @@
 4	4	\N
 4	4	\N
 
+-- !union_same_layout_cte_used_twice --
+1	1	x
+1	1	x
+1	1	x
+1	1	x
+
 -- !min_delta_stream --
 1	{"a":1,"arr":[1,2],"b":{"c":"x"}}	1	x	10	p	d1	UPDATE_BEFORE
 1	{"a":11,"b":{"c":"x2"},"new":true}	11	x2	11	p2	d1b	UPDATE_AFTER

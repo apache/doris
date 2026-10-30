@@ -19,18 +19,14 @@
 // column, whatever the source column's layout, and changelog reads never push a Variant sub-path into the
 // changelog scan: sub-paths are taken from whole values, so an UPDATE_BEFORE row shows the old value.
 suite("test_changelog_variant", "nonConcurrent") {
-    if (isCloudMode()) {
-        return
-    }
-
     setBeConfigTemporary([
         changelog_compaction_goal_size_mbytes: 0,
         changelog_compaction_file_count_threshold: 2,
         changelog_compaction_wait_timesec_after_visible: 0,
         changelog_compaction_time_threshold_seconds: 86400
     ]) {
-        sql "DROP STREAM IF EXISTS test_changelog_variant_md_stream"
-        sql "DROP STREAM IF EXISTS test_changelog_variant_detail_stream"
+        sql "DROP STREAM IF EXISTS test_changelog_variant_md_stream FORCE"
+        sql "DROP STREAM IF EXISTS test_changelog_variant_detail_stream FORCE"
         sql "DROP TABLE IF EXISTS test_changelog_variant FORCE"
         // v: default layout, t: typed paths and one materialized path, d: doc mode
         sql """
@@ -105,6 +101,37 @@ suite("test_changelog_variant", "nonConcurrent") {
                   SELECT k, v FROM changelog("table" = "test_changelog_variant")) u
         """
 
+        // A source column laid out like its images needs no cast over the union, and a CTE used twice keeps the
+        // sub-paths above the union, where the changelog() child could not supply them.
+        sql "DROP TABLE IF EXISTS test_changelog_variant_same_layout FORCE"
+        sql """
+            CREATE TABLE test_changelog_variant_same_layout (
+                k INT,
+                v VARIANT<PROPERTIES(
+                    "variant_max_subcolumns_count" = "0",
+                    "variant_enable_typed_paths_to_sparse" = "true"
+                )>
+            )
+            UNIQUE KEY(k)
+            DISTRIBUTED BY HASH(k) BUCKETS 1
+            PROPERTIES (
+                "replication_num" = "1",
+                "enable_unique_key_merge_on_write" = "true",
+                "changelog.enable" = "true"
+            )
+        """
+        sql """INSERT INTO test_changelog_variant_same_layout VALUES (1, parse_to_variant('{"a":1,"b":"x"}'))"""
+        sql "sync"
+        sleep(1200)
+        order_qt_union_same_layout_cte_used_twice """
+            WITH c AS (
+                SELECT k, v FROM test_changelog_variant_same_layout
+                UNION ALL
+                SELECT k, v FROM changelog("table" = "test_changelog_variant_same_layout")
+            )
+            SELECT l.k, l.v['a'], r.v['b'] FROM c l JOIN c r ON l.k = r.k
+        """
+
         // an UPDATE_BEFORE row carries the old value of every sub-path
         order_qt_min_delta_stream """
             SELECT k, v, v['a'], v['b']['c'], CAST(t['a'] AS INT), t['b'], d['k'],
@@ -144,7 +171,7 @@ suite("test_changelog_variant", "nonConcurrent") {
 
         // a stream over history and incremental partitions reads one from the base table and the other
         // from the changelog; sub-paths still come out right on both sides
-        sql "DROP STREAM IF EXISTS test_changelog_variant_mixed_stream"
+        sql "DROP STREAM IF EXISTS test_changelog_variant_mixed_stream FORCE"
         sql "DROP TABLE IF EXISTS test_changelog_variant_mixed FORCE"
         sql """
             CREATE TABLE test_changelog_variant_mixed (

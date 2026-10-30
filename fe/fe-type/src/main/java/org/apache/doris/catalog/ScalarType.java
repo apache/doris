@@ -734,12 +734,15 @@ public class ScalarType extends Type {
             case DATEV2:
             case HLL:
             case BITMAP:
-            case VARIANT:
             case QUANTILE_STATE:
             case LAMBDA_FUNCTION:
             case NULL_TYPE:
                 stringBuilder.append(type.toString().toLowerCase());
                 break;
+            case VARIANT:
+                // Only metadata older than VariantType is a plain ScalarType. Its layout is V1 with count 0, the values
+                // of a default VariantType; bare `variant` would replay with the defaults for new columns instead.
+                return new VariantType().toSql(depth);
             case STRING:
                 stringBuilder.append("text");
                 break;
