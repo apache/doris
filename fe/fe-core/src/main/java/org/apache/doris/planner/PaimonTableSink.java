@@ -22,12 +22,14 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
+import org.apache.doris.datasource.paimon.PaimonRustWriteSupport;
 import org.apache.doris.datasource.paimon.PaimonTransaction;
 import org.apache.doris.datasource.paimon.PaimonWriteBinding;
 import org.apache.doris.datasource.paimon.PaimonWriteTarget;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.PaimonInsertCommandContext;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
@@ -39,8 +41,10 @@ import org.apache.doris.thrift.TPaimonWriteMode;
 import com.google.common.base.Preconditions;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -126,11 +130,22 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
         // Arrow conversion and the Java writer schema.
         List<String> outputColumnNames = outputColumnNames();
 
-        // FE owns table metadata resolution. BE and the JNI writer consume this
-        // exact table instance instead of loading catalog metadata independently.
-        tSink.setSerializedTable(binding.getSerializedTable());
-
-        tSink.setBackendType(TPaimonWriteBackendType.JNI);
+        // Pin metadata in FE. Neither backend reloads the table from its catalog.
+        Map<String, String> storageOptions = Collections.emptyMap();
+        boolean useRust = ConnectContext.get().getSessionVariable().isEnablePaimonRustWriter()
+                && !isChangelogWrite() && !ctx.isOverwrite();
+        if (useRust) {
+            storageOptions = binding.getStorageOptions();
+            useRust = PaimonRustWriteSupport.isSupported(binding.getTable(), outputColumnNames, storageOptions);
+        }
+        if (useRust) {
+            tSink.setTableDesc(PaimonRustWriteSupport.describe(binding.getTable(),
+                    targetTable.getDbName(), targetTable.getName(), storageOptions));
+            tSink.setBackendType(TPaimonWriteBackendType.FFI);
+        } else {
+            tSink.setSerializedTable(binding.getSerializedTable());
+            tSink.setBackendType(TPaimonWriteBackendType.JNI);
+        }
         if (isChangelogWrite()) {
             tSink.setWriteMode(TPaimonWriteMode.CHANGELOG);
         } else if (ctx.isOverwrite()) {

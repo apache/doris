@@ -51,7 +51,7 @@ class RuntimeState;
 ///     │    └─ create_writer() → IPaimonWriter
 ///     │  write()
 ///     │    → JNI backend: Block → Arrow C Data → Java Paimon SDK
-///     │    → FFI backend: Block → Rust writer (future)
+///     │    → FFI backend: Block → Arrow C Data → Rust writer
 ///     │    → selected SDK owns row normalization, routing, buffering,
 ///     │      file writing, and compaction
 ///     ▼

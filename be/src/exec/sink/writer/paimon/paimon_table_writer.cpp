@@ -123,8 +123,7 @@ Status PaimonTableWriter::close(Status status) {
         }
     }
 
-    // The adapter only owns Arrow conversion resources. Release it before closing
-    // the backend, whose Java close is the authoritative SDK shutdown boundary.
+    // Release the adapter before stopping the runtime backend it shares.
     _writer.reset();
 
     if (_backend) {
@@ -139,7 +138,7 @@ Status PaimonTableWriter::close(Status status) {
     }
 
     // Only a fully prepared and cleanly stopped writer may contribute payloads
-    // to the FE transaction. A Java close failure therefore aborts the Doris
+    // to the FE transaction. An SDK close failure therefore aborts the Doris
     // transaction instead of allowing it to commit potentially unsafe output.
     if (status.ok()) {
         COUNTER_UPDATE(_commit_payload_count, static_cast<int64_t>(messages.size()));

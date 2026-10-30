@@ -658,14 +658,26 @@ struct TPaimonCommitMessage {
     1: optional binary payload          // Paimon native CommitMessageSerializer bytes (DPCM-framed)
 }
 
+// Resolved, statement-pinned metadata shared by Paimon SDK backends.
+struct TPaimonTableDesc {
+    1: optional string table_path
+    2: optional string schema_json
+    3: optional string database_name
+    4: optional string table_name
+    5: optional string branch
+    6: optional map<string, string> storage_options
+    7: optional i32 commit_message_version
+}
+
 struct TPaimonTableSink {
-    1: optional string serialized_table           // required at runtime; serialized Paimon Table object (base64)
+    1: optional string serialized_table           // required for JNI; serialized Paimon Table object (base64)
     2: optional map<string, string> hadoop_config
     3: optional list<string> column_names
     4: optional TPaimonWriteBackendType backend_type
     5: optional TPaimonWriteMode write_mode
     6: optional i64 transaction_id
     7: optional string commit_user
+    8: optional TPaimonTableDesc table_desc
 }
 
 struct TDataSink {

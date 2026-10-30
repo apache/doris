@@ -20,6 +20,7 @@ package org.apache.doris.datasource.paimon;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.credentials.CredentialUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -54,7 +55,6 @@ import java.util.TreeMap;
 public class PaimonWriteBinding {
     private final PaimonExternalTable dorisTable;
     private final FileStoreTable table;
-    private final String serializedTable;
     private final Map<String, String> hadoopConfig;
     private final boolean overwrite;
     private final Map<String, String> staticPartition;
@@ -64,7 +64,6 @@ public class PaimonWriteBinding {
             Map<String, String> staticPartition) {
         this.dorisTable = dorisTable;
         this.table = table;
-        this.serializedTable = PaimonUtil.encodeObjectToString(table);
         this.hadoopConfig = Collections.unmodifiableMap(new HashMap<>(hadoopConfig));
         this.overwrite = overwrite;
         this.staticPartition = Collections.unmodifiableMap(new LinkedHashMap<>(staticPartition));
@@ -116,7 +115,16 @@ public class PaimonWriteBinding {
     }
 
     public String getSerializedTable() {
-        return serializedTable;
+        return PaimonUtil.encodeObjectToString(table);
+    }
+
+    public Map<String, String> getStorageOptions() {
+        PaimonExternalCatalog catalog = (PaimonExternalCatalog) dorisTable.getCatalog();
+        Map<String, String> options = new HashMap<>(hadoopConfig);
+        options.putAll(CredentialUtils.getBackendPropertiesFromStorageMap(
+                catalog.getCatalogProperty().getStoragePropertiesMap()));
+        options.putAll(table.options());
+        return options;
     }
 
     public Map<String, String> getHadoopConfig() {

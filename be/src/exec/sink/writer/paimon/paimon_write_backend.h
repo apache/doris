@@ -32,7 +32,7 @@ class RuntimeProfile;
 
 enum class PaimonBackendType {
     JNI, // Java via JNI (PaimonJniWriter)
-    FFI, // Rust via FFI (placeholder, not yet implemented)
+    FFI, // Rust via FFI
 };
 
 /// Writer contract implemented by one SDK writer adapter. Each
@@ -62,10 +62,10 @@ public:
 ///
 /// The backend owns the connection/session to the external runtime:
 /// - JNI: owns the JVM class reference, method IDs, and the Java writer object.
-/// - FFI: (future) owns the Rust FFI handle.
+/// - FFI: owns Rust handles, Arrow backing buffers and a fixed query budget.
 ///
-/// Each backend creates one or more IPaimonWriter adapters that share the
-/// same underlying connection. Snapshot commit is deliberately excluded from
+/// Each PaimonTableWriter uses one adapter and one SDK writer, with calls
+/// serialized by its blocking pipeline task. Snapshot commit is excluded from
 /// this boundary: BE only prepares commit messages (byte payloads), while FE
 /// PaimonTransaction is the single commit coordinator.
 class IPaimonWriteBackend {
@@ -94,7 +94,7 @@ public:
 ///
 /// Backend selection is based on TPaimonTableSink.backend_type:
 /// - Default (unset or JNI): JniPaimonWriteBackend
-/// - FFI: FfiPaimonWriteBackend (placeholder for future Rust writer)
+/// - FFI: FfiPaimonWriteBackend
 class PaimonWriteBackendFactory {
 public:
     /// Create a backend instance based on the sink configuration.
