@@ -22,9 +22,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMax;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
-
-import java.util.List;
 
 /** MAX-specific top-K state, delta and merge. */
 class IvmAggMaxProcessor extends IvmAggExtremalProcessor {
@@ -51,12 +48,6 @@ class IvmAggMaxProcessor extends IvmAggExtremalProcessor {
     @Override
     protected boolean isTopKAscending() {
         return false;
-    }
-
-    @Override
-    protected Expression leastOrGreatest(List<Expression> values) {
-        return new Greatest(values.get(0),
-                values.subList(1, values.size()).toArray(new Expression[0]));
     }
 
     @Override
