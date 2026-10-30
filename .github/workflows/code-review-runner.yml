@@ -348,8 +348,24 @@ jobs:
       - name: Install ripgrep
         timeout-minutes: 5
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ripgrep
+          set -euo pipefail
+          # Avoid refreshing unrelated apt sources just to install this review dependency.
+          tmp_dir="$(mktemp -d)"
+          trap 'rm -rf "$tmp_dir"' EXIT
+          release="ripgrep-14.1.0-x86_64-unknown-linux-musl"
+          archive="$tmp_dir/$release.tar.gz"
+          curl --fail --silent --show-error --location \
+            --retry 3 --retry-delay 2 --retry-max-time 180 \
+            --connect-timeout 10 --max-time 45 \
+            --output "$archive" \
+            "https://github.com/BurntSushi/ripgrep/releases/download/14.1.0/$release.tar.gz"
+          echo "f84757b07f425fe5cf11d87df6644691c644a5cd2348a2c670894272999d3ba7  $archive" | sha256sum --check
+          tar -xzf "$archive" -C "$tmp_dir" "$release/rg"
+          bin_dir="$RUNNER_TEMP/review-ripgrep/bin"
+          mkdir -p "$bin_dir"
+          install -m 0755 "$tmp_dir/$release/rg" "$bin_dir/rg"
+          "$bin_dir/rg" --version
+          echo "$bin_dir" >> "$GITHUB_PATH"
 
       - name: Install ossutil
         timeout-minutes: 5
