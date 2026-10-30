@@ -99,6 +99,12 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
     @SerializedName("newPartitionLoaded")
     public AtomicBoolean partitionChanged = new AtomicBoolean(false);
 
+    // Rows a load wrote to an index which the collected row counts do not describe, accumulated
+    // since the record was created. The changelog index is one: no analysis collects its row count,
+    // and the change rows a load writes are not the rows it loaded into the base index.
+    @SerializedName("iur")
+    private ConcurrentMap<Long, Long> indexUpdatedRows;
+
     @SerializedName("userInjected")
     public boolean userInjected;
 
@@ -391,6 +397,12 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
      * {@link #updatedRows} and reports them as delta rows.
      */
     public synchronized long getRowCountWithDeltaRows(OlapTable table, long indexId) {
+        if (isChangelogIndex(table, indexId)) {
+            // The changelog index has no collected row count: the rows a load wrote to it are the
+            // only count this record keeps, and they are added rather than taken as a lower bound
+            // of the table's rows.
+            return indexUpdatedRows().getOrDefault(indexId, 0L);
+        }
         long rowCount = getRowCount(indexId);
         if (!keepsOneRowPerBaseRow(table, indexId)) {
             // The index aggregates, or it merges the rows of a unique key table: it has its own, smaller row
@@ -412,6 +424,31 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
             return rowCount;
         }
         return rowCount + getBaseIndexDeltaRowCount(table);
+    }
+
+    /**
+     * Add the rows a load wrote to an index which has no collected row count of its own.
+     */
+    public synchronized void addIndexUpdatedRows(long indexId, long rows) {
+        if (rows <= 0) {
+            return;
+        }
+        indexUpdatedRows().merge(indexId, rows, Long::sum);
+    }
+
+    public synchronized long getIndexUpdatedRows(long indexId) {
+        return indexUpdatedRows().getOrDefault(indexId, 0L);
+    }
+
+    private static boolean isChangelogIndex(OlapTable table, long indexId) {
+        return table.hasChangelog() && table.getChangelogIndexMeta().getIndexId() == indexId;
+    }
+
+    private ConcurrentMap<Long, Long> indexUpdatedRows() {
+        if (indexUpdatedRows == null) {
+            indexUpdatedRows = new ConcurrentHashMap<>();
+        }
+        return indexUpdatedRows;
     }
 
     public boolean isColumnsStatsEmpty() {
