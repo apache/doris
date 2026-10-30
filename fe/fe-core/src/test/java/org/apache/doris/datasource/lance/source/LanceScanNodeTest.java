@@ -29,6 +29,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.RuntimeProfile;
 import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.lance.LanceExternalCatalog;
 import org.apache.doris.datasource.lance.LanceExternalTable;
@@ -54,6 +55,7 @@ import org.apache.doris.thrift.TFtsQueryType;
 import org.apache.doris.thrift.TFullTextSearchParams;
 import org.apache.doris.thrift.TLanceFileDesc;
 import org.apache.doris.thrift.TPushAggOp;
+import org.apache.doris.thrift.TVectorApproxMode;
 import org.apache.doris.thrift.TVectorMetric;
 import org.apache.doris.thrift.TVectorSearchOptions;
 import org.apache.doris.thrift.TVectorSearchParams;
@@ -79,6 +81,90 @@ import java.util.Optional;
 import java.util.UUID;
 
 public class LanceScanNodeTest {
+
+    @Test
+    public void testNonDefaultApproxModeRejectsSmoothUpgradeSourcesDuringInitialization() throws Exception {
+        Backend current = new Backend(1, "127.0.0.1", 9050);
+        Backend old = new Backend(2, "127.0.0.2", 9050);
+        old.setSmoothUpgradeSrc(true);
+        for (TVectorApproxMode mode : Arrays.asList(TVectorApproxMode.FAST, TVectorApproxMode.ACCURATE)) {
+            for (boolean multiVector : Arrays.asList(false, true)) {
+                for (List<Backend> backends : Arrays.asList(Collections.singletonList(old),
+                        Arrays.asList(current, old))) {
+                    TExternalSearchRequest request = vectorSearchRequest(5, 0);
+                    request.setVectorSearchOptions(new TVectorSearchOptions().setApproxMode(mode));
+                    if (multiVector) {
+                        request.getSearchQuery().getVectorSearch().setQueryVector(
+                                new org.apache.doris.thrift.TSearchVector()
+                                        .setElementType(org.apache.doris.thrift.TVectorElementType.FLOAT32)
+                                        .setDimension(2).setNumVectors(2).setValues(new byte[16]));
+                    }
+                    LanceScanNode node = newSearchNode(basicSearchMetadata(vectorSchema()), request);
+                    setBackendCandidates(node, backends);
+
+                    UserException error = Assert.assertThrows(UserException.class, node::doInitialize);
+
+                    Assert.assertTrue(error.getMessage(), error.getMessage().contains("approx_mode="
+                            + mode.name().toLowerCase(java.util.Locale.ROOT)));
+                    Assert.assertTrue(error.getMessage(), error.getMessage().contains("backend 2"));
+                    Assert.assertTrue(error.getMessage(), error.getMessage().contains("smooth upgrade source"));
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testAllApproxModesInitializeWithCurrentBackends() throws Exception {
+        List<Backend> backends = Arrays.asList(new Backend(1, "127.0.0.1", 9050),
+                new Backend(2, "127.0.0.2", 9050));
+        for (TVectorApproxMode mode : TVectorApproxMode.values()) {
+            TExternalSearchRequest request = vectorSearchRequest(5, 0);
+            request.setVectorSearchOptions(new TVectorSearchOptions().setApproxMode(mode));
+            LanceScanNode node = newSearchNode(basicSearchMetadata(vectorSchema()), request);
+            setBackendCandidates(node, backends);
+
+            node.doInitialize();
+
+            Assert.assertEquals(mode, node.createSplitSearchRequest().getVectorSearchOptions().getApproxMode());
+        }
+    }
+
+    @Test
+    public void testDefaultApproxModeRemainsCompatibleWithSmoothUpgradeSources() throws Exception {
+        Backend old = new Backend(2, "127.0.0.2", 9050);
+        old.setSmoothUpgradeSrc(true);
+        List<Backend> backends = Arrays.asList(new Backend(1, "127.0.0.1", 9050), old);
+        for (TVectorSearchOptions options : Arrays.asList(null, new TVectorSearchOptions().setNprobes(4),
+                new TVectorSearchOptions().setApproxMode(TVectorApproxMode.NORMAL))) {
+            TExternalSearchRequest request = vectorSearchRequest(5, 0);
+            if (options != null) {
+                request.setVectorSearchOptions(options);
+            }
+            LanceScanNode node = newSearchNode(basicSearchMetadata(vectorSchema()), request);
+            setBackendCandidates(node, backends);
+
+            node.doInitialize();
+
+            TExternalSearchRequest split = node.createSplitSearchRequest();
+            Assert.assertEquals(request.isSetVectorSearchOptions(), split.isSetVectorSearchOptions());
+            if (options != null) {
+                Assert.assertEquals(options, split.getVectorSearchOptions());
+            }
+        }
+    }
+
+    @Test
+    public void testApproxModeCompatibilityDoesNotRejectFullTextSearch() throws Exception {
+        Backend old = new Backend(2, "127.0.0.2", 9050);
+        old.setSmoothUpgradeSrc(true);
+        TExternalSearchRequest request = fullTextSearchRequest(5, 0, TFtsCoverageMode.STRICT);
+        LanceScanNode node = newSearchNode(basicSearchMetadata(fullTextSchema()), request);
+        setBackendCandidates(node, Collections.singletonList(old));
+
+        node.doInitialize();
+
+        Assert.assertEquals(request, node.createSplitSearchRequest());
+    }
 
     @Test
     public void testSplitPlanningReportsSuccessAndFailureToQueryProfile() throws Exception {
@@ -669,13 +755,16 @@ public class LanceScanNodeTest {
                                 Collections.singletonList(9), Arrays.asList(3L, 4L),
                                 IndexType.VECTOR, "L2")));
         TExternalSearchRequest request = vectorSearchRequest(5, 0);
-        request.setVectorSearchOptions(new TVectorSearchOptions().setQueryParallelism(4));
+        request.setVectorSearchOptions(new TVectorSearchOptions()
+                .setQueryParallelism(4).setApproxMode(TVectorApproxMode.ACCURATE));
         LanceScanNode node = newSearchNode(metadata, request);
 
         List<Split> splits = node.getSplits(3);
 
         Assert.assertTrue(node.getNodeExplainString("", TExplainLevel.NORMAL)
                 .contains("lanceQueryParallelism=4"));
+        Assert.assertTrue(node.getNodeExplainString("", TExplainLevel.NORMAL)
+                .contains("lanceApproxMode=ACCURATE"));
         Assert.assertTrue(node.getNodeExplainString("", TExplainLevel.NORMAL)
                 .contains("lanceVectorIndexStatus=USED"));
 
@@ -1108,6 +1197,21 @@ public class LanceScanNodeTest {
 
     private static LanceScanNode newNode() {
         return newNode(new SessionVariable());
+    }
+
+    private static LanceTableMetadata basicSearchMetadata(Schema schema) {
+        return LanceTableMetadata.createBasicSnapshot(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()), 42, schema,
+                Collections.singletonList(new LanceFragmentInfo(1, 8, 8)));
+    }
+
+    private static void setBackendCandidates(LanceScanNode node, List<Backend> backends) throws Exception {
+        FederationBackendPolicy policy = Mockito.mock(FederationBackendPolicy.class);
+        Mockito.when(policy.getBackends()).thenReturn(backends);
+        Mockito.when(policy.numBackends()).thenReturn(backends.size());
+        java.lang.reflect.Field field = ExternalScanNode.class.getDeclaredField("backendPolicy");
+        field.setAccessible(true);
+        field.set(node, policy);
     }
 
     private static LanceScanNode newNode(SessionVariable sessionVariable) {

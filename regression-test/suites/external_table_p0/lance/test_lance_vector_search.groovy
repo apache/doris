@@ -57,6 +57,7 @@ suite("test_lance_vector_search", "p0,external") {
      *   refine_factor Positive candidate refinement/reranking factor.
      *   ef            Positive graph-search candidate width.
      *   use_index     true allows index search; false explicitly requests a flat search.
+     *   approx_mode   fast, normal, or accurate; defaults to Lance's normal policy.
      *
      * An outer WHERE is deliberately different from the TVF filter property: it is evaluated by
      * Doris after Lance returns Top-K and can therefore reduce the final result below top_k.
@@ -152,6 +153,26 @@ suite("test_lance_vector_search", "p0,external") {
         """
 
         def baselineRows = sql "SELECT row_id, label, _distance FROM ${indexedTopFive} ORDER BY _distance, row_id"
+        // This refined IVF_PQ fixture is a pass-through control, not a guarantee of equal
+        // recall for algorithms whose candidate selection depends on approx_mode.
+        ["fast", "normal", "accurate", " FAST "].each { mode ->
+            String modeSearch = indexedTopFive.substring(0, indexedTopFive.length() - 1) +
+                    ", \"approx_mode\"=\"${mode}\")"
+            explain {
+                sql("SELECT row_id, label, _distance FROM ${modeSearch}")
+                contains "lanceApproxMode=${mode.trim().toUpperCase(java.util.Locale.ROOT)}"
+            }
+            assertEquals(baselineRows,
+                    sql("SELECT row_id, label, _distance FROM ${modeSearch} ORDER BY _distance, row_id"))
+        }
+        ["", "invalid", "0", "1", "2"].each { mode ->
+            String modeSearch = indexedTopFive.substring(0, indexedTopFive.length() - 1) +
+                    ", \"approx_mode\"=\"${mode}\")"
+            test {
+                sql "SELECT row_id FROM ${modeSearch}"
+                exception "approx_mode"
+            }
+        }
         [-1, 0, 1, 2, 4].each { parallelism ->
             String parallelSearch = indexedTopFive.substring(0, indexedTopFive.length() - 1) +
                     ", \"query_parallelism\"=\"${parallelism}\")"

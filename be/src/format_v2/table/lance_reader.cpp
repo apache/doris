@@ -76,6 +76,25 @@ Status LanceTableReader::fetch_schema(const TFileRangeDesc& range,
 }
 
 namespace {
+Status to_lance_approx_mode(TVectorApproxMode::type mode, LanceApproxMode* native_mode) {
+    switch (mode) {
+    case TVectorApproxMode::FAST:
+        *native_mode = LANCE_APPROX_MODE_FAST;
+        break;
+    case TVectorApproxMode::NORMAL:
+        *native_mode = LANCE_APPROX_MODE_NORMAL;
+        break;
+    case TVectorApproxMode::ACCURATE:
+        *native_mode = LANCE_APPROX_MODE_ACCURATE;
+        break;
+    default:
+        return Status::InvalidArgument(
+                "Lance approx_mode must be FAST, NORMAL, or ACCURATE, got {}",
+                static_cast<int>(mode));
+    }
+    return Status::OK();
+}
+
 // A dataset URI without its query string or a password in its user information, either of which
 // may carry credentials, for errors and profiles. A user part without a password stays: Azure
 // URIs name the container there (abfss://container@account...).
@@ -619,6 +638,10 @@ Status LanceTableReader::_validate_external_search_request() const {
 
     if (_search_kind == SearchKind::VECTOR && request.__isset.vector_search_options) {
         const auto& options = request.vector_search_options;
+        if (options.__isset.approx_mode) {
+            LanceApproxMode native_mode;
+            RETURN_IF_ERROR(to_lance_approx_mode(options.approx_mode, &native_mode));
+        }
         if (options.__isset.query_parallelism && options.query_parallelism < -1) {
             return Status::InvalidArgument("Lance query_parallelism must be -1, 0, or positive");
         }
@@ -1131,6 +1154,14 @@ Status LanceTableReader::_configure_vector_search(LanceScanner* scanner,
     }
     if (request.__isset.vector_search_options) {
         const auto& options = request.vector_search_options;
+        // Leave an omitted mode unset so Lance retains its default search policy.
+        if (options.__isset.approx_mode) {
+            LanceApproxMode native_mode;
+            RETURN_IF_ERROR(to_lance_approx_mode(options.approx_mode, &native_mode));
+            if (lance_scanner_set_approx_mode(scanner, native_mode) != 0) {
+                return lance_error("set Lance vector approx_mode");
+            }
+        }
         if (options.__isset.query_parallelism &&
             lance_scanner_set_query_parallelism(scanner, options.query_parallelism) != 0) {
             return lance_error("set Lance vector query parallelism");

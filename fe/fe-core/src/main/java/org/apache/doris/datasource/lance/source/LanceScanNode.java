@@ -49,7 +49,9 @@ import org.apache.doris.thrift.TFullTextSearchParams;
 import org.apache.doris.thrift.TLanceFileDesc;
 import org.apache.doris.thrift.TLanceScanParams;
 import org.apache.doris.thrift.TTableFormatFileDesc;
+import org.apache.doris.thrift.TVectorApproxMode;
 import org.apache.doris.thrift.TVectorMetric;
+import org.apache.doris.thrift.TVectorSearchOptions;
 import org.apache.doris.thrift.TVectorSearchParams;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -143,6 +145,7 @@ public class LanceScanNode extends FileQueryScanNode {
         super.doInitialize();
         checkAdditionalTypeBackendCompatibility(
                 projectsCurrentReaderType(), backendPolicy.getBackends());
+        checkApproxModeBackendCompatibility();
         ExternalUtil.initSchemaInfo(params, -1L, sourceColumns);
 
         if (searchKind.isExternalSearch()) {
@@ -155,6 +158,26 @@ public class LanceScanNode extends FileQueryScanNode {
 
     public void addLazyMaterializedColumn(String columnName) {
         lazyMaterializedColumns.add(columnName.toLowerCase(Locale.ROOT));
+    }
+
+    private void checkApproxModeBackendCompatibility() throws UserException {
+        if (searchKind != SearchKind.VECTOR || !externalSearchRequest.isSetVectorSearchOptions()) {
+            return;
+        }
+        TVectorSearchOptions options = externalSearchRequest.getVectorSearchOptions();
+        if (!options.isSetApproxMode() || options.getApproxMode() == TVectorApproxMode.NORMAL) {
+            return;
+        }
+        // Old BEs skip the optional field, which would mix NORMAL with FAST/ACCURATE split candidates.
+        for (Backend backend : backendPolicy.getBackends()) {
+            if (backend.isSmoothUpgradeSrc()) {
+                throw new UserException("Lance approx_mode="
+                        + options.getApproxMode().name().toLowerCase(Locale.ROOT)
+                        + " is unavailable while backend " + backend.getId()
+                        + " is a smooth upgrade source; finish upgrading the query backends"
+                        + " or use approx_mode=normal");
+            }
+        }
     }
 
     /** Checks columns read in either phase of a Lance scan. */
@@ -354,6 +377,11 @@ public class LanceScanNode extends FileQueryScanNode {
                         .append(scanPlan.vectorIndexStatus).append("\n");
                 result.append(prefix).append("lanceVectorColumn=")
                         .append(vector.getColumn()).append("\n");
+                if (externalSearchRequest.isSetVectorSearchOptions()
+                        && externalSearchRequest.getVectorSearchOptions().isSetApproxMode()) {
+                    result.append(prefix).append("lanceApproxMode=")
+                            .append(externalSearchRequest.getVectorSearchOptions().getApproxMode()).append("\n");
+                }
                 if (externalSearchRequest.isSetVectorSearchOptions()
                         && externalSearchRequest.getVectorSearchOptions().isSetQueryParallelism()) {
                     result.append(prefix).append("lanceQueryParallelism=")
