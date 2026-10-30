@@ -48,6 +48,7 @@ import org.apache.doris.persist.meta.PersistMetaModules;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
+import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -485,6 +486,80 @@ public class RoutineLoadComputeGroupTest {
     }
 
     /**
+     * ALTER checks the job's workload group in the compute group it moves the job to, as CREATE does in the
+     * group it declares.
+     *
+     * <p>A workload group lives in the namespace of a compute group, and every task looks the job's one up in
+     * the group the job runs in ({@code KafkaTaskInfo#rePlan}). A job created with ("compute_group" = "cg_a",
+     * "workload_group" = "wg_a"), where only cg_a has wg_a, used to accept a move to cg_b. Every task then
+     * failed with "Can not find workload group wg_a in compute croup cg_b" and paused the job with the
+     * retryable CREATE_TASKS_ERR, which auto resume repeated for good.
+     */
+    @Test
+    public void testAlterChecksWorkloadGroupInTheComputeGroupItDeclares() throws UserException {
+        enterCloudMode(true, Lists.newArrayList("cg_a", "cg_b"));
+        // only cg_a has wg_a, only cg_b has wg_b
+        List<String> lookups = Lists.newArrayList();
+        WorkloadGroupMgr workloadGroupMgr = Mockito.mock(WorkloadGroupMgr.class);
+        Mockito.when(workloadGroupMgr.getWorkloadGroup(Mockito.any(ConnectContext.class))).thenAnswer(invocation -> {
+            ConnectContext lookupCtx = invocation.getArgument(0);
+            String computeGroup = lookupCtx.getSessionVariable().getCloudCluster();
+            String workloadGroup = lookupCtx.getSessionVariable().getWorkloadGroup();
+            String lookup = computeGroup + "/" + workloadGroup;
+            lookups.add(lookupCtx.getCurrentUserIdentity().getQualifiedUser() + ":" + lookup);
+            if (!"cg_a/wg_a".equals(lookup) && !"cg_b/wg_b".equals(lookup)) {
+                throw new UserException("Can not find workload group " + workloadGroup + " in compute croup "
+                        + computeGroup);
+            }
+            return Lists.newArrayList(Mockito.mock(WorkloadGroup.class));
+        });
+        Deencapsulation.setField(Env.getCurrentEnv(), "workloadGroupMgr", workloadGroupMgr);
+
+        KafkaRoutineLoadJob job = newJob(SESSION_SNAPSHOT_CG, "cg_a");
+        Map<String, String> jobProperties = Deencapsulation.getField(job, "jobProperties");
+        jobProperties.put(RoutineLoadJob.WORKLOAD_GROUP, "wg_a");
+        // the tasks run as the owner, not as whoever runs the ALTER (the session here is admin)
+        Deencapsulation.setField(job, "userIdentity", UserIdentity.createAnalyzedUserIdentWithIp("owner", "%"));
+        // left RUNNING, so an ALTER that gets past the check stops at the PAUSED check right after it
+        Deencapsulation.setField(job, "state", RoutineLoadJob.JobState.RUNNING);
+
+        // the move to cg_b keeps wg_a, which cg_b does not have
+        UserException e = Assertions.assertThrows(UserException.class,
+                () -> job.modifyProperties(newJobPropertiesAlter("cg_b", null)));
+        Assertions.assertTrue(e.getMessage().contains("Can not find workload group wg_a in compute croup cg_b"),
+                e.getMessage());
+        Assertions.assertEquals("cg_a", job.getCloudCluster(), "a rejected ALTER must leave the job where it is");
+
+        // an ALTER that also names a workload group of cg_b passes the check
+        DdlException notPaused = Assertions.assertThrows(DdlException.class,
+                () -> job.modifyProperties(newJobPropertiesAlter("cg_b", "wg_b")));
+        Assertions.assertTrue(notPaused.getMessage().contains("Only supports modification of PAUSED jobs"),
+                notPaused.getMessage());
+
+        // an ALTER that declares no compute group looks nothing up, as before
+        Assertions.assertThrows(DdlException.class,
+                () -> job.modifyProperties(newJobPropertiesAlter(null, "wg_unknown")));
+
+        Assertions.assertEquals(Lists.newArrayList("owner:cg_b/wg_a", "owner:cg_b/wg_b"), lookups);
+    }
+
+    // What AlterRoutineLoadCommand#validate leaves behind for PROPERTIES("compute_group" = ...,
+    // "workload_group" = ...), with each property only when it is given.
+    private AlterRoutineLoadCommand newJobPropertiesAlter(String computeGroup, String workloadGroup) {
+        Map<String, String> analyzedJobProperties = Maps.newHashMap();
+        if (computeGroup != null) {
+            analyzedJobProperties.put(CreateRoutineLoadInfo.COMPUTE_GROUP, computeGroup);
+        }
+        if (workloadGroup != null) {
+            analyzedJobProperties.put(CreateRoutineLoadInfo.WORKLOAD_GROUP, workloadGroup);
+        }
+        AlterRoutineLoadCommand command = new AlterRoutineLoadCommand(new LabelNameInfo("test_db", "test_job"),
+                Maps.newHashMap(), Maps.newHashMap());
+        Deencapsulation.setField(command, "analyzedJobProperties", analyzedJobProperties);
+        return command;
+    }
+
+    /**
      * The per task re-check has to run before the task takes any resource.
      *
      * <p>Backend allocation resolves the backends through the very compute group being checked, so
@@ -609,6 +684,61 @@ public class RoutineLoadComputeGroupTest {
         Assertions.assertEquals(RoutineLoadJob.JobState.PAUSED, job.newState);
         Assertions.assertNotNull(job.pauseMsg, "the job must be paused with a reason");
         Assertions.assertTrue(job.pauseMsg.contains("USAGE denied"), job.pauseMsg);
+        Assertions.assertEquals(InternalErrorCode.CANNOT_RESUME_ERR, job.pauseCode);
+        Assertions.assertFalse(ScheduleRule.isNeedAutoSchedule(job),
+                "a revoked privilege must not be auto resumed");
+    }
+
+    /**
+     * Auto resume leaves a revoked USAGE to the check before the first task, which records it.
+     *
+     * <p>Auto resume refreshes the partitions of a job that is still PAUSED, and a PAUSED job can not be paused
+     * again with another reason. A failing compute group check in that refresh therefore kept the job's old,
+     * retryable reason, and ScheduleRule went on resuming the job for good. The attempt now goes on to
+     * NEED_SCHEDULE, and the check before the first task pauses the job with CANNOT_RESUME_ERR.
+     */
+    @Test
+    public void testAutoResumeLeavesRevokedUsageToTheTaskCheck() throws UserException {
+        // the group exists and its metadata request succeeds; only the owner's USAGE is gone
+        enterCloudMode(false, Lists.newArrayList("cg_pinned"));
+
+        RecordingKafkaRoutineLoadJob job = new RecordingKafkaRoutineLoadJob();
+        Deencapsulation.setField(job, "state", RoutineLoadJob.JobState.PAUSED);
+        // paused while the group was gone, which auto resume undoes once it is back
+        Deencapsulation.setField(job, "pauseReason",
+                new ErrorReason(InternalErrorCode.INTERNAL_ERR, "Compute group 'cg_pinned' not found."));
+        Deencapsulation.setField(job, "userIdentity", UserIdentity.ADMIN);
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(RoutineLoadJob.COMPUTE_GROUP, "cg_pinned");
+        Deencapsulation.setField(job, "jobProperties", jobProperties);
+        Assertions.assertTrue(ScheduleRule.isNeedAutoSchedule(job), "a retryable pause is auto resumed");
+
+        try (MockedStatic<KafkaUtil> kafkaUtil = Mockito.mockStatic(KafkaUtil.class)) {
+            kafkaUtil.when(() -> KafkaUtil.getAllKafkaPartitions(Mockito.any(), Mockito.any(), Mockito.any(),
+                    Mockito.any())).thenReturn(Lists.newArrayList(0));
+
+            RoutineLoadJob routineLoadJob = job;
+            Assertions.assertTrue(routineLoadJob.refreshKafkaPartitions(true),
+                    "the attempt must go on to NEED_SCHEDULE instead of ending without a trace");
+            kafkaUtil.verify(() -> KafkaUtil.getAllKafkaPartitions(Mockito.any(), Mockito.any(), Mockito.any(),
+                    Mockito.any()));
+        }
+        Assertions.assertNull(job.newState, "the refresh leaves the PAUSED job alone");
+
+        // update() moves the job to NEED_SCHEDULE, it is divided into tasks, and the first one is checked
+        Deencapsulation.setField(job, "state", RoutineLoadJob.JobState.RUNNING);
+        Map<Long, RoutineLoadJob> jobs = Maps.newHashMap();
+        jobs.put(1L, job);
+        RoutineLoadTaskScheduler scheduler =
+                new RoutineLoadTaskScheduler(new TestCloudRoutineLoadManager(jobs));
+        ConcurrentMap<Integer, Long> partitionIdToOffset = Maps.newConcurrentMap();
+        partitionIdToOffset.put(0, 100L);
+        KafkaTaskInfo taskInfo = new AlwaysReadyKafkaTaskInfo(new UUID(1, 1), 1L, partitionIdToOffset);
+        // scheduleOneTask pauses the job and rethrows
+        Assertions.assertThrows(UserException.class,
+                () -> Deencapsulation.invoke(scheduler, "scheduleOneTask", taskInfo));
+
+        Assertions.assertEquals(RoutineLoadJob.JobState.PAUSED, job.newState);
         Assertions.assertEquals(InternalErrorCode.CANNOT_RESUME_ERR, job.pauseCode);
         Assertions.assertFalse(ScheduleRule.isNeedAutoSchedule(job),
                 "a revoked privilege must not be auto resumed");

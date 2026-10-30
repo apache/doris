@@ -169,7 +169,10 @@ public class ComputeGroupBindingUtil {
         // A revoked privilege is the opposite: somebody decided this owner may no longer use this
         // group, and nothing will undo that by itself. CANNOT_RESUME_ERR keeps ScheduleRule from
         // auto resuming the job, which would otherwise pause and resume it every few minutes for
-        // as long as the grant is missing.
+        // as long as the grant is missing. That only works where the failure pauses the job, so
+        // routine load runs this for a job about to be scheduled and not for one that is still
+        // PAUSED: an auto resume attempt could not replace that job's old, retryable reason (see
+        // KafkaRoutineLoadJob#updateKafkaPartitions).
         if (!Env.getCurrentEnv().getAccessManager().checkCloudPriv(owner, computeGroup,
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
             throw new UserException(InternalErrorCode.CANNOT_RESUME_ERR,

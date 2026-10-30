@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.Separator;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
@@ -281,6 +282,25 @@ public class CreateRoutineLoadInfo {
                     + modeStr);
         }
         return mode;
+    }
+
+    /**
+     * Checks a routine load job's workload group the way its tasks resolve it ({@code KafkaTaskInfo#rePlan}):
+     * as {@code user}, and in cloud mode in the namespace of {@code computeGroup}, the group the job runs in. A
+     * workload group lives in the namespace of a compute group: the same name under a different compute group
+     * is a different group. {@code computeGroup} is not used outside cloud mode.
+     */
+    public static void checkWorkloadGroup(UserIdentity user, String workloadGroup, String computeGroup)
+            throws UserException {
+        ConnectContext tmpCtx = new ConnectContext();
+        tmpCtx.setCurrentUserIdentity(user);
+        tmpCtx.getSessionVariable().setWorkloadGroup(workloadGroup);
+        // a no-op outside cloud mode
+        tmpCtx.setCloudCluster(computeGroup);
+        List<WorkloadGroup> wgList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(tmpCtx);
+        if (wgList.size() == 0) {
+            throw new UserException("Can not find workload group " + workloadGroup);
+        }
     }
 
     public String getName() {
@@ -651,22 +671,13 @@ public class CreateRoutineLoadInfo {
             // "workload_group" = "wg_a") and moved to cg_b was cancelled by the first restart after
             // cg_a was dropped, because this lookup resolved wg_a in cg_a.
             if (!isReplay) {
-                ConnectContext tmpCtx = new ConnectContext();
-                tmpCtx.setCurrentUserIdentity(ConnectContext.get().getCurrentUserIdentity());
-                tmpCtx.getSessionVariable().setWorkloadGroup(inputWorkloadGroupStr);
-                if (Config.isCloudMode()) {
-                    // A workload group lives in the namespace of a compute group: the same name under a
-                    // different compute group is a different group. So this existence check must be done
-                    // against the compute group the job will actually run in, not the session's one.
-                    tmpCtx.setCloudCluster(StringUtils.isEmpty(this.computeGroupName)
-                            ? ConnectContext.get().getCloudCluster()
-                            : this.computeGroupName);
+                // Checked in the compute group the job will run in: the declared one, or else the session's,
+                // which the job snapshots when it is created.
+                String computeGroup = this.computeGroupName;
+                if (Config.isCloudMode() && StringUtils.isEmpty(computeGroup)) {
+                    computeGroup = ConnectContext.get().getCloudCluster();
                 }
-                List<WorkloadGroup> wgList = Env.getCurrentEnv().getWorkloadGroupMgr()
-                        .getWorkloadGroup(tmpCtx);
-                if (wgList.size() == 0) {
-                    throw new UserException("Can not find workload group " + inputWorkloadGroupStr);
-                }
+                checkWorkloadGroup(ConnectContext.get().getCurrentUserIdentity(), inputWorkloadGroupStr, computeGroup);
             }
             this.workloadGroupName = inputWorkloadGroupStr;
         }

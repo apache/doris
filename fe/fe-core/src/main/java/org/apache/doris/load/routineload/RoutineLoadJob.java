@@ -1511,7 +1511,9 @@ public abstract class RoutineLoadJob
 
     // For failures found by refreshKafkaPartitions(), which update() runs before it takes the job lock.
     // The state is checked again under the lock: a STOP that completed in between must not be turned
-    // back into PAUSED, as replay rejects STOPPED -> PAUSED.
+    // back into PAUSED, as replay rejects STOPPED -> PAUSED. Only a NEED_SCHEDULE job is paused. A job that
+    // is still PAUSED, as during an auto resume attempt, keeps its reason (PAUSED -> PAUSED is rejected too),
+    // so a failure whose error code has to be recorded must not be reported from such an attempt.
     protected void pauseIfNeedSchedule(ErrorReason reason) throws UserException {
         writeLock();
         try {

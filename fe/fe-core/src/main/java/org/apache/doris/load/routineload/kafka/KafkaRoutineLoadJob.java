@@ -447,23 +447,31 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             if (customKafkaPartitions != null && !customKafkaPartitions.isEmpty()) {
                 return true;
             }
-            return updateKafkaPartitions();
+            return updateKafkaPartitions(needAutoResume);
         }
         return true;
     }
 
-    private boolean updateKafkaPartitions() throws UserException {
+    private boolean updateKafkaPartitions(boolean needAutoResume) throws UserException {
         // The metadata request goes to the backends of the declared compute group, and after RESUME it runs
         // before any task, so check the group here as RoutineLoadTaskScheduler does before each task. A
         // dropped group would otherwise pause the job with "no alive backends" and the Kafka advice below.
-        try {
-            ComputeGroupBindingUtil.checkComputeGroupBeforeTask(getUserIdentity(), getDeclaredComputeGroup());
-        } catch (UserException e) {
-            LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                    .add("error_msg", e.getMessage())
-                    .build());
-            pauseIfNeedSchedule(new ErrorReason(e.getErrorCode(), e.getMessage()));
-            return false;
+        //
+        // Not for an auto resume attempt, which is left to that check before the first task. The job is still
+        // PAUSED during the attempt and can not be paused again with another reason, so a failure here would
+        // keep its old, retryable one: a revoked USAGE would never become CANNOT_RESUME_ERR, and auto resume
+        // would retry for good. Once the metadata request below succeeds, the attempt moves the job to
+        // NEED_SCHEDULE, and the check before its first task records the failure.
+        if (!needAutoResume) {
+            try {
+                ComputeGroupBindingUtil.checkComputeGroupBeforeTask(getUserIdentity(), getDeclaredComputeGroup());
+            } catch (UserException e) {
+                LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                        .add("error_msg", e.getMessage())
+                        .build());
+                pauseIfNeedSchedule(new ErrorReason(e.getErrorCode(), e.getMessage()));
+                return false;
+            }
         }
         try {
             this.newCurrentKafkaPartition = getAllKafkaPartitions();
@@ -788,12 +796,23 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     public void modifyProperties(AlterRoutineLoadCommand command) throws UserException {
         Map<String, String> jobProperties = command.getAnalyzedJobProperties();
         KafkaDataSourceProperties dataSourceProperties = (KafkaDataSourceProperties) command.getDataSourceProperties();
+        String declaredComputeGroup = jobProperties.get(CreateRoutineLoadInfo.COMPUTE_GROUP);
+        if (!Strings.isNullOrEmpty(declaredComputeGroup)) {
+            // Every task looks the job's workload group up in the compute group the job runs in
+            // (KafkaTaskInfo#rePlan), so moving the job checks it in the new group, as CREATE does in the group
+            // it declares. One the new group does not have would otherwise fail every task with the retryable
+            // CREATE_TASKS_ERR, which auto resume repeats for good. Checked as the owner, whom the tasks run as.
+            String workloadGroup = jobProperties.containsKey(CreateRoutineLoadInfo.WORKLOAD_GROUP)
+                    ? jobProperties.get(CreateRoutineLoadInfo.WORKLOAD_GROUP) : getWorkloadGroup();
+            if (!Strings.isNullOrEmpty(workloadGroup)) {
+                CreateRoutineLoadInfo.checkWorkloadGroup(getUserIdentity(), workloadGroup, declaredComputeGroup);
+            }
+        }
         if (null != dataSourceProperties) {
             // The offsets are converted before modifyPropertiesInternal installs the new properties,
             // so a compute group this ALTER declares has to be used already: for
             // ALTER ... PROPERTIES("compute_group" = "cg_b") FROM KAFKA("kafka_offsets" = "OFFSET_END")
             // the job's current group may be gone, which is why it is being moved to cg_b.
-            String declaredComputeGroup = jobProperties.get(CreateRoutineLoadInfo.COMPUTE_GROUP);
             // if the partition offset is set by timestamp, convert it to real offset
             convertOffset(dataSourceProperties, Strings.isNullOrEmpty(declaredComputeGroup)
                     ? getComputeGroupName() : declaredComputeGroup);

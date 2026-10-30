@@ -292,8 +292,9 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         if (jobProperties.containsKey(CreateRoutineLoadInfo.COMPUTE_GROUP)) {
             String computeGroup = jobProperties.get(CreateRoutineLoadInfo.COMPUTE_GROUP);
             if (!StringUtil.isEmpty(computeGroup)) {
-                // Unlike workload group, the compute group can be fully validated right here, so do
-                // it now instead of letting a bad name pause the whole job on the next task.
+                // Validated right here instead of letting a bad name pause the whole job on the next task.
+                // The job's workload group is then checked in this group by KafkaRoutineLoadJob#modifyProperties,
+                // which also knows the one the job keeps when this ALTER sets none.
                 ComputeGroupBindingUtil.validateDeclaredComputeGroup(ctx, computeGroup);
                 // a combined ALTER converts its new Kafka offsets in this group, see KafkaRoutineLoadJob
                 ComputeGroupBindingUtil.activateDeclaredComputeGroup(computeGroup);

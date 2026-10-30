@@ -922,7 +922,6 @@ public class MTMVTask extends AbstractTask {
                         MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
                 try {
                     setupComputeGroup(ivmConnectContext);
-                    checkComputeGroupBeforeTask(ivmConnectContext);
                     IvmIncrRefreshContext ivmIncrRefreshContext = new IvmIncrRefreshContext(mtmv,
                             ivmConnectContext,
                             getRefreshAuditStmt(RefreshMode.INCREMENTAL, Sets.newHashSet(incrementalScope)),
@@ -1609,7 +1608,6 @@ public class MTMVTask extends AbstractTask {
                 .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE
                         ? refreshPartitionNames : Sets.newHashSet(), tableWithPartKey, statementContext);
         setupComputeGroup(mtmvCtx);
-        checkComputeGroupBeforeTask(mtmvCtx);
         AtomicReference<IvmPlanSignature> signatureRef = new AtomicReference<>();
         try {
             MTMVPlanUtil.executeCommand(mtmvCtx, command, statementContext,
@@ -1670,29 +1668,39 @@ public class MTMVTask extends AbstractTask {
         }
     }
 
-    private void setupComputeGroup(ConnectContext ctx) {
+    /**
+     * Binds a refresh context to the compute group the refresh runs in, records that group on the task and
+     * re-checks the declared one. The declaration is read once, so the group that is checked is the group that
+     * is bound: an ALTER MATERIALIZED VIEW landing between two reads could otherwise have the check pass for
+     * the new group while this refresh runs in the old one.
+     */
+    private void setupComputeGroup(ConnectContext ctx) throws UserException {
         if (!Config.isCloudMode()) {
             computeGroup = FeConstants.null_string;
             return;
         }
-        applyComputeGroup(ctx);
+        Optional<String> declaredComputeGroup = applyComputeGroup(ctx);
         try {
             computeGroup = ctx.getCloudCluster(false);
         } catch (ComputeGroupException e) {
             computeGroup = FeConstants.null_string;
             LOG.warn("failed to resolve compute group for mtmv task, taskId: {}", getTaskId(), e);
         }
+        checkComputeGroupBeforeTask(ctx, declaredComputeGroup);
     }
 
-    private void applyComputeGroup(ConnectContext ctx) {
+    // Returns the declaration it read, so that a re-check of the declared group checks the bound one.
+    private Optional<String> applyComputeGroup(ConnectContext ctx) {
         // A compute group declared on the MV pins every refresh, automatic or manual, to that group.
         // Only when the MV declares nothing does a manual REFRESH keep borrowing the session's group,
         // which is the behaviour every existing MV keeps.
-        String effective = mtmv.getComputeGroup().orElse(taskContext.getComputeGroup());
+        Optional<String> declaredComputeGroup = mtmv.getComputeGroup();
+        String effective = declaredComputeGroup.orElse(taskContext.getComputeGroup());
         if (!Strings.isNullOrEmpty(effective)) {
             // A no-op outside cloud mode.
             ctx.setCloudCluster(effective);
         }
+        return declaredComputeGroup;
     }
 
     /**
@@ -1705,11 +1713,12 @@ public class MTMVTask extends AbstractTask {
      * privilege half of the check always pass; the existence half is what has teeth right now. Once
      * an MV carries a real owner, passing that owner here is the only change needed.
      */
-    private void checkComputeGroupBeforeTask(ConnectContext ctx) throws UserException {
+    private void checkComputeGroupBeforeTask(ConnectContext ctx, Optional<String> declaredComputeGroup)
+            throws UserException {
         // Only the explicitly declared compute group is re-checked; an MV that declares none borrows
         // the session's group, which the user never chose for it.
         ComputeGroupBindingUtil.checkComputeGroupBeforeTask(ctx.getCurrentUserIdentity(),
-                mtmv.getComputeGroup().orElse(null));
+                declaredComputeGroup.orElse(null));
     }
 
     private void recordQueryId(String queryId) {

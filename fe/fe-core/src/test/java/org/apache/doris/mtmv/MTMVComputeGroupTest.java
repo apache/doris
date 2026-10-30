@@ -46,6 +46,7 @@ import org.mockito.Mockito;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * The transitional {@code compute_group} declaration on async materialized views.
@@ -208,7 +209,8 @@ public class MTMVComputeGroupTest {
         CloudSystemInfoService systemInfo = Mockito.mock(CloudSystemInfoService.class);
         Mockito.when(systemInfo.getCloudClusterNames()).thenReturn(Lists.newArrayList(SESSION_CG));
         Deencapsulation.setField(Env.getCurrentEnv(), "systemInfo", systemInfo);
-        Method check = MTMVTask.class.getDeclaredMethod("checkComputeGroupBeforeTask", ConnectContext.class);
+        // both refresh paths set their context up, and re-check it, through setupComputeGroup()
+        Method check = MTMVTask.class.getDeclaredMethod("setupComputeGroup", ConnectContext.class);
         check.setAccessible(true);
         ConnectContext ctx = new ConnectContext();
         ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
@@ -221,5 +223,35 @@ public class MTMVComputeGroupTest {
                 e.getCause().getMessage());
 
         check.invoke(newTask(newMTMV(null), MTMVTaskTriggerMode.MANUAL, "cg_dropped_from_session"), ctx);
+    }
+
+    /**
+     * A refresh context is re-checked against the group it is bound to.
+     *
+     * <p>The declaration is read once per context. The check used to read it a second time, so an ALTER
+     * MATERIALIZED VIEW landing in between had it pass for the new group while the refresh ran in the old one.
+     * When the old group had been dropped, which is what such an ALTER is often for, the refresh then failed
+     * later on a generic "no backend" error instead of the "not found" this check exists to give.
+     */
+    @Test
+    public void testRefreshContextChecksTheGroupItBinds() {
+        Config.deploy_mode = "cloud";
+        Config.cloud_unique_id = "";
+        // cg_a has been dropped, cg_b exists
+        CloudSystemInfoService systemInfo = Mockito.mock(CloudSystemInfoService.class);
+        Mockito.when(systemInfo.getCloudClusterNames()).thenReturn(Lists.newArrayList("cg_b"));
+        Deencapsulation.setField(Env.getCurrentEnv(), "systemInfo", systemInfo);
+        // the first read sees cg_a, any later one the ALTER to cg_b that lands right after it
+        MTMV mtmv = Mockito.spy(newMTMV("cg_a"));
+        Mockito.doReturn(Optional.of("cg_a"), Optional.of("cg_b")).when(mtmv).getComputeGroup();
+        MTMVTask task = newTask(mtmv, MTMVTaskTriggerMode.SYSTEM, null);
+        ConnectContext ctx = new ConnectContext();
+        ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
+
+        UserException e = Assertions.assertThrows(UserException.class,
+                () -> Deencapsulation.invoke(task, "setupComputeGroup", ctx));
+        Assertions.assertTrue(e.getMessage().contains("Compute group 'cg_a' not found."), e.getMessage());
+        Assertions.assertEquals("cg_a", ctx.getSessionVariable().getCloudCluster());
+        Mockito.verify(mtmv, Mockito.times(1)).getComputeGroup();
     }
 }
