@@ -140,10 +140,12 @@ class IvmAggMaxProcessorTest extends IvmAggProcessorTestBase {
         // visible MAX column plus COUNT_AT_MAX, and the pair array is derived above it.
         IvmAggMaxProcessor processor = new IvmAggMaxProcessor();
         List<NamedExpression> hiddenOutputs = new ArrayList<>();
+        List<NamedExpression> internalOutputs = new ArrayList<>();
         IvmAggTargetSpec spec = processor.buildTargetSpec(2, new Max(value),
-                new Alias(new Max(value), "max_v"), new HashMap<>(), hiddenOutputs, 1);
-        Assertions.assertEquals(2, hiddenOutputs.size(), "COUNT plus the internal COUNT_AT_MAX");
-        Assertions.assertTrue(hiddenOutputs.get(1).child(0) instanceof CountAtMax);
+                new Alias(new Max(value), "max_v"), new HashMap<>(), hiddenOutputs, internalOutputs, 1);
+        Assertions.assertEquals(1, hiddenOutputs.size(), "only the COUNT state is persisted");
+        Assertions.assertEquals(1, internalOutputs.size(), "COUNT_AT_MAX is an internal output");
+        Assertions.assertTrue(internalOutputs.get(0).child(0) instanceof CountAtMax);
         Assertions.assertFalse(hiddenOutputs.stream()
                 .anyMatch(output -> output.child(0) instanceof MaxTopK));
         Assertions.assertNull(spec.toPlaceholderTarget().getHiddenStateSlot(IvmAggStateKey.MAX_COUNT),
@@ -197,7 +199,8 @@ class IvmAggMaxProcessorTest extends IvmAggProcessorTestBase {
         IvmAggMaxProcessor processor = new IvmAggMaxProcessor();
         List<NamedExpression> hiddenOutputs = new ArrayList<>();
         IvmAggTargetSpec spec = processor.buildTargetSpec(2, new Max(value),
-                new Alias(new Max(value), "max_v"), new HashMap<>(), hiddenOutputs, 0);
+                new Alias(new Max(value), "max_v"), new HashMap<>(), hiddenOutputs,
+                new ArrayList<>(), 0);
         Assertions.assertFalse(hiddenOutputs.stream()
                 .anyMatch(output -> output.child(0) instanceof MaxTopK));
         Expression stateExpr = derivedOutput(spec, IvmAggStateKey.MAX_TOPK);
