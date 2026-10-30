@@ -7,3 +7,15 @@
 1	1	1
 2	2	2
 
+-- !use_mv_multi_hint --
+1	1	1
+2	1	2
+
+-- !use_mv_gather_hint --
+1	1	1
+2	1	2
+
+-- !use_mv_cte_hint --
+1	1	1
+2	1	1
+
