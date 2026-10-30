@@ -132,11 +132,14 @@ services:
     profiles: [deltalake]
     image: doristhirdpartydocker/mc:RELEASE.2025-01-17T23-25-50Z
     container_name: doris--delta-storage-init
+    environment:
+      DELTALAKE_REGENERATE_FIXTURES: ${DELTALAKE_REGENERATE_FIXTURES:-0}
     depends_on:
       minio:
         condition: service_healthy
     volumes:
       - ./cache/deltalake/golden:/golden:ro
+      - ./cache/deltalake/spark:/delta-state
       - ./scripts/deltalake/init-storage.sh:/fixtures/init-storage.sh:ro
     entrypoint: [/bin/sh, /fixtures/init-storage.sh]
     networks:

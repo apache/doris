@@ -186,9 +186,12 @@ The Spark service runs the SQL fixtures in
 golden registration and Parquet pruning helpers. Only after these complete and
 Spark Thrift answers a query does the service become healthy. The first successful
 setup writes `cache/deltalake/spark/FIXTURES_READY`. Restarts reuse those fixtures
-and only restart Spark Thrift. To deliberately regenerate fixtures after changing
-their definitions, explicitly set `DELTALAKE_REGENERATE_FIXTURES=1`; this replaces
-the fixture tables before populating them. Return the flag to `0` for subsequent
+and only restart Spark Thrift. The storage initializer also writes `GOLDEN_READY`
+in that state directory after a successful upload, and skips uploading golden
+objects on subsequent starts. To deliberately regenerate fixtures after changing
+their definitions, explicitly set `DELTALAKE_REGENERATE_FIXTURES=1`; this uploads
+the pinned golden objects again and replaces the Spark fixture tables before
+populating them. Return the flag to `0` for subsequent
 starts. Keep the Spark, HMS and MinIO state directories together when restoring a
 retained environment; the marker assumes their corresponding data is still present.
 Regression suites retain their catalogs/tables for inspection. Spark uses two local cores
