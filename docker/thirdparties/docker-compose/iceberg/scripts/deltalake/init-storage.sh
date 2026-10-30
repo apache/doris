@@ -17,6 +17,16 @@
 # under the License.
 
 set -eu
+case "${DELTALAKE_REGENERATE_FIXTURES:-0}" in
+    0|1) ;;
+    *) echo "DELTALAKE_REGENERATE_FIXTURES must be 0 or 1" >&2; exit 1 ;;
+esac
 mc alias set delta http://minio:9000 admin password
 mc mb --ignore-existing delta/delta
+if [ -f /delta-state/GOLDEN_READY ] && [ "${DELTALAKE_REGENERATE_FIXTURES:-0}" = 0 ]; then
+    echo "Reusing retained Delta golden fixtures; skipping upload"
+    exit 0
+fi
+rm -f /delta-state/GOLDEN_READY
 mc mirror --overwrite /golden/ delta/delta/warehouse/delta_golden/
+touch /delta-state/GOLDEN_READY
