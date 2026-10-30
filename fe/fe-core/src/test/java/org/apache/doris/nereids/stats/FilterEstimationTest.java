@@ -57,6 +57,8 @@ import com.google.common.collect.Lists;
 import org.apache.commons.math3.util.Precision;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -102,8 +104,9 @@ class FilterEstimationTest {
         Assertions.assertEquals(100, filtered.findColumnStatistics(secondPartitionSlot).ndv, 0.001);
     }
 
-    @Test
-    public void testAppliedConjunctKeepsScanRowsWhenColumnStatsAreStale() {
+    @ParameterizedTest
+    @ValueSource(ints = {0, 1000})
+    public void testAppliedConjunctKeepsScanRowsWhenColumnStatsAreStale(int scanRowCount) {
         SlotReference partitionSlot = new SlotReference("p", IntegerType.INSTANCE);
         EqualTo partitionPredicate = new EqualTo(partitionSlot, new IntegerLiteral(1));
         ColumnStatistic staleColumnStats = new ColumnStatisticBuilder(1000)
@@ -112,18 +115,22 @@ class FilterEstimationTest {
                 .setMaxValue(20)
                 .build();
         Statistics input = new StatisticsBuilder()
-                .setRowCount(1000)
+                .setRowCount(scanRowCount)
                 .putColumnStatistics(partitionSlot, staleColumnStats)
                 .build();
 
         Statistics constrained = new FilterEstimation().applyColumnConstraints(
                 ImmutableSet.of(partitionPredicate), input);
 
-        Assertions.assertEquals(1000, constrained.getRowCount(), 0.001);
+        Assertions.assertEquals(scanRowCount, constrained.getRowCount(), 0.001);
         ColumnStatistic constrainedColumn = constrained.findColumnStatistics(partitionSlot);
-        Assertions.assertEquals(10, constrainedColumn.ndv, 0.001);
-        Assertions.assertEquals(10, constrainedColumn.minValue, 0.001);
-        Assertions.assertEquals(20, constrainedColumn.maxValue, 0.001);
+        Assertions.assertEquals(scanRowCount, constrainedColumn.count, 0.001);
+        Assertions.assertEquals(Math.min(1, scanRowCount), constrainedColumn.ndv, 0.001);
+        Assertions.assertEquals(1, constrainedColumn.minValue, 0.001);
+        Assertions.assertEquals(1, constrainedColumn.maxValue, 0.001);
+        Assertions.assertEquals("1", constrainedColumn.minExpr.getStringValue());
+        Assertions.assertEquals("1", constrainedColumn.maxExpr.getStringValue());
+        Assertions.assertEquals(0, constrainedColumn.numNulls, 0.001);
     }
 
     @Test

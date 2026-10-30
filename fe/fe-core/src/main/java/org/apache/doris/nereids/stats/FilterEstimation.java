@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -192,6 +193,18 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 // 分区证明所有选中行都是 NULL；过期的 numNulls=0 不能推翻这个精确值域。
                 return new ColumnStatisticBuilder(constrainedColumn, scanRowCount)
                         .setNdv(0).setNumNulls(scanRowCount).build();
+            }
+            if (predicate instanceof EqualPredicate) {
+                ComparisonPredicate equality = (ComparisonPredicate) predicate;
+                if (equality.left().isConstant()) {
+                    equality = equality.commute();
+                }
+                if (equality.left().equals(slot) && equality.right() instanceof Literal
+                        && !(equality.right() instanceof NullLiteral)) {
+                    // 等值 visitor 已保留常量边界，但零行归一化清除了 NDV；按分区证明恢复单值域。
+                    return new ColumnStatisticBuilder(constrainedColumn, scanRowCount)
+                            .setNdv(Math.min(1, scanRowCount)).setNumNulls(0).build();
+                }
             }
             // Stale column statistics may contradict the partition proof. They cannot invalidate the
             // selected scan row count, so retain this column's existing statistics.
