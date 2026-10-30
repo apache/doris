@@ -141,6 +141,7 @@ suite('test_schema_change_with_compaction10', 'docker') {
         }
 
         def newTabletId = null
+        Throwable primaryFailure = null
         try {
             load_delete_compaction()
             load_delete_compaction()
@@ -179,65 +180,78 @@ suite('test_schema_change_with_compaction10', 'docker') {
             for (int version = 15; version <= 24; version++) {
                 assertTrue(notReadyTabletRowsets.any { it.contains("[${version}-${version}]") })
             }
+        } catch (Throwable failure) {
+            primaryFailure = failure
+            throw failure
         } finally {
-            if (injectBe != null) {
-                GetDebugPoint().disableDebugPointForAllBEs(injectName)
-            }
-            int max_try_time = 3000
-            def result = null
-            while (max_try_time--){
-                result = getJobState("date")
-                if (result == "FINISHED" || result == "CANCELLED") {
-                    sleep(3000)
-                    break
-                } else {
-                    sleep(100)
-                    if (max_try_time < 1){
-                        assertEquals(1,2)
+            try {
+                if (injectBe != null) {
+                    GetDebugPoint().disableDebugPointForAllBEs(injectName)
+                }
+                int max_try_time = 3000
+                def result = null
+                while (max_try_time--){
+                    result = getJobState("date")
+                    if (result == "FINISHED" || result == "CANCELLED") {
+                        sleep(3000)
+                        break
+                    } else {
+                        sleep(100)
+                        if (max_try_time < 1){
+                            assertEquals(1,2)
+                        }
                     }
                 }
+                assertEquals("FINISHED", result);
+                def count = sql """ select count(*) from date; """
+                assertEquals(2556, count[0][0]);
+                // check rowsets
+                logger.info("run show:" + originTabletId)
+                def (code, out, err) = be_show_tablet_status(injectBe.Host, injectBe.HttpPort, originTabletId)
+                logger.info("Run show: code=" + code + ", out=" + out + ", err=" + err)
+                assertTrue(out.contains("[0-1]"))
+                assertTrue(out.contains("[2-7]"))
+                assertTrue(out.contains("[8-8]"))
+                assertTrue(out.contains("[9-24]"))
+
+                logger.info("run show:" + newTabletId)
+                (code, out, err) = be_show_tablet_status(injectBe.Host, injectBe.HttpPort, newTabletId)
+                logger.info("Run show: code=" + code + ", out=" + out + ", err=" + err)
+                assertTrue(out.contains("[0-1]"))
+                assertTrue(out.contains("[2-2]"))
+                assertTrue(out.contains("[7-7]"))
+                assertTrue(out.contains("[8-8]"))
+                assertTrue(out.contains("[9-14]"))
+
+                triggerAndWaitTabletCompaction(newTabletId, "base")
+                logger.info("run show:" + newTabletId)
+                (code, out, err) = be_show_tablet_status(injectBe.Host, injectBe.HttpPort, newTabletId)
+                logger.info("Run show: code=" + code + ", out=" + out + ", err=" + err)
+                assertTrue(out.contains("[0-1]"))
+                assertTrue(out.contains("[2-7]"))
+                assertTrue(out.contains("[8-8]"))
+                assertTrue(out.contains("[9-14]"))
+
+                for (int i = 0; i < 3; i++) {
+                    load_date_once("date");
+                }
+
+                sql """ select count(*) from date """
+
+                def finalTabletRowsets =
+                        triggerAndWaitCumulativeCompaction(newTabletId, "[27-27]", "[8-27]")
+                assertTrue(finalTabletRowsets.any { it.contains("[0-1]") })
+                assertTrue(finalTabletRowsets.any { it.contains("[2-7]") })
+                assertTrue(finalTabletRowsets.any { it.contains("[8-27]") })
+            } catch (Throwable cleanupFailure) {
+                if (primaryFailure != null) {
+                    if (!primaryFailure.is(cleanupFailure)) {
+                        primaryFailure.addSuppressed(cleanupFailure)
+                    }
+                } else {
+                    throw cleanupFailure
+                }
             }
-            assertEquals(result, "FINISHED");
-            def count = sql """ select count(*) from date; """
-            assertEquals(count[0][0], 2556);
-            // check rowsets
-            logger.info("run show:" + originTabletId)
-            def (code, out, err) = be_show_tablet_status(injectBe.Host, injectBe.HttpPort, originTabletId)
-            logger.info("Run show: code=" + code + ", out=" + out + ", err=" + err)
-            assertTrue(out.contains("[0-1]"))
-            assertTrue(out.contains("[2-7]"))
-            assertTrue(out.contains("[8-8]"))
-            assertTrue(out.contains("[9-24]"))
-
-            logger.info("run show:" + newTabletId)
-            (code, out, err) = be_show_tablet_status(injectBe.Host, injectBe.HttpPort, newTabletId)
-            logger.info("Run show: code=" + code + ", out=" + out + ", err=" + err)
-            assertTrue(out.contains("[0-1]"))
-            assertTrue(out.contains("[2-2]"))
-            assertTrue(out.contains("[7-7]"))
-            assertTrue(out.contains("[8-8]"))
-            assertTrue(out.contains("[9-14]"))
-
-            triggerAndWaitTabletCompaction(newTabletId, "base")
-            logger.info("run show:" + newTabletId)
-            (code, out, err) = be_show_tablet_status(injectBe.Host, injectBe.HttpPort, newTabletId)
-            logger.info("Run show: code=" + code + ", out=" + out + ", err=" + err)
-            assertTrue(out.contains("[0-1]"))
-            assertTrue(out.contains("[2-7]"))
-            assertTrue(out.contains("[8-8]"))
-            assertTrue(out.contains("[9-14]"))
-
-            for (int i = 0; i < 3; i++) {
-                load_date_once("date");
-            }
-
-            sql """ select count(*) from date """
-
-            def finalTabletRowsets =
-                    triggerAndWaitCumulativeCompaction(newTabletId, "[27-27]", "[8-27]")
-            assertTrue(finalTabletRowsets.any { it.contains("[0-1]") })
-            assertTrue(finalTabletRowsets.any { it.contains("[2-7]") })
-            assertTrue(finalTabletRowsets.any { it.contains("[8-27]") })
         }
     }
 }
