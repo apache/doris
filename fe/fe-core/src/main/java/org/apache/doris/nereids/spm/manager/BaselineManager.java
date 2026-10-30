@@ -7882,6 +7882,17 @@ public class BaselineManager {
                 complete &= readable.contains(droppedIdentityKey(row.getId(),
                         row.getBindSqlDigest(), identityPlanSqlHash(row)));
             }
+            // The tombstone lives in TWO places: the append-only HISTORY row read above, and
+            // the COMPACT identity slot every reader consults first (see
+            // readPersistedSeqReservation, whose non-dropped early return deliberately does NOT
+            // read the history). Confirming only the history let a DROP report success while the
+            // compact slot still carried the identity's PREVIOUS plain reservation - the identity
+            // then still looked alive, and a delayed INSERT of an older id of the same key was
+            // republished as an active baseline. The compact publish is therefore part of the
+            // SAME fence (round-87 review).
+            if (complete) {
+                complete = compactTombstonesVisible(identityMarkers(identities));
+            }
             if (complete) {
                 pendingDropTombstoneConfirmations.remove(id);
                 return;
@@ -7948,6 +7959,12 @@ public class BaselineManager {
                                     owed.getValue().planSqlHash));
                 }
             }
+            // the COMPACT identity slot is part of the same fence (see
+            // confirmDropTombstonesDurable): the history row alone does not make the tombstone
+            // readable to a reader that trusts a non-dropped compact record
+            if (complete && obligation != null) {
+                complete = compactTombstonesVisible(identityMarkersOf(obligation));
+            }
             if (complete) {
                 pendingDropTombstoneConfirmations.remove(id);
                 if (obligation != null) {
@@ -7975,6 +7992,87 @@ public class BaselineManager {
         throw new IllegalStateException("SPM cannot confirm the retained drop tombstones of"
                 + " baseline id " + id + " (the row is gone but its filter markers are not"
                 + " readable); retry the DROP");
+    }
+
+    /** The identity markers of one DROP's removed rows (see compactTombstonesVisible). */
+    private static List<PendingDropMarker> identityMarkers(Collection<BaselinePlan> rows) {
+        List<PendingDropMarker> markers = new ArrayList<>(rows.size());
+        for (BaselinePlan row : rows) {
+            if (row != null && row.getBindSqlDigest() != null && row.getPlanSql() != null) {
+                markers.add(new PendingDropMarker(row.getBindSqlDigest(),
+                        identityPlanSqlHash(row)));
+            }
+        }
+        return markers;
+    }
+
+    /** The retained obligation's identity markers, without the id-scoped one (see
+     * compactTombstonesVisible). */
+    private static List<PendingDropMarker> identityMarkersOf(PendingDropObligation obligation) {
+        List<PendingDropMarker> markers = new ArrayList<>(obligation.owed.size());
+        for (Map.Entry<Long, PendingDropMarker> owed : obligation.owed.entrySet()) {
+            if (!owed.getValue().bindSqlDigest.isEmpty()) {
+                markers.add(owed.getValue());
+            }
+        }
+        return markers;
+    }
+
+    /**
+     * Whether the COMPACT identity slot of every given marker already reports the DROP
+     * tombstone - the second half of the DROP fence (see confirmDropTombstonesDurable).
+     *
+     * <p>The compact slot answers "what does a SUCCESSOR conclude about this identity right
+     * now", and {@link #readPersistedSeqReservation} returns a NON-dropped compact record
+     * WITHOUT replaying the history (that early return is what keeps the steady path cheap).
+     * A compact publish that did not land therefore left the identity looking alive while the
+     * history already carried the tombstone. Requiring the compact record here makes the two
+     * writes one fence: the DROP only reports success once both are readable, and a slot that
+     * still lags is re-appended (writeDroppedMarker) and retried within the bounded budget.
+     *
+     * @param identities the identity markers this DROP owes (no id-scoped ones)
+     * @return whether every compact slot already exposes a DROP tombstone
+     */
+    private boolean compactTombstonesVisible(Collection<PendingDropMarker> identities) {
+        if (identities == null || identities.isEmpty()) {
+            return true;
+        }
+        Set<Long> slots = new java.util.LinkedHashSet<>();
+        for (PendingDropMarker identity : identities) {
+            slots.add(compactSeqId(identity.bindSqlDigest, identity.planSqlHash));
+        }
+        Map<Long, BaselinePersistence.SeqReservation> states;
+        try {
+            states = persistence.readLatestReservations(slots, INTERNAL_QUERY_TIMEOUT_SECONDS);
+        } catch (RuntimeException e) {
+            throw new RuntimeException("SPM durable identity-state read failed (retry the DROP): "
+                    + e.getMessage(), e);
+        }
+        for (PendingDropMarker identity : identities) {
+            BaselinePersistence.SeqReservation state = states == null ? null
+                    : states.get(compactSeqId(identity.bindSqlDigest, identity.planSqlHash));
+            if (state == null) {
+                // a store that cannot answer the COMPACT slot (the batched read is a no-op for a
+                // substituted store): its single-identity read replays the history, which is the
+                // only state such a store has
+                state = persistence.readLatestReservation(identity.bindSqlDigest,
+                        identity.planSqlHash);
+            }
+            if (state == null) {
+                // NOTHING recorded in the slot at all: a reader that consults it first (see
+                // readPersistedSeqReservation) gets no answer and falls back to the history row
+                // this fence has already confirmed, so a missing slot cannot mask the tombstone.
+                // Only a PRESENT record can contradict the DROP - and that is exactly the failure
+                // this fence is here for: the best-effort compact append may leave the identity's
+                // PREVIOUS plain reservation in the slot, which the reader takes as proof the
+                // identity is still alive.
+                continue;
+            }
+            if (!state.dropped) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -8030,16 +8128,39 @@ public class BaselineManager {
     }
 
     /**
-     * Whether the history record describes a LATER state of the identity than the compact
-     * one (see readPersistedSeqReservation): the reserve instant decides, the id breaks
-     * ties (a same-second re-create).
+     * Whether the history record describes a LATER state of the identity than the compact one
+     * (see readPersistedSeqReservation).
+     *
+     * <p>The monotonic baseline id decides: it IS the incarnation order (the identity history is
+     * ordered by {@code baseline_id DESC}, and ids are never reused), while the reserve instant
+     * comes from the writing FE's clock. Letting the timestamp win meant that under FE clock skew
+     * a NEWER id could be discarded in favour of an OLDER tombstone - the retry then allocated a
+     * second id for the same identity while the newer committed row could still publish. The time
+     * and the lifecycle flags only break ties for EQUAL ids.
+     *
+     * @param candidate the history record
+     * @param current   the compact record
+     * @return whether the history record is the later state
      */
-    private static boolean isNewerReservation(BaselinePersistence.SeqReservation candidate,
+    static boolean isNewerReservation(BaselinePersistence.SeqReservation candidate,
             BaselinePersistence.SeqReservation current) {
+        if (candidate.id != current.id) {
+            return candidate.id > current.id;
+        }
         if (candidate.reserveTimeMicros != current.reserveTimeMicros) {
             return candidate.reserveTimeMicros > current.reserveTimeMicros;
         }
-        return candidate.id > current.id;
+        // Same incarnation and instant: one identity's lifecycle moves reservation (unconfirmed)
+        // -> committed row -> DROP tombstone, so the further state wins.
+        return reservationRank(candidate) > reservationRank(current);
+    }
+
+    /** The lifecycle position of one record of a single baseline id (see isNewerReservation). */
+    private static int reservationRank(BaselinePersistence.SeqReservation reservation) {
+        if (reservation.dropped) {
+            return 2;
+        }
+        return reservation.unconfirmed ? 0 : 1;
     }
 
     /** One identity row's state, from either read (compact and history share the

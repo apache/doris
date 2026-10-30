@@ -1048,6 +1048,35 @@ public class StmtExecutor {
                     }
                     return;
                 }
+            } else if (isQueryExplain(logicalPlan) && isForwardToMaster()) {
+                // An EXPLAIN of a query follows the QUERY forwarding policy (see
+                // isForwardableQuery): it is a Command, and a NoForward one, so the gate above
+                // never applied to it and an observer whose baseline cache predates a baseline
+                // created on the master answered the diagnostic LOCALLY - reporting "no hit"
+                // while the immediately following SELECT is forwarded and uses that baseline.
+                // The result of a forwarded EXPLAIN is a result set like a query's, so the
+                // query-forward sequence is mirrored here (no journal wait, proxied packets).
+                if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
+                    throw new UserException("Forward master command is not supported for"
+                            + " prepare statement");
+                }
+                if (!context.getProtocolAdapter().canReplayForwardedQueryResult()) {
+                    throw new UserException("Forwarding a query to the master FE is not supported on an"
+                            + " Arrow Flight SQL connection. Connect to the master FE to run this query.");
+                }
+                if (isProxy) {
+                    throw new NereidsException(new UserException("The statement has been forwarded to"
+                            + " master FE(" + Env.getCurrentEnv().getSelfNode().getHost() + ") and"
+                            + " failed to execute because Master FE is not ready. You may need to"
+                            + " check FE's status"));
+                }
+                context.getState().setIsQuery(true);
+                redirectStatus = RedirectStatus.NO_FORWARD;
+                forwardToMaster();
+                if (masterOpExecutor != null && masterOpExecutor.getQueryId() != null) {
+                    context.setQueryId(masterOpExecutor.getQueryId());
+                }
+                return;
             }
 
             // Query following createting table would throw table not exist error.
@@ -1633,7 +1662,17 @@ public class StmtExecutor {
         if (!(parsedStmt instanceof LogicalPlanAdapter)) {
             return false;
         }
-        LogicalPlan plan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+        return isQueryExplain(((LogicalPlanAdapter) parsedStmt).getLogicalPlan());
+    }
+
+    /**
+     * Whether the plan is an EXPLAIN of a QUERY (as opposed to an EXPLAIN of a DML / DDL, whose
+     * output does not depend on the SPM baseline cache).
+     *
+     * @param plan the parsed plan
+     * @return whether it is a query EXPLAIN
+     */
+    static boolean isQueryExplain(LogicalPlan plan) {
         return plan instanceof ExplainCommand && ((ExplainCommand) plan).isQueryExplain();
     }
 
