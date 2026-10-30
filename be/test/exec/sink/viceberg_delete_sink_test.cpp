@@ -619,4 +619,37 @@ TEST_F(VIcebergDeleteSinkTest, TestWriteDeletionVectorsToSingleSharedPuffin) {
     std::filesystem::remove_all(temp_dir);
 }
 
+TEST_F(VIcebergDeleteSinkTest, TestDeleteOnlyRowsAttachToSingleCommitItem) {
+    std::filesystem::path temp_dir = std::filesystem::temp_directory_path() /
+                                     ("iceberg_delete_sink_test_" + generate_uuid_string());
+    ASSERT_TRUE(std::filesystem::create_directories(temp_dir));
+
+    TDataSink t_data_sink = build_local_delete_sink(temp_dir.string(), 3);
+    VExprContextSPtrs output_exprs;
+    auto sink = std::make_shared<VIcebergDeleteSink>(t_data_sink, output_exprs, nullptr, nullptr);
+    ObjectPool pool;
+    ASSERT_TRUE(sink->init_properties(&pool).ok());
+
+    std::map<std::string, IcebergFileDeletion> file_deletions;
+    auto [file1_it, file1_inserted] =
+            file_deletions.emplace("file1.parquet", IcebergFileDeletion(1, "[\"p=1\"]"));
+    ASSERT_TRUE(file1_inserted);
+    file1_it->second.rows_to_delete.add(static_cast<uint32_t>(10));
+    auto [file2_it, file2_inserted] =
+            file_deletions.emplace("file2.parquet", IcebergFileDeletion(2, "[\"p=2\"]"));
+    ASSERT_TRUE(file2_inserted);
+    file2_it->second.rows_to_delete.add(static_cast<uint32_t>(30));
+
+    sink->set_delete_only_rows(1);
+    ASSERT_TRUE(sink->_write_deletion_vector_files(file_deletions).ok());
+    sink->_apply_delete_only_rows();
+    ASSERT_EQ(2, sink->_commit_data_list.size());
+    EXPECT_EQ(1, sink->_commit_data_list.front().delete_only_rows);
+
+    // The sink-wide action count belongs to one item, not every physical delete file.
+    EXPECT_FALSE(sink->_commit_data_list.back().__isset.delete_only_rows);
+
+    std::filesystem::remove_all(temp_dir);
+}
+
 } // namespace doris

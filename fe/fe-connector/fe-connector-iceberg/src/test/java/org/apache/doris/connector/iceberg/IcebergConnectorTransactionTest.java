@@ -89,7 +89,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Pins {@link IcebergConnectorTransaction}: the T03 skeleton (single SDK transaction held through the
- * {@link IcebergCatalogOps} seam, the 14-field {@link TIcebergCommitData} round-trip, the data/delete-split
+ * {@link IcebergCatalogOps} seam, the 15-field {@link TIcebergCommitData} round-trip, the data/delete-split
  * {@code getUpdateCnt}) AND the T04 op selection (begin* guards + {@code commit()} dispatch onto
  * AppendFiles / ReplacePartitions / OverwriteFiles / RowDelta, ported from legacy {@code IcebergTransaction}).
  *
@@ -341,10 +341,10 @@ public class IcebergConnectorTransactionTest {
         }
     }
 
-    // ─────────────────── addCommitData: 14-field TBinaryProtocol round-trip (T03, regression) ───────────────────
+    // ─────────────────── addCommitData: 15-field TBinaryProtocol round-trip (T03, regression) ───────────────────
 
     @Test
-    public void addCommitDataRoundTripsAll14Fields() {
+    public void addCommitDataRoundTripsAll15Fields() {
         TIcebergColumnStats stats = new TIcebergColumnStats();
         stats.putToColumnSizes(1, 100L);
         stats.putToValueCounts(1, 10L);
@@ -368,6 +368,7 @@ public class IcebergConnectorTransactionTest {
         d.setContentOffset(64L);
         d.setContentSizeInBytes(256L);
         d.setAffectedRows(99L);
+        d.setDeleteOnlyRows(2L);
 
         IcebergConnectorTransaction txn = txnFor(opsReturning(null), new RecordingConnectorContext());
         txn.addCommitData(commitBytes(d));
@@ -375,7 +376,7 @@ public class IcebergConnectorTransactionTest {
         List<TIcebergCommitData> acc = txn.getCommitDataList();
         Assertions.assertEquals(1, acc.size());
         Assertions.assertEquals(d, acc.get(0),
-                "every one of the 14 TIcebergCommitData fields (and the nested TIcebergColumnStats) "
+                "every one of the 15 TIcebergCommitData fields (and the nested TIcebergColumnStats) "
                         + "must survive the TBinaryProtocol round-trip into the accumulator");
     }
 
@@ -433,6 +434,46 @@ public class IcebergConnectorTransactionTest {
         IcebergConnectorTransaction txn = txnFor(opsReturning(null), new RecordingConnectorContext());
         txn.addCommitData(commitBytes(dataItem(5L, 5L, TFileContent.DATA)));
         txn.addCommitData(commitBytes(dataItem(5L, 5L, TFileContent.POSITION_DELETES)));
+        Assertions.assertEquals(5L, txn.getUpdateCnt());
+    }
+
+    @Test
+    public void getUpdateCntUsesActionScopedDeleteRowsWithoutDoubleCountingUpdates() {
+        IcebergConnectorTransaction txn = txnFor(opsReturning(null), new RecordingConnectorContext());
+        txn.addCommitData(commitBytes(dataItem(7L, 7L, TFileContent.DATA)));
+        // row_count models the merged DV cardinality; it must not contribute to statement rows.
+        TIcebergCommitData deletes = dataItem(7L, 99L, TFileContent.DELETION_VECTOR);
+        deletes.setDeleteOnlyRows(2L);
+        txn.addCommitData(commitBytes(deletes));
+        Assertions.assertEquals(9L, txn.getUpdateCnt());
+    }
+
+    @Test
+    public void getUpdateCntKeepsLegacyUpdateCountForNewBe() {
+        IcebergConnectorTransaction txn = txnFor(opsReturning(null), new RecordingConnectorContext());
+        txn.addCommitData(commitBytes(dataItem(5L, 5L, TFileContent.DATA)));
+        TIcebergCommitData deletes = dataItem(5L, 5L, TFileContent.POSITION_DELETES);
+        deletes.setDeleteOnlyRows(0L);
+        txn.addCommitData(commitBytes(deletes));
+        Assertions.assertEquals(5L, txn.getUpdateCnt());
+    }
+
+    @Test
+    public void getUpdateCntUsesDeleteOnlyRowsForDeleteOnlyMerge() {
+        IcebergConnectorTransaction txn = txnFor(opsReturning(null), new RecordingConnectorContext());
+        TIcebergCommitData deletes = dataItem(3L, 99L, TFileContent.DELETION_VECTOR);
+        deletes.setDeleteOnlyRows(3L);
+        txn.addCommitData(commitBytes(deletes));
+        Assertions.assertEquals(3L, txn.getUpdateCnt());
+    }
+
+    @Test
+    public void getUpdateCntPreservesMixedVersionDeleteOnlyProducers() {
+        IcebergConnectorTransaction txn = txnFor(opsReturning(null), new RecordingConnectorContext());
+        txn.addCommitData(commitBytes(dataItem(2L, 2L, TFileContent.POSITION_DELETES)));
+        TIcebergCommitData markedDeletes = dataItem(3L, 3L, TFileContent.POSITION_DELETES);
+        markedDeletes.setDeleteOnlyRows(3L);
+        txn.addCommitData(commitBytes(markedDeletes));
         Assertions.assertEquals(5L, txn.getUpdateCnt());
     }
 

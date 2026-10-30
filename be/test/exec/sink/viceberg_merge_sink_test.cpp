@@ -353,6 +353,39 @@ TEST_F(VIcebergMergeSinkTest, TestUpdateInsertAndDeleteOperations) {
     ASSERT_TRUE(sink->close(Status::OK()).ok());
 }
 
+TEST_F(VIcebergMergeSinkTest, TestStandaloneDeleteRowsExcludeUpdateInternalDelete) {
+    ObjectPool pool;
+    IcebergWriteMockRuntimeState state;
+
+    DataTypes types {std::make_shared<DataTypeInt8>(),
+                     std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
+                                                                 std::make_shared<DataTypeInt64>()},
+                                                      Strings {"file_path", "row_position"}),
+                     std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()};
+    MockRowDescriptor row_desc(types, &pool);
+
+    auto output_exprs = build_output_exprs(&pool, &state, row_desc);
+    TDataSink t_sink = build_sink();
+
+    auto sink = std::make_shared<VIcebergMergeSink>(t_sink, output_exprs, nullptr, nullptr);
+    sink->set_skip_io(true);
+
+    ASSERT_TRUE(sink->init_properties(&pool, row_desc).ok());
+    RuntimeProfile profile("iceberg_merge_sink");
+    ASSERT_TRUE(sink->open(&state, &profile).ok());
+
+    Block block = build_block_with_ops(
+            {kInsertOperation, kUpdateDeleteOperation, kUpdateInsertOperation, kDeleteOperation});
+    ASSERT_TRUE(sink->write(&state, block).ok());
+
+    EXPECT_EQ(2, sink->_delete_row_count);
+    EXPECT_EQ(2, sink->_insert_row_count);
+    EXPECT_EQ(1, sink->_delete_only_row_count);
+    EXPECT_EQ(3, sink->_insert_row_count + sink->_delete_only_row_count);
+
+    ASSERT_TRUE(sink->close(Status::OK()).ok());
+}
+
 TEST_F(VIcebergMergeSinkTest, TestSchemaMismatch) {
     ObjectPool pool;
     IcebergWriteMockRuntimeState state;

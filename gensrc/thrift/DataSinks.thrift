@@ -463,6 +463,10 @@ struct TIcebergCommitData {
     14: optional i64 affected_rows
     // Parquet data-file row-group starts, independent of column metrics policy.
     15: optional list<i64> split_offsets
+    // MERGE-only rows affected by standalone DELETE actions, excluding the internal delete half
+    // of an UPDATE. Emitted once per BE sink instance so FE can add these rows without counting
+    // UPDATE's delete/insert pair twice.
+    16: optional i64 delete_only_rows
 }
 
 struct TSortField {
