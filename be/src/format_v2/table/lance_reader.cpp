@@ -667,16 +667,17 @@ Status LanceTableReader::_open_dataset(const DatasetKey& key) {
     // EXPLAIN plans a moving selector separately, so only the profile shows what this execution
     // read. The version is the one opened, which version 0 (the latest) resolves.
     _opened_version = static_cast<int64_t>(lance_dataset_version(dataset.get()));
-    // The profile holds one entry per dataset this reader opens, so each open appends the URI and
-    // version it read.
-    if (!_opened_dataset_uris.empty()) {
-        _opened_dataset_uris += ", ";
-        _opened_dataset_versions += ", ";
+    const std::string recorded_key = display_uri(key.uri) + "@" + std::to_string(_opened_version);
+    if (_recorded_dataset_keys.insert(recorded_key).second) {
+        if (!_opened_dataset_uris.empty()) {
+            _opened_dataset_uris += ", ";
+            _opened_dataset_versions += ", ";
+        }
+        _opened_dataset_uris += display_uri(key.uri);
+        _opened_dataset_versions += std::to_string(_opened_version);
+        _scanner_profile->add_info_string("LanceDatasetVersion", _opened_dataset_versions);
+        _scanner_profile->add_info_string("LanceDatasetUri", _opened_dataset_uris);
     }
-    _opened_dataset_uris += display_uri(key.uri);
-    _opened_dataset_versions += std::to_string(_opened_version);
-    _scanner_profile->add_info_string("LanceDatasetVersion", _opened_dataset_versions);
-    _scanner_profile->add_info_string("LanceDatasetUri", _opened_dataset_uris);
     _dataset = dataset.release();
     return Status::OK();
 }
@@ -1312,8 +1313,9 @@ void LanceTableReader::_collect_data_cache_statistics() {
     };
     accumulate_counter(_data_cache_bytes_read_from_cache, &_data_cache_bytes_read_from_cache_total,
                        statistics.bytes_read_from_cache, "bytes_read_from_cache");
-    accumulate_counter(_data_cache_bytes_read_from_remote, &_data_cache_bytes_read_from_remote_total,
-                       statistics.bytes_read_from_remote, "bytes_read_from_remote");
+    accumulate_counter(_data_cache_bytes_read_from_remote,
+                       &_data_cache_bytes_read_from_remote_total, statistics.bytes_read_from_remote,
+                       "bytes_read_from_remote");
 }
 
 Status LanceTableReader::_fill_block_from_lance_batch(LanceBatch* batch, Block* block,

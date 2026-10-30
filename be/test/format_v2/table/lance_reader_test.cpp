@@ -1351,7 +1351,8 @@ TEST(LanceTableReaderSnapshotTest, ProfileShowsTheSnapshotRead) {
 
 TEST(LanceTableReaderSnapshotTest, ReadsTwoDatasetsInOneScanAndNamesBoth) {
     const std::filesystem::path first_uri = "./be/test/format_v2/table/lance/data/all_types.lance";
-    const std::filesystem::path second_uri = "./be/test/format_v2/table/lance/data/multivector.lance";
+    const std::filesystem::path second_uri =
+            "./be/test/format_v2/table/lance/data/multivector.lance";
     LanceFixtureInfo first;
     LanceFixtureInfo second;
     ASSERT_TRUE(get_fixture_info(first_uri, &first).ok());
@@ -1368,7 +1369,8 @@ TEST(LanceTableReaderSnapshotTest, ReadsTwoDatasetsInOneScanAndNamesBoth) {
     // One reader serves several splits and the splits of one scan may name different datasets: every
     // range carries the dataset it reads, so the reader opens that one instead of reusing the handle
     // of the first. A "uris" scan is exactly this shape.
-    const auto read_dataset = [&](const std::filesystem::path& uri, const LanceFixtureInfo& fixture) {
+    const auto read_dataset = [&](const std::filesystem::path& uri,
+                                  const LanceFixtureInfo& fixture) {
         EXPECT_TRUE(prepare_fixture(&reader, uri, fixture, fixture.fragment_ids).ok());
         Block block;
         add_output_columns(&block, columns);
@@ -1385,9 +1387,11 @@ TEST(LanceTableReaderSnapshotTest, ReadsTwoDatasetsInOneScanAndNamesBoth) {
     };
     const int64_t first_rows = read_dataset(first_uri, first);
     const int64_t second_rows = read_dataset(second_uri, second);
+    const int64_t first_again_rows = read_dataset(first_uri, first);
 
-    // The profile names every dataset the scan read: each open appends what it read instead of
-    // overwriting what the previous one wrote.
+    // The profile names every DISTINCT dataset the scan read exactly once: each open appends what it
+    // read instead of overwriting the previous one, and a reopen of an already-named dataset does not
+    // duplicate it.
     const auto* uri = profile.get_info_string("LanceDatasetUri");
     ASSERT_NE(nullptr, uri);
     EXPECT_EQ(first_uri.string() + ", " + second_uri.string(), *uri);
@@ -1396,9 +1400,9 @@ TEST(LanceTableReaderSnapshotTest, ReadsTwoDatasetsInOneScanAndNamesBoth) {
     EXPECT_EQ(std::to_string(first.version) + ", " + std::to_string(second.version), *version);
 
     EXPECT_TRUE(reader.close().ok());
-    // Switching really read the second dataset and not just the first one's handle.
     EXPECT_GT(first_rows, 0);
     EXPECT_GT(second_rows, 0);
+    EXPECT_GT(first_again_rows, 0);
 }
 
 TEST(LanceTableReaderSnapshotTest, OpenErrorsNameTheVersionWithoutTheQueryString) {

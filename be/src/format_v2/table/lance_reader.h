@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -143,6 +144,9 @@ private:
     // The URI and version of every dataset this reader has opened, in order, for the profile.
     std::string _opened_dataset_uris;
     std::string _opened_dataset_versions;
+    // Keys already recorded in the profile, so a dataset reopened by federation shuffling is not
+    // appended again.
+    std::set<std::string> _recorded_dataset_keys;
     RuntimeProfile::Counter* _index_object_loads = nullptr;
     RuntimeProfile::Counter* _index_components_loaded = nullptr;
     RuntimeProfile::Counter* _index_comparisons = nullptr;
