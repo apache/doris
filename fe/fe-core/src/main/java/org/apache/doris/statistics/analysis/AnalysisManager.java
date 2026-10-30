@@ -29,6 +29,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
@@ -1512,8 +1513,17 @@ public class AnalysisManager implements Writable {
                     LOG.info("Tablet row count map is empty");
                     continue;
                 }
+                long changelogIndexId = olapTable.hasChangelog()
+                        ? olapTable.getChangelogIndexMeta().getIndexId() : -1;
                 long rowsForAllReplica = 0;
+                long changelogRowsForAllReplica = 0;
                 for (Entry<Long, Long> entry : tabletRows.entrySet()) {
+                    if (changelogIndexId > 0 && isChangelogTablet(entry.getKey(), changelogIndexId)) {
+                        // The change rows of the load, which are neither the rows loaded into the
+                        // base index nor a lower bound of the table's rows: see TableStatsMeta.
+                        changelogRowsForAllReplica += entry.getValue();
+                        continue;
+                    }
                     rowsForAllReplica += entry.getValue();
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("Table id {}, tablet id {}, row count {}",
@@ -1525,6 +1535,7 @@ public class AnalysisManager implements Writable {
                         + "rows for all replica {}, tablets count {}",
                         olapTable.getName(), tableUpdateRows, replicaNum, rowsForAllReplica, tabletRows.size());
                 statsStatus.updatedRows.addAndGet(tableUpdateRows);
+                statsStatus.addIndexUpdatedRows(changelogIndexId, changelogRowsForAllReplica / replicaNum);
                 if (StatisticsUtil.enablePartitionAnalyze()) {
                     updatePartitionRows(olapTable, tabletRows, statsStatus, replicaNum);
                 }
@@ -1550,6 +1561,11 @@ public class AnalysisManager implements Writable {
                 }
             }
         }
+    }
+
+    private static boolean isChangelogTablet(long tabletId, long changelogIndexId) {
+        TabletMeta tabletMeta = Env.getCurrentEnv().getTabletInvertedIndex().getTabletMeta(tabletId);
+        return tabletMeta != null && tabletMeta.getIndexId() == changelogIndexId;
     }
 
     protected void updatePartitionRows(OlapTable table, Map<Long, Long> originTabletToRows,

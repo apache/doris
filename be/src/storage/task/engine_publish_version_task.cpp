@@ -132,6 +132,12 @@ Status EnginePublishVersionTask::execute() {
     std::unique_ptr<ThreadPoolToken> token = _engine.tablet_publish_txn_thread_pool()->new_token(
             ThreadPool::ExecutionMode::CONCURRENT);
     std::unordered_map<int64_t, int64_t> tablet_id_to_num_delta_rows;
+    // The changelog rowsets the transaction wrote, their rows reported once they are published.
+    // They are collected across the retries of this call. A retry is a new call when the publish
+    // request itself is retried, and a report whose task carries an error tablet is discarded as a
+    // whole by the frontend (for the delta rows of the base tablets as well), so a tablet which
+    // published in an earlier attempt contributes its rows with the next periodic report.
+    std::vector<RowsetSharedPtr> attached_changelog_rowsets;
 
 #ifndef NDEBUG
     if (UNLIKELY(_publish_version_req.partition_version_infos.empty())) {
@@ -248,6 +254,18 @@ Status EnginePublishVersionTask::execute() {
                 tablet_id_to_num_delta_rows.insert(
                         {rowset_meta_ptr->tablet_id(), rowset_meta_ptr->num_rows()});
             }
+            // A load which writes a changelog keeps its changelog rowset on the base tablet's
+            // transaction info instead of committing a changelog tablet of its own, so its rows are
+            // reported separately below, once the publish tasks have finished: a merge-on-write
+            // publication can still append changelog segments to that rowset. The frontend cannot
+            // derive them from the rows it loaded into the base tablets -- an update writes change
+            // rows without adding a base row, and a delete adds none to the base but at least one
+            // to the changelog -- and it keeps the count to estimate how many rows a read of the
+            // changelog returns.
+            const ChangelogTxnInfo& attach_changelog = txn_info_it->second->attach_changelog;
+            if (attach_changelog.rowset != nullptr) {
+                attached_changelog_rowsets.push_back(attach_changelog.rowset);
+            }
 
             auto tablet_publish_txn_ptr = std::make_shared<TabletPublishTxnTask>(
                     _engine, this, tablet, rowset, txn_info_it->second->attach_changelog,
@@ -316,6 +334,10 @@ Status EnginePublishVersionTask::execute() {
                 }
             }
         }
+    }
+    for (const RowsetSharedPtr& changelog_rowset : attached_changelog_rowsets) {
+        const RowsetMetaSharedPtr& rowset_meta = changelog_rowset->rowset_meta();
+        tablet_id_to_num_delta_rows.insert({rowset_meta->tablet_id(), rowset_meta->num_rows()});
     }
     _calculate_tbl_num_delta_rows(tablet_id_to_num_delta_rows);
 
