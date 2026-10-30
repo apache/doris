@@ -28,7 +28,7 @@
 
 namespace doris {
 
-class PythonUDFPoolLease;
+class PythonFunctionRuntime;
 
 /**
  * Base class for Python UDF/UDAF/UDTF clients
@@ -47,7 +47,7 @@ public:
     using FlightStreamReader = arrow::flight::FlightStreamReader;
 
     PythonClient() = default;
-    virtual ~PythonClient() = default;
+    virtual ~PythonClient();
 
     /**
      * Initialize connection to Python server
@@ -105,7 +105,7 @@ protected:
     Status read_batch(std::shared_ptr<arrow::RecordBatch>* output);
 
     // Released after the stream and process, so idle reclamation cannot interrupt cleanup.
-    std::shared_ptr<PythonUDFPoolLease> _pool_lease;
+    std::shared_ptr<PythonFunctionRuntime> _runtime;
 
     // Common state
     bool _inited = false;
@@ -117,7 +117,7 @@ protected:
     ProcessPtr _process;
 
 private:
-    friend class PythonServerManager;
+    friend class PythonFunctionRuntime;
 
     DISALLOW_COPY_AND_ASSIGN(PythonClient);
 };

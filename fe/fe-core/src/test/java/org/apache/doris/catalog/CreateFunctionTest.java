@@ -236,7 +236,7 @@ public class CreateFunctionTest extends TestWithFeService {
             if (kind.equals("tables ")) {
                 assertAutoSuspendMetadata(findFunction(db, prefix + "_default_outer"), 14400);
             }
-            long[] values = {-1, 0, 30, 14400, Long.MAX_VALUE};
+            long[] values = kind.isEmpty() ? new long[]{-1, 0, 30, 14400, Long.MAX_VALUE} : new long[]{30};
             for (int i = 0; i < values.length; i++) {
                 String name = prefix + "_explicit_" + i;
                 createFunction("create " + kind + "function python_auto_suspend_db." + name

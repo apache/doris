@@ -238,11 +238,15 @@ Status AggregatePythonUDAF::open() {
                              _fn.name.function_name, _python_version.to_string(),
                              _func_meta.to_string());
 
+    std::shared_ptr<UserFunctionCacheEntry> package_cache_entry;
     if (_func_meta.type == PythonUDFLoadType::MODULE) {
         RETURN_IF_ERROR(UserFunctionCache::instance()->get_pypath(
                 _func_meta.id, _func_meta.location, _func_meta.checksum, &_func_meta.location,
-                &_package_cache_entry));
+                &package_cache_entry));
     }
+
+    _runtime = DORIS_TRY(PythonServerManager::instance().get_runtime(
+            _func_meta, _python_version, std::move(package_cache_entry)));
 
     return Status::OK();
 }
@@ -276,8 +280,7 @@ void AggregatePythonUDAF::create(AggregateDataPtr __restrict place) const {
     new (place) Data();
     DCHECK(reinterpret_cast<Data*>(place)) << "Place must not be null";
 
-    if (Status st = PythonServerManager::instance().get_client(
-                _func_meta, _python_version, &data(place).client, _schema, _package_cache_entry);
+    if (Status st = _runtime->get_client(_func_meta, &data(place).client, _schema);
         UNLIKELY(!st.ok())) {
         this->data(place).~Data();
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Failed to get Python UDAF client: {}",

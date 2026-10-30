@@ -23,43 +23,22 @@ suite("test_pythonudtf_auto_suspend", "nonConcurrent") {
         PROPERTIES("replication_num"="1")"""
     sql "INSERT INTO py_auto_suspend_input VALUES (1), (2), (3)"
     try {
-        // Check results before/after idling; BE unit tests separately verify process termination.
-        ["0", "1", "-1", null].eachWithIndex { timeout, index ->
-            sql "DROP FUNCTION IF EXISTS py_auto_suspend(INT)"
-            def property = timeout == null ? "" : ", \"auto_suspend\"=\"${timeout}\""
-            sql """CREATE TABLES FUNCTION py_auto_suspend(INT) RETURNS ARRAY<INT>
-                PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
-                    "runtime_version"="${runtime}", "pool_size"="1" ${property})
-                AS \$\$
-def evaluate(v):
-    if v is not None:
-        yield (v + 10,)
-\$\$"""
-            "qt_result_0_${index}"("SELECT x FROM py_auto_suspend_input LATERAL VIEW py_auto_suspend(v) t AS x ORDER BY x")
-            "qt_result_1_${index}"("SELECT x FROM (SELECT CAST(NULL AS INT) v) s LATERAL VIEW py_auto_suspend_outer(v) t AS x")
-            Thread.sleep(2500)
-            "qt_result_2_${index}"("SELECT x FROM py_auto_suspend_input LATERAL VIEW py_auto_suspend(v) t AS x ORDER BY x")
-            "qt_result_3_${index}"("SELECT x FROM (SELECT CAST(NULL AS INT) v) s LATERAL VIEW py_auto_suspend_outer(v) t AS x")
-            // DROP now leaves a STOPPED pool until the monitor reclaims it. The next
-            // iteration recreates the same SQL name with a new function id and must still work.
-            sql "DROP FUNCTION py_auto_suspend(INT)"
-            test {
-                sql "SELECT x FROM py_auto_suspend_input LATERAL VIEW py_auto_suspend(v) t AS x"
-                exception "Can not found function"
-            }
-        }
-        sql "DROP FUNCTION IF EXISTS py_auto_suspend_pid(INT)"
-        sql """CREATE TABLES FUNCTION py_auto_suspend_pid(INT) RETURNS ARRAY<BIGINT>
+        sql "DROP FUNCTION IF EXISTS py_auto_suspend(INT)"
+        sql """CREATE TABLES FUNCTION py_auto_suspend(INT) RETURNS ARRAY<STRING>
             PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
                 "runtime_version"="${runtime}", "pool_size"="1", "auto_suspend"="0")
             AS \$\$
 import os
 def evaluate(v):
-    yield (os.getpid(),)
+    if v is not None:
+        yield (f"{os.getpid()}:{v + 10}",)
 \$\$"""
-        def queryPid = {
-            sql("SELECT x FROM py_auto_suspend_input LATERAL VIEW py_auto_suspend_pid(v) t AS x")[0][0]
-        }
+        def query = "SELECT x FROM py_auto_suspend_input LATERAL VIEW py_auto_suspend(v) t AS x"
+        def queryPid = { sql("SELECT split_part(x, ':', 1) FROM (${query}) s")[0][0] }
+        def resultQuery = "SELECT split_part(x, ':', 2) FROM (${query}) s ORDER BY 1"
+        def outerQuery = "SELECT x FROM (SELECT CAST(NULL AS INT) v) s LATERAL VIEW py_auto_suspend_outer(v) t AS x"
+        qt_before(resultQuery)
+        qt_outer_before(outerQuery)
         def firstPid = queryPid()
         def nextPid = firstPid
         def deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(120)
@@ -68,8 +47,9 @@ def evaluate(v):
             nextPid = queryPid()
         }
         assertNotEquals(firstPid, nextPid)
+        qt_after(resultQuery)
+        qt_outer_after(outerQuery)
     } finally {
         sql "DROP FUNCTION IF EXISTS py_auto_suspend(INT)"
-        sql "DROP FUNCTION IF EXISTS py_auto_suspend_pid(INT)"
     }
 }

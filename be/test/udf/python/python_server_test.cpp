@@ -18,6 +18,7 @@
 #include "udf/python/python_server.h"
 
 #include <gtest/gtest.h>
+#include <minizip/zip.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 
@@ -35,6 +36,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
+#include "runtime/user_function_cache.h"
 #include "udf/python/python_env.h"
 #include "udf/python/python_udaf_client.h"
 #include "udf/python/python_udf_client.h"
@@ -42,6 +44,7 @@
 #include "udf/python/python_udtf_client.h"
 #include "util/cpu_info.h"
 #include "util/defer_op.h"
+#include "util/md5.h"
 
 namespace doris {
 
@@ -53,6 +56,71 @@ protected:
     std::string test_dir_;
     std::optional<std::string> original_doris_home_;
     int test_pool_size_ = 1;
+
+    void set_process_pool(PythonServerManager& manager, const PythonUDFMeta& meta,
+                          const PythonVersion& version, std::vector<ProcessPtr> processes,
+                          bool initialized = true) {
+        auto runtime = manager.get_runtime(meta, version, nullptr).value();
+        std::scoped_lock lock(runtime->mutex);
+        for (const auto& process : processes) {
+            if (process) {
+                runtime->process_registry->add(process);
+            }
+        }
+        runtime->processes = std::move(processes);
+        runtime->state = initialized ? PythonFunctionRuntime::PoolState::INITIALIZED
+                                     : PythonFunctionRuntime::PoolState::UNINITIALIZED;
+        runtime->has_available_process = std::ranges::any_of(
+                runtime->processes,
+                [](const ProcessPtr& process) { return process && process->is_alive(); });
+    }
+
+    std::vector<ProcessPtr> process_pool_snapshot(PythonServerManager& manager,
+                                                  int64_t function_id) {
+        std::scoped_lock map_lock(manager._pools_mutex);
+        auto iter = manager._process_pools.find(function_id);
+        if (iter == manager._process_pools.end()) {
+            return {};
+        }
+        std::scoped_lock lock(iter->second->mutex);
+        return iter->second->processes;
+    }
+
+    bool wait_for_pool_initialized(PythonServerManager& manager, int64_t function_id,
+                                   std::chrono::milliseconds timeout) {
+        std::shared_ptr<PythonFunctionRuntime> runtime;
+        {
+            std::scoped_lock map_lock(manager._pools_mutex);
+            runtime = manager._process_pools.at(function_id);
+        }
+        std::unique_lock<std::mutex> lock(runtime->mutex);
+        return runtime->cv.wait_for(lock, timeout, [&]() {
+            return runtime->state == PythonFunctionRuntime::PoolState::INITIALIZED;
+        });
+    }
+
+    bool wait_for_pool_initialization_finished(PythonServerManager& manager, int64_t function_id,
+                                               std::chrono::milliseconds timeout) {
+        std::shared_ptr<PythonFunctionRuntime> runtime;
+        {
+            std::scoped_lock map_lock(manager._pools_mutex);
+            runtime = manager._process_pools.at(function_id);
+        }
+        std::unique_lock<std::mutex> lock(runtime->mutex);
+        return runtime->cv.wait_for(lock, timeout, [&]() {
+            return runtime->state != PythonFunctionRuntime::PoolState::INITIALIZING;
+        });
+    }
+
+    Result<std::shared_ptr<PythonFunctionRuntime>> initialize_runtime(
+            PythonServerManager& manager, const PythonUDFMeta& meta, const PythonVersion& version) {
+        auto runtime = manager.get_runtime(meta, version, nullptr);
+        if (!runtime.has_value()) {
+            return runtime;
+        }
+        RETURN_IF_ERROR_RESULT(runtime.value()->_ensure_pool_initialized());
+        return runtime;
+    }
 
     void SetUp() override {
         test_dir_ = fs::temp_directory_path().string() + "/python_server_test_" +
@@ -85,34 +153,29 @@ protected:
         SCOPED_TRACE(repair ? "repaired process" : "initial process");
         PythonServerManager mgr;
         auto meta = test_meta(version);
-        std::shared_ptr<PythonUDFPoolLease> lease;
-        auto pool = mgr._ensure_pool_initialized(meta, version, nullptr, &lease);
+        auto pool = initialize_runtime(mgr, meta, version);
         ASSERT_TRUE(pool.has_value()) << pool.error().to_string();
-        ASSERT_TRUE(
-                mgr.wait_for_process_pool_initialized_for_test(meta.id, std::chrono::seconds(5)));
+        ASSERT_TRUE(wait_for_pool_initialized(mgr, meta.id, std::chrono::seconds(5)));
         // Model the ProcessPtr retained by PythonClient during an active exchange.
         ProcessPtr client_process;
-        ASSERT_TRUE(mgr._get_process(version, pool.value(), &client_process).ok());
+        ASSERT_TRUE(pool.value()->_get_process(&client_process).ok());
         if (repair) {
             client_process->shutdown();
             client_process.reset();
             mgr._check_and_recreate_processes();
-            ASSERT_TRUE(mgr._get_process(version, pool.value(), &client_process).ok());
+            ASSERT_TRUE(pool.value()->_get_process(&client_process).ok());
         }
         mgr._refresh_memory_stats();
         ASSERT_GT(mgr._mem_tracker.consumption(), 0);
 
         std::weak_ptr<PythonUDFProcess> process_lifetime = client_process;
         mgr.drop_function(meta.id);
-        EXPECT_EQ(mgr.process_pool_snapshot_for_test(meta.id).size(), 1);
-        mgr._reclaim_idle_pools(std::chrono::steady_clock::now());
+        EXPECT_TRUE(process_pool_snapshot(mgr, meta.id).empty());
         ASSERT_TRUE(client_process->is_alive());
         mgr._refresh_memory_stats();
         EXPECT_GT(mgr._mem_tracker.consumption(), 0);
 
         client_process.reset();
-        lease.reset();
-        mgr._reclaim_idle_pools(std::chrono::steady_clock::now());
         EXPECT_TRUE(process_lifetime.expired());
         mgr._refresh_memory_stats();
         EXPECT_EQ(mgr._mem_tracker.consumption(), 0);
@@ -123,6 +186,31 @@ protected:
         meta.id = static_cast<int64_t>(std::hash<std::string>()(version.to_string()) & INT64_MAX);
         meta.pool_size = test_pool_size_;
         return meta;
+    }
+
+    void load_package(UserFunctionCache& cache, int64_t fid, std::string* local_path,
+                      std::shared_ptr<UserFunctionCacheEntry>* entry) {
+        ASSERT_TRUE(cache.init(test_dir_ + "/cache").ok());
+        const auto zip_path = test_dir_ + "/entry.zip";
+        {
+            zipFile archive = zipOpen(zip_path.c_str(), APPEND_STATUS_CREATE);
+            ASSERT_NE(nullptr, archive);
+            Defer close_archive {[&]() { EXPECT_EQ(ZIP_OK, zipClose(archive, nullptr)); }};
+            zip_fileinfo info {};
+            ASSERT_EQ(ZIP_OK, zipOpenNewFileInZip(archive, "entry.py", &info, nullptr, 0, nullptr,
+                                                  0, nullptr, Z_DEFLATED, Z_DEFAULT_COMPRESSION));
+            const std::string source = "def evaluate(x): return x + 7\n";
+            ASSERT_EQ(ZIP_OK, zipWriteInFileInZip(archive, source.data(), source.size()));
+            ASSERT_EQ(ZIP_OK, zipCloseFileInZip(archive));
+        }
+        std::ifstream input(zip_path, std::ios::binary);
+        const std::string bytes((std::istreambuf_iterator<char>(input)),
+                                std::istreambuf_iterator<char>());
+        Md5Digest digest;
+        digest.update(bytes.data(), bytes.size());
+        digest.digest();
+        ASSERT_TRUE(
+                cache.get_pypath(fid, "file://" + zip_path, digest.hex(), local_path, entry).ok());
     }
 
     // Create a fake Python script that creates a socket file and keeps running
@@ -228,15 +316,13 @@ protected:
         return std::make_shared<PythonUDFProcess>(std::move(child), std::move(output_stream));
     }
 
-    template <typename VersionedPoolPtr>
     Status get_process_with_retry(
-            PythonServerManager& mgr, const PythonVersion& version,
-            const VersionedPoolPtr& versioned_pool, ProcessPtr* process,
+            const std::shared_ptr<PythonFunctionRuntime>& runtime, ProcessPtr* process,
             std::chrono::milliseconds timeout = std::chrono::milliseconds(5000)) {
         Status last_status;
         auto deadline = std::chrono::steady_clock::now() + timeout;
         while (std::chrono::steady_clock::now() < deadline) {
-            last_status = mgr._get_process(version, versioned_pool, process);
+            last_status = runtime->_get_process(process);
             if (last_status.ok()) {
                 return last_status;
             }
@@ -259,16 +345,14 @@ TEST_F(PythonServerTest, SingletonReturnsSameInstance) {
 }
 
 // ============================================================================
-// PythonServerManager::fork() - process creation test
+// PythonUDFProcess::create() - process creation test
 // ============================================================================
 
 TEST_F(PythonServerTest, ForkWithNonExistentPythonReturnsError) {
-    PythonServerManager mgr;
-
     PythonVersion invalid_version("3.9.16", test_dir_, test_dir_ + "/nonexistent_python");
 
     ProcessPtr process;
-    Status status = mgr.fork(invalid_version, &process);
+    Status status = PythonUDFProcess::create(invalid_version, &process);
 
     // Verify: non-existent Python should return an error
     EXPECT_FALSE(status.ok());
@@ -276,7 +360,6 @@ TEST_F(PythonServerTest, ForkWithNonExistentPythonReturnsError) {
 }
 
 TEST_F(PythonServerTest, ForkWithMissingFlightServerReturnsError) {
-    PythonServerManager mgr;
     setup_doris_home();
     std::string python_path = create_fake_python_with_socket_creation("3.9.16");
     PythonVersion version("3.9.16", test_dir_, python_path);
@@ -284,21 +367,19 @@ TEST_F(PythonServerTest, ForkWithMissingFlightServerReturnsError) {
     // Prove that the same executable and arguments start correctly while the production server
     // entry exists, then remove only that entry to isolate the failure cause.
     ProcessPtr healthy_process;
-    ASSERT_TRUE(mgr.fork(version, &healthy_process).ok());
+    ASSERT_TRUE(PythonUDFProcess::create(version, &healthy_process).ok());
     ASSERT_NE(healthy_process, nullptr);
     healthy_process->shutdown();
 
     ASSERT_TRUE(fs::remove(test_dir_ + "/plugins/python_udf/python_server.py"));
     ProcessPtr process;
-    Status status = mgr.fork(version, &process);
+    Status status = PythonUDFProcess::create(version, &process);
 
     EXPECT_FALSE(status.ok());
     EXPECT_EQ(process, nullptr);
 }
 
 TEST_F(PythonServerTest, ForkWithProcessThatExitsImmediatelyReturnsError) {
-    PythonServerManager mgr;
-
     // Set DORIS_HOME
     setenv("DORIS_HOME", test_dir_.c_str(), 1);
 
@@ -325,7 +406,7 @@ TEST_F(PythonServerTest, ForkWithProcessThatExitsImmediatelyReturnsError) {
     PythonVersion version("3.9.16", test_dir_, python_path);
 
     ProcessPtr process;
-    Status status = mgr.fork(version, &process);
+    Status status = PythonUDFProcess::create(version, &process);
 
     // Verify: process exits immediately (socket file not created), should return an error
     EXPECT_FALSE(status.ok());
@@ -340,12 +421,11 @@ TEST_F(PythonServerTest, ForkWithoutSocketCreationReturnsAfterBoundedTerminate) 
     std::string python_path =
             create_fake_python_without_socket_creation("python3.no_socket_direct", "3.9.16");
 
-    PythonServerManager mgr;
     PythonVersion version("3.9.16", test_dir_, python_path);
 
     auto start = std::chrono::steady_clock::now();
     ProcessPtr process;
-    Status status = mgr.fork(version, &process);
+    Status status = PythonUDFProcess::create(version, &process);
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - start);
 
@@ -360,15 +440,14 @@ TEST_F(PythonServerTest, ForkEnqueuesBackgroundReapWhenKilledStartFailureIsNotRe
     std::string python_path =
             create_fake_python_without_socket_creation("python3.no_socket_reap", "3.9.16");
 
-    PythonServerManager mgr;
     PythonVersion version("3.9.16", test_dir_, python_path);
 
     // SIGKILL not becoming reapable inside the bounded wait depends on kernel state. Force only the
-    // wait results so this test covers PythonServerManager::fork() handing waitpid ownership to the
+    // wait results so this test covers PythonUDFProcess::create() handing waitpid ownership to the
     // shared background reaper instead of detaching and losing the pid.
     PythonUDFProcess::force_child_exit_timeouts_for_test(2);
     ProcessPtr process;
-    Status status = mgr.fork(version, &process);
+    Status status = PythonUDFProcess::create(version, &process);
     PythonUDFProcess::force_child_exit_timeouts_for_test(0);
 
     EXPECT_FALSE(status.ok());
@@ -384,7 +463,7 @@ TEST_F(PythonServerTest, ForkEnqueuesBackgroundReapWhenKilledStartFailureIsNotRe
 }
 
 // ============================================================================
-// PythonServerManager::_ensure_pool_initialized() - pool initialization test
+// PythonFunctionRuntime::_ensure_pool_initialized() - pool initialization test
 // ============================================================================
 
 TEST_F(PythonServerTest, EnsurePoolInitializedWithInvalidVersionFails) {
@@ -393,7 +472,7 @@ TEST_F(PythonServerTest, EnsurePoolInitializedWithInvalidVersionFails) {
 
     PythonVersion invalid_version("3.99.99", "/non/existent/path", "/non/existent/python");
 
-    auto result = mgr._ensure_pool_initialized(test_meta(invalid_version), invalid_version);
+    auto result = initialize_runtime(mgr, test_meta(invalid_version), invalid_version);
 
     // Verify: invalid version should cause initialization to fail
     EXPECT_FALSE(result.has_value());
@@ -424,14 +503,14 @@ TEST_F(PythonServerTest, EnsurePoolInitializedRetriesAfterRuntimeIsRepaired) {
     Defer clear_sync_point {[sync_point]() {
         sync_point->disable_processing();
         sync_point->clear_call_back(
-                "PythonServerManager::_ensure_pool_initialized:generation_started");
+                "PythonFunctionRuntime::_ensure_pool_initialized:generation_started");
         sync_point->clear_call_back(
-                "PythonServerManager::_ensure_pool_initialized:init_worker_finished");
+                "PythonFunctionRuntime::_ensure_pool_initialized:init_worker_finished");
     }};
     sync_point->set_call_back(
-            "PythonServerManager::_ensure_pool_initialized:generation_started",
+            "PythonFunctionRuntime::_ensure_pool_initialized:generation_started",
             [generation_completion, version](auto&& args) {
-                const auto* started_version = try_any_cast<const PythonVersion*>(args.at(0));
+                const auto* started_version = try_any_cast<PythonVersion*>(args.at(0));
                 if (*started_version != version) {
                     return;
                 }
@@ -439,9 +518,9 @@ TEST_F(PythonServerTest, EnsurePoolInitializedRetriesAfterRuntimeIsRepaired) {
                 generation_completion->generation = try_any_cast<std::atomic<int>*>(args.at(1));
             });
     sync_point->set_call_back(
-            "PythonServerManager::_ensure_pool_initialized:init_worker_finished",
+            "PythonFunctionRuntime::_ensure_pool_initialized:init_worker_finished",
             [generation_completion, version](auto&& args) {
-                const auto* finished_version = try_any_cast<const PythonVersion*>(args.at(0));
+                const auto* finished_version = try_any_cast<PythonVersion*>(args.at(0));
                 if (*finished_version != version) {
                     return;
                 }
@@ -457,7 +536,7 @@ TEST_F(PythonServerTest, EnsurePoolInitializedRetriesAfterRuntimeIsRepaired) {
             });
     sync_point->enable_processing();
 
-    auto failed_result = mgr._ensure_pool_initialized(test_meta(version), version);
+    auto failed_result = initialize_runtime(mgr, test_meta(version), version);
     ASSERT_FALSE(failed_result.has_value());
 
     // Wait for both parts of the failed generation to finish. Otherwise an old detached worker can
@@ -468,17 +547,17 @@ TEST_F(PythonServerTest, EnsurePoolInitializedRetriesAfterRuntimeIsRepaired) {
             return generation_completion->worker_finished;
         }));
     }
-    ASSERT_TRUE(mgr.wait_for_process_pool_initialization_finished_for_test(
-            test_meta(version).id, std::chrono::seconds(5)));
+    ASSERT_TRUE(wait_for_pool_initialization_finished(mgr, test_meta(version).id,
+                                                      std::chrono::seconds(5)));
 
     // Repair the runtime in place and retry the same version key. Production can hit this when an
     // environment or server entry is fixed after a transient initialization failure.
     ASSERT_EQ(create_fake_python_with_socket_creation("3.9.16"), python_path);
-    auto recovered_result = mgr._ensure_pool_initialized(test_meta(version), version);
+    auto recovered_result = initialize_runtime(mgr, test_meta(version), version);
     ASSERT_TRUE(recovered_result.has_value()) << recovered_result.error().to_string();
 
     ProcessPtr process;
-    ASSERT_TRUE(mgr._get_process(version, recovered_result.value(), &process).ok());
+    ASSERT_TRUE(recovered_result.value()->_get_process(&process).ok());
     ASSERT_NE(process, nullptr);
     EXPECT_TRUE(process->is_alive());
 
@@ -493,7 +572,7 @@ TEST_F(PythonServerTest, EnsurePoolInitializedAfterShutdownReturnsServiceUnavail
     std::string python_path = create_fake_python_with_socket_creation("3.9.16");
     PythonVersion version("3.9.16", test_dir_, python_path);
 
-    auto result = mgr._ensure_pool_initialized(test_meta(version), version);
+    auto result = initialize_runtime(mgr, test_meta(version), version);
 
     EXPECT_FALSE(result.has_value());
     EXPECT_NE(result.error().to_string().find("shutting down"), std::string::npos);
@@ -520,7 +599,7 @@ TEST_F(PythonServerTest, ShutdownAfterFailedInitializationDoesNotCrash) {
 
     // Try initialization first (expected to fail)
     PythonVersion invalid_version("3.99.99", "/bad/path", "/bad/python");
-    auto result = mgr._ensure_pool_initialized(test_meta(invalid_version), invalid_version);
+    auto result = initialize_runtime(mgr, test_meta(invalid_version), invalid_version);
     EXPECT_FALSE(result.has_value());
 
     // Verify: calling shutdown after failed initialization does not crash
@@ -535,13 +614,13 @@ TEST_F(PythonServerTest, GetProcessFromStoppedPoolReturnsUnavailable) {
 
     PythonServerManager mgr;
     PythonVersion version("3.9.16", test_dir_, python_path);
-    auto pool_result = mgr._ensure_pool_initialized(test_meta(version), version);
+    auto pool_result = initialize_runtime(mgr, test_meta(version), version);
     ASSERT_TRUE(pool_result.has_value()) << pool_result.error().to_string();
 
     mgr.shutdown();
 
     ProcessPtr process;
-    Status status = mgr._get_process(version, pool_result.value(), &process);
+    Status status = pool_result.value()->_get_process(&process);
 
     EXPECT_FALSE(status.ok());
     EXPECT_EQ(process, nullptr);
@@ -588,9 +667,9 @@ TEST_F(PythonServerTest, DestructorCleansUpResources) {
     {
         PythonServerManager mgr;
         PythonVersion version("3.9.16", test_dir_, python_path);
-        auto pool_result = mgr._ensure_pool_initialized(test_meta(version), version);
+        auto pool_result = initialize_runtime(mgr, test_meta(version), version);
         ASSERT_TRUE(pool_result.has_value()) << pool_result.error().to_string();
-        ASSERT_TRUE(mgr._get_process(version, pool_result.value(), &process).ok());
+        ASSERT_TRUE(pool_result.value()->_get_process(&process).ok());
         ASSERT_NE(process, nullptr);
         ASSERT_TRUE(process->is_alive());
         socket_path = process->get_socket_file_path();
@@ -610,11 +689,10 @@ TEST_F(PythonServerTest, ForkSuccessWithFakePython) {
     setup_doris_home();
     std::string python_path = create_fake_python_with_socket_creation("3.9.16");
 
-    PythonServerManager mgr;
     PythonVersion version("3.9.16", test_dir_, python_path);
 
     ProcessPtr process;
-    Status status = mgr.fork(version, &process);
+    Status status = PythonUDFProcess::create(version, &process);
 
     // Verify fork succeeded
     EXPECT_TRUE(status.ok()) << status.to_string();
@@ -641,7 +719,7 @@ TEST_F(PythonServerTest, EnsurePoolInitializedSuccess) {
     PythonServerManager mgr;
     PythonVersion version("3.9.16", test_dir_, python_path);
 
-    auto result = mgr._ensure_pool_initialized(test_meta(version), version);
+    auto result = initialize_runtime(mgr, test_meta(version), version);
 
     // Verify pool initialization succeeded
     EXPECT_TRUE(result.has_value()) << result.error().to_string();
@@ -663,20 +741,21 @@ TEST_F(PythonServerTest, EnsurePoolInitializedSucceedsWithOneStuckWorkerAndOneUs
     PythonServerManager mgr;
     PythonVersion version("3.9.16", test_dir_, python_path);
 
-    auto result = mgr._ensure_pool_initialized(test_meta(version), version);
+    auto result = initialize_runtime(mgr, test_meta(version), version);
 
     ASSERT_TRUE(result.has_value()) << result.error().to_string();
 
     ProcessPtr process;
-    EXPECT_TRUE(mgr._get_process(version, result.value(), &process).ok());
+    EXPECT_TRUE(result.value()->_get_process(&process).ok());
     ASSERT_NE(process, nullptr);
     EXPECT_TRUE(process->is_alive());
 
     // Wait on the same condition variable used by the production coordinator instead of polling
     // or asserting on a racy intermediate state.
-    EXPECT_TRUE(mgr.wait_for_process_pool_initialized_for_test(test_meta(version).id,
-                                                               std::chrono::milliseconds(2000)));
-    EXPECT_TRUE(mgr.process_pool_is_initialized_for_test(test_meta(version).id));
+    EXPECT_TRUE(
+            wait_for_pool_initialized(mgr, test_meta(version).id, std::chrono::milliseconds(2000)));
+    EXPECT_TRUE(
+            wait_for_pool_initialized(mgr, test_meta(version).id, std::chrono::milliseconds(0)));
 
     mgr.shutdown();
 }
@@ -691,18 +770,18 @@ TEST_F(PythonServerTest, EnsurePoolInitializedIdempotent) {
     PythonVersion version("3.9.16", test_dir_, python_path);
 
     // First initialization
-    auto result1 = mgr._ensure_pool_initialized(test_meta(version), version);
+    auto result1 = initialize_runtime(mgr, test_meta(version), version);
     ASSERT_TRUE(result1.has_value()) << result1.error().to_string();
-    auto first_snapshot = mgr.process_pool_snapshot_for_test(test_meta(version).id);
+    auto first_snapshot = process_pool_snapshot(mgr, test_meta(version).id);
     ASSERT_EQ(first_snapshot.size(), 1);
     ASSERT_NE(first_snapshot[0], nullptr);
     pid_t first_pid = first_snapshot[0]->get_child_pid();
 
     // Re-initialization must reuse both the versioned pool and its live process.
-    auto result2 = mgr._ensure_pool_initialized(test_meta(version), version);
+    auto result2 = initialize_runtime(mgr, test_meta(version), version);
     ASSERT_TRUE(result2.has_value()) << result2.error().to_string();
     EXPECT_EQ(result2.value(), result1.value());
-    auto second_snapshot = mgr.process_pool_snapshot_for_test(test_meta(version).id);
+    auto second_snapshot = process_pool_snapshot(mgr, test_meta(version).id);
     ASSERT_EQ(second_snapshot.size(), 1);
     EXPECT_EQ(second_snapshot[0], first_snapshot[0]);
     EXPECT_EQ(second_snapshot[0]->get_child_pid(), first_pid);
@@ -720,12 +799,12 @@ TEST_F(PythonServerTest, GetProcessFromInitializedPool) {
     PythonVersion version("3.9.16", test_dir_, python_path);
 
     // Initialize the pool first
-    auto init_result = mgr._ensure_pool_initialized(test_meta(version), version);
+    auto init_result = initialize_runtime(mgr, test_meta(version), version);
     EXPECT_TRUE(init_result.has_value()) << init_result.error().to_string();
 
     // Get a process
     ProcessPtr process;
-    Status status = mgr._get_process(version, init_result.value(), &process);
+    Status status = init_result.value()->_get_process(&process);
 
     EXPECT_TRUE(status.ok()) << status.to_string();
     EXPECT_NE(process, nullptr);
@@ -743,11 +822,11 @@ TEST_F(PythonServerTest, GetProcessRecreatesDeadProcessWhenNoAliveProcess) {
     PythonServerManager mgr;
     PythonVersion version("3.9.16", test_dir_, python_path);
 
-    auto pool_result = mgr._ensure_pool_initialized(test_meta(version), version);
+    auto pool_result = initialize_runtime(mgr, test_meta(version), version);
     ASSERT_TRUE(pool_result.has_value()) << pool_result.error().to_string();
 
     ProcessPtr first_process;
-    ASSERT_TRUE(mgr._get_process(version, pool_result.value(), &first_process).ok());
+    ASSERT_TRUE(pool_result.value()->_get_process(&first_process).ok());
     ASSERT_NE(first_process, nullptr);
     ASSERT_TRUE(first_process->is_alive());
     pid_t first_pid = first_process->get_child_pid();
@@ -756,7 +835,7 @@ TEST_F(PythonServerTest, GetProcessRecreatesDeadProcessWhenNoAliveProcess) {
     ASSERT_FALSE(first_process->is_alive());
 
     ProcessPtr replacement;
-    Status status = get_process_with_retry(mgr, version, pool_result.value(), &replacement);
+    Status status = get_process_with_retry(pool_result.value(), &replacement);
 
     EXPECT_TRUE(status.ok()) << status.to_string();
     ASSERT_NE(replacement, nullptr);
@@ -776,27 +855,27 @@ TEST_F(PythonServerTest, GetProcessSkipsDeadProcessWhenAliveProcessExists) {
     PythonVersion version("3.9.16", test_dir_, python_path);
 
     ProcessPtr alive_process;
-    ASSERT_TRUE(mgr.fork(version, &alive_process).ok());
+    ASSERT_TRUE(PythonUDFProcess::create(version, &alive_process).ok());
     ASSERT_NE(alive_process, nullptr);
     ASSERT_TRUE(alive_process->is_alive());
 
     ProcessPtr dead_process;
-    ASSERT_TRUE(mgr.fork(version, &dead_process).ok());
+    ASSERT_TRUE(PythonUDFProcess::create(version, &dead_process).ok());
     ASSERT_NE(dead_process, nullptr);
     pid_t dead_pid = dead_process->get_child_pid();
     dead_process->shutdown();
     ASSERT_FALSE(dead_process->is_alive());
 
-    mgr.set_process_pool_for_test(test_meta(version), version, {alive_process, dead_process});
-    auto pool_result = mgr._ensure_pool_initialized(test_meta(version), version);
+    set_process_pool(mgr, test_meta(version), version, {alive_process, dead_process});
+    auto pool_result = initialize_runtime(mgr, test_meta(version), version);
     ASSERT_TRUE(pool_result.has_value()) << pool_result.error().to_string();
 
     ProcessPtr selected;
-    Status status = mgr._get_process(version, pool_result.value(), &selected);
+    Status status = pool_result.value()->_get_process(&selected);
 
     EXPECT_TRUE(status.ok()) << status.to_string();
     EXPECT_EQ(selected, alive_process);
-    auto pool_snapshot = mgr.process_pool_snapshot_for_test(test_meta(version).id);
+    auto pool_snapshot = process_pool_snapshot(mgr, test_meta(version).id);
     ASSERT_EQ(pool_snapshot.size(), 2);
     EXPECT_FALSE(pool_snapshot[1]->is_alive());
     EXPECT_EQ(pool_snapshot[1]->get_child_pid(), dead_pid);
@@ -810,7 +889,7 @@ TEST_F(PythonServerTest, RejectsInvalidPoolSizeBeforeStartingProcesses) {
     auto meta = test_meta(version);
     for (const int pool_size : {0, -1}) {
         meta.pool_size = pool_size;
-        auto result = mgr._ensure_pool_initialized(meta, version);
+        auto result = initialize_runtime(mgr, meta, version);
         ASSERT_FALSE(result.has_value());
         EXPECT_NE(result.error().to_string().find("pool_size must be a positive integer"),
                   std::string::npos);
@@ -827,7 +906,7 @@ TEST_F(PythonServerTest, CapsPoolSizeBeforeAllocatingProcessSlots) {
         PythonUDFMeta meta;
         meta.id = requested;
         meta.pool_size = requested;
-        auto result = mgr._get_or_create_process_pool(meta, version, nullptr);
+        auto result = mgr.get_runtime(meta, version, nullptr);
         ASSERT_TRUE(result.has_value()) << result.error().to_string();
         EXPECT_EQ(std::min(requested, cores), result.value()->pool_size);
         EXPECT_TRUE(result.value()->processes.empty());
@@ -839,19 +918,26 @@ TEST_F(PythonServerTest, DefaultAutoSuspendReclaimsAfterFourHoursWithoutClients)
     PythonVersion version("3.9.16", test_dir_, test_dir_ + "/unused_python");
     PythonUDFMeta meta;
     ASSERT_EQ(14400, meta.auto_suspend);
-    std::shared_ptr<PythonUDFPoolLease> lease;
-    auto result = mgr._get_or_create_process_pool(meta, version, nullptr, &lease);
+    auto result = mgr.get_runtime(meta, version, nullptr);
     ASSERT_TRUE(result.has_value());
     auto pool = result.value();
     ASSERT_EQ(14400, pool->auto_suspend);
+    ASSERT_TRUE(pool->acquire_client().ok());
     EXPECT_EQ(std::min(3, CpuInfo::num_cores()), pool->pool_size);
     mgr._reclaim_idle_pools(pool->idle_since + std::chrono::hours(5));
-    EXPECT_EQ(pool, mgr._get_or_create_process_pool(meta, version, nullptr).value());
-    lease.reset();
+    {
+        std::scoped_lock lock(mgr._pools_mutex);
+        EXPECT_EQ(pool, mgr._process_pools.at(meta.id));
+    }
+    pool->release_client();
     mgr._reclaim_idle_pools(pool->idle_since + std::chrono::seconds(14399));
-    EXPECT_EQ(pool, mgr._get_or_create_process_pool(meta, version, nullptr).value());
+    {
+        std::scoped_lock lock(mgr._pools_mutex);
+        EXPECT_EQ(pool, mgr._process_pools.at(meta.id));
+    }
     mgr._reclaim_idle_pools(pool->idle_since + std::chrono::seconds(14400));
-    EXPECT_NE(pool, mgr._get_or_create_process_pool(meta, version, nullptr).value());
+    EXPECT_EQ(pool, mgr.get_runtime(meta, version, nullptr).value());
+    EXPECT_EQ(PythonFunctionRuntime::PoolState::UNINITIALIZED, pool->state);
 }
 
 TEST_F(PythonServerTest, RejectsAutoSuspendBelowMinusOneBeforeStartingProcesses) {
@@ -859,7 +945,7 @@ TEST_F(PythonServerTest, RejectsAutoSuspendBelowMinusOneBeforeStartingProcesses)
     PythonVersion version("3.9.16", test_dir_, test_dir_ + "/unused_python");
     PythonUDFMeta meta;
     meta.auto_suspend = -2;
-    auto result = mgr._get_or_create_process_pool(meta, version, nullptr);
+    auto result = mgr.get_runtime(meta, version, nullptr);
     ASSERT_FALSE(result.has_value());
     EXPECT_NE(result.error().to_string().find("auto_suspend must be -1 or a non-negative integer"),
               std::string::npos);
@@ -868,18 +954,18 @@ TEST_F(PythonServerTest, RejectsAutoSuspendBelowMinusOneBeforeStartingProcesses)
 TEST_F(PythonServerTest, GetProcessSelectsLeastLoadedProcess) {
     PythonServerManager mgr;
     PythonVersion version("3.9.16", test_dir_, test_dir_ + "/unused_python");
-    mgr.set_process_pool_for_test(test_meta(version), version,
-                                  {create_sleep_process(), create_sleep_process()});
+    set_process_pool(mgr, test_meta(version), version,
+                     {create_sleep_process(), create_sleep_process()});
 
-    auto init_result = mgr._ensure_pool_initialized(test_meta(version), version);
+    auto init_result = initialize_runtime(mgr, test_meta(version), version);
     EXPECT_TRUE(init_result.has_value()) << init_result.error().to_string();
 
     // Keeping the first process shared_ptr raises its use_count, so select the other
     // live process. An implementation that always returns pool[0] fails this assertion.
     ProcessPtr p1, p2;
-    ASSERT_TRUE(mgr._get_process(version, init_result.value(), &p1).ok());
+    ASSERT_TRUE(init_result.value()->_get_process(&p1).ok());
     ASSERT_NE(p1, nullptr);
-    ASSERT_TRUE(mgr._get_process(version, init_result.value(), &p2).ok());
+    ASSERT_TRUE(init_result.value()->_get_process(&p2).ok());
     ASSERT_NE(p2, nullptr);
     EXPECT_NE(p1->get_child_pid(), p2->get_child_pid());
 
@@ -896,12 +982,12 @@ TEST_F(PythonServerTest, ShutdownWithRunningProcesses) {
     PythonVersion version("3.9.16", test_dir_, python_path);
 
     // Initialize the pool
-    auto init_result = mgr._ensure_pool_initialized(test_meta(version), version);
+    auto init_result = initialize_runtime(mgr, test_meta(version), version);
     EXPECT_TRUE(init_result.has_value()) << init_result.error().to_string();
 
     // Get a process reference
     ProcessPtr process;
-    EXPECT_TRUE(mgr._get_process(version, init_result.value(), &process).ok());
+    EXPECT_TRUE(init_result.value()->_get_process(&process).ok());
     EXPECT_TRUE(process->is_alive());
 
     // Shutdown should terminate all processes
@@ -950,15 +1036,15 @@ TEST_F(PythonServerTest, MultipleVersionPools) {
     PythonVersion version310("3.10.0", test_dir_, python310_path);
 
     // Initialize pools for two versions
-    auto pool39_result = mgr._ensure_pool_initialized(test_meta(version39), version39);
-    auto pool310_result = mgr._ensure_pool_initialized(test_meta(version310), version310);
+    auto pool39_result = initialize_runtime(mgr, test_meta(version39), version39);
+    auto pool310_result = initialize_runtime(mgr, test_meta(version310), version310);
     EXPECT_TRUE(pool39_result.has_value()) << pool39_result.error().to_string();
     EXPECT_TRUE(pool310_result.has_value()) << pool310_result.error().to_string();
 
     // Retrieve processes from both pools
     ProcessPtr p39, p310;
-    EXPECT_TRUE(mgr._get_process(version39, pool39_result.value(), &p39).ok());
-    EXPECT_TRUE(mgr._get_process(version310, pool310_result.value(), &p310).ok());
+    EXPECT_TRUE(pool39_result.value()->_get_process(&p39).ok());
+    EXPECT_TRUE(pool310_result.value()->_get_process(&p310).ok());
 
     // Verify they are different processes
     EXPECT_NE(p39->get_child_pid(), p310->get_child_pid());
@@ -995,20 +1081,20 @@ TEST_F(PythonServerTest, EnsurePoolInitializedForDifferentVersionsDoesNotShareVe
         }
         fork_barrier->cv.notify_all();
         sync_point->disable_processing();
-        sync_point->clear_call_back("PythonServerManager::fork:before_process_start");
+        sync_point->clear_call_back("PythonUDFProcess::create:before_process_start");
         sync_point->clear_call_back(
-                "PythonServerManager::_ensure_pool_initialized:process_pool_init_timeout");
+                "PythonFunctionRuntime::_ensure_pool_initialized:process_pool_init_timeout");
     }};
     // Keep callers inside initialization longer than the fork barrier. A manager-wide lock must
     // therefore fail the barrier instead of serializing through the short BE_TEST pool timeout.
     sync_point->set_call_back(
-            "PythonServerManager::_ensure_pool_initialized:process_pool_init_timeout",
+            "PythonFunctionRuntime::_ensure_pool_initialized:process_pool_init_timeout",
             [](auto&& args) {
                 auto* timeout = try_any_cast<std::chrono::milliseconds*>(args.front());
                 *timeout = std::chrono::seconds(10);
             });
     sync_point->set_call_back(
-            "PythonServerManager::fork:before_process_start",
+            "PythonUDFProcess::create:before_process_start",
             [fork_barrier, version39, version310](auto&& args) {
                 if (args.empty()) {
                     return;
@@ -1025,10 +1111,10 @@ TEST_F(PythonServerTest, EnsurePoolInitializedForDifferentVersionsDoesNotShareVe
     sync_point->enable_processing();
 
     auto future39 = std::async(std::launch::async, [&]() {
-        return mgr._ensure_pool_initialized(test_meta(version39), version39);
+        return initialize_runtime(mgr, test_meta(version39), version39);
     });
     auto future310 = std::async(std::launch::async, [&]() {
-        return mgr._ensure_pool_initialized(test_meta(version310), version310);
+        return initialize_runtime(mgr, test_meta(version310), version310);
     });
 
     bool both_forks_entered = false;
@@ -1062,14 +1148,14 @@ TEST_F(PythonServerTest, FunctionsWithSameRuntimeHaveIndependentFixedPools) {
     PythonUDFMeta second;
     second.id = 102;
     second.pool_size = 2;
-    auto first_result = mgr._ensure_pool_initialized(first, version);
+    auto first_result = initialize_runtime(mgr, first, version);
     ASSERT_TRUE(first_result.has_value()) << first_result.error().to_string();
-    auto second_result = mgr._ensure_pool_initialized(second, version);
+    auto second_result = initialize_runtime(mgr, second, version);
     ASSERT_TRUE(second_result.has_value()) << second_result.error().to_string();
-    ASSERT_TRUE(mgr.wait_for_process_pool_initialized_for_test(101, std::chrono::seconds(5)));
-    ASSERT_TRUE(mgr.wait_for_process_pool_initialized_for_test(102, std::chrono::seconds(5)));
-    auto first_pool = mgr.process_pool_snapshot_for_test(101);
-    auto second_pool = mgr.process_pool_snapshot_for_test(102);
+    ASSERT_TRUE(wait_for_pool_initialized(mgr, 101, std::chrono::seconds(5)));
+    ASSERT_TRUE(wait_for_pool_initialized(mgr, 102, std::chrono::seconds(5)));
+    auto first_pool = process_pool_snapshot(mgr, 101);
+    auto second_pool = process_pool_snapshot(mgr, 102);
     ASSERT_EQ(first_pool.size(), 1);
     ASSERT_EQ(second_pool.size(), std::min(second.pool_size, CpuInfo::num_cores()));
     for (const auto& process : second_pool) {
@@ -1077,50 +1163,124 @@ TEST_F(PythonServerTest, FunctionsWithSameRuntimeHaveIndependentFixedPools) {
         EXPECT_NE(first_pool[0]->get_child_pid(), process->get_child_pid());
     }
     ProcessPtr first_client, second_client;
-    ASSERT_TRUE(mgr._get_process(version, first_result.value(), &first_client).ok());
-    ASSERT_TRUE(mgr._get_process(version, second_result.value(), &second_client).ok());
+    ASSERT_TRUE(first_result.value()->_get_process(&first_client).ok());
+    ASSERT_TRUE(second_result.value()->_get_process(&second_client).ok());
     EXPECT_NE(first_client, second_client);
 }
 
-TEST_F(PythonServerTest, DropRejectsNewClientsUntilHealthCheckReclaimsThePool) {
+TEST_F(PythonServerTest, DroppedInlineRuntimeRejectsAllClientTypesAndAllowsFreshAcquisition) {
     PythonServerManager mgr;
     PythonVersion version("3.9.16", test_dir_, test_dir_ + "/unused_python");
     auto meta = test_meta(version);
-    auto process = create_sleep_process();
-    mgr.set_process_pool_for_test(meta, version, {process});
-    std::shared_ptr<PythonUDFPoolLease> lease;
-    auto pool = mgr._get_or_create_process_pool(meta, version, nullptr, &lease).value();
-
+    meta.type = PythonUDFLoadType::INLINE;
+    meta.auto_suspend = -1;
+    auto runtime = mgr.get_runtime(meta, version, nullptr).value();
+    EXPECT_EQ(std::set<int64_t> {meta.id}, mgr.collect_pyudf_ids());
     mgr.drop_function(meta.id);
-    ASSERT_TRUE(mgr._process_pools.contains(meta.id));
-    EXPECT_EQ(PythonServerManager::PoolState::STOPPED, pool->state);
-    EXPECT_TRUE(process->is_alive());
 
-    // UDAF can encounter a new GROUP BY key after DROP while an earlier group's client is alive.
-    // All three client factories must reject this pool instead of creating a replacement.
     std::shared_ptr<PythonUDFClient> udf;
     std::shared_ptr<PythonUDAFClient> udaf;
     std::shared_ptr<PythonUDTFClient> udtf;
-    EXPECT_FALSE(mgr.get_client(meta, version, &udf).ok());
-    EXPECT_FALSE(mgr.get_client(meta, version, &udaf).ok());
-    EXPECT_FALSE(mgr.get_client(meta, version, &udtf).ok());
-    EXPECT_EQ(pool, mgr._process_pools.at(meta.id));
-    EXPECT_EQ(1, pool->active_clients);
+    EXPECT_NE(std::string::npos,
+              runtime->get_client(meta, &udf).to_string().find("is being deleted"));
+    EXPECT_NE(std::string::npos,
+              runtime->get_client(meta, &udaf).to_string().find("is being deleted"));
+    EXPECT_NE(std::string::npos,
+              runtime->get_client(meta, &udtf).to_string().find("is being deleted"));
+    EXPECT_TRUE(mgr.collect_pyudf_ids().empty());
+    EXPECT_EQ(0, runtime->active_clients);
 
-    mgr._reclaim_idle_pools(std::chrono::steady_clock::now());
-    EXPECT_TRUE(mgr._process_pools.contains(meta.id));
-    EXPECT_TRUE(process->is_alive());
-    mgr.drop_function(meta.id); // Duplicate cleanup must keep the same STOPPED pool.
-    EXPECT_EQ(pool, mgr._process_pools.at(meta.id));
-
-    lease.reset();
-    EXPECT_TRUE(mgr._process_pools.contains(meta.id));
-    mgr._reclaim_idle_pools(std::chrono::steady_clock::now());
-    EXPECT_FALSE(mgr._process_pools.contains(meta.id));
-    EXPECT_FALSE(process->is_alive());
+    auto recovered = mgr.get_runtime(meta, version, nullptr).value();
+    EXPECT_NE(runtime, recovered);
+    EXPECT_EQ(PythonFunctionRuntime::PoolState::UNINITIALIZED, recovered->state);
+    EXPECT_EQ(PythonFunctionRuntime::PoolState::STOPPED, runtime->state);
+    EXPECT_EQ(std::set<int64_t> {meta.id}, mgr.collect_pyudf_ids());
 }
 
-TEST_F(PythonServerTest, HealthCheckReclaimsStoppedPoolsRegardlessOfAutoSuspend) {
+TEST_F(PythonServerTest, ConcurrentQueriesShareOneRuntimeAndDropStopsEveryReference) {
+    PythonServerManager mgr;
+    PythonVersion version("3.9.16", test_dir_, test_dir_ + "/unused_python");
+    auto meta = test_meta(version);
+    std::promise<void> start;
+    auto ready = start.get_future().share();
+    std::vector<std::future<std::shared_ptr<PythonFunctionRuntime>>> queries;
+    for (int i = 0; i < 8; ++i) {
+        queries.emplace_back(std::async(std::launch::async, [&]() {
+            ready.wait();
+            return mgr.get_runtime(meta, version, nullptr).value();
+        }));
+    }
+    start.set_value();
+    auto runtime = queries.front().get();
+    for (size_t i = 1; i < queries.size(); ++i) {
+        EXPECT_EQ(runtime, queries[i].get());
+    }
+    mgr.drop_function(meta.id);
+    EXPECT_FALSE(runtime->acquire_client().ok());
+    EXPECT_TRUE(mgr.collect_pyudf_ids().empty());
+}
+
+TEST_F(PythonServerTest, ReportsPackageWithoutAProcessPool) {
+    UserFunctionCache cache;
+    std::shared_ptr<UserFunctionCacheEntry> entry;
+    std::string location;
+    load_package(cache, 12345, &location, &entry);
+    EXPECT_EQ((std::set<int64_t> {12345}), cache.collect_pyudf_ids());
+    cache.drop_function_cache(12345);
+    EXPECT_TRUE(cache.collect_pyudf_ids().empty());
+    EXPECT_TRUE(fs::exists(location));
+    entry.reset();
+    EXPECT_FALSE(fs::exists(location));
+}
+
+TEST_F(PythonServerTest, DroppedPackageRejectsNewClientsAfterPoolRemoval) {
+    PythonServerManager mgr;
+    PythonVersion version("3.9.16", test_dir_, test_dir_ + "/unused_python");
+    auto meta = test_meta(version);
+    UserFunctionCache cache;
+    std::shared_ptr<UserFunctionCacheEntry> entry;
+    load_package(cache, meta.id, &meta.location, &entry);
+    ASSERT_NE(nullptr, entry);
+    auto process = create_sleep_process();
+    auto pool = mgr.get_runtime(meta, version, entry).value();
+    pool->processes = {process};
+    pool->state = PythonFunctionRuntime::PoolState::INITIALIZED;
+
+    cache.drop_function_cache(meta.id);
+    mgr.drop_function(meta.id);
+    ASSERT_FALSE(mgr._process_pools.contains(meta.id));
+    EXPECT_EQ(PythonFunctionRuntime::PoolState::STOPPED, pool->state);
+    EXPECT_TRUE(process->is_alive());
+
+    // Retained entry -> DROP -> request a new UDF/UDAF/UDTF client.
+    std::shared_ptr<PythonUDFClient> udf;
+    std::shared_ptr<PythonUDAFClient> udaf;
+    std::shared_ptr<PythonUDTFClient> udtf;
+    EXPECT_NE(std::string::npos, mgr.get_client(meta, version, &udf, nullptr, entry)
+                                         .to_string()
+                                         .find("is being deleted"));
+    EXPECT_NE(std::string::npos, mgr.get_client(meta, version, &udaf, nullptr, entry)
+                                         .to_string()
+                                         .find("is being deleted"));
+    EXPECT_NE(std::string::npos, mgr.get_client(meta, version, &udtf, nullptr, entry)
+                                         .to_string()
+                                         .find("is being deleted"));
+    EXPECT_FALSE(mgr._process_pools.contains(meta.id));
+    EXPECT_EQ(0, pool->active_clients);
+
+    EXPECT_TRUE(process->is_alive());
+    mgr.drop_function(meta.id);
+
+    std::weak_ptr<PythonUDFProcess> process_lifetime = process;
+    process.reset();
+    EXPECT_TRUE(process_lifetime.expired());
+    EXPECT_TRUE(fs::exists(meta.location));
+    pool.reset();
+    entry.reset();
+    EXPECT_FALSE(fs::exists(meta.location));
+}
+
+TEST_F(PythonServerTest, DropReleasesIdleProcessesRegardlessOfAutoSuspend) {
     PythonServerManager mgr;
     PythonVersion version("3.9.16", test_dir_, test_dir_ + "/unused_python");
     for (int64_t timeout : {-1, 0, 3600}) {
@@ -1128,37 +1288,121 @@ TEST_F(PythonServerTest, HealthCheckReclaimsStoppedPoolsRegardlessOfAutoSuspend)
         meta.id = 3000 + timeout;
         meta.auto_suspend = timeout;
         auto process = create_sleep_process();
-        mgr.set_process_pool_for_test(meta, version, {process});
+        std::weak_ptr<PythonUDFProcess> process_lifetime = process;
+        set_process_pool(mgr, meta, version, {process});
+        process.reset();
         mgr.drop_function(meta.id);
-        ASSERT_TRUE(mgr._process_pools.contains(meta.id));
-        EXPECT_TRUE(process->is_alive());
-        mgr._reclaim_idle_pools(std::chrono::steady_clock::now());
         EXPECT_FALSE(mgr._process_pools.contains(meta.id));
-        EXPECT_FALSE(process->is_alive());
+        EXPECT_TRUE(process_lifetime.expired());
     }
 }
 
-TEST_F(PythonServerTest, MonitorReclaimsDroppedPoolAfterLastClientCloses) {
+TEST_F(PythonServerTest, DropBeforeFirstPoolRejectsRetainedPackage) {
+    PythonServerManager mgr;
+    UserFunctionCache cache;
+    PythonVersion version("3.9.16", test_dir_, test_dir_ + "/unused_python");
+    auto meta = test_meta(version);
+    std::shared_ptr<UserFunctionCacheEntry> entry;
+    load_package(cache, meta.id, &meta.location, &entry);
+    ASSERT_NE(nullptr, entry);
+    cache.drop_function_cache(meta.id);
+    mgr.drop_function(meta.id);
+
+    auto result = mgr.get_runtime(meta, version, entry);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_NE(std::string::npos, result.error().to_string().find("is being deleted"));
+    EXPECT_TRUE(mgr._process_pools.empty());
+    EXPECT_TRUE(fs::exists(meta.location));
+    entry.reset();
+    EXPECT_FALSE(fs::exists(meta.location));
+}
+
+TEST_F(PythonServerTest, DropBetweenPoolRegistrationAndEntryCheckRejectsPool) {
+    PythonServerManager mgr;
+    UserFunctionCache cache;
+    PythonVersion version("3.9.16", test_dir_, test_dir_ + "/unused_python");
+    auto meta = test_meta(version);
+    std::shared_ptr<UserFunctionCacheEntry> entry;
+    load_package(cache, meta.id, &meta.location, &entry);
+    ASSERT_NE(nullptr, entry);
+    auto* sync_point = SyncPoint::get_instance();
+    std::shared_ptr<PythonFunctionRuntime> registered_pool;
+    const std::string point = "PythonFunctionRuntime::check_package:before_check";
+    Defer clear {[&]() {
+        sync_point->disable_processing();
+        sync_point->clear_call_back(point);
+    }};
+    sync_point->set_call_back(point, [&](auto&&) {
+        {
+            std::scoped_lock lock(mgr._pools_mutex);
+            registered_pool = mgr._process_pools.at(meta.id);
+        }
+        cache.drop_function_cache(meta.id);
+    });
+    sync_point->enable_processing();
+
+    auto result = mgr.get_runtime(meta, version, entry);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_NE(std::string::npos, result.error().to_string().find("is being deleted"));
+    EXPECT_TRUE(mgr._process_pools.empty());
+    EXPECT_EQ(0, registered_pool->active_clients);
+}
+
+TEST_F(PythonServerTest, LastClientClosesDroppedProcessWithoutHealthCheck) {
     PythonServerManager mgr;
     PythonVersion version("3.9.16", test_dir_, test_dir_ + "/unused_python");
     auto meta = test_meta(version);
     auto process = create_sleep_process();
-    mgr.set_process_pool_for_test(meta, version, {process});
+    set_process_pool(mgr, meta, version, {process});
     PythonClient client;
-    ASSERT_TRUE(mgr._get_or_create_process_pool(meta, version, nullptr, &client._pool_lease)
-                        .has_value());
+    client._runtime = mgr.get_runtime(meta, version, nullptr).value();
+    ASSERT_TRUE(client._runtime->acquire_client().ok());
     client._process = process;
+    std::weak_ptr<PythonUDFProcess> process_lifetime = process;
     mgr.drop_function(meta.id);
-    std::this_thread::sleep_for(std::chrono::seconds(2));
     EXPECT_TRUE(process->is_alive());
+    process.reset();
     ASSERT_TRUE(client.close().ok());
+    EXPECT_TRUE(process_lifetime.expired());
+    EXPECT_TRUE(process_pool_snapshot(mgr, meta.id).empty());
+}
 
-    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(40);
-    while (process->is_alive() && std::chrono::steady_clock::now() < deadline) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+TEST_F(PythonServerTest, ConcurrentDropAndPoolAcquisitionLeaveNoRegisteredPool) {
+    PythonServerManager mgr;
+    UserFunctionCache cache;
+    PythonVersion version("3.9.16", test_dir_, test_dir_ + "/unused_python");
+    auto meta = test_meta(version);
+    std::shared_ptr<UserFunctionCacheEntry> entry;
+    load_package(cache, meta.id, &meta.location, &entry);
+    ASSERT_NE(nullptr, entry);
+    std::promise<void> start;
+    auto ready = start.get_future().share();
+    using PoolResult = Result<std::shared_ptr<PythonFunctionRuntime>>;
+    std::vector<std::future<PoolResult>> acquisitions;
+    for (int i = 0; i < 8; ++i) {
+        acquisitions.emplace_back(std::async(std::launch::async, [&]() {
+            ready.wait();
+            return mgr.get_runtime(meta, version, entry);
+        }));
     }
-    EXPECT_FALSE(process->is_alive());
-    EXPECT_TRUE(mgr.process_pool_snapshot_for_test(meta.id).empty());
+    auto drop = std::async(std::launch::async, [&]() {
+        ready.wait();
+        cache.drop_function_cache(meta.id);
+        mgr.drop_function(meta.id);
+    });
+    start.set_value();
+    drop.get();
+    for (auto& acquisition : acquisitions) {
+        auto result = acquisition.get();
+        if (result.has_value()) {
+            EXPECT_EQ(PythonFunctionRuntime::PoolState::STOPPED, result.value()->state);
+        } else {
+            EXPECT_NE(std::string::npos, result.error().to_string().find("is being deleted"));
+        }
+    }
+    EXPECT_TRUE(mgr._process_pools.empty());
+    entry.reset();
+    EXPECT_FALSE(fs::exists(meta.location));
 }
 
 TEST_F(PythonServerTest, DropDefersProcessCleanupAndDoesNotAffectOtherFunction) {
@@ -1169,16 +1413,15 @@ TEST_F(PythonServerTest, DropDefersProcessCleanupAndDoesNotAffectOtherFunction) 
     PythonUDFMeta second;
     second.id = 102;
     auto active = create_sleep_process();
-    mgr.set_process_pool_for_test(first, version, {active});
-    mgr.set_process_pool_for_test(second, version, {create_sleep_process()});
+    set_process_pool(mgr, first, version, {active});
+    set_process_pool(mgr, second, version, {create_sleep_process()});
     mgr.drop_function(101);
     EXPECT_TRUE(active->is_alive());
-    EXPECT_EQ(mgr.process_pool_snapshot_for_test(101).size(), 1);
-    mgr._reclaim_idle_pools(std::chrono::steady_clock::now());
-    EXPECT_FALSE(active->is_alive());
-    EXPECT_TRUE(mgr.process_pool_snapshot_for_test(101).empty());
-    EXPECT_EQ(mgr.process_pool_snapshot_for_test(102).size(), 1);
+    EXPECT_TRUE(process_pool_snapshot(mgr, 101).empty());
+    EXPECT_EQ(process_pool_snapshot(mgr, 102).size(), 1);
+    std::weak_ptr<PythonUDFProcess> process_lifetime = active;
     active.reset();
+    EXPECT_TRUE(process_lifetime.expired());
 }
 
 TEST_F(PythonServerTest, DroppedClientProcessesRemainCountedUntilReleased) {
@@ -1212,9 +1455,9 @@ TEST_F(PythonServerTest, DropDuringInitializationKeepsPeriodicMemoryAccounting) 
         }
         barrier->cv.notify_all();
         sync_point->disable_processing();
-        sync_point->clear_call_back("PythonServerManager::fork:before_process_start");
+        sync_point->clear_call_back("PythonUDFProcess::create:before_process_start");
     }};
-    sync_point->set_call_back("PythonServerManager::fork:before_process_start", [barrier](auto&&) {
+    sync_point->set_call_back("PythonUDFProcess::create:before_process_start", [barrier](auto&&) {
         std::unique_lock lock(barrier->mutex);
         if (++barrier->entries == 2) {
             barrier->cv.wait(lock, [&]() { return barrier->released; });
@@ -1223,11 +1466,10 @@ TEST_F(PythonServerTest, DropDuringInitializationKeepsPeriodicMemoryAccounting) 
     sync_point->enable_processing();
     auto meta = test_meta(version);
     meta.pool_size = 2;
-    std::shared_ptr<PythonUDFPoolLease> lease;
-    auto pool = mgr._ensure_pool_initialized(meta, version, nullptr, &lease);
+    auto pool = initialize_runtime(mgr, meta, version);
     ASSERT_TRUE(pool.has_value()) << pool.error().to_string();
     ProcessPtr client_process;
-    ASSERT_TRUE(mgr._get_process(version, pool.value(), &client_process).ok());
+    ASSERT_TRUE(pool.value()->_get_process(&client_process).ok());
     mgr.drop_function(meta.id);
     ASSERT_TRUE(client_process->is_alive());
 
@@ -1245,11 +1487,11 @@ TEST_F(PythonServerTest, ShutdownStopsDroppedClientProcesses) {
     PythonVersion version("3.9.16", test_dir_, python_path);
     PythonServerManager mgr;
     auto meta = test_meta(version);
-    auto pool = mgr._ensure_pool_initialized(meta, version);
+    auto pool = initialize_runtime(mgr, meta, version);
     ASSERT_TRUE(pool.has_value()) << pool.error().to_string();
-    ASSERT_TRUE(mgr.wait_for_process_pool_initialized_for_test(meta.id, std::chrono::seconds(5)));
+    ASSERT_TRUE(wait_for_pool_initialized(mgr, meta.id, std::chrono::seconds(5)));
     ProcessPtr client_process;
-    ASSERT_TRUE(mgr._get_process(version, pool.value(), &client_process).ok());
+    ASSERT_TRUE(pool.value()->_get_process(&client_process).ok());
     mgr.drop_function(meta.id);
     ASSERT_TRUE(client_process->is_alive());
 
@@ -1264,34 +1506,19 @@ TEST_F(PythonServerTest, AutoSuspendDestroysIdleProcessesAndAllowsRecreation) {
     PythonServerManager mgr;
     auto meta = test_meta(version);
     meta.auto_suspend = 0;
-    auto result = mgr._ensure_pool_initialized(meta, version);
+    auto result = initialize_runtime(mgr, meta, version);
     ASSERT_TRUE(result.has_value()) << result.error().to_string();
-    ASSERT_TRUE(mgr.wait_for_process_pool_initialized_for_test(meta.id, std::chrono::seconds(5)));
+    ASSERT_TRUE(wait_for_pool_initialized(mgr, meta.id, std::chrono::seconds(5)));
     auto old_pool = result.value();
-    auto process = mgr.process_pool_snapshot_for_test(meta.id).front();
+    auto process = process_pool_snapshot(mgr, meta.id).front();
     ASSERT_TRUE(process->is_alive());
 
     mgr._reclaim_idle_pools(std::chrono::steady_clock::now());
     EXPECT_FALSE(process->is_alive());
-    EXPECT_TRUE(mgr.process_pool_snapshot_for_test(meta.id).empty());
-    auto reopened = mgr._ensure_pool_initialized(meta, version);
+    EXPECT_TRUE(process_pool_snapshot(mgr, meta.id).empty());
+    auto reopened = initialize_runtime(mgr, meta, version);
     ASSERT_TRUE(reopened.has_value()) << reopened.error().to_string();
-    EXPECT_NE(old_pool, reopened.value());
-}
-
-TEST_F(PythonServerTest, AutoSuspendWaitsForTheConfiguredIdleDuration) {
-    PythonServerManager mgr;
-    PythonVersion version("3.9.16", test_dir_, test_dir_ + "/unused_python");
-    auto meta = test_meta(version);
-    meta.auto_suspend = 3;
-    auto process = create_sleep_process();
-    mgr.set_process_pool_for_test(meta, version, {process});
-    auto pool = mgr._get_or_create_process_pool(meta, version, nullptr).value();
-    auto idle_since = pool->idle_since;
-    mgr._reclaim_idle_pools(idle_since + std::chrono::seconds(2));
-    EXPECT_TRUE(process->is_alive());
-    mgr._reclaim_idle_pools(idle_since + std::chrono::seconds(3));
-    EXPECT_FALSE(process->is_alive());
+    EXPECT_EQ(old_pool, reopened.value());
 }
 
 TEST_F(PythonServerTest, ExplicitMinusOneKeepsIdleProcessesAlive) {
@@ -1300,7 +1527,7 @@ TEST_F(PythonServerTest, ExplicitMinusOneKeepsIdleProcessesAlive) {
     auto meta = test_meta(version);
     meta.auto_suspend = -1;
     auto process = create_sleep_process();
-    mgr.set_process_pool_for_test(meta, version, {process});
+    set_process_pool(mgr, meta, version, {process});
     mgr._reclaim_idle_pools(std::chrono::steady_clock::now() + std::chrono::hours(24));
     EXPECT_TRUE(process->is_alive());
 }
@@ -1311,35 +1538,42 @@ TEST_F(PythonServerTest, AutoSuspendWaitsForLastClientAndStartsANewIdlePeriod) {
     auto meta = test_meta(version);
     meta.auto_suspend = 3;
     auto process = create_sleep_process();
-    mgr.set_process_pool_for_test(meta, version, {process});
-    std::shared_ptr<PythonUDFPoolLease> first;
-    std::shared_ptr<PythonUDFPoolLease> second;
-    auto pool = mgr._get_or_create_process_pool(meta, version, nullptr, &first).value();
-    ASSERT_TRUE(mgr._get_or_create_process_pool(meta, version, nullptr, &second).has_value());
+    set_process_pool(mgr, meta, version, {process});
+    auto pool = mgr.get_runtime(meta, version, nullptr).value();
+    ASSERT_TRUE(pool->acquire_client().ok());
+    ASSERT_TRUE(pool->acquire_client().ok());
+    EXPECT_EQ(2, pool->active_clients);
     auto future = std::chrono::steady_clock::now() + std::chrono::hours(24);
     mgr._reclaim_idle_pools(future);
     EXPECT_TRUE(process->is_alive());
-    first.reset();
+    pool->release_client();
+    EXPECT_EQ(1, pool->active_clients);
     mgr._reclaim_idle_pools(future);
     EXPECT_TRUE(process->is_alive());
-    second.reset();
+    pool->release_client();
     EXPECT_EQ(0, pool->active_clients);
     mgr._reclaim_idle_pools(pool->idle_since + std::chrono::seconds(2));
     EXPECT_TRUE(process->is_alive());
     mgr._reclaim_idle_pools(pool->idle_since + std::chrono::seconds(3));
     EXPECT_FALSE(process->is_alive());
+    const auto generation = pool->pool_generation;
+    mgr._reclaim_idle_pools(pool->idle_since + std::chrono::seconds(33));
+    EXPECT_EQ(generation, pool->pool_generation);
+    EXPECT_EQ(PythonFunctionRuntime::PoolState::UNINITIALIZED, pool->state);
+    EXPECT_TRUE(pool->processes.empty());
 }
 
-TEST_F(PythonServerTest, AutoSuspendClientCloseReleasesLeaseWithoutAWriter) {
+TEST_F(PythonServerTest, AutoSuspendClientCloseReleasesUsageWithoutAWriter) {
     PythonServerManager mgr;
     PythonVersion version("3.9.16", test_dir_, test_dir_ + "/unused_python");
     auto meta = test_meta(version);
     meta.auto_suspend = 0;
     auto process = create_sleep_process();
-    mgr.set_process_pool_for_test(meta, version, {process});
+    set_process_pool(mgr, meta, version, {process});
     PythonClient client;
-    auto pool =
-            mgr._get_or_create_process_pool(meta, version, nullptr, &client._pool_lease).value();
+    auto pool = mgr.get_runtime(meta, version, nullptr).value();
+    ASSERT_TRUE(pool->acquire_client().ok());
+    client._runtime = pool;
     client._process = process;
     mgr._reclaim_idle_pools(std::chrono::steady_clock::now());
     EXPECT_TRUE(process->is_alive());
@@ -1349,17 +1583,21 @@ TEST_F(PythonServerTest, AutoSuspendClientCloseReleasesLeaseWithoutAWriter) {
     EXPECT_FALSE(process->is_alive());
 }
 
-TEST_F(PythonServerTest, AutoSuspendInitializationFailureReleasesLease) {
+TEST_F(PythonServerTest, AutoSuspendInitializationFailureReleasesUsage) {
     PythonServerManager mgr;
     PythonVersion version("3.9.16", test_dir_, test_dir_ + "/missing_python");
     auto meta = test_meta(version);
     meta.auto_suspend = 0;
     std::shared_ptr<PythonUDFClient> client;
     EXPECT_FALSE(mgr.get_client(meta, version, &client).ok());
-    auto pool = mgr._get_or_create_process_pool(meta, version, nullptr).value();
+    std::shared_ptr<PythonFunctionRuntime> pool;
+    {
+        std::scoped_lock lock(mgr._pools_mutex);
+        pool = mgr._process_pools.at(meta.id);
+    }
     EXPECT_EQ(0, pool->active_clients);
     mgr._reclaim_idle_pools(std::chrono::steady_clock::now());
-    EXPECT_TRUE(mgr.process_pool_snapshot_for_test(meta.id).empty());
+    EXPECT_TRUE(process_pool_snapshot(mgr, meta.id).empty());
 }
 
 TEST_F(PythonServerTest, AutoSuspendProtectsClientInitialization) {
@@ -1373,24 +1611,28 @@ TEST_F(PythonServerTest, AutoSuspendProtectsClientInitialization) {
     std::promise<void> resume;
     auto resumed = resume.get_future().share();
     auto* sync_point = SyncPoint::get_instance();
-    sync_point->set_call_back("PythonServerManager::fork:before_process_start", [&](auto&&) {
+    sync_point->set_call_back("PythonUDFProcess::create:before_process_start", [&](auto&&) {
         started.set_value();
         resumed.wait();
     });
     sync_point->enable_processing();
     Defer cleanup {[&]() {
         sync_point->disable_processing();
-        sync_point->clear_call_back("PythonServerManager::fork:before_process_start");
+        sync_point->clear_call_back("PythonUDFProcess::create:before_process_start");
     }};
     auto opening = std::async(std::launch::async, [&]() {
         std::shared_ptr<PythonUDFClient> client;
         return mgr.get_client(meta, version, &client);
     });
     EXPECT_EQ(std::future_status::ready, started.get_future().wait_for(std::chrono::seconds(5)));
-    auto pool = mgr._get_or_create_process_pool(meta, version, nullptr).value();
+    std::shared_ptr<PythonFunctionRuntime> pool;
+    {
+        std::scoped_lock lock(mgr._pools_mutex);
+        pool = mgr._process_pools.at(meta.id);
+    }
     mgr._reclaim_idle_pools(std::chrono::steady_clock::now() + std::chrono::hours(24));
     EXPECT_EQ(1, pool->active_clients);
-    EXPECT_NE(PythonServerManager::PoolState::STOPPED, pool->state);
+    EXPECT_NE(PythonFunctionRuntime::PoolState::STOPPED, pool->state);
     resume.set_value();
     // Either an initialization error or client destruction must release usage.
     (void)opening.get();
@@ -1403,7 +1645,7 @@ TEST_F(PythonServerTest, AutoSuspendMonitorTerminatesAnIdleProcess) {
     auto meta = test_meta(version);
     meta.auto_suspend = 0;
     auto process = create_sleep_process();
-    mgr.set_process_pool_for_test(meta, version, {process});
+    set_process_pool(mgr, meta, version, {process});
     // A zero timeout becomes eligible immediately, but reclamation waits for the monitor scan.
     std::this_thread::sleep_for(std::chrono::seconds(2));
     EXPECT_TRUE(process->is_alive());
@@ -1412,7 +1654,7 @@ TEST_F(PythonServerTest, AutoSuspendMonitorTerminatesAnIdleProcess) {
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
     EXPECT_FALSE(process->is_alive());
-    EXPECT_TRUE(mgr.process_pool_snapshot_for_test(meta.id).empty());
+    EXPECT_TRUE(process_pool_snapshot(mgr, meta.id).empty());
 }
 
 TEST_F(PythonServerTest, CheckAndRecreateProcessesRecreatesDeadProcess) {
@@ -1425,23 +1667,22 @@ TEST_F(PythonServerTest, CheckAndRecreateProcessesRecreatesDeadProcess) {
     PythonVersion version("3.9.16", test_dir_, python_path);
 
     ProcessPtr alive_process;
-    ASSERT_TRUE(mgr.fork(version, &alive_process).ok());
+    ASSERT_TRUE(PythonUDFProcess::create(version, &alive_process).ok());
     ASSERT_NE(alive_process, nullptr);
     ASSERT_TRUE(alive_process->is_alive());
 
     ProcessPtr dead_process;
-    ASSERT_TRUE(mgr.fork(version, &dead_process).ok());
+    ASSERT_TRUE(PythonUDFProcess::create(version, &dead_process).ok());
     ASSERT_NE(dead_process, nullptr);
     pid_t dead_pid_before = dead_process->get_child_pid();
     dead_process->shutdown();
     ASSERT_FALSE(dead_process->is_alive());
 
-    mgr.set_process_pool_for_test(test_meta(version), version,
-                                  {alive_process, dead_process, nullptr});
+    set_process_pool(mgr, test_meta(version), version, {alive_process, dead_process, nullptr});
 
-    mgr.check_and_recreate_processes_for_test();
+    mgr._check_and_recreate_processes();
 
-    auto pool_snapshot = mgr.process_pool_snapshot_for_test(test_meta(version).id);
+    auto pool_snapshot = process_pool_snapshot(mgr, test_meta(version).id);
     ASSERT_EQ(pool_snapshot.size(), 3);
     EXPECT_EQ(pool_snapshot[0], alive_process);
 
@@ -1465,23 +1706,23 @@ TEST_F(PythonServerTest, CheckAndRecreateProcessesSkipsRepairingPool) {
     PythonVersion version("3.9.16", test_dir_, python_path);
 
     ProcessPtr dead_process;
-    ASSERT_TRUE(mgr.fork(version, &dead_process).ok());
+    ASSERT_TRUE(PythonUDFProcess::create(version, &dead_process).ok());
     ASSERT_NE(dead_process, nullptr);
     pid_t dead_pid = dead_process->get_child_pid();
     dead_process->shutdown();
     ASSERT_FALSE(dead_process->is_alive());
 
-    mgr.set_process_pool_for_test(test_meta(version), version, {dead_process});
-    auto pool_result = mgr._ensure_pool_initialized(test_meta(version), version);
+    set_process_pool(mgr, test_meta(version), version, {dead_process});
+    auto pool_result = initialize_runtime(mgr, test_meta(version), version);
     ASSERT_TRUE(pool_result.has_value()) << pool_result.error().to_string();
     {
         std::lock_guard<std::mutex> lock(pool_result.value()->mutex);
         pool_result.value()->repairing = true;
     }
 
-    mgr.check_and_recreate_processes_for_test();
+    mgr._check_and_recreate_processes();
 
-    auto pool_snapshot = mgr.process_pool_snapshot_for_test(test_meta(version).id);
+    auto pool_snapshot = process_pool_snapshot(mgr, test_meta(version).id);
     ASSERT_EQ(pool_snapshot.size(), 1);
     ASSERT_NE(pool_snapshot[0], nullptr);
     EXPECT_FALSE(pool_snapshot[0]->is_alive());
@@ -1504,17 +1745,17 @@ TEST_F(PythonServerTest, CheckAndRecreateProcessesSkipsUninitializedPool) {
     PythonVersion version("3.9.16", test_dir_, python_path);
 
     ProcessPtr dead_process;
-    ASSERT_TRUE(mgr.fork(version, &dead_process).ok());
+    ASSERT_TRUE(PythonUDFProcess::create(version, &dead_process).ok());
     ASSERT_NE(dead_process, nullptr);
     pid_t dead_pid = dead_process->get_child_pid();
     dead_process->shutdown();
     ASSERT_FALSE(dead_process->is_alive());
 
-    mgr.set_process_pool_for_test(test_meta(version), version, {dead_process}, false);
+    set_process_pool(mgr, test_meta(version), version, {dead_process}, false);
 
-    mgr.check_and_recreate_processes_for_test();
+    mgr._check_and_recreate_processes();
 
-    auto pool_snapshot = mgr.process_pool_snapshot_for_test(test_meta(version).id);
+    auto pool_snapshot = process_pool_snapshot(mgr, test_meta(version).id);
     ASSERT_EQ(pool_snapshot.size(), 1);
     ASSERT_NE(pool_snapshot[0], nullptr);
     EXPECT_FALSE(pool_snapshot[0]->is_alive());
@@ -1533,24 +1774,24 @@ TEST_F(PythonServerTest, CheckAndRecreateProcessesKeepsDeadSlotsWhenRecreateFail
     PythonVersion live_version("3.9.16", test_dir_, python_path);
 
     ProcessPtr dead_process_1;
-    ASSERT_TRUE(mgr.fork(live_version, &dead_process_1).ok());
+    ASSERT_TRUE(PythonUDFProcess::create(live_version, &dead_process_1).ok());
     ASSERT_NE(dead_process_1, nullptr);
     dead_process_1->shutdown();
     ASSERT_FALSE(dead_process_1->is_alive());
 
     ProcessPtr dead_process_2;
-    ASSERT_TRUE(mgr.fork(live_version, &dead_process_2).ok());
+    ASSERT_TRUE(PythonUDFProcess::create(live_version, &dead_process_2).ok());
     ASSERT_NE(dead_process_2, nullptr);
     dead_process_2->shutdown();
     ASSERT_FALSE(dead_process_2->is_alive());
 
     PythonVersion invalid_version("3.9.16", test_dir_, test_dir_ + "/bin/nonexistent_python");
-    mgr.set_process_pool_for_test(test_meta(invalid_version), invalid_version,
-                                  {dead_process_1, dead_process_2});
+    set_process_pool(mgr, test_meta(invalid_version), invalid_version,
+                     {dead_process_1, dead_process_2});
 
-    mgr.check_and_recreate_processes_for_test();
+    mgr._check_and_recreate_processes();
 
-    auto pool_snapshot = mgr.process_pool_snapshot_for_test(test_meta(invalid_version).id);
+    auto pool_snapshot = process_pool_snapshot(mgr, test_meta(invalid_version).id);
     ASSERT_EQ(pool_snapshot.size(), 2);
     EXPECT_FALSE(pool_snapshot[0]->is_alive());
     EXPECT_FALSE(pool_snapshot[1]->is_alive());

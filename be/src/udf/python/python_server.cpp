@@ -21,16 +21,13 @@
 #include <butil/fd_utility.h>
 #include <dirent.h>
 #include <fmt/core.h>
-#include <signal.h>
 #include <sys/poll.h>
-#include <sys/stat.h>
 #include <unistd.h>
 
 #include <algorithm>
-#include <boost/asio.hpp>
-#include <boost/process.hpp>
 #include <chrono>
 #include <fstream>
+#include <iterator>
 #include <thread>
 
 #include "arrow/flight/client.h"
@@ -47,31 +44,42 @@
 
 namespace doris {
 
-// A client holds this from pool acquisition through stream/state cleanup. The pool may outlive
-// its manager after DROP; releasing a lease must therefore only access the pool itself.
-class PythonUDFPoolLease {
-public:
-    explicit PythonUDFPoolLease(std::shared_ptr<PythonServerManager::FunctionProcessPool> pool)
-            : _pool(std::move(pool)) {}
+PythonFunctionRuntime::PythonFunctionRuntime(
+        const PythonUDFMeta& meta, PythonVersion version,
+        std::shared_ptr<PythonProcessRegistry> process_registry,
+        std::shared_ptr<UserFunctionCacheEntry> package_cache_entry)
+        : version(std::move(version)),
+          process_registry(std::move(process_registry)),
+          function_id(meta.id),
+          pool_size(std::min(meta.pool_size, CpuInfo::num_cores())),
+          auto_suspend(meta.auto_suspend),
+          package_cache_entry(std::move(package_cache_entry)) {}
 
-    ~PythonUDFPoolLease() {
-        std::scoped_lock lock(_pool->mutex);
-        DCHECK_GT(_pool->active_clients, 0);
-        if (--_pool->active_clients == 0) {
-            _pool->idle_since = std::chrono::steady_clock::now();
-        }
+Status PythonFunctionRuntime::acquire_client() {
+    std::scoped_lock lock(mutex);
+    // A GROUP BY can request another client after DROP retired this runtime.
+    if (state == PoolState::STOPPED) {
+        return Status::Error<ErrorCode::SERVICE_UNAVAILABLE>(
+                "Python UDF function {} is being deleted", function_id);
     }
+    ++active_clients;
+    return Status::OK();
+}
 
-private:
-    std::shared_ptr<PythonServerManager::FunctionProcessPool> _pool;
-};
+void PythonFunctionRuntime::release_client() {
+    std::scoped_lock lock(mutex);
+    DCHECK_GT(active_clients, 0);
+    if (--active_clients == 0) {
+        idle_since = std::chrono::steady_clock::now();
+    }
+}
 
-void PythonServerManager::ProcessRegistry::add(const ProcessPtr& process) {
+void PythonProcessRegistry::add(const ProcessPtr& process) {
     std::scoped_lock lock(mutex);
     processes.emplace_back(process);
 }
 
-std::vector<ProcessPtr> PythonServerManager::ProcessRegistry::snapshot() {
+std::vector<ProcessPtr> PythonProcessRegistry::snapshot() {
     std::vector<ProcessPtr> snapshot;
     std::scoped_lock lock(mutex);
     std::erase_if(processes, [&snapshot](const auto& weak_process) {
@@ -84,52 +92,67 @@ std::vector<ProcessPtr> PythonServerManager::ProcessRegistry::snapshot() {
     return snapshot;
 }
 
-Result<std::shared_ptr<PythonServerManager::FunctionProcessPool>>
-PythonServerManager::_get_or_create_process_pool(
+Result<std::shared_ptr<PythonFunctionRuntime>> PythonServerManager::get_runtime(
         const PythonUDFMeta& meta, const PythonVersion& version,
-        std::shared_ptr<UserFunctionCacheEntry> package_cache_entry,
-        std::shared_ptr<PythonUDFPoolLease>* lease) {
-    std::scoped_lock lock(_pools_mutex);
-    // shutdown() owns the manager lifecycle. Once it starts, creating a new pool would let detached
-    // init workers publish Python processes that the manager no longer tracks.
-    if (_shutdown_flag.load(std::memory_order_acquire)) {
-        return ResultError(Status::Error<ErrorCode::SERVICE_UNAVAILABLE>(
-                "Python server manager is shutting down"));
+        std::shared_ptr<UserFunctionCacheEntry> package_cache_entry) {
+    std::shared_ptr<PythonFunctionRuntime> function_pool;
+    {
+        std::scoped_lock lock(_pools_mutex);
+        // Reject acquisition once manager shutdown has started.
+        if (_shutdown_flag.load(std::memory_order_acquire)) {
+            return ResultError(Status::Error<ErrorCode::SERVICE_UNAVAILABLE>(
+                    "Python server manager is shutting down"));
+        }
+        if (meta.pool_size <= 0) {
+            return ResultError(
+                    Status::InvalidArgument("Python UDF pool_size must be a positive integer"));
+        }
+        if (meta.auto_suspend < -1) {
+            return ResultError(Status::InvalidArgument(
+                    "Python UDF auto_suspend must be -1 or a non-negative integer"));
+        }
+        auto& pool = _process_pools[meta.id];
+        if (!pool) {
+            pool = std::make_shared<PythonFunctionRuntime>(meta, version, _process_registry,
+                                                           std::move(package_cache_entry));
+            _start_health_check_thread();
+        }
+        function_pool = pool;
     }
-    if (meta.pool_size <= 0) {
-        return ResultError(
-                Status::InvalidArgument("Python UDF pool_size must be a positive integer"));
+    // Acquire: get entry -> register runtime -> check entry -> initialize/get process.
+    // DROP: add tombstone -> remove cache entry -> stop and remove pool.
+    auto status = function_pool->check_package();
+    if (!status.ok()) {
+        drop_function(meta.id);
+        return ResultError(std::move(status));
     }
-    if (meta.auto_suspend < -1) {
-        return ResultError(Status::InvalidArgument(
-                "Python UDF auto_suspend must be -1 or a non-negative integer"));
-    }
-    auto& pool = _process_pools[meta.id];
-    if (!pool) {
-        pool = std::make_shared<FunctionProcessPool>();
-        pool->version = version;
-        pool->process_registry = _process_registry;
-        pool->function_id = meta.id;
-        // The same function may run on BEs with different CPU limits.
-        pool->pool_size = std::min(meta.pool_size, CpuInfo::num_cores());
-        pool->auto_suspend = meta.auto_suspend;
-        pool->package_cache_entry = std::move(package_cache_entry);
-        // The first process can serve a client before the remaining slots finish initialization.
-        _start_health_check_thread();
-    }
-    if (lease) {
-        auto acquired = std::make_shared<PythonUDFPoolLease>(pool);
-        std::scoped_lock pool_lock(pool->mutex);
-        ++pool->active_clients;
-        *lease = std::move(acquired);
-    }
-    return pool;
+    return function_pool;
 }
 
-std::vector<std::shared_ptr<PythonServerManager::FunctionProcessPool>>
-PythonServerManager::_snapshot_process_pools() {
+std::set<int64_t> PythonServerManager::collect_pyudf_ids() {
+    std::set<int64_t> ids;
     std::scoped_lock lock(_pools_mutex);
-    std::vector<std::shared_ptr<FunctionProcessPool>> snapshot;
+    for (const auto& [id, runtime] : _process_pools) {
+        ids.insert(id);
+    }
+    return ids;
+}
+
+Status PythonFunctionRuntime::check_package() const {
+#ifdef BE_TEST
+    TEST_SYNC_POINT_CALLBACK("PythonFunctionRuntime::check_package:before_check");
+#endif
+    // DROP may run between entry acquisition and pool registration.
+    if (package_cache_entry && UserFunctionCache::is_pending_deletion(*package_cache_entry)) {
+        return Status::Error<ErrorCode::SERVICE_UNAVAILABLE>(
+                "Python UDF function {} is being deleted", function_id);
+    }
+    return Status::OK();
+}
+
+std::vector<std::shared_ptr<PythonFunctionRuntime>> PythonServerManager::_snapshot_process_pools() {
+    std::scoped_lock lock(_pools_mutex);
+    std::vector<std::shared_ptr<PythonFunctionRuntime>> snapshot;
     snapshot.reserve(_process_pools.size());
     for (const auto& [function_id, pool] : _process_pools) {
         snapshot.emplace_back(pool);
@@ -137,66 +160,8 @@ PythonServerManager::_snapshot_process_pools() {
     return snapshot;
 }
 
-#ifdef BE_TEST
-void PythonServerManager::set_process_pool_for_test(const PythonUDFMeta& meta,
-                                                    const PythonVersion& version,
-                                                    std::vector<ProcessPtr> processes,
-                                                    bool initialized) {
-    auto function_pool = _get_or_create_process_pool(meta, version, nullptr).value();
-    std::scoped_lock lock(function_pool->mutex);
-    for (const auto& process : processes) {
-        if (process) {
-            function_pool->process_registry->add(process);
-        }
-    }
-    function_pool->processes = std::move(processes);
-    function_pool->state = initialized ? PoolState::INITIALIZED : PoolState::UNINITIALIZED;
-    function_pool->has_available_process =
-            std::any_of(function_pool->processes.begin(), function_pool->processes.end(),
-                        [](const ProcessPtr& process) { return process && process->is_alive(); });
-}
-
-std::vector<ProcessPtr> PythonServerManager::process_pool_snapshot_for_test(int64_t function_id) {
-    std::scoped_lock map_lock(_pools_mutex);
-    auto iter = _process_pools.find(function_id);
-    if (iter == _process_pools.end()) {
-        return {};
-    }
-    std::scoped_lock lock(iter->second->mutex);
-    return iter->second->processes;
-}
-
-bool PythonServerManager::process_pool_is_initialized_for_test(int64_t function_id) {
-    return wait_for_process_pool_initialized_for_test(function_id, std::chrono::milliseconds(0));
-}
-
-bool PythonServerManager::wait_for_process_pool_initialized_for_test(
-        int64_t function_id, std::chrono::milliseconds timeout) {
-    std::shared_ptr<FunctionProcessPool> pool;
-    {
-        std::scoped_lock map_lock(_pools_mutex);
-        pool = _process_pools.at(function_id);
-    }
-    std::unique_lock<std::mutex> lock(pool->mutex);
-    return pool->cv.wait_for(lock, timeout,
-                             [&]() { return pool->state == PoolState::INITIALIZED; });
-}
-
-bool PythonServerManager::wait_for_process_pool_initialization_finished_for_test(
-        int64_t function_id, std::chrono::milliseconds timeout) {
-    std::shared_ptr<FunctionProcessPool> pool;
-    {
-        std::scoped_lock map_lock(_pools_mutex);
-        pool = _process_pools.at(function_id);
-    }
-    std::unique_lock<std::mutex> lock(pool->mutex);
-    return pool->cv.wait_for(lock, timeout,
-                             [&]() { return pool->state != PoolState::INITIALIZING; });
-}
-#endif
-
-bool PythonServerManager::_select_alive_process_from_pool(const std::vector<ProcessPtr>& pool,
-                                                          ProcessPtr* process) {
+bool PythonFunctionRuntime::_select_alive_process_from_pool(ProcessPtr* process) {
+    const auto& pool = processes;
     auto alive_iter = std::ranges::min_element(pool, [](const ProcessPtr& a, const ProcessPtr& b) {
         const bool a_alive = a && a->is_alive();
         const bool b_alive = b && b->is_alive();
@@ -217,12 +182,25 @@ Status PythonServerManager::get_client(
         const PythonUDFMeta& func_meta, const PythonVersion& version,
         std::shared_ptr<ClientType>* client, const std::shared_ptr<arrow::Schema>& data_schema,
         std::shared_ptr<UserFunctionCacheEntry> package_cache_entry) {
-    std::shared_ptr<PythonUDFPoolLease> lease;
-    std::shared_ptr<FunctionProcessPool> function_pool = DORIS_TRY(
-            _ensure_pool_initialized(func_meta, version, std::move(package_cache_entry), &lease));
+    auto runtime = DORIS_TRY(get_runtime(func_meta, version, std::move(package_cache_entry)));
+    return runtime->get_client(func_meta, client, data_schema);
+}
+
+template <typename ClientType>
+Status PythonFunctionRuntime::get_client(const PythonUDFMeta& func_meta,
+                                         std::shared_ptr<ClientType>* client,
+                                         const std::shared_ptr<arrow::Schema>& data_schema) {
+    RETURN_IF_ERROR(acquire_client());
+    bool acquired = false;
+    Defer release_on_failure([&]() {
+        if (!acquired) {
+            release_client();
+        }
+    });
+    RETURN_IF_ERROR(_ensure_pool_initialized());
 
     ProcessPtr process;
-    RETURN_IF_ERROR(_get_process(version, function_pool, &process));
+    RETURN_IF_ERROR(_get_process(&process));
 
     if constexpr (std::is_same_v<ClientType, PythonUDAFClient>) {
         RETURN_IF_ERROR(ClientType::create(func_meta, std::move(process), data_schema, client));
@@ -230,219 +208,204 @@ Status PythonServerManager::get_client(
         RETURN_IF_ERROR(ClientType::create(func_meta, std::move(process), client));
     }
 
-    (*client)->_pool_lease = std::move(lease);
+    (*client)->_runtime = shared_from_this();
+    acquired = true;
     return Status::OK();
 }
 
-void PythonServerManager::_start_pool_initialization(
-        const std::shared_ptr<FunctionProcessPool>& function_pool, const PythonVersion& version,
+void PythonFunctionRuntime::_start_pool_initialization(
         std::chrono::milliseconds process_pool_init_timeout) {
     // Called with the pool lock held; workers publish only after the caller starts waiting.
-    const int max_pool_size = function_pool->pool_size;
-    function_pool->state = PoolState::INITIALIZING;
-    function_pool->has_available_process = false;
-    function_pool->processes.resize(max_pool_size);
+    const auto generation = ++pool_generation;
+    state = PoolState::INITIALIZING;
+    has_available_process = false;
+    processes.resize(pool_size);
     auto init_finished_count = std::make_shared<std::atomic<int>>(0);
-    TEST_SYNC_POINT_CALLBACK("PythonServerManager::_ensure_pool_initialized:generation_started",
+#ifdef BE_TEST
+    TEST_SYNC_POINT_CALLBACK("PythonFunctionRuntime::_ensure_pool_initialized:generation_started",
                              &version, init_finished_count.get());
+#endif
 
-    LOG(INFO) << "Initializing Python process pool for function " << function_pool->function_id
-              << " with " << max_pool_size << " processes, runtime=" << version.to_string();
+    LOG(INFO) << "Initializing Python process pool for function " << function_id << " with "
+              << pool_size << " processes, runtime=" << version.to_string();
 
-    std::thread([function_pool, init_finished_count, max_pool_size, process_pool_init_timeout]() {
+    auto self = shared_from_this();
+    std::thread([self, init_finished_count, process_pool_init_timeout, generation]() {
         SCOPED_INIT_THREAD_CONTEXT();
-        std::unique_lock<std::mutex> lock(function_pool->mutex);
-        function_pool->cv.wait_for(
-                lock, process_pool_init_timeout,
-                [&function_pool, init_finished_count, max_pool_size]() {
-                    return function_pool->state != PoolState::INITIALIZING ||
-                           init_finished_count->load(std::memory_order_acquire) >= max_pool_size;
+        std::unique_lock<std::mutex> lock(self->mutex);
+        self->cv.wait_for(
+                lock, process_pool_init_timeout, [&self, init_finished_count, generation]() {
+                    return self->state != PoolState::INITIALIZING ||
+                           self->pool_generation != generation ||
+                           init_finished_count->load(std::memory_order_acquire) >= self->pool_size;
                 });
-        if (function_pool->state == PoolState::INITIALIZING) {
-            if (function_pool->has_available_process) {
-                function_pool->state = PoolState::INITIALIZED;
-            } else {
-                function_pool->state = PoolState::UNINITIALIZED;
-            }
+        if (self->state == PoolState::INITIALIZING && self->pool_generation == generation) {
+            self->state =
+                    self->has_available_process ? PoolState::INITIALIZED : PoolState::UNINITIALIZED;
         }
-        function_pool->cv.notify_all();
+        self->cv.notify_all();
     }).detach();
 
-    for (int i = 0; i < max_pool_size; ++i) {
-        std::thread([version, function_pool, i, max_pool_size, init_finished_count]() {
+    for (int i = 0; i < pool_size; ++i) {
+        std::thread([self, i, init_finished_count, generation]() {
             SCOPED_INIT_THREAD_CONTEXT();
             ProcessPtr process;
-            Status status = PythonServerManager::fork(version, &process);
-            const bool ok = status.ok() && process;
-            ProcessPtr process_to_shutdown;
-            {
-                std::scoped_lock lock(function_pool->mutex);
-                // shutdown() and repair can race with detached init workers after timeout.
-                // Late successful forks only fill slots that are still empty or dead.
-                if (ok &&
-                    (function_pool->state == PoolState::INITIALIZING ||
-                     function_pool->state == PoolState::INITIALIZED) &&
-                    i < function_pool->processes.size() &&
-                    (!function_pool->processes[i] || !function_pool->processes[i]->is_alive())) {
-                    // Register only accepted processes; rejected forks shut down separately.
-                    function_pool->process_registry->add(process);
-                    process->set_package_cache_entry(function_pool->package_cache_entry);
-                    function_pool->processes[i] = std::move(process);
-                    function_pool->has_available_process = true;
-                } else if (ok) {
-                    process_to_shutdown = std::move(process);
-                } else [[unlikely]] {
-                    LOG(WARNING) << "Failed to create Python process " << (i + 1) << "/"
-                                 << max_pool_size << " for version " << version.to_string() << ": "
-                                 << status.to_string();
-                }
+            Status status = PythonUDFProcess::create(self->version, &process);
+            if (status.ok()) {
+                self->_publish_process(std::move(process), i, generation);
+            } else [[unlikely]] {
+                LOG(WARNING) << "Failed to create Python process " << (i + 1) << "/"
+                             << self->pool_size << " for version " << self->version.to_string()
+                             << ": " << status.to_string();
             }
             init_finished_count->fetch_add(1, std::memory_order_acq_rel);
-            function_pool->cv.notify_all();
-            if (process_to_shutdown) {
-                process_to_shutdown->shutdown();
-            }
+            self->cv.notify_all();
+#ifdef BE_TEST
             TEST_SYNC_POINT_CALLBACK(
-                    "PythonServerManager::_ensure_pool_initialized:init_worker_finished", &version,
-                    init_finished_count.get());
+                    "PythonFunctionRuntime::_ensure_pool_initialized:init_worker_finished",
+                    &self->version, init_finished_count.get());
+#endif
         }).detach();
     }
 }
 
-Result<std::shared_ptr<PythonServerManager::FunctionProcessPool>>
-PythonServerManager::_ensure_pool_initialized(
-        const PythonUDFMeta& meta, const PythonVersion& version,
-        std::shared_ptr<UserFunctionCacheEntry> package_cache_entry,
-        std::shared_ptr<PythonUDFPoolLease>* lease) {
-    auto function_pool_result =
-            _get_or_create_process_pool(meta, version, std::move(package_cache_entry), lease);
-    if (!function_pool_result.has_value()) {
-        return ResultError(function_pool_result.error());
-    }
-    auto function_pool = function_pool_result.value();
-    auto process_pool_init_timeout = PROCESS_POOL_INIT_TIMEOUT;
-    TEST_SYNC_POINT_CALLBACK(
-            "PythonServerManager::_ensure_pool_initialized:process_pool_init_timeout",
-            &process_pool_init_timeout);
-
-    std::unique_lock<std::mutex> lock(function_pool->mutex);
-    if (function_pool->state == PoolState::INITIALIZED) {
-        return function_pool;
-    }
-
-    if (function_pool->state != PoolState::STOPPED) {
-        if (function_pool->state != PoolState::INITIALIZING) {
-            _start_pool_initialization(function_pool, version, process_pool_init_timeout);
+bool PythonFunctionRuntime::_publish_process(ProcessPtr process, size_t index,
+                                             uint64_t generation) {
+    {
+        std::scoped_lock lock(mutex);
+        // DROP and idle suspension invalidate workers; rejected processes are released after unlock.
+        if (pool_generation != generation ||
+            (state != PoolState::INITIALIZING && state != PoolState::INITIALIZED)) {
+            return false;
         }
-
-        // Wait only for the first usable process. INITIALIZED is set later by the last init worker
-        // after every slot has attempted initialization.
-        function_pool->cv.wait_for(lock, process_pool_init_timeout, [&function_pool]() {
-            return function_pool->has_available_process ||
-                   function_pool->state == PoolState::STOPPED ||
-                   function_pool->state != PoolState::INITIALIZING;
-        });
-        if (function_pool->has_available_process) {
-            return function_pool;
+        DCHECK_LT(index, processes.size());
+        // Initialization and repair can finish for the same slot in either order.
+        if (processes[index] && processes[index]->is_alive()) {
+            return false;
         }
-        function_pool->cv.notify_all();
+        process_registry->add(process);
+        process->set_package_cache_entry(package_cache_entry);
+        processes[index] = std::move(process);
+        has_available_process = true;
     }
-
-    return ResultError(Status::Error<ErrorCode::SERVICE_UNAVAILABLE>(
-            "Failed to initialize Python process pool for version {}: no process became available "
-            "within {} ms",
-            version.to_string(), process_pool_init_timeout.count()));
+    cv.notify_all();
+    return true;
 }
 
-void PythonServerManager::_start_pool_repair(
-        const PythonVersion& version, const std::shared_ptr<FunctionProcessPool>& function_pool) {
+Status PythonFunctionRuntime::_ensure_pool_initialized() {
+    auto process_pool_init_timeout = PROCESS_POOL_INIT_TIMEOUT;
+#ifdef BE_TEST
+    TEST_SYNC_POINT_CALLBACK(
+            "PythonFunctionRuntime::_ensure_pool_initialized:process_pool_init_timeout",
+            &process_pool_init_timeout);
+#endif
+
+    std::unique_lock<std::mutex> lock(mutex);
+    if (state == PoolState::INITIALIZED) {
+        return Status::OK();
+    }
+
+    if (state != PoolState::STOPPED) {
+        if (state != PoolState::INITIALIZING) {
+            _start_pool_initialization(process_pool_init_timeout);
+        }
+
+        // Requests can proceed when the first process is ready, before initialization finishes.
+        cv.wait_for(lock, process_pool_init_timeout,
+                    [this]() { return has_available_process || state != PoolState::INITIALIZING; });
+        if (has_available_process) {
+            return Status::OK();
+        }
+        cv.notify_all();
+    }
+
+    return Status::Error<ErrorCode::SERVICE_UNAVAILABLE>(
+            "Failed to initialize Python process pool for version {}: no process became available "
+            "within {} ms",
+            version.to_string(), process_pool_init_timeout.count());
+}
+
+void PythonFunctionRuntime::_start_pool_repair() {
     // Called with the pool lock held so concurrent requests cannot schedule the same repair.
-    function_pool->repairing = true;
+    repairing = true;
+    const auto generation = pool_generation;
     // Repair is done in the background because fork can be slow. The current request still
     // waits briefly below so a transient all-dead pool can recover without failing.
-    std::thread([version, function_pool]() {
+    std::thread([self = shared_from_this(), generation]() {
         SCOPED_INIT_THREAD_CONTEXT();
-        int recreated = PythonServerManager::_repair_process_pool(version, function_pool);
-        {
-            std::scoped_lock lock(function_pool->mutex);
-            function_pool->repairing = false;
-        }
-        function_pool->cv.notify_all();
+        int recreated = self->_repair_process_pool(generation);
         if (recreated > 0) {
-            LOG(INFO) << "Repaired Python process pool for version " << version.to_string()
+            LOG(INFO) << "Repaired Python process pool for version " << self->version.to_string()
                       << ": recreated=" << recreated;
         }
     }).detach();
 }
 
-Status PythonServerManager::_get_process(const PythonVersion& version,
-                                         const std::shared_ptr<FunctionProcessPool>& function_pool,
-                                         ProcessPtr* process) {
+Status PythonFunctionRuntime::_get_process(ProcessPtr* process) {
     {
-        std::unique_lock<std::mutex> lock(function_pool->mutex);
-        std::vector<ProcessPtr>& pool = function_pool->processes;
+        std::unique_lock<std::mutex> lock(mutex);
 
-        if (function_pool->state == PoolState::STOPPED) {
-            function_pool->has_available_process = false;
+        if (state == PoolState::STOPPED) {
+            has_available_process = false;
             return Status::Error<ErrorCode::SERVICE_UNAVAILABLE>(
                     "Python process pool has stopped for version {}", version.to_string());
         }
 
-        if (_select_alive_process_from_pool(pool, process)) [[likely]] {
-            function_pool->has_available_process = true;
+        if (_select_alive_process_from_pool(process)) [[likely]] {
+            has_available_process = true;
             return Status::OK();
         }
-        function_pool->has_available_process = false;
+        has_available_process = false;
 
-        if (function_pool->state == PoolState::INITIALIZING) {
-            function_pool->cv.wait_for(lock, PROCESS_REPAIR_WAIT_TIMEOUT, [&function_pool]() {
-                return std::any_of(function_pool->processes.begin(), function_pool->processes.end(),
-                                   [](const ProcessPtr& p) { return p && p->is_alive(); }) ||
-                       function_pool->state != PoolState::INITIALIZING;
+        if (state == PoolState::INITIALIZING) {
+            cv.wait_for(lock, PROCESS_REPAIR_WAIT_TIMEOUT, [this]() {
+                return std::ranges::any_of(
+                               processes, [](const ProcessPtr& p) { return p && p->is_alive(); }) ||
+                       state != PoolState::INITIALIZING;
             });
-            if (function_pool->state == PoolState::STOPPED) {
+            if (state == PoolState::STOPPED) {
                 return Status::Error<ErrorCode::SERVICE_UNAVAILABLE>(
                         "Python process pool has stopped for version {}", version.to_string());
             }
-            if (_select_alive_process_from_pool(pool, process)) {
-                function_pool->has_available_process = true;
+            if (_select_alive_process_from_pool(process)) {
+                has_available_process = true;
                 return Status::OK();
             }
-            function_pool->has_available_process = false;
+            has_available_process = false;
             return Status::Error<ErrorCode::SERVICE_UNAVAILABLE>(
                     "Python process pool is initializing but has no available process for version "
                     "{} after waiting {} ms",
                     version.to_string(), PROCESS_REPAIR_WAIT_TIMEOUT.count());
         }
 
-        if (function_pool->state != PoolState::INITIALIZED) {
+        if (state != PoolState::INITIALIZED) {
             return Status::Error<ErrorCode::SERVICE_UNAVAILABLE>(
                     "Python process pool is not initialized for version {}", version.to_string());
         }
 
-        if (!function_pool->repairing) {
-            _start_pool_repair(version, function_pool);
+        if (!repairing) {
+            _start_pool_repair();
         }
 
         // Keep the request recoverable in the common case where the Python runtime can fork
         // normally and only the existing pool entries died. The wait is short so a wedged fork path
         // still returns SERVICE_UNAVAILABLE promptly.
-        function_pool->cv.wait_for(lock, PROCESS_REPAIR_WAIT_TIMEOUT, [&function_pool]() {
-            return std::any_of(function_pool->processes.begin(), function_pool->processes.end(),
-                               [](const ProcessPtr& p) { return p && p->is_alive(); }) ||
-                   function_pool->state == PoolState::STOPPED;
+        cv.wait_for(lock, PROCESS_REPAIR_WAIT_TIMEOUT, [this]() {
+            return std::ranges::any_of(processes,
+                                       [](const ProcessPtr& p) { return p && p->is_alive(); }) ||
+                   state == PoolState::STOPPED;
         });
-        if (function_pool->state == PoolState::STOPPED) {
-            function_pool->has_available_process = false;
+        if (state == PoolState::STOPPED) {
+            has_available_process = false;
             return Status::Error<ErrorCode::SERVICE_UNAVAILABLE>(
                     "Python process pool has stopped for version {}", version.to_string());
         }
 
-        if (_select_alive_process_from_pool(pool, process)) {
-            function_pool->has_available_process = true;
+        if (_select_alive_process_from_pool(process)) {
+            has_available_process = true;
             return Status::OK();
         }
-        function_pool->has_available_process = false;
+        has_available_process = false;
     }
 
     return Status::Error<ErrorCode::SERVICE_UNAVAILABLE>(
@@ -451,131 +414,34 @@ Status PythonServerManager::_get_process(const PythonVersion& version,
             version.to_string(), PROCESS_REPAIR_WAIT_TIMEOUT.count());
 }
 
-Status PythonServerManager::fork(const PythonVersion& version, ProcessPtr* process) {
-    std::string python_executable_path = version.get_executable_path();
-    std::string fight_server_path = get_fight_server_path();
-    std::string base_unix_socket_path = get_base_unix_socket_path();
-    std::vector<std::string> args = {"-u", fight_server_path, base_unix_socket_path};
-    boost::process::environment env = boost::this_process::environment();
-    boost::process::ipstream child_output;
-
-    // Test synchronization belongs before child creation so it cannot consume readiness timeout.
-    TEST_SYNC_POINT_CALLBACK("PythonServerManager::fork:before_process_start", &version);
-
-    try {
-        boost::process::child c(
-                python_executable_path, args, boost::process::std_out > child_output,
-                boost::process::env = env,
-                boost::process::on_exit([](int exit_code, const std::error_code& ec) {
-                    if (ec) {
-                        LOG(WARNING) << "Python UDF server exited with error: " << ec.message();
-                    }
-                }));
-
-        // Bound socket readiness: a child process can start but never create the Flight socket.
-        // Without this, pool initialization can block until FE reports send-fragments RPC timeout.
-        pid_t child_pid = c.id();
-        std::string expected_socket_path = get_unix_socket_file_path(child_pid);
-        bool started_successfully = false;
-        std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
-
-        while (std::chrono::steady_clock::now() - start < PROCESS_START_TIMEOUT) {
-            struct stat buffer;
-            if (stat(expected_socket_path.c_str(), &buffer) == 0) {
-                started_successfully = true;
-                break;
-            }
-
-            if (!c.running()) {
-                break;
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
-
-        if (!started_successfully) {
-            int exit_status = 0;
-            if (c.running()) {
-                // Don't use the `wait` of boost::process, but use the operating system signal and waitpid with timeout instead.
-                // Because boost::process may block the initialization/repair thread for a long time,
-                // exceeding the timeout limit expected by the process pool.
-                ::kill(child_pid, SIGTERM);
-                auto wait_result = PythonUDFProcess::wait_child_exit(
-                        child_pid, PROCESS_TERMINATE_TIMEOUT, &exit_status);
-                if (wait_result == PythonUDFProcess::ChildExitWaitResult::TIMEOUT ||
-                    wait_result == PythonUDFProcess::ChildExitWaitResult::ERROR) {
-                    LOG(WARNING) << "Python server start timeout and terminate timeout exceeded,"
-                                 << " sending SIGKILL to pid=" << child_pid;
-                    ::kill(child_pid, SIGKILL);
-                    wait_result = PythonUDFProcess::wait_child_exit(
-                            child_pid, PROCESS_TERMINATE_TIMEOUT, &exit_status);
-                    if (wait_result == PythonUDFProcess::ChildExitWaitResult::TIMEOUT ||
-                        wait_result == PythonUDFProcess::ChildExitWaitResult::ERROR) [[unlikely]] {
-                        // The child was SIGKILLed but not reaped within the bounded wait. Do not
-                        // drop waitpid ownership after detach; otherwise a later exit can leave a
-                        // zombie Python process under BE.
-                        PythonUDFProcess::enqueue_child_for_reap(child_pid);
-                        c.detach();
-                        return Status::InternalError(
-                                "Python server start failed: process did not exit after SIGKILL, "
-                                "pid={}",
-                                child_pid);
-                    }
-                }
-            } else {
-                PythonUDFProcess::wait_child_exit(child_pid, std::chrono::milliseconds(0),
-                                                  &exit_status);
-            }
-            c.detach();
-            return Status::InternalError("Python server start failed: socket file not found at {}",
-                                         expected_socket_path);
-        }
-
-        *process = std::make_shared<PythonUDFProcess>(std::move(c), std::move(child_output));
-
-    } catch (const std::exception& e) {
-        return Status::InternalError("Failed to start Python UDF server: {}", e.what());
+void PythonServerManager::_reclaim_idle_pools(std::chrono::steady_clock::time_point now) {
+    for (const auto& pool : _snapshot_process_pools()) {
+        pool->reclaim_if_idle(now);
     }
-
-    return Status::OK();
 }
 
-void PythonServerManager::_reclaim_idle_pools(std::chrono::steady_clock::time_point now) {
-    std::vector<std::shared_ptr<FunctionProcessPool>> retired;
+void PythonFunctionRuntime::reclaim_if_idle(std::chrono::steady_clock::time_point now) {
+    std::vector<ProcessPtr> processes_to_shutdown;
     {
-        std::scoped_lock lock(_pools_mutex);
-        std::erase_if(_process_pools, [&](const auto& entry) {
-            const auto& pool = entry.second;
-            std::scoped_lock pool_lock(pool->mutex);
-            // 1. Never reclaim a pool while any client still holds it.
-            // 2. A STOPPED pool is reclaimed on the next scan after its last client closes,
-            //    regardless of auto_suspend.
-            // 3. Other pools require auto_suspend >= 0 and no clients for that many seconds.
-            //    The last client closing resets idle_since, so each idle period starts afresh.
-            if (pool->active_clients != 0 ||
-                (pool->state != PoolState::STOPPED &&
-                 (pool->auto_suspend < 0 ||
-                  std::chrono::duration_cast<std::chrono::seconds>(now - pool->idle_since).count() <
-                          pool->auto_suspend))) {
-                return false;
-            }
-            // Prevent detached initialization/repair workers from publishing into a retired pool.
-            pool->state = PoolState::STOPPED;
-            pool->has_available_process = false;
-            retired.emplace_back(pool);
-            return true;
-        });
-    }
-    for (const auto& pool : retired) {
-        pool->cv.notify_all();
-        std::vector<ProcessPtr> processes;
-        {
-            std::scoped_lock lock(pool->mutex);
-            processes.swap(pool->processes);
+        std::scoped_lock lock(mutex);
+        // An already suspended runtime has no processes left to reclaim.
+        if (state == PoolState::STOPPED || auto_suspend < 0 ||
+            (state == PoolState::UNINITIALIZED && processes.empty()) || active_clients != 0 ||
+            std::chrono::duration_cast<std::chrono::seconds>(now - idle_since).count() <
+                    auto_suspend) {
+            return;
         }
-        for (const auto& process : processes) {
-            if (process) {
-                process->shutdown();
-            }
+        // Keep the query's runtime usable; invalidate workers from the suspended pool.
+        ++pool_generation;
+        state = PoolState::UNINITIALIZED;
+        has_available_process = false;
+        repairing = false;
+        processes_to_shutdown.swap(processes);
+    }
+    cv.notify_all();
+    for (const auto& process : processes_to_shutdown) {
+        if (process) {
+            process->shutdown();
         }
     }
 }
@@ -596,7 +462,9 @@ void PythonServerManager::_start_health_check_thread() {
                 });
             }
 
-            if (_shutdown_flag.load(std::memory_order_acquire)) break;
+            if (_shutdown_flag.load(std::memory_order_acquire)) {
+                break;
+            }
 
             _reclaim_idle_pools(std::chrono::steady_clock::now());
             _check_and_recreate_processes();
@@ -610,22 +478,7 @@ void PythonServerManager::_start_health_check_thread() {
 void PythonServerManager::_check_and_recreate_processes() {
     int total_recreated = 0;
     for (const auto& function_pool : _snapshot_process_pools()) {
-        {
-            std::scoped_lock lock(function_pool->mutex);
-            if (function_pool->state != PoolState::INITIALIZED || function_pool->repairing) {
-                continue;
-            }
-            // Share the same repair guard with foreground requests. Otherwise health check and
-            // _get_process() can fork the same empty/dead slots at the same time under failures.
-            function_pool->repairing = true;
-        }
-        int recreated = _repair_process_pool(function_pool->version, function_pool);
-        {
-            std::scoped_lock lock(function_pool->mutex);
-            function_pool->repairing = false;
-        }
-        function_pool->cv.notify_all();
-        total_recreated += recreated;
+        total_recreated += function_pool->repair();
     }
 
     if (total_recreated > 0) {
@@ -633,29 +486,44 @@ void PythonServerManager::_check_and_recreate_processes() {
     }
 }
 
-int PythonServerManager::_repair_process_pool(
-        const PythonVersion& version, const std::shared_ptr<FunctionProcessPool>& function_pool) {
-    const int max_pool_size = function_pool->pool_size;
+int PythonFunctionRuntime::repair() {
+    uint64_t generation;
+    {
+        std::scoped_lock lock(mutex);
+        if (state != PoolState::INITIALIZED || repairing) {
+            return 0;
+        }
+        // Foreground requests and health checks must not repair the same slots concurrently.
+        repairing = true;
+        generation = pool_generation;
+    }
+    return _repair_process_pool(generation);
+}
+
+int PythonFunctionRuntime::_repair_process_pool(uint64_t generation) {
+    Defer finish_repair([this, generation]() {
+        {
+            std::scoped_lock lock(mutex);
+            if (pool_generation == generation) {
+                repairing = false;
+            }
+        }
+        cv.notify_all();
+    });
     std::vector<size_t> died_process_indices;
     {
-        std::scoped_lock lock(function_pool->mutex);
-        if (function_pool->state != PoolState::INITIALIZED) {
+        std::scoped_lock lock(mutex);
+        if (state != PoolState::INITIALIZED || pool_generation != generation) {
             return 0;
         }
 
-        auto& pool = function_pool->processes;
-        died_process_indices.reserve(std::max<size_t>(pool.size(), max_pool_size));
-        // Need to fix the following two cases
-        // 1. Existing processes have died
-        // 2. Process pool not filled due to fork timeouts and other issues
+        auto& pool = processes;
+        died_process_indices.reserve(pool.size());
         for (size_t i = 0; i < pool.size(); ++i) {
             const auto& process = pool[i];
             if (!process || !process->is_alive()) {
                 died_process_indices.push_back(i);
             }
-        }
-        for (size_t i = pool.size(); i < static_cast<size_t>(max_pool_size); ++i) {
-            died_process_indices.push_back(i);
         }
     }
 
@@ -664,48 +532,19 @@ int PythonServerManager::_repair_process_pool(
     }
 
     int recreated = 0;
-    std::vector<ProcessPtr> processes_to_shutdown;
     for (size_t index : died_process_indices) {
         {
-            std::scoped_lock lock(function_pool->mutex);
-            if (function_pool->state != PoolState::INITIALIZED) {
+            std::scoped_lock lock(mutex);
+            if (state != PoolState::INITIALIZED || pool_generation != generation) {
                 break;
             }
         }
 
         ProcessPtr new_process;
-        Status status = fork(version, &new_process);
-        if (status.ok() && new_process) {
-            bool published = false;
-            {
-                std::scoped_lock lock(function_pool->mutex);
-                auto& pool = function_pool->processes;
-                if (function_pool->state != PoolState::INITIALIZED) {
-                    processes_to_shutdown.emplace_back(std::move(new_process));
-                } else if (index < pool.size()) {
-                    if (!pool[index] || !pool[index]->is_alive()) [[likely]] {
-                        function_pool->process_registry->add(new_process);
-                        new_process->set_package_cache_entry(function_pool->package_cache_entry);
-                        pool[index] = std::move(new_process);
-                        function_pool->has_available_process = true;
-                        recreated++;
-                        published = true;
-                    } else {
-                        processes_to_shutdown.emplace_back(std::move(new_process));
-                    }
-                } else if (pool.size() < static_cast<size_t>(max_pool_size)) {
-                    function_pool->process_registry->add(new_process);
-                    new_process->set_package_cache_entry(function_pool->package_cache_entry);
-                    pool.emplace_back(std::move(new_process));
-                    function_pool->has_available_process = true;
-                    recreated++;
-                    published = true;
-                } else {
-                    processes_to_shutdown.emplace_back(std::move(new_process));
-                }
-            }
-            if (published) {
-                function_pool->cv.notify_all();
+        Status status = PythonUDFProcess::create(version, &new_process);
+        if (status.ok()) {
+            if (_publish_process(std::move(new_process), index, generation)) {
+                ++recreated;
             }
         } else {
             LOG(ERROR) << "Failed to recreate Python process for version " << version.to_string()
@@ -714,28 +553,35 @@ int PythonServerManager::_repair_process_pool(
     }
 
     {
-        std::scoped_lock lock(function_pool->mutex);
-        auto& pool = function_pool->processes;
+        std::scoped_lock lock(mutex);
+        auto& pool = processes;
 
-        if (function_pool->state != PoolState::INITIALIZED) {
-            function_pool->has_available_process = false;
-        } else {
+        if (pool_generation == generation && state == PoolState::INITIALIZED) {
             // Keep empty/dead slots instead of shrinking the vector. Init workers are detached and
             // publish by original slot index; shrinking here would make a late successful init look
             // out-of-range and discard a usable process.
-            function_pool->has_available_process = std::ranges::any_of(
+            has_available_process = std::ranges::any_of(
                     pool, [](const ProcessPtr& process) { return process && process->is_alive(); });
         }
-    }
-    function_pool->cv.notify_all();
-    for (auto& process : processes_to_shutdown) {
-        process->shutdown();
     }
     return recreated;
 }
 
+std::vector<ProcessPtr> PythonFunctionRuntime::stop() {
+    std::vector<ProcessPtr> detached_processes;
+    {
+        std::scoped_lock lock(mutex);
+        state = PoolState::STOPPED;
+        has_available_process = false;
+        repairing = false;
+        detached_processes.swap(processes);
+    }
+    cv.notify_all();
+    return detached_processes;
+}
+
 void PythonServerManager::shutdown() {
-    std::vector<std::shared_ptr<FunctionProcessPool>> pools_to_shutdown;
+    std::vector<std::shared_ptr<PythonFunctionRuntime>> pools_to_shutdown;
     {
         std::scoped_lock lock(_pools_mutex);
         _shutdown_flag.store(true, std::memory_order_release);
@@ -746,15 +592,12 @@ void PythonServerManager::shutdown() {
         _process_pools.clear();
     }
 
+    std::vector<ProcessPtr> retained_processes;
     for (const auto& function_pool : pools_to_shutdown) {
-        if (!function_pool) {
-            continue;
-        }
-        std::scoped_lock lock(function_pool->mutex);
-        function_pool->state = PoolState::STOPPED;
-        function_pool->has_available_process = false;
-        function_pool->repairing = false;
-        function_pool->cv.notify_all();
+        auto processes = function_pool->stop();
+        retained_processes.insert(retained_processes.end(),
+                                  std::make_move_iterator(processes.begin()),
+                                  std::make_move_iterator(processes.end()));
     }
 
     std::unique_ptr<std::thread> health_check_thread;
@@ -767,17 +610,9 @@ void PythonServerManager::shutdown() {
         health_check_thread->join();
     }
 
-    // Include processes retained by clients after DROP. Snapshot ownership keeps pool clearing
-    // from destroying a process under the pool lock; all shutdowns happen outside locks.
+    // Include processes retained by clients after DROP; shut down outside all pool locks.
     auto processes_to_shutdown = _process_registry->snapshot();
-    for (const auto& function_pool : pools_to_shutdown) {
-        if (!function_pool) {
-            continue;
-        }
-        std::scoped_lock lock(function_pool->mutex);
-        function_pool->processes.clear();
-        function_pool->cv.notify_all();
-    }
+    retained_processes.clear();
     for (const auto& process : processes_to_shutdown) {
         process->shutdown();
     }
@@ -837,43 +672,42 @@ void PythonServerManager::_refresh_memory_stats() {
 }
 
 void PythonServerManager::drop_function(int64_t function_id) {
-    std::shared_ptr<FunctionProcessPool> pool;
+    std::shared_ptr<PythonFunctionRuntime> pool;
+    std::vector<ProcessPtr> processes;
     {
         std::scoped_lock map_lock(_pools_mutex);
         auto iter = _process_pools.find(function_id);
         if (iter == _process_pools.end()) {
             return;
         }
-        pool = iter->second;
-        // Keep the STOPPED pool in the map until the health check sees no active clients.
-        // For example, a GROUP BY UDAF may process group A, receive DROP, then encounter group B.
-        // B's create() must find this STOPPED pool and fail instead of starting a new pool while
-        // A's client is still alive. Existing clients may finish on their current processes.
-        {
-            std::scoped_lock pool_lock(pool->mutex);
-            pool->state = PoolState::STOPPED;
-            pool->has_available_process = false;
-        }
+        pool = std::move(iter->second);
+        // Stop init/repair -> detach processes -> erase pool -> unlock -> release references.
+        processes = pool->stop();
+        _process_pools.erase(iter);
     }
-    pool->cv.notify_all();
 }
 
 // Explicit template instantiation for UDF, UDAF and UDTF clients
 template Status PythonServerManager::get_client<PythonUDFClient>(
-        const PythonUDFMeta& func_meta, const PythonVersion& version,
-        std::shared_ptr<PythonUDFClient>* client, const std::shared_ptr<arrow::Schema>& data_schema,
-        std::shared_ptr<UserFunctionCacheEntry> package_cache_entry);
+        const PythonUDFMeta&, const PythonVersion&, std::shared_ptr<PythonUDFClient>*,
+        const std::shared_ptr<arrow::Schema>&, std::shared_ptr<UserFunctionCacheEntry>);
 
 template Status PythonServerManager::get_client<PythonUDAFClient>(
-        const PythonUDFMeta& func_meta, const PythonVersion& version,
-        std::shared_ptr<PythonUDAFClient>* client,
-        const std::shared_ptr<arrow::Schema>& data_schema,
-        std::shared_ptr<UserFunctionCacheEntry> package_cache_entry);
+        const PythonUDFMeta&, const PythonVersion&, std::shared_ptr<PythonUDAFClient>*,
+        const std::shared_ptr<arrow::Schema>&, std::shared_ptr<UserFunctionCacheEntry>);
 
 template Status PythonServerManager::get_client<PythonUDTFClient>(
-        const PythonUDFMeta& func_meta, const PythonVersion& version,
-        std::shared_ptr<PythonUDTFClient>* client,
-        const std::shared_ptr<arrow::Schema>& data_schema,
-        std::shared_ptr<UserFunctionCacheEntry> package_cache_entry);
+        const PythonUDFMeta&, const PythonVersion&, std::shared_ptr<PythonUDTFClient>*,
+        const std::shared_ptr<arrow::Schema>&, std::shared_ptr<UserFunctionCacheEntry>);
+
+template Status PythonFunctionRuntime::get_client<PythonUDFClient>(
+        const PythonUDFMeta&, std::shared_ptr<PythonUDFClient>*,
+        const std::shared_ptr<arrow::Schema>&);
+template Status PythonFunctionRuntime::get_client<PythonUDAFClient>(
+        const PythonUDFMeta&, std::shared_ptr<PythonUDAFClient>*,
+        const std::shared_ptr<arrow::Schema>&);
+template Status PythonFunctionRuntime::get_client<PythonUDTFClient>(
+        const PythonUDFMeta&, std::shared_ptr<PythonUDTFClient>*,
+        const std::shared_ptr<arrow::Schema>&);
 
 } // namespace doris
