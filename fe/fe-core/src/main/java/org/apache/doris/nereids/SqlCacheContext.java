@@ -329,11 +329,7 @@ public class SqlCacheContext {
         usedVariables.add(value);
         // Variable-aware FE lookup derives another value's key before planning its partition pruning.
         // Keep the existing table-wide key for these queries, including variables resolved after table binding.
-        for (TableVersion version : usedTables.values()) {
-            if (version.olapVersion != null) {
-                version.olapVersion.useTableVersion();
-            }
-        }
+        useSourceTableVersions();
     }
 
     public synchronized List<Variable> getUsedVariables() {
@@ -428,7 +424,7 @@ public class SqlCacheContext {
         }
     }
 
-    /** Preserve table-wide validation for metadata aggregates and incremental reads. */
+    /** Preserve table-wide validation for metadata aggregates. */
     public synchronized void useOlapTableVersion(OlapTable table) {
         for (TableVersion version : usedTables.values()) {
             if (version.id == table.getId() && version.olapVersion != null) {

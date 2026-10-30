@@ -747,11 +747,7 @@ public class NereidsPlanner extends Planner {
                     if (scan instanceof OlapScanNode) {
                         OlapScanNode olapScan = (OlapScanNode) scan;
                         if (!(olapScan.getOlapTable() instanceof OlapTableWrapper)) {
-                            if (olapScan.getScanParams() != null && olapScan.getScanParams().incrementalRead()) {
-                                cache.useOlapTableVersion(olapScan.getOlapTable());
-                            } else {
-                                cache.addOlapScan(olapScan.getOlapTable(), olapScan.getSqlCachePartitionVersions());
-                            }
+                            cache.addOlapScan(olapScan.getOlapTable(), olapScan.getSqlCachePartitionVersions());
                         }
                     }
                 }
