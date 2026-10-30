@@ -53,6 +53,93 @@ services:
       timeout: 120s
       retries: 120
 
+  # Opt in with ENABLE_DELTALAKE_TEST=1 in the runner, or --profile deltalake in Compose.
+  # DeltaCatalog must own spark_catalog, so Delta has its own Spark session/configuration.
+  spark-deltalake:
+    profiles: [deltalake]
+    image: apache/spark:4.0.0
+    container_name: doris--spark-deltalake
+    user: root
+    depends_on:
+      delta-hms:
+        condition: service_healthy
+      delta-storage-init:
+        condition: service_completed_successfully
+    ports:
+      - ${DELTALAKE_SPARK_PORT:-11002}:10000
+    volumes:
+      - ./scripts:/mnt/scripts:ro
+      - ./cache/deltalake/jars:/delta-jars:ro
+      - ./cache/deltalake/spark:/delta-state
+    entrypoint: [/bin/bash, /mnt/scripts/deltalake/entrypoint.sh]
+    networks:
+      - doris--iceberg
+    healthcheck:
+      test: [CMD, test, -f, /delta-state/SUCCESS]
+      interval: 5s
+      timeout: 5s
+      retries: 120
+
+  delta-postgres:
+    profiles: [deltalake]
+    image: postgres:14
+    container_name: doris--delta-postgres
+    environment:
+      POSTGRES_DB: metastore
+      POSTGRES_USER: hive
+      POSTGRES_PASSWORD: hive
+      # Hive 3's bundled JDBC driver predates PostgreSQL's SCRAM support. Test network only.
+      POSTGRES_HOST_AUTH_METHOD: trust
+    volumes:
+      - ./cache/deltalake/postgres:/var/lib/postgresql/data
+    networks:
+      - doris--iceberg
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U hive -d metastore"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+
+  delta-hms:
+    profiles: [deltalake]
+    image: doristhirdpartydocker/hive:3.1.2-postgresql-metastore
+    platform: linux/amd64
+    container_name: doris--delta-hms
+    depends_on:
+      delta-postgres:
+        condition: service_healthy
+    environment:
+      CORE_CONF_fs_defaultFS: file:///
+      HADOOP_CLASSPATH: /opt/hadoop-3.2.1/share/hadoop/tools/lib/*
+    ports:
+      - ${DELTALAKE_HMS_PORT:-9383}:9083
+    volumes:
+      - ./scripts/deltalake/hive-site.xml:/opt/hive/conf/hive-site.xml:ro
+      - ./scripts/deltalake/start-hms.sh:/fixtures/start-hms.sh:ro
+      - ./cache/deltalake/hms:/state
+    entrypoint: [/bin/bash, /fixtures/start-hms.sh]
+    networks:
+      - doris--iceberg
+    healthcheck:
+      test: [CMD, bash, -c, "exec 3<>/dev/tcp/127.0.0.1/9083"]
+      interval: 5s
+      timeout: 5s
+      retries: 120
+
+  delta-storage-init:
+    profiles: [deltalake]
+    image: doristhirdpartydocker/mc:RELEASE.2025-01-17T23-25-50Z
+    container_name: doris--delta-storage-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    volumes:
+      - ./cache/deltalake/golden:/golden:ro
+      - ./scripts/deltalake/init-storage.sh:/fixtures/init-storage.sh:ro
+    entrypoint: [/bin/sh, /fixtures/init-storage.sh]
+    networks:
+      - doris--iceberg
+
   postgres:
     image: ${ICEBERG_POSTGRES_IMAGE:-postgis/postgis:14-3.3}
     container_name: doris--iceberg-postgres
@@ -169,7 +256,7 @@ services:
       - MINIO_ROOT_PASSWORD=password
       - MINIO_DOMAIN=minio
     volumes:
-      - ./data/input/minio_data:/data
+      - ${ICEBERG_MINIO_DATA_DIR:-./data/input/minio_data}:/data
       - ./scripts/preinstalled_data/:/mnt/preinstalled_data
     networks:
       doris--iceberg:
