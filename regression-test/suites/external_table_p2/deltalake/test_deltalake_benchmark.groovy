@@ -16,6 +16,7 @@
 // under the License.
 
 import groovy.json.JsonOutput
+import org.apache.doris.regression.util.ResultUtils
 import java.sql.SQLException
 
 // The reference is computed from Hive on the same physical Parquet files, not a constant result.
@@ -59,7 +60,15 @@ suite("test_deltalake_benchmark", "p2,external") {
                 continue
             }
             executedQueries++
+            // Match the existing Hive TPC-H regression's Q7 control on both readers.
+            // Its default Hive estimate joins supplier/customer before orders and exceeds memory.
+            boolean fixedJoinOrder = workload == "tpch" && file.name == "q7.sql"
+            sql "set disable_join_reorder=${fixedJoinOrder}"
             String query = file.getText("UTF-8")
+            if (workload == "tpcds" && file.name == "query30.sql") {
+                // TPC-DS 3.2's generator DDL omits the old query template's _sk suffix.
+                query = query.replace("c_last_review_date_sk", "c_last_review_date")
+            }
             if (workload == "tpch" && file.name == "q15.sql") {
                 // The existing tool query refers to a view; make it a CTE for read-only catalogs.
                 query = """with revenue0 as (
@@ -82,7 +91,9 @@ suite("test_deltalake_benchmark", "p2,external") {
                 if (reference == null) {
                     reference = normalized
                 } else {
-                    assertEquals(reference, normalized, "${workload}/${file.name}: ${reader}")
+                    // The shared typed comparator keeps exact decimals/integers and tolerates
+                    // floating aggregate round-off (for example, TPC-DS Q39 stddev_samp).
+                    ResultUtils.assertSparkDorisResultEquals(reference, normalized)
                 }
                 return milliseconds
             }
@@ -113,6 +124,7 @@ suite("test_deltalake_benchmark", "p2,external") {
             logger.info("DELTA_BENCHMARK " + JsonOutput.toJson([
                     workload: workload, query: file.name, rows: reference?.size(),
                     status: failures.isEmpty() ? "complete" : "failed",
+                    fixed_join_order: fixedJoinOrder,
                     first_ms: first, samples_ms: samples]))
         }
     }

@@ -62,8 +62,14 @@ The opt-in `test_deltalake_benchmark` suite compares native Delta and ordinary
 Hive Parquet reads of **the same immutable Parquet objects**. It runs the existing
 22 TPC-H SQL files and 103 TPC-DS SQL files (including the split query variants)
 from `tools/`. TPC-H query 15 uses an equivalent CTE in place of `revenue0`, since
-the external catalogs are read-only. TPC-DS uses the repository's `sf100` query
-parameters on SF1 data. This is reader acceptance, not a certified TPC result or
+the external catalogs are read-only. TPC-H Q7 fixes join order for both readers,
+as the existing Hive TPC-H regression does: its default Hive plan otherwise
+builds a supplier/customer intermediate that exceeds memory. JSON records mark
+this control as `fixed_join_order=true`; report it separately from default-plan
+measurements. TPC-DS uses the repository's `sf100` query
+parameters on SF1 data; Q30 projects the 3.2 generator's `c_last_review_date`
+string in place of the older query's `c_last_review_date_sk` column on both
+readers. This is reader acceptance, not a certified TPC result or
 a production throughput benchmark.
 
 Generate SF1 data with the existing `tools/tpch-tools/bin/build-tpch-dbgen.sh`
@@ -123,7 +129,9 @@ the existing MinIO/HMS/warehouse settings, then run:
 
 The suite computes the reference result through Hive and compares every Delta
 and Hive execution against it. These are dynamic cross-reader comparisons,
-not handwritten expected results. It disables SQL/file caches, uses FileScannerV2
+not handwritten expected results. It uses the shared typed result comparator:
+integer/decimal values remain exact, while floating aggregates use the framework's
+relative tolerance (`1e-8` with a magnitude floor of one). It disables SQL/file caches, uses FileScannerV2
 and four pipeline tasks for both readers, records a first execution of each, then
 three alternating measured repetitions. Each `DELTA_BENCHMARK` log record contains
 the workload/query, result row count, first execution times and all six measured
@@ -141,8 +149,9 @@ regular expression matching `tpch/q7.sql` or `tpcds/query1.sql`, for example
 
 Delta M1 does not supply CBO statistics. Doris can disable join reordering when
 row counts are unknown, which can yield expensive intermediate results for
-multi-table queries. The default suite preserves those plans and reports failures;
-do not present a hinted or rewritten diagnostic query as default-plan performance.
+multi-table queries. Apart from the documented Q7 control, the suite preserves
+those plans and reports failures. Do not present a controlled or rewritten query
+as default-plan performance.
 
 Catalogs, HMS tables, Parquet files and Delta logs remain available after testing.
 For repeat runs, invoke the regression directly; no data regeneration is needed.
