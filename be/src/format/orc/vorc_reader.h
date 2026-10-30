@@ -54,6 +54,7 @@
 #include "orc/sargs/Literal.hh"
 #include "roaring/roaring64map.hh"
 #include "runtime/runtime_profile.h"
+#include "storage/segment/column_reader.h"
 
 namespace doris {
 class RuntimeState;
