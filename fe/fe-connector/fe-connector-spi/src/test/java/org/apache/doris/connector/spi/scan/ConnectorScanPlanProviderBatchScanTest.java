@@ -112,6 +112,12 @@ public class ConnectorScanPlanProviderBatchScanTest {
     }
 
     @Test
+    public void testPartitionBatchSizeDefaultsToLegacyReadSessionSize() {
+        ConnectorScanPlanProvider provider = new RecordingProvider();
+        Assertions.assertEquals(1024, provider.partitionBatchSize(null, 1000, 64));
+    }
+
+    @Test
     public void testStreamingSplitEstimateDefaultsNegative() {
         // FIX-M3: default MUST be < 0 so no connector silently enters file-count streaming without opting in
         // (the engine treats < 0 as "stay on the synchronous planScan path").

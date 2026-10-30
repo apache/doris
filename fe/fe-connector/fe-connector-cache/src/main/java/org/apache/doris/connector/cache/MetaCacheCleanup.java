@@ -19,10 +19,15 @@ package org.apache.doris.connector.cache;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.Objects;
+import java.util.function.BiConsumer;
 
 /** Defers physical removal and resource release until an enclosing guarded cache mutation has finished. */
 public final class MetaCacheCleanup {
     private static final ThreadLocal<Deque<Runnable>> PENDING = new ThreadLocal<>();
+    private static final ThreadLocal<BiConsumer<String, Runnable>> LOCAL_RESOURCE_RECLAIMER = new ThreadLocal<>();
+    // Standalone connector users retain synchronous cleanup unless their host installs a reclaimer.
+    private static volatile BiConsumer<String, Runnable> resourceReclaimer = (description, cleanup) -> cleanup.run();
 
     private MetaCacheCleanup() {
     }
@@ -65,6 +70,35 @@ public final class MetaCacheCleanup {
         }
         if (failure != null) {
             throw (Error) failure;
+        }
+    }
+
+    /** Installs the host's non-blocking, ownership-retaining resource reclaimer at FE startup. */
+    public static void configureResourceReclaimer(BiConsumer<String, Runnable> reclaimer) {
+        resourceReclaimer = Objects.requireNonNull(reclaimer, "reclaimer");
+    }
+
+    /**
+     * Releases only a captured resource whose last user has finished. Logical invalidation and callbacks that
+     * modify shared metadata must still run synchronously through execute/runDeferred.
+     */
+    public static void reclaimResource(String description, Runnable cleanup) {
+        BiConsumer<String, Runnable> local = LOCAL_RESOURCE_RECLAIMER.get();
+        (local == null ? resourceReclaimer : local).accept(description, Objects.requireNonNull(cleanup, "cleanup"));
+    }
+
+    /** Groups dependent resources during retirement, without deferring any logical invalidation callback. */
+    public static void runWithResourceReclaimer(BiConsumer<String, Runnable> reclaimer, Runnable action) {
+        BiConsumer<String, Runnable> previous = LOCAL_RESOURCE_RECLAIMER.get();
+        LOCAL_RESOURCE_RECLAIMER.set(Objects.requireNonNull(reclaimer, "reclaimer"));
+        try {
+            action.run();
+        } finally {
+            if (previous == null) {
+                LOCAL_RESOURCE_RECLAIMER.remove();
+            } else {
+                LOCAL_RESOURCE_RECLAIMER.set(previous);
+            }
         }
     }
 

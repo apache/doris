@@ -57,6 +57,7 @@
 #include "io/cache/remote_scan_cache_write_limiter.h"
 #include "runtime/runtime_profile.h"
 #include "util/concurrency_stats.h"
+#include "util/defer_op.h"
 #include "util/mem_info.h"
 #include "util/stack_util.h"
 #include "util/stopwatch.hpp"
@@ -804,6 +805,14 @@ Status BlockFileCache::get_downloaded_blocks_if_fully_covered(const UInt128Wrapp
         return Status::OK();
     }
 
+    // Async touch defers LRU moves; queue them after the cache lock is released, as get_or_set()
+    // does. Declared before the lock so it runs after the lock guard is destroyed.
+    std::vector<FileBlockSPtr> need_update_lru_blocks;
+    Defer queue_lru_updates {[&]() {
+        for (auto& block : need_update_lru_blocks) {
+            add_need_update_lru_block(std::move(block));
+        }
+    }};
     FileBlock::Range range(offset, offset + size - 1);
     std::lock_guard cache_lock(_mutex);
     auto it = _files.find(hash);
@@ -869,11 +878,89 @@ Status BlockFileCache::get_downloaded_blocks_if_fully_covered(const UInt128Wrapp
     if (!*fully_covered) {
         return Status::OK();
     }
+    const bool async_touch = config::enable_file_cache_async_touch_on_get_or_set;
     for (const auto* cell : covered_cells) {
-        use_cell(*cell, blocks, need_to_move(cell->file_block->cache_type(), context.cache_type),
-                 cache_lock);
+        const bool move_iter = need_to_move(cell->file_block->cache_type(), context.cache_type);
+        use_cell(*cell, blocks, move_iter, cache_lock);
+        if (async_touch && move_iter) {
+            need_update_lru_blocks.push_back(cell->file_block);
+        }
     }
     return Status::OK();
+}
+
+std::vector<FileBlock::Range> BlockFileCache::downloaded_ranges(const UInt128Wrapper& hash,
+                                                                size_t offset, size_t size) {
+    DORIS_CHECK(size > 0);
+    const size_t end = offset + size;
+    DORIS_CHECK(end > offset);
+    std::vector<FileBlock::Range> ranges;
+    std::lock_guard lock(_mutex);
+    const auto file = _files.find(hash);
+    if (file == _files.end()) {
+        return ranges;
+    }
+    const auto& blocks = file->second;
+    auto iterator = blocks.lower_bound(offset);
+    if (iterator != blocks.begin()) {
+        --iterator;
+    }
+    for (; iterator != blocks.end(); ++iterator) {
+        const auto& block = iterator->second.file_block;
+        const auto& range = block->range();
+        if (range.left >= end) {
+            break;
+        }
+        if (range.right >= offset && block->state() == FileBlock::State::DOWNLOADED) {
+            ranges.emplace_back(std::max(offset, range.left), std::min(end - 1, range.right));
+        }
+    }
+    return ranges;
+}
+
+bool BlockFileCache::is_range_downloaded_or_downloading(const UInt128Wrapper& hash, size_t offset,
+                                                        size_t size, const CacheContext& context) {
+    DORIS_CHECK(size > 0);
+    const size_t end = offset + size;
+    DORIS_CHECK(end > offset);
+    SCOPED_CACHE_LOCK(_mutex, this);
+    auto file = _files.find(hash);
+    if (file == _files.end() && !_async_open_done) {
+        _storage->load_file_blocks_directly_unlocked(this, hash, context.tablet_id, cache_lock);
+        file = _files.find(hash);
+    }
+    if (file == _files.end()) {
+        return false;
+    }
+
+    const auto& blocks = file->second;
+    DORIS_CHECK(!blocks.empty());
+    auto iterator = blocks.lower_bound(offset);
+    if (iterator != blocks.begin()) {
+        --iterator;
+    }
+    // Old upload boundaries can leave [0, 512 KiB) and [512 KiB, 1.5 MiB). Walk their
+    // actual intervals rather than assuming one cached cell per aligned writeback block.
+    size_t covered = offset;
+    for (; iterator != blocks.end(); ++iterator) {
+        const auto& block = iterator->second.file_block;
+        const auto& range = block->range();
+        if (range.right < covered) {
+            continue;
+        }
+        if (range.left > covered) {
+            return false;
+        }
+        const auto state = block->state();
+        if (state != FileBlock::State::DOWNLOADED && state != FileBlock::State::DOWNLOADING) {
+            return false;
+        }
+        if (range.right >= end - 1) {
+            return true;
+        }
+        covered = range.right + 1;
+    }
+    return false;
 }
 
 FileBlocksProbeResult BlockFileCache::probe(const UInt128Wrapper& hash, size_t offset, size_t size,

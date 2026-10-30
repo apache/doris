@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.hms;
 
+import org.apache.doris.connector.spi.scan.ConnectorScanContext;
+
 import java.io.Closeable;
 import java.util.Collections;
 import java.util.List;
@@ -133,6 +135,14 @@ public interface HmsClient extends Closeable {
     List<String> listPartitionNames(String dbName, String tableName,
             int maxParts);
 
+    default List<String> listPartitionNames(String dbName, String tableName, int maxParts,
+            ConnectorScanContext scanContext) {
+        scanContext.checkCancelled();
+        List<String> names = listPartitionNames(dbName, tableName, maxParts);
+        scanContext.checkCancelled();
+        return names;
+    }
+
     /**
      * Lists partition names bypassing any decorator cache (a FRESH metastore listing). SHOW PARTITIONS and the
      * {@code partitions} metadata TVF need a fresh view (legacy read the raw pooled client, never the metadata
@@ -203,6 +213,19 @@ public interface HmsClient extends Closeable {
                 .logicalElapsedNanos(System.nanoTime() - startNanos)
                 .build();
         return new HmsPartitionBatchResult(partitions, stats);
+    }
+
+    /**
+     * Request-owned scan lookup. Implementations that split a lookup into physical requests check the context
+     * before each request. Caching decorators may share completed values, but must isolate cancellable loads
+     * from callers with a different context.
+     */
+    default HmsPartitionBatchResult getExistingPartitionsWithStats(String dbName, String tableName,
+            List<String> partNames, ConnectorScanContext scanContext) {
+        scanContext.checkCancelled();
+        HmsPartitionBatchResult result = getExistingPartitionsWithStats(dbName, tableName, partNames);
+        scanContext.checkCancelled();
+        return result;
     }
 
     /**

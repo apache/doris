@@ -177,6 +177,79 @@ TEST(FunctionMapTest, deduplicate_map) {
     }
 }
 
+TEST(FunctionMapTest, map_single_pair_preserves_nulls) {
+    auto nullable_int = make_nullable(std::make_shared<DataTypeInt32>());
+    auto map_type = std::make_shared<DataTypeMap>(nullable_int, nullable_int);
+    Block block;
+    block.insert({make_nullable_int_column({1, std::nullopt, 3}), nullable_int, "key"});
+    block.insert({make_nullable_int_column({10, 20, std::nullopt}), nullable_int, "value"});
+    block.insert({nullptr, map_type, "result"});
+
+    auto status = execute_map_function("map", block, {0, 1}, 2, map_type);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto& result = assert_cast<const ColumnMap&>(*block.get_by_position(2).column);
+    ASSERT_EQ(result.size(), 3);
+    for (size_t row = 0; row < 3; ++row) {
+        EXPECT_EQ(result.get_offsets()[row], row + 1);
+    }
+    const auto& keys = assert_cast<const ColumnNullable&>(result.get_keys());
+    const auto& values = assert_cast<const ColumnNullable&>(result.get_values());
+    EXPECT_TRUE(keys.is_null_at(1));
+    EXPECT_TRUE(values.is_null_at(2));
+    EXPECT_EQ(get_nullable_int(keys, 0), 1);
+    EXPECT_EQ(get_nullable_int(keys, 2), 3);
+    EXPECT_EQ(get_nullable_int(values, 0), 10);
+    EXPECT_EQ(get_nullable_int(values, 1), 20);
+}
+
+TEST(FunctionMapTest, map_single_pair_with_constant_key) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto nullable_int = make_nullable(int_type);
+    auto map_type = std::make_shared<DataTypeMap>(nullable_int, nullable_int);
+    auto key = ColumnInt32::create();
+    key->insert_value(7);
+    auto values = ColumnInt32::create();
+    values->insert_value(10);
+    values->insert_value(20);
+    values->insert_value(30);
+    Block block;
+    block.insert({ColumnConst::create(std::move(key), 3), int_type, "key"});
+    block.insert({std::move(values), int_type, "value"});
+    block.insert({nullptr, map_type, "result"});
+
+    auto status = execute_map_function("map", block, {0, 1}, 2, map_type);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto& result = assert_cast<const ColumnMap&>(*block.get_by_position(2).column);
+    ASSERT_EQ(result.size(), 3);
+    for (size_t row = 0; row < 3; ++row) {
+        EXPECT_EQ(result.get_offsets()[row], row + 1);
+        EXPECT_EQ(get_nullable_int(result.get_keys(), row), 7);
+        EXPECT_EQ(get_nullable_int(result.get_values(), row), (row + 1) * 10);
+    }
+}
+
+TEST(FunctionMapTest, map_multiple_pairs_still_deduplicate) {
+    auto nullable_int = make_nullable(std::make_shared<DataTypeInt32>());
+    auto map_type = std::make_shared<DataTypeMap>(nullable_int, nullable_int);
+    Block block;
+    block.insert({make_nullable_int_column({1, std::nullopt}), nullable_int, "key1"});
+    block.insert({make_nullable_int_column({10, 20}), nullable_int, "value1"});
+    block.insert({make_nullable_int_column({1, std::nullopt}), nullable_int, "key2"});
+    block.insert({make_nullable_int_column({30, 40}), nullable_int, "value2"});
+    block.insert({nullptr, map_type, "result"});
+
+    auto status = execute_map_function("map", block, {0, 1, 2, 3}, 4, map_type);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto& result = assert_cast<const ColumnMap&>(*block.get_by_position(4).column);
+    ASSERT_EQ(result.size(), 2);
+    EXPECT_EQ(result.get_offsets()[0], 1);
+    EXPECT_EQ(result.get_offsets()[1], 2);
+    EXPECT_EQ(get_nullable_int(result.get_keys(), 0), 1);
+    EXPECT_TRUE(assert_cast<const ColumnNullable&>(result.get_keys()).is_null_at(1));
+    EXPECT_EQ(get_nullable_int(result.get_values(), 0), 30);
+    EXPECT_EQ(get_nullable_int(result.get_values(), 1), 40);
+}
+
 TEST(FunctionMapTest, map_from_arrays) {
     auto nullable_int = make_nullable(std::make_shared<DataTypeInt32>());
     auto array_type = std::make_shared<DataTypeArray>(nullable_int);

@@ -65,8 +65,11 @@ class VExprContext;
 namespace segment_v2 {
 
 class ColumnIterator;
+struct ColumnReadAheadContext;
+struct ColumnReadAheadPlan;
 class RowRanges;
 class IndexIterator;
+class SegmentReadAhead;
 
 class SegmentIterator : public RowwiseIterator {
 public:
@@ -119,8 +122,17 @@ private:
 
     [[nodiscard]] Status _lazy_init(Block* block);
     [[nodiscard]] Status _init_impl(const StorageReadOptions& opts);
+    // Create the scalar read-ahead context before column iterators capture their FileReader.
+    [[nodiscard]] Status _init_query_read_ahead();
+    // Complex columns retain their original reader and segment prefetcher.
+    bool _use_read_ahead_for_column(ColumnId cid) const;
     [[nodiscard]] Status _init_column_iterators(bool defer_variant_columns);
     [[nodiscard]] Status _init_index_iterators();
+    // Initialize eager and lazy page sequences after pruning and submit their first windows
+    // together. Subsequent data-page reads advance each physical column's window.
+    void _prepare_scan_read_ahead();
+    // Classify physical iterators by filtering dependency and plan their initial windows.
+    std::vector<ColumnReadAheadPlan> _plan_scan_read_ahead();
 
     // calculate row ranges that fall into requested key ranges using short key index
     [[nodiscard]] Status _get_row_ranges_by_keys();
@@ -368,6 +380,8 @@ private:
     std::vector<std::unique_ptr<IndexIterator>> _index_iterators;
     // after init(), `_row_bitmap` contains all rowid to scan
     roaring::Roaring _row_bitmap;
+    // Cardinality cached after all row bitmap filters are applied in _lazy_init().
+    uint64_t _row_bitmap_cardinality = 0;
     // an iterator for `_row_bitmap` that can be used to extract row range to scan
     std::unique_ptr<BitmapRangeIterator> _range_iter;
     // the next rowid to read
@@ -437,6 +451,8 @@ private:
     std::vector<std::unique_ptr<ColumnIterator>> _owned_seek_column_iterators;
 
     io::FileReaderSPtr _file_reader;
+    std::unique_ptr<SegmentReadAhead> _segment_read_ahead;
+    std::unique_ptr<ColumnReadAheadContext> _column_read_ahead_context;
 
     // Number of selected rows in the current batch.
     uint16_t _selected_size;

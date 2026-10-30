@@ -86,11 +86,9 @@ PushDownType FileScanLocalState::_should_push_down_binary_predicate(
     DCHECK(children.size() == 2);
     DCHECK_EQ(children[0]->node_type(), TExprNodeType::SLOT_REF);
     if (children[1]->is_constant()) {
-        std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
+        std::shared_ptr<ConstantExprResult> const_col_wrapper;
         THROW_IF_ERROR(children[1]->get_const_col(expr_ctx, &const_col_wrapper));
-        const auto* const_column =
-                assert_cast<const ColumnConst*>(const_col_wrapper->column_ptr.get());
-        constant_val = const_column->operator[](0);
+        constant_val = const_col_wrapper->column()[0];
         return PushDownType::PARTIAL_ACCEPTABLE;
     } else {
         // only handle constant value

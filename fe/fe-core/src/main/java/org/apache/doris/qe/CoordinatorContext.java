@@ -220,6 +220,10 @@ public class CoordinatorContext {
         return jobProcessor instanceof QueryProcessor && coordinator.isEos();
     }
 
+    public void stopSplitGeneration() {
+        coordinator.stopSplitGeneration();
+    }
+
     public void cancelSchedule(Status cancelReason) {
         coordinator.cancelInternal(cancelReason);
     }

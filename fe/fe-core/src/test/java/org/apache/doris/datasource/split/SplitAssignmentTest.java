@@ -31,12 +31,10 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -87,6 +85,69 @@ public class SplitAssignmentTest {
     }
 
     @Test
+    void lateFirstSplitDoesNotHideTheTimeout() throws Exception {
+        Multimap<Backend, Split> batch = ArrayListMultimap.create();
+        batch.put(mockBackend, mockSplit);
+        Mockito.when(mockBackendPolicy.computeScanRangeAssignment(Mockito.any())).thenReturn(batch);
+        Mockito.when(mockSplitToScanRange.getScanRange(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
+                Mockito.anyBoolean())).thenReturn(mockScanRangeLocations);
+        Mockito.doAnswer(call -> {
+            splitAssignment.startEnumeration();
+            Thread.sleep(40);
+            splitAssignment.addToQueue(Collections.singletonList(mockSplit));
+            splitAssignment.finishSchedule();
+            return null;
+        }).when(mockSplitGenerator).startSplit(Mockito.anyInt());
+        Assertions.assertTrue(Assertions.assertThrows(UserException.class, () -> splitAssignment.init(10))
+                .getMessage().contains("first split after 10 ms"));
+        Assertions.assertTrue(splitAssignment.isStop());
+    }
+
+    @Test
+    void firstSplitTimeoutReportsProgressAndStopsEnumeration() {
+        splitAssignment.getScanContext().setTotalPartitions(10000);
+        splitAssignment.getScanContext().partitionProcessed();
+        splitAssignment.getScanContext().filesEnumerated(100);
+        long start = System.nanoTime();
+        UserException failure = Assertions.assertThrows(UserException.class, () -> splitAssignment.init(50));
+        long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+        Assertions.assertTrue(elapsedMillis >= 40, "elapsed: " + elapsedMillis);
+        Assertions.assertTrue(failure.getMessage().contains("50 ms"));
+        Assertions.assertTrue(failure.getMessage().contains("partitions_processed=1/10000"), failure.getMessage());
+        Assertions.assertTrue(failure.getMessage().contains("files_enumerated=100"), failure.getMessage());
+        Assertions.assertTrue(failure.getMessage().contains("splits_generated=0"), failure.getMessage());
+        Assertions.assertTrue(failure.getMessage().contains("active_producers=0"));
+        Assertions.assertTrue(splitAssignment.isStop());
+        Assertions.assertTrue(splitAssignment.getScanContext().isCancelled());
+        Assertions.assertTrue(splitAssignment.getTerminationFuture().isDone());
+    }
+
+    @Test
+    void stopClearsQueuesAndRejectsLatePublication() throws Exception {
+        SplitAssignment.AssignmentQueue queue = splitAssignment.getAssignedSplits(mockBackend);
+        queue.offer(Collections.singletonList(mockScanRangeLocations), 0);
+        splitAssignment.stop();
+        Assertions.assertTrue(queue.isEmpty());
+        Assertions.assertNull(splitAssignment.getAssignedSplits(mockBackend));
+        Assertions.assertEquals(0, splitAssignment.offerBatch(mockBackend,
+                Collections.singletonList(mockScanRangeLocations), 0, () -> Assertions.fail("stale waiter")));
+        SplitSource lateSource = new SplitSource(mockBackend, splitAssignment, 1000);
+        SplitSourceManager manager = Mockito.mock(SplitSourceManager.class);
+        splitAssignment.publishSource(lateSource, manager);
+        Mockito.verifyNoInteractions(manager);
+        Assertions.assertTrue(lateSource.getNextBatch(1).isEmpty());
+    }
+
+    @Test
+    void successfulStopWinsAConcurrentInitializationFailure() throws Exception {
+        Mockito.doAnswer(call -> {
+            splitAssignment.stop();
+            throw new IllegalStateException("late initialization failure");
+        }).when(mockSplitGenerator).startSplit(Mockito.anyInt());
+        Assertions.assertDoesNotThrow(() -> splitAssignment.init(50));
+    }
+
+    @Test
     void firstConvertedSplitDoesNotWaitForAnotherBackendAssignment() throws Exception {
         CountDownLatch assignmentEntered = new CountDownLatch(1);
         CountDownLatch releaseAssignment = new CountDownLatch(1);
@@ -105,7 +166,7 @@ public class SplitAssignmentTest {
         ExecutorService workers = Executors.newFixedThreadPool(3);
         try {
             Future<?> init = workers.submit(() -> {
-                splitAssignment.init();
+                splitAssignment.init(1000);
                 return null;
             });
             Assertions.assertTrue(initStarted.await(5, TimeUnit.SECONDS));
@@ -161,10 +222,12 @@ public class SplitAssignmentTest {
 
     @Test
     void closingActiveProducerDoesNotTurnSuccessfulStopIntoFailure() throws Exception {
+        SplitSource source = new SplitSource(mockBackend, splitAssignment, 1000);
         splitAssignment.addCloseable(() -> splitAssignment.setException(new UserException("source closed")));
         Assertions.assertDoesNotThrow(() -> splitAssignment.stop());
         splitAssignment.setException(new UserException("producer interrupted after stop"));
         Assertions.assertNull(splitAssignment.getAssignedSplits(mockBackend));
+        Assertions.assertTrue(source.getNextBatch(1).isEmpty());
     }
 
     @Test
@@ -172,15 +235,15 @@ public class SplitAssignmentTest {
         UserException failure = new UserException("manifest read failed");
         splitAssignment.setException(failure);
         splitAssignment.addCloseable(() -> splitAssignment.setException(new UserException("source closed")));
-        RuntimeException actual = Assertions.assertThrows(RuntimeException.class, () -> splitAssignment.stop());
-        Assertions.assertSame(failure, actual.getCause());
-        Assertions.assertEquals(0, failure.getSuppressed().length);
+        Assertions.assertDoesNotThrow(() -> splitAssignment.stop());
+        Assertions.assertSame(failure, Assertions.assertThrows(UserException.class,
+                () -> splitAssignment.getAssignedSplits(mockBackend)));
     }
 
     // ==================== init() method tests ====================
 
     @Test
-    void testInitSuccess() throws Exception {
+    void testInitAcceptsDelayedFirstSplitWithinCallerDeadline() throws Exception {
         Multimap<Backend, Split> batch = ArrayListMultimap.create();
         batch.put(mockBackend, mockSplit);
 
@@ -202,7 +265,7 @@ public class SplitAssignmentTest {
         splitGeneratorThread.start();
 
         // Test
-        Assertions.assertDoesNotThrow(() -> splitAssignment.init());
+        Assertions.assertDoesNotThrow(() -> splitAssignment.init(1000));
 
         // Verify sample split is set
         Assertions.assertNotNull(splitAssignment.getSampleSplit());
@@ -216,7 +279,7 @@ public class SplitAssignmentTest {
         try {
             Future<UserException> result = executor.submit(() -> {
                 Thread.currentThread().interrupt();
-                return Assertions.assertThrows(UserException.class, splitAssignment::init);
+                return Assertions.assertThrows(UserException.class, () -> splitAssignment.init(1000));
             });
             Assertions.assertInstanceOf(InterruptedException.class, result.get(5, TimeUnit.SECONDS).getCause());
             Mockito.verify(mockSplitGenerator).startSplit(mockBackendPolicy.numBackends());
@@ -227,12 +290,43 @@ public class SplitAssignmentTest {
     }
 
     @Test
+    void testInitUsesCallerDeadlineBeforeFirstSplit() throws Exception {
+        UserException error = Assertions.assertThrows(UserException.class, () -> splitAssignment.init(20));
+        Assertions.assertTrue(error.getMessage().contains("20 ms"), error.getMessage());
+        Mockito.verify(mockSplitGenerator).startSplit(mockBackendPolicy.numBackends());
+    }
+
+    @Test
+    void testStopWakesFirstSplitPlanningWait() throws Exception {
+        CountDownLatch producerStarted = new CountDownLatch(1);
+        Mockito.doAnswer(invocation -> {
+            producerStarted.countDown();
+            return null;
+        }).when(mockSplitGenerator).startSplit(Mockito.anyInt());
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> planning = worker.submit(() -> {
+                splitAssignment.init(10000);
+                return null;
+            });
+            Assertions.assertTrue(producerStarted.await(5, TimeUnit.SECONDS));
+            Assertions.assertThrows(TimeoutException.class, () -> planning.get(50, TimeUnit.MILLISECONDS));
+            splitAssignment.stop();
+            planning.get(1, TimeUnit.SECONDS);
+        } finally {
+            splitAssignment.stop();
+            worker.shutdownNow();
+            Assertions.assertTrue(worker.awaitTermination(5, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
     void testInitWithPreExistingException() throws Exception {
         UserException preException = new UserException("Pre-existing error");
         splitAssignment.setException(preException);
 
         // Test & Verify
-        UserException exception = Assertions.assertThrows(UserException.class, () -> splitAssignment.init());
+        UserException exception = Assertions.assertThrows(UserException.class, () -> splitAssignment.init(1000));
         Assertions.assertTrue(exception.getMessage().contains(" Pre-existing error"), exception.getMessage());
     }
 
@@ -263,15 +357,34 @@ public class SplitAssignmentTest {
         Assertions.assertEquals(mockSplit, splitAssignment.getSampleSplit());
 
         // Verify assignment queue is created and contains data
-        BlockingQueue<Collection<TScanRangeLocations>> queue = splitAssignment.getAssignedSplits(mockBackend);
+        SplitAssignment.AssignmentQueue queue = splitAssignment.getAssignedSplits(mockBackend);
         Assertions.assertNotNull(queue);
     }
 
     @Test
     void testConsumerCreatesBoundedQueueFirst() throws Exception {
-        BlockingQueue<Collection<TScanRangeLocations>> queue = splitAssignment.getAssignedSplits(mockBackend);
+        SplitAssignment.AssignmentQueue queue = splitAssignment.getAssignedSplits(mockBackend);
         Assertions.assertEquals(32, queue.remainingCapacity());
         Assertions.assertSame(queue, splitAssignment.getAssignedSplits(mockBackend));
+    }
+
+    @Test
+    void queueCapacityBelowBatchSizeReducesProducerBatchSize() throws Exception {
+        SplitAssignment smallQueueAssignment = new SplitAssignment(mockBackendPolicy, mockSplitGenerator,
+                mockSplitToScanRange, locationProperties, pathPartitionKeys, true, 32, 2);
+        Assertions.assertEquals(2, smallQueueAssignment.getSplitBatchSize());
+        Multimap<Backend, Split> batch = ArrayListMultimap.create();
+        batch.put(mockBackend, mockSplit);
+        batch.put(mockBackend, mockSplit);
+        Mockito.when(mockBackendPolicy.computeScanRangeAssignment(Mockito.any())).thenReturn(batch);
+        Mockito.when(mockSplitToScanRange.getScanRange(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
+                Mockito.anyBoolean())).thenReturn(mockScanRangeLocations);
+        smallQueueAssignment.addToQueue(List.of(mockSplit, mockSplit));
+        SplitAssignment.AssignmentQueue queue = smallQueueAssignment.getAssignedSplits(mockBackend);
+        Assertions.assertEquals(2, queue.size());
+        Assertions.assertEquals(0, queue.remainingCapacity());
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> queue.offer(List.of(mockScanRangeLocations), 1));
     }
 
     @Test
@@ -315,20 +428,20 @@ public class SplitAssignmentTest {
 
         splitAssignment.addToQueue(Collections.singletonList(mockSplit));
 
-        BlockingQueue<Collection<TScanRangeLocations>> queue = splitAssignment.getAssignedSplits(mockBackend);
+        SplitAssignment.AssignmentQueue queue = splitAssignment.getAssignedSplits(mockBackend);
         Assertions.assertEquals(1, queue.size());
         Assertions.assertEquals(31, queue.remainingCapacity());
-        Assertions.assertSame(mockScanRangeLocations, queue.element().iterator().next());
+        Assertions.assertSame(mockScanRangeLocations, queue.peek());
     }
 
     @Test
     void testConsumerCreatedQueueBlocksProducerUntilSpaceAvailable() throws Exception {
-        BlockingQueue<Collection<TScanRangeLocations>> queue = splitAssignment.getAssignedSplits(mockBackend);
-        Collection<TScanRangeLocations> queuedBatch = Collections.singletonList(mockScanRangeLocations);
+        SplitAssignment.AssignmentQueue queue = splitAssignment.getAssignedSplits(mockBackend);
+        List<TScanRangeLocations> queuedBatch = Collections.singletonList(mockScanRangeLocations);
         for (int i = 0; i < 32; i++) {
-            Assertions.assertTrue(queue.offer(queuedBatch));
+            Assertions.assertEquals(1, queue.offer(queuedBatch, 0));
         }
-        Assertions.assertFalse(queue.offer(queuedBatch));
+        Assertions.assertEquals(0, queue.offer(queuedBatch, 0));
 
         Multimap<Backend, Split> batch = ArrayListMultimap.create();
         batch.put(mockBackend, mockSplit);
@@ -350,7 +463,7 @@ public class SplitAssignmentTest {
             Assertions.assertThrows(TimeoutException.class, () -> producer.get(200, TimeUnit.MILLISECONDS));
             Assertions.assertEquals(32, queue.size());
 
-            Assertions.assertSame(queuedBatch, queue.poll());
+            Assertions.assertSame(mockScanRangeLocations, queue.poll());
             producer.get(5, TimeUnit.SECONDS);
             Assertions.assertEquals(32, queue.size());
         } finally {
@@ -446,13 +559,13 @@ public class SplitAssignmentTest {
         splitsProvider.start();
 
         // Test init - should succeed once splits are added
-        Assertions.assertDoesNotThrow(() -> splitAssignment.init());
+        Assertions.assertDoesNotThrow(() -> splitAssignment.init(1000));
 
         // Verify
         Assertions.assertNotNull(splitAssignment.getSampleSplit());
         Assertions.assertEquals(mockSplit, splitAssignment.getSampleSplit());
 
-        BlockingQueue<Collection<TScanRangeLocations>> queue = splitAssignment.getAssignedSplits(mockBackend);
+        SplitAssignment.AssignmentQueue queue = splitAssignment.getAssignedSplits(mockBackend);
         Assertions.assertNotNull(queue);
 
         splitsProvider.join(1000);
@@ -464,7 +577,8 @@ public class SplitAssignmentTest {
         splitAssignment.stop(); // This should make needMoreSplit() return false
 
         // Init should complete immediately without waiting
-        Assertions.assertDoesNotThrow(() -> splitAssignment.init());
+        Assertions.assertDoesNotThrow(() -> splitAssignment.init(1000));
+        Mockito.verify(mockSplitGenerator, Mockito.never()).startSplit(Mockito.anyInt());
     }
 
     @Test
@@ -473,6 +587,6 @@ public class SplitAssignmentTest {
         splitAssignment.finishSchedule();
 
         // Init should complete immediately without waiting
-        Assertions.assertDoesNotThrow(() -> splitAssignment.init());
+        Assertions.assertDoesNotThrow(() -> splitAssignment.init(1000));
     }
 }

@@ -123,6 +123,7 @@ protected:
 
     Status finish_merge_input_rowsets_execution(MergeInputRowsetsContext* context);
     void snapshot_changelog_ttl();
+    void snapshot_row_ttl();
     bool pick_expired_changelog_rowset(const std::vector<RowsetSharedPtr>& candidates);
     void filter_changelog_ttl_rowsets();
 
