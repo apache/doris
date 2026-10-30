@@ -29,6 +29,7 @@
 #include "exec/operator/groupjoin_operator_utils.h"
 #include "exec/runtime_filter/runtime_filter_producer_helper.h"
 #include "exprs/vexpr.h"
+#include "exprs/vslot_ref.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 
@@ -121,20 +122,91 @@ Status GroupJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_stat
 size_t GroupJoinBuildSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos,
                                                          const Block* block) {
     auto& local = get_local_state(state);
-    size_t reserve = block->allocated_bytes();
-    const auto incoming_bytes = block->bytes();
-    if (local._build_rows.bytes() + incoming_bytes >= local._build_rows.allocated_bytes()) {
-        reserve += local._build_rows.allocated_bytes();
+    // Follow HashJoinBuildSinkLocalState::get_reserve_mem_size() in hashjoin_build_sink.cpp:
+    // reserve for merge growth, hash-table arrays, key evaluation and method-specific buffers.
+    // Existing build columns are already tracked; to_block() moves them without copying.
+    size_t reserve = 0;
+    if (block->rows() > 0) {
+        reserve += block->allocated_bytes();
+        if (local._build_rows.bytes() + block->bytes() >= local._build_rows.allocated_bytes()) {
+            reserve += local._build_rows.allocated_bytes();
+        }
     }
-    if (eos) {
-        const auto rows = local._build_rows.rows() + block->rows() + 1;
-        // Match ordinary Hash Join's estimate; the final layout is selected after key evaluation.
-        const auto buckets = hash_join_table_calc_bucket_size(rows + 1);
-        reserve += (buckets + rows + 1) * sizeof(uint32_t);
-        // Key evaluation, fixed-key packing and serialization may coexist with raw build rows.
-        reserve += rows * (sizeof(UInt256) + sizeof(StringRef));
-        reserve += local._build_rows.allocated_bytes() + block->allocated_bytes();
+    if (!eos) {
+        return reserve;
     }
+
+    const auto build_rows = local._build_rows.rows();
+    const auto rows = build_rows + block->rows() + (build_rows == 0 ? 1 : 0);
+    if (rows == 1) {
+        return reserve; // Empty builds skip key evaluation and hash-table allocation.
+    }
+    if (rows > std::numeric_limits<uint32_t>::max()) {
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                        "GroupJoin build exceeds uint32 row indexes");
+    }
+
+    // HashJoin has already evaluated its keys when estimating memory. GroupJoin evaluates
+    // them at build EOS, so estimate expressions without executing them here. Direct mapping
+    // is also selected later; use the ordinary bucket count as an upper bound.
+    std::vector<DataTypePtr> key_types;
+    // Only the serialized method reads these columns; include both accumulated and input rows.
+    ColumnRawPtrs serialization_columns;
+    size_t expression_bytes = 0;
+    size_t extra_serialized_bytes = 0;
+    bool has_nullable_key = false;
+    for (const auto& expr : local._key_exprs) {
+        auto root = expr->root();
+        key_types.push_back(remove_nullable(root->data_type()));
+        has_nullable_key |= root->data_type()->is_nullable();
+        const auto evaluated_bytes = root->estimate_memory(rows);
+        expression_bytes += evaluated_bytes;
+        if (root->is_slot_ref()) {
+            const auto column_id = assert_cast<VSlotRef*>(root.get())->column_id();
+            if (build_rows > 0) {
+                serialization_columns.push_back(
+                        local._build_rows.get_column_by_position(column_id).get());
+            }
+            if (block->rows() > 0) {
+                const auto* column = block->get_by_position(column_id).column.get();
+                serialization_columns.push_back(column);
+                if (is_column_const(*column)) {
+                    // merge() materializes constants before key serialization.
+                    extra_serialized_bytes += column->byte_size() * (block->rows() - 1);
+                }
+            }
+        } else {
+            // Computed key columns do not exist yet. Use the expression's estimate
+            // for their serialized payload rather than evaluating them a second time.
+            extra_serialized_bytes += evaluated_bytes;
+        }
+    }
+    JoinDataVariants context;
+    THROW_IF_ERROR(init_hash_method<JoinDataVariants>(&context, key_types, true));
+    const auto buckets = hash_join_table_calc_bucket_size(rows + 1);
+    reserve += (buckets + rows + 1) * sizeof(uint32_t);
+    reserve += expression_bytes;
+    if (has_nullable_key) {
+        reserve += rows * sizeof(uint8_t); // Combined build-key NULL map.
+    }
+    std::visit(Overload {[](std::monostate&) { DORIS_CHECK(false); },
+                         [&](auto& method) {
+                             using Method = std::decay_t<decltype(method)>;
+                             if constexpr (requires { method.key_sizes; }) {
+                                 // MethodKeysFixed::estimated_size() assumes StringRef-sized
+                                 // keys. Account for the actual packed key width instead.
+                                 using Key = typename Method::Key;
+                                 reserve += rows * (sizeof(Key) + sizeof(uint32_t));
+                             } else {
+                                 reserve += method.estimated_size(serialization_columns,
+                                                                  static_cast<uint32_t>(rows), true,
+                                                                  true, buckets);
+                             }
+                             if constexpr (std::is_same_v<Method, SerializedHashTableContext>) {
+                                 reserve += extra_serialized_bytes;
+                             }
+                         }},
+               context.method_variant);
     return reserve;
 }
 
