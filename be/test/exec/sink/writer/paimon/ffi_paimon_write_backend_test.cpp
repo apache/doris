@@ -308,8 +308,13 @@ TEST_F(FfiPaimonWriteBackendTest, AdmissionSlotIsReturnedAfterClose) {
     Defer restore([&] { config::paimon_rust_writer_max_concurrency = previous; });
     config::paimon_rust_writer_max_concurrency = 1;
     ASSERT_TRUE(open().ok());
+    RuntimeProfile second_profile {"rejected-writer"};
     FfiPaimonWriteBackend second;
-    EXPECT_FALSE(second.open(_sink, _state.get(), &_profile).ok());
+    EXPECT_FALSE(second.open(_sink, _state.get(), &second_profile).ok());
+    auto* rejected_profile = second_profile.get_child("RustPaimonWriteBackend");
+    ASSERT_NE(rejected_profile, nullptr);
+    EXPECT_EQ(rejected_profile->get_counter("AdmissionRejections")->value(), 1);
+    ASSERT_TRUE(second.close().ok());
     _writer.reset();
     ASSERT_TRUE(_backend.close().ok());
     RuntimeProfile third_profile {"third-writer"};
@@ -328,8 +333,9 @@ TEST_F(FfiPaimonWriteBackendTest, FailedOpenReturnsBudgetAndAdmissionSlot) {
         const auto charge = tracker->limit();
         tracker->consume(charge);
         Defer release([&] { tracker->release(charge); });
+        RuntimeProfile rejected_profile {"rejected-query-budget"};
         FfiPaimonWriteBackend rejected;
-        auto status = rejected.open(_sink, _state.get(), &_profile);
+        auto status = rejected.open(_sink, _state.get(), &rejected_profile);
         EXPECT_TRUE(status.is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) << status;
         ASSERT_TRUE(rejected.close().ok());
     }
