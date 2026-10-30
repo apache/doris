@@ -211,6 +211,45 @@ public class ConstantPropagationFreshExprIdTest extends TestWithFeService {
     }
 
     @Test
+    void testSoleNullableGroupKeyKeepsTheAggregateUnchanged() {
+        // select k, count(*) from t where k = 5 group by k: the aggregate keeps its only group key, so it is
+        // returned unchanged and the fresh exprId recorded for the nullable key must not be published to the plan
+        // above, otherwise nothing defines that exprId any more
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze("select k, count(*) from constant_propagation_fresh_expr_id_t"
+                        + " where k = 5 group by k")
+                .applyCustom(new ConstantPropagation()).getPlan();
+        assertReferencedSlotsProducedByChildren(plan);
+        // the full rewrite has to stay plannable as well
+        PlanChecker.from(connectContext)
+                .analyze("select k, count(*) from constant_propagation_fresh_expr_id_t"
+                        + " where k = 5 group by k")
+                .rewrite();
+    }
+
+    /** Every slot a node references has to be an output slot of one of its children. */
+    private static void assertReferencedSlotsProducedByChildren(Plan plan) {
+        plan.foreach(node -> {
+            Plan planNode = (Plan) node;
+            Set<ExprId> childOutputIds = new java.util.HashSet<>();
+            planNode.children().forEach(child -> child.getOutput()
+                    .forEach(slot -> childOutputIds.add(slot.getExprId())));
+            for (org.apache.doris.nereids.trees.expressions.Expression expression : planNode.getExpressions()) {
+                java.util.Set<org.apache.doris.nereids.trees.expressions.Expression> slots
+                        = expression.collectToSet(e -> e instanceof Slot);
+                for (org.apache.doris.nereids.trees.expressions.Expression slot : slots) {
+                    ExprId exprId = ((Slot) slot).getExprId();
+                    Assertions.assertTrue(childOutputIds.contains(exprId)
+                                    || planNode.getOutput().stream()
+                                            .anyMatch(output -> output.getExprId().equals(exprId)),
+                            "slot " + exprId + " is referenced but not produced: " + planNode.treeString());
+                }
+            }
+            return false;
+        });
+    }
+
+    @Test
     void testRqgCasesDoNotConvertNullableSlots() {
         // the rewrite of the reported queries used to trip
         // "AdjustNullable convert slot ... from not-nullable to nullable" once the check is enabled: one exprId
