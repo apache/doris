@@ -102,6 +102,8 @@ void create_and_refresh_instance(
     InstanceInfoPB instance_info;
     instance_info.set_instance_id(instance_id);
     instance_info.set_multi_version_status(multi_version_status);
+    instance_info.add_clusters()->add_nodes()->set_cloud_unique_id(
+            fmt::format("1:{}:0", instance_id));
     auto* obj_info = instance_info.mutable_obj_info()->Add();
     obj_info->set_id(std::string(RESOURCE_ID));
     obj_info->set_ak("mock_ak");
@@ -550,6 +552,17 @@ void get_instance(MetaServiceProxy* meta_service, const std::string& cloud_uniqu
 }
 
 void drop_instance(MetaServiceProxy* meta_service, const std::string& instance_id) {
+    // An instance with clusters can not be dropped, remove them first.
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string val;
+    ASSERT_EQ(txn->get(instance_key(instance_id), &val), TxnErrorCode::TXN_OK);
+    InstanceInfoPB instance_info;
+    ASSERT_TRUE(instance_info.ParseFromString(val));
+    instance_info.clear_clusters();
+    txn->put(instance_key(instance_id), instance_info.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
     brpc::Controller cntl;
     AlterInstanceRequest req;
     AlterInstanceResponse res;

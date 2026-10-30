@@ -132,10 +132,31 @@ std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
                         << cloud_unique_id;
                 return "";
             }
+            if (code != TxnErrorCode::TXN_OK) {
+                // Reject rather than accept a cloud_unique_id whose node membership is unchecked.
+                LOG(WARNING) << "use degraded format cloud_unique_id, but failed to get instance, "
+                                "cloud_unique_id="
+                             << cloud_unique_id << " err=" << msg;
+                return "";
+            }
             if (instance.has_status() && instance.status() == InstanceInfoPB::DELETED) {
                 msg = "instance status has been set delete, plz check it, recycle_state=" +
                       InstanceRecycleState_Name(instance.recycle_state());
                 LOG(WARNING) << msg << ", cloud_unique_id=" << cloud_unique_id;
+                return "";
+            }
+            // Anyone knowing the instance_id can build a degraded format cloud_unique_id, so it
+            // is only trusted when it is a registered node of that instance.
+            bool registered = false;
+            for (const auto& cluster : instance.clusters()) {
+                for (const auto& node : cluster.nodes()) {
+                    registered |= node.cloud_unique_id() == cloud_unique_id;
+                }
+            }
+            if (!registered) {
+                LOG(WARNING) << "use degraded format cloud_unique_id, but node is not registered, "
+                                "cloud_unique_id="
+                             << cloud_unique_id << " instance_id=" << id;
                 return "";
             }
         }
@@ -168,6 +189,31 @@ std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
     }
 
     return instance_id;
+}
+
+bool MetaServiceProxy::check_request_instance_id(const ::google::protobuf::Message& req,
+                                                 MetaServiceResponseStatus* status) {
+    const auto* descriptor = req.GetDescriptor();
+    const auto* reflection = req.GetReflection();
+    // call_impl only checks requests with an instance_id field.
+    const auto* instance_id_field = descriptor->FindFieldByName("instance_id");
+    CHECK(instance_id_field != nullptr) << descriptor->name();
+    std::string instance_id = reflection->GetString(req, instance_id_field);
+    const auto* cloud_unique_id_field = descriptor->FindFieldByName("cloud_unique_id");
+    std::string cloud_unique_id = cloud_unique_id_field == nullptr
+                                          ? ""
+                                          : reflection->GetString(req, cloud_unique_id_field);
+    // Nothing to cross check without both fields. Requests naming an instance by instance_id only
+    // are still accepted for compatibility, e.g. FE alter_cluster and create_instance.
+    if (instance_id.empty() || cloud_unique_id.empty() ||
+        get_instance_id(resource_mgr(), cloud_unique_id) == instance_id) {
+        return true;
+    }
+    status->set_code(MetaServiceCode::INVALID_ARGUMENT);
+    status->set_msg("instance_id does not belong to cloud_unique_id");
+    LOG(WARNING) << status->msg() << ", request=" << descriptor->name()
+                 << " instance_id=" << instance_id << " cloud_unique_id=" << cloud_unique_id;
+    return false;
 }
 
 // Return `true` if tablet has been dropped; otherwise or it may not determine when meeting errors, return false

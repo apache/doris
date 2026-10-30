@@ -636,6 +636,7 @@ static void create_instance_with_storage_vault(MetaServiceProxy* meta_service,
     }
     instance.set_snapshot_switch_status(enable_snapshot ? SNAPSHOT_SWITCH_ON
                                                         : SNAPSHOT_SWITCH_DISABLED);
+    instance.add_clusters()->add_nodes()->set_cloud_unique_id("1:" + instance_id + ":test");
 
     StorageVaultPB vault;
     vault.set_id(vault_id);
