@@ -239,6 +239,10 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
         // aggregate output, keeping the exprId would leave two definitions of the same exprId in the plan
         Set<ExprId> childOutputExprIds = aggregate.child().getOutput().stream()
                 .map(Slot::getExprId).collect(Collectors.toSet());
+        // the fresh exprIds of the constants materialized by the project above the aggregate. They are only
+        // published when that project is kept: the aggregate may be returned unchanged below, and in that case
+        // nothing defines the fresh exprId any more while the plan above would already consume it.
+        Map<ExprId, ExprId> pendingRemaps = Maps.newHashMap();
 
         // after normal agg, group by expressions and output expressions are slots,
         // after this rule, they may rewrite to literal, since literal are not slot,
@@ -264,7 +268,7 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
                 // column on the way down.
                 ExprId outputExprId = expr.getExprId();
                 if (childOutputExprIds.contains(outputExprId) && replacedExpr.nullable() != expr.nullable()) {
-                    ExprId freshExprId = replacedExprIds.computeIfAbsent(outputExprId,
+                    ExprId freshExprId = pendingRemaps.computeIfAbsent(outputExprId,
                             id -> StatementScopeIdGenerator.newExprId());
                     projectBuilder.add(new Alias(freshExprId, replacedExpr, expr.getName()));
                 } else {
@@ -278,9 +282,12 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
         }
 
         if (newGroupByExprs.equals(oldGroupByExprs) && newOutputExprs.equals(oldOutputExprs)) {
-            // the aggregate is not changed, the plan above keeps referencing the output slots of the aggregate
+            // the aggregate is not changed, the plan above keeps referencing the output slots of the aggregate,
+            // and the project above the aggregate is dropped together with the fresh exprIds it would define
             return aggregate;
         }
+        // the project is kept, so the plan above has to follow the fresh exprIds it defines
+        replacedExprIds.putAll(pendingRemaps);
 
         aggregate = aggregate.withGroupByAndOutput(newGroupByExprs, newOutputExprs);
         if (containsConstantOutput) {
