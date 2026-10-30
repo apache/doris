@@ -139,9 +139,17 @@ public class InitMaterializationContextHook implements PlannerHook {
         Set<List<String>> matchedQualifiers = new HashSet<>();
         for (MaterializationContext mtmvCtx : mtmvCtxs) {
             List<String> mvQualifier = mtmvCtx.generateMaterializationIdentifier();
-            if (useMvHint.getUseMvTableColumnMap().containsKey(mvQualifier)) {
+            Optional<List<String>> matchedParameter = useMvHint.findUseMvParameter(mvQualifier);
+            if (matchedParameter.isPresent()) {
                 hintMTMVs.add(mtmvCtx);
-                matchedQualifiers.add(mvQualifier);
+                matchedQualifiers.add(matchedParameter.get());
+                if (!matchedParameter.get().equals(mvQualifier)) {
+                    // The sync MV is referenced by its bare name, e.g. USE_MV(mv1) for table.mv1.
+                    // Replace the parameter with the full identifier, so that the later
+                    // rewrite-success check and the hint status are computed on the same qualifier.
+                    useMvHint.getUseMvTableColumnMap().remove(matchedParameter.get());
+                    useMvHint.getUseMvTableColumnMap().put(mvQualifier, false);
+                }
             }
         }
         // Mark USE_MV qualifiers that have no matching materialization context
@@ -164,12 +172,11 @@ public class InitMaterializationContextHook implements PlannerHook {
         if (!useMvHint.isPresent()) {
             return;
         }
-        Set<List<String>> useMvQualifiers = new HashSet<>(useMvHint.get().getUseMvTableColumnMap().keySet());
         // Check each sync MV context against USE_MV qualifiers
         for (MaterializationContext ctx : cascadesContext.getMaterializationContexts()) {
             if (ctx instanceof SyncMaterializationContext) {
                 List<String> identifier = ctx.generateMaterializationIdentifier();
-                if (useMvQualifiers.contains(identifier)) {
+                if (useMvHint.get().findUseMvParameter(identifier).isPresent()) {
                     cascadesContext.getStatementContext().addMaterializationRewrittenSuccess(identifier);
                 }
             }

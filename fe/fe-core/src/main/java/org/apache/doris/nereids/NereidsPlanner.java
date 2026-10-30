@@ -331,23 +331,20 @@ public class NereidsPlanner extends Planner {
 
         // Compute USE_MV hard constraint: USE_MV specified qualifiers that rewrite-successfully
         Set<List<String>> requiredUseMvIdentifiers = computeRequiredUseMvIdentifiers(statementContext);
+        Map<Group, Set<List<String>>> mvReachableCache = new HashMap<>();
+        if (!requiredUseMvIdentifiers.isEmpty()) {
+            computeReachableMvIdentifiers(getRoot(), mvReachableCache, requiredUseMvIdentifiers);
+            // Drop the required MVs which the rewrite can not produce, and mark them as UnUsed,
+            // USE_MV is best-effort and should not fail the query.
+            Set<List<String>> rootReachable = mvReachableCache.get(getRoot());
+            requiredUseMvIdentifiers = dropUnreachableUseMvIdentifiers(statementContext,
+                    requiredUseMvIdentifiers,
+                    rootReachable == null ? ImmutableSet.of() : rootReachable);
+        }
         PhysicalPlan physicalPlan;
         if (!requiredUseMvIdentifiers.isEmpty()) {
-            Map<Group, Set<List<String>>> mvReachableCache = new HashMap<>();
-            computeReachableMvIdentifiers(getRoot(), mvReachableCache, requiredUseMvIdentifiers);
-            // Validate all required MVs are reachable from root
-            Set<List<String>> rootReachable = mvReachableCache.get(getRoot());
-            Set<List<String>> unreachable = new HashSet<>(requiredUseMvIdentifiers);
-            if (rootReachable != null) {
-                unreachable.removeAll(rootReachable);
-            }
-            if (!unreachable.isEmpty()) {
-                throw new AnalysisException("USE_MV cannot be satisfied: required MV(s) "
-                        + unreachable + " not found in memo after rewrite");
-            }
-            physicalPlan = chooseBestPlanWithRequiredMaterializations(
-                    getRoot(), requireProperties, requiredUseMvIdentifiers, mvReachableCache,
-                    cascadesContext);
+            physicalPlan = chooseBestPlanConsideringRequiredUseMv(getRoot(), requireProperties,
+                    requiredUseMvIdentifiers, mvReachableCache, cascadesContext);
         } else {
             Set<Integer> requiredGroupIds = cascadesContext.getConnectContext()
                     .getSessionVariable().getRequiredGroupIds();
@@ -934,17 +931,79 @@ public class NereidsPlanner extends Planner {
         Map<Group, Set<List<String>>> mvReachableCache = new HashMap<>();
         computeReachableMvIdentifiers(rootGroup, mvReachableCache, requiredUseMvIdentifiers);
         Set<List<String>> rootReachable = mvReachableCache.get(rootGroup);
+        // Drop the required MVs which the rewrite can not produce, and mark them as UnUsed,
+        // USE_MV is best-effort and should not fail the query.
+        requiredUseMvIdentifiers = dropUnreachableUseMvIdentifiers(stmtCtx, requiredUseMvIdentifiers,
+                rootReachable == null ? ImmutableSet.of() : rootReachable);
+        if (requiredUseMvIdentifiers.isEmpty()) {
+            return chooseBestPlan(rootGroup, physicalProperties, cascadesContext);
+        }
+        return chooseBestPlanConsideringRequiredUseMv(rootGroup, physicalProperties,
+                requiredUseMvIdentifiers, mvReachableCache, cascadesContext);
+    }
+
+    /**
+     * Choose the best plan which contains the required USE_MV materializations.
+     * <p>
+     * Several hinted materializations may be alternatives of each other and can not be chosen at the
+     * same time, so only the single required materialization is enforced. The cost model already makes
+     * the hinted materializations the cheapest ones, so the cost based plan is used for the others.
+     */
+    private static PhysicalPlan chooseBestPlanConsideringRequiredUseMv(Group rootGroup,
+            PhysicalProperties physicalProperties, Set<List<String>> requiredUseMvIdentifiers,
+            Map<Group, Set<List<String>>> mvReachableCache, CascadesContext cascadesContext)
+            throws AnalysisException {
+        if (requiredUseMvIdentifiers.size() == 1) {
+            return chooseBestPlanWithRequiredMaterializations(rootGroup, physicalProperties,
+                    requiredUseMvIdentifiers, mvReachableCache, cascadesContext);
+        }
+        return chooseBestPlan(rootGroup, physicalProperties, cascadesContext);
+    }
+
+    /**
+     * Drop the required USE_MV identifiers which are not reachable in the memo, and mark them
+     * as not chosen in the hint. USE_MV is a best-effort hint: when the materialized view can not
+     * be produced by the rewrite, for example the query aggregations can not be answered by the
+     * materialized view, the query is planned without this hint instead of failing.
+     *
+     * @return the required USE_MV identifiers which are reachable, or an empty set if all are dropped
+     */
+    private static Set<List<String>> dropUnreachableUseMvIdentifiers(StatementContext statementContext,
+            Set<List<String>> requiredUseMvIdentifiers, Set<List<String>> reachableUseMvIdentifiers) {
+        Set<List<String>> reachableRequired = new HashSet<>(requiredUseMvIdentifiers);
+        reachableRequired.retainAll(reachableUseMvIdentifiers);
+        if (reachableRequired.size() == requiredUseMvIdentifiers.size()) {
+            return requiredUseMvIdentifiers;
+        }
         Set<List<String>> unreachable = new HashSet<>(requiredUseMvIdentifiers);
-        if (rootReachable != null) {
-            unreachable.removeAll(rootReachable);
+        unreachable.removeAll(reachableUseMvIdentifiers);
+        Optional<UseMvHint> useMvHint = statementContext.getUseMvHint("USE_MV");
+        if (useMvHint.isPresent()) {
+            useMvHint.get().setStatus(Hint.HintStatus.UNUSED);
+            useMvHint.get().setErrorMessage("MV(s) not found in memo after rewrite: " + unreachable);
+            for (List<String> qualifier : unreachable) {
+                useMvHint.get().getUseMvTableColumnMap().put(qualifier, false);
+            }
         }
-        if (!unreachable.isEmpty()) {
-            throw new AnalysisException("USE_MV cannot be satisfied: required MV(s) "
-                    + unreachable + " not found in memo after rewrite");
+        return reachableRequired;
+    }
+
+    /**
+     * Mark the USE_MV qualifiers which are not chosen in the final plan, so that the hint is reported
+     * as UnUsed together with the reason.
+     */
+    private static void markUseMvNotChosen(StatementContext statementContext,
+            Set<List<String>> notChosenQualifiers) {
+        Optional<UseMvHint> useMvHint = statementContext.getUseMvHint("USE_MV");
+        if (!useMvHint.isPresent()) {
+            return;
         }
-        return chooseBestPlanWithRequiredMaterializations(
-                rootGroup, physicalProperties, requiredUseMvIdentifiers, mvReachableCache,
-                cascadesContext);
+        useMvHint.get().setStatus(Hint.HintStatus.UNUSED);
+        useMvHint.get().setErrorMessage("MV(s) can not be chosen with the required properties: "
+                + notChosenQualifiers);
+        for (List<String> qualifier : notChosenQualifiers) {
+            useMvHint.get().getUseMvTableColumnMap().put(qualifier, false);
+        }
     }
 
     /**
@@ -1248,8 +1307,11 @@ public class NereidsPlanner extends Planner {
         }
 
         if (chosenGE == null) {
-            throw new AnalysisException("USE_MV cannot be satisfied: cannot find physical plan containing"
-                    + " required MV(s) " + remaining + " at group " + group.getGroupId());
+            // The required materialization can not be produced with the required properties, for example
+            // the hinted materialization is not costed for the required distribution, so fall back to the
+            // cost based plan of this subtree instead of failing the query.
+            markUseMvNotChosen(cascadesContext.getStatementContext(), remaining);
+            return chooseBestPlan(group, properties, cascadesContext);
         }
 
         // Handle enforcer marking (same as chooseBestPlan)
@@ -1309,22 +1371,22 @@ public class NereidsPlanner extends Planner {
         Set<List<String>> requiredRewritten = new HashSet<>(useMvQualifiers);
         requiredRewritten.retainAll(rewrittenSuccessSet);
 
-        // Check if all required+rewritten MVs are actually chosen
-        boolean allChosen = chosenQualifiers.containsAll(requiredRewritten);
-        if (allChosen && !requiredRewritten.isEmpty()) {
+        // Check if the required MVs are actually chosen, USE_MV is satisfied when at least one
+        // of the hinted MVs is chosen because several hinted MVs may be alternatives of each other
+        boolean anyChosen = false;
+        for (List<String> qualifier : requiredRewritten) {
+            boolean chosen = chosenQualifiers.contains(qualifier);
+            useMvMap.put(qualifier, chosen);
+            anyChosen = anyChosen || chosen;
+        }
+        if (anyChosen) {
             useMvHint.get().setStatus(Hint.HintStatus.SUCCESS);
-            for (List<String> qualifier : requiredRewritten) {
-                useMvMap.put(qualifier, true);
-            }
         } else if (!requiredRewritten.isEmpty()) {
             Set<List<String>> notChosen = new HashSet<>(requiredRewritten);
             notChosen.removeAll(chosenQualifiers);
             useMvHint.get().setStatus(Hint.HintStatus.UNUSED);
             useMvHint.get().setErrorMessage("MV(s) rewrite-success but not chosen in final plan: "
                     + notChosen);
-            for (List<String> qualifier : requiredRewritten) {
-                useMvMap.put(qualifier, chosenQualifiers.contains(qualifier));
-            }
         }
     }
 
