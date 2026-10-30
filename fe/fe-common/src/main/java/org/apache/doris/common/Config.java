@@ -2034,6 +2034,9 @@ public class Config extends ConfigBase {
     public static final int ICEBERG_TRANSFORM_ROUTING_MIN_BE_EXEC_VERSION = 18;
     // Older backends cannot hash VARBINARY values in a shuffle or partition exchange.
     public static final int VARBINARY_SHUFFLE_HASH_MIN_BE_EXEC_VERSION = 19;
+    // Older backends do not recognize TPlanNodeType.GROUP_JOIN_NODE and reject the whole
+    // fragment with "Unsupported exec type in pipeline".
+    public static final int GROUP_JOIN_MIN_BE_EXEC_VERSION = 19;
 
     @ConfField(mutable = false)
     public static int max_be_exec_version = VARBINARY_SHUFFLE_HASH_MIN_BE_EXEC_VERSION;

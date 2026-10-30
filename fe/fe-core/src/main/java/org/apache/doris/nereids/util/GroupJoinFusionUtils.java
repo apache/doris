@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
@@ -37,6 +38,9 @@ import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Sets;
 
@@ -64,6 +68,39 @@ import java.util.stream.Collectors;
 public final class GroupJoinFusionUtils {
 
     private GroupJoinFusionUtils() {}
+
+    /**
+     * Backend capability gate for fusion: {@code TPlanNodeType.GROUP_JOIN_NODE} is a new plan node
+     * type, and a BE process that does not know it rejects the whole fragment with
+     * "Unsupported exec type in pipeline". A backend's own capability is not reported per backend,
+     * so use the two cluster-level signals that exist and fall back to the regular
+     * HashJoin + Aggregate plan until both of them pass:
+     * <ul>
+     * <li>The statement's pinned exec version. An operator keeps
+     * {@code Config.be_exec_version} at the old value during a rolling upgrade, so a lower value
+     * means some backend still predates GROUP_JOIN_NODE.</li>
+     * <li>Smooth-upgrade sources. In a cloud same-node blue/green upgrade the old BE process is
+     * kept alive as a query fallback after the new process has registered, so the cluster-level
+     * exec version can already be new while that process still predates this node type. This is
+     * the same gate AggregateUtils uses for BUCKETED_AGGREGATION_NODE.</li>
+     * </ul>
+     */
+    public static boolean isSupportedByCluster(ConnectContext connectContext) {
+        int beExecVersion = connectContext.getStatementContext().hasBeExecVersion()
+                ? connectContext.getStatementContext().getBeExecVersion()
+                : Config.be_exec_version;
+        if (beExecVersion < Config.GROUP_JOIN_MIN_BE_EXEC_VERSION) {
+            return false;
+        }
+        SystemInfoService systemInfoService = connectContext.getEnv().getClusterInfo();
+        for (Long backendId : systemInfoService.getAllBackendByCurrentCluster(true)) {
+            Backend backend = systemInfoService.getBackend(backendId);
+            if (backend != null && backend.isSmoothUpgradeSrc()) {
+                return false;
+            }
+        }
+        return true;
+    }
 
     /**
      * Decide whether {@code aggregate} over {@code join} is eligible for GroupJoin fusion and,
