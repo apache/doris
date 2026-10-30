@@ -7,3 +7,7 @@
 1	rust	-2.50	2026-02-02
 2	\N	\N	\N
 
+-- !schema_defaults --
+1	42
+2	7
+

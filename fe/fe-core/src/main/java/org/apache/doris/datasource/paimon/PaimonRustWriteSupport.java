@@ -66,6 +66,11 @@ public final class PaimonRustWriteSupport {
             }
         }
         for (DataField field : table.schema().fields()) {
+            // Java replaces nullable input with schema defaults. The Rust file-store
+            // writer does not implement this behavior yet, including explicit NULLs.
+            if (field.defaultValue() != null) {
+                return false;
+            }
             switch (field.type().getTypeRoot()) {
                 case BOOLEAN:
                 case TINYINT:
@@ -113,7 +118,7 @@ public final class PaimonRustWriteSupport {
         result.setTablePath(table.location().toString());
         Map<String, String> writerOptions = new HashMap<>(table.schema().options());
         // Bound the native writer's row-group flushing threshold independently of file size.
-        writerOptions.put("write-buffer-size", "8 mb");
+        writerOptions.put("write.parquet-buffer-size", "8 mb");
         result.setSchemaJson(PaimonUtil.encodeTableSchemaToJson(table.schema().copy(writerOptions)));
         result.setDatabaseName(database);
         result.setTableName(name);

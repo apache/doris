@@ -107,6 +107,20 @@ public class PaimonRustWriteSupportTest {
     }
 
     @Test
+    public void testSchemaDefaultsUseJni() {
+        AppendOnlyFileStoreTable table = table("file:/tmp/rust-writer-test",
+                DataTypes.FIELD(0, "id", DataTypes.INT()),
+                DataTypes.FIELD(1, "value", DataTypes.INT()).newDefaultValue("42"));
+        Assert.assertFalse(PaimonRustWriteSupport.isSupported(table,
+                Arrays.asList("id", "value"), Collections.emptyMap()));
+
+        AppendOnlyFileStoreTable emptyDefault = table("file:/tmp/rust-writer-test",
+                DataTypes.FIELD(0, "value", DataTypes.STRING()).newDefaultValue("''"));
+        Assert.assertFalse(PaimonRustWriteSupport.isSupported(emptyDefault,
+                Collections.singletonList("value"), Collections.emptyMap()));
+    }
+
+    @Test
     public void testS3RequiresExplicitCredentials() {
         AppendOnlyFileStoreTable table = table("s3://bucket/rust-writer-test",
                 DataTypes.FIELD(0, "id", DataTypes.INT()));
@@ -136,8 +150,8 @@ public class PaimonRustWriteSupportTest {
         TableSchema restored = JsonSerdeUtil.fromJson(desc.getSchemaJson(), TableSchema.class);
         Assert.assertEquals(7, restored.id());
         Assert.assertEquals(table.schema().fields(), restored.fields());
-        Assert.assertEquals("8 mb", restored.options().get("write-buffer-size"));
-        Assert.assertFalse(table.options().containsKey("write-buffer-size"));
+        Assert.assertEquals("8 mb", restored.options().get("write.parquet-buffer-size"));
+        Assert.assertFalse(table.options().containsKey("write.parquet-buffer-size"));
         Assert.assertEquals("test-access", desc.getStorageOptions().get("s3.access-key"));
         Assert.assertEquals(11, desc.getCommitMessageVersion());
         Assert.assertEquals("main", desc.getBranch());

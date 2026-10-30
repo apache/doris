@@ -35,6 +35,11 @@ suite("test_paimon_rust_write_append", "p0,external,paimon") {
             id BIGINT, region STRING
         ) USING paimon PARTITIONED BY (region)
         TBLPROPERTIES ('bucket' = '-1', 'file.format' = 'parquet');
+        DROP TABLE IF EXISTS paimon.test_paimon_rust_write_db.t_defaults;
+        CREATE TABLE paimon.test_paimon_rust_write_db.t_defaults (
+            id BIGINT, value INT DEFAULT 42
+        ) USING paimon
+        TBLPROPERTIES ('bucket' = '-1', 'file.format' = 'parquet');
     """
     sql "DROP CATALOG IF EXISTS test_paimon_rust_write_catalog"
     sql """
@@ -63,12 +68,18 @@ suite("test_paimon_rust_write_append", "p0,external,paimon") {
         sql "SET enable_paimon_rust_writer = true"
         sql """INSERT INTO t_append VALUES
             (1, 'rust', -2.50, DATE '2026-02-02'), (2, NULL, NULL, NULL)"""
-        sql """
-            INSERT INTO t_append
-            SELECT number + 10, repeat('x', 4096),
-                CAST(number AS DECIMAL(18, 2)), DATE '2026-03-03'
-            FROM numbers("number" = "20000")
-        """
+        // One writer must flush while its cumulative input exceeds the 64 MiB budget.
+        // Repeated strings keep encoded Parquet small, so raw input must trigger flush.
+        sql "SET parallel_pipeline_task_num = 1"
+        setBeConfigTemporary([paimon_rust_writer_memory_limit_bytes: 67108864]) {
+            sql """
+                INSERT INTO t_append
+                SELECT number + 10, repeat('x', 4096),
+                    CAST(number AS DECIMAL(18, 2)), DATE '2026-03-03'
+                FROM numbers("number" = "20000")
+            """
+        }
+        sql "SET parallel_pipeline_task_num = 4"
         // This Rust-specific error also proves the supported table selected FFI.
         test {
             sql """INSERT INTO t_append
@@ -101,6 +112,15 @@ suite("test_paimon_rust_write_append", "p0,external,paimon") {
                 spark_paimon("""SELECT * FROM paimon.test_paimon_rust_write_db.t_partitioned
                     ORDER BY id"""),
                 sql("SELECT * FROM t_partitioned ORDER BY id"))
+
+        // Java applies schema defaults even to explicit NULLs. These tables must
+        // select JNI while the Rust file-store writer lacks that behavior.
+        sql "INSERT INTO t_defaults VALUES (1, NULL), (2, 7)"
+        order_qt_schema_defaults "SELECT * FROM t_defaults"
+        assertSparkDorisResultEquals(
+                spark_paimon("""SELECT * FROM paimon.test_paimon_rust_write_db.t_defaults
+                    ORDER BY id"""),
+                sql("SELECT * FROM t_defaults ORDER BY id"))
     } finally {
         sql "SET enable_paimon_rust_writer = ${originalRustWriter[0][0]}"
         sql "SET force_jni_scanner = ${originalJniScanner[0][0]}"
