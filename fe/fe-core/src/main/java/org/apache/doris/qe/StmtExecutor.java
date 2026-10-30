@@ -2292,11 +2292,19 @@ public class StmtExecutor {
     }
 
     public List<ResultRow> executeInternalQuery() {
+        return executeInternalQuery(true);
+    }
+
+    public List<ResultRow> executeInternalQueryWithoutAudit() {
+        return executeInternalQuery(false);
+    }
+
+    private List<ResultRow> executeInternalQuery(boolean audit) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("INTERNAL QUERY: {}", originStmt.toString());
         }
         try {
-            return executeInternalQueryCommon(null, null);
+            return executeInternalQueryCommon(null, null, audit);
         } catch (Exception e) {
             throw new RuntimeException("Failed to execute internal SQL. "
                     + Util.getRootCauseMessage(e), e);
@@ -2309,7 +2317,7 @@ public class StmtExecutor {
      * calling session's: this executor's own session is not connected to any client.
      */
     public void executeInternalQueryAndSend(LogicalPlanAdapter adapter, ResultSender sender) throws Exception {
-        executeInternalQueryCommon(adapter, sender);
+        executeInternalQueryCommon(adapter, sender, true);
     }
 
     /**
@@ -2319,7 +2327,7 @@ public class StmtExecutor {
      * {@link #executeAndSendResult}; otherwise they are collected into a {@code List<ResultRow>}.
      */
     private List<ResultRow> executeInternalQueryCommon(LogicalPlanAdapter prebuilt,
-            ResultSender sendTo) throws Exception {
+            ResultSender sendTo, boolean audit) throws Exception {
         TUniqueId queryId = UniqueIdUtils.fastUniqueId();
         context.setQueryId(queryId);
         if (originStmt != null && originStmt.originStmt != null) {

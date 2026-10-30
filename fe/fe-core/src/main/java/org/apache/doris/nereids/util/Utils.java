@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -688,8 +689,13 @@ public class Utils {
      */
     public static List<List<String>> executePlan(ConnectContext ctx, StmtExecutor executor, LogicalPlan plan) {
         LogicalPlanAdapter adapter = new LogicalPlanAdapter(plan, ctx.getStatementContext());
-        executor.setParsedStmt(adapter);
-        List<ResultRow> resultRows = executor.executeInternalQuery();
-        return resultRows.stream().map(ResultRow::getValues).collect(Collectors.toList());
+        StatementBase originalStmt = executor.getParsedStmt();
+        try {
+            executor.setParsedStmt(adapter);
+            List<ResultRow> resultRows = executor.executeInternalQueryWithoutAudit();
+            return resultRows.stream().map(ResultRow::getValues).collect(Collectors.toList());
+        } finally {
+            executor.setParsedStmt(originalStmt);
+        }
     }
 }

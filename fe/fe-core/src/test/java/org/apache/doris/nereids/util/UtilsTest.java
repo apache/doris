@@ -17,13 +17,48 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.analysis.StmtType;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
+import org.mockito.Mockito;
+
+import java.util.Collections;
 
 /**
  * The tests for utils
  */
 public class UtilsTest {
+    @Test
+    public void testExecutePlanRestoresShowStatement() {
+        StatementContext statementContext = new StatementContext();
+        ConnectContext ctx = Mockito.mock(ConnectContext.class);
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        NereidsParser parser = new NereidsParser();
+        LogicalPlanAdapter showStmt = new LogicalPlanAdapter(
+                parser.parseSingle("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'"), statementContext);
+        LogicalPlan selectPlan = parser.parseSingle("SELECT 1");
+        Mockito.when(ctx.getStatementContext()).thenReturn(statementContext);
+        Mockito.when(executor.getParsedStmt()).thenReturn(showStmt);
+        Mockito.when(executor.executeInternalQueryWithoutAudit()).thenReturn(Collections.emptyList());
+
+        Utils.executePlan(ctx, executor, selectPlan);
+
+        InOrder calls = Mockito.inOrder(executor);
+        calls.verify(executor).setParsedStmt(Mockito.argThat(stmt ->
+                ((LogicalPlanAdapter) stmt).getLogicalPlan().stmtType() == StmtType.SELECT));
+        calls.verify(executor).executeInternalQueryWithoutAudit();
+        calls.verify(executor).setParsedStmt(showStmt);
+        Assertions.assertEquals(StmtType.SHOW, showStmt.getLogicalPlan().stmtType());
+    }
+
     @Test
     public void containChinese() {
         String chinese = "123数据库";
