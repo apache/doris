@@ -137,6 +137,18 @@ public class OlapTableSqlCacheVersion {
         return usable && hasScan;
     }
 
+    private static List<Long> getPartitionVersions(List<Partition> partitions) throws RpcException {
+        if (!Config.isCloudMode()) {
+            return Partition.getVisibleVersions(partitions);
+        }
+        List<CloudPartition> cloudPartitions = new ArrayList<>(partitions.size());
+        for (Partition partition : partitions) {
+            cloudPartitions.add((CloudPartition) partition);
+        }
+        // A fresh table version must not be validated against stale FE partition-version caches.
+        return CloudPartition.getSnapshotVisibleVersionFromMs(cloudPartitions);
+    }
+
     /** Check metadata first, and refresh partition dependencies when the table's data version changes. */
     public boolean matches(OlapTable table, long currentVersion) throws RpcException {
         if (!metadataMatches(table)) {
@@ -149,19 +161,7 @@ public class OlapTableSqlCacheVersion {
         for (Long id : partitionVersions.keySet()) {
             partitions.add(table.getPartition(id));
         }
-        List<Long> versions = new ArrayList<>(partitions.size());
-        if (Config.isCloudMode()) {
-            List<CloudPartition> cloudPartitions = new ArrayList<>(partitions.size());
-            for (Partition partition : partitions) {
-                cloudPartitions.add((CloudPartition) partition);
-            }
-            // A fresh table version must not be validated against stale FE partition-version caches.
-            versions = CloudPartition.getSnapshotVisibleVersionFromMs(cloudPartitions);
-        } else {
-            for (Partition partition : partitions) {
-                versions.add(partition.getVisibleVersion());
-            }
-        }
+        List<Long> versions = getPartitionVersions(partitions);
         // Native versions are protected by the statement's table read lock; the extra lock is cloud-only.
         if (Config.isCloudMode()) {
             table.versionReadLock();
