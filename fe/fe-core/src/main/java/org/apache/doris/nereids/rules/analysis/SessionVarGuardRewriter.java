@@ -24,7 +24,10 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.util.DigitalVersion;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.rules.Rule;
@@ -62,6 +65,7 @@ import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.system.Frontend;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -72,6 +76,8 @@ import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.regex.Matcher;
 
 /**
  * The purpose of this class is to add session var guards to all expressions that require guarding
@@ -88,6 +94,10 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
     public static final int GUARD_NONE = 0;
     public static final int GUARD_TIME_ZONE = 1;
     public static final int GUARD_OTHER = 2;
+
+    /** The leading {@code major.minor.revision} of a Doris version string. */
+    private static final java.util.regex.Pattern DORIS_RELEASE_VERSION =
+            java.util.regex.Pattern.compile("(\\d+)\\.(\\d+)\\.(\\d+)");
 
     private final List<Rule> rules;
     private final CascadesContext cascadesContext;
@@ -530,6 +540,75 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
         return ctx.getSessionVariable().getAffectQueryResultInPlanVariables();
     }
 
+    /** The keys that describe a result-affecting setting, i.e. the map without the fence version stamp. */
+    private static Set<String> planVariableKeySet(Map<String, String> sessionVars) {
+        Set<String> keys = Sets.newHashSet(sessionVars.keySet());
+        keys.remove(SessionVariable.PLAN_SESSION_VAR_FENCE_VERSION);
+        return keys;
+    }
+
+    /**
+     * Fails unless every alive frontend can interpret the persisted plan-variable set of this FE.
+     *
+     * <p>The {@link SessionVariable#PLAN_SESSION_VAR_FENCE_VERSION} stamp lets a new FE refuse metadata
+     * written by a newer one, but the opposite direction - an <em>old</em> FE serving new metadata - can only
+     * be prevented where the metadata is created: an old FE neither registers {@code time_zone} as a plan
+     * variable nor classifies TIMESTAMPTZ expressions, so it would refresh and rewrite such an object without
+     * the time-zone guard. Any DDL that writes semantics only a fenced FE can honour therefore has to check
+     * that no older FE is still alive in the cluster (a rolling upgrade must finish first).
+     *
+     * <p>Development builds report {@code 0.0.0}, which carries no release ordering, so the check is a no-op
+     * there; an unparsable version string is also treated as "cannot prove it is older" instead of blocking
+     * DDL, because vendor version schemes are not comparable with this FE's release.
+     */
+    public static void checkClusterSupportsPlanTimeZoneFence() throws AnalysisException {
+        Env env = Env.getCurrentEnv();
+        if (env == null) {
+            return;
+        }
+        List<Frontend> frontends = env.getFrontends(null);
+        String selfHost = env.getSelfNode() == null ? null : env.getSelfNode().getHost();
+        DigitalVersion selfVersion = null;
+        for (Frontend frontend : frontends) {
+            if (selfHost != null && selfHost.equals(frontend.getHost())) {
+                selfVersion = parseReleaseVersion(frontend.getVersion());
+            }
+        }
+        if (selfVersion == null) {
+            return;
+        }
+        for (Frontend frontend : frontends) {
+            if (!frontend.isAlive()) {
+                continue;
+            }
+            DigitalVersion version = parseReleaseVersion(frontend.getVersion());
+            if (version != null && version.before(selfVersion)) {
+                throw new AnalysisException("frontend " + frontend.getHost() + " runs " + frontend.getVersion()
+                        + ", which predates this frontend's " + selfVersion.major + "." + selfVersion.minor
+                        + "." + selfVersion.revision + ". It cannot interpret the persisted plan variables of an "
+                        + "object whose semantics depend on the session time zone, so the object cannot be "
+                        + "created safely now. Upgrade all frontends first and retry.");
+            }
+        }
+    }
+
+    private static DigitalVersion parseReleaseVersion(String version) {
+        if (version == null) {
+            return null;
+        }
+        Matcher matcher = DORIS_RELEASE_VERSION.matcher(version);
+        if (!matcher.find()) {
+            return null;
+        }
+        try {
+            DigitalVersion parsed = DigitalVersion.fromString(matcher.group(0));
+            // 0.0.0 is the development build marker, which carries no release ordering.
+            return parsed.id == 0 ? null : parsed;
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
     /**
      * Whether a stored column expression (a generated column or a synchronous materialized view column
      * definition, including the separately stored WHERE clause) is time-zone sensitive: its materialized
@@ -727,14 +806,19 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
             return false;
         }
 
+        // The SQL-mode exception may only consider the SAME set of result-affecting variables. This must be
+        // checked before the exact-match shortcut below: that shortcut walks only the persisted keys, so a
+        // current-only variable (e.g. enable_decimal256, added to the plan-variable set after this sync MV
+        // was created) would be ignored and an older map would be exempted even though its decimal
+        // expressions may have been materialized with a different precision/overflow semantics. The fence
+        // version stamp is metadata rather than a setting and is compared separately, so it is excluded.
+        if (!planVariableKeySet(currentSessionVars).equals(planVariableKeySet(persistSessionVars))) {
+            return false;
+        }
+
         // Retain the existing exact-match behavior whenever possible.
         if (checkSessionVariablesMatch(currentSessionVars, persistSessionVars)) {
             return true;
-        }
-
-        // Every result-affecting session variable must still be present.
-        if (!currentSessionVars.keySet().equals(persistSessionVars.keySet())) {
-            return false;
         }
 
         for (Map.Entry<String, String> entry : currentSessionVars.entrySet()) {

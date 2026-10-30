@@ -58,6 +58,7 @@ import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo.AnalyzerForCreateView;
@@ -193,6 +194,11 @@ public class CreateMTMVInfo extends CreateTableInfo {
         // base partition column, not the MTMV output columns: an aliased definition projects only
         // date_trunc(ts, 'day') AS day_ts, so neither the source column name nor its type is visible there.
         if (MTMVPlanUtil.usesUtcTimeStampTzPartition(mvPartitionInfo)) {
+            // Persisting UTC as the effective creation zone only works if every FE can interpret it: an older
+            // FE does not know time_zone as a plan variable and would refresh this MV in its own default zone,
+            // routing rows outside the UTC-aligned partitions. Refuse the DDL instead of writing metadata that
+            // a still-running old FE would silently misinterpret.
+            SessionVarGuardRewriter.checkClusterSupportsPlanTimeZoneFence();
             Map<String, String> effectiveSessionVariables = Maps.newHashMap(sessionVariables);
             effectiveSessionVariables.put(SessionVariable.TIME_ZONE, TimeUtils.getUTCTimeZone().getID());
             this.sessionVariables = effectiveSessionVariables;

@@ -1130,6 +1130,14 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             } else if (node instanceof LogicalSort) {
                 ((LogicalSort<?>) node).getOrderKeys().stream()
                         .map(OrderKey::getExpr).forEach(expressions::add);
+            } else if (node instanceof LogicalTopN) {
+                // A TopN orders and then truncates, so a guarded order key selects WHICH rows survive: the MV
+                // picked them under its creation session, which a query in another session cannot undo. It is
+                // as row-affecting as a plain sort and must be scanned as well, otherwise an MTMV whose
+                // definition orders by a guarded expression (e.g. date_trunc on a timestamptz column) and
+                // limits the result could be rewritten into a cross-zone query and return another row.
+                ((LogicalTopN<?>) node).getOrderKeys().stream()
+                        .map(OrderKey::getExpr).forEach(expressions::add);
             } else if (node instanceof LogicalWindow) {
                 expressions.addAll(((LogicalWindow<?>) node).getWindowExpressions());
             }
