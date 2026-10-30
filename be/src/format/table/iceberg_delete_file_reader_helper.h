@@ -80,6 +80,11 @@ Status validate_iceberg_deletion_vector_descriptor(const TIcebergDeleteFileDesc&
 Status decode_iceberg_deletion_vector_buffer(const char* buf, size_t buffer_size,
                                              DeletionVector* rows_to_delete);
 
+// Portable DV magic and bitmap, without the on-disk length prefix and CRC. Used by
+// inline Delta DVs and by the framed Iceberg/Delta decoder after validating its envelope.
+Status decode_portable_deletion_vector_payload(const char* buf, size_t buffer_size,
+                                               DeletionVector* rows_to_delete);
+
 Status read_iceberg_position_delete_file(const TIcebergDeleteFileDesc& delete_file,
                                          const IcebergDeleteFileReaderOptions& options,
                                          IcebergPositionDeleteVisitor* visitor);

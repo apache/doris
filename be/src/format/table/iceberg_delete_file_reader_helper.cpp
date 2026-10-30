@@ -202,13 +202,7 @@ Status decode_deletion_vector_buffer(const char* buf, size_t buffer_size,
                                         expected_crc, actual_crc);
     }
 
-    try {
-        *rows_to_delete |= roaring::Roaring64Map::readSafe(
-                buf + 8, buffer_size - ICEBERG_DELETION_VECTOR_MIN_BYTES);
-    } catch (const std::runtime_error& e) {
-        return Status::DataQualityError("Decode roaring bitmap failed, {}", e.what());
-    }
-    return Status::OK();
+    return decode_portable_deletion_vector_payload(buf + 4, total_length, rows_to_delete);
 }
 
 } // namespace
@@ -375,6 +369,26 @@ Status read_iceberg_deletion_vector(const TIcebergDeleteFileDesc& delete_file,
 Status decode_iceberg_deletion_vector_buffer(const char* buf, size_t buffer_size,
                                              DeletionVector* rows_to_delete) {
     return decode_deletion_vector_buffer(buf, buffer_size, rows_to_delete);
+}
+
+Status decode_portable_deletion_vector_payload(const char* buf, size_t buffer_size,
+                                               DeletionVector* rows_to_delete) {
+    DORIS_CHECK(buf != nullptr);
+    DORIS_CHECK(rows_to_delete != nullptr);
+    // Even an empty portable Roaring64Map has an eight-byte map count after the magic.
+    if (buffer_size < 12) {
+        return Status::DataQualityError("Deletion vector payload size too small: {}", buffer_size);
+    }
+    constexpr static char MAGIC_NUMBER[] = {'\xD1', '\xD3', '\x39', '\x64'};
+    if (memcmp(buf, MAGIC_NUMBER, 4) != 0) {
+        return Status::DataQualityError("Deletion vector magic number mismatch");
+    }
+    try {
+        *rows_to_delete |= roaring::Roaring64Map::readSafe(buf + 4, buffer_size - 4);
+    } catch (const std::runtime_error& e) {
+        return Status::DataQualityError("Decode roaring bitmap failed, {}", e.what());
+    }
+    return Status::OK();
 }
 
 } // namespace doris

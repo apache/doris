@@ -161,9 +161,11 @@ bool FileScanLocalState::should_use_file_scanner_v2(const TQueryOptions& query_o
     // fluss scan carries that same format -- log ranges and wrapped lake splits alike -- and is
     // dispatched inside FlussHybridReader, which only FileScannerV2 builds. Loads are left alone for
     // the same reason as adbc: there is no fluss load path.
+    // Delta also has only a native V2 reader. V1 cannot apply its column mapping or DVs.
     if (!is_load && scan_params.__isset.table_format_params &&
         (scan_params.table_format_params.table_format_type == "adbc" ||
-         scan_params.table_format_params.table_format_type == "fluss")) {
+         scan_params.table_format_params.table_format_type == "fluss" ||
+         scan_params.table_format_params.table_format_type == "deltalake")) {
         return true;
     }
     const bool is_transactional_hive =

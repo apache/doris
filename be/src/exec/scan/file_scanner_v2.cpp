@@ -59,6 +59,7 @@
 #include "format_v2/jni/max_compute_jni_reader.h"
 #include "format_v2/jni/trino_connector_jni_reader.h"
 #include "format_v2/table/adbc_reader.h"
+#include "format_v2/table/deltalake_reader.h"
 #include "format_v2/table/fluss_hybrid_reader.h"
 #include "format_v2/table/hive_reader.h"
 #include "format_v2/table/hudi_reader.h"
@@ -132,7 +133,8 @@ bool is_supported_table_format(const TFileRangeDesc& range) {
         return false;
     }
     return table_format == "NotSet" || table_format == "tvf" || table_format == "hive" ||
-           table_format == "iceberg" || table_format == "paimon" || table_format == "hudi";
+           table_format == "iceberg" || table_format == "paimon" || table_format == "hudi" ||
+           table_format == "deltalake";
 }
 
 bool is_supported_arrow_table_format(const TFileRangeDesc& range) {
@@ -344,6 +346,9 @@ bool FileScannerV2::is_supported(const TFileScanRangeParams& params, const TFile
         return is_supported_fluss_range(params, range);
     }
     const auto format_type = get_range_format_type(params, range);
+    if (table_format_name(range) == "deltalake" && format_type != TFileFormatType::FORMAT_PARQUET) {
+        return false;
+    }
     if (format_type == TFileFormatType::FORMAT_PARQUET ||
         format_type == TFileFormatType::FORMAT_ORC) {
         return is_supported_table_format(range);
@@ -768,6 +773,8 @@ Status FileScannerV2::_create_table_reader_for_format(
         *reader = std::make_unique<format::paimon::PaimonHybridReader>();
     } else if (table_format == "hudi") {
         *reader = std::make_unique<format::hudi::HudiHybridReader>();
+    } else if (table_format == "deltalake") {
+        *reader = std::make_unique<format::deltalake::DeltaReader>();
     } else if (table_format == "fluss") {
         *reader = std::make_unique<format::fluss::FlussHybridReader>();
     } else if (table_format == "jdbc") {
