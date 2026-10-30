@@ -846,10 +846,10 @@ JsonToVariantOptions serde_json_options() {
 // is kept as a string. A NULL row is JSON null, the value a NOT NULL Variant column keeps for it.
 void read_json_variant_arrow(ColumnVariantV2& result, const arrow::Array& array) {
     JsonStringToVariantEncoder encoder(serde_json_options());
-    static constexpr std::string_view json_null = "null";
     with_binary_array(array, [&](const auto& text) {
         for (int64_t row = 0; row < text.length(); ++row) {
-            const std::string_view json = text.IsNull(row) ? json_null : text.GetView(row);
+            const std::string_view json =
+                    text.IsNull(row) ? std::string_view {"null"} : text.GetView(row);
             encoder.add_json({json.data(), json.size()});
         }
     });
