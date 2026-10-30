@@ -377,4 +377,24 @@ public class SessionVariablesTest extends TestWithFeService {
 
         Assertions.assertFalse(variable.toThrift().isEnableHyperscanFallback());
     }
+
+    @Test
+    public void testSplitBatchAndQueueLimitsUseTheirOwnVariableCheckers() throws Exception {
+        SessionVariable variable = new SessionVariable();
+        for (String name : new String[] {SessionVariable.SPLIT_BATCH_SIZE, SessionVariable.SPLIT_QUEUE_CAPACITY}) {
+            Field field = VariableMgr.getVarContext(name).getField();
+            for (int value : new int[] {1, 9}) {
+                VariableMgr.setVar(variable, new SetVar(SetType.SESSION, name, new IntLiteral(value)));
+                Assertions.assertEquals(value, field.getInt(variable));
+            }
+            for (int value : new int[] {0, -1}) {
+                DdlException failure = Assertions.assertThrows(DdlException.class,
+                        () -> VariableMgr.setVar(variable, new SetVar(SetType.SESSION, name, new IntLiteral(value))));
+                Assertions.assertTrue(failure.getMessage().contains(name + " value should greater than or equal 1"));
+                Assertions.assertEquals(9, field.getInt(variable));
+            }
+        }
+    }
+
+
 }
