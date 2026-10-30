@@ -30,6 +30,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.RuntimeProfile;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.datasource.FederationBackendPolicy;
+import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.lance.LanceExternalCatalog;
 import org.apache.doris.datasource.lance.LanceExternalTable;
 import org.apache.doris.datasource.lance.index.LanceIndexSegmentInfo;
@@ -48,6 +49,7 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExternalSearchQuery;
 import org.apache.doris.thrift.TExternalSearchRequest;
 import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFtsCoverageMode;
 import org.apache.doris.thrift.TFtsMatchOperator;
 import org.apache.doris.thrift.TFtsQueryType;
@@ -646,6 +648,106 @@ public class LanceScanNodeTest {
     }
 
     @Test
+    public void testQuantizedIndexRescoresCandidatesWhenScoresAreMerged() throws Exception {
+        UUID firstSegment = UUID.fromString("11111111-2222-3333-4444-555555555555");
+        UUID secondSegment = UUID.fromString("66666666-7777-8888-9999-aaaaaaaaaaaa");
+        List<LanceFragmentInfo> fragments = Arrays.asList(
+                new LanceFragmentInfo(1, 8, 8), new LanceFragmentInfo(2, 7, 7));
+        // One segment over one fragment leaves a flat split to merge with. One segment over both
+        // leaves nothing to merge. Two segments over one fragment each cover the snapshot, but a
+        // segment trained on its own fragment set has its own codebook, so their candidate scores
+        // are no more comparable than an approximate score is with an exact one.
+        List<List<Long>> partialCoverage = Collections.singletonList(Collections.singletonList(1L));
+        List<List<Long>> fullCoverage = Collections.singletonList(Arrays.asList(1L, 2L));
+        List<List<Long>> splitCoverage = Arrays.asList(
+                Collections.singletonList(1L), Collections.singletonList(2L));
+        for (IndexType type : IndexType.values()) {
+            if (type.getValue() < IndexType.VECTOR.getValue()) {
+                continue;
+            }
+            // Only these two keep the stored vectors, so only they already score exactly.
+            boolean storesFullVectors = type == IndexType.IVF_FLAT || type == IndexType.IVF_HNSW_FLAT;
+            for (List<List<Long>> coverage
+                    : Arrays.asList(partialCoverage, fullCoverage, splitCoverage)) {
+                int indexedFragments = (int) coverage.stream().flatMap(List::stream).distinct().count();
+                boolean mergesForeignScores =
+                        indexedFragments < fragments.size() || coverage.size() > 1;
+                boolean refined = mergesForeignScores && !storesFullVectors;
+                List<LanceIndexSegmentInfo> segments = new ArrayList<>();
+                for (List<Long> covered : coverage) {
+                    segments.add(new LanceIndexSegmentInfo(
+                            segments.isEmpty() ? firstSegment : secondSegment, "vector_idx",
+                            Collections.singletonList(9), covered, type, "L2"));
+                }
+                LanceTableMetadata metadata = LanceTableMetadata.createSnapshotWithIndexes(
+                        new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()),
+                        42, vectorSchema(), fragments, Collections.singletonMap("vector", 9),
+                        segments);
+                LanceScanNode node = newSearchNode(metadata, vectorSearchRequest(5, 0));
+
+                List<Split> splits = node.getSplits(2);
+
+                String trace = type + "/" + coverage;
+                Assert.assertTrue(trace, node.getNodeExplainString("", TExplainLevel.NORMAL)
+                        .contains("lanceSearchRefineDistances=" + refined));
+                Assert.assertEquals(trace, coverage == fullCoverage ? 1 : 2, splits.size());
+                // The decision belongs to the plan, so it is sent once for the whole scan node.
+                Assert.assertEquals(trace, refined, refinesVectorDistances(node));
+            }
+        }
+    }
+
+    @Test
+    public void testDisablingRefinementLeavesTheMixedPlanOnTheIndexScale() throws Exception {
+        UUID segment = UUID.fromString("11111111-2222-3333-4444-555555555555");
+        LanceTableMetadata metadata = LanceTableMetadata.createSnapshotWithIndexes(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()),
+                42, vectorSchema(),
+                Arrays.asList(new LanceFragmentInfo(1, 8, 8), new LanceFragmentInfo(2, 7, 7)),
+                Collections.singletonMap("vector", 9),
+                Collections.singletonList(new LanceIndexSegmentInfo(segment, "vector_idx",
+                        Collections.singletonList(9), Collections.singletonList(1L),
+                        IndexType.IVF_PQ, "L2")));
+        LanceScanNode node = newSearchNode(metadata, vectorSearchRequest(5, 0), false);
+
+        List<Split> splits = node.getSplits(2);
+
+        // The plan is unchanged; only the rescoring it would otherwise request is withheld.
+        Assert.assertEquals(2, splits.size());
+        String explain = node.getNodeExplainString("", TExplainLevel.NORMAL);
+        Assert.assertTrue(explain.contains("lanceSearchUnindexedFragments=1"));
+        Assert.assertTrue(explain.contains("lanceSearchRefineDistances=false"));
+        Assert.assertFalse(refinesVectorDistances(node));
+    }
+
+    @Test
+    public void testDisabledVectorIndexPlansNoSegmentAndNoRescoring() throws Exception {
+        UUID segment = UUID.fromString("11111111-2222-3333-4444-555555555555");
+        LanceTableMetadata metadata = LanceTableMetadata.createSnapshotWithIndexes(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()),
+                42, vectorSchema(),
+                Arrays.asList(new LanceFragmentInfo(1, 8, 8), new LanceFragmentInfo(2, 7, 7)),
+                Collections.singletonMap("vector", 9),
+                Collections.singletonList(new LanceIndexSegmentInfo(segment, "vector_idx",
+                        Collections.singletonList(9), Collections.singletonList(1L),
+                        IndexType.IVF_PQ, "L2")));
+        TExternalSearchRequest request = vectorSearchRequest(5, 0);
+        request.setVectorSearchOptions(new TVectorSearchOptions().setUseIndex(false));
+        LanceScanNode node = newSearchNode(metadata, request);
+
+        List<Split> splits = node.getSplits(2);
+
+        String explain = node.getNodeExplainString("", TExplainLevel.NORMAL);
+        Assert.assertTrue(explain.contains("lanceVectorIndexStatus=DISABLED"));
+        Assert.assertTrue(explain.contains("lanceSearchRefineDistances=false"));
+        Assert.assertEquals(2, splits.size());
+        for (Split split : splits) {
+            Assert.assertFalse(((LanceSplit) split).getIndexSegmentUuid().isPresent());
+        }
+        Assert.assertFalse(refinesVectorDistances(node));
+    }
+
+    @Test
     public void testExternalSearchUsesOneSplitPerIndexSegmentAndKeepsUnindexedFragments()
             throws Exception {
         UUID firstSegment = UUID.fromString("11111111-2222-3333-4444-555555555555");
@@ -1121,6 +1223,11 @@ public class LanceScanNodeTest {
 
     private static LanceScanNode newSearchNode(
             LanceTableMetadata metadata, TExternalSearchRequest request) {
+        return newSearchNode(metadata, request, true);
+    }
+
+    private static LanceScanNode newSearchNode(LanceTableMetadata metadata,
+            TExternalSearchRequest request, boolean distanceRefinement) {
         String searchColumn = request.getSearchQuery().isSetVectorSearch()
                 ? request.getSearchQuery().getVectorSearch().getColumn()
                 : request.getSearchQuery().getFullTextSearch().getColumn();
@@ -1128,15 +1235,38 @@ public class LanceScanNodeTest {
         // Ordinary-scan grouping must not change any vector or full-text split expectations.
         SessionVariable sessionVariable = new SessionVariable();
         sessionVariable.lanceFragmentsPerSplit = 8;
+        sessionVariable.enableLanceVectorDistanceRefinement = distanceRefinement;
         TupleDescriptor desc = new TupleDescriptor(new TupleId(0));
         desc.setTable(Mockito.mock(TableIf.class));
         LanceExternalCatalog catalog = Mockito.mock(LanceExternalCatalog.class);
         Mockito.when(catalog.getLanceCatalogType()).thenReturn("rest");
         LanceExternalTable table = Mockito.mock(LanceExternalTable.class);
         Mockito.when(table.getCatalog()).thenReturn(catalog);
-        return LanceScanNode.forExternalSearch(
+        LanceScanNode node = LanceScanNode.forExternalSearch(
                 new PlanNodeId(0), desc, table,
                 metadata, searchFieldId, request, sessionVariable);
+        // doInitialize() builds the scan-range params from a live tuple; these tests plan splits
+        // directly, so give the node the empty params object that node-level fields are set on.
+        setScanRangeParams(node);
+        return node;
+    }
+
+    /** Reads the node-level flag, which stays unset when no part of the plan needs it. */
+    private static boolean refinesVectorDistances(LanceScanNode node) {
+        TFileScanRangeParams params = node.getFileScanRangeParams();
+        return params.isSetLanceScanParams()
+                && params.getLanceScanParams().isSetRefineVectorDistances();
+    }
+
+    private static void setScanRangeParams(LanceScanNode node) {
+        try {
+            java.lang.reflect.Field paramsField =
+                    FileQueryScanNode.class.getDeclaredField("params");
+            paramsField.setAccessible(true);
+            paramsField.set(node, new TFileScanRangeParams());
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Cannot initialize Lance scan range params", e);
+        }
     }
 
     private static void setMetadata(LanceScanNode node, LanceTableMetadata metadata) throws Exception {
