@@ -28,6 +28,7 @@
 #include <condition_variable>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -53,6 +54,7 @@
 
 namespace doris {
 extern bvar::Adder<uint64_t> g_file_cache_get_by_peer_queue_timeout_num;
+extern bvar::Adder<uint64_t> g_file_cache_get_by_peer_get_or_set_calls;
 
 Status test_handle_peer_file_cache_block_request(const PFetchPeerDataRequest* request,
                                                  PFetchPeerDataResponse* response,
@@ -64,6 +66,9 @@ bool test_try_reject_if_queue_timed_out(std::chrono::steady_clock::time_point en
 namespace doris::io {
 
 extern bvar::Adder<uint64_t> peer_cache_reader_read_counter;
+extern bvar::Adder<uint64_t> s3_read_counter;
+extern bvar::Adder<uint64_t> g_peer_race_peer_win;
+extern bvar::Adder<uint64_t> g_peer_race_s3_skipped_after_queue;
 
 namespace {
 
@@ -250,6 +255,9 @@ public:
                             : "";
         }
 
+        if (before_response) {
+            before_response();
+        }
         if (_options.fail_status) {
             response->mutable_status()->set_status_code(TStatusCode::INTERNAL_ERROR);
             return;
@@ -345,6 +353,8 @@ public:
     std::atomic<int> request_block_count {0};
     std::atomic<bool> support_attachment {false};
     std::atomic<bool> request_fill {false};
+    // Runs on the RPC thread before the response is built; tests use it to order the peer reply.
+    std::function<void()> before_response;
     std::string get_last_fill_resource_id() const {
         std::lock_guard lock(_request_mu);
         return last_fill_resource_id;
@@ -992,6 +1002,166 @@ TEST_F(CachedRemoteFileReaderPeerTest, peer_file_cache_handler_allows_cached_blo
 
     auto request =
             create_peer_cache_block_request(file_path, 0, kPeerTestBlockSize, content.size());
+    PFetchPeerDataResponse response;
+    brpc::Controller cntl;
+    const uint64_t get_or_set_before = doris::g_file_cache_get_by_peer_get_or_set_calls.get_value();
+
+    auto st = doris::test_handle_peer_file_cache_block_request(&request, &response, &cntl);
+
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(response.status().status_code(), TStatusCode::OK);
+    ASSERT_EQ(response.datas_size(), 1);
+    EXPECT_EQ(response.datas(0).block_offset(), 0);
+    EXPECT_EQ(response.datas(0).data(), content.substr(0, kPeerTestBlockSize));
+    // A plain peer read is served by the read-only lookup and never reaches get_or_set().
+    EXPECT_EQ(doris::g_file_cache_get_by_peer_get_or_set_calls.get_value() - get_or_set_before, 0);
+}
+
+TEST_F(CachedRemoteFileReaderPeerTest, peer_file_cache_handler_serves_fragmented_cached_layout) {
+    const std::string content = "abcdefghijklmnop";
+    const fs::path file_path =
+            create_peer_test_file("cached_remote_reader_peer_fragmented_layout.dat", content);
+    Defer cleanup_file {[&]() {
+        std::error_code ec;
+        fs::remove(file_path, ec);
+    }};
+
+    const fs::path cache_path = caches_dir / "cached_remote_reader_peer_fragmented_layout_cache";
+    Defer cleanup_cache {[&]() {
+        std::error_code ec;
+        fs::remove_all(cache_path, ec);
+    }};
+
+    clear_cached_remote_reader_factory();
+    BlockFileCache* cache = create_peer_test_cache(cache_path, kPeerTestBlockSize);
+    // A pull-through fill from a client with a smaller cache block size leaves short cells inside
+    // one of this cache's blocks. A block-sized plain peer read must still be served.
+    populate_cache_block_with_content(cache, file_path, 0, kPeerTestBlockSize / 2, content);
+    populate_cache_block_with_content(cache, file_path, kPeerTestBlockSize / 2,
+                                      kPeerTestBlockSize / 2, content);
+
+    auto request =
+            create_peer_cache_block_request(file_path, 0, kPeerTestBlockSize, content.size());
+    PFetchPeerDataResponse response;
+    brpc::Controller cntl;
+
+    auto st = doris::test_handle_peer_file_cache_block_request(&request, &response, &cntl);
+
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(response.status().status_code(), TStatusCode::OK);
+    ASSERT_EQ(response.datas_size(), 2);
+    EXPECT_EQ(response.datas(0).block_offset(), 0);
+    EXPECT_EQ(response.datas(0).data(), content.substr(0, kPeerTestBlockSize / 2));
+    EXPECT_EQ(response.datas(1).block_offset(), kPeerTestBlockSize / 2);
+    EXPECT_EQ(response.datas(1).data(),
+              content.substr(kPeerTestBlockSize / 2, kPeerTestBlockSize / 2));
+}
+
+TEST_F(CachedRemoteFileReaderPeerTest, peer_file_cache_handler_queues_async_lru_touch) {
+    const bool old_async_touch = config::enable_file_cache_async_touch_on_get_or_set;
+    const int64_t old_update_interval_ms =
+            config::file_cache_background_block_lru_update_interval_ms;
+    Defer restore_config {[&]() {
+        config::enable_file_cache_async_touch_on_get_or_set = old_async_touch;
+        config::file_cache_background_block_lru_update_interval_ms = old_update_interval_ms;
+    }};
+    config::enable_file_cache_async_touch_on_get_or_set = true;
+    // Keep the background LRU worker from draining the queue before it is inspected.
+    config::file_cache_background_block_lru_update_interval_ms = 60 * 60 * 1000;
+
+    const std::string content = "abcdefghijklmnop";
+    const fs::path file_path =
+            create_peer_test_file("cached_remote_reader_peer_async_lru_touch.dat", content);
+    Defer cleanup_file {[&]() {
+        std::error_code ec;
+        fs::remove(file_path, ec);
+    }};
+
+    const fs::path cache_path = caches_dir / "cached_remote_reader_peer_async_lru_touch_cache";
+    Defer cleanup_cache {[&]() {
+        std::error_code ec;
+        fs::remove_all(cache_path, ec);
+    }};
+
+    clear_cached_remote_reader_factory();
+    BlockFileCache* cache = create_peer_test_cache(cache_path, kPeerTestBlockSize);
+    populate_cache_block_with_content(cache, file_path, 0, kPeerTestBlockSize, content);
+
+    auto request =
+            create_peer_cache_block_request(file_path, 0, kPeerTestBlockSize, content.size());
+    PFetchPeerDataResponse response;
+    brpc::Controller cntl;
+    const size_t pending_before = cache->need_update_lru_blocks_size_unsafe();
+
+    auto st = doris::test_handle_peer_file_cache_block_request(&request, &response, &cntl);
+
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(response.datas_size(), 1);
+    // Async touch defers the LRU move, so a served hit must be queued like a get_or_set() hit.
+    EXPECT_EQ(cache->need_update_lru_blocks_size_unsafe(), pending_before + 1);
+}
+
+TEST_F(CachedRemoteFileReaderPeerTest, peer_file_cache_handler_miss_returns_not_found) {
+    const std::string content = "abcdefghijklmnop";
+    const fs::path file_path = create_peer_test_file("cached_remote_reader_peer_miss.dat", content);
+    Defer cleanup_file {[&]() {
+        std::error_code ec;
+        fs::remove(file_path, ec);
+    }};
+
+    const fs::path cache_path = caches_dir / "cached_remote_reader_peer_miss_cache";
+    Defer cleanup_cache {[&]() {
+        std::error_code ec;
+        fs::remove_all(cache_path, ec);
+    }};
+
+    clear_cached_remote_reader_factory();
+    BlockFileCache* cache = create_peer_test_cache(cache_path, kPeerTestBlockSize);
+    const auto hash = BlockFileCache::hash(file_path.filename().native());
+
+    auto request =
+            create_peer_cache_block_request(file_path, 0, kPeerTestBlockSize, content.size());
+    PFetchPeerDataResponse response;
+    brpc::Controller cntl;
+    const uint64_t get_or_set_before = doris::g_file_cache_get_by_peer_get_or_set_calls.get_value();
+
+    auto st = doris::test_handle_peer_file_cache_block_request(&request, &response, &cntl);
+
+    ASSERT_TRUE(st.is<ErrorCode::NOT_FOUND>()) << st;
+    EXPECT_EQ(response.status().status_code(), TStatusCode::NOT_FOUND);
+    ASSERT_GE(response.status().error_msgs_size(), 1);
+    EXPECT_NE(response.status().error_msgs(0).find("cache block not fully downloaded"),
+              std::string::npos);
+    EXPECT_EQ(response.datas_size(), 0);
+    EXPECT_EQ(doris::g_file_cache_get_by_peer_get_or_set_calls.get_value() - get_or_set_before, 0);
+    EXPECT_FALSE(cache->_files.contains(hash));
+}
+
+TEST_F(CachedRemoteFileReaderPeerTest, peer_file_cache_handler_serves_offset_inside_cached_block) {
+    const std::string content = "abcdefghijklmnop";
+    const fs::path file_path =
+            create_peer_test_file("cached_remote_reader_peer_offset_inside_block.dat", content);
+    Defer cleanup_file {[&]() {
+        std::error_code ec;
+        fs::remove(file_path, ec);
+    }};
+
+    const fs::path cache_path = caches_dir / "cached_remote_reader_peer_offset_inside_block_cache";
+    Defer cleanup_cache {[&]() {
+        std::error_code ec;
+        fs::remove_all(cache_path, ec);
+    }};
+
+    clear_cached_remote_reader_factory();
+    BlockFileCache* cache = create_peer_test_cache(cache_path, kPeerTestBlockSize);
+    populate_cache_block_with_content(cache, file_path, 0, kPeerTestBlockSize, content);
+
+    // A client with a smaller cache block size can request a range that starts inside one of this
+    // cache's blocks. The server returns the covering block whole. This checks the server only:
+    // the current client rejects a response block outside its requested ranges, as with
+    // get_or_set().
+    auto request = create_peer_cache_block_request(file_path, kPeerTestBlockSize / 2,
+                                                   kPeerTestBlockSize / 2, content.size());
     PFetchPeerDataResponse response;
     brpc::Controller cntl;
 
@@ -2260,6 +2430,107 @@ protected:
                 .get_peer_candidates(kCrossTabletId);
     }
 
+    // Let the peer win while the S3 task is held at `s3_sync_point`, wait for the S3 task to
+    // finish, and report how many S3 reads and queue skips it recorded. With
+    // `peer_waits_for_s3_hold`, the peer replies only after S3 reaches the sync point, so the
+    // peer cannot win before the S3 task starts.
+    void run_peer_win_with_s3_held_at(const std::string& name, const std::string& s3_sync_point,
+                                      bool peer_waits_for_s3_hold, uint64_t* s3_reads,
+                                      uint64_t* s3_skips) {
+        const std::string content = "abcdefghijklmnop";
+        const fs::path file_path = create_cross_cg_test_file(name + "_0.dat", content);
+        Defer cleanup_file {[&]() {
+            std::error_code ec;
+            fs::remove(file_path, ec);
+        }};
+
+        const fs::path cache_path = caches_dir / (name + "_cache");
+        Defer cleanup_cache {[&]() {
+            std::error_code ec;
+            fs::remove_all(cache_path, ec);
+        }};
+
+        clear_cached_remote_reader_factory();
+        create_peer_test_cache(cache_path, kPeerTestBlockSize);
+
+        // Submit S3 immediately so only the S3 task itself can observe the peer win.
+        const int32_t old_hedge_delay_ms = config::peer_race_hedge_delay_ms;
+        Defer restore_hedge_delay {
+                [&]() { config::peer_race_hedge_delay_ms = old_hedge_delay_ms; }};
+        config::peer_race_hedge_delay_ms = 0;
+
+        std::mutex s3_hold_mutex;
+        std::condition_variable s3_hold_cv;
+        bool s3_held = false;
+        MockPeerCacheService service(content);
+        if (peer_waits_for_s3_hold) {
+            service.before_response = [&]() {
+                std::unique_lock lock(s3_hold_mutex);
+                s3_hold_cv.wait_for(lock, kPeerRpcWaitTimeout, [&] { return s3_held; });
+            };
+        }
+        brpc::Server server;
+        auto addr = start_peer_test_server(&server, &service);
+        Defer stop_server {[&]() { stop_peer_test_server(&server); }};
+        register_cross_cg_candidate("127.0.0.1", addr.port);
+
+        const uint64_t peer_wins_before = g_peer_race_peer_win.get_value();
+        const uint64_t s3_reads_before = s3_read_counter.get_value();
+        const uint64_t s3_skips_before = g_peer_race_s3_skipped_after_queue.get_value();
+
+        auto* sp = SyncPoint::get_instance();
+        sp->clear_all_call_backs();
+        sp->enable_processing();
+        SyncPoint::CallbackGuard s3_hold_guard;
+        sp->set_call_back(
+                s3_sync_point,
+                [&](auto&&) {
+                    {
+                        std::lock_guard lock(s3_hold_mutex);
+                        s3_held = true;
+                    }
+                    s3_hold_cv.notify_all();
+                    // collect_race_result counts the peer win only after winner == 0 is set.
+                    const auto deadline = std::chrono::steady_clock::now() + kPeerRpcWaitTimeout;
+                    while (g_peer_race_peer_win.get_value() == peer_wins_before &&
+                           std::chrono::steady_clock::now() < deadline) {
+                        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                    }
+                },
+                &s3_hold_guard);
+        Defer disable_sp {[&]() {
+            sp->disable_processing();
+            sp->clear_all_call_backs();
+        }};
+
+        FileReaderSPtr local_reader;
+        ASSERT_TRUE(global_local_filesystem()->open_file(file_path.string(), &local_reader).ok());
+
+        FileReaderOptions opts;
+        opts.cache_type = FileCachePolicy::FILE_BLOCK_CACHE;
+        opts.is_doris_table = true;
+        opts.mtime = 1;
+        opts.tablet_id = kCrossTabletId;
+        auto reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
+
+        std::string buffer(10, '#');
+        size_t bytes_read = 0;
+        IOContext io_ctx;
+        FileCacheStatistics cache_stats;
+        io_ctx.file_cache_stats = &cache_stats;
+
+        ASSERT_TRUE(
+                reader->read_at(1, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
+        EXPECT_EQ(buffer, content.substr(1, 10));
+        EXPECT_EQ(bytes_read, 10);
+        EXPECT_EQ(cache_stats.num_peer_race_peer_win, 1);
+
+        // The losing S3 task outlives read_at(); wait for it before reading its counters.
+        ExecEnv::GetInstance()->peer_race_s3_thread_pool()->wait();
+        *s3_reads = s3_read_counter.get_value() - s3_reads_before;
+        *s3_skips = g_peer_race_s3_skipped_after_queue.get_value() - s3_skips_before;
+    }
+
 private:
     bool _old_enable_peer_s3_race = false;
     int32_t _old_max_concurrent_peer_races = 64;
@@ -3416,6 +3687,38 @@ TEST_F(CrossCGWinnerRaceTest, race_peer_stops_when_s3_wins) {
     // Candidate 1 was tried (cache miss), candidate 2 was NOT tried (S3 already won).
     EXPECT_EQ(miss_service1.rpc_count.load(), 1) << "candidate 1 should have been tried";
     EXPECT_EQ(miss_service2.rpc_count.load(), 0) << "candidate 2 should be skipped (S3 won)";
+}
+
+// ----------------------------------------------------------------
+// Test: an S3 task that starts after the peer has won skips its GET.
+//
+// Holding S3 at s3_task_start models a task that waited in PeerRaceS3ThreadPool while the peer
+// won. The task must return before counting or issuing the S3 read.
+// ----------------------------------------------------------------
+TEST_F(CrossCGWinnerRaceTest, s3_task_skips_read_when_peer_won_while_queued) {
+    uint64_t s3_reads = 0;
+    uint64_t s3_skips = 0;
+    run_peer_win_with_s3_held_at("s3_skip_queued",
+                                 "CachedRemoteFileReader::_execute_winner_race::s3_task_start",
+                                 /*peer_waits_for_s3_hold=*/false, &s3_reads, &s3_skips);
+    EXPECT_EQ(s3_reads, 0);
+    EXPECT_EQ(s3_skips, 1);
+}
+
+// ----------------------------------------------------------------
+// Test: an S3 task that started before the peer won still reads.
+//
+// s3_before_read is after the queue check. The peer replies only once S3 is held there, so the
+// task has passed the check before the peer wins and keeps the read-then-discard behavior.
+// ----------------------------------------------------------------
+TEST_F(CrossCGWinnerRaceTest, s3_task_reads_when_started_before_peer_won) {
+    uint64_t s3_reads = 0;
+    uint64_t s3_skips = 0;
+    run_peer_win_with_s3_held_at("s3_read_started",
+                                 "CachedRemoteFileReader::_execute_winner_race::s3_before_read",
+                                 /*peer_waits_for_s3_hold=*/true, &s3_reads, &s3_skips);
+    EXPECT_EQ(s3_reads, 1);
+    EXPECT_EQ(s3_skips, 0);
 }
 
 // ----------------------------------------------------------------
