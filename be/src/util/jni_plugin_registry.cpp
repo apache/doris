@@ -198,7 +198,7 @@ Status PluginRegistry::clean_udf_cache(int64_t function_id, const std::string& f
     RETURN_IF_ERROR(_ensure_registry(&registry));
 
     LocalString signature;
-    RETURN_IF_ERROR(LocalString::new_string(env, function_signature.c_str(), &signature));
+    RETURN_IF_ERROR(LocalString::new_string_utf8(env, function_signature, &signature));
     return registry->cls.call_static_void_method(env, registry->clean_udf_cache)
             .with_arg(static_cast<jlong>(function_id))
             .with_arg(signature)
@@ -214,10 +214,7 @@ Status PluginRegistry::plugin_status_json(std::string* status) {
     LocalString json;
     RETURN_IF_ERROR(
             registry->cls.call_static_object_method(env, registry->plugin_status_json).call(&json));
-    LocalStringBufferGuard chars;
-    RETURN_IF_ERROR(json.get_string_chars(env, &chars));
-    *status = chars.get();
-    return Status::OK();
+    return json.get_string_utf8(env, status);
 }
 
 bool PluginRegistry::any_plugin_deployed() {
