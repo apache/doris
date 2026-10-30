@@ -185,10 +185,8 @@ private:
     std::shared_ptr<ColumnReader> _owner;
 };
 
-// A V2 column with count 0 keeps every dynamic path in its sparse column(s), and its typed paths
-// too with typed_paths_to_sparse, so its segments have no other subcolumn: with a template typed
-// path `t`, a segment may hold `t` but never a dynamic `a`. Doc mode and nested group do not
-// consult the count, so the serialize type says nothing about their subcolumns.
+// V2 with count 0 keeps dynamic paths (and typed ones with typed_paths_to_sparse) in the sparse
+// column, so a template path `t` may be a subcolumn but a dynamic `a` may not.
 void check_variant_serialize_type_layout(const TabletColumn& column,
                                          const SubcolumnColumnMetaInfo& subcolumns) {
     if (column.variant_serialize_type() != VariantSerializeTypePB::VARIANT_SERIALIZE_V2 ||

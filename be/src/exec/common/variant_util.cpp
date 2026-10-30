@@ -857,9 +857,7 @@ void VariantCompactionUtil::get_subpaths(int32_t max_subcolumns_count,
                                          VariantSerializeTypePB serialize_type,
                                          const PathToNoneNullValues& stats,
                                          VariantCompactionPaths& paths_set_info) {
-    // The serialize type only changes what a count of 0 means: no limit under V1, no dynamic
-    // subcolumn under V2. For stats {a, b} and a count of 0, V1 puts a and b in sub_path_set, while
-    // V2 leaves both sets empty, so the sparse merge keeps a and b in the sparse column(s).
+    // Count 0 means no limit under V1, and no dynamic subcolumn under V2 (every path stays sparse).
     if (max_subcolumns_count == 0 &&
         serialize_type == VariantSerializeTypePB::VARIANT_SERIALIZE_V2) {
         return;
