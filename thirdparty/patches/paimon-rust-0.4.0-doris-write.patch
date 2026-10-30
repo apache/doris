@@ -4,12 +4,13 @@
 # Expose pinned Arrow schemas, message ranges and explicit awaited writer shutdown.
 # Close rolled files synchronously to bound outstanding file-close work.
 # This does not provide a hard limit on all native allocations or in-flight cancellation.
+# Flush metered writers when retained input reaches the buffer threshold.
 --- a/bindings/c/src/write.rs
 +++ b/bindings/c/src/write.rs
 @@ -850,6 +850,128 @@
- 
+
  // ======================= CommitMessages ===============================
- 
+
 +/// Stop a standard writer and wait for its outstanding file work.
 +/// Prepared messages remain caller-owned; this only cleans producer-owned output.
 +///
@@ -175,13 +176,11 @@
 +        }
          Ok(b.build_row_data())
      }
- 
-@@ -611,6 +627,25 @@
-             write_cols: Some(vec!["k".to_string(), "v".to_string()]),
-             column_max_sequence_numbers: None,
+
+@@ -613,6 +629,25 @@
          }
-+    }
-+
+     }
+
 +    #[test]
 +    fn java_v11_file_layout_preserves_fields_and_rejects_new_semantics() {
 +        let mut file = data_file("legacy.parquet");
@@ -199,15 +198,17 @@
 +        assert!(file
 +            .to_serialized_row_data_with_layout(DataFileMetaRowLayout::WriteCols)
 +            .is_err());
-     }
- 
++    }
++
      fn int_stats(min: Option<i32>, max: Option<i32>, null_count: Option<i64>) -> BinaryTableStats {
+         let data_type = DataType::Int(IntType::new());
+         let min = min.map(Datum::Int);
 --- a/crates/paimon/src/table/commit_message.rs
 +++ b/crates/paimon/src/table/commit_message.rs
 @@ -190,6 +190,62 @@
          Ok(out)
      }
- 
+
 +    /// Encode an ordinary append for Java 1.4.x CommitMessageSerializer v11.
 +    /// Newer conflict and index semantics must never be silently discarded.
 +    pub fn serialize_append_java_v11(&self, max_bytes: usize) -> crate::Result<Vec<u8>> {
@@ -270,7 +271,7 @@
 @@ -323,6 +379,25 @@
      use super::*;
      use base64::Engine;
- 
+
 +    #[test]
 +    fn java_v11_append_has_no_v14_trailer_and_obeys_limit() {
 +        let message = CommitMessage::new(Vec::new(), -1, Vec::new());
@@ -295,7 +296,7 @@
      // 5 and one data-increment IndexFileMeta("I", "index", 9, 2).
 --- a/crates/paimon/src/table/data_file_writer.rs
 +++ b/crates/paimon/src/table/data_file_writer.rs
-@@ -238,7 +238,8 @@
+@@ -238,11 +238,19 @@
          if self.current_row_count >= self.target_file_row_num
              || self.current_writer.as_ref().unwrap().num_bytes() as i64 >= self.target_file_size
          {
@@ -303,14 +304,24 @@
 +            // Embedded writers bound outstanding work by waiting for each rolled file.
 +            self.close_current_file().await?;
          }
- 
+
          if let Some(writer) = self.current_writer.as_mut() {
-@@ -347,16 +348,6 @@
-             self.written_files.push((ordinal, close.await?));
+-            if writer.in_progress_size() as i64 >= self.write_buffer_size {
++            // Dictionary encoding can be tiny while input reservations keep growing.
++            let retained_input = self
++                .resources
++                .as_ref()
++                .map_or(0, |resources| resources.metrics().reserved_memory_bytes);
++            if writer.in_progress_size() as i64 >= self.write_buffer_size
++                || retained_input as i64 >= self.write_buffer_size
++            {
+                 writer.flush().await?;
+             }
          }
+@@ -349,16 +357,6 @@
          Ok(())
--    }
--
+     }
+
 -    /// Spawn the current writer's close in the background for non-blocking rolling.
 -    fn roll_file(&mut self) {
 -        if let Some(close) = self.take_close() {
@@ -319,6 +330,81 @@
 -            self.in_flight_closes
 -                .spawn(async move { Ok((ordinal, close.await?)) });
 -        }
-     }
- 
+-    }
+-
      fn take_close(
+         &mut self,
+     ) -> Option<impl std::future::Future<Output = Result<DataFileMeta>> + Send + 'static> {
+@@ -619,6 +617,72 @@
+     }
+
+     #[tokio::test]
++    async fn doris_reserved_input_triggers_flush_for_dictionary_encoded_strings() {
++        use crate::spec::VarCharType;
++        use arrow_array::StringArray;
++        use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
++
++        let limit = 6 * 1024 * 1024;
++        let resources = ResourceContext::builder()
++            .memory_limit(limit)
++            .build()
++            .unwrap();
++        let io = FileIOBuilder::new("memory").build().unwrap();
++        let path = "memory:///doris-input-budget";
++        let mut writer = DataFileWriter::new(
++            io.clone(),
++            path.into(),
++            String::new(),
++            0,
++            0,
++            i64::MAX,
++            "zstd".into(),
++            1,
++            1024 * 1024,
++            "parquet".into(),
++            vec![DataField::new(
++                0,
++                "id".into(),
++                DataType::VarChar(VarCharType::string_type()),
++            )],
++            HashMap::new(),
++            Some(0),
++            None,
++            None,
++        )
++        .unwrap()
++        .with_resources(Some(resources.clone()));
++        let schema = Arc::new(Schema::new(vec![Field::new(
++            "id",
++            ArrowDataType::Utf8,
++            true,
++        )]));
++        let value = "x".repeat(4096);
++        for _ in 0..4 {
++            // Distinct input buffers, but the dictionary encodes each batch to a few KiB.
++            let array = StringArray::from(vec![value.as_str(); 1024]);
++            let batch = RecordBatch::try_new(schema.clone(), vec![Arc::new(array)]).unwrap();
++            writer.write(&batch).await.unwrap();
++        }
++        let files = writer.prepare_commit().await.unwrap();
++        assert_eq!(files.len(), 1);
++        assert_eq!(files[0].row_count, 4096);
++        let input = io
++            .new_input(&format!("{path}/bucket-0/{}", files[0].file_name))
++            .unwrap();
++        let reader = ParquetRecordBatchReaderBuilder::try_new(input.read().await.unwrap())
++            .unwrap()
++            .build()
++            .unwrap();
++        assert_eq!(
++            reader.map(|batch| batch.unwrap().num_rows()).sum::<usize>(),
++            4096
++        );
++        assert_eq!(resources.metrics().reserved_memory_bytes, 0);
++        assert!(resources.metrics().peak_reserved_memory_bytes <= limit);
++    }
++
++    #[tokio::test]
+     async fn partitioned_writer_does_not_create_double_slash_bucket_paths() {
+         let provider = Arc::new(RecordingProvider {
+             operator: Operator::from_config(opendal::services::MemoryConfig::default()).unwrap(),
