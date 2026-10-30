@@ -23,7 +23,6 @@ import org.apache.doris.backup.BackupJobInfo.BackupPartitionInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupTabletInfo;
 import org.apache.doris.backup.RestoreFileMapping.IdChain;
 import org.apache.doris.backup.Status.ErrCode;
-import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -51,6 +50,7 @@ import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletBinlogConfig;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
 import org.apache.doris.clone.DynamicPartitionScheduler;
@@ -705,9 +705,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 Table remoteTbl = backupMeta.getTable(tableName);
                 Preconditions.checkNotNull(remoteTbl);
                 OlapTable remoteOlapTbl = (OlapTable) remoteTbl;
-                if (remoteOlapTbl.needRowBinlog()) {
+                if (remoteOlapTbl.hasChangelog()) {
                     status = new Status(ErrCode.COMMON_ERROR,
-                            "Do not support restore table with binlog<Row> enabled: " + remoteOlapTbl.getName());
+                            "Do not support restore table with changelog enabled: " + remoteOlapTbl.getName());
                     return;
                 }
                 Table localTbl = db.getTableNullable(jobInfo.getAliasByOriginNameIfSet(tableName));
@@ -722,9 +722,13 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
                 if (localTbl != null) {
                     OlapTable localOlapTbl = (OlapTable) localTbl;
-                    if (localOlapTbl.needRowBinlog()) {
+                    if (localOlapTbl.isLegacyChangelog()) {
+                        status = new Status(ErrCode.COMMON_ERROR, localOlapTbl.getLegacyChangelogMessage());
+                        return;
+                    }
+                    if (localOlapTbl.hasChangelog()) {
                         status = new Status(ErrCode.COMMON_ERROR,
-                                "Do not support restore into local table with binlog<Row> enabled: "
+                                "Do not support restore into local table with changelog enabled: "
                                         + localOlapTbl.getName());
                         return;
                     }
@@ -1431,10 +1435,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             batchTaskPerTable.put(localTbl.getId(), batchTask);
         }
 
-        BinlogConfig binlogConfig;
+        TabletBinlogConfig binlogConfig;
         localTbl.readLock();
         try {
-            binlogConfig = new BinlogConfig(localTbl.getBinlogConfig());
+            binlogConfig = localTbl.getTabletBinlogConfig();
         } finally {
             localTbl.readUnlock();
         }
@@ -1458,7 +1462,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 }
                 TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
                         restoredIdx.getId(), indexMeta.getSchemaHash(), storageMedium,
-                        indexMeta.isRowBinlogIndex());
+                        indexMeta.isChangelogIndex());
                 Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                 for (Replica restoreReplica : restoreTablet.getReplicas()) {
                     Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
@@ -1492,7 +1496,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             localTbl.storagePageSize(), localTbl.getTDEAlgorithm(),
                             localTbl.storageDictPageSize(),
                             localTbl.getColumnSeqMapping(),
-                            localTbl.getVerticalCompactionNumColumnsPerGroup());
+                            localTbl.getVerticalCompactionNumColumnsPerGroup(),
+                            localTbl.getRowTtlConfig(),
+                            localTbl.getRowTtlTimeZoneOffsetSeconds());
                     task.setInvertedIndexFileStorageFormat(localTbl.getInvertedIndexFileStorageFormat());
                     task.setInRestoreMode(true);
                     if (baseTabletRef != null) {
@@ -1738,7 +1744,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 int schemaHash = localTbl.getSchemaHashByIndexId(restoreIdx.getId());
                 for (Tablet restoreTablet : restoreIdx.getTablets()) {
                     TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
-                            restoreIdx.getId(), schemaHash, TStorageMedium.HDD, restoreIdx.isRowBinlog());
+                            restoreIdx.getId(), schemaHash, TStorageMedium.HDD, restoreIdx.isChangelog());
                     Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                     for (Replica restoreReplica : restoreTablet.getReplicas()) {
                         Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
@@ -1770,7 +1776,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         int schemaHash = olapRestoreTbl.getSchemaHashByIndexId(restoreIdx.getId());
                         for (Tablet restoreTablet : restoreIdx.getTablets()) {
                             TabletMeta tabletMeta = new TabletMeta(db.getId(), restoreTbl.getId(), restorePart.getId(),
-                                    restoreIdx.getId(), schemaHash, TStorageMedium.HDD, restoreIdx.isRowBinlog());
+                                    restoreIdx.getId(), schemaHash, TStorageMedium.HDD, restoreIdx.isChangelog());
                             Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                             for (Replica restoreReplica : restoreTablet.getReplicas()) {
                                 Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);

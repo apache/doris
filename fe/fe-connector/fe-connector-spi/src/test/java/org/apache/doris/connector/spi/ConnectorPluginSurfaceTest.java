@@ -88,22 +88,30 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 19 adds ConnectorColumn#isSourceNullable()/withSourceNullable(boolean) - the nullability the
-        // source declares, kept separate from the nullability the engine reads the column with.
-        Assertions.assertEquals("19.0", version.getProperty("api.version"));
+        // Major 20 adds deleteUsingMetadata to the connector write surface; major 21 adds
+        // typed filesystem credential descriptions and statement-scoped metadata.
+        // Major 22 adds the metadata-only DDL handle path; major 23 adds the provider's
+        // ConnectorSecuritySurface declaration; major 24 adds the scan task scheduler;
+        // major 25 adds connector-sized partition batches.
+        Assertions.assertEquals("25.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
     private static final List<Class<?>> FROZEN_TYPES = Arrays.asList(
+            ConnectorTaskScheduler.class,
             DiagnosticException.class,
             ConnectorProvider.class,
+            ConnectorSecuritySurface.class,
             ConnectorContext.class,
             ConnectorSession.class,
+            ConnectorStatementScope.class,
+            ConnectorStatementScopes.class,
             Connector.class,
             ConnectorColumnHandle.class,
             ConnectorColumn.class,
             ConnectorTableSchema.class,
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.class,
+            org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion.class,
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.Builder.class,
             ConnectorScanPlanProvider.class,
             org.apache.doris.connector.spi.scan.ConnectorScanRange.class,
@@ -115,11 +123,12 @@ public class ConnectorPluginSurfaceTest {
             ConnectorWritePlanProvider.class,
             org.apache.doris.extension.spi.Plugin.class,
             org.apache.doris.extension.spi.PluginFactory.class,
-            org.apache.doris.extension.spi.PluginContext.class);
+            org.apache.doris.extension.spi.PluginContext.class,
+            org.apache.doris.connector.spi.scan.ConnectorSplitSource.class);
 
     /** Public enum constants linked directly by connector plugin bytecode. */
     private static final List<Class<? extends Enum<?>>> FROZEN_ENUM_TYPES =
-            Arrays.asList(ConnectorCapability.class,
+            Arrays.asList(ConnectorCapability.class, ConnectorTaskScheduler.Stage.class,
                     org.apache.doris.connector.spi.write.ConnectorRowChangeStyle.class,
                     org.apache.doris.connector.spi.write.ConnectorWriteDistribution.Mode.class,
                     org.apache.doris.connector.spi.write.ConnectorWriteDistribution.WriterAssignment.class);

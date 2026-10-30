@@ -70,14 +70,14 @@ DeltaWriter::DeltaWriter(StorageEngine& engine, const WriteRequest& req, Runtime
 }
 
 DeltaWriter::DeltaWriter(StorageEngine& engine, const WriteRequest& group_build_req,
-                         const WriteRequest& sub_data_req, const WriteRequest& sub_row_binlog_req,
+                         const WriteRequest& sub_data_req, const WriteRequest& sub_changelog_req,
                          RuntimeProfile* profile, const UniqueId& load_id)
         : BaseDeltaWriter(group_build_req, profile, load_id), _engine(engine) {
     DCHECK(group_build_req.write_req_type == WriteRequestType::GROUP &&
            sub_data_req.write_req_type == WriteRequestType::DATA &&
-           sub_row_binlog_req.write_req_type == WriteRequestType::ROW_BINLOG);
+           sub_changelog_req.write_req_type == WriteRequestType::CHANGELOG);
     _rowset_builder = std::make_unique<GroupRowsetBuilder>(_engine, group_build_req, sub_data_req,
-                                                           sub_row_binlog_req, profile);
+                                                           sub_changelog_req, profile);
 }
 
 void BaseDeltaWriter::_init_profile(RuntimeProfile* profile) {

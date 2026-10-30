@@ -24,11 +24,14 @@
 #include <string>
 #include <vector>
 
+#include "core/block/block.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/field.h"
 #include "core/types.h"
 #include "exprs/function/function_test_util.h"
+#include "exprs/function/simple_function_factory.h"
 #include "util/defer_op.h"
 #include "util/encryption_util.h"
 #include "util/md5.h"
@@ -744,17 +747,62 @@ TEST(function_string_test, function_string_upper_test) {
     }
 }
 
+TEST(function_string_test, function_string_case_mixed_ascii_runs_test) {
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+    DataSet lower_data = {{{std::string("")}, std::string("")}};
+    DataSet upper_data = lower_data;
+    // Each row is shorter than a SIMD register, but the consecutive run spans multiple registers.
+    for (int i = 0; i < 32; ++i) {
+        lower_data.push_back({{std::string("aB")}, std::string("ab")});
+        upper_data.push_back({{std::string("aB")}, std::string("AB")});
+    }
+    lower_data.insert(
+            lower_data.end(),
+            {
+                    {{std::string("\u0130")},
+                     std::string("i\u0307")}, // UTF-8 grows from 2 to 3 bytes.
+                    {{std::string("")}, std::string("")},
+                    {{std::string("AFTER")}, std::string("after")},
+                    {{Null()}, Null()},
+                    {{std::string("EXPANSION")}, std::string("expansion")},
+                    {{std::string("\u212A")}, std::string("k")}, // UTF-8 shrinks from 3 to 1 byte.
+                    {{std::string("")}, std::string("")}, // An empty-only run between Unicode rows.
+                    {{std::string("ΟΣ")},
+                     std::string("ος")}, // Keep contextual final sigma mapping.
+                    {{std::string("你好A")}, std::string("你好a")}, // Consecutive Unicode rows.
+                    {{std::string("A\0Z", 3)}, std::string("a\0z", 3)},
+                    {{std::string("TAIL")}, std::string("tail")},
+                    {{std::string("")}, std::string("")},
+            });
+    upper_data.insert(
+            upper_data.end(),
+            {
+                    {{std::string("\u0390")}, std::string("\u0399\u0308\u0301")}, // 2 to 6 bytes.
+                    {{std::string("")}, std::string("")},
+                    {{std::string("after")}, std::string("AFTER")},
+                    {{Null()}, Null()},
+                    {{std::string("expansion")}, std::string("EXPANSION")},
+                    {{std::string("\u0131")}, std::string("I")}, // UTF-8 shrinks from 2 to 1 byte.
+                    {{std::string("")}, std::string("")},
+                    {{std::string("straße")}, std::string("STRASSE")},
+                    {{std::string("你好a")}, std::string("你好A")},
+                    {{std::string("a\0z", 3)}, std::string("A\0Z", 3)},
+                    {{std::string("tail")}, std::string("TAIL")},
+                    {{std::string("")}, std::string("")},
+            });
+    check_function_all_arg_comb<DataTypeString, true>("lower", input_types, lower_data);
+    check_function_all_arg_comb<DataTypeString, true>("upper", input_types, upper_data);
+}
+
 // LOWER/UPPER/INITCAP case-map through the ICU root locale, independent of the
 // process default locale. Under a Turkish (tr_TR) default locale ICU maps ASCII
 // 'I' -> 'ı' (U+0131) and 'i' -> 'İ' (U+0130); the root locale keeps the plain
 // ASCII round-trip. This test installs a tr_TR ICU default and asserts every
 // result stays locale independent.
 //
-// TransferImpl/InitcapImpl only take the ICU path when the whole input buffer
-// contains a non-ASCII byte; pure-ASCII columns use the locale-neutral SIMD/C
-// fast path. Each data set therefore keeps a non-ASCII anchor row so that
-// check_function_all_arg_comb's batched (non-const) combination routes the
-// ASCII rows through ICU, where the default locale would otherwise leak in.
+// Mixed columns dispatch ASCII rows to the locale-neutral SIMD/C fast path
+// and non-ASCII rows to ICU. Each data set covers both paths in the batched
+// (non-const) combination and separately as constant arguments.
 TEST(function_string_test, function_string_case_root_locale_test) {
     UErrorCode status = U_ZERO_ERROR;
     const icu::Locale saved_default = icu::Locale::getDefault();
@@ -772,7 +820,7 @@ TEST(function_string_test, function_string_case_root_locale_test) {
         DataSet data_set = {
                 {{std::string("I")}, std::string("i")},             // tr default -> "ı"
                 {{std::string("KIZILAY")}, std::string("kizilay")}, // tr default -> "kızılay"
-                {{std::string("ÀÇ")}, std::string("àç")},           // non-ASCII anchor: forces ICU
+                {{std::string("ÀÇ")}, std::string("àç")},           // non-ASCII row: uses ICU
         };
         check_function_all_arg_comb<DataTypeString, true>(std::string("lower"), input_types,
                                                           data_set);
@@ -2889,6 +2937,82 @@ TEST(function_string_test, function_parse_url_test) {
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
     }
+}
+
+TEST(function_string_test, function_parse_url_null_invalid_part_test) {
+    const InputTypeSet two_args = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+    const DataSet null_urls = {{{Null(), std::string("INVALID")}, Null()},
+                               {{Null(), std::string("HOST")}, Null()}};
+    check_function_all_arg_comb<DataTypeString, true>("parse_url", two_args, null_urls);
+
+    const InputTypeSet three_args = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                     PrimitiveType::TYPE_VARCHAR};
+    const DataSet null_inputs = {
+            {{Null(), std::string("INVALID"), std::string("k")}, Null()},
+            {{std::string("http://h/p?k=v"), std::string("INVALID"), Null()}, Null()}};
+    check_function_all_arg_comb<DataTypeString, true>("parse_url", three_args, null_inputs);
+}
+
+TEST(function_string_test, function_translate_mixed_const_map_test) {
+    const auto check_batch = [](const std::string& to, const DataSet& data_set) {
+        const auto type = make_nullable(std::make_shared<DataTypeString>());
+        const size_t row_count = data_set.size();
+        auto source = type->create_column();
+        auto expected = type->create_column();
+        for (const auto& row : data_set) {
+            ASSERT_TRUE(insert_cell(source, type, row.first[0]));
+            ASSERT_TRUE(insert_cell(expected, type, row.second));
+        }
+
+        // Keep mixed source rows in one batch, with singleton nested mapping columns.
+        Block block;
+        block.insert({std::move(source), type, "source"});
+        block.insert({type->create_column_const(
+                              row_count, Field::create_field<TYPE_STRING>(std::string("ab"))),
+                      type, "from"});
+        block.insert({type->create_column_const(row_count, Field::create_field<TYPE_STRING>(to)),
+                      type, "to"});
+        auto function = SimpleFunctionFactory::instance().get_function(
+                "translate", block.get_columns_with_type_and_name(), type);
+        ASSERT_NE(function, nullptr);
+
+        FunctionUtils function_utils(type, {type, type, type}, false);
+        auto* context = function_utils.get_fn_ctx();
+        context->set_constant_cols(
+                {nullptr, std::make_shared<ConstantExprResult>(block.get_by_position(1).column),
+                 std::make_shared<ConstantExprResult>(block.get_by_position(2).column)});
+        ASSERT_TRUE(
+                function->open(context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+        ASSERT_TRUE(
+                function->open(context, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
+        block.insert({nullptr, type, "result"});
+        ASSERT_TRUE(function->execute(context, block, {0, 1, 2}, 3, row_count).ok());
+        ASSERT_TRUE(
+                function->close(context, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
+        ASSERT_TRUE(
+                function->close(context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+
+        const auto& result = block.get_by_position(3).column;
+        ASSERT_EQ(row_count, result->size());
+        for (size_t row = 0; row < row_count; ++row) {
+            EXPECT_EQ(0, result->compare_at(row, row, *expected, 1))
+                    << "row " << row << ", result: " << type->to_string(*result, row)
+                    << ", expected: " << type->to_string(*expected, row);
+        }
+    };
+
+    const DataSet replace_rows = {{{std::string("aba")}, std::string("XYX")},
+                                  {{std::string("a你b好a")}, std::string("X你Y好X")},
+                                  {{std::string("")}, std::string("")},
+                                  {{Null()}, Null()}};
+    check_batch("XY", replace_rows);
+
+    const DataSet delete_rows = {{{std::string("aba")}, std::string("XX")},
+                                 {{std::string("a你b好a")}, std::string("X你好X")},
+                                 {{std::string("bbb")}, std::string("")},
+                                 {{std::string("")}, std::string("")},
+                                 {{Null()}, Null()}};
+    check_batch("X", delete_rows);
 }
 
 TEST(function_string_test, function_hex_test) {

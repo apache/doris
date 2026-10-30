@@ -277,7 +277,11 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
         exportJob.setWhereExpression(this.expr);
         exportJob.setWhereStr(this.expr.isPresent() ? this.expr.get().toSql() : "");
         // set path
-        exportJob.setExportPath(this.path);
+        try {
+            exportJob.setExportPath(this.brokerDesc.get().getFileLocationForExport(this.path));
+        } catch (RuntimeException e) {
+            throw new AnalysisException("Invalid export path: " + this.path + ", " + e.getMessage(), e);
+        }
 
         // set column separator
         String columnSeparator = Separator.convertSeparator(fileProperties.getOrDefault(

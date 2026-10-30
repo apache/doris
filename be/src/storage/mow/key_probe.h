@@ -29,7 +29,7 @@
 
 namespace doris {
 class BaseTablet;
-class IOlapColumnDataAccessor;
+class IColumn;
 class RowKeyEncoder;
 class TabletSchema;
 class SegmentCacheHandle;
@@ -73,7 +73,7 @@ class MowKeyProbe {
 public:
     // Which rows this probe marks deleted in mow_context->delete_bitmap.
     enum class MarkDeleted : uint8_t {
-        // Pure lookup: marking is somebody else's job (the row binlog history read).
+        // Pure lookup: marking is somebody else's job (the changelog history read).
         NONE = 0,
         // Mark the old row, i.e. the row already in the table that the incoming row replaces. On a
         // sequence loss nothing is marked at all: the caller of this mode drops the losing row
@@ -128,11 +128,11 @@ public:
                             }};
     }
 
-    // The row binlog history lookup: marks nothing, and keeps the old values of a sequence loser,
-    // and of a delete-signed row when a __BEFORE__* image is wanted.
-    static MowKeyProbe for_row_binlog(BaseTablet* tablet, TabletSchema* lookup_schema,
-                                      bool has_sequence_col,
-                                      std::shared_ptr<MowContext> mow_context, bool write_before) {
+    // The changelog history lookup: marks nothing, and keeps the old values of a sequence loser,
+    // and of a delete-signed row when a before image is wanted.
+    static MowKeyProbe for_changelog(BaseTablet* tablet, TabletSchema* lookup_schema,
+                                     bool has_sequence_col, std::shared_ptr<MowContext> mow_context,
+                                     bool write_before) {
         return MowKeyProbe {tablet,
                             lookup_schema,
                             has_sequence_col,
@@ -181,10 +181,11 @@ private:
     Policy _policy;
 };
 
-std::string encode_mow_key_invalidate_cache(
-        const RowKeyEncoder& key_encoder, const std::vector<IOlapColumnDataAccessor*>& key_columns,
-        const IOlapColumnDataAccessor* seq_column, size_t pos, bool row_has_seq, int64_t tablet_id,
-        const TabletSchema& schema, DataWriteType write_type);
+std::string encode_mow_key_invalidate_cache(const RowKeyEncoder& key_encoder,
+                                            const std::vector<const IColumn*>& key_columns,
+                                            const IColumn* seq_column, size_t pos, bool row_has_seq,
+                                            int64_t tablet_id, const TabletSchema& schema,
+                                            DataWriteType write_type);
 
 } // namespace segment_v2
 } // namespace doris

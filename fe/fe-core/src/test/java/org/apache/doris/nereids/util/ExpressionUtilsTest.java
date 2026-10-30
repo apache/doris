@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Explode;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeBitmap;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeBitmapOuter;
@@ -44,6 +45,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.IntegerType;
@@ -243,6 +245,27 @@ public class ExpressionUtilsTest extends TestWithFeService {
                 project);
         // should not loop, should break out loop
         Assertions.assertEquals(expressions, ImmutableList.of(a, bAlias.toSlot()));
+    }
+
+    @Test
+    public void testShuttleDoesNotUseConstantShadowingLowerColumn() {
+        OlapTable olapTable = TableTest.newOlapTable(10000, "test", 0);
+        Slot a = new SlotReference("a", IntegerType.INSTANCE);
+        Slot b = new SlotReference("b", IntegerType.INSTANCE);
+        LogicalProject<LogicalOdbcScan> child = new LogicalProject<>(ImmutableList.of(a, b),
+                new LogicalOdbcScan(new RelationId(0), olapTable, ImmutableList.of("test")));
+        // the aggregate removes `a` from its output, like constant propagation on a constant grouping key
+        LogicalAggregate<LogicalProject<LogicalOdbcScan>> aggregate = new LogicalAggregate<>(
+                ImmutableList.of(b), ImmutableList.of(b, new Alias(new Sum(a), "sum_a")), child);
+        // constant propagation materializes the removed grouping key above the aggregate and reuses its exprId
+        LogicalProject<LogicalAggregate<LogicalProject<LogicalOdbcScan>>> project = new LogicalProject<>(
+                ImmutableList.of(new Alias(a.getExprId(), new IntegerLiteral(1), "a"), b), aggregate);
+        Expression predicate = new EqualTo(a, new IntegerLiteral(1));
+        List<? extends Expression> shuttledExpressions
+                = ExpressionUtils.shuttleExpressionWithLineage(ImmutableList.of(predicate), project);
+        // `a` is still defined below the project, so the constant above must not replace it in the predicate,
+        // otherwise the predicate becomes `1 = 1` and is dropped
+        Assertions.assertEquals(ImmutableList.of(predicate), shuttledExpressions);
     }
 
     @Test

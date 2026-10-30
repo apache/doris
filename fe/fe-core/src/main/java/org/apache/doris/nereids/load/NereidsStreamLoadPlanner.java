@@ -161,9 +161,10 @@ public class NereidsStreamLoadPlanner {
                 }
                 existInExpr = NereidsLoadUtils.hasImportColumn(taskInfo.getColumnExprDescs().descs, col);
                 if (existInExpr) {
-                    if (!col.isVisible() && !Column.DELETE_SIGN.equals(col.getName())) {
+                    if (!col.isVisible() && !Column.DELETE_SIGN.equals(col.getName())
+                            && !(col.isTtlColumn() && destTable.isDirectRowTtl())) {
                         throw new UserException("Partial update should not include invisible column except"
-                                + " delete sign column: " + col.getName());
+                                + " delete sign or direct TTL column: " + col.getName());
                     }
                     partialUpdateInputColumns.add(col.getName());
                     if (destTable.hasSequenceCol()
@@ -177,7 +178,8 @@ public class NereidsStreamLoadPlanner {
                         throw new UserException("Partial update should include all key columns, missing: "
                                 + col.getName());
                     }
-                    if (!(col.isKey() && col.isAutoInc()) && col.isVisible()) {
+                    if (!(col.isKey() && col.isAutoInc())
+                            && (col.isVisible() || (col.isTtlColumn() && destTable.isDirectRowTtl()))) {
                         hasMissingColExceptAutoIncKey = true;
                     }
                 }
@@ -303,6 +305,8 @@ public class NereidsStreamLoadPlanner {
         params.setTotalLoadStreams(taskInfo.getStreamPerNode());
         params.setNumLocalSink(1);
         TQueryOptions queryOptions = new TQueryOptions();
+        // Load plans do not inherit session query options; explicitly select the V2 load path.
+        queryOptions.setEnableFileScannerV2(true);
         queryOptions.setQueryType(TQueryType.LOAD);
         int timeout = taskInfo.getTimeout();
         queryOptions.setQueryTimeout(timeout);

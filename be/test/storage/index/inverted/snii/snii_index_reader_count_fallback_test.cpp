@@ -342,10 +342,18 @@ public:
         return avgdl;
     }
 
+    // The tablet expanded every prefix to beta.
+    std::vector<std::wstring> get_prefix_expansions(const std::wstring& /*field_name*/,
+                                                    const std::wstring& prefix) override {
+        prefixes.push_back(prefix);
+        return {L"beta"};
+    }
+
     float avgdl = 3.0F;
     std::unordered_map<std::wstring, float> idfs {{L"alpha", 1.0F}, {L"beta", 2.0F}};
     std::vector<std::wstring> fields;
     std::vector<std::wstring> idf_terms;
+    std::vector<std::wstring> prefixes;
 };
 
 std::vector<uint32_t> positive_score_docids(const CollectionSimilarity& similarity,
@@ -550,7 +558,7 @@ constexpr uint32_t kArrayNullPayloadNullDocid = 1;
 // A segment shaped the way a nullable ARRAY column really lands on disk when the
 // nested payload survives under the outer null map: docid 1 is NULL, and
 // "alpha"'s posting contains it anyway. That is not a corrupt image --
-// ArrayColumnWriter::append_nullable feeds add_array_values() every row of the
+// feed_array_index() hands add_array_values() every row of the
 // batch (the offsets come from the nested ColumnArray, which the outer null map
 // never touches) and the add_array_nulls() that follows only records the null row
 // id. Reachable from SQL because
@@ -1001,9 +1009,11 @@ TEST_F(SniiIndexReaderCountFallback, PublicPhraseQueriesScoreOccurrenceFrequency
                                          prefix_bitmap, &analyzer_ctx));
     ASSERT_NE(prefix_bitmap, nullptr);
     EXPECT_EQ(bitmap_docids(*prefix_bitmap), (std::vector<uint32_t> {1}));
-    EXPECT_EQ(prefix_stats->idf_terms, (std::vector<std::wstring> {L"alpha"}));
+    // The phrase's idf counts alpha and the term the tablet expanded "be" to.
+    EXPECT_EQ(prefix_stats->prefixes, (std::vector<std::wstring> {L"be"}));
+    EXPECT_EQ(prefix_stats->idf_terms, (std::vector<std::wstring> {L"alpha", L"beta"}));
     EXPECT_EQ(prefix.stats.inverted_index_query_cache_lookup, 0);
-    BM25Similarity prefix_similarity(1.0F, 3.0F);
+    BM25Similarity prefix_similarity(3.0F, 3.0F);
     prefix_similarity.bind_norms(index_query::kByteNormLengths);
     EXPECT_FLOAT_EQ(score_for_doc(*prefix.context->collection_similarity, 1),
                     prefix_similarity.score(2.0F, doris::snii::query::encode_norm(4)));

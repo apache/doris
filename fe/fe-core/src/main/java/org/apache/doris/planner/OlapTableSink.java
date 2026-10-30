@@ -152,6 +152,11 @@ public class OlapTableSink extends DataSink {
 
     public void init(TUniqueId loadId, long txnId, long dbId, long loadChannelTimeoutS, int sendBatchParallelism,
             boolean loadToSingleTablet, boolean isStrictMode, long txnExpirationS) throws AnalysisException {
+        // Every load reaches here. A table that still enables changelog through "binlog.format" = "ROW"
+        // can only be dropped.
+        if (dstTable.isLegacyChangelog()) {
+            throw new AnalysisException(dstTable.getLegacyChangelogMessage());
+        }
         TOlapTableSink tSink = new TOlapTableSink();
         tSink.setLoadId(loadId);
         tSink.setTxnId(txnId);
@@ -436,7 +441,7 @@ public class OlapTableSink extends DataSink {
             }
             TOlapTableIndexSchema indexSchema = new TOlapTableIndexSchema(pair.getKey(), columns,
                     indexMeta.getSchemaHash());
-            indexSchema.setRowBinlogId(indexMeta.getRowBinlogIndexId());
+            indexSchema.setChangelogIndexId(indexMeta.getChangelogIndexId());
             Expr whereClause = indexMeta.getWhereClause();
             if (whereClause != null) {
                 Expr expr = syncMvWhereClauses.getOrDefault(pair.getKey(), null);
@@ -451,19 +456,19 @@ public class OlapTableSink extends DataSink {
             schemaParam.addToIndexes(indexSchema);
         }
 
-        if (table.needRowBinlog()) {
-            MaterializedIndexMeta rowBinlogMeta = table.getRowBinlogMeta();
-            List<String> binlogColumns = Lists.newArrayList();
-            List<TColumn> binlogColumnsDesc = Lists.newArrayList();
-            for (Column column : rowBinlogMeta.getSchema(true)) {
+        if (table.hasChangelog()) {
+            MaterializedIndexMeta changelogIndexMeta = table.getChangelogIndexMeta();
+            List<String> changelogColumns = Lists.newArrayList();
+            List<TColumn> changelogColumnsDesc = Lists.newArrayList();
+            for (Column column : changelogIndexMeta.getSchema(true)) {
                 TColumn tColumn = ColumnToThrift.toThrift(column);
-                binlogColumnsDesc.add(tColumn);
-                binlogColumns.add(column.getName());
+                changelogColumnsDesc.add(tColumn);
+                changelogColumns.add(column.getName());
             }
-            TOlapTableIndexSchema rowBinlogIndexSchema = new TOlapTableIndexSchema(
-                    rowBinlogMeta.getIndexId(), binlogColumns, rowBinlogMeta.getSchemaHash());
-            rowBinlogIndexSchema.setColumnsDesc(binlogColumnsDesc);
-            schemaParam.addToRowBinlogIndexSchemas(rowBinlogIndexSchema);
+            TOlapTableIndexSchema changelogIndexSchema = new TOlapTableIndexSchema(
+                    changelogIndexMeta.getIndexId(), changelogColumns, changelogIndexMeta.getSchemaHash());
+            changelogIndexSchema.setColumnsDesc(changelogColumnsDesc);
+            schemaParam.addToChangelogIndexSchemas(changelogIndexSchema);
         }
 
         setPartialUpdateInfoForParam(schemaParam, table, uniqueKeyUpdateMode);
@@ -477,6 +482,11 @@ public class OlapTableSink extends DataSink {
         schemaParam.setIsPartialUpdate(uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS);
         schemaParam.setUniqueKeyUpdateMode(uniqueKeyUpdateMode);
         if (uniqueKeyUpdateMode != TUniqueKeyUpdateMode.UPSERT) {
+            // TTL GC may remove the old row independently on each replica/index. Filling missing
+            // columns from that row would then alternate between stored values and defaults.
+            if (table.hasRowTtl()) {
+                throw new AnalysisException("Partial update is not supported on tables with row TTL");
+            }
             if (table.getState() == OlapTable.OlapTableState.ROLLUP
                     || table.getState() == OlapTable.OlapTableState.SCHEMA_CHANGE) {
                 throw new AnalysisException("Can't do partial update when table is doing schema change.");
@@ -1194,16 +1204,16 @@ public class OlapTableSink extends DataSink {
         return locationParam;
     }
 
-    // In non-cloud mode the binlog tablet must be on the same disk as its base tablet (cloud mode
+    // In non-cloud mode the changelog tablet must be on the same disk as its base tablet (cloud mode
     // does not need this), so keep only the (backend, pathHash) entries shared by both tablets.
-    public static Multimap<Long, Long> getBinlogColocatedReplicaBackendPathMap(
-            Tablet baseTablet, Tablet rowBinlogTablet)
+    public static Multimap<Long, Long> getChangelogColocatedReplicaBackendPathMap(
+            Tablet baseTablet, Tablet changelogTablet)
             throws UserException {
         Multimap<Long, Long> baseBePathsMap = baseTablet.getNormalReplicaBackendPathMap();
-        Multimap<Long, Long> binlogBePathsMap = rowBinlogTablet.getNormalReplicaBackendPathMap();
-        binlogBePathsMap.entries().removeIf(
+        Multimap<Long, Long> changelogBePathsMap = changelogTablet.getNormalReplicaBackendPathMap();
+        changelogBePathsMap.entries().removeIf(
                 entry -> !baseBePathsMap.containsEntry(entry.getKey(), entry.getValue()));
-        return binlogBePathsMap;
+        return changelogBePathsMap;
     }
 
     private TOlapTableLocationParam createLocation(long dbId, OlapTable table) throws UserException {
@@ -1233,13 +1243,13 @@ public class OlapTableSink extends DataSink {
                             }
                             bePathsMap = ((CloudTablet) tablet)
                                     .getNormalReplicaBackendPathMapByClusterId(cachedClusterId);
-                        } else if (index.isRowBinlog()) {
-                            long baseTabletId = tablet.getRowBinlogBaseTabletId();
+                        } else if (index.isChangelog()) {
+                            long baseTabletId = tablet.getChangelogBaseTabletId();
                             Tablet baseTablet = partition.getBaseIndex().getTablet(baseTabletId);
                             Preconditions.checkNotNull(baseTablet,
-                                    "row binlog tablet %s's base tablet %s can not be found in partition %s",
+                                    "changelog tablet %s's base tablet %s can not be found in partition %s",
                                     tablet.getId(), baseTabletId, partition.getId());
-                            bePathsMap = getBinlogColocatedReplicaBackendPathMap(baseTablet, tablet);
+                            bePathsMap = getChangelogColocatedReplicaBackendPathMap(baseTablet, tablet);
                         } else {
                             bePathsMap = tablet.getNormalReplicaBackendPathMap();
                         }
@@ -1255,12 +1265,12 @@ public class OlapTableSink extends DataSink {
                                 // and each cluster has only one replica, no need to detail the replicas in cloud mode.
                                 errMsgBuilder.append(", detail: ")
                                         .append(tablet.getDetailsStatusForQuery(partition.getVisibleVersion()));
-                                if (index.isRowBinlog()) {
+                                if (index.isChangelog()) {
                                     // replica num is counted after intersecting with the base tablet for same-disk
                                     // co-location, so also surface the base tablet status for diagnosis.
                                     Tablet baseTablet = partition.getBaseIndex()
-                                            .getTablet(tablet.getRowBinlogBaseTabletId());
-                                    errMsgBuilder.append(", base tablet ").append(tablet.getRowBinlogBaseTabletId())
+                                            .getTablet(tablet.getChangelogBaseTabletId());
+                                    errMsgBuilder.append(", base tablet ").append(tablet.getChangelogBaseTabletId())
                                             .append(" detail: ")
                                             .append(baseTablet.getDetailsStatusForQuery(partition.getVisibleVersion()));
                                 }
@@ -1289,9 +1299,9 @@ public class OlapTableSink extends DataSink {
 
                     TTabletLocation location = new TTabletLocation(tablet.getId(),
                             Lists.newArrayList(bePathsMap.keySet()));
-                    if (index.isRowBinlog()) {
-                        // BE pairs the binlog tablet with its base tablet via base_tablet_id.
-                        location.setBaseTabletId(tablet.getRowBinlogBaseTabletId());
+                    if (index.isChangelog()) {
+                        // BE pairs the changelog tablet with its base tablet via base_tablet_id.
+                        location.setBaseTabletId(tablet.getChangelogBaseTabletId());
                     }
                     locationParam.addToTablets(location);
                     allBePathsMap.putAll(bePathsMap);

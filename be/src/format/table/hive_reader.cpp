@@ -98,7 +98,6 @@ Status HiveOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
     ctx->column_ids = std::move(column_id_result.column_ids);
     ctx->filter_column_ids = std::move(column_id_result.filter_column_ids);
 
-    // _is_acid is false by default, no need to set explicitly
     return Status::OK();
 }
 

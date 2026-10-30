@@ -323,6 +323,11 @@ public class MasterImpl {
             if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
                 tabletTask.countDownToZero(task.getBackendId() + ": "
                         + request.getTaskStatus().getErrorMsgs().toString());
+            } else if (tabletTask.getRowTtlConfig() != null
+                    && (!request.isSetRowTtlConfigVersion() || request.getRowTtlConfigVersion()
+                            != tabletTask.getRowTtlConfig().getConfigVersion())) {
+                // An older BE can acknowledge unknown optional fields without applying them.
+                tabletTask.countDownToZero("Backend did not acknowledge the row TTL configuration version");
             } else {
                 tabletTask.countDownLatch(task.getBackendId(), tabletTask.getTablets());
                 if (LOG.isDebugEnabled()) {

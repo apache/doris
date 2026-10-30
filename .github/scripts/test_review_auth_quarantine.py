@@ -39,6 +39,13 @@ from pathlib import Path
 
 WORKFLOW = Path(__file__).resolve().parents[1] / "workflows/code-review-runner.yml"
 PREFIX = "oss://doris-community-ci/codex/"
+INVALIDATED_MESSAGE = "Your session has ended. Please log in again."
+INVALIDATED_STDERR = (
+    '2026-10-28T06:26:31.373554Z ERROR codex_login::auth::manager: '
+    'Failed to refresh token status=401 Unauthorized detail=TokenErrorDetail { '
+    'error_code: Some("refresh_token_invalidated"), '
+    'error_message: Some("Your session has ended. Please log in again."), .. }'
+)
 REUSED_MESSAGE = (
     "Your access token could not be refreshed because your refresh token was already used. "
     "Please log out and sign in again."
@@ -106,7 +113,9 @@ import sys
 if os.environ.get("FAKE_FINAL_REVIEW") == "1":
     import json, subprocess
     request = Path(os.environ["REVIEW_CONTEXT_DIR"], "final-input.json")
-    request.write_text(json.dumps({"body": "Complete review", "comments": [], "existing_blocking_comment_ids": []}))
+    request.write_text(json.dumps({"body": "Complete review", "comments": [],
+                                   "existing_blocking_comment_ids": [], "converged": True,
+                                   "rounds": 1, "incomplete_reason": ""}))
     subprocess.run([sys.executable, str(Path(os.environ["RUNNER_TEMP"], "submit_review.py")),
                     "--context-dir", os.environ["REVIEW_CONTEXT_DIR"], "--input-file", str(request)],
                    check=True, stdout=subprocess.DEVNULL)
@@ -183,12 +192,14 @@ class ReviewAuthQuarantineTest(unittest.TestCase):
             "REPO": "example/repo", "PR_NUMBER": "1", "HEAD_SHA": "a" * 40,
             "GITHUB_WORKSPACE": str(self.root),
             "BASE_SHA": "b" * 40, "HELPER_REF": "test-pin", "REVIEW_TIMEOUT_MINUTES": "120",
+            "REVIEW_GH_HELPER": str(Path(__file__).resolve().with_name("review_github_api.py")),
             "FAKE_REVIEW_HELPER": str(Path(__file__).resolve().with_name("run_review_with_resume.py")),
         })
         self.new_runner()
 
     def new_runner(self):
         runner = Path(tempfile.mkdtemp(dir=self.root))
+        shutil.copyfile(self.env["REVIEW_GH_HELPER"], runner / "review_github_api.py")
         context = runner / "review-context"
         context.mkdir()
         (context / "codex_goal_prompt.txt").write_text("Fake review")
@@ -207,10 +218,13 @@ class ReviewAuthQuarantineTest(unittest.TestCase):
             context = Path(tempfile.mkdtemp(dir=self.env["RUNNER_TEMP"]))
             (context / "codex_goal_prompt.txt").write_text("Fake review")
             self.env["REVIEW_CONTEXT_DIR"] = str(context)
+        return self.run_script(step_script(name), expected=expected, **env)
+
+    def run_script(self, script, expected=0, **env):
         output = Path(self.env["GITHUB_OUTPUT"])
         output.write_text("")
         result = subprocess.run(
-            ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", step_script(name)],
+            ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
             env={**self.env, **env}, cwd=self.root, capture_output=True, text=True, timeout=15, check=False,
         )
         self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
@@ -237,7 +251,8 @@ class ReviewAuthQuarantineTest(unittest.TestCase):
     def configure(self, expected=0, **env):
         return self.run_step("Configure Codex auth", expected=expected, **env)
 
-    def fail_review(self, events=None, stderr="", expected_invalid=True, **env):
+    def fail_review(self, events=None, stderr="", expected_invalid=True,
+                    expected_reason="refresh_token_reused", **env):
         if events is None:
             events = [{"type": "turn.failed", "error": {"message": REUSED_MESSAGE}}]
         logs, outputs = self.run_step(
@@ -245,11 +260,106 @@ class ReviewAuthQuarantineTest(unittest.TestCase):
             FAKE_CODEX_EVENTS="\n".join(json.dumps(event) for event in events),
             FAKE_CODEX_STDERR=stderr, **env,
         )
-        self.assertEqual("auth_invalid_reason=refresh_token_reused\n" in outputs, expected_invalid, outputs)
+        self.assertEqual(f"auth_invalid_reason={expected_reason}\n" in outputs, expected_invalid, outputs)
         return logs, outputs
 
-    def record(self, expected=0, **env):
-        return self.run_step("Record invalid Codex auth", expected=expected, **env)
+    def record(self, expected=0, reason="refresh_token_reused", **env):
+        return self.run_step("Record invalid Codex auth", expected=expected,
+                             AUTH_INVALID_REASON=reason, **env)
+
+    def classify_failure(self, events=(), stderr="", status=1):
+        # Execute the real workflow's post-run shell independently of Linux
+        # process supervision, so classification and OSS tests also run on macOS.
+        context = Path(self.env["REVIEW_CONTEXT_DIR"])
+        (context / "codex-events.jsonl").write_text(
+            "\n".join(json.dumps(event) for event in events))
+        (context / "codex-stderr.log").write_text(stderr)
+        (context / "review-result.json").write_text(json.dumps({
+            "state": "success", "p0": 0, "p1": 0, "converged": True, "rounds": 1,
+        }))
+        script = step_script("Run automated code review")
+        script = script[script.index('failure_reason=""'):]
+        _, outputs = self.run_script(script, expected=int(status != 0), status=str(status))
+        return next((line.split("=", 1)[1] for line in outputs.splitlines()
+                     if line.startswith("auth_invalid_reason=")), "")
+
+    def test_invalidated_stderr_is_quarantined_and_replacement_is_eligible(self):
+        self.put_auth()
+        self.put_auth(3, "refresh-other")
+        self.configure()
+        # The terminal message hides the permanent refresh failure on stderr.
+        reason = self.classify_failure(events=[{
+            "type": "turn.failed", "error": {"message": "workspace routing discovery unauthorized (401)"},
+        }], stderr=INVALIDATED_STDERR)
+        self.assertEqual(reason, "refresh_token_invalidated")
+        self.record(reason=reason)
+        marker = json.loads(self.marker().read_text())
+        self.assertEqual(marker["reason"], reason)
+        self.assertNotIn("refresh-old", self.marker().read_text())
+        self.new_runner()
+        logs, _ = self.configure()
+        self.assertIn("Skipping Codex auth auth.json.2", logs)
+        self.assertEqual(self.env["CODEX_AUTH_OSS_OBJECT"], PREFIX + "auth.json.3")
+        self.put_auth(refresh="refresh-new")
+        self.new_runner()
+        self.configure()
+        self.assertEqual(self.env["CODEX_AUTH_OSS_OBJECT"], PREFIX + "auth.json.2")
+        self.assertFalse(self.marker(refresh="refresh-new").exists())
+
+    def test_permanent_auth_codes_in_terminal_events_and_stderr(self):
+        for code, message in (("refresh_token_reused", REUSED_MESSAGE),
+                              ("refresh_token_invalidated", INVALIDATED_MESSAGE)):
+            samples = [
+                ([{"type": "turn.failed", "error": {"code": code, "message": "Refresh failed"}}], ""),
+                ([{"type": "error", "code": code, "message": "Refresh failed"}], ""),
+                ([{"type": "error", "message": code}], ""),
+                ([{"type": "error", "message": message}], ""),
+                ([], json.dumps({"error": {"code": code}})),
+                ([], INVALIDATED_STDERR.replace("refresh_token_invalidated", code)),
+            ]
+            for events, stderr in samples:
+                with self.subTest(code=code, events=events, stderr=stderr):
+                    self.assertEqual(self.classify_failure(events, stderr), code)
+
+    def test_auth_like_tool_output_and_generic_401_do_not_quarantine(self):
+        for message in ("401 Unauthorized", "workspace routing discovery unauthorized (401)",
+                        "token_revoked", "Request timed out", "You've hit your usage limit"):
+            with self.subTest(message=message):
+                self.assertEqual(self.classify_failure(events=[
+                    {"type": "item.completed", "item": {"type": "command_execution",
+                     "aggregated_output": INVALIDATED_STDERR + INVALIDATED_MESSAGE}},
+                    {"type": "turn.failed", "error": {"message": message}},
+                ], stderr="ERROR codex_models_manager::manager: auth error code: token_revoked"), "")
+
+    def test_success_does_not_quarantine_prior_invalidated_stderr(self):
+        self.assertEqual(self.classify_failure(
+            events=[{"type": "error", "code": "refresh_token_invalidated"},
+                    {"type": "turn.completed"}], stderr=INVALIDATED_STDERR, status=0), "")
+
+    def test_invalidated_marker_write_failure_and_notification(self):
+        self.put_auth()
+        self.configure()
+        self.record(expected=1, reason="refresh_token_invalidated",
+                    FAKE_OSS_FAIL="cp:" + PREFIX + self.marker().name)
+        self.assertFalse(self.marker().exists())
+        for outcome in ("success", "failure"):
+            with self.subTest(outcome=outcome):
+                self.run_step(
+                    "Comment PR on review failure", AUTH_FAILURE_REASON="",
+                    AUTH_INVALID_REASON="refresh_token_invalidated", AUTH_INVALID_RECORD_OUTCOME=outcome,
+                    REVIEW_FAILURE_REASON=INVALIDATED_MESSAGE, REVIEW_CONTEXT_OUTCOME="success",
+                    REVIEW_OUTCOME="failure", USAGE_LIMIT_RETRY_AFTER_EPOCH="",
+                    RUN_URL="https://example.test/run",
+                )
+                body = Path(self.env["FAKE_COMMENT_FILE"]).read_text()
+                self.assertEqual("excluded from future reviews" in body, outcome == "success")
+                self.assertEqual("may still be selected" in body, outcome == "failure")
+
+    def test_unknown_auth_reason_cannot_write_marker(self):
+        self.put_auth()
+        self.configure()
+        self.record(expected=1, reason="401 Unauthorized")
+        self.assertFalse(self.marker().exists())
 
     def test_reused_token_is_persisted_and_skipped_on_next_run(self):
         self.put_auth()
@@ -341,7 +451,7 @@ class ReviewAuthQuarantineTest(unittest.TestCase):
         }))
         _, outputs = self.configure(expected=1)
         self.assertIn("Earliest usage-limit retry", outputs)
-        self.assertIn("reused refresh tokens must be replaced", outputs)
+        self.assertIn("invalid refresh tokens must be replaced", outputs)
 
     def test_marker_lookup_failure_does_not_select_token(self):
         self.put_auth()
@@ -385,6 +495,11 @@ class ReviewAuthQuarantineTest(unittest.TestCase):
 
     def test_codex_stderr_reused_code(self):
         self.fail_review(events=[], stderr='Token refresh failed: 401 Unauthorized\n{\n  "error": {\n    "code": "refresh_token_reused"\n  }\n}')
+
+    def test_codex_stderr_invalidated_code_survives_runner_failure_summary(self):
+        self.fail_review(events=[{
+            "type": "error", "message": "workspace routing discovery unauthorized (401)",
+        }], stderr=INVALIDATED_STDERR, expected_reason="refresh_token_invalidated")
 
     def test_unrelated_failures_are_not_quarantined(self):
         for message in ("401 Unauthorized", "We're experiencing high demand", "Request timed out", "You've hit your usage limit"):
@@ -439,7 +554,7 @@ class ReviewAuthQuarantineTest(unittest.TestCase):
                 ("success", "failure", "failure"), ("failure", "success", "pending")):
             with self.subTest(execution=execution, verdict=verdict):
                 result = subprocess.run(["bash", "-eo", "pipefail", "-c",
-                    'gh() { printf "%s\\n" "$@"; };\n' + re.sub(r"\$\{\{.*?\}\}", "test", step_script("Sync Code Review check for current head"))],
+                    'python3() { shift; printf "%s\\n" "$@"; };\n' + re.sub(r"\$\{\{.*?\}\}", "test", step_script("Sync Code Review check for current head"))],
                     env={**self.env, "JOB_STATUS": execution, "REVIEW_CONTEXT_OUTCOME": "success",
                          "REVIEW_OUTCOME": execution, "REVIEW_STATE": verdict, "REVIEW_P0": "0", "REVIEW_P1": "1"},
                     capture_output=True, text=True, check=True)
@@ -463,7 +578,9 @@ class ReviewAuthQuarantineTest(unittest.TestCase):
     def test_marker_step_runs_after_failed_review_with_explicit_detection(self):
         step = workflow_step("Record invalid Codex auth")
         self.assertIn("always() && steps.auth.outcome == 'success'", step)
-        self.assertIn("steps.review.outputs.auth_invalid_reason == 'refresh_token_reused'", step)
+        self.assertIn("contains(fromJSON(", step)
+        self.assertIn('"refresh_token_reused","refresh_token_invalidated"', step)
+        self.assertIn("steps.review.outputs.auth_invalid_reason)", step)
         self.assertNotIn("continue-on-error: true", step)
 
 

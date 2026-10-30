@@ -224,8 +224,9 @@ suite("test_paimon_hms_catalog", "p2,external") {
     String paimon_fs_s3_support = """
         'fs.s3.support' = 'true',
     """
+    // An explicit filesystem flag disables endpoint inference, so it must use the provider name.
     String paimon_fs_gcs_support = """
-        'fs.gs.support' = 'true',
+        'fs.gcs.support' = 'true',
     """
     testQuery(paimon_hms_catalog_properties + paimon_fs_hdfs_support + hdfs_warehouse_properties + hdfs_storage_properties, "support_hdfs", "hdfs_db")
     testQuery(paimon_hms_type_prop + paimon_fs_hdfs_support + hdfs_warehouse_properties + hms_kerberos_new_prop + hdfs_kerberos_properties, "support_hdfs_kerberos", "hdfs_db")

@@ -37,7 +37,7 @@ suite("test_file_cache_info", "nonConcurrent") {
         Long tabletId = null
         def lastState = [:]
         def clearResponses = [:]
-        def originalQueryCache = sql("select @@enable_sql_cache, @@enable_query_cache")[0].collect { value ->
+        def originalQueryCache = sql("select @@enable_sql_cache, @@enable_query_cache, @@enable_page_cache")[0].collect { value ->
             String setting = value.toString().toLowerCase(Locale.ROOT)
             assertTrue(setting in ["true", "false", "0", "1"], "Unexpected cache setting: ${value}")
             setting
@@ -168,6 +168,9 @@ suite("test_file_cache_info", "nonConcurrent") {
             sql "use @${clusterName}"
             sql "set enable_sql_cache = false"
             sql "set enable_query_cache = false"
+            // The reread after clear must go through the file cache. Pages of a five-row table
+            // stay in the BE page cache, and serving them from memory would never refill it.
+            sql "set enable_page_cache = false"
             sql "drop table if exists ${tableName} force"
             sql """CREATE TABLE ${tableName} (
                 c_custkey INT, c_name STRING, c_address STRING, c_city STRING,
@@ -214,7 +217,8 @@ suite("test_file_cache_info", "nonConcurrent") {
         } finally {
             def cleanupErrors = []
             try { sql "drop table if exists ${tableName} force" } catch (Throwable t) { cleanupErrors.add(t) }
-            [enable_sql_cache: originalQueryCache[0], enable_query_cache: originalQueryCache[1]].each { name, value ->
+            [enable_sql_cache: originalQueryCache[0], enable_query_cache: originalQueryCache[1],
+             enable_page_cache: originalQueryCache[2]].each { name, value ->
                 try { sql "set ${name} = ${value}" } catch (Throwable t) { cleanupErrors.add(t) }
             }
             if (!cleanupErrors.isEmpty()) {

@@ -21,6 +21,7 @@ import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.JvmSizeUtils;
 import org.apache.doris.connector.cache.MetaCache;
+import org.apache.doris.connector.cache.MetaCacheCleanup;
 import org.apache.doris.connector.cache.MetaCacheDefinition;
 import org.apache.doris.connector.cache.MetaCacheSizeEstimate;
 import org.apache.doris.connector.cache.MetaCacheSizeEstimator;
@@ -111,6 +112,11 @@ final class IcebergTableCache {
     /** Caching is on only when the TTL is positive; ttl-second &lt;= 0 means "always read live". */
     boolean isEnabled() {
         return entry.isEnabled();
+    }
+
+    /** Only a retained, unexpired table proves existence; never loads or caches a boolean answer. */
+    boolean contains(TableIdentifier identifier) {
+        return entry.getIfPresent(identifier) != null;
     }
 
     /**
@@ -215,7 +221,9 @@ final class IcebergTableCache {
     /** Seals new borrows and retires every cache owner, including loaders that publish after invalidation. */
     void close() {
         if (closed.compareAndSet(false, true)) {
-            owner.invalidateCatalog();
+            // FE may already have retired the owner before scheduling connector.close(). Remove this exact
+            // registration, which is idempotent after owner.close(), rather than invalidating a closed owner.
+            owner.remove(entry);
         }
     }
 
@@ -242,6 +250,14 @@ final class IcebergTableCache {
 
         Table snapshotReadTable() {
             return owner.snapshotReadTable();
+        }
+
+        TableLease retainLease() {
+            TableLease retained = owner.tryBorrow();
+            if (retained == null) {
+                throw new IllegalStateException("Iceberg table owner is already closed");
+            }
+            return retained;
         }
 
         @Override
@@ -309,7 +325,7 @@ final class IcebergTableCache {
                     ? operations.current()
                     : TableMetadataParser.fromJson(snapshotMetadataLocation, snapshotMetadataJson);
             return new BaseTable(new IcebergSnapshotTableOperations(operations, metadata),
-                    table.name(), baseTable.reporter());
+                    table.name(), baseTable.reporter(), baseTable.labels());
         }
 
         private TableLease tryBorrow() {
@@ -326,7 +342,18 @@ final class IcebergTableCache {
         private void release() {
             int remaining = references.decrementAndGet();
             if (remaining == 0) {
-                cleanup.run();
+                // Drop cache/borrower ownership synchronously; physical FileIO close belongs to the host reclaimer.
+                // Keep the plugin's loader alive through the close, even when replay uses the FE context loader.
+                MetaCacheCleanup.reclaimResource("Iceberg table " + table.name(), () -> {
+                    Thread thread = Thread.currentThread();
+                    ClassLoader previous = thread.getContextClassLoader();
+                    try {
+                        thread.setContextClassLoader(IcebergTableCache.class.getClassLoader());
+                        cleanup.run();
+                    } finally {
+                        thread.setContextClassLoader(previous);
+                    }
+                });
             } else if (remaining < 0) {
                 throw new IllegalStateException("Iceberg table owner released too many times: " + table.name());
             }

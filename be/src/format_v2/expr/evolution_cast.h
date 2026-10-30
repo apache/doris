@@ -26,15 +26,32 @@ class EvolutionCast final : public Cast {
     ENABLE_FACTORY_CREATOR(EvolutionCast);
 
 public:
-    explicit EvolutionCast(const DataTypePtr& type) : Cast(type) {}
+    explicit EvolutionCast(const DataTypePtr& type, bool truncate_datetimev2_precision = false,
+                           bool strict = false)
+            : Cast(type),
+              _truncate_datetimev2_precision(truncate_datetimev2_precision),
+              _strict(strict) {}
 
-    Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override;
     std::string debug_string() const override;
     Status clone_node(VExprSPtr* cloned_expr) const override {
         DORIS_CHECK(cloned_expr != nullptr);
-        *cloned_expr = EvolutionCast::create_shared(_data_type);
+        *cloned_expr =
+                EvolutionCast::create_shared(_data_type, _truncate_datetimev2_precision, _strict);
         return Status::OK();
     }
+
+protected:
+    void configure_cast_options(CastOptions& options) const override;
+
+private:
+    bool _truncate_datetimev2_precision = false;
+    // Fail on every value the target type cannot hold, whatever the session's strict cast mode.
+    // Iceberg equality deletes compare keys after a widening cast, where a non-strict overflow
+    // would turn a key into NULL and match NULL tombstones: a data key TIMESTAMP 1600-01-01 cast
+    // to TIMESTAMP_NS would become NULL and be deleted by a NULL tombstone.
+    bool _strict = false;
 };
 
 } // namespace doris::format

@@ -28,11 +28,14 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <string>
 #include <variant>
 #include <vector>
 
 #include "common/config.h"
 #include "core/block/block.h"
+#include "core/column/column_const.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "exec/operator/hash_join_test_helper.h"
 #include "exec/operator/operator.h"
@@ -96,6 +99,106 @@ public:
 protected:
     HashJoinTestHelper _helper;
 };
+
+class MockAsofBuildExpr : public VExpr {
+public:
+    explicit MockAsofBuildExpr(DataTypePtr type) : VExpr(std::move(type), false) {}
+
+    const std::string& expr_name() const override { return _name; }
+
+    MOCK_METHOD(Status, execute_column_impl,
+                (VExprContext*, const Block*, const Selector*, size_t, ColumnPtr&),
+                (const, override));
+
+private:
+    const std::string _name = "asof_key";
+};
+
+TEST_F(HashJoinBuildSinkTest, MaterializeAsofKeyWithoutEvaluatingMockRow) {
+    for (const auto join_op : {TJoinOp::ASOF_LEFT_INNER_JOIN, TJoinOp::ASOF_LEFT_OUTER_JOIN}) {
+        for (bool nullable : {false, true}) {
+            for (bool constant : {false, true}) {
+                auto tnode = _helper.create_test_plan_node(join_op, {TPrimitiveType::INT}, {false},
+                                                           {false});
+                auto [probe, sink] = _helper.create_operators(tnode);
+                HashJoinBuildSinkLocalState local_state(sink.get(), _helper.runtime_state.get());
+                DataTypePtr type = std::make_shared<DataTypeInt32>();
+                ColumnPtr keys = ColumnHelper::create_column<DataTypeInt32>({1800, 1801, 1802});
+                if (nullable) {
+                    type = make_nullable(type);
+                    keys = ColumnHelper::create_nullable_column<DataTypeInt32>({1800, 0, 1802},
+                                                                               {0, 1, 0});
+                }
+                if (constant) {
+                    keys = ColumnConst::create(keys->cut(0, 1), 3);
+                }
+                auto expr = std::make_shared<testing::StrictMock<MockAsofBuildExpr>>(type);
+                sink->_asof_build_side_expr = std::make_shared<VExprContext>(expr);
+                RuntimeProfile::Counter timer(TUnit::TIME_NS);
+                VExprContextSPtrs equality_exprs;
+                std::vector<int> equality_ids;
+
+                // No execute call is permitted for the synthetic default input.
+                Block mock {{ColumnHelper::create_column<DataTypeInt32>({1970}),
+                             std::make_shared<DataTypeInt32>(), "dt"}};
+                auto st = local_state._do_evaluate(mock, equality_exprs, timer, equality_ids, true);
+                ASSERT_TRUE(st.ok()) << st;
+                ASSERT_EQ(local_state._asof_build_col_id, 1);
+                ASSERT_EQ(mock.get_by_position(1).column->size(), 1);
+
+                Block real {{ColumnHelper::create_column<DataTypeInt32>({2200, 2201, 2202}),
+                             std::make_shared<DataTypeInt32>(), "dt"}};
+                EXPECT_CALL(*expr,
+                            execute_column_impl(testing::_, testing::_, nullptr, 3, testing::_))
+                        .Times(2)
+                        .WillRepeatedly(testing::DoAll(testing::SetArgReferee<4>(keys),
+                                                       testing::Return(Status::OK())));
+                st = local_state._do_evaluate(real, equality_exprs, timer, equality_ids);
+                ASSERT_TRUE(st.ok()) << st;
+                auto materialized = real.get_by_position(1).column;
+                EXPECT_FALSE(is_column_const(*materialized));
+                EXPECT_TRUE(ColumnHelper::column_equal(materialized,
+                                                       keys->convert_to_full_column_if_const()));
+
+                auto merged = MutableBlock::build_mutable_block(std::move(mock));
+                ASSERT_TRUE(merged.merge_ignore_overflow(std::move(real)).ok());
+                Block next {{ColumnHelper::create_column<DataTypeInt32>({2200, 2201, 2202}),
+                             std::make_shared<DataTypeInt32>(), "dt"}};
+                ASSERT_TRUE(
+                        local_state._do_evaluate(next, equality_exprs, timer, equality_ids).ok());
+                ASSERT_TRUE(merged.merge_ignore_overflow(std::move(next)).ok());
+                auto block = merged.to_block();
+                ASSERT_EQ(block.rows(), 7);
+                EXPECT_TRUE(ColumnHelper::column_equal(block.get_by_position(1).column->cut(1, 3),
+                                                       materialized));
+                EXPECT_TRUE(ColumnHelper::column_equal(block.get_by_position(1).column->cut(4, 3),
+                                                       materialized));
+            }
+        }
+    }
+}
+
+TEST_F(HashJoinBuildSinkTest, PropagateAsofKeyEvaluationError) {
+    auto tnode = _helper.create_test_plan_node(TJoinOp::ASOF_LEFT_INNER_JOIN, {TPrimitiveType::INT},
+                                               {false}, {false});
+    auto [probe, sink] = _helper.create_operators(tnode);
+    HashJoinBuildSinkLocalState local_state(sink.get(), _helper.runtime_state.get());
+    auto type = std::make_shared<DataTypeInt32>();
+    auto expr = std::make_shared<testing::StrictMock<MockAsofBuildExpr>>(type);
+    sink->_asof_build_side_expr = std::make_shared<VExprContext>(expr);
+    RuntimeProfile::Counter timer(TUnit::TIME_NS);
+    VExprContextSPtrs equality_exprs;
+    std::vector<int> equality_ids;
+    Block mock {{ColumnHelper::create_column<DataTypeInt32>({1970}), type, "dt"}};
+    ASSERT_TRUE(local_state._do_evaluate(mock, equality_exprs, timer, equality_ids, true).ok());
+    Block real {{ColumnHelper::create_column<DataTypeInt32>({1600}), type, "dt"}};
+    EXPECT_CALL(*expr, execute_column_impl(testing::_, &real, nullptr, 1, testing::_))
+            .WillOnce(testing::Return(Status::InvalidArgument("TIMESTAMP_NS overflow")));
+    auto st = local_state._do_evaluate(real, equality_exprs, timer, equality_ids);
+    EXPECT_FALSE(st.ok());
+    EXPECT_NE(st.to_string().find("TIMESTAMP_NS overflow"), std::string::npos);
+    EXPECT_EQ(real.columns(), 1);
+}
 
 TEST_F(HashJoinBuildSinkTest, Init) {
     auto test_block = [&](TJoinOp::type op_type, const std::vector<TPrimitiveType::type>& key_types,

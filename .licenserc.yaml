@@ -96,6 +96,13 @@ header:
     - "fe/fe-core/src/test/resources/upgrade/413/labels.db.txt"
     - "fe/fe-core/src/test/resources/upgrade/413/labels.ds.txt"
     - "fe/fe-core/src/test/resources/upgrade/413/labels.tbl.txt"
+    # Same for the golden 4.1.5 (Lance catalog) fixtures emitted by Gen415Fixtures;
+    # upgrade/415/generator/Gen415Fixtures.java stays checked.
+    - "fe/fe-core/src/test/resources/upgrade/415/PROVENANCE.txt"
+    - "fe/fe-core/src/test/resources/upgrade/415/editlog.index"
+    - "fe/fe-core/src/test/resources/upgrade/415/labels.db.txt"
+    - "fe/fe-core/src/test/resources/upgrade/415/labels.ds.txt"
+    - "fe/fe-core/src/test/resources/upgrade/415/labels.tbl.txt"
     - "fe/fe-core/src/main/java/software/amazon/awssdk/core/client/builder/SdkDefaultClientBuilder.java"
     - "fe/fe-core/src/main/antlr4/org/apache/doris/nereids/JavaLexer.g4"
     - "fe/fe-core/src/main/antlr4/org/apache/doris/nereids/JavaParser.g4"
@@ -143,6 +150,10 @@ header:
     - "docker/thirdparties/docker-compose/kerberos/paimon_data/**"
     - "docker/thirdparties/docker-compose/kerberos/sql/**"
     - "docker/thirdparties/docker-compose/iceberg/spark-defaults.conf.tpl"
+    # Generated Paimon schema and snapshot metadata. These files are copied verbatim into
+    # MinIO by the Iceberg third-party initializer and cannot carry source comments.
+    - "docker/thirdparties/docker-compose/iceberg/scripts/preinstalled_data/paimon/**/schema/**"
+    - "docker/thirdparties/docker-compose/iceberg/scripts/preinstalled_data/paimon/**/snapshot/**"
     - "docker/thirdparties/docker-compose/postgresql/certs/**"
     - "docker/thirdparties/docker-compose/mysql/certs/**"
     - "conf/mysql_ssl_default_certificate/*"

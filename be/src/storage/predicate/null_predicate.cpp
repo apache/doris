@@ -27,8 +27,6 @@
 #include "storage/index/inverted/common/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 
-using namespace doris;
-
 namespace doris {
 
 NullPredicate::NullPredicate(uint32_t column_id, std::string col_name, bool is_null,

@@ -774,6 +774,57 @@ TEST(NativeParquetStatisticsTest, FloatingNanEqualityKeepsFiniteOnlyFooterAndPag
                                                                  uint64_t {0x7ff8000000000002ULL});
 }
 
+TEST(NativeParquetStatisticsTest, ZeroNanCountRequiresConsistentFloatingStatistics) {
+    const auto check = []<PrimitiveType Type, typename DataType>(tparquet::Type::type physical) {
+        using T = typename PrimitiveTypeTraits<Type>::CppType;
+        format::parquet::ParquetColumnSchema schema;
+        schema.type = std::make_shared<DataType>();
+        schema.type_descriptor.doris_type = schema.type;
+        schema.type_descriptor.physical_type = physical;
+        const T one = 1;
+        tparquet::Statistics stats;
+        stats.__set_null_count(0);
+        stats.__set_min_value(std::string(reinterpret_cast<const char*>(&one), sizeof(T)));
+        stats.__set_max_value(stats.min_value);
+        const auto transform = [&](const tparquet::Statistics& input, int64_t rows = 2,
+                                   bool trust_nulls = true) {
+            return format::parquet::ParquetStatisticsUtils::TransformColumnStatistics(
+                    schema, &input, rows, nullptr, trust_nulls);
+        };
+        EXPECT_FALSE(transform(stats).has_zero_nan_count);
+        for (const int64_t count : {-1, 0, 1, 3}) {
+            stats.__set_nan_count(count);
+            EXPECT_EQ(transform(stats).has_zero_nan_count, count == 0);
+        }
+        stats.__set_nan_count(0);
+        EXPECT_FALSE(transform(stats, -1).has_zero_nan_count);
+        auto missing_null_count = stats;
+        missing_null_count.__isset.null_count = false;
+        EXPECT_TRUE(transform(missing_null_count).has_zero_nan_count);
+        for (const int64_t nulls : {-1, 3}) {
+            auto invalid = stats;
+            invalid.__set_null_count(nulls);
+            EXPECT_FALSE(transform(invalid).has_zero_nan_count);
+            EXPECT_FALSE(transform(invalid, 2, false).has_zero_nan_count);
+        }
+        auto all_null = stats;
+        all_null.__set_null_count(2);
+        EXPECT_TRUE(transform(all_null).has_zero_nan_count);
+        EXPECT_FALSE(transform(all_null).has_not_null);
+        const T nan = std::numeric_limits<T>::quiet_NaN();
+        auto invalid_bounds = stats;
+        invalid_bounds.__set_min_value(std::string(reinterpret_cast<const char*>(&nan), sizeof(T)));
+        EXPECT_FALSE(transform(invalid_bounds).has_zero_nan_count);
+        const T zero = 0;
+        invalid_bounds = stats;
+        invalid_bounds.__set_max_value(
+                std::string(reinterpret_cast<const char*>(&zero), sizeof(T)));
+        EXPECT_FALSE(transform(invalid_bounds).has_zero_nan_count);
+    };
+    check.template operator()<TYPE_FLOAT, DataTypeFloat32>(tparquet::Type::FLOAT);
+    check.template operator()<TYPE_DOUBLE, DataTypeFloat64>(tparquet::Type::DOUBLE);
+}
+
 TEST(NativeParquetStatisticsTest, InvalidNullableDecimalBoundsDisableMinMax) {
     format::parquet::ParquetColumnSchema column_schema;
     column_schema.type = make_nullable(std::make_shared<DataTypeDecimal32>(2, 0));

@@ -55,7 +55,7 @@ FrqPreludeColumns MakeColumns(uint32_t n, uint32_t group_size, uint32_t stride, 
         m.dd_zstd = (w % 2) == 0;
         m.dd_off = dd_running;
         m.dd_disk_len = 8 + w;
-        // T18: a raw region's uncomp_len == disk_len (the row stores uncomp_len only
+        // A raw region's uncomp_len == disk_len (the row stores uncomp_len only
         // for zstd regions; the reader derives it otherwise). Keep the test columns
         // on that invariant so the round-trip's derived uncomp_len matches.
         m.dd_uncomp_len = m.dd_zstd ? m.dd_disk_len + 2 : m.dd_disk_len;
@@ -282,11 +282,7 @@ TEST(SniiFrqPrelude, BuildNonMonotonicRejected) {
     EXPECT_TRUE(build_frq_prelude(cols, &sink).is<doris::ErrorCode::INVALID_ARGUMENT>());
 }
 
-// T18: dd_off is DERIVED (running prefix sum), not serialized. Tampering a
-// column's dd_off no longer changes the on-disk bytes, and the reader
-// reconstructs the contiguous offset regardless -- so the offset is always
-// contiguous by construction (pre-T18 this stored + cross-checked an explicit
-// dd_off, and a gap was rejected on open).
+// dd_off is derived from preceding lengths and is not serialized.
 TEST(SniiFrqPrelude, DdOffsetIsDerivedNotStored) {
     FrqPreludeColumns cols = MakeColumns(/*n=*/5, /*group_size=*/4, /*stride=*/256, false);
     const uint64_t expect_dd_off_2 =

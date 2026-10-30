@@ -777,8 +777,17 @@ public class ColumnDefinition {
         return columnDefinition;
     }
 
+    /** Add the nullable row TTL hidden column. */
+    public static ColumnDefinition newTtlColumnDefinition(DataType dataType, AggregateType aggregateType) {
+        ColumnDefinition columnDefinition = new ColumnDefinition(Column.TTL_COL, dataType, false,
+                aggregateType, true, Optional.of(DefaultValue.NULL_DEFAULT_VALUE),
+                "row ttl hidden column", false);
+        columnDefinition.setEnableAddHiddenColumn(true);
+        return columnDefinition;
+    }
+
     /**
-     * add hidden column __DORIS_ROW_LSN_COL__ for stable row identity on row-binlog tables.
+     * add hidden column __DORIS_ROW_LSN_COL__ for stable row identity on changelog tables.
      */
     public static ColumnDefinition newRowLsnColumnDefinition(AggregateType aggregateType) {
         ColumnDefinition columnDefinition = new ColumnDefinition(Column.ROW_LSN_COL, BigIntType.INSTANCE, false,

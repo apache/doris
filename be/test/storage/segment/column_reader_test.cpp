@@ -370,14 +370,32 @@ struct TrackingOffsetIterator {
     TrackingFileColumnIterator* tracker = nullptr;
 };
 
-// item_data is the nested writer's raw input and differs by element type. It is not the
-// outer array's own data layout; write_array_column only adds the outer array metadata.
+// The rows of a test as columns: INT values, a column with a null map, and arrays of items,
+// row i holding items [offsets[i], offsets[i + 1]).
+ColumnPtr ints(const std::vector<int32_t>& values) {
+    auto column = ColumnInt32::create();
+    column->get_data().assign(values.begin(), values.end());
+    return column;
+}
+
+ColumnPtr with_nulls(ColumnPtr column, const std::vector<uint8_t>& null_map) {
+    auto nulls = ColumnUInt8::create();
+    nulls->get_data().assign(null_map.begin(), null_map.end());
+    return ColumnNullable::create(std::move(column), std::move(nulls));
+}
+
+ColumnPtr offsets_of(const std::vector<uint64_t>& offsets) {
+    auto column = ColumnArray::ColumnOffsets::create();
+    column->get_data().assign(offsets.begin() + 1, offsets.end());
+    return column;
+}
+
+ColumnPtr array_column_of(ColumnPtr items, const std::vector<uint64_t>& offsets) {
+    return ColumnArray::create(std::move(items), offsets_of(offsets));
+}
+
 void write_array_column(const std::string& file_name, ColumnMetaPB* meta,
-                        const TabletColumn& tablet_column, size_t num_rows,
-                        const std::vector<uint64_t>& item_data,
-                        const std::vector<uint64_t>& outer_offsets,
-                        const std::vector<uint8_t>& item_null_map,
-                        const std::vector<uint8_t>* outer_null_map) {
+                        const TabletColumn& tablet_column, size_t num_rows, const IColumn& column) {
     auto fs = io::global_local_filesystem();
     io::FileWriterPtr file_writer;
     auto st = fs->create_file(file_name, &file_writer);
@@ -390,13 +408,7 @@ void write_array_column(const std::string& file_name, ColumnMetaPB* meta,
     ASSERT_TRUE(st.ok()) << st.to_string();
     ASSERT_TRUE(writer->init().ok());
 
-    std::vector<uint64_t> outer_data {static_cast<uint64_t>(item_null_map.size()),
-                                      reinterpret_cast<uint64_t>(outer_offsets.data()),
-                                      reinterpret_cast<uint64_t>(item_data.data()),
-                                      reinterpret_cast<uint64_t>(item_null_map.data())};
-    ASSERT_TRUE(writer->append(outer_null_map ? outer_null_map->data() : nullptr, outer_data.data(),
-                               num_rows)
-                        .ok());
+    ASSERT_TRUE(writer->append(column, 0, num_rows).ok());
     ASSERT_TRUE(writer->finish().ok());
     ASSERT_TRUE(writer->write_data().ok());
     ASSERT_TRUE(writer->write_ordinal_index().ok());
@@ -553,10 +565,15 @@ TEST_F(ColumnReaderTest, NullMapOnlyReadBySparseRowidsAcrossPages) {
         st = writer->init();
         ASSERT_TRUE(st.ok()) << st.to_string();
 
+        auto values = ColumnInt32::create();
+        auto nulls = ColumnUInt8::create();
         for (int32_t i = 0; i < 6; ++i) {
-            st = writer->append(i == 2, &i);
-            ASSERT_TRUE(st.ok()) << st.to_string();
+            values->insert_value(i);
+            nulls->insert_value((i == 2) ? 1 : 0);
         }
+        auto src = ColumnNullable::create(std::move(values), std::move(nulls));
+        st = writer->append(*src, 0, 6);
+        ASSERT_TRUE(st.ok()) << st.to_string();
 
         st = writer->finish();
         ASSERT_TRUE(st.ok()) << st.to_string();
@@ -659,12 +676,11 @@ TEST_F(ColumnReaderTest, ArrayReadByRowidsMatchesSequentialReadAcrossPages) {
         st = ColumnWriter::create(writer_options, &array_column, file_writer.get(), &writer);
         ASSERT_TRUE(st.ok()) << st.to_string();
         ASSERT_TRUE(writer->init().ok());
-        // Use the vectorized append path so even null parent rows keep their physical item span.
-        const std::array<uint64_t, 4> array_data {static_cast<uint64_t>(item_values.size()),
-                                                  reinterpret_cast<uint64_t>(array_offsets.data()),
-                                                  reinterpret_cast<uint64_t>(item_values.data()),
-                                                  reinterpret_cast<uint64_t>(item_null_map.data())};
-        ASSERT_TRUE(writer->append(array_null_map.data(), array_data.data(), num_rows).ok());
+        // Null parent rows keep their physical item span.
+        const auto column = with_nulls(
+                array_column_of(with_nulls(ints(item_values), item_null_map), array_offsets),
+                array_null_map);
+        ASSERT_TRUE(writer->append(*column, 0, num_rows).ok());
         ASSERT_TRUE(writer->finish().ok());
         ASSERT_TRUE(writer->write_data().ok());
         ASSERT_TRUE(writer->write_ordinal_index().ok());
@@ -863,14 +879,13 @@ TEST_F(ColumnReaderTest, ArrayReadByRowidsNestedArrayMatchesSequentialRead) {
         outer_offsets[row + 1] = nested_item_null_map.size();
     }
 
-    std::vector<uint64_t> item_data {static_cast<uint64_t>(int_values.size()),
-                                     reinterpret_cast<uint64_t>(nested_offsets.data()),
-                                     reinterpret_cast<uint64_t>(int_values.data()),
-                                     reinterpret_cast<uint64_t>(int_null_map.data())};
+    const auto items =
+            with_nulls(array_column_of(with_nulls(ints(int_values), int_null_map), nested_offsets),
+                       nested_item_null_map);
     const std::string file_name =
             COLUMN_READER_FILE_TEST_DIR + "/array_read_by_rowids_nested_array";
-    write_array_column(file_name, &meta, array_column, num_rows, item_data, outer_offsets,
-                       nested_item_null_map, &outer_null_map);
+    write_array_column(file_name, &meta, array_column, num_rows,
+                       *with_nulls(array_column_of(items, outer_offsets), outer_null_map));
 
     io::FileReaderSPtr file_reader;
     auto st = io::global_local_filesystem()->open_file(file_name, &file_reader);
@@ -966,14 +981,14 @@ TEST_F(ColumnReaderTest, ArrayReadByRowidsNestedStructMatchesSequentialRead) {
         outer_offsets[row + 1] = struct_item_null_map.size();
     }
 
-    std::vector<uint64_t> item_data {reinterpret_cast<uint64_t>(a_values.data()),
-                                     reinterpret_cast<uint64_t>(b_values.data()),
-                                     reinterpret_cast<uint64_t>(a_null_map.data()),
-                                     reinterpret_cast<uint64_t>(b_null_map.data())};
+    const auto items =
+            with_nulls(ColumnStruct::create(Columns {with_nulls(ints(a_values), a_null_map),
+                                                     with_nulls(ints(b_values), b_null_map)}),
+                       struct_item_null_map);
     const std::string file_name =
             COLUMN_READER_FILE_TEST_DIR + "/array_read_by_rowids_nested_struct";
-    write_array_column(file_name, &meta, array_column, num_rows, item_data, outer_offsets,
-                       struct_item_null_map, &outer_null_map);
+    write_array_column(file_name, &meta, array_column, num_rows,
+                       *with_nulls(array_column_of(items, outer_offsets), outer_null_map));
 
     io::FileReaderSPtr file_reader;
     auto st = io::global_local_filesystem()->open_file(file_name, &file_reader);
@@ -1076,15 +1091,13 @@ TEST_F(ColumnReaderTest, ArrayReadByRowidsNestedMapMatchesSequentialRead) {
         outer_offsets[row + 1] = map_item_null_map.size();
     }
 
-    std::vector<uint64_t> item_data {static_cast<uint64_t>(key_values.size()),
-                                     reinterpret_cast<uint64_t>(map_offsets.data()),
-                                     reinterpret_cast<uint64_t>(key_values.data()),
-                                     reinterpret_cast<uint64_t>(value_values.data()),
-                                     reinterpret_cast<uint64_t>(key_null_map.data()),
-                                     reinterpret_cast<uint64_t>(value_null_map.data())};
+    const auto items = with_nulls(ColumnMap::create(with_nulls(ints(key_values), key_null_map),
+                                                    with_nulls(ints(value_values), value_null_map),
+                                                    offsets_of(map_offsets)),
+                                  map_item_null_map);
     const std::string file_name = COLUMN_READER_FILE_TEST_DIR + "/array_read_by_rowids_nested_map";
-    write_array_column(file_name, &meta, array_column, num_rows, item_data, outer_offsets,
-                       map_item_null_map, &outer_null_map);
+    write_array_column(file_name, &meta, array_column, num_rows,
+                       *with_nulls(array_column_of(items, outer_offsets), outer_null_map));
 
     io::FileReaderSPtr file_reader;
     auto st = io::global_local_filesystem()->open_file(file_name, &file_reader);
@@ -1165,14 +1178,13 @@ TEST_F(ColumnReaderTest, ArrayReadByRowidsNestedArraySchemaEvolutionFromNonNullS
         outer_offsets[row + 1] = nested_item_null_map.size();
     }
 
-    std::vector<uint64_t> item_data {static_cast<uint64_t>(int_values.size()),
-                                     reinterpret_cast<uint64_t>(nested_offsets.data()),
-                                     reinterpret_cast<uint64_t>(int_values.data()),
-                                     reinterpret_cast<uint64_t>(int_null_map.data())};
+    const auto items =
+            with_nulls(array_column_of(with_nulls(ints(int_values), int_null_map), nested_offsets),
+                       nested_item_null_map);
     const std::string file_name =
             COLUMN_READER_FILE_TEST_DIR + "/array_read_by_rowids_nested_array_schema_evolution";
-    write_array_column(file_name, &meta, array_column, num_rows, item_data, outer_offsets,
-                       nested_item_null_map, nullptr);
+    write_array_column(file_name, &meta, array_column, num_rows,
+                       *array_column_of(items, outer_offsets));
 
     io::FileReaderSPtr file_reader;
     auto st = io::global_local_filesystem()->open_file(file_name, &file_reader);
@@ -1245,11 +1257,8 @@ TEST_F(ColumnReaderTest, ArrayReadByRowidsSchemaEvolutionFromNonNullSource) {
         st = ColumnWriter::create(writer_options, &array_column, file_writer.get(), &writer);
         ASSERT_TRUE(st.ok()) << st.to_string();
         ASSERT_TRUE(writer->init().ok());
-        const std::array<uint64_t, 4> array_data {static_cast<uint64_t>(item_values.size()),
-                                                  reinterpret_cast<uint64_t>(array_offsets.data()),
-                                                  reinterpret_cast<uint64_t>(item_values.data()),
-                                                  0};
-        ASSERT_TRUE(writer->append(nullptr, array_data.data(), num_rows).ok());
+        const auto column = array_column_of(ints(item_values), array_offsets);
+        ASSERT_TRUE(writer->append(*column, 0, num_rows).ok());
         ASSERT_TRUE(writer->finish().ok());
         ASSERT_TRUE(writer->write_data().ok());
         ASSERT_TRUE(writer->write_ordinal_index().ok());

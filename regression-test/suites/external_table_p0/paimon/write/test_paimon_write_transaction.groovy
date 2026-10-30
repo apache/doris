@@ -47,6 +47,23 @@ suite("test_paimon_write_transaction", "p0,external,paimon") {
             id INT, name STRING
         ) USING paimon;
 
+        DROP TABLE IF EXISTS paimon.${dbName}.t_overwrite_dynamic_bucket;
+        CREATE TABLE paimon.${dbName}.t_overwrite_dynamic_bucket (
+            id INT, name STRING
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'id'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_overwrite_dynamic_bucket_part;
+        CREATE TABLE paimon.${dbName}.t_overwrite_dynamic_bucket_part (
+            id INT, name STRING, region STRING
+        ) USING paimon
+        PARTITIONED BY (region)
+        TBLPROPERTIES (
+            'primary-key' = 'id,region'
+        );
+
         DROP TABLE IF EXISTS paimon.${dbName}.t_overwrite_part;
         CREATE TABLE paimon.${dbName}.t_overwrite_part (
             id INT, name STRING, region STRING
@@ -208,11 +225,42 @@ suite("test_paimon_write_transaction", "p0,external,paimon") {
         qt_txn_empty_overwrite """SELECT COUNT(*) FROM t_overwrite"""
         assertTableEquals("t_overwrite", "ORDER BY id")
 
-        // A direct PhysicalEmptyRelation must still publish the empty overwrite snapshot.
+        // A source that LIMIT 0 folds to an empty relation must still publish the empty overwrite snapshot. An
+        // append-only table is written through an exchange, so the writers run and report nothing.
         sql """INSERT INTO t_overwrite VALUES (30, 'old_for_limit_zero')"""
         sql """INSERT OVERWRITE TABLE t_overwrite SELECT 1, 'unused' LIMIT 0"""
         qt_txn_empty_overwrite_limit_zero """SELECT COUNT(*) FROM t_overwrite"""
         assertTableEquals("t_overwrite", "ORDER BY id")
+
+        // A primary-key table without a fixed bucket count has a single writer, so the sink of an overwrite
+        // whose source the planner proves empty sits directly on the empty relation, and no writer runs. Such an
+        // insert of nothing skips its transaction, but an overwrite still replaces the table, or the static
+        // partition, with nothing.
+        sql """INSERT INTO t_overwrite_dynamic_bucket VALUES (1, 'old1'), (2, 'old2')"""
+        qt_txn_dynamic_bucket_empty_overwrite_plan """
+            EXPLAIN SHAPE PLAN INSERT OVERWRITE TABLE t_overwrite_dynamic_bucket SELECT 1, 'unused' LIMIT 0
+        """
+        sql """INSERT OVERWRITE TABLE t_overwrite_dynamic_bucket SELECT 1, 'unused' LIMIT 0"""
+        qt_txn_dynamic_bucket_empty_overwrite """SELECT COUNT(*) FROM t_overwrite_dynamic_bucket"""
+        order_qt_txn_dynamic_bucket_empty_overwrite_snapshots """
+            SELECT snapshot_id, commit_kind FROM t_overwrite_dynamic_bucket\$snapshots
+        """
+        assertTableEquals("t_overwrite_dynamic_bucket", "ORDER BY id")
+
+        sql """INSERT INTO t_overwrite_dynamic_bucket_part VALUES
+            (1, 'east_old', 'east'), (2, 'west_old', 'west')"""
+        qt_txn_dynamic_bucket_empty_static_overwrite_plan """
+            EXPLAIN SHAPE PLAN INSERT OVERWRITE TABLE t_overwrite_dynamic_bucket_part
+            PARTITION (region = 'east') SELECT 1, 'unused' LIMIT 0
+        """
+        sql """INSERT OVERWRITE TABLE t_overwrite_dynamic_bucket_part
+            PARTITION (region = 'east') SELECT 1, 'unused' LIMIT 0"""
+        order_qt_txn_dynamic_bucket_empty_static_overwrite """SELECT id, name, region
+            FROM t_overwrite_dynamic_bucket_part ORDER BY id"""
+        order_qt_txn_dynamic_bucket_empty_static_overwrite_snapshots """
+            SELECT snapshot_id, commit_kind FROM t_overwrite_dynamic_bucket_part\$snapshots
+        """
+        assertTableEquals("t_overwrite_dynamic_bucket_part", "ORDER BY id")
 
         // FT-015: Static partition overwrite replaces only the requested partition.
         sql """INSERT INTO t_overwrite_part VALUES
@@ -506,7 +554,7 @@ suite("test_paimon_write_transaction", "p0,external,paimon") {
             sql """INSERT INTO t_failed_write VALUES
                 (2, 'accepted_before_error'),
                 (3, repeat('x', 1048576))"""
-            exception "The record exceeds the maximum size of a sort buffer"
+            exception "The record exceeds the maximum size of a Paimon write sort buffer"
         }
         qt_txn_failed_write_after """SELECT id, payload FROM t_failed_write ORDER BY id"""
         qt_txn_failed_snapshot_after """SELECT COUNT(*) FROM t_failed_write\$snapshots"""

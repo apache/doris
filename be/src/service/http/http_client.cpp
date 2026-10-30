@@ -22,6 +22,7 @@
 #include <glog/logging.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -33,6 +34,7 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/status.h"
+#include "cpp/sync_point.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
@@ -355,7 +357,8 @@ void HttpClient::reset() {
     _method = GET;
 }
 
-Status HttpClient::init(const std::string& url, bool set_fail_on_error) {
+Status HttpClient::init(const std::string& url, bool set_fail_on_error,
+                        AuthTokenMode auth_token_mode) {
     reset();
     if (_curl == nullptr) {
         _curl = curl_easy_init();
@@ -425,9 +428,20 @@ Status HttpClient::init(const std::string& url, bool set_fail_on_error) {
         return Status::InternalError("fail to set CURLOPT_URL");
     }
 
+    if (auth_token_mode == AuthTokenMode::CLUSTER) {
 #ifndef BE_TEST
-    set_auth_token(ExecEnv::GetInstance()->cluster_info()->curr_auth_token);
+        set_auth_token(ExecEnv::GetInstance()->cluster_info()->curr_auth_token);
 #endif
+    }
+    return Status::OK();
+}
+
+Status HttpClient::set_ca_cert_file(const std::string& path) {
+    auto code = curl_easy_setopt(_curl, CURLOPT_CAINFO, path.c_str());
+    if (code != CURLE_OK) {
+        return Status::InternalError("failed to set CA certificate file: {}", _to_errmsg(code));
+    }
+    TEST_SYNC_POINT_CALLBACK("HttpClient::set_ca_cert_file", &path);
     return Status::OK();
 }
 
@@ -552,6 +566,27 @@ Status HttpClient::get_response_header(const char* name, std::string* value) con
 
 Status HttpClient::get_content_md5(std::string* md5) const {
     return get_response_header(HttpHeaders::CONTENT_MD5, md5);
+}
+
+HttpTransferMetrics HttpClient::get_transfer_metrics() const {
+    const auto time_ns = [this](CURLINFO info) -> int64_t {
+        curl_off_t time_us = 0;
+        curl_easy_getinfo(_curl, info, &time_us);
+        return time_us * 1000;
+    };
+    HttpTransferMetrics metrics;
+    long connections = 0;
+    curl_easy_getinfo(_curl, CURLINFO_NUM_CONNECTS, &connections);
+    metrics.new_connections = connections;
+    metrics.dns_time_ns = time_ns(CURLINFO_NAMELOOKUP_TIME_T);
+    const auto connected_ns = time_ns(CURLINFO_CONNECT_TIME_T);
+    const auto tls_connected_ns = time_ns(CURLINFO_APPCONNECT_TIME_T);
+    // curl reports zero connect times for reused connections and zero appconnect for HTTP.
+    metrics.connect_time_ns = std::max<int64_t>(0, connected_ns - metrics.dns_time_ns);
+    metrics.tls_time_ns = std::max<int64_t>(0, tls_connected_ns - connected_ns);
+    metrics.first_byte_time_ns = time_ns(CURLINFO_STARTTRANSFER_TIME_T);
+    metrics.total_time_ns = time_ns(CURLINFO_TOTAL_TIME_T);
+    return metrics;
 }
 
 Status HttpClient::download(const std::string& local_path) {

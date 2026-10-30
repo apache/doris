@@ -33,6 +33,7 @@
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/id_manager.h"
 #include "storage/rowset_id.h"
@@ -299,6 +300,37 @@ TEST_F(RowIdStorageReaderTest, ExternalFetchPartitionSlotsPreserveHivePositionMa
             EXPECT_TRUE(reader.validate_projected_columns(context).ok());
         }
     }
+}
+
+// A request block reads each of its scan ranges with a separate reader, and its profile reports the
+// mean reader-init and block-read time over those ranges. When an RPC fetches two lazily
+// materialized tables, the second request block starts with the first block's averages in the
+// caller's variables; they must not leak into its own.
+TEST_F(RowIdStorageReaderTest, ExternalFetchProfileAveragesInitAndGetBlockTimes) {
+    std::vector<RowIdStorageReader::ExternalFetchStatistics> fetch_statistics(3);
+    fetch_statistics[0].init_reader_ms = 10;
+    fetch_statistics[0].get_block_ms = 100;
+    fetch_statistics[1].init_reader_ms = 20;
+    fetch_statistics[1].get_block_ms = 200;
+    fetch_statistics[2].init_reader_ms = 60;
+    fetch_statistics[2].get_block_ms = 600;
+    // The averages a previous request block of the same RPC left behind.
+    int64_t init_reader_avg_ms = 50;
+    int64_t get_block_avg_ms = 500;
+    RuntimeProfile profile("ExternalRowIDFetcher");
+
+    RowIdStorageReader::add_external_fetch_avg_time_profile(fetch_statistics, &profile,
+                                                            &init_reader_avg_ms, &get_block_avg_ms);
+
+    EXPECT_EQ(init_reader_avg_ms, 30);
+    EXPECT_EQ(get_block_avg_ms, 300);
+    const auto* init_reader_avg =
+            profile.get_info_string(RowIdStorageReader::InitReaderAvgTimeProfile);
+    ASSERT_NE(init_reader_avg, nullptr);
+    EXPECT_EQ(*init_reader_avg, "30ms");
+    const auto* get_block_avg = profile.get_info_string(RowIdStorageReader::GetBlockAvgTimeProfile);
+    ASSERT_NE(get_block_avg, nullptr);
+    EXPECT_EQ(*get_block_avg, "300ms");
 }
 
 TEST_F(RowIdStorageReaderTest, SameSourceColumnSharesKey) {

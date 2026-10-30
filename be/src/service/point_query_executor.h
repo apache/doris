@@ -335,6 +335,8 @@ private:
         // rowset will be aquired during read
         // and released after used
         std::unique_ptr<RowsetSharedPtr, decltype(&release_rowset)> _rowset_ptr;
+        // Reuse the segment loaded during key lookup; release it before its acquired rowset.
+        segment_v2::SegmentSharedPtr _segment;
     };
 
     PTabletKeyLookupResponse* _response = nullptr;

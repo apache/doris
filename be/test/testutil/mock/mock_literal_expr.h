@@ -44,9 +44,9 @@ public:
         _expr_name = data.name;
         if (!check_and_get_column<ColumnConst>(data.column.get())) {
             _mock_const_expr_col =
-                    std::make_shared<ColumnPtrWrapper>(ColumnConst::create(data.column, 1));
+                    std::make_shared<ConstantExprResult>(ColumnConst::create(data.column, 1));
         } else {
-            _mock_const_expr_col = std::make_shared<ColumnPtrWrapper>(data.column);
+            _mock_const_expr_col = std::make_shared<ConstantExprResult>(data.column);
         }
     }
 
@@ -107,14 +107,14 @@ public:
     }
 
     Status get_const_col(VExprContext* context,
-                         std::shared_ptr<ColumnPtrWrapper>* column_wrapper) override {
+                         std::shared_ptr<ConstantExprResult>* column_wrapper) override {
         *column_wrapper = _mock_const_expr_col;
         return Status::OK();
     }
 
 private:
     const std::string _name = "MockLiteral";
-    std::shared_ptr<ColumnPtrWrapper> _mock_const_expr_col;
+    std::shared_ptr<ConstantExprResult> _mock_const_expr_col;
 };
 
 } // namespace doris

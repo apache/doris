@@ -19,6 +19,8 @@
 
 #include <glog/logging.h>
 
+#include <algorithm>
+#include <optional>
 #include <vector>
 
 #include "exec/common/variant_util.h"
@@ -30,6 +32,7 @@
 #include "storage/index/index_reader_helper.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/common/string_helper.h"
+#include "storage/index/inverted/query/exec/term_pattern.h"
 #include "storage/index/inverted/reader/inverted_index_selector.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
@@ -114,6 +117,21 @@ Status append_scoring_leaf(CollectInfo* collect_info, const std::vector<TermInfo
     }
     collect_info->logical_scoring_leaves.emplace_back(std::move(leaf));
     return Status::OK();
+}
+
+void append_scoring_prefix(CollectInfo* collect_info, const TermInfo& prefix,
+                           int32_t max_expansions) {
+    DORIS_CHECK(collect_info != nullptr);
+    DORIS_CHECK(prefix.is_single_term());
+    const auto& text = prefix.get_single_term();
+    const bool known = std::ranges::any_of(
+            collect_info->scoring_prefixes, [&](const LogicalScoringPrefix& registered) {
+                return registered.prefix == text && registered.max_expansions == max_expansions;
+            });
+    if (!known) {
+        collect_info->scoring_prefixes.push_back(
+                LogicalScoringPrefix {.prefix = text, .max_expansions = max_expansions});
+    }
 }
 
 InvertedIndexQueryType match_query_type(TExprOpcode::type opcode) {
@@ -351,12 +369,23 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
         !IndexReaderHelper::is_need_similarity_score(expr->op(), index_meta)) {
         return Status::OK();
     }
+    // A regexp scores a constant and reads no statistics. Its value is a pattern, not text, so
+    // analyzing it would collect statistics for made-up terms: 'ap.*' would become "ap".
+    if (expr->op() == TExprOpcode::MATCH_REGEXP) {
+        return Status::OK();
+    }
 
     DORIS_CHECK(analyzer_ctx->analyzer_provider != nullptr);
     auto options = DataTypeSerDe::get_default_format_options();
     options.timezone = &state->timezone_obj();
     auto term_infos = DORIS_TRY(analyze_plain_query(right_literal->value(options), *analyzer_ctx));
+    // The prefix of a phrase prefix is scored by the terms it expands to, so the statistics are
+    // collected for them per segment; a prefix alone scores a constant and needs none.
+    std::optional<TermInfo> scoring_prefix;
     if (expr->op() == TExprOpcode::MATCH_PHRASE_PREFIX && !term_infos.empty()) {
+        if (term_infos.size() > 1) {
+            scoring_prefix = term_infos.back();
+        }
         term_infos.pop_back();
     }
 
@@ -369,10 +398,19 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
         CollectInfo collect_info;
         RETURN_IF_ERROR(append_scoring_leaf(&collect_info, term_infos));
         preserve_selected_index_metadata(candidates, index_meta, &collect_info);
-        (*collect_infos)[ws_field_name] = std::move(collect_info);
+        iter = collect_infos->emplace(ws_field_name, std::move(collect_info)).first;
     } else {
         RETURN_IF_ERROR(validate_same_physical_index(iter->second, *index_meta));
         RETURN_IF_ERROR(append_scoring_leaf(&iter->second, term_infos));
+    }
+    if (scoring_prefix.has_value()) {
+        // The terms of a prefix are kept for the whole scan and copied to every scanner, so their
+        // number is bounded. Under a session limit of 0, which expands a prefix to every term,
+        // "quick b" would keep the whole vocabulary starting with b, and a sum of thousands of
+        // idfs ranks nothing; the default limit scores it instead.
+        const int32_t session_limit = index_query::max_expansions(state);
+        append_scoring_prefix(&iter->second, *scoring_prefix,
+                              session_limit > 0 ? session_limit : kDefaultScoringExpansions);
     }
 
     return Status::OK();

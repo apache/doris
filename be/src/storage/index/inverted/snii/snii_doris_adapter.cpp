@@ -20,11 +20,14 @@
 #include <fmt/format.h>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <limits>
 #include <vector>
 
 #include "common/cast_set.h"
+#include "common/config.h"
 #include "cpp/sync_point.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
@@ -38,7 +41,27 @@ namespace {
 // (mirrors the "at most one serial round" contract that the test-side
 // MeteredFileReader measures, and the S3 standalone reader's 16-way fan-out).
 constexpr size_t kMaxConcurrentReads = 16;
+
+// A batch is read on the calling thread only if it is small and reads have been fast lately. The
+// pool pays off when reads miss the page cache, because a few of them then overlap; it costs more
+// than the reads when they hit it. The average is of the duration of one small physical read
+// (1/8 weight), shared by every reader: a page-cache hit takes a few microseconds, a miss on flash
+// ten times that or more. On NVMe, cold phrase queries ran 4-8% slower with the threshold at 40 us
+// and level with the pool at 25 us and below, while the warm gain held from 15 us up. It starts at
+// zero, so a cold start reads its first batches inline until the average has caught up.
+constexpr size_t kInlineMaxBatchBytes = 256 * 1024;
+constexpr int64_t kSlowSmallReadNs = 20 * 1000;
+std::atomic<int64_t> g_small_read_ns {0};
+
+void note_small_read(int64_t ns) {
+    const int64_t average = g_small_read_ns.load(std::memory_order_relaxed);
+    g_small_read_ns.store(average + (ns - average) / 8, std::memory_order_relaxed);
+}
 } // namespace
+
+void DorisSniiFileReader::reset_read_latency_for_test() {
+    g_small_read_ns.store(0, std::memory_order_relaxed);
+}
 
 thread_local const io::IOContext* DorisSniiFileReader::_scoped_io_ctx = nullptr;
 ThreadPool* DorisSniiFileReader::_io_pool_for_test = nullptr;
@@ -62,9 +85,10 @@ uint64_t DorisSniiFileWriter::bytes_written() const {
 }
 
 DorisSniiFileReader::DorisSniiFileReader(io::FileReaderSPtr reader, const io::IOContext* io_ctx,
-                                         bool direct_remote_io)
+                                         bool direct_remote_io, bool local_fs)
         : _reader(std::move(reader)),
           _direct_remote_io(direct_remote_io),
+          _local_fs(local_fs),
           _default_io_ctx(_make_index_io_context(io_ctx)) {}
 
 io::IOContext DorisSniiFileReader::_make_index_io_context(const io::IOContext* io_ctx) {
@@ -168,10 +192,7 @@ Status DorisSniiFileReader::read_batch(const std::vector<::doris::snii::io::Rang
         return Status::OK();
     }
 
-    // ----- Phase 1: plan (serial, lock-free) -----
-    // No section-classification lock exists on this reader, so the whole plan is
-    // a plain in-memory scan; the NO-IO-UNDER-LOCK red line holds trivially (no
-    // lock is taken anywhere in read_batch).
+    // Plan section reads from in-memory metadata.
     struct IndexedRange {
         uint64_t offset = 0;
         size_t len = 0;
@@ -250,12 +271,33 @@ Status DorisSniiFileReader::read_batch(const std::vector<::doris::snii::io::Rang
         read_bytes += cast_set<int64_t>(seg.len);
     }
 
-    // ----- Phase 2: physical reads (lock-free; concurrent when a pool exists) -----
+    // Run the planned physical reads, concurrently when a pool is available.
     auto run_segment = [&](size_t s) {
+        // Only local reads are timed: the average decides about local readers, and a remote or
+        // cached-remote read takes a millisecond that says nothing about the page cache.
+        const bool timed = _local_fs && segs[s].len <= kInlineMaxBatchBytes;
+        const auto begin =
+                timed ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point {};
         seg_status[s] = _read_at(segs[s].offset, segs[s].len, &outs->buffers[s], &seg_io_ctx[s]);
+        if (timed && seg_status[s].ok()) {
+            note_small_read(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                    std::chrono::steady_clock::now() - begin)
+                                    .count());
+        }
     };
     ThreadPool* pool = _select_io_pool();
-    if (pool != nullptr && num_segs > 1) {
+    // Submitting to the shared pool and waiting costs far more than a small read from the page
+    // cache, and a query that issues thousands of such batches queues on the pool's lock. Only
+    // local files take this path: a remote or cached-remote read is slow enough that fanning out
+    // pays, and so is a local read that misses the page cache.
+    const int32_t inline_max_segments = config::snii_inline_read_max_segments;
+    const bool inline_read = _local_fs && inline_max_segments > 0 &&
+                             num_segs <= static_cast<size_t>(inline_max_segments) &&
+                             read_bytes <= static_cast<int64_t>(kInlineMaxBatchBytes) &&
+                             g_small_read_ns.load(std::memory_order_relaxed) < kSlowSmallReadNs;
+    // A read on the calling thread is one dependent round per segment.
+    const size_t serial_rounds = inline_read ? num_segs : _compute_num_waves(num_segs);
+    if (pool != nullptr && num_segs > 1 && !inline_read) {
         // Carried onto the pool threads below. They are "Orphan" threads with no MemTrackerLimiter
         // of their own (buffered_reader.cpp:426), and the read does allocate down there: in cloud
         // mode _read_at reaches CachedRemoteFileReader::read_at_impl ->
@@ -295,10 +337,7 @@ Status DorisSniiFileReader::read_batch(const std::vector<::doris::snii::io::Rang
         }
     }
 
-    // ----- Phase 3: merge stats, first-error, views, account (serial) -----
-    // Fold every segment's private stats back FIRST: physical IO that already
-    // happened (including partial work inside a segment that then failed) must
-    // reach the query profile even when another segment of this batch errors.
+    // Merge per-segment statistics before returning any read error so completed I/O remains visible.
     if (base_io_ctx->file_cache_stats != nullptr) {
         for (size_t s = 0; s < num_segs; ++s) {
             _merge_file_cache_statistics(base_io_ctx->file_cache_stats, seg_stats[s]);
@@ -323,8 +362,7 @@ Status DorisSniiFileReader::read_batch(const std::vector<::doris::snii::io::Rang
         // Record only what actually completed so the logical counters stay
         // truthful for the failed batch; ranges/rounds reflect what was issued.
         _record_read_stats(completed_request_bytes, completed_read_bytes,
-                           cast_set<int64_t>(num_segs),
-                           cast_set<int64_t>(_compute_num_waves(num_segs)));
+                           cast_set<int64_t>(num_segs), cast_set<int64_t>(serial_rounds));
         return first_error;
     }
     for (size_t s = 0; s < num_segs; ++s) {
@@ -336,7 +374,7 @@ Status DorisSniiFileReader::read_batch(const std::vector<::doris::snii::io::Rang
         }
     }
     _record_read_stats(request_bytes, read_bytes, cast_set<int64_t>(num_segs),
-                       cast_set<int64_t>(_compute_num_waves(num_segs)));
+                       cast_set<int64_t>(serial_rounds));
     return Status::OK();
 }
 // NOLINTEND(readability-non-const-parameter)
