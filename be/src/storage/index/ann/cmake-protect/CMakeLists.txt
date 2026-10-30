@@ -16,8 +16,9 @@
 # under the License.
 
 # Make sure compile check in doris will not break compilation of faiss and openblas
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -w")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w")
+# and do not add ub santizer for faiss and openblas.
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -w -fno-sanitize=undefined")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w -fno-sanitize=undefined")
 
 set(BUILD_WITHOUT_LAPACK OFF CACHE BOOL "Disable LAPACK support in OpenBLAS")
 set(NO_SHARED TRUE CACHE BOOL "Disable shared library in OpenBLAS")
