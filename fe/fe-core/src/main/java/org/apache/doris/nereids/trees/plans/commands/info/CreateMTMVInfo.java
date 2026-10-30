@@ -58,12 +58,15 @@ import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.properties.SelectHint;
+import org.apache.doris.nereids.properties.SelectHintSetVar;
 import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo.AnalyzerForCreateView;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo.PlanSlotFinder;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.LargeIntType;
@@ -109,6 +112,8 @@ public class CreateMTMVInfo extends CreateTableInfo {
     private boolean ivmAppendOnlyDupModel;
     private String ivmPlanSignature;
     private Map<String, String> sessionVariables;
+    // The plan the definition was analyzed into; nullptr-free only after analyzeQuery ran.
+    private Plan analyzedPlan;
 
     /**
      * constructor for create MTMV
@@ -193,16 +198,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
         // falls into no MV partition (or into the preceding UTC one). The detection must use the analyzed
         // base partition column, not the MTMV output columns: an aliased definition projects only
         // date_trunc(ts, 'day') AS day_ts, so neither the source column name nor its type is visible there.
-        if (MTMVPlanUtil.usesUtcTimeStampTzPartition(mvPartitionInfo)) {
-            // Persisting UTC as the effective creation zone only works if every FE can interpret it: an older
-            // FE does not know time_zone as a plan variable and would refresh this MV in its own default zone,
-            // routing rows outside the UTC-aligned partitions. Refuse the DDL instead of writing metadata that
-            // a still-running old FE would silently misinterpret.
-            SessionVarGuardRewriter.checkClusterSupportsPlanTimeZoneFence();
-            Map<String, String> effectiveSessionVariables = Maps.newHashMap(sessionVariables);
-            effectiveSessionVariables.put(SessionVariable.TIME_ZONE, TimeUtils.getUTCTimeZone().getID());
-            this.sessionVariables = effectiveSessionVariables;
-        }
+        preparePlanSessionVariables(ctx);
         validateRefreshStrategyForCreate();
         validateIvmOnlyProperties();
         // An omitted DISTRIBUTED BY is resolved below: an IVM (INCREMENTAL) MV auto-generates a HASH
@@ -389,6 +385,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
                 this.logicalQuery, isEnableIvm() ? Optional.of(IvmRewriteContext.create(tableNameInfo.getTbl()))
                         : Optional.empty());
         this.mvPartitionInfo = mtmvAnalyzeQueryInfo.getMvPartitionInfo();
+        this.analyzedPlan = mtmvAnalyzeQueryInfo.getAnalyzedPlan();
         this.columns = mtmvAnalyzeQueryInfo.getColumnDefinitions();
         this.keys = Utils.copyRequiredList(mtmvAnalyzeQueryInfo.getKeys());
         this.relation = mtmvAnalyzeQueryInfo.getRelation();
@@ -414,6 +411,67 @@ public class CreateMTMVInfo extends CreateTableInfo {
                     "Incremental materialized view does not allow specifying the hidden row-id column. "
                     + "The row-id column is managed by IVM.");
         }
+    }
+
+    /**
+     * Finalizes the session variables the definition is persisted with.
+     *
+     * <p>A TIMESTAMPTZ-partitioned MTMV (date_trunc on a timestamptz column) derives UTC-aligned partition
+     * boundaries, so its whole definition is materialized in UTC: the map is persisted with time_zone=UTC and
+     * the stored schema is re-derived in that effective session, because {@code analyzeQuery} already folded
+     * constants - and hence nullability - under the creation session, while the refresh and the rewrite cache
+     * reparse the SQL in UTC. Any other definition that depends on the session time zone is only persisted
+     * after the cluster fence check, because an older FE cannot interpret the time_zone plan variable at all.
+     */
+    private void preparePlanSessionVariables(ConnectContext ctx) throws UserException {
+        String utcTimeZone = TimeUtils.getUTCTimeZone().getID();
+        if (MTMVPlanUtil.usesUtcTimeStampTzPartition(mvPartitionInfo)) {
+            // Persisting UTC only works if every FE can interpret it: an older FE does not know time_zone as
+            // a plan variable and would refresh this MV in its own default zone.
+            SessionVarGuardRewriter.checkClusterSupportsPlanTimeZoneFence();
+            // A time_zone pinned by a SET_VAR hint inside the definition is re-applied whenever that SQL is
+            // parsed (refresh command and rewrite cache), which would silently override the UTC session the
+            // partition boundaries are derived in, so a conflicting value cannot be honoured.
+            String hintedTimeZone = hintedTimeZone();
+            if (hintedTimeZone != null
+                    && !SessionVarGuardRewriter.timeZonesEquivalent(hintedTimeZone, utcTimeZone)) {
+                throw new AnalysisException("The materialized view definition pins time_zone='" + hintedTimeZone
+                        + "' with a SET_VAR hint, but a time-zone dependent TIMESTAMPTZ partition key is"
+                        + " materialized in UTC. Remove the hint or pin a UTC value.");
+            }
+            // Derive the stored schema in the effective (UTC) session, then restore the caller's zone.
+            String previousTimeZone = ctx.getSessionVariable().getTimeZone();
+            try {
+                ctx.getSessionVariable().setTimeZone(utcTimeZone);
+                analyzeQuery(ctx);
+            } finally {
+                ctx.getSessionVariable().setTimeZone(previousTimeZone);
+            }
+            Map<String, String> effectiveSessionVariables = Maps.newHashMap(sessionVariables);
+            effectiveSessionVariables.put(SessionVariable.TIME_ZONE, utcTimeZone);
+            this.sessionVariables = effectiveSessionVariables;
+            return;
+        }
+        if (SessionVarGuardRewriter.containsTimeZoneSensitiveExpression(analyzedPlan)) {
+            // The rewrite cache of such an MV carries time-zone guards, which only a fenced FE can interpret.
+            SessionVarGuardRewriter.checkClusterSupportsPlanTimeZoneFence();
+        }
+    }
+
+    /** The time_zone pinned by a SET_VAR hint inside the definition, null when it does not pin one. */
+    private String hintedTimeZone() {
+        for (Plan node : logicalQuery.<Plan>collectToList(p -> p instanceof LogicalSelectHint)) {
+            for (SelectHint hint : ((LogicalSelectHint<?>) node).getHints()) {
+                if (!(hint instanceof SelectHintSetVar)) {
+                    continue;
+                }
+                Optional<String> value = ((SelectHintSetVar) hint).getParameters().get(SessionVariable.TIME_ZONE);
+                if (value != null && value.isPresent()) {
+                    return value.get();
+                }
+            }
+        }
+        return null;
     }
 
     private DataType calculateSequenceDataType(Plan normalizedPlan) {

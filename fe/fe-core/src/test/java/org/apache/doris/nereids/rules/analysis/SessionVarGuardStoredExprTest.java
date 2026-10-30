@@ -228,6 +228,23 @@ public class SessionVarGuardStoredExprTest {
     }
 
     /**
+     * Equal-arity struct casts are positional and may rename the fields, so a rename that keeps every leaf
+     * type is instant preserving and must stay allowed.
+     */
+    @Test
+    public void testRenamedStructCastIsZoneInvariant() {
+        SlotRef structSlot = new SlotRef(null, "s");
+        structSlot.setType(new StructType(new StructField("a", ScalarType.createTimeStampTzType(6))));
+        CastExpr renamed = new CastExpr(
+                new StructType(new StructField("b", ScalarType.createTimeStampTzType(6))), structSlot, true);
+        Assertions.assertFalse(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(renamed));
+        // ... while a renamed field that is rendered into a zone-free representation stays sensitive
+        CastExpr renamedRendered = new CastExpr(
+                new StructType(new StructField("b", ScalarType.createVarcharType(100))), structSlot, true);
+        Assertions.assertTrue(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(renamedRendered));
+    }
+
+    /**
      * Array and map casts are compared leaf by leaf as well: ARRAY&lt;TIMESTAMPTZ&gt; -&gt; ARRAY&lt;STRING&gt;
      * renders every element in the write session zone, while ARRAY&lt;TIMESTAMPTZ&gt; -&gt;
      * ARRAY&lt;TIMESTAMPTZ&gt; is instant preserving.
