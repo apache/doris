@@ -19,7 +19,10 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <functional>
 #include <limits>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -27,6 +30,7 @@
 #include "common/status.h"
 #include "storage/index/inverted/snii/common/slice.h"
 #include "storage/index/inverted/snii/encoding/byte_sink.h"
+#include "storage/index/inverted/snii/encoding/byte_source.h"
 #include "storage/index/inverted/snii/encoding/crc32c.h"
 #include "storage/index/inverted/snii/format/dict_entry.h"
 #include "storage/index/inverted/snii/format/format_constants.h"
@@ -604,4 +608,242 @@ TEST(SniiDictBlockTest, FinishUnaffectedByDeadPrevTermRemoval) {
     for (size_t i = 0; i < terms.size(); ++i) {
         EXPECT_EQ(all[i].term, terms[i]) << i; // front-coding base rebuilt without prev_term_
     }
+}
+
+namespace {
+
+// Pod-ref and inline entries whose keys run from a few bytes to tens, sharing long prefixes.
+std::vector<DictEntry> MakeWalkEntries(int count) {
+    std::vector<DictEntry> entries;
+    for (int i = 0; i < count; ++i) {
+        std::string term =
+                "k" + std::string(static_cast<size_t>(i % 7) * 9, 'p') + std::to_string(100000 + i);
+        entries.push_back(i % 3 == 0 ? MakeInline(std::move(term), static_cast<uint32_t>(i + 1))
+                                     : MakePodRef(std::move(term), static_cast<uint32_t>(i + 1),
+                                                  static_cast<uint64_t>(i) * 10));
+    }
+    std::ranges::sort(entries, {}, &DictEntry::term);
+    return entries;
+}
+
+uint32_t LoadLe32(const std::vector<uint8_t>& bytes, size_t at) {
+    uint32_t v = 0;
+    for (size_t k = 0; k < 4; ++k) {
+        v |= static_cast<uint32_t>(bytes[at + k]) << (8 * k);
+    }
+    return v;
+}
+
+// Re-stamps the crc32c footer after a test edits a block, so that the edit gets past the crc.
+void RestampCrc(std::vector<uint8_t>* bytes) {
+    const size_t n = bytes->size();
+    const uint32_t crc = doris::snii::crc32c(Slice(bytes->data(), n - 4));
+    for (size_t k = 0; k < 4; ++k) {
+        (*bytes)[n - 4 + k] = static_cast<uint8_t>(crc >> (8 * k));
+    }
+}
+
+// A block of three pod-ref entries that are all anchors, and the offset of the second one:
+// [entry_len][prefix_len][suffix_len]["bbb"][flags][df][locator].
+std::vector<uint8_t> BuildAnchorsBlock(size_t* second) {
+    const std::vector<DictEntry> entries = {MakePodRef("aaa", 1, 0), MakePodRef("bbb", 2, 10),
+                                            MakePodRef("ccc", 3, 20)};
+    std::vector<uint8_t> bytes = BuildBlock(entries, IndexTier::kT1, false, 100, 0, 1);
+    *second = LoadLe32(bytes, bytes.size() - 8 - 2 * 4); // [offsets u32 x 3][n_anchors][crc32c]
+    return bytes;
+}
+
+// The walk as it was before keys were read on a raw cursor: every entry through the checked
+// decoders. The walks must report exactly what this reports, on valid and corrupt blocks alike.
+Status CheckedWalk(Slice entries, std::optional<std::string_view> upper,
+                   const std::function<bool(std::string_view)>& accept,
+                   std::vector<std::string>* visited, bool* exhausted) {
+    ByteSource src(entries);
+    std::string prev;
+    while (!src.eof()) {
+        DictEntry entry;
+        size_t body_start = 0;
+        uint64_t total = 0;
+        RETURN_IF_ERROR(decode_dict_entry_key(&src, prev, &entry, &body_start, &total));
+        if (upper.has_value() && entry.term >= *upper) {
+            *exhausted = true;
+            return Status::OK();
+        }
+        if (accept(entry.term)) {
+            RETURN_IF_ERROR(
+                    decode_dict_entry_rest(&src, IndexTier::kT2, body_start, total, &entry));
+            visited->push_back(entry.term);
+        } else {
+            RETURN_IF_ERROR(skip_dict_entry_body(&src, body_start, total));
+        }
+        prev = std::move(entry.term);
+    }
+    return Status::OK();
+}
+
+// A walk's on_hit that keeps every entry it is handed.
+std::function<Status(DictEntry&&, bool*)> Collect(std::vector<DictEntry>* got) {
+    return [got](DictEntry&& entry, bool*) {
+        got->push_back(std::move(entry));
+        return Status::OK();
+    };
+}
+
+// `got` must be the entries of `all` that `wanted` picks, in order and with their bodies.
+void ExpectVisited(const std::vector<DictEntry>& all, const std::vector<DictEntry>& got,
+                   const std::function<bool(const DictEntry&)>& wanted) {
+    size_t next = 0;
+    for (const DictEntry& want : all) {
+        if (!wanted(want)) {
+            continue;
+        }
+        ASSERT_LT(next, got.size());
+        ExpectCommon(got[next], want);
+        EXPECT_EQ(got[next].frq_off_delta, want.frq_off_delta);
+        EXPECT_EQ(got[next].frq_bytes, want.frq_bytes);
+        ++next;
+    }
+    EXPECT_EQ(next, got.size());
+}
+
+// Walks the block both ways and compares what they report; counts the walks that found corruption.
+void ExpectWalkAgrees(const DictBlockReader& reader, Slice entries,
+                      std::optional<std::string_view> upper,
+                      const std::function<bool(std::string_view)>& accept, size_t* corrupt) {
+    std::vector<std::string> want;
+    bool want_exhausted = false;
+    const Status want_st = CheckedWalk(entries, upper, accept, &want, &want_exhausted);
+    std::vector<DictEntry> got;
+    bool got_exhausted = false;
+    const Status got_st = reader.visit_term_range("", upper, accept, Collect(&got), &got_exhausted);
+    EXPECT_EQ(got_st.to_string(), want_st.to_string());
+    ASSERT_EQ(got.size(), want.size());
+    for (size_t i = 0; i < got.size(); ++i) {
+        EXPECT_EQ(got[i].term, want[i]);
+    }
+    EXPECT_EQ(got_exhausted, want_exhausted);
+    *corrupt += want_st.ok() ? 0 : 1;
+}
+
+} // namespace
+
+// The walks rebuild each key in one reused buffer. Short and long keys, long prefixes shared across
+// anchors, and inline and pod-ref bodies all come out as decode_all() reads them, for any prefix,
+// range and key filter.
+TEST(SniiDictBlock, WalksMatchDecodeAll) {
+    const std::vector<uint8_t> bytes =
+            BuildBlock(MakeWalkEntries(300), IndexTier::kT2, true, 8192, 16384, 8);
+    DictBlockReader reader;
+    ASSERT_TRUE(DictBlockReader::open(Slice(bytes), IndexTier::kT2, true, &reader).ok());
+    std::vector<DictEntry> all;
+    ASSERT_TRUE(reader.decode_all(&all).ok());
+    ASSERT_EQ(all.size(), 300U);
+
+    const std::vector<std::function<bool(std::string_view)>> filters = {
+            {},
+            [](std::string_view term) { return !term.empty() && term.back() % 2 == 0; },
+            [](std::string_view term) { return term.size() > 20; },
+            [](std::string_view) { return false; }};
+    for (const std::string_view prefix :
+         {"", "k", "kppppppppp", "kpppppppppppppppppp1002", "k1001", "zzz"}) {
+        for (size_t f = 0; f < filters.size(); ++f) {
+            SCOPED_TRACE(std::string(prefix) + " filter " + std::to_string(f));
+            const auto& filter = filters[f];
+            std::vector<DictEntry> got;
+            bool exhausted = false;
+            ASSERT_TRUE(reader.visit_prefix_range(prefix, filter, Collect(&got), &exhausted).ok());
+            ExpectVisited(all, got, [&](const DictEntry& entry) {
+                return entry.term.starts_with(prefix) && (!filter || filter(entry.term));
+            });
+        }
+    }
+
+    const std::string& lower = all[37].term;
+    const std::string& upper = all[201].term;
+    std::vector<DictEntry> got;
+    bool exhausted = false;
+    ASSERT_TRUE(reader.visit_term_range(lower, std::string_view(upper), filters[1], Collect(&got),
+                                        &exhausted)
+                        .ok());
+    ExpectVisited(all, got, [&](const DictEntry& entry) {
+        return entry.term >= lower && entry.term < upper && filters[1](entry.term);
+    });
+    EXPECT_TRUE(exhausted);
+}
+
+// Every one-byte change to the entries of a block, with the crc re-stamped so that open() accepts
+// it, leaves a walk reporting exactly what a walk over the checked decoders reports: the same
+// status, keys and end of range. An entry whose length or key the raw-cursor reader cannot read
+// cleanly goes through the checked decoders, so its corruption is still reported.
+TEST(SniiDictBlock, WalksAgreeWithCheckedDecodersOnCorruptBlocks) {
+    const std::vector<DictEntry> entries = MakeWalkEntries(24);
+    const std::vector<uint8_t> good = BuildBlock(entries, IndexTier::kT2, true, 8192, 16384, 16);
+    // Tail: [anchor offsets u32 x n][n_anchors u32][crc32c u32]; the first offset starts the entries.
+    const size_t n = good.size();
+    const size_t entries_end = n - 8 - 4 * static_cast<size_t>(LoadLe32(good, n - 8));
+    const size_t entries_begin = LoadLe32(good, entries_end);
+    const std::optional<std::string_view> upper = std::string_view(entries[19].term);
+    const std::vector<std::function<bool(std::string_view)>> filters = {
+            [](std::string_view) { return true; }, [](std::string_view) { return false; },
+            [](std::string_view term) { return !term.empty() && term.back() % 2 == 0; }};
+
+    size_t corrupt = 0;
+    for (size_t at = entries_begin; at < entries_end; ++at) {
+        // A changed low bit, a larger value, and a varint that runs on into the next byte.
+        for (const uint8_t mask : {0x01, 0x40, 0x80}) {
+            std::vector<uint8_t> bytes = good;
+            bytes[at] ^= mask;
+            RestampCrc(&bytes);
+            DictBlockReader reader;
+            if (!DictBlockReader::open(Slice(bytes), IndexTier::kT2, true, &reader).ok()) {
+                continue; // open() decodes the anchor entries itself
+            }
+            SCOPED_TRACE("byte " + std::to_string(at) + " ^ " + std::to_string(mask));
+            const Slice region(bytes.data() + entries_begin, entries_end - entries_begin);
+            for (const auto& filter : filters) {
+                ExpectWalkAgrees(reader, region, std::nullopt, filter, &corrupt);
+                ExpectWalkAgrees(reader, region, upper, filter, &corrupt);
+            }
+            ASSERT_FALSE(HasFailure());
+        }
+    }
+    EXPECT_GT(corrupt, 0U); // the changes do reach the checked decoders' errors
+}
+
+// open() reads only the key of each anchor, and an anchor key it cannot read is still an error.
+TEST(SniiDictBlock, OpenRejectsUnreadableAnchorKeys) {
+    size_t second = 0;
+    const std::vector<uint8_t> good = BuildAnchorsBlock(&second);
+    ASSERT_EQ(good[second + 1], 0); // an anchor has no previous key to share a prefix with
+
+    auto expect_rejected = [&](size_t at, uint8_t value, const char* what) {
+        std::vector<uint8_t> bytes = good;
+        bytes[at] = value;
+        RestampCrc(&bytes);
+        DictBlockReader reader;
+        const Status st = DictBlockReader::open(Slice(bytes), IndexTier::kT1, false, &reader);
+        EXPECT_TRUE(st.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>())
+                << what << ": " << st.to_string();
+    };
+    expect_rejected(second + 1, 1, "front-coded anchor");
+    expect_rejected(second, 0x7F, "entry past the entries");
+    expect_rejected(second, 1, "key past its entry");
+    expect_rejected(second + 2, 0x7F, "key past the entries");
+}
+
+// An anchor's body is checked when it is decoded, as any other entry's: open() does not read it.
+TEST(SniiDictBlock, AnchorBodyIsCheckedWhenDecoded) {
+    size_t second = 0;
+    std::vector<uint8_t> bytes = BuildAnchorsBlock(&second);
+    bytes[second + 7] |= 0x80; // df runs on into the locator
+    RestampCrc(&bytes);
+
+    DictBlockReader reader;
+    ASSERT_TRUE(DictBlockReader::open(Slice(bytes), IndexTier::kT1, false, &reader).ok());
+    bool found = false;
+    DictEntry entry;
+    ASSERT_TRUE(reader.find_term("aaa", &found, &entry).ok());
+    EXPECT_TRUE(found);
+    const Status st = reader.find_term("bbb", &found, &entry);
+    EXPECT_TRUE(st.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << st.to_string();
 }
