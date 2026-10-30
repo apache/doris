@@ -316,10 +316,15 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
     void testMaxDeltaSubPlanHasDeleteExtremeSlot() {
         AggRewriteResult result = rewriteAgg(buildMaxAgg(buildScan()));
         LogicalAggregate<?> deltaAgg = (LogicalAggregate<?>) getDeltaTopProject(result).child();
-        // Expected: [group_key, delta_group_count, delta_max, delta_del_max, delta_count]
+        // A capacity of at most one emits MAX + COUNT_AT_MAX per side and derives both pair arrays
+        // above the aggregate, so the aggregate carries the extremes and the top project the arrays.
         List<String> outputNames = deltaAgg.getOutput().stream().map(Slot::getName).collect(Collectors.toList());
-        Assertions.assertTrue(outputNames.stream().anyMatch(n -> n.contains("DELMAX") || n.contains("transient")));
-        Assertions.assertTrue(outputNames.stream().anyMatch(n -> n.contains("MAX")));
+        Assertions.assertTrue(outputNames.stream().anyMatch(n -> n.contains("EXTREME_INS_VALUE")));
+        Assertions.assertTrue(outputNames.stream().anyMatch(n -> n.contains("EXTREME_DEL_VALUE")));
+        List<String> topNames = getDeltaTopProject(result).getOutput().stream()
+                .map(Slot::getName).collect(Collectors.toList());
+        Assertions.assertTrue(topNames.stream().anyMatch(n -> n.contains("DELMAX")));
+        Assertions.assertTrue(topNames.stream().anyMatch(n -> n.contains("MAX")));
     }
 
     @Test
@@ -327,8 +332,12 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         AggRewriteResult result = rewriteAgg(buildMinAgg(buildScan()));
         LogicalAggregate<?> deltaAgg = (LogicalAggregate<?>) getDeltaTopProject(result).child();
         List<String> outputNames = deltaAgg.getOutput().stream().map(Slot::getName).collect(Collectors.toList());
-        Assertions.assertTrue(outputNames.stream().anyMatch(n -> n.contains("DELMIN") || n.contains("transient")));
-        Assertions.assertTrue(outputNames.stream().anyMatch(n -> n.contains("MIN")));
+        Assertions.assertTrue(outputNames.stream().anyMatch(n -> n.contains("EXTREME_INS_VALUE")));
+        Assertions.assertTrue(outputNames.stream().anyMatch(n -> n.contains("EXTREME_DEL_VALUE")));
+        List<String> topNames = getDeltaTopProject(result).getOutput().stream()
+                .map(Slot::getName).collect(Collectors.toList());
+        Assertions.assertTrue(topNames.stream().anyMatch(n -> n.contains("DELMIN")));
+        Assertions.assertTrue(topNames.stream().anyMatch(n -> n.contains("MIN")));
     }
 
     @Test
@@ -461,8 +470,10 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         // COUNT(name), SUM(id), AVG(id), MIN(name), MAX(name): AVG reuses visible sum_id as its hidden
         // SUM, AVG's hidden COUNT dedups with SUM's hidden COUNT, and MIN/MAX reuse visible cnt_name as
         // their hidden COUNT, so shared state removes two duplicate COUNT delta outputs.
+        // MIN/MAX run with a capacity of at most one here, so each contributes four aggregates
+        // (value and count per side) instead of two top-K arrays: 10 + 2 * 2.
         List<String> outputNames = deltaAgg.getOutput().stream().map(Slot::getName).collect(Collectors.toList());
-        Assertions.assertEquals(10, outputNames.size());
+        Assertions.assertEquals(14, outputNames.size());
         Assertions.assertTrue(outputNames.contains(Column.IVM_DELTA_GROUP_COUNT_COL));
         // ordinal 0: COUNT(name) -> hidden COUNT (kept)
         Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "COUNT")));
@@ -473,15 +484,24 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         Assertions.assertFalse(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(2, "SUM")));
         Assertions.assertFalse(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(2, "COUNT")));
         Assertions.assertTrue(outputNames.contains("sum_id"));
-        // ordinal 3: MIN(name) -> MIN + DELMIN; COUNT absorbed by visible cnt_name
-        Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(3, "MIN")));
-        Assertions.assertTrue(outputNames.contains(transientDeltaColumnName(3, "DELMIN")));
+        // ordinal 3: MIN(name) -> MIN and COUNT_AT_MIN per side; COUNT absorbed by visible cnt_name
+        Assertions.assertTrue(outputNames.contains(transientDeltaColumnName(3, "EXTREME_INS_VALUE")));
+        Assertions.assertTrue(outputNames.contains(transientDeltaColumnName(3, "EXTREME_INS_COUNT")));
+        Assertions.assertTrue(outputNames.contains(transientDeltaColumnName(3, "EXTREME_DEL_VALUE")));
+        Assertions.assertTrue(outputNames.contains(transientDeltaColumnName(3, "EXTREME_DEL_COUNT")));
         Assertions.assertFalse(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(3, "COUNT")));
         Assertions.assertTrue(outputNames.contains("cnt_name"));
-        // ordinal 4: MAX(name) -> MAX + DELMAX; COUNT absorbed by visible cnt_name
-        Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(4, "MAX")));
-        Assertions.assertTrue(outputNames.contains(transientDeltaColumnName(4, "DELMAX")));
+        // ordinal 4: MAX(name) -> MAX and COUNT_AT_MAX per side; COUNT absorbed by visible cnt_name
+        Assertions.assertTrue(outputNames.contains(transientDeltaColumnName(4, "EXTREME_INS_VALUE")));
+        Assertions.assertTrue(outputNames.contains(transientDeltaColumnName(4, "EXTREME_DEL_COUNT")));
         Assertions.assertFalse(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(4, "COUNT")));
+        // The pair arrays themselves are derived above the delta aggregate.
+        List<String> topNames = getDeltaTopProject(result).getOutput().stream()
+                .map(Slot::getName).collect(Collectors.toList());
+        Assertions.assertTrue(topNames.contains(IvmUtil.ivmAggHiddenColumnName(3, "MIN")));
+        Assertions.assertTrue(topNames.contains(transientDeltaColumnName(3, "DELMIN")));
+        Assertions.assertTrue(topNames.contains(IvmUtil.ivmAggHiddenColumnName(4, "MAX")));
+        Assertions.assertTrue(topNames.contains(transientDeltaColumnName(4, "DELMAX")));
     }
 
     @Test

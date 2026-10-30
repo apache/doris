@@ -25,5 +25,12 @@ public enum IvmAggStateKey {
     MIN_TOPK,
     MAX_TOPK,
     MIN_TOPK_BOUND,
-    MAX_TOPK_BOUND
+    MAX_TOPK_BOUND,
+    /**
+     * The number of rows equal to the retained MIN/MAX extreme. Only an internal aggregate output:
+     * with a top-K capacity of one it derives the {@link #MIN_TOPK}/{@link #MAX_TOPK} array in the
+     * project above the aggregate and is not persisted as a column of its own.
+     */
+    MIN_COUNT,
+    MAX_COUNT
 }

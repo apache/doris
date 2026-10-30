@@ -37,7 +37,10 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MaxTopK;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MinTopK;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.TopKFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFilter;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
@@ -85,11 +88,22 @@ import java.util.Objects;
  * value was retracted, which breaks the premise the mode relies on, so apply falls back; otherwise
  * the new pair is the better of the pre-image and inserted extremes, summing the counts when the
  * values agree.
+ *
+ * <p>{@code K <= 1} always leaves a single pair at most, so that state is never materialized by a
+ * top-K aggregate: the aggregate emits the visible MIN/MAX column plus an internal
+ * {@code COUNT_AT_MIN/MAX}, and the project above it derives the pair array from them. The persisted
+ * columns are then the same as for {@code K >= 2}, and apply is unchanged.
  */
 abstract class IvmAggExtremalProcessor extends IvmAggFunctionProcessor {
+    private static final String INSERT_VALUE_SLOT = "EXTREME_INS_VALUE";
+    private static final String INSERT_COUNT_SLOT = "EXTREME_INS_COUNT";
+    private static final String DELETE_VALUE_SLOT = "EXTREME_DEL_VALUE";
+    private static final String DELETE_COUNT_SLOT = "EXTREME_DEL_COUNT";
+
     private final IvmAggFunctionKind functionKind;
     private final IvmAggStateKey topKStateKey;
     private final IvmAggStateKey boundStateKey;
+    private final IvmAggStateKey countStateKey;
     private final String deleteSlotName;
 
     IvmAggExtremalProcessor(IvmAggFunctionKind functionKind, IvmAggStateKey topKStateKey,
@@ -97,6 +111,8 @@ abstract class IvmAggExtremalProcessor extends IvmAggFunctionProcessor {
         this.functionKind = functionKind;
         this.topKStateKey = topKStateKey;
         this.boundStateKey = boundStateKey;
+        this.countStateKey = topKStateKey == IvmAggStateKey.MIN_TOPK
+                ? IvmAggStateKey.MIN_COUNT : IvmAggStateKey.MAX_COUNT;
         this.deleteSlotName = deleteSlotName;
     }
 
@@ -106,27 +122,49 @@ abstract class IvmAggExtremalProcessor extends IvmAggFunctionProcessor {
     }
 
     @Override
-    protected List<IvmAggStateKey> hiddenStateKeys(AggregateFunction function) {
-        return ImmutableList.of(IvmAggStateKey.COUNT, topKStateKey);
-    }
-
-    @Override
-    protected List<IvmAggStateKey> derivedStateKeys(AggregateFunction function) {
-        return ImmutableList.of(boundStateKey);
+    protected List<IvmAggStateKey> hiddenStateKeys(AggregateFunction function, long minMaxTopK) {
+        return minMaxTopK <= 1
+                ? ImmutableList.of(IvmAggStateKey.COUNT)
+                : ImmutableList.of(IvmAggStateKey.COUNT, topKStateKey);
     }
 
     /**
-     * COMPLETE initialization of the bound: {@code b = cardinality(values) >= K ? values[K].value :
-     * NULL}. Exactly K entries is a conservative false positive; {@code K = 0} keeps the column NULL.
+     * With {@code K <= 1} the top-K array is at most one (value, count) pair, so it is derived from
+     * the visible MIN/MAX column and COUNT_AT_MIN/MAX instead of materializing the top-K state.
      */
     @Override
+    protected List<IvmAggStateKey> internalStateKeys(AggregateFunction function, long minMaxTopK) {
+        return minMaxTopK <= 1 ? ImmutableList.of(countStateKey) : ImmutableList.of();
+    }
+
+    @Override
+    protected List<IvmAggStateKey> derivedStateKeys(AggregateFunction function, long minMaxTopK) {
+        return minMaxTopK <= 1
+                ? ImmutableList.of(topKStateKey, boundStateKey)
+                : ImmutableList.of(boundStateKey);
+    }
+
+    @Override
     protected Expression derivedStateExpression(IvmAggStateKey stateKey, AggregateFunction function,
-            Map<IvmAggStateKey, Alias> stateAliases, long minMaxTopK) {
+            Map<IvmAggStateKey, Alias> stateAliases, Alias visibleAlias, long minMaxTopK) {
+        if (minMaxTopK <= 1) {
+            Slot count = stateAliases.get(countStateKey).toSlot();
+            if (stateKey == topKStateKey) {
+                return singlePairArray(visibleAlias.toSlot(), count);
+            }
+            DataType valueType = TopKFunction.normalizeValueType(visibleAlias.toSlot().getDataType());
+            if (minMaxTopK == 0) {
+                // The extreme-only mode only runs on append-only plans, so nothing is retracted and
+                // the bound stays NULL, as it always has.
+                return new NullLiteral(valueType);
+            }
+            // A single retained value is trusted exactly: the bound is the value itself.
+            return new If(new GreaterThan(count, new BigIntLiteral(0L)),
+                    TypeCoercionUtils.castIfNotMatchType(visibleAlias.toSlot(), valueType),
+                    new NullLiteral(valueType));
+        }
         Slot values = stateAliases.get(topKStateKey).toSlot();
         DataType valueType = valueTypeOf((ArrayType) values.getDataType());
-        if (minMaxTopK == 0) {
-            return new NullLiteral(valueType);
-        }
         return new CaseWhen(
                 ImmutableList.of(new WhenClause(
                         new GreaterThanEqual(new Cardinality(values), new BigIntLiteral(minMaxTopK)),
@@ -148,12 +186,61 @@ abstract class IvmAggExtremalProcessor extends IvmAggFunctionProcessor {
             List<NamedExpression> outputs, IvmAggExpressionBuilder ctx) {
         Expression arg = target.getExprArgs().get(0);
         long topK = target.getMinMaxTopK();
-        outputs.add(new Alias(buildTopKAggregate(ctx.insertOnlyValue(arg, dmlFactorSlot), topK),
-                ctx.deltaColumnName(target, functionKind)));
-        outputs.add(new Alias(buildTopKAggregate(ctx.deleteOnlyValue(arg, dmlFactorSlot), topK),
-                deleteDeltaColumnName(target, ctx)));
+        if (topK <= 1) {
+            // An aggregate output cannot hold a scalar function over two aggregates, so the sides
+            // are emitted as plain MIN/MAX plus COUNT_AT_MIN/MAX and assembled by the delta top
+            // project (see appendDeltaTopProjectOutputs).
+            Expression inserted = ctx.insertOnlyValue(arg, dmlFactorSlot);
+            Expression deleted = ctx.deleteOnlyValue(arg, dmlFactorSlot);
+            outputs.add(new Alias(buildExtremeAggregate(inserted),
+                    ctx.transientDeltaColumnName(target, INSERT_VALUE_SLOT)));
+            outputs.add(new Alias(buildExtremeCountAggregate(inserted),
+                    ctx.transientDeltaColumnName(target, INSERT_COUNT_SLOT)));
+            outputs.add(new Alias(buildExtremeAggregate(deleted),
+                    ctx.transientDeltaColumnName(target, DELETE_VALUE_SLOT)));
+            outputs.add(new Alias(buildExtremeCountAggregate(deleted),
+                    ctx.transientDeltaColumnName(target, DELETE_COUNT_SLOT)));
+        } else {
+            outputs.add(new Alias(buildTopKState(ctx.insertOnlyValue(arg, dmlFactorSlot), topK),
+                    ctx.deltaColumnName(target, functionKind)));
+            outputs.add(new Alias(buildTopKState(ctx.deleteOnlyValue(arg, dmlFactorSlot), topK),
+                    deleteDeltaColumnName(target, ctx)));
+        }
         outputs.add(new Alias(new Sum(ctx.nonNullDeltaCountValue(arg, dmlFactorSlot)),
                 ctx.deltaColumnName(target, IvmAggFunctionKind.COUNT)));
+    }
+
+    /**
+     * Assembles the two K &lt;= 1 delta arrays above the delta aggregate, where a scalar function over
+     * two aggregate outputs is allowed. The names match the K &gt;= 2 aggregate outputs, so the
+     * apply stage resolves them the same way.
+     */
+    @Override
+    void appendDeltaTopProjectOutputs(IvmAggTarget target, Map<String, Slot> deltaAggOutputByName,
+            List<NamedExpression> topOutputs, IvmAggExpressionBuilder ctx) {
+        if (target.getMinMaxTopK() > 1) {
+            return;
+        }
+        topOutputs.add(new Alias(
+                singlePairArray(requireDeltaOutput(target, INSERT_VALUE_SLOT, deltaAggOutputByName, ctx),
+                        requireDeltaOutput(target, INSERT_COUNT_SLOT, deltaAggOutputByName, ctx)),
+                ctx.deltaColumnName(target, functionKind)));
+        topOutputs.add(new Alias(
+                singlePairArray(requireDeltaOutput(target, DELETE_VALUE_SLOT, deltaAggOutputByName, ctx),
+                        requireDeltaOutput(target, DELETE_COUNT_SLOT, deltaAggOutputByName, ctx)),
+                deleteDeltaColumnName(target, ctx)));
+    }
+
+    private Slot requireDeltaOutput(IvmAggTarget target, String slotName,
+            Map<String, Slot> deltaAggOutputByName, IvmAggExpressionBuilder ctx) {
+        String columnName = ctx.transientDeltaColumnName(target, slotName);
+        Slot slot = deltaAggOutputByName.get(columnName);
+        if (slot == null) {
+            throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                    "IVM agg delta rewrite failed to resolve delta output slot: "
+                            + columnName + " for target " + target);
+        }
+        return slot;
     }
 
     @Override
@@ -289,8 +376,17 @@ abstract class IvmAggExtremalProcessor extends IvmAggFunctionProcessor {
         applyDeltaSlots.put(new IvmAggDeltaSlotRef(target.getOrdinal(), slotName), slot);
     }
 
-    /** Builds the side's top-K aggregate: TOPK_MIN_COUNT or TOPK_MAX_COUNT with the MV's capacity. */
-    protected abstract AggregateFunction buildTopKAggregate(Expression input, long topK);
+    /** The side's top-K aggregate (MIN_TOPK/MAX_TOPK) with the MV's capacity. */
+    private Expression buildTopKState(Expression input, long topK) {
+        return isTopKAscending() ? new MinTopK(input, new BigIntLiteral(topK))
+                : new MaxTopK(input, new BigIntLiteral(topK));
+    }
+
+    /** The side's MIN or MAX aggregate; with K &lt;= 1 it provides the retained value. */
+    protected abstract AggregateFunction buildExtremeAggregate(Expression input);
+
+    /** The side's COUNT_AT_MIN or COUNT_AT_MAX aggregate; with K &lt;= 1 it provides the row count. */
+    protected abstract AggregateFunction buildExtremeCountAggregate(Expression input);
 
     /** Whether this side's top-K state list is sorted ascending (MIN) or descending (MAX). */
     protected abstract boolean isTopKAscending();

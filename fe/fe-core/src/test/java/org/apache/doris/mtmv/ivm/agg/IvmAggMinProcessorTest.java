@@ -18,10 +18,13 @@
 package org.apache.doris.mtmv.ivm.agg;
 
 import org.apache.doris.mtmv.ivm.IvmUtil;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMin;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MinTopK;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
@@ -32,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -41,8 +45,11 @@ import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 class IvmAggMinProcessorTest extends IvmAggProcessorTestBase {
     private static final long TOP_K = 8;
@@ -53,7 +60,7 @@ class IvmAggMinProcessorTest extends IvmAggProcessorTestBase {
         Assertions.assertTrue(processor.supportsOriginalFunction(new Min(value)));
         Assertions.assertEquals(IvmAggFunctionKind.MIN, processor.handledFunctionKind());
         Assertions.assertEquals(ImmutableList.of(IvmAggStateKey.COUNT, IvmAggStateKey.MIN_TOPK),
-                processor.hiddenStateKeys(new Min(value)));
+                processor.hiddenStateKeys(new Min(value), TOP_K));
 
         IvmAggTarget target = newMinTarget(TOP_K);
         List<NamedExpression> outputs = deltaOutputs(processor, target);
@@ -93,15 +100,28 @@ class IvmAggMinProcessorTest extends IvmAggProcessorTestBase {
         IvmAggMinProcessor processor = new IvmAggMinProcessor();
         IvmAggTarget target = newMinTarget(0);
         List<NamedExpression> outputs = deltaOutputs(processor, target);
-        Assertions.assertEquals(3, outputs.size());
-        Assertions.assertTrue(outputs.get(0).child(0) instanceof MinTopK);
+        // K <= 1 also takes the MIN/COUNT_AT_MIN path: two aggregates per side plus the count sum.
+        Assertions.assertEquals(5, outputs.size());
+        Assertions.assertTrue(outputs.get(0).child(0) instanceof Min);
+        Assertions.assertTrue(outputs.get(1).child(0) instanceof CountAtMin);
+        Map<String, Slot> deltaOutputsByName = new HashMap<>();
+        for (NamedExpression output : outputs) {
+            deltaOutputsByName.put(output.getName(), output.toSlot());
+        }
+        List<NamedExpression> topOutputs = new ArrayList<>();
+        processor.appendDeltaTopProjectOutputs(target, deltaOutputsByName, topOutputs,
+                IvmAggExpressionBuilder.INSTANCE);
+        for (NamedExpression output : topOutputs) {
+            deltaOutputsByName.put(output.getName(), output.toSlot());
+        }
 
         Map<String, Expression> finalByName = apply(processor, target,
                 ImmutableList.of(slot("min_v", IntegerType.INSTANCE),
                         slot("__ivm_count", BigIntType.INSTANCE),
                         target.getHiddenStateSlot(IvmAggStateKey.MIN_TOPK),
                         target.getHiddenStateSlot(IvmAggStateKey.MIN_TOPK_BOUND)),
-                mappedDeltaSlots(processor, target, outputs), slot("delta_group_count", BigIntType.INSTANCE));
+                mappedDeltaSlots(processor, target, deltaOutputsByName),
+                slot("delta_group_count", BigIntType.INSTANCE));
         Expression state = finalByName.get(target.getHiddenStateSlot(IvmAggStateKey.MIN_TOPK).getName());
         // The extreme-only state is a one-element array built from the better pair.
         Assertions.assertTrue(state.anyMatch(node -> node instanceof Array));
@@ -114,6 +134,77 @@ class IvmAggMinProcessorTest extends IvmAggProcessorTestBase {
         Expression visible = finalByName.get("min_v");
         Assertions.assertTrue(visible.anyMatch(node -> node instanceof CaseWhen));
         Assertions.assertTrue(visible.anyMatch(node -> node instanceof ElementAt));
+    }
+
+    @Test
+    void testMinTopKOfOneUsesExtremeAndCountAtMin() {
+        // K = 1 keeps at most one pair, so no top-K state is materialized: the aggregate emits the
+        // visible MIN column plus COUNT_AT_MIN, and the pair array is derived above it. Everything
+        // downstream still merges the same array.
+        IvmAggMinProcessor processor = new IvmAggMinProcessor();
+        List<NamedExpression> hiddenOutputs = new ArrayList<>();
+        IvmAggTargetSpec spec = processor.buildTargetSpec(2, new Min(value),
+                new Alias(new Min(value), "min_v"), new HashMap<>(), hiddenOutputs, 1);
+        Assertions.assertEquals(2, hiddenOutputs.size(), "COUNT plus the internal COUNT_AT_MIN");
+        Assertions.assertTrue(hiddenOutputs.get(1).child(0) instanceof CountAtMin);
+        Assertions.assertFalse(hiddenOutputs.stream()
+                .anyMatch(output -> output.child(0) instanceof MinTopK));
+        Assertions.assertEquals(ImmutableList.of(
+                IvmUtil.ivmAggHiddenColumnName(2, IvmAggStateKey.MIN_COUNT.name())),
+                spec.getInternalAggregateOutputNames().stream().collect(Collectors.toList()));
+        Assertions.assertNull(spec.toPlaceholderTarget().getHiddenStateSlot(IvmAggStateKey.MIN_COUNT),
+                "the internal count is not a persisted state");
+
+        Expression stateExpr = derivedOutput(spec, IvmAggStateKey.MIN_TOPK);
+        Assertions.assertTrue(stateExpr instanceof If);
+        Assertions.assertTrue(stateExpr.anyMatch(node -> node instanceof Array));
+        Assertions.assertTrue(stateExpr.anyMatch(node -> node instanceof CreateNamedStruct));
+        Assertions.assertEquals(TopKFunction.resultType(IntegerType.INSTANCE), stateExpr.getDataType());
+        Expression boundExpr = derivedOutput(spec, IvmAggStateKey.MIN_TOPK_BOUND);
+        Assertions.assertTrue(boundExpr instanceof If, "K = 1's bound is the retained value itself");
+
+        IvmAggTarget target = spec.toPlaceholderTarget();
+        List<NamedExpression> outputs = deltaOutputs(processor, target);
+        Assertions.assertEquals(5, outputs.size(), "insert/delete MIN and COUNT_AT_MIN, plus the count sum");
+        Assertions.assertTrue(outputs.get(0).child(0) instanceof Min);
+        Assertions.assertTrue(outputs.get(1).child(0) instanceof CountAtMin);
+        Assertions.assertTrue(outputs.get(2).child(0) instanceof Min);
+        Assertions.assertTrue(outputs.get(3).child(0) instanceof CountAtMin);
+        Assertions.assertTrue(outputs.get(4).child(0) instanceof Sum);
+
+        Map<String, Slot> deltaOutputsByName = new HashMap<>();
+        for (NamedExpression output : outputs) {
+            deltaOutputsByName.put(output.getName(), output.toSlot());
+        }
+        List<NamedExpression> topOutputs = new ArrayList<>();
+        processor.appendDeltaTopProjectOutputs(target, deltaOutputsByName, topOutputs,
+                IvmAggExpressionBuilder.INSTANCE);
+        Assertions.assertEquals(2, topOutputs.size(), "insert-side and delete-side arrays");
+        Assertions.assertTrue(topOutputs.get(1).getName().contains("DELMIN"));
+        for (NamedExpression output : topOutputs) {
+            deltaOutputsByName.put(output.getName(), output.toSlot());
+        }
+
+        Map<String, Expression> finalByName = apply(processor, target,
+                ImmutableList.of(slot("min_v", IntegerType.INSTANCE),
+                        target.getHiddenStateSlot(IvmAggStateKey.COUNT),
+                        target.getHiddenStateSlot(IvmAggStateKey.MIN_TOPK),
+                        target.getHiddenStateSlot(IvmAggStateKey.MIN_TOPK_BOUND)),
+                mappedDeltaSlots(processor, target, deltaOutputsByName),
+                slot("delta_group_count", BigIntType.INSTANCE));
+        Expression state = finalByName.get(target.getHiddenStateSlot(IvmAggStateKey.MIN_TOPK).getName());
+        Assertions.assertTrue(state.anyMatch(node -> node instanceof ArraySortedMerge),
+                "K = 1 keeps the top-K merge logic");
+    }
+
+    private Expression derivedOutput(IvmAggTargetSpec spec, IvmAggStateKey stateKey) {
+        String name = IvmUtil.ivmAggHiddenColumnName(2, stateKey.name());
+        for (NamedExpression output : spec.getDerivedStateOutputs()) {
+            if (name.equals(output.getName())) {
+                return output.child(0);
+            }
+        }
+        throw new AssertionError("missing derived state " + name);
     }
 
     private IvmAggTarget newMinTarget(long topK) {

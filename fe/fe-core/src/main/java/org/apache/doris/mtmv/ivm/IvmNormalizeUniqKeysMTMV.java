@@ -76,6 +76,7 @@ import com.google.common.collect.ImmutableSet;
 
 import java.math.BigInteger;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -892,12 +893,21 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
             derivedHiddenOutputs.addAll(spec.getDerivedStateOutputs());
         }
 
+        // Aggregate outputs computed only to derive another state column (K <= 1's COUNT_AT_MIN/MAX)
+        // stay in the aggregate but are not projected, so they never become MV columns.
+        Set<String> internalAggOutputNames = new HashSet<>();
+        for (IvmAggTargetSpec spec : aggTargetSpecs) {
+            internalAggOutputNames.addAll(spec.getInternalAggregateOutputNames());
+        }
+
         // Project output: row_id first, then all Aggregate output slots (original + hidden),
         // then the derived hidden states.
         ImmutableList.Builder<NamedExpression> projectOutputs = ImmutableList.builder();
         projectOutputs.add(rowIdAlias);
         for (NamedExpression aggOutput : newAgg.getOutputExpressions()) {
-            projectOutputs.add(aggOutput.toSlot());
+            if (!internalAggOutputNames.contains(aggOutput.getName())) {
+                projectOutputs.add(aggOutput.toSlot());
+            }
         }
         projectOutputs.addAll(derivedHiddenOutputs);
 
@@ -916,7 +926,7 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
                 .collect(ImmutableList.toImmutableList());
 
         IvmAggMeta aggMeta = new IvmAggMeta(scalarAgg, resolvedGroupKeys,
-                groupCountSlot, resolvedTargets);
+                groupCountSlot, resolvedTargets, internalAggOutputNames);
         rewriteResult.setAggMeta(aggMeta);
 
         LogicalProject<?> result = new LogicalProject<>(projectOutputs.build(), newAgg);
