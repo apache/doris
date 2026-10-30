@@ -40,6 +40,7 @@
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "core/data_type/data_type_variant_v2.h"
+#include "exprs/runtime_filter_expr.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -654,6 +655,75 @@ VExprSPtr create_in_predicate() {
     in_predicate.__set_is_not_in(false);
     node.__set_in_predicate(in_predicate);
     return VInPredicate::create_shared(node);
+}
+
+std::vector<std::pair<std::string, VExprSPtr>> whole_struct_filter_exprs(const DataTypePtr& type,
+                                                                         const Field& inner_value) {
+    const auto slot = [&] { return table_slot(11, 0, type, "s"); };
+    const auto value = [&] {
+        return literal(type, Field::create_field<TYPE_STRUCT>(Struct {inner_value}));
+    };
+    const auto in = [&](const VExprSPtr& probe) {
+        auto predicate = create_in_predicate();
+        predicate->add_child(probe);
+        predicate->add_child(value());
+        return predicate;
+    };
+    return {
+            {"binary", binary_predicate(TExprOpcode::EQ, slot(), value())},
+            {"null_safe_binary", binary_predicate(TExprOpcode::EQ_FOR_NULL, slot(), value())},
+            {"reverse_binary", binary_predicate(TExprOpcode::EQ, value(), slot())},
+            {"in", in(slot())},
+            {"cast_binary", binary_predicate(TExprOpcode::EQ, cast_expr(slot(), type), value())},
+            {"cast_in", in(cast_expr(slot(), type))},
+            {"same_type_cast", like_expr(cast_expr(cast_expr(slot(), type), str()),
+                                         inner_value.is_null() ? "%null%" : "%0%")},
+    };
+}
+
+VExprSPtr runtime_filter_wrapper_expr(VExprSPtr impl) {
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::SLOT_REF);
+    node.__set_type(u8()->to_thrift());
+    node.__set_num_children(1);
+    return RuntimeFilterExpr::create_shared(node, std::move(impl), 0.0, false, /*filter_id=*/1);
+}
+
+void expect_residual_whole_struct_filter(const FileScanRequest& request) {
+    EXPECT_TRUE(request.conjuncts.empty());
+    EXPECT_EQ(request.metadata_pruning_safe_conjunct_count, 0);
+    EXPECT_EQ(request.constant_pruning_safe_table_filter_count, 0);
+    EXPECT_TRUE(request.predicate_columns.empty());
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(7));
+    ASSERT_EQ(request.residual_predicate_columns.size(), 1);
+    EXPECT_EQ(request.residual_predicate_columns[0], LocalColumnId(7));
+}
+
+void expect_localized_whole_struct_filter(const FileScanRequest& request) {
+    EXPECT_EQ(request.conjuncts.size(), 1);
+    EXPECT_TRUE(request.residual_predicate_columns.empty());
+    ASSERT_EQ(request.predicate_columns.size(), 1);
+    EXPECT_EQ(request.predicate_columns[0].column_id(), LocalColumnId(7));
+}
+
+void check_whole_struct_filter(const ColumnDefinition& table_struct,
+                               const ColumnDefinition& file_struct, const VExprSPtr& predicate,
+                               bool runtime_filter, bool should_localize) {
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+    EXPECT_EQ(mapper.mappings()[0].child_mappings[0].file_local_id.has_value(), should_localize);
+    auto root = runtime_filter ? runtime_filter_wrapper_expr(predicate) : predicate;
+    TableFilter filter {.conjunct = VExprContext::create_shared(std::move(root)),
+                        .global_indices = {GlobalIndex(0)}};
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_struct}, &request).ok());
+
+    if (should_localize) {
+        expect_localized_whole_struct_filter(request);
+    } else {
+        expect_residual_whole_struct_filter(request);
+    }
 }
 
 // ----------------------------------------------------------------------
@@ -2101,6 +2171,96 @@ TEST(ColumnMapperLocalizeFiltersTest, VisibleLocalFilterAddsPredicateColumnAndCo
     EXPECT_EQ(localized_slot->column_id(), 0);
     EXPECT_EQ(localized_slot->column_name(), "id");
     EXPECT_TRUE(localized_slot->data_type()->equals(*int_type));
+}
+
+// DORIS-29685: an ID-less Parquet file is matched by positional ids, so a struct root can be
+// mapped while its children stay unmatched. Final materialization then substitutes NULL for those
+// children, which means the physical slot no longer carries the table value: a whole-root predicate
+// such as LIKE(CAST(s AS STRING), '%null%') must stay above TableReader instead of being evaluated
+// on the raw file slot (which would still see the child's physical value and drop the row).
+TEST(ColumnMapperLocalizeFiltersTest, PartiallyMappedStructRootPredicateStaysAboveFileReader) {
+    auto table_struct = struct_col("s", 1, {field_id_col("inner", 2, i32())});
+    // Positional fallback stamped the root only; the child keeps its physical name identifier.
+    auto file_struct = struct_col("s", 1, {name_col("inner", i32(), 0)}, 0);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    ASSERT_TRUE(mapper.mappings()[0].file_local_id.has_value());
+    ASSERT_EQ(mapper.mappings()[0].child_mappings.size(), 1);
+    EXPECT_FALSE(mapper.mappings()[0].child_mappings[0].file_local_id.has_value());
+    EXPECT_FALSE(mapper.mappings()[0].is_trivial);
+
+    auto cast_to_string = cast_expr(table_slot(11, 0, table_struct.type, "s"), str());
+    TableFilter filter {
+            .conjunct = VExprContext::create_shared(like_expr(cast_to_string, "%null%")),
+            .global_indices = {GlobalIndex(0)}};
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.localize_filters({filter}, &request).ok());
+
+    // No file-local copy of the predicate: the row must be filtered on the materialized
+    // {"inner": null} value, not on the physical {"inner": <file value>}.
+    EXPECT_TRUE(request.conjuncts.empty());
+}
+
+// A physical s.inner=5 must not discard a row whose logical s.inner is a missing child's
+// default (0) or NULL. Exercise literal shortcuts, split-local same-type casts, and RF wrappers.
+TEST(ColumnMapperLocalizeFiltersTest, PartiallyMappedWholeStructShortcutsStayAboveFileReader) {
+    const auto child_type = make_nullable(i32());
+    for (const bool has_default : {true, false}) {
+        auto child = field_id_col("inner", 2, child_type);
+        const auto zero = Field::create_field<TYPE_INT>(0);
+        if (has_default) {
+            child.default_expr = VExprContext::create_shared(literal(child_type, zero));
+        }
+        const auto table_struct = struct_col("s", 1, {child});
+        const auto file_struct = struct_col("s", 1, {name_col("inner", child_type, 0)}, 7);
+        for (const auto& [name, predicate] :
+             whole_struct_filter_exprs(table_struct.type, has_default ? zero : Field {})) {
+            for (const bool runtime_filter : {false, true}) {
+                SCOPED_TRACE(::testing::Message() << name << " default=" << has_default
+                                                  << " runtime_filter=" << runtime_filter);
+                check_whole_struct_filter(table_struct, file_struct, predicate, runtime_filter,
+                                          /*should_localize=*/false);
+            }
+        }
+    }
+}
+
+TEST(ColumnMapperLocalizeFiltersTest, FullyMappedWholeStructShortcutsRemainLocalized) {
+    const auto child = field_id_col("inner", 2, make_nullable(i32()));
+    const auto table_struct = struct_col("s", 1, {child});
+    const auto file_struct = struct_col("s", 1, {field_id_col("inner", 2, child.type, 0)}, 7);
+    for (const auto& [name, predicate] :
+         whole_struct_filter_exprs(table_struct.type, Field::create_field<TYPE_INT>(0))) {
+        for (const bool runtime_filter : {false, true}) {
+            SCOPED_TRACE(::testing::Message() << name << " runtime_filter=" << runtime_filter);
+            check_whole_struct_filter(table_struct, file_struct, predicate, runtime_filter,
+                                      /*should_localize=*/true);
+        }
+    }
+}
+
+TEST(ColumnMapperLocalizeFiltersTest, MappedStructLeafWithMissingSiblingRemainsLocalized) {
+    auto missing = field_id_col("missing", 3, i32());
+    missing.default_expr =
+            VExprContext::create_shared(literal(i32(), Field::create_field<TYPE_INT>(0)));
+    const auto table_struct = struct_col("s", 1, {field_id_col("kept", 2, i32()), missing});
+    const auto file_struct = struct_col("s", 1, {field_id_col("kept", 2, i32(), 0)}, 7);
+    auto leaf = struct_element(table_slot(11, 0, table_struct.type, "s"), i32(), "kept");
+    TableFilter filter {.conjunct = VExprContext::create_shared(int_gt(leaf, 0)),
+                        .global_indices = {GlobalIndex(0)}};
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+    ASSERT_FALSE(mapper.mappings()[0].child_mappings[1].file_local_id.has_value());
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_struct}, &request).ok());
+
+    EXPECT_EQ(request.conjuncts.size(), 1);
+    EXPECT_TRUE(request.residual_predicate_columns.empty());
 }
 
 TEST(ColumnMapperLocalizeFiltersTest, VarbinaryFilterStaysAboveFileReader) {
