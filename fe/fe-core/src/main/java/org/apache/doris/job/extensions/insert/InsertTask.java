@@ -25,6 +25,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.load.FailMsg;
@@ -33,7 +34,10 @@ import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTVFCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
@@ -83,7 +87,7 @@ public class InsertTask extends AbstractTask {
     }
 
     private String labelName;
-    private InsertIntoTableCommand command;
+    private Command command;
     private StmtExecutor stmtExecutor;
     private ConnectContext ctx;
     private String sql;
@@ -171,7 +175,7 @@ public class InsertTask extends AbstractTask {
     }
 
     @Override
-    public void before() throws JobException {
+    public synchronized void before() throws JobException {
         if (isCanceled.get()) {
             throw new JobException("Export executor has been canceled, task id: {}", getTaskId());
         }
@@ -180,9 +184,22 @@ public class InsertTask extends AbstractTask {
         ctx.setStatementContext(statementContext);
         if (StringUtils.isNotEmpty(sql)) {
             NereidsParser parser = new NereidsParser();
-            this.command = (InsertIntoTableCommand) parser.parseSingle(sql);
-            this.command.setLabelName(Optional.of(getJobId() + LABEL_SPLITTER + getTaskId()));
-            this.command.setJobId(getTaskId());
+            LogicalPlan parsed = parser.parseSingle(sql);
+            if (parsed instanceof InsertIntoTableCommand) {
+                InsertIntoTableCommand tableCommand = (InsertIntoTableCommand) parsed;
+                tableCommand.setLabelName(Optional.of(getJobId() + LABEL_SPLITTER + getTaskId()));
+                tableCommand.setJobId(getTaskId());
+                command = tableCommand;
+            } else if (parsed instanceof InsertIntoTVFCommand) {
+                try {
+                    ((InsertIntoTVFCommand) parsed).validateJobTarget();
+                } catch (Exception e) {
+                    throw new JobException(e.getMessage());
+                }
+                command = (InsertIntoTVFCommand) parsed;
+            } else {
+                throw new JobException("Unsupported INSERT JOB command: " + parsed.getClass().getName());
+            }
             stmtExecutor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, ctx.getStatementContext()));
         }
 
@@ -190,7 +207,7 @@ public class InsertTask extends AbstractTask {
     }
 
     @Override
-    protected void closeOrReleaseResources() {
+    protected synchronized void closeOrReleaseResources() {
         if (null != stmtExecutor) {
             stmtExecutor = null;
         }
@@ -204,35 +221,92 @@ public class InsertTask extends AbstractTask {
 
     @Override
     public void run() throws JobException {
-        try {
+        // Cancellation releases the task's fields. The execution thread owns these
+        // local handles until run() has exited, including after cancellation.
+        final Command runningCommand;
+        final ConnectContext runningContext;
+        final StmtExecutor runningExecutor;
+        synchronized (this) {
             if (isCanceled.get()) {
-                log.info("task has been canceled, task id is {}", getTaskId());
                 return;
             }
-            command.runWithUpdateInfo(ctx, stmtExecutor, loadStatistic);
-            if (ctx.getState().getStateType() != QueryState.MysqlStateType.OK) {
-                throw new JobException(ctx.getState().getErrorMessage());
+            runningCommand = command;
+            runningContext = ctx;
+            runningExecutor = stmtExecutor;
+        }
+        try {
+            if (runningCommand instanceof InsertIntoTableCommand) {
+                ((InsertIntoTableCommand) runningCommand).runWithUpdateInfo(
+                        runningContext, runningExecutor, loadStatistic);
+            } else if (runningCommand instanceof InsertIntoTVFCommand) {
+                runningCommand.run(runningContext, runningExecutor);
+            } else {
+                throw new JobException("Unsupported INSERT JOB command");
+            }
+            if (runningContext.getState().getStateType() != QueryState.MysqlStateType.OK) {
+                throw new JobException(runningContext.getState().getErrorMessage());
             }
         } catch (Exception e) {
-            log.warn("execute insert task error, job id is {}, task id is {},sql is {}", getJobId(),
-                    getTaskId(), sql, e);
+            // The persisted SQL may contain S3 credentials.
+            log.warn("execute insert task error, job id is {}, task id is {}", getJobId(), getTaskId(), e);
             throw new JobException(Util.getRootCauseMessage(e));
         }
     }
 
     @Override
-    public boolean onFail() throws JobException {
-        if (isCanceled.get()) {
+    public synchronized boolean onFail() throws JobException {
+        if (isCanceled.get() || isFinished.get()) {
             return false;
         }
         isFinished.set(true);
+        setFinishTimeMs(System.currentTimeMillis());
         return super.onFail();
     }
 
     @Override
-    public boolean onSuccess() throws JobException {
+    public synchronized void onFail(String error) throws JobException {
+        if (isCanceled.get() || isFinished.get()) {
+            return;
+        }
+        setErrMsg(error);
+        onFail();
+    }
+
+    @Override
+    public synchronized boolean onSuccess() throws JobException {
+        if (isCanceled.get() || isFinished.get()) {
+            return false;
+        }
         isFinished.set(true);
         return super.onSuccess();
+    }
+
+    @Override
+    public synchronized boolean cancel(boolean needWaitCancelComplete) throws JobException {
+        if (TaskStatus.SUCCESS.equals(getStatus()) || TaskStatus.FAILED.equals(getStatus())
+                || TaskStatus.CANCELED.equals(getStatus())) {
+            return false;
+        }
+        setFinishTimeMs(System.currentTimeMillis());
+        setErrMsg("insert task canceled");
+        return super.cancel(needWaitCancelComplete);
+    }
+
+    @Override
+    public void runTask() throws JobException {
+        try {
+            before();
+            run();
+            onSuccess();
+        } catch (Exception e) {
+            // Publish the error under the same lock as terminal transitions. A late
+            // execution failure must not overwrite a cancellation's reason.
+            onFail(Util.getRootCauseMessage(e));
+        } finally {
+            closeOrReleaseResources();
+            // Only the worker thread may remove its context; cancel() runs on a different connection.
+            ConnectContext.remove();
+        }
     }
 
     @Override
@@ -242,12 +316,12 @@ public class InsertTask extends AbstractTask {
         }
         isCanceled.getAndSet(true);
         if (null != stmtExecutor) {
-            stmtExecutor.cancel(new Status(TStatusCode.CANCELLED, "insert task cancelled"));
+            stmtExecutor.cancel(new Status(TStatusCode.CANCELLED, "insert task cancelled"), needWaitCancelComplete);
         }
     }
 
     @Override
-    public TRow getTvfInfo(String jobName) {
+    public synchronized TRow getTvfInfo(String jobName) {
         TRow trow = new TRow();
         if (jobInfo == null) {
             // if task not start, load job is null,return pending task show info
