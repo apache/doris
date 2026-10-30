@@ -161,7 +161,7 @@ public final class PaimonReaderOptions {
     public static Table runtimeSafeTable(Table table, Map<String, String> copyOptions) {
         // Relation options intentionally apply to both fallback branches. Runtime safety is a
         // different operation and must normalize each resulting planner without flattening them.
-        return runtimeSafeTable(table.copy(copyOptions));
+        return runtimeSafeTable(PaimonScanParams.copyWithHistoricalSchema(table, copyOptions));
     }
 
     static Table runtimeSafeTable(Table table, int localCapacity) {

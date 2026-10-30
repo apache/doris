@@ -171,6 +171,17 @@ TEST(TableReaderTest, VariantFormatGateAllowsWal) {
     EXPECT_TRUE(VariantValidationTableReader::validate(FileFormat::WAL, {physical_variant}).ok());
 }
 
+TEST(TableReaderTest, VariantFormatGateRejectsArrowQueries) {
+    ColumnMapping physical_variant;
+    physical_variant.table_type = make_nullable(std::make_shared<DataTypeVariantV2>());
+    physical_variant.file_local_id = 0;
+
+    // Native Arrow Variant carriers are an ingestion contract, not an external query format.
+    const auto status =
+            VariantValidationTableReader::validate(FileFormat::ARROW, {physical_variant});
+    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+}
+
 TEST(LocalColumnIndexTest, MergeUnionsPartialChildrenAndFullProjectionDominates) {
     LocalColumnIndex target {.index = 10, .project_all_children = false};
     target.children.push_back({.index = 1});

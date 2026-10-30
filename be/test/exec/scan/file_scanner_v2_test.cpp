@@ -432,11 +432,28 @@ TEST(FileScannerV2Test, IcebergPositionDeletesSupportNativeFormats) {
     EXPECT_FALSE(FileScannerV2::is_supported(params, avro_position_delete));
 }
 
+TEST(FileScannerV2Test, ArrowStreamLoadsSelectV2) {
+    TQueryOptions options;
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_ARROW);
+    params.__set_file_type(TFileType::FILE_STREAM);
+    params.__set_src_tuple_id(0);
+    TFileRangeDesc range;
+    range.__set_format_type(TFileFormatType::FORMAT_ARROW);
+    range.__set_file_type(TFileType::FILE_STREAM);
+    range.__set_load_id(TUniqueId());
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, true, params));
+    EXPECT_TRUE(FileScannerV2::is_supported(params, range));
+}
+
 TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesAndLoads) {
     TQueryOptions query_options;
     TFileScanRangeParams params;
     params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
 
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+
+    query_options.__set_enable_file_scanner_v2(false);
     EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
 
     query_options.__set_enable_file_scanner_v2(true);

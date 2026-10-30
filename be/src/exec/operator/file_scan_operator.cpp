@@ -176,6 +176,7 @@ bool FileScanLocalState::should_use_file_scanner_v2(const TQueryOptions& query_o
         case TFileFormatType::FORMAT_PROTO:
         case TFileFormatType::FORMAT_TEXT:
         case TFileFormatType::FORMAT_WAL:
+        case TFileFormatType::FORMAT_ARROW:
             return true;
         default:
             return false;

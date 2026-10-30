@@ -212,7 +212,7 @@ public class PaimonSysExternalTable extends ExternalTable {
         }
         if (incrementalOptions != null && !incrementalOptions.isEmpty()) {
             return (FileStoreTable) PaimonReaderOptions.runtimeSafeTable(
-                    dataTable.copy(incrementalOptions));
+                    PaimonScanParams.copyWithHistoricalSchema(dataTable, incrementalOptions));
         }
         return (FileStoreTable) PaimonReaderOptions.runtimeSafeTable(dataTable);
     }

@@ -17,8 +17,11 @@
 
 #include "core/data_type_serde/data_type_variant_v2_serde.h"
 
+#include <arrow/array/array_binary.h>
+#include <arrow/array/array_nested.h>
 #include <arrow/array/builder_binary.h>
 #include <arrow/array/builder_nested.h>
+#include <arrow/extension_type.h>
 #include <arrow/type.h>
 
 #include <algorithm>
@@ -47,6 +50,7 @@
 #include "core/types.h"
 #include "core/value/jsonb_value.h"
 #include "core/value/variant/variant_batch_builder.h"
+#include "core/value/variant/variant_field.h"
 #include "exprs/function/parse/variant_jsonb_parse.h"
 #include "exprs/function/parse/variant_string_parse.h"
 #include "util/jsonb_document.h"
@@ -364,10 +368,70 @@ Status DataTypeVariantV2SerDe::read_column_from_pb(IColumn& column, const PValue
     return Status::NotSupported("read_column_from_pb with type " + column.get_name());
 }
 
-Status DataTypeVariantV2SerDe::read_column_from_arrow(IColumn& column, const arrow::Array*, int64_t,
-                                                      int64_t, const cctz::time_zone&) const {
-    return Status::Error(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                         "read_column_from_arrow with type " + column.get_name());
+Status DataTypeVariantV2SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* array,
+                                                      int64_t start, int64_t end,
+                                                      const cctz::time_zone&) const {
+    if (array == nullptr) {
+        return Status::InvalidArgument("Native Variant Arrow array is null");
+    }
+    if (start < 0 || end < start || end > array->length()) {
+        return Status::InvalidArgument("Invalid native Variant Arrow row range [{}, {})", start,
+                                       end);
+    }
+    if (array->type_id() == arrow::Type::EXTENSION) {
+        const auto& extension = static_cast<const arrow::ExtensionArray&>(*array);
+        if (extension.extension_type()->extension_name() != "arrow.parquet.variant") {
+            return Status::InvalidArgument("Expected native Variant Arrow extension, got {}",
+                                           array->type()->ToString());
+        }
+        array = extension.storage().get();
+    }
+    const auto& type = *array->type();
+    if (type.id() != arrow::Type::STRUCT || type.num_fields() != 2 ||
+        type.field(0)->name() != "metadata" || type.field(1)->name() != "value" ||
+        type.field(0)->type()->id() != arrow::Type::BINARY ||
+        type.field(1)->type()->id() != arrow::Type::BINARY) {
+        return Status::InvalidArgument("Expected native Variant Arrow storage, got {}",
+                                       type.ToString());
+    }
+    RETURN_IF_CATCH_EXCEPTION({
+        // Nested readers pass row ranges. Validate only that slice to avoid repeatedly walking
+        // an entire child array when each parent contains a small number of Variant values.
+        const auto slice = array->Slice(start, end - start);
+        const auto validation = slice->ValidateFull();
+        if (!validation.ok()) {
+            return Status::InvalidArgument("Invalid native Variant Arrow array: {}",
+                                           validation.ToString());
+        }
+        const auto& storage = assert_cast<const arrow::StructArray&>(*slice);
+        const auto& metadata = assert_cast<const arrow::BinaryArray&>(*storage.field(0));
+        const auto& values = assert_cast<const arrow::BinaryArray&>(*storage.field(1));
+        // Validate untrusted driver bytes in a temporary batch before mutating the destination.
+        // Copy the payloads so the destination remains valid after Arrow releases its buffers.
+        VariantBatchBuilder decoded;
+        for (int64_t i = 0; i < slice->length(); ++i) {
+            auto row = decoded.begin_row();
+            if (storage.IsNull(i)) {
+                row.add_null();
+            } else {
+                if (metadata.IsNull(i) || values.IsNull(i)) {
+                    return Status::InvalidArgument(
+                            "Native Variant has a NULL metadata/value child at row {}", i);
+                }
+                const auto meta = metadata.GetView(i);
+                const auto value = values.GetView(i);
+                const auto ref =
+                        (VariantRef {.metadata = {.data = meta.data(), .size = meta.size()},
+                                     .value = {value.data(), value.size()}});
+                validate_variant_metadata(ref.metadata);
+                validate_variant_payload(ref);
+                row.add_value(ref);
+            }
+            row.finish();
+        }
+        assert_cast<ColumnVariantV2&>(column).insert_encoded_batch(decoded.finish_batch());
+    });
+    return Status::OK();
 }
 
 namespace {

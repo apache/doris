@@ -371,9 +371,7 @@ public class PaimonExternalTableTest {
 
     @Test
     public void testSelectorFreeOptionsPreserveStatementSnapshot() {
-        PaimonExternalTable externalTable = Mockito.mock(
-                PaimonExternalTable.class, Mockito.CALLS_REAL_METHODS);
-        externalTable.setDb(Mockito.mock(PaimonExternalDatabase.class));
+        PaimonExternalTable externalTable = newTableWithEmptyCatalog();
         MvccSnapshot snapshot = Mockito.mock(MvccSnapshot.class);
         Optional<MvccSnapshot> statementSnapshot = Optional.of(snapshot);
         Table statementTable = Mockito.mock(Table.class);
@@ -402,9 +400,7 @@ public class PaimonExternalTableTest {
 
     @Test
     public void testModeOnlyLatestUsesStatementSnapshotAcrossPhases() {
-        PaimonExternalTable externalTable = Mockito.mock(
-                PaimonExternalTable.class, Mockito.CALLS_REAL_METHODS);
-        externalTable.setDb(Mockito.mock(PaimonExternalDatabase.class));
+        PaimonExternalTable externalTable = newTableWithEmptyCatalog();
         MvccSnapshot snapshot = Mockito.mock(MvccSnapshot.class);
         Optional<MvccSnapshot> statementSnapshot = Optional.of(snapshot);
         Table statementTable = Mockito.mock(Table.class);
@@ -461,10 +457,7 @@ public class PaimonExternalTableTest {
 
     @Test
     public void testRelationOptionsLoadSnapshotProjectionFromEffectiveTable() {
-        PaimonExternalTable externalTable = Mockito.mock(
-                PaimonExternalTable.class, Mockito.CALLS_REAL_METHODS);
-        externalTable.setDb(Mockito.mock(PaimonExternalDatabase.class));
-        Mockito.doNothing().when(externalTable).makeSureInitialized();
+        PaimonExternalTable externalTable = newTableWithEmptyCatalog();
         FileStoreTable unsafeDataTable = newFileStoreTable(
                 "snapshot_projection", ImmutableMap.of("scan.manifest.parallelism", "0"), null);
         TableScanParams scanParams = new TableScanParams(
@@ -494,10 +487,7 @@ public class PaimonExternalTableTest {
 
     @Test
     public void testReaderOnlyOptionsReusePartitionedMemoizedProjection() {
-        PaimonExternalTable externalTable = Mockito.mock(
-                PaimonExternalTable.class, Mockito.CALLS_REAL_METHODS);
-        externalTable.setDb(Mockito.mock(PaimonExternalDatabase.class));
-        Mockito.doNothing().when(externalTable).makeSureInitialized();
+        PaimonExternalTable externalTable = newTableWithEmptyCatalog();
         FileStoreTable partitionedTable = newPartitionedFileStoreTable("reader_only_projection");
         TableScanParams scanParams = new TableScanParams(
                 TableScanParams.OPTIONS,
@@ -818,6 +808,19 @@ public class PaimonExternalTableTest {
             Assert.assertEquals(TableIf.UNKNOWN_ROW_COUNT, cache.getCachedRowCount(1, 2, 3, false));
         }
         Assert.assertFalse(planningStarted.get());
+    }
+
+    private PaimonExternalTable newTableWithEmptyCatalog() {
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+        // Even relation-only options are resolved together with the catalog defaults.
+        Mockito.when(catalog.getProperties()).thenReturn(Collections.emptyMap());
+        PaimonExternalDatabase database = Mockito.mock(PaimonExternalDatabase.class);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getRemoteName()).thenReturn("db");
+        PaimonExternalTable table = Mockito.spy(
+                new PaimonExternalTable(1L, "table", "table", catalog, database));
+        Mockito.doNothing().when(table).makeSureInitialized();
+        return table;
     }
 
     private PaimonSysExternalTable newSystemTable(FileStoreTable dataTable) {

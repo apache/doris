@@ -1,0 +1,150 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.datasource.iceberg;
+
+import org.apache.doris.datasource.iceberg.IcebergCoverageTestFixture.Operation;
+import org.apache.doris.datasource.iceberg.IcebergCoverageTestFixture.WriteContext;
+import org.apache.doris.datasource.iceberg.IcebergCoverageTestFixture.Writer;
+import org.apache.doris.thrift.TFileContent;
+import org.apache.doris.thrift.TIcebergCommitData;
+
+import org.apache.iceberg.DataFiles;
+import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.inmemory.InMemoryCatalog;
+import org.apache.iceberg.types.Types;
+import org.apache.thrift.TSerializer;
+import org.apache.thrift.protocol.TBinaryProtocol;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
+
+import java.util.Collections;
+import java.util.Optional;
+
+public class IcebergWriteKnownBugsTest {
+    private IcebergCoverageTestFixture fixture;
+
+    @AfterEach
+    void closeFixture() {
+        if (fixture != null) {
+            fixture.close();
+        }
+    }
+
+    private static final TableIdentifier IDENTIFIER = TableIdentifier.of("db", "events");
+    private static final String SEED = "s3://bucket/events/seed.parquet";
+    private static final String ADDED = "s3://bucket/events/added.parquet";
+    private static final String DELETED = "s3://bucket/events/deleted.parquet";
+
+    @Test
+    @Disabled("Known issue: DELETE ignores the standard snapshot isolation property.")
+    public void deleteHonorsStandardSnapshotIsolationProperty() throws Exception {
+        assertStandardSnapshotIsolation(Operation.DELETE, "write.delete.isolation-level");
+    }
+
+    @Test
+    @Disabled("Known issue: UPDATE ignores the standard snapshot isolation property.")
+    public void updateHonorsStandardSnapshotIsolationProperty() throws Exception {
+        assertStandardSnapshotIsolation(Operation.UPDATE, "write.update.isolation-level");
+    }
+
+    @Test
+    @Disabled("Known issue: MERGE ignores the standard snapshot isolation property.")
+    public void mergeHonorsStandardSnapshotIsolationProperty() throws Exception {
+        assertStandardSnapshotIsolation(Operation.MERGE, "write.merge.isolation-level");
+    }
+
+    private void assertStandardSnapshotIsolation(Operation operation, String property) throws Exception {
+        InMemoryCatalog catalog = catalog();
+        Table table = create(catalog);
+        table.updateProperties().set(property, "snapshot").commit();
+        table.newAppend().appendFile(DataFiles.builder(table.spec()).withPath(SEED)
+                .withFileSizeInBytes(1024).withRecordCount(3).build()).commit();
+        Writer transaction = transaction(catalog.loadTable(IDENTIFIER));
+        transaction.beginWrite(new WriteContext(
+                operation, false, Collections.emptyMap(), Optional.empty()));
+        catalog.loadTable(IDENTIFIER).newAppend().appendFile(DataFiles.builder(table.spec()).withPath(ADDED)
+                .withFileSizeInBytes(1024).withRecordCount(1).build()).commit();
+        transaction.addCommitData(serialize(fragment(DELETED, 1, TFileContent.POSITION_DELETES)));
+        // Snapshot isolation permits a concurrent append while still validating referenced data files.
+        Assertions.assertDoesNotThrow(transaction::commit);
+    }
+
+    @Test
+    @Disabled("Known issue: mixed INSERT and DELETE MERGE actions undercount affected rows.")
+    public void mergeCountsBothInsertedAndDeletedRows() throws Exception {
+        InMemoryCatalog catalog = catalog();
+        Table table = create(catalog);
+        table.newAppend().appendFile(DataFiles.builder(table.spec()).withPath(SEED)
+                .withFileSizeInBytes(1024).withRecordCount(3).build()).commit();
+        Writer transaction = transaction(catalog.loadTable(IDENTIFIER));
+        transaction.beginWrite(new WriteContext(
+                Operation.MERGE, false, Collections.emptyMap(), Optional.empty()));
+        transaction.addCommitData(serialize(fragment(ADDED, 1, TFileContent.DATA)));
+        transaction.addCommitData(serialize(fragment(DELETED, 1, TFileContent.POSITION_DELETES)));
+        transaction.commit();
+        // These actions target disjoint rows; counting both does not double-count an UPDATE pair.
+        Assertions.assertEquals(2, transaction.getUpdateCnt());
+    }
+
+    private static InMemoryCatalog catalog() {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("repro", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db"));
+        return catalog;
+    }
+
+    private static Table create(InMemoryCatalog catalog) {
+        return catalog.createTable(IDENTIFIER, new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get())),
+                PartitionSpec.unpartitioned(), Collections.singletonMap("format-version", "2"));
+    }
+
+    private Writer transaction(Table table) {
+        fixture = new IcebergCoverageTestFixture(catalogFor(table), table);
+        return fixture.writer;
+    }
+
+    private static org.apache.iceberg.catalog.Catalog catalogFor(Table table) {
+        // The real table owns its in-memory operations; metadata ops need namespace capabilities only.
+        return catalog();
+    }
+
+    private static TIcebergCommitData fragment(String path, long count, TFileContent content) {
+        TIcebergCommitData fragment = new TIcebergCommitData();
+        fragment.setFilePath(path);
+        fragment.setFileContent(content);
+        fragment.setFileSize(1024);
+        fragment.setRowCount(count);
+        fragment.setAffectedRows(count);
+        if (content == TFileContent.POSITION_DELETES) {
+            fragment.setReferencedDataFilePath(SEED);
+        }
+        return fragment;
+    }
+
+    private static byte[] serialize(TIcebergCommitData fragment) throws Exception {
+        return new TSerializer(new TBinaryProtocol.Factory()).serialize(fragment);
+    }
+
+}

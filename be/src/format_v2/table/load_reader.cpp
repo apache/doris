@@ -24,6 +24,7 @@
 #include "core/data_type_serde/data_type_serde.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "format_v2/arrow/arrow_stream_reader.h"
 #include "format_v2/wal/wal_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
@@ -314,7 +315,11 @@ Status LoadTableReader::_convert(Block* output) {
 }
 
 Status LoadTableReader::validate_file_mapping(const TableColumnMapper& mapper) const {
-    RETURN_IF_ERROR(TableReader::validate_file_mapping(mapper));
+    // Arrow ingestion carries native Variant values, including nested ones. The external-file
+    // restriction belongs to query scans; source-slot default validation still applies below.
+    if (_format != FileFormat::ARROW) {
+        RETURN_IF_ERROR(TableReader::validate_file_mapping(mapper));
+    }
     for (const auto& mapping : mapper.mappings()) {
         const auto position = mapping.global_index.value();
         if (mapping.file_local_id.has_value() || _projected_columns[position].is_partition_key) {
@@ -363,6 +368,12 @@ TableColumnMappingMode LoadTableReader::mapping_mode() const {
 }
 
 Status LoadTableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
+    if (_format == FileFormat::ARROW) {
+        *reader = std::make_unique<arrow_stream::ArrowStreamReader>(
+                _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
+                _source_file_slots, _current_range_load_id);
+        return Status::OK();
+    }
     if (_format == FileFormat::WAL) {
         *reader = std::make_unique<wal::WalReader>(_system_properties, _current_task->data_file,
                                                    _io_ctx, _scanner_profile, _projected_columns);
