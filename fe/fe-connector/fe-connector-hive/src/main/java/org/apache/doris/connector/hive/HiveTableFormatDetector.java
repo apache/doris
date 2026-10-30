@@ -28,7 +28,7 @@ import java.util.Set;
 /**
  * Detects the actual table format of a table registered in HMS.
  *
- * <p>HMS can store Hive, Hudi, and Iceberg tables under the same metastore.
+ * <p>HMS can store Hive, Hudi, Iceberg, and Delta Lake tables under the same metastore.
  * This class mirrors the detection logic from fe-core's
  * {@code HMSExternalTable.supportedIcebergTable/supportedHoodieTable/supportedHiveTable}
  * using only SPI types.</p>
@@ -78,11 +78,12 @@ public final class HiveTableFormatDetector {
     /**
      * Detect the table format from HMS table metadata.
      *
-     * <p>Detection order (matches fe-core):
+     * <p>Detection order:
      * <ol>
      *   <li>Iceberg: parameters contain {@code table_type=ICEBERG}</li>
      *   <li>Hudi: input format in SUPPORTED_HUDI_INPUT_FORMATS or
      *       {@code flink.connector=hudi}</li>
+     *   <li>Delta Lake: parameters contain {@code spark.sql.sources.provider=delta}</li>
      *   <li>Hive: input format in SUPPORTED_HIVE_INPUT_FORMATS</li>
      *   <li>UNKNOWN: none of the above</li>
      * </ol>
@@ -107,7 +108,12 @@ public final class HiveTableFormatDetector {
             return HiveTableType.HUDI;
         }
 
-        // 3. Hive detection
+        // Delta tables can carry a generic Hive input format: their provider remains authoritative.
+        if (params != null && "delta".equalsIgnoreCase(params.get("spark.sql.sources.provider"))) {
+            return HiveTableType.DELTA;
+        }
+
+        // Hive detection
         if (inputFormat != null && SUPPORTED_HIVE_INPUT_FORMATS.contains(inputFormat)) {
             return HiveTableType.HIVE;
         }
