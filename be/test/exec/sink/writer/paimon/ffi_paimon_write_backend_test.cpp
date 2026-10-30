@@ -33,6 +33,7 @@
 #include "runtime/query_context.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "util/defer_op.h"
 
 namespace doris {
@@ -58,6 +59,7 @@ protected:
         _state = RuntimeState::create_unique(id, 0, options, _query_ctx->query_globals,
                                              ExecEnv::GetInstance(), _query_ctx.get());
         _state->set_task_num(1);
+        _initial_query_memory = _state->query_mem_tracker()->consumption();
         TPaimonTableDesc desc;
         desc.__set_table_path(_root.string());
         desc.__set_schema_json(R"({
@@ -83,13 +85,23 @@ protected:
 
     void TearDown() override {
         _writer.reset();
-        EXPECT_TRUE(_backend.close().ok());
+        auto status = _backend.close();
+        EXPECT_TRUE(status.ok()) << status;
+        EXPECT_EQ(_state->query_mem_tracker()->consumption(), _initial_query_memory);
         std::filesystem::remove_all(_root);
     }
 
     Status open() {
         RETURN_IF_ERROR(_backend.open(_sink, _state.get(), &_profile));
         return _backend.create_writer(&_writer);
+    }
+
+    Status write(Block& block) {
+        // Pipeline tasks attach the query before converting input to Arrow.
+        // Keep the input Block outside that scope so these tests measure only
+        // the backend's budget and Arrow buffers.
+        SCOPED_ATTACH_TASK(_state.get());
+        return _writer->write(_state.get(), block);
     }
 
     Block input() {
@@ -115,14 +127,19 @@ protected:
     TPaimonTableSink _sink;
     FfiPaimonWriteBackend _backend;
     std::unique_ptr<IPaimonWriter> _writer;
+    int64_t _initial_query_memory = 0;
 };
 
 TEST_F(FfiPaimonWriteBackendTest, WritesDpcmAndReleasesFixedBudget) {
+    // Leave the file open until prepare_commit, unlike the rolled-file abort cases.
+    auto json = _sink.table_desc.schema_json;
+    json.replace(json.find("\"1 b\""), 5, "\"128 mb\"");
+    _sink.table_desc.__set_schema_json(json);
     const auto before = _state->query_mem_tracker()->consumption();
     ASSERT_TRUE(open().ok());
     EXPECT_GT(_state->query_mem_tracker()->consumption(), before);
     auto block = input();
-    ASSERT_TRUE(_writer->write(_state.get(), block).ok());
+    ASSERT_TRUE(write(block).ok());
     std::vector<TPaimonCommitMessage> messages;
     ASSERT_TRUE(_writer->prepare_commit(messages).ok());
     ASSERT_EQ(messages.size(), 1);
@@ -141,7 +158,7 @@ TEST_F(FfiPaimonWriteBackendTest, WritesDpcmAndReleasesFixedBudget) {
 TEST_F(FfiPaimonWriteBackendTest, AbortRemovesProducerOwnedRolledFiles) {
     ASSERT_TRUE(open().ok());
     auto block = input();
-    ASSERT_TRUE(_writer->write(_state.get(), block).ok());
+    ASSERT_TRUE(write(block).ok());
     EXPECT_EQ(file_count(), 1);
     ASSERT_TRUE(_writer->abort().ok());
     _writer.reset();
@@ -159,7 +176,7 @@ TEST_F(FfiPaimonWriteBackendTest, NullableInputUsesPinnedArrowSchema) {
     nulls->insert_value(1);
     Block block({{ColumnNullable::create(std::move(values), std::move(nulls)),
                   make_nullable(std::make_shared<DataTypeInt32>()), "id"}});
-    ASSERT_TRUE(_writer->write(_state.get(), block).ok());
+    ASSERT_TRUE(write(block).ok());
     std::vector<TPaimonCommitMessage> messages;
     ASSERT_TRUE(_writer->prepare_commit(messages).ok());
     EXPECT_EQ(messages.size(), 1);
@@ -177,7 +194,7 @@ TEST_F(FfiPaimonWriteBackendTest, OversizedRowFailsBeforeArrowAllocation) {
     std::string large(1024 * 1024, 'x');
     values->insert_data(large.data(), large.size());
     Block block({{std::move(values), std::make_shared<DataTypeString>(), "id"}});
-    auto status = _writer->write(_state.get(), block);
+    auto status = write(block);
     EXPECT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("exceeds 1 MiB"), std::string::npos);
     EXPECT_EQ(_state->query_mem_tracker()->consumption(), before);
@@ -196,7 +213,7 @@ TEST_F(FfiPaimonWriteBackendTest, LargeBlockIsSplitBeforeImportingIntoRust) {
         values->insert_data(value.data(), value.size());
     }
     Block block({{std::move(values), std::make_shared<DataTypeString>(), "id"}});
-    ASSERT_TRUE(_writer->write(_state.get(), block).ok());
+    ASSERT_TRUE(write(block).ok());
     // The 1-byte file target rolls each imported batch synchronously.
     EXPECT_EQ(file_count(), 3);
     std::vector<TPaimonCommitMessage> messages;
@@ -209,7 +226,7 @@ TEST_F(FfiPaimonWriteBackendTest, LargeBlockIsSplitBeforeImportingIntoRust) {
 TEST_F(FfiPaimonWriteBackendTest, AbortBeforePublicationRemovesPreparedFiles) {
     ASSERT_TRUE(open().ok());
     auto block = input();
-    ASSERT_TRUE(_writer->write(_state.get(), block).ok());
+    ASSERT_TRUE(write(block).ok());
     std::vector<TPaimonCommitMessage> messages;
     ASSERT_TRUE(_writer->prepare_commit(messages).ok());
     EXPECT_EQ(file_count(), 1);
@@ -220,11 +237,19 @@ TEST_F(FfiPaimonWriteBackendTest, AbortBeforePublicationRemovesPreparedFiles) {
 TEST_F(FfiPaimonWriteBackendTest, ResourceExhaustionFailsAndReleasesBudget) {
     const auto previous = config::paimon_rust_writer_memory_limit_bytes;
     Defer restore([&] { config::paimon_rust_writer_memory_limit_bytes = previous; });
-    config::paimon_rust_writer_memory_limit_bytes = 1;
+    config::paimon_rust_writer_memory_limit_bytes = 128 * 1024;
     const auto before = _state->query_mem_tracker()->consumption();
     ASSERT_TRUE(open().ok());
     auto block = input();
-    auto status = _writer->write(_state.get(), block);
+    ASSERT_TRUE(write(block).ok());
+    ASSERT_EQ(file_count(), 1);
+    // A second batch exceeds the native budget after the first file has rolled.
+    auto values = ColumnInt32::create();
+    for (int row = 0; row < 40000; ++row) {
+        values->insert_value(row);
+    }
+    Block over_budget({{std::move(values), std::make_shared<DataTypeInt32>(), "id"}});
+    auto status = write(over_budget);
     EXPECT_TRUE(status.is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) << status;
     ASSERT_TRUE(_writer->abort().ok());
     _writer.reset();
@@ -235,9 +260,12 @@ TEST_F(FfiPaimonWriteBackendTest, ResourceExhaustionFailsAndReleasesBudget) {
 
 TEST_F(FfiPaimonWriteBackendTest, CancellationDoesNotSendAnotherBatch) {
     ASSERT_TRUE(open().ok());
-    _state->cancel(Status::Cancelled("test cancellation"));
     auto block = input();
-    EXPECT_FALSE(_writer->write(_state.get(), block).ok());
+    ASSERT_TRUE(write(block).ok());
+    ASSERT_EQ(file_count(), 1);
+    _state->cancel(Status::Cancelled("test cancellation"));
+    EXPECT_FALSE(write(block).ok());
+    EXPECT_EQ(file_count(), 1);
     ASSERT_TRUE(_writer->abort().ok());
     EXPECT_EQ(file_count(), 0);
 }
@@ -257,11 +285,12 @@ TEST_F(FfiPaimonWriteBackendTest, AdmissionSlotIsReturnedAfterClose) {
     ASSERT_TRUE(third.close().ok());
 }
 
-TEST_F(FfiPaimonWriteBackendTest, QueryBudgetFailureReturnsAdmissionSlot) {
+TEST_F(FfiPaimonWriteBackendTest, FailedOpenReturnsBudgetAndAdmissionSlot) {
     const auto previous = config::paimon_rust_writer_max_concurrency;
     Defer restore([&] { config::paimon_rust_writer_max_concurrency = previous; });
     config::paimon_rust_writer_max_concurrency = 1;
     auto tracker = _state->query_mem_tracker();
+    const auto before = tracker->consumption();
     {
         const auto charge = tracker->limit();
         tracker->consume(charge);
@@ -270,6 +299,17 @@ TEST_F(FfiPaimonWriteBackendTest, QueryBudgetFailureReturnsAdmissionSlot) {
         auto status = rejected.open(_sink, _state.get(), &_profile);
         EXPECT_TRUE(status.is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) << status;
         ASSERT_TRUE(rejected.close().ok());
+    }
+    EXPECT_EQ(tracker->consumption(), before);
+    {
+        // Fail after admission has charged the budget and created native resources.
+        auto invalid_sink = _sink;
+        invalid_sink.table_desc.__set_schema_json("{");
+        RuntimeProfile invalid_profile {"invalid-schema"};
+        FfiPaimonWriteBackend rejected;
+        EXPECT_FALSE(rejected.open(invalid_sink, _state.get(), &invalid_profile).ok());
+        ASSERT_TRUE(rejected.close().ok());
+        EXPECT_EQ(tracker->consumption(), before);
     }
     ASSERT_TRUE(open().ok());
 }
