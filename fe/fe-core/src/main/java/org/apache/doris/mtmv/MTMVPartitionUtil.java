@@ -496,16 +496,21 @@ public class MTMVPartitionUtil {
      * @return
      */
     public static String generatePartitionName(PartitionKeyDesc desc) {
-        Matcher matcher = PARTITION_NAME_PATTERN.matcher(desc.toSql());
+        // The digest must come from the descriptor itself, not from the sanitized name: the sanitization
+        // strips every punctuation character, so two long descriptors that differ only in punctuation would
+        // otherwise produce the same prefix AND the same digest, and the second one would collide with the
+        // first (creating or adding the partition fails with a duplicate generated name).
+        String descSql = desc.toSql();
+        Matcher matcher = PARTITION_NAME_PATTERN.matcher(descSql);
         String prefix = hasNullPartitionValue(desc) ? PARTITION_NAME_NULL_PREFIX : PARTITION_NAME_PREFIX;
         String partitionName = prefix + matcher.replaceAll("").replaceAll("\\,", "_");
         if (partitionName.length() > 50) {
-            // truncate and append a stable collision-resistant digest of the full name; no time suffix so
-            // repeated generation (e.g. MTMV creation vs. partition refresh validation) always produces the
-            // same name. A 64-bit SHA-256 truncation makes two distinct long descriptions mapping to the
-            // same physical name (and silently dropping/losing a partition) practically impossible, which
-            // a 32-bit Objects.hash could not guarantee.
-            partitionName = partitionName.substring(0, 30) + sha256HexDigest(partitionName);
+            // truncate and append a stable collision-resistant digest of the full descriptor; no time suffix
+            // so repeated generation (e.g. MTMV creation vs. partition refresh validation) always produces the
+            // same name. A 64-bit SHA-256 truncation makes two distinct long descriptions mapping to the same
+            // physical name (and silently dropping/losing a partition) practically impossible, which a 32-bit
+            // Objects.hash could not guarantee.
+            partitionName = partitionName.substring(0, 30) + sha256HexDigest(descSql);
         }
         return partitionName;
     }

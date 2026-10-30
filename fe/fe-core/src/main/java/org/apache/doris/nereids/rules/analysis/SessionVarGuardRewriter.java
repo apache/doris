@@ -52,6 +52,7 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -309,7 +310,11 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
                     // keys, order keys, frame bounds) are visited, so a zone-invariant window function such
                     // as row_number() OVER (ORDER BY ts) keeps rewriting across zones.
                     || expr instanceof OrderExpression || expr instanceof WindowFrame
-                    || expr instanceof WindowExpression || expr instanceof TableGeneratingFunction) {
+                    || expr instanceof WindowExpression || expr instanceof TableGeneratingFunction
+                    // A lambda is a structural root as well: array_map/higher-order functions require their
+                    // lambda argument to stay a Lambda, so wrapping it would break binding and re-analysis.
+                    // The lambda body is still visited and guarded on its own.
+                    || expr instanceof Lambda) {
                 return false;
             }
             try {
@@ -548,6 +553,24 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
     }
 
     /**
+     * Whether any expression owned by the plan depends on the session time zone, i.e. whether materializing or
+     * rewriting this plan needs the {@code time_zone} fence.
+     */
+    public static boolean containsTimeZoneSensitiveExpression(Plan plan) {
+        if (plan == null) {
+            return false;
+        }
+        for (Plan node : plan.<Plan>collectToList(p -> true)) {
+            for (Expression expression : node.getExpressions()) {
+                if (expression.anyMatch(e -> AddSessionVarGuardRewriter.isTimeZoneSensitive((Expression) e))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
      * Fails unless every alive frontend can interpret the persisted plan-variable set of this FE.
      *
      * <p>The {@link SessionVariable#PLAN_SESSION_VAR_FENCE_VERSION} stamp lets a new FE refuse metadata
@@ -718,9 +741,10 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
                     ((org.apache.doris.catalog.StructType) from).getFields();
             List<org.apache.doris.catalog.StructField> toFields =
                     ((org.apache.doris.catalog.StructType) to).getFields();
-            // A struct cast requires the same fields in the same order, so any other shape is not a plain
-            // struct conversion and falls through to the presence-based check below.
-            if (fromFields.size() == toFields.size() && sameStructFieldNames(fromFields, toFields)) {
+            // Equal-arity struct casts are positional and allow field renames (see CheckCast), so the
+            // comparison must pair the fields by position and ignore their names: CAST(STRUCT<a:TS> AS
+            // STRUCT<b:TS>) only relabels the field and stays instant preserving.
+            if (fromFields.size() == toFields.size()) {
                 for (int i = 0; i < fromFields.size(); i++) {
                     if (isTimeZoneSensitiveTypeConversion(fromFields.get(i).getType(),
                             toFields.get(i).getType())) {
@@ -739,16 +763,6 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
         // is instant preserving; a complex-to-different-complex conversion is not castable, so treating it as
         // sensitive is the safe answer.
         return fromHasTimeStampTz && !(from.isTimeStampTz() && to.isTimeStampTz());
-    }
-
-    private static boolean sameStructFieldNames(List<org.apache.doris.catalog.StructField> fromFields,
-            List<org.apache.doris.catalog.StructField> toFields) {
-        for (int i = 0; i < fromFields.size(); i++) {
-            if (!Objects.equals(fromFields.get(i).getName(), toFields.get(i).getName())) {
-                return false;
-            }
-        }
-        return true;
     }
 
     /**

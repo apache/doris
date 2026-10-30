@@ -257,6 +257,30 @@ public class MTMVPartitionUtilTest {
         Assertions.assertNotEquals(name, name2);
     }
 
+    /**
+     * The long-name digest must distinguish descriptors that differ only in punctuation: the sanitized name
+     * strips every punctuation character, so digesting that name made two such descriptors collide and the
+     * second partition could never be created or added.
+     */
+    @Test
+    public void testGeneratePartitionNameLongDistinguishesPunctuation() {
+        PartitionKeyDesc dashDesc = PartitionKeyDesc.createFixed(
+                Lists.newArrayList(new PartitionValue("2024-01-01 00:00:00.000000000+00:00")),
+                Lists.newArrayList(new PartitionValue("2024-01-02 00:00:00.000000000+00:00")));
+        PartitionKeyDesc slashDesc = PartitionKeyDesc.createFixed(
+                Lists.newArrayList(new PartitionValue("2024/01/01 00:00:00.000000000+00:00")),
+                Lists.newArrayList(new PartitionValue("2024/01/02 00:00:00.000000000+00:00")));
+        String dashName = MTMVPartitionUtil.generatePartitionName(dashDesc);
+        String slashName = MTMVPartitionUtil.generatePartitionName(slashDesc);
+        // the long-name branch must be used for both, so only the digest can keep them apart
+        Assertions.assertTrue(dashName.length() <= 50);
+        Assertions.assertTrue(slashName.length() <= 50);
+        Assertions.assertNotEquals(dashName, slashName,
+                "punctuation-distinct descriptors must not collapse to the same partition name");
+        // and each of them stays deterministic
+        Assertions.assertEquals(dashName, MTMVPartitionUtil.generatePartitionName(dashDesc));
+    }
+
     @Test
     public void testGeneratePartitionNameFromDateTimeV2Range() throws AnalysisException {
         List<Column> columns = Lists.newArrayList(

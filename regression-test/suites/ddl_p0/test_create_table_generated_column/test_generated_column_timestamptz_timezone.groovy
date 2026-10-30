@@ -137,6 +137,20 @@ suite("test_generated_column_timestamptz_timezone","ddl") {
         exception "time-zone sensitive"
     }
 
+    // A struct cast is positional and may rename the fields: relabeling an unchanged TIMESTAMPTZ field never
+    // renders or interprets the instant in the session zone, so it must be accepted.
+    sql "DROP TABLE IF EXISTS gencol_struct_rename"
+    sql """
+    create table gencol_struct_rename(
+        id int,
+        s struct<a: TIMESTAMPTZ(6)>,
+        g struct<b: TIMESTAMPTZ(6)> generated always as (s) not null
+    )
+    DUPLICATE KEY(id)
+    DISTRIBUTED BY HASH(id) BUCKETS 1
+    PROPERTIES("replication_num" = "1");
+    """
+
     // A TIMESTAMPTZ generated column that stores the instant directly (no rendering) is zone-invariant.
     sql "DROP TABLE IF EXISTS gencol_copy_ts"
     sql """
@@ -169,10 +183,12 @@ suite("test_generated_column_timestamptz_timezone","ddl") {
     sql "SET time_zone = '+00:00'"
     sql "INSERT INTO gencol_cmp_ts(id, ts1, ts2) VALUES (1, '2024-01-01 00:30:00+00:00', '2024-01-01 00:30:00+00:00')"
     sql "INSERT INTO gencol_copy_ts(id, ts) VALUES (1, '2024-01-01 00:30:00+00:00')"
+    sql "INSERT INTO gencol_struct_rename(id, s) VALUES (1, named_struct('a', '2024-01-01 00:30:00+00:00'))"
     sql "sync"
     sql "SET time_zone = '+08:00'"
     sql "INSERT INTO gencol_cmp_ts(id, ts1, ts2) VALUES (2, '2024-01-01 08:30:00+08:00', '2024-01-01 08:30:00+08:00')"
     sql "INSERT INTO gencol_copy_ts(id, ts) VALUES (2, '2024-01-01 08:30:00+08:00')"
+    sql "INSERT INTO gencol_struct_rename(id, s) VALUES (2, named_struct('a', '2024-01-01 08:30:00+08:00'))"
     sql "sync"
 
     // Read in a fixed zone so the asserted strings are load-zone independent.
@@ -193,4 +209,12 @@ suite("test_generated_column_timestamptz_timezone","ddl") {
             copyRes[0][1].toString().contains("2024-01-01 00:30:00.000000+00:00"))
     Assert.assertTrue("expected 2024-01-01 00:30:00.000000+00:00, got " + copyRes[1][1],
             copyRes[1][1].toString().contains("2024-01-01 00:30:00.000000+00:00"))
+
+    // The renamed struct field keeps the instant verbatim, so both load sessions must store the same value.
+    def renameRes = sql "SELECT id, CAST(g.b AS STRING) FROM gencol_struct_rename ORDER BY id"
+    Assert.assertEquals(2, renameRes.size())
+    Assert.assertTrue("expected 2024-01-01 00:30:00.000000+00:00, got " + renameRes[0][1],
+            renameRes[0][1].toString().contains("2024-01-01 00:30:00.000000+00:00"))
+    Assert.assertTrue("expected 2024-01-01 00:30:00.000000+00:00, got " + renameRes[1][1],
+            renameRes[1][1].toString().contains("2024-01-01 00:30:00.000000+00:00"))
 }
