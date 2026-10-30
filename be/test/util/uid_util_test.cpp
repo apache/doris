@@ -111,4 +111,22 @@ TEST_F(UidUtilTest, Hash) {
     }
 }
 
+TEST_F(UidUtilTest, FromHexCaseInsensitive) {
+    uint64_t val = 0;
+    from_hex(&val, "0123456789abcdef");
+    EXPECT_EQ(0x0123456789abcdefULL, val);
+
+    uint64_t val_upper = 0;
+    from_hex(&val_upper, "0123456789ABCDEF");
+    EXPECT_EQ(0x0123456789abcdefULL, val_upper);
+
+    uint64_t val_mixed = 0;
+    from_hex(&val_mixed, "AbCdEf0123456789");
+    EXPECT_EQ(0xabcdef0123456789ULL, val_mixed);
+
+    UniqueId id_lower("002bdc546291f4b1", "015ee2a321ce7d15");
+    UniqueId id_upper("002BDC546291F4B1", "015EE2A321CE7D15");
+    EXPECT_TRUE(id_lower == id_upper);
+}
+
 } // namespace doris

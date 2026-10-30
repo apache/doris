@@ -51,8 +51,10 @@ void from_hex(T* ret, std::string_view buf) {
         int buf_val = 0;
         if (i >= '0' && i <= '9') {
             buf_val = i - '0';
-        } else {
+        } else if (i >= 'a' && i <= 'f') {
             buf_val = i - 'a' + 10;
+        } else if (i >= 'A' && i <= 'F') {
+            buf_val = i - 'A' + 10;
         }
         val <<= 4;
         val = val | buf_val;
