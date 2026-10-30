@@ -151,6 +151,36 @@ public class CoordinatorTest extends TestWithFeService {
     }
 
     @Test
+    public void testStopSplitGenerationUsesCoordinatorContextScans() throws Exception {
+        Coordinator coordinator = EnvFactory.getInstance().createCoordinator(
+                connectContext, plan("select * from test.tbl"), null);
+        ScanNode scan = Mockito.mock(ScanNode.class);
+        coordinator.getCoordinatorContext().scanNodes.clear();
+        coordinator.getCoordinatorContext().scanNodes.add(scan);
+
+        coordinator.getCoordinatorContext().stopSplitGeneration();
+
+        Mockito.verify(scan).stopSplitGeneration();
+        Mockito.verify(scan, Mockito.never()).stop();
+    }
+
+    @Test
+    public void testCloseContinuesAfterScanCleanupFailure() throws Exception {
+        Coordinator coordinator = EnvFactory.getInstance().createCoordinator(
+                connectContext, plan("select * from test.tbl"), null);
+        ScanNode failingScan = Mockito.mock(ScanNode.class);
+        Mockito.doThrow(new RuntimeException("scan cleanup failed")).when(failingScan).stop();
+        ScanNode remainingScan = Mockito.mock(ScanNode.class);
+        coordinator.getCoordinatorContext().scanNodes.clear();
+        coordinator.getCoordinatorContext().scanNodes.add(failingScan);
+        coordinator.getCoordinatorContext().scanNodes.add(remainingScan);
+
+        Assertions.assertDoesNotThrow(coordinator::close);
+
+        Mockito.verify(remainingScan).stop();
+    }
+
+    @Test
     public void testQueueCancellationPrefersRetainedTerminalReason() throws Exception {
         ConnectContext context = createDefaultCtx();
         NereidsPlanner planner = plan("select * from test.tbl", context);
