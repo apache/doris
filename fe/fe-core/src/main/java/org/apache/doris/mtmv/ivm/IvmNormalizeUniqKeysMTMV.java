@@ -863,6 +863,10 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
 
         List<NamedExpression> hiddenAggOutputs = new ArrayList<>();
         hiddenAggOutputs.add(groupCountAlias);
+        // Aggregate outputs that only derive another state column (K <= 1's COUNT_AT_MIN) are kept
+        // apart and appended last: the delta apply rebuilds the aggregate output positionally and
+        // skips them, which only stays aligned when they trail every other column.
+        List<NamedExpression> internalAggOutputs = new ArrayList<>();
 
         // Pass 1: register every visible aggregate output into the unified column pool, so a later
         // target can reuse an existing visible column as its hidden state (e.g. AVG(x) reuses the
@@ -887,7 +891,8 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
             // The registry chooses the aggregate processor. The processor owns the hidden state set for its
             // function, so adding a new aggregate function should only require a new processor registration.
             IvmAggTargetSpec aggTargetSpec = aggFunctionRegistry.buildTargetSpec(
-                    i, aggFunc, origAlias, aggColumnPool, hiddenAggOutputs, minMaxTopK);
+                    i, aggFunc, origAlias, aggColumnPool, hiddenAggOutputs, internalAggOutputs,
+                    minMaxTopK);
             aggTargetSpecs.add(aggTargetSpec);
             aggTargets.add(aggTargetSpec.toPlaceholderTarget());
         }
@@ -896,6 +901,7 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
         ImmutableList.Builder<NamedExpression> newAggOutputs = ImmutableList.builder();
         newAggOutputs.addAll(origOutputs);
         newAggOutputs.addAll(hiddenAggOutputs);
+        newAggOutputs.addAll(internalAggOutputs);
         LogicalAggregate<Plan> newAgg = agg.withAggOutputChild(newAggOutputs.build(), newChild);
         if (agg.getSourceRepeat().isPresent()) {
             Optional<LogicalRepeat<?>> sourceRepeat = newChild.collectFirst(LogicalRepeat.class::isInstance);

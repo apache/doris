@@ -143,10 +143,12 @@ class IvmAggMinProcessorTest extends IvmAggProcessorTestBase {
         // downstream still merges the same array.
         IvmAggMinProcessor processor = new IvmAggMinProcessor();
         List<NamedExpression> hiddenOutputs = new ArrayList<>();
+        List<NamedExpression> internalOutputs = new ArrayList<>();
         IvmAggTargetSpec spec = processor.buildTargetSpec(2, new Min(value),
-                new Alias(new Min(value), "min_v"), new HashMap<>(), hiddenOutputs, 1);
-        Assertions.assertEquals(2, hiddenOutputs.size(), "COUNT plus the internal COUNT_AT_MIN");
-        Assertions.assertTrue(hiddenOutputs.get(1).child(0) instanceof CountAtMin);
+                new Alias(new Min(value), "min_v"), new HashMap<>(), hiddenOutputs, internalOutputs, 1);
+        Assertions.assertEquals(1, hiddenOutputs.size(), "only the COUNT state is persisted");
+        Assertions.assertEquals(1, internalOutputs.size(), "COUNT_AT_MIN is an internal output");
+        Assertions.assertTrue(internalOutputs.get(0).child(0) instanceof CountAtMin);
         Assertions.assertFalse(hiddenOutputs.stream()
                 .anyMatch(output -> output.child(0) instanceof MinTopK));
         Assertions.assertEquals(ImmutableList.of(

@@ -79,7 +79,7 @@ public abstract class IvmAggFunctionProcessor {
      */
     IvmAggTargetSpec buildTargetSpec(int ordinal, AggregateFunction function, Alias visibleAlias,
             Map<IvmAggColumnKey, Slot> aggColumnPool, List<NamedExpression> hiddenAggOutputs,
-            long minMaxTopK) {
+            List<NamedExpression> internalAggOutputs, long minMaxTopK) {
         Set<IvmAggStateKey> internalKeys = new LinkedHashSet<>(internalStateKeys(function, minMaxTopK));
         List<IvmAggStateKey> aggregateKeys = new ArrayList<>(hiddenStateKeys(function, minMaxTopK));
         aggregateKeys.addAll(internalKeys);
@@ -97,7 +97,9 @@ public abstract class IvmAggFunctionProcessor {
             Alias newAlias = new Alias(stateFunc, colName);
             hiddenAliases.put(stateKey, newAlias);
             aggColumnPool.put(key, newAlias.toSlot());
-            hiddenAggOutputs.add(newAlias);
+            // Internal outputs go after every persisted state: the delta apply rebuilds the
+            // aggregate output positionally, and skipping them only stays aligned at the tail.
+            (internalKeys.contains(stateKey) ? internalAggOutputs : hiddenAggOutputs).add(newAlias);
         }
         // Derived expressions may read every aggregate output, internal ones included.
         ImmutableMap<IvmAggStateKey, Alias> stateAliases = hiddenAliases.build();
