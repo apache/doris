@@ -52,6 +52,27 @@
 2	0.20021
 5	0.268636
 
+-- !V2_analyzed_and_numeric_cast --
+1	0.290716
+4	0.268636
+
+-- !V2_variant_numeric_path --
+1	0
+3	0
+4	0.287682
+
+-- !V2_variant_text_path --
+1	0.693147
+4	0.693147
+
+-- !V2_variant_sparse_path --
+1	0.980829
+
+-- !V2_variant_numeric_path_cached_bkd --
+1	0
+3	0
+4	0.287682
+
 -- !V3_single_row_match --
 1	0.287682
 
@@ -104,4 +125,25 @@
 1	0.290716
 2	0.20021
 5	0.268636
+
+-- !V3_analyzed_and_numeric_cast --
+1	0.290716
+4	0.268636
+
+-- !V3_variant_numeric_path --
+1	0
+3	0
+4	0.287682
+
+-- !V3_variant_text_path --
+1	0.693147
+4	0.693147
+
+-- !V3_variant_sparse_path --
+1	0.980829
+
+-- !V3_variant_numeric_path_cached_bkd --
+1	0
+3	0
+4	0.287682
 
