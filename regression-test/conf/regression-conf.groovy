@@ -145,6 +145,8 @@ enablePaimonTest=false
 
 // Delta uses a separate Spark configuration, with Hive 3 HMS and MinIO.
 enableDeltaLakeTest=false
+// Optional synthetic planning fixture; see the Delta planning README.
+enableDeltaLakePlanningTest=false
 deltalakeMinioPort=19001
 deltalakeHmsPort=9383
 deltalakeSparkPort=11002
