@@ -62,9 +62,11 @@ The opt-in `test_deltalake_benchmark` suite compares native Delta and ordinary
 Hive Parquet reads of **the same immutable Parquet objects**. It runs the existing
 22 TPC-H SQL files and 103 TPC-DS SQL files (including the split query variants)
 from `tools/`. TPC-H query 15 uses an equivalent CTE in place of `revenue0`, since
-the external catalogs are read-only. TPC-H Q7 fixes join order for both readers,
-as the existing Hive TPC-H regression does: its default Hive plan otherwise
-builds a supplier/customer intermediate that exceeds memory. JSON records mark
+the external catalogs are read-only. TPC-H Q7 and TPC-DS Q85 fix join order for
+both readers. Q7 follows the existing Hive regression: its default Hive plan
+builds a supplier/customer intermediate before joining orders. Q85's default
+Hive plan joins customer_demographics aliases on marital/education status before
+joining web_returns. Both intermediates exceed the memory limit. JSON records mark
 this control as `fixed_join_order=true`; report it separately from default-plan
 measurements. TPC-DS uses the repository's `sf100` query
 parameters on SF1 data; Q30 projects the 3.2 generator's `c_last_review_date`
@@ -149,7 +151,7 @@ regular expression matching `tpch/q7.sql` or `tpcds/query1.sql`, for example
 
 Delta M1 does not supply CBO statistics. Doris can disable join reordering when
 row counts are unknown, which can yield expensive intermediate results for
-multi-table queries. Apart from the documented Q7 control, the suite preserves
+multi-table queries. Apart from the documented Q7/Q85 controls, the suite preserves
 those plans and reports failures. Do not present a controlled or rewritten query
 as default-plan performance.
 

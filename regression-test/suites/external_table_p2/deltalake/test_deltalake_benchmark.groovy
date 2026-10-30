@@ -60,9 +60,10 @@ suite("test_deltalake_benchmark", "p2,external") {
                 continue
             }
             executedQueries++
-            // Match the existing Hive TPC-H regression's Q7 control on both readers.
-            // Its default Hive estimate joins supplier/customer before orders and exceeds memory.
-            boolean fixedJoinOrder = workload == "tpch" && file.name == "q7.sql"
+            // Apply the same control to both readers when Hive joins dimensions before facts
+            // and exceeds memory. Q7 also follows the existing Hive TPC-H regression.
+            boolean fixedJoinOrder = (workload == "tpch" && file.name == "q7.sql")
+                    || (workload == "tpcds" && file.name == "query85.sql")
             sql "set disable_join_reorder=${fixedJoinOrder}"
             String query = file.getText("UTF-8")
             if (workload == "tpcds" && file.name == "query30.sql") {
