@@ -56,6 +56,97 @@ these backends. On the local macOS ARM64 ASAN build, the embedded HDFS JVM neede
 compressed oops/class pointers and CDS disabled to avoid a JVM address-space
 allocation failure; this was a local BE configuration adjustment.
 
+## TPC-H / TPC-DS comparison
+
+The opt-in `test_deltalake_benchmark` suite compares native Delta and ordinary
+Hive Parquet reads of **the same immutable Parquet objects**. It runs the existing
+22 TPC-H SQL files and 103 TPC-DS SQL files (including the split query variants)
+from `tools/`. TPC-H query 15 uses an equivalent CTE in place of `revenue0`, since
+the external catalogs are read-only. TPC-DS uses the repository's `sf100` query
+parameters on SF1 data. This is reader acceptance, not a certified TPC result or
+a production throughput benchmark.
+
+Generate SF1 data with the existing `tools/tpch-tools/bin/build-tpch-dbgen.sh`
+and `tools/tpcds-tools/bin/build-tpcds-tools.sh` tools in their supported Linux
+environment. Run `dbgen -s 1` with `DSS_PATH` pointing to a dedicated output
+directory, and `dsdgen -SCALE 1 -DIR <directory>` from its tools directory. Retain
+the generated `.tbl`/`.dat` files and tool distributions for reuse. The sources
+used for local acceptance are the repository's TPC-H 3.0.0 and TPC-DS 3.2.0rc2
+archives, with SHA-256 respectively:
+
+- `30f0884c5b89fcddebf7daed264691a46d9e07049a3b89dfeb191b189c30cee3`
+- `fa1d64cec6df6bd3ef50cff416172dd8a0ffc55500819343fe9af4dfd7ff36eb`
+
+Install `duckdb==1.4.4` in a Python environment (no DuckDB extensions required),
+then convert the raw data:
+
+```bash
+python3 docker/thirdparties/docker-compose/iceberg/scripts/deltalake/generate_benchmark_parquet.py \
+    --tpch-generator-dir /path/to/tpch/dbgen --tpch-data-dir /path/to/tpch-data \
+    --tpcds-generator-dir /path/to/tpcds/tools --tpcds-data-dir /path/to/tpcds-data \
+    --output /path/to/benchmark
+```
+
+The converter uses the generators' DDL, preserves decimal/date types, explicitly
+transcodes TPC-DS's Latin-1 text to UTF-8, and writes Snappy Parquet with 122,880-row
+groups. It records row counts, sizes and SHA-256 in `manifest.json`. It refuses to
+overwrite a nonempty output directory; reruns should reuse the retained fixtures
+or choose a new directory. Equivalent Parquet encoding can produce different
+bytes, so use the manifest corresponding to the files actually uploaded.
+
+Upload `delta_tpch/` and `delta_tpcds/` beneath `deltalakeWarehouse`, retaining the
+layout `warehouse/delta_tpch/lineitem/data/part-00000.parquet` and its equivalents.
+Copy the manifest into the Spark service's mounted `cache/deltalake/spark/benchmark/`
+directory. In the optional Delta Compose environment, initialize metadata:
+
+```bash
+docker compose --env-file iceberg.env -f iceberg.yaml --profile deltalake exec \
+    spark-deltalake /opt/spark/bin/spark-submit \
+    --properties-file /mnt/scripts/deltalake/spark-defaults.conf \
+    /mnt/scripts/deltalake/prepare_benchmark.py \
+    --manifest /delta-state/benchmark/manifest.json --warehouse s3a://delta/warehouse
+```
+
+The helper registers each Hive table at its `data/` subdirectory and runs
+`CONVERT TO DELTA` on the parent directory, without rewriting Parquet. It checks
+Hive's provider remains Parquet and Spark reads the expected row count through
+both formats. Pointing a plain Hive table at the Delta root would also enumerate
+log files, so the separate data directory is required. These fixtures have no
+DV or concurrent writes; use the ordinary p0 suites for those semantics.
+
+Set `enableDeltaLakeTest=true` and `enableDeltaLakeBenchmarkTest=true` along with
+the existing MinIO/HMS/warehouse settings, then run:
+
+```bash
+./run-regression-test.sh --run -d external_table_p2/deltalake -s test_deltalake_benchmark
+```
+
+The suite computes the reference result through Hive and compares every Delta
+and Hive execution against it. These are dynamic cross-reader comparisons,
+not handwritten expected results. It disables SQL/file caches, uses FileScannerV2
+and four pipeline tasks for both readers, records a first execution of each, then
+three alternating measured repetitions. Each `DELTA_BENCHMARK` log record contains
+the workload/query, result row count, first execution times and all six measured
+times. Summarize per-query medians; investigate substantial absolute and relative
+gaps using EXPLAIN/profiles. First executions are not guaranteed cold OS/object
+store caches. Do not run fixture generation or exports concurrently with timing.
+
+Both readers use an 8-GiB query memory limit and a 120-second timeout. SQL failures
+are logged as `DELTA_BENCHMARK_FAILURE`; the suite attempts the other reader and
+remaining queries, then fails if any query failed. Failed queries have no valid
+paired timing and must not be included in performance aggregates. Result mismatches
+fail immediately. For a focused rerun, set `deltalakeBenchmarkQueryPattern` to a
+regular expression matching `tpch/q7.sql` or `tpcds/query1.sql`, for example
+`"tpch/q[789][.]sql"`. Its default `".*"` runs the full inventory.
+
+Delta M1 does not supply CBO statistics. Doris can disable join reordering when
+row counts are unknown, which can yield expensive intermediate results for
+multi-table queries. The default suite preserves those plans and reports failures;
+do not present a hinted or rewritten diagnostic query as default-plan performance.
+
+Catalogs, HMS tables, Parquet files and Delta logs remain available after testing.
+For repeat runs, invoke the regression directly; no data regeneration is needed.
+
 ## Planning scale
 
 This opt-in fixture declares one million active AddFiles in a classic checkpoint. It deliberately creates **no data objects**: it tests metadata COUNT and FE range planning, not Parquet read throughput or correctness across one million physical objects. The ordinary Delta p0 suites cover real data, deletes and schema evolution.
