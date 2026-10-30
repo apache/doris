@@ -1,0 +1,324 @@
+# Doris append writer integration on the released paimon-rust v0.4.0.
+# Java Paimon 1.4.2 uses CommitMessageSerializer v11 and 20-field DataFileMeta.
+# Export only losslessly representable append messages and bound the encoded list.
+# Expose pinned Arrow schemas, message ranges and explicit awaited writer shutdown.
+# Close rolled files synchronously to bound outstanding file-close work.
+# This does not provide a hard limit on all native allocations or in-flight cancellation.
+--- a/bindings/c/src/write.rs
++++ b/bindings/c/src/write.rs
+@@ -850,6 +850,128 @@
+ 
+ // ======================= CommitMessages ===============================
+ 
++/// Stop a standard writer and wait for its outstanding file work.
++/// Prepared messages remain caller-owned; this only cleans producer-owned output.
++///
++/// # Safety
++/// `tw` must be a live, exclusively accessed standard writer handle.
++#[no_mangle]
++pub unsafe extern "C" fn paimon_table_write_close(
++    tw: *mut paimon_table_write,
++) -> *mut paimon_error {
++    if let Err(error) = check_non_null(tw, "tw") {
++        return error;
++    }
++    let state = &mut *((*tw).inner as *mut TableWriteState);
++    runtime().block_on(state.write.close());
++    ptr::null_mut()
++}
++
++/// Export the pinned table's Arrow schema through the Arrow C Data Interface.
++///
++/// # Safety
++/// `table` must be a valid table handle. `schema` must point to writable storage
++/// for an empty ArrowSchema; the caller owns its returned release callback.
++#[no_mangle]
++pub unsafe extern "C" fn paimon_table_export_arrow_schema(
++    table: *const paimon_table,
++    schema: *mut c_void,
++) -> *mut paimon_error {
++    if let Err(error) = check_non_null(table, "table") {
++        return error;
++    }
++    if let Err(error) = check_non_null(schema, "schema") {
++        return error;
++    }
++    let table = &*((*table).inner as *const Table);
++    let arrow_schema = match paimon::arrow::build_target_arrow_schema(table.schema().fields()) {
++        Ok(schema) => schema,
++        Err(error) => return paimon_error::from_paimon(error),
++    };
++    match FFI_ArrowSchema::try_from(arrow_schema.as_ref()) {
++        Ok(value) => {
++            ptr::write(schema.cast::<FFI_ArrowSchema>(), value);
++            ptr::null_mut()
++        }
++        Err(error) => invalid_input(format!("Cannot export Arrow schema: {error}")),
++    }
++}
++
++/// Return the number of prepared messages in a valid standard message handle.
++///
++/// # Safety
++/// `messages` must be a valid standard message handle.
++#[no_mangle]
++pub unsafe extern "C" fn paimon_commit_messages_count(
++    messages: *const paimon_commit_messages,
++) -> usize {
++    let state = &*((*messages).inner as *const CommitMessagesState);
++    state.messages.len()
++}
++
++/// Encode a range using Java's serializeList protocol, without host-engine framing.
++/// Version 11 currently supports ordinary append only. Oversized output returns
++/// ResourceExhausted without modifying the messages, allowing smaller chunks.
++///
++/// # Safety
++/// `messages` must be a valid standard message handle. `output` must point to
++/// writable storage. Release successful output with paimon_bytes_free.
++#[no_mangle]
++pub unsafe extern "C" fn paimon_commit_messages_serialize_java(
++    messages: *const paimon_commit_messages,
++    version: i32,
++    offset: usize,
++    count: usize,
++    max_bytes: usize,
++    output: *mut paimon_bytes,
++) -> *mut paimon_error {
++    if let Err(error) = check_non_null(messages, "messages") {
++        return error;
++    }
++    if let Err(error) = check_non_null(output, "output") {
++        return error;
++    }
++    *output = paimon_bytes::new(Vec::new());
++    if version != 11 {
++        return paimon_error::new(
++            PaimonErrorCode::Unsupported,
++            "Unsupported Java commit version".into(),
++        );
++    }
++    let state = &*((*messages).inner as *const CommitMessagesState);
++    let selected = match offset
++        .checked_add(count)
++        .and_then(|end| state.messages.get(offset..end))
++    {
++        Some(selected) => selected,
++        None => return invalid_input("Invalid commit message range"),
++    };
++    let encode = || -> paimon::Result<Vec<u8>> {
++        let count = i32::try_from(count).map_err(|_| paimon::Error::DataInvalid {
++            message: "Too many commit messages".into(),
++            source: None,
++        })?;
++        if max_bytes < 4 {
++            return Err(paimon::Error::ResourceExhausted {
++                message: "Commit list output limit is smaller than its header".into(),
++            });
++        }
++        let mut bytes = count.to_be_bytes().to_vec();
++        for message in selected {
++            let encoded = message.serialize_append_java_v11(max_bytes - bytes.len())?;
++            bytes.extend_from_slice(&encoded);
++        }
++        Ok(bytes)
++    };
++    match encode() {
++        Ok(bytes) => {
++            *output = paimon_bytes::new(bytes);
++            ptr::null_mut()
++        }
++        Err(error) => paimon_error::from_paimon(error),
++    }
++}
++
+ /// Free standard commit messages.
+ #[no_mangle]
+ pub unsafe extern "C" fn paimon_commit_messages_free(msgs: *mut paimon_commit_messages) {
+--- a/crates/paimon/src/spec/data_file.rs
++++ b/crates/paimon/src/spec/data_file.rs
+@@ -347,10 +347,24 @@
+     /// as `writeInt(len) + data`. Fields, order and nullability mirror Java
+     /// `DataFileMetaSerializer#toRow`.
+     ///
+-    /// Only the current layout is written. Reading an older one stays supported because a
+-    /// `DataSplit` on disk or on the wire may still carry it.
++    /// This entry point keeps the current layout; hosts targeting older Java may
++    /// explicitly select a lossless supported layout below.
+     pub fn to_serialized_row_data(&self) -> crate::Result<Vec<u8>> {
+-        let mut b = BinaryRowBuilder::new(DataFileMetaRowLayout::CURRENT.arity() as i32);
++        self.to_serialized_row_data_with_layout(DataFileMetaRowLayout::CURRENT)
++    }
++
++    /// Encode the exact row layout expected by the receiving Java serializer.
++    pub fn to_serialized_row_data_with_layout(
++        &self,
++        layout: DataFileMetaRowLayout,
++    ) -> crate::Result<Vec<u8>> {
++        if layout == DataFileMetaRowLayout::WriteCols && self.column_max_sequence_numbers.is_some()
++        {
++            return Err(crate::Error::Unsupported {
++                message: "Java write-cols metadata cannot represent column sequence numbers".into(),
++            });
++        }
++        let mut b = BinaryRowBuilder::new(layout.arity() as i32);
+         b.write_bytes(0, self.file_name.as_bytes());
+         b.write_long(1, self.file_size);
+         b.write_long(2, self.row_count);
+@@ -389,7 +403,9 @@
+         }
+         opt_long(&mut b, 18, self.first_row_id);
+         opt_str_array(&mut b, 19, &self.write_cols);
+-        opt_long_array(&mut b, 20, &self.column_max_sequence_numbers);
++        if layout == DataFileMetaRowLayout::WriteColsSequences {
++            opt_long_array(&mut b, 20, &self.column_max_sequence_numbers);
++        }
+         Ok(b.build_row_data())
+     }
+ 
+@@ -611,6 +627,25 @@
+             write_cols: Some(vec!["k".to_string(), "v".to_string()]),
+             column_max_sequence_numbers: None,
+         }
++    }
++
++    #[test]
++    fn java_v11_file_layout_preserves_fields_and_rejects_new_semantics() {
++        let mut file = data_file("legacy.parquet");
++        let bytes = file
++            .to_serialized_row_data_with_layout(DataFileMetaRowLayout::WriteCols)
++            .unwrap();
++        let restored =
++            DataFileMeta::from_serialized_row_data(&bytes, DataFileMetaRowLayout::WriteCols)
++                .unwrap();
++        assert_eq!(restored.file_name, file.file_name);
++        assert_eq!(restored.row_count, file.row_count);
++        assert_eq!(restored.write_cols, file.write_cols);
++        assert_eq!(restored.first_row_id, file.first_row_id);
++        file.column_max_sequence_numbers = Some(vec![9]);
++        assert!(file
++            .to_serialized_row_data_with_layout(DataFileMetaRowLayout::WriteCols)
++            .is_err());
+     }
+ 
+     fn int_stats(min: Option<i32>, max: Option<i32>, null_count: Option<i64>) -> BinaryTableStats {
+--- a/crates/paimon/src/table/commit_message.rs
++++ b/crates/paimon/src/table/commit_message.rs
+@@ -190,6 +190,62 @@
+         Ok(out)
+     }
+ 
++    /// Encode an ordinary append for Java 1.4.x CommitMessageSerializer v11.
++    /// Newer conflict and index semantics must never be silently discarded.
++    pub fn serialize_append_java_v11(&self, max_bytes: usize) -> crate::Result<Vec<u8>> {
++        if self.format_file.is_some()
++            || self.fixed_bucket_overwrite
++            || self.check_from_snapshot.is_some()
++            || self.total_buckets.is_some()
++            || !self.deleted_files.is_empty()
++            || !self.new_changelog_files.is_empty()
++            || !self.new_index_files.is_empty()
++            || !self.deleted_index_files.is_empty()
++            || !self.compact_before.is_empty()
++            || !self.compact_after.is_empty()
++            || !self.compact_changelog_files.is_empty()
++            || !self.compact_new_index_files.is_empty()
++            || !self.compact_deleted_index_files.is_empty()
++        {
++            return Err(crate::Error::Unsupported {
++                message: "Java v11 export supports ordinary append messages only".into(),
++            });
++        }
++        fn append(out: &mut Vec<u8>, data: &[u8], limit: usize) -> crate::Result<()> {
++            if data.len() > limit.saturating_sub(out.len()) {
++                return Err(crate::Error::ResourceExhausted {
++                    message: "Serialized commit message exceeds its output limit".into(),
++                });
++            }
++            out.extend_from_slice(data);
++            Ok(())
++        }
++        let partition = if self.partition.is_empty() {
++            BinaryRow::new(0).to_serialized_bytes()
++        } else {
++            BinaryRow::from_serialized_bytes(&self.partition)?;
++            self.partition.clone()
++        };
++        let mut out = Vec::new();
++        append(&mut out, &(partition.len() as i32).to_be_bytes(), max_bytes)?;
++        append(&mut out, &partition, max_bytes)?;
++        append(&mut out, &self.bucket.to_be_bytes(), max_bytes)?;
++        append(&mut out, &[0], max_bytes)?; // no totalBuckets
++        let count =
++            i32::try_from(self.new_files.len()).map_err(|_| invalid("Too many data files"))?;
++        append(&mut out, &count.to_be_bytes(), max_bytes)?;
++        for file in &self.new_files {
++            let row = file.to_serialized_row_data_with_layout(DataFileMetaRowLayout::WriteCols)?;
++            let length =
++                i32::try_from(row.len()).map_err(|_| invalid("Data file metadata too large"))?;
++            append(&mut out, &length.to_be_bytes(), max_bytes)?;
++            append(&mut out, &row, max_bytes)?;
++        }
++        // Nine empty lists: the remaining data increment and compact increment.
++        append(&mut out, &[0; 36], max_bytes)?;
++        Ok(out)
++    }
++
+     /// Decode an unframed Java `CommitMessageSerializer` v14 body.
+     pub fn deserialize(version: i32, bytes: &[u8]) -> crate::Result<Self> {
+         if version != COMMIT_MESSAGE_SERIALIZER_VERSION {
+@@ -323,6 +379,25 @@
+     use super::*;
+     use base64::Engine;
+ 
++    #[test]
++    fn java_v11_append_has_no_v14_trailer_and_obeys_limit() {
++        let message = CommitMessage::new(Vec::new(), -1, Vec::new());
++        let body = message.serialize_append_java_v11(1024).unwrap();
++        let v14 = message.serialize().unwrap();
++        assert_eq!(body, v14[..v14.len() - 1]);
++        assert!(message.serialize_append_java_v11(body.len()).is_ok());
++        assert!(matches!(
++            message.serialize_append_java_v11(body.len() - 1),
++            Err(crate::Error::ResourceExhausted { .. })
++        ));
++        let mut conflicting = message;
++        conflicting.check_from_snapshot = Some(7);
++        assert!(matches!(
++            conflicting.serialize_append_java_v11(1024),
++            Err(crate::Error::Unsupported { .. })
++        ));
++    }
++
+     // Produced by Java CommitMessageSerializer v14 with BinaryRow.EMPTY_ROW,
+     // bucket 3, checkFromSnapshot 7. The second message also has totalBuckets
+     // 5 and one data-increment IndexFileMeta("I", "index", 9, 2).
+--- a/crates/paimon/src/table/data_file_writer.rs
++++ b/crates/paimon/src/table/data_file_writer.rs
+@@ -238,7 +238,8 @@
+         if self.current_row_count >= self.target_file_row_num
+             || self.current_writer.as_ref().unwrap().num_bytes() as i64 >= self.target_file_size
+         {
+-            self.roll_file();
++            // Embedded writers bound outstanding work by waiting for each rolled file.
++            self.close_current_file().await?;
+         }
+ 
+         if let Some(writer) = self.current_writer.as_mut() {
+@@ -347,16 +348,6 @@
+             self.written_files.push((ordinal, close.await?));
+         }
+         Ok(())
+-    }
+-
+-    /// Spawn the current writer's close in the background for non-blocking rolling.
+-    fn roll_file(&mut self) {
+-        if let Some(close) = self.take_close() {
+-            let ordinal = self.next_file_ordinal;
+-            self.next_file_ordinal += 1;
+-            self.in_flight_closes
+-                .spawn(async move { Ok((ordinal, close.await?)) });
+-        }
+     }
+ 
+     fn take_close(
