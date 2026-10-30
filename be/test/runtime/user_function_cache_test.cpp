@@ -552,25 +552,68 @@ TEST_F(UserFunctionCacheTest, LoadEntryFromLibInvalidFileName) {
     EXPECT_FALSE(status.ok());
 }
 
-TEST_F(UserFunctionCacheTest, PythonZipDeletionWaitsForRuntimeReference) {
-    const std::string cache_dir = test_dir_ + "/cache";
-    ASSERT_TRUE(ufc.init(cache_dir).ok());
-
-    const std::string zip_path = test_dir_ + "/shared.zip";
-    ASSERT_TRUE(create_zip_file(zip_path, {{"shared.py", "def evaluate(x): return x"}}));
-    const std::string checksum = file_md5(zip_path);
-    const std::string source_location = "file://" + zip_path;
-
+TEST_F(UserFunctionCacheTest, DroppedPythonZipRejectsAcquisitionUntilFilesAreDeleted) {
+    ASSERT_TRUE(ufc.init(test_dir_ + "/cache").ok());
+    const std::string zip_path = test_dir_ + "/retained.zip";
+    ASSERT_TRUE(create_zip_file(zip_path, {{"entry.py", "def evaluate(x): return x + 7"}}));
+    const auto checksum = file_md5(zip_path);
+    const auto source = "file://" + zip_path;
     std::string local_path;
-    std::shared_ptr<UserFunctionCacheEntry> runtime_reference;
-    ASSERT_TRUE(
-            ufc.get_pypath(2001, source_location, checksum, &local_path, &runtime_reference).ok());
+    std::shared_ptr<UserFunctionCacheEntry> retained;
+    ASSERT_TRUE(ufc.get_pypath(2002, source, checksum, &local_path, &retained).ok());
 
-    ufc.drop_function_cache(2001);
-    EXPECT_TRUE(std::filesystem::exists(local_path));
-    runtime_reference.reset();
+    ufc.drop_function_cache(2002);
+    ufc.drop_function_cache(2002);
+    std::string rejected_path;
+    std::shared_ptr<UserFunctionCacheEntry> rejected;
+    EXPECT_FALSE(ufc.get_pypath(2002, source, checksum, &rejected_path, &rejected).ok());
+    EXPECT_EQ(nullptr, rejected);
+    EXPECT_EQ(0, ufc._entry_map.count(2002));
+    EXPECT_TRUE(std::filesystem::exists(local_path + "/entry.py"));
+
+    retained.reset();
     EXPECT_FALSE(std::filesystem::exists(local_path));
     EXPECT_FALSE(std::filesystem::exists(local_path + ".zip"));
+    ASSERT_TRUE(ufc.get_pypath(2002, source, checksum, &local_path, &retained).ok());
+    EXPECT_TRUE(std::filesystem::exists(local_path + "/entry.py"));
+    ufc.drop_function_cache(2002);
+}
+
+TEST_F(UserFunctionCacheTest, DroppedPythonZipCanOutliveCacheOwner) {
+    const std::string zip_path = test_dir_ + "/retained.zip";
+    ASSERT_TRUE(create_zip_file(zip_path, {{"entry.py", "def evaluate(x): return x"}}));
+    std::shared_ptr<UserFunctionCacheEntry> retained;
+    std::string local_path;
+    {
+        UserFunctionCache cache;
+        ASSERT_TRUE(cache.init(test_dir_ + "/cache").ok());
+        ASSERT_TRUE(cache.get_pypath(2003, "file://" + zip_path, file_md5(zip_path), &local_path,
+                                     &retained)
+                            .ok());
+        cache.drop_function_cache(2003);
+    }
+    EXPECT_TRUE(std::filesystem::exists(local_path));
+    retained.reset();
+    EXPECT_FALSE(std::filesystem::exists(local_path));
+    EXPECT_FALSE(std::filesystem::exists(local_path + ".zip"));
+}
+
+TEST_F(UserFunctionCacheTest, MissingPythonZipFilesDoNotRetainTombstone) {
+    ASSERT_TRUE(ufc.init(test_dir_ + "/cache").ok());
+    const std::string zip_path = test_dir_ + "/missing.zip";
+    ASSERT_TRUE(create_zip_file(zip_path, {{"entry.py", "def evaluate(x): return x"}}));
+    const auto checksum = file_md5(zip_path);
+    std::string local_path;
+    std::shared_ptr<UserFunctionCacheEntry> retained;
+    ASSERT_TRUE(ufc.get_pypath(2004, "file://" + zip_path, checksum, &local_path, &retained).ok());
+    ufc.drop_function_cache(2004);
+    std::filesystem::remove_all(local_path);
+    std::filesystem::remove(local_path + ".zip");
+    retained.reset();
+
+    ASSERT_TRUE(ufc.get_pypath(2004, "file://" + zip_path, checksum, &local_path, &retained).ok());
+    EXPECT_TRUE(std::filesystem::exists(local_path + "/entry.py"));
+    ufc.drop_function_cache(2004);
 }
 
 } // namespace doris

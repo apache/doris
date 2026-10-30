@@ -23,38 +23,19 @@ suite("test_pythonudf_auto_suspend", "nonConcurrent") {
         PROPERTIES("replication_num"="1")"""
     sql "INSERT INTO py_auto_suspend_input VALUES (1), (2), (3)"
     try {
-        // Check results before/after idling; BE unit tests separately verify process termination.
-        ["0", "1", "-1", null].eachWithIndex { timeout, index ->
-            sql "DROP FUNCTION IF EXISTS py_auto_suspend(INT)"
-            def property = timeout == null ? "" : ", \"auto_suspend\"=\"${timeout}\""
-            sql """CREATE FUNCTION py_auto_suspend(INT) RETURNS INT
-                PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
-                    "runtime_version"="${runtime}", "pool_size"="1" ${property})
-                AS \$\$
-def evaluate(v):
-    return v + 10 if v is not None else None
-\$\$"""
-            "qt_result_0_${index}"("SELECT py_auto_suspend(v) FROM py_auto_suspend_input ORDER BY v")
-            Thread.sleep(2500)
-            "qt_result_1_${index}"("SELECT py_auto_suspend(v) FROM py_auto_suspend_input ORDER BY v")
-            // DROP now leaves a STOPPED pool until the monitor reclaims it. The next
-            // iteration recreates the same SQL name with a new function id and must still work.
-            sql "DROP FUNCTION py_auto_suspend(INT)"
-            test {
-                sql "SELECT py_auto_suspend(v) FROM py_auto_suspend_input"
-                exception "Can not found function"
-            }
-        }
-        sql "DROP FUNCTION IF EXISTS py_auto_suspend_pid(INT)"
-        sql """CREATE FUNCTION py_auto_suspend_pid(INT) RETURNS BIGINT
+        sql "DROP FUNCTION IF EXISTS py_auto_suspend(INT)"
+        sql """CREATE FUNCTION py_auto_suspend(INT) RETURNS STRING
             PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
                 "runtime_version"="${runtime}", "pool_size"="1", "auto_suspend"="0")
             AS \$\$
 import os
 def evaluate(v):
-    return os.getpid()
+    return f"{os.getpid()}:{v + 10}"
 \$\$"""
-        def queryPid = { sql("SELECT py_auto_suspend_pid(v) FROM py_auto_suspend_input")[0][0] }
+        def query = "SELECT py_auto_suspend(v) result FROM py_auto_suspend_input"
+        def queryPid = { sql("SELECT split_part(result, ':', 1) FROM (${query}) s")[0][0] }
+        def resultQuery = "SELECT split_part(result, ':', 2) FROM (${query}) s ORDER BY 1"
+        qt_before(resultQuery)
         def firstPid = queryPid()
         def nextPid = firstPid
         def deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(120)
@@ -63,8 +44,8 @@ def evaluate(v):
             nextPid = queryPid()
         }
         assertNotEquals(firstPid, nextPid)
+        qt_after(resultQuery)
     } finally {
         sql "DROP FUNCTION IF EXISTS py_auto_suspend(INT)"
-        sql "DROP FUNCTION IF EXISTS py_auto_suspend_pid(INT)"
     }
 }

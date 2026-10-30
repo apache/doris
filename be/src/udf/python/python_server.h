@@ -22,6 +22,7 @@
 #include <condition_variable>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <thread>
 #include <unordered_map>
 #include <vector>
@@ -33,7 +34,76 @@
 
 namespace doris {
 struct UserFunctionCacheEntry;
-class PythonUDFPoolLease;
+class PythonUDFClient;
+class PythonUDAFClient;
+class PythonUDTFClient;
+
+struct PythonProcessRegistry {
+    void add(const ProcessPtr& process);
+    std::vector<ProcessPtr> snapshot();
+
+private:
+    std::mutex mutex;
+    std::vector<std::weak_ptr<PythonUDFProcess>> processes;
+};
+
+class PythonFunctionRuntime : public std::enable_shared_from_this<PythonFunctionRuntime> {
+public:
+    PythonFunctionRuntime(const PythonUDFMeta& meta, PythonVersion version,
+                          std::shared_ptr<PythonProcessRegistry> process_registry,
+                          std::shared_ptr<UserFunctionCacheEntry> package_cache_entry);
+
+    template <typename T>
+    Status get_client(const PythonUDFMeta& meta, std::shared_ptr<T>* client,
+                      const std::shared_ptr<arrow::Schema>& data_schema = nullptr);
+
+    void release_client();
+    Status check_package() const;
+    void reclaim_if_idle(std::chrono::steady_clock::time_point now);
+    int repair();
+
+    // Stop acquisition and publication; the caller releases processes outside its locks.
+    std::vector<ProcessPtr> stop();
+
+private:
+    Status acquire_client();
+    enum class PoolState { UNINITIALIZED, INITIALIZING, INITIALIZED, STOPPED };
+
+    Status _ensure_pool_initialized();
+    void _start_pool_initialization(std::chrono::milliseconds process_pool_init_timeout);
+    bool _publish_process(ProcessPtr process, size_t index, uint64_t generation);
+    Status _get_process(ProcessPtr* process);
+    bool _select_alive_process_from_pool(ProcessPtr* process);
+    void _start_pool_repair();
+    int _repair_process_pool(uint64_t generation);
+
+#ifdef BE_TEST
+    static constexpr std::chrono::milliseconds PROCESS_POOL_INIT_TIMEOUT {1000};
+    static constexpr std::chrono::milliseconds PROCESS_REPAIR_WAIT_TIMEOUT {200};
+#else
+    // Keep initialization below FE's default 30s send-fragments RPC timeout.
+    static constexpr std::chrono::milliseconds PROCESS_POOL_INIT_TIMEOUT {20000};
+    static constexpr std::chrono::milliseconds PROCESS_REPAIR_WAIT_TIMEOUT {1000};
+#endif
+
+    PythonVersion version;
+    std::shared_ptr<PythonProcessRegistry> process_registry;
+    int64_t function_id = 0;
+    int32_t pool_size = 3;
+    int64_t auto_suspend = PythonUDFMeta::DEFAULT_AUTO_SUSPEND_SECONDS;
+    size_t active_clients = 0;
+    std::chrono::steady_clock::time_point idle_since = std::chrono::steady_clock::now();
+    std::shared_ptr<UserFunctionCacheEntry> package_cache_entry;
+    std::mutex mutex;
+    std::condition_variable cv;
+    std::vector<ProcessPtr> processes;
+    PoolState state = PoolState::UNINITIALIZED;
+    bool has_available_process = false;
+    bool repairing = false;
+    // Initialization workers from before idle suspension cannot publish into a reopened pool.
+    uint64_t pool_generation = 0;
+};
+
 class PythonServerManager {
 public:
     PythonServerManager() = default;
@@ -51,129 +121,31 @@ public:
                       const std::shared_ptr<arrow::Schema>& data_schema = nullptr,
                       std::shared_ptr<UserFunctionCacheEntry> package_cache_entry = nullptr);
 
-    static Status fork(const PythonVersion& version, ProcessPtr* process);
+    Result<std::shared_ptr<PythonFunctionRuntime>> get_runtime(
+            const PythonUDFMeta& meta, const PythonVersion& version,
+            std::shared_ptr<UserFunctionCacheEntry> package_cache_entry);
 
-    // Stop accepting new clients. Health check removes the pool after its last client closes.
+    std::set<int64_t> collect_pyudf_ids();
+
+    // Remove the pool. Existing clients retain their processes until they release them.
     void drop_function(int64_t function_id);
 
     void shutdown();
 
-#ifdef BE_TEST
-    // For unit testing only.
-    void check_and_recreate_processes_for_test() { _check_and_recreate_processes(); }
-
-    void set_process_pool_for_test(const PythonUDFMeta& meta, const PythonVersion& version,
-                                   std::vector<ProcessPtr> processes, bool initialized = true);
-
-    std::vector<ProcessPtr> process_pool_snapshot_for_test(int64_t function_id);
-
-    bool process_pool_is_initialized_for_test(int64_t function_id);
-
-    bool wait_for_process_pool_initialized_for_test(int64_t function_id,
-                                                    std::chrono::milliseconds timeout);
-
-    bool wait_for_process_pool_initialization_finished_for_test(int64_t function_id,
-                                                                std::chrono::milliseconds timeout);
-
-#endif
-
 private:
-    friend class PythonUDFPoolLease;
-
-    enum class PoolState {
-        UNINITIALIZED,
-        INITIALIZING,
-        // `Initialized` means:
-        // 1. All process slots have attempted initialization.
-        // 2. At least one live process is available for requests.
-        INITIALIZED,
-        // Reject new clients and late fork publication after DROP, shutdown or idle reclamation.
-        STOPPED,
-    };
-
-    // Includes processes held by clients after DROP, without extending their lifetime.
-    struct ProcessRegistry {
-        void add(const ProcessPtr& process);
-        std::vector<ProcessPtr> snapshot();
-
-        std::mutex mutex;
-        std::vector<std::weak_ptr<PythonUDFProcess>> processes;
-    };
-
-    struct FunctionProcessPool {
-        // Interpreter information needed to replace dead processes in this function pool.
-        PythonVersion version;
-        // Detached fork/repair workers can outlive the manager.
-        std::shared_ptr<ProcessRegistry> process_registry;
-        int64_t function_id = 0;
-        int32_t pool_size = 3;
-        int64_t auto_suspend = PythonUDFMeta::DEFAULT_AUTO_SUSPEND_SECONDS;
-        size_t active_clients = 0;
-        std::chrono::steady_clock::time_point idle_since = std::chrono::steady_clock::now();
-        std::shared_ptr<UserFunctionCacheEntry> package_cache_entry;
-        std::mutex mutex;
-        // Coordinates initialization and repair workers with foreground requests.
-        std::condition_variable cv;
-        std::vector<ProcessPtr> processes;
-        PoolState state = PoolState::UNINITIALIZED;
-        // True when at least one process in the pool can serve requests.
-        bool has_available_process = false;
-        // True while a background repair is recreating dead or missing processes.
-        bool repairing = false;
-    };
-
-    /**
-     * Lazily initialize and return the process pool for specific function.
-     */
-    Result<std::shared_ptr<FunctionProcessPool>> _ensure_pool_initialized(
-            const PythonUDFMeta& meta, const PythonVersion& version,
-            std::shared_ptr<UserFunctionCacheEntry> package_cache_entry = nullptr,
-            std::shared_ptr<PythonUDFPoolLease>* lease = nullptr);
-
-    /**
-     * Pick an available process from specific pool, recreating one on demand if needed.
-     */
-    static void _start_pool_initialization(
-            const std::shared_ptr<FunctionProcessPool>& function_pool, const PythonVersion& version,
-            std::chrono::milliseconds process_pool_init_timeout);
-
-    static void _start_pool_repair(const PythonVersion& version,
-                                   const std::shared_ptr<FunctionProcessPool>& function_pool);
-
-    Status _get_process(const PythonVersion& version,
-                        const std::shared_ptr<FunctionProcessPool>& function_pool,
-                        ProcessPtr* process);
-
     /**
      * Start health check background thread when the first function pool is created
      * Thread periodically reclaims pools, checks process health and refreshes memory stats.
      */
     void _start_health_check_thread();
 
-    // Only reclaim pools with no active clients: STOPPED pools on the next scan; other pools
-    // after auto_suspend seconds without a client (-1 disables idle reclamation).
+    // Reclaim pools after auto_suspend seconds without a client (-1 disables idle reclamation).
     void _reclaim_idle_pools(std::chrono::steady_clock::time_point now);
 
     /**
      * Check process health and recreate dead processes
      */
     void _check_and_recreate_processes();
-
-#ifdef BE_TEST
-    static constexpr std::chrono::milliseconds PROCESS_START_TIMEOUT {500};
-    static constexpr std::chrono::milliseconds PROCESS_TERMINATE_TIMEOUT {100};
-    static constexpr std::chrono::milliseconds PROCESS_POOL_INIT_TIMEOUT {1000};
-    static constexpr std::chrono::milliseconds PROCESS_REPAIR_WAIT_TIMEOUT {200};
-#else
-    static constexpr std::chrono::milliseconds PROCESS_START_TIMEOUT {5000};
-    static constexpr std::chrono::milliseconds PROCESS_TERMINATE_TIMEOUT {1000};
-    // FE's default send-fragments RPC timeout is 30s. Keep BE's Python pool wait below it so the
-    // caller sees SERVICE_UNAVAILABLE with Python context instead of a generic RPC deadline error.
-    static constexpr std::chrono::milliseconds PROCESS_POOL_INIT_TIMEOUT {20000};
-    static constexpr std::chrono::milliseconds PROCESS_REPAIR_WAIT_TIMEOUT {1000};
-#endif
-    static int _repair_process_pool(const PythonVersion& version,
-                                    const std::shared_ptr<FunctionProcessPool>& function_pool);
 
     /**
      * Read resident set size (RSS) for a single process from /proc/{pid}/statm
@@ -185,21 +157,16 @@ private:
      */
     void _refresh_memory_stats();
 
-    Result<std::shared_ptr<FunctionProcessPool>> _get_or_create_process_pool(
-            const PythonUDFMeta& meta, const PythonVersion& version,
-            std::shared_ptr<UserFunctionCacheEntry> package_cache_entry,
-            std::shared_ptr<PythonUDFPoolLease>* lease = nullptr);
-    std::vector<std::shared_ptr<FunctionProcessPool>> _snapshot_process_pools();
-    static bool _select_alive_process_from_pool(const std::vector<ProcessPtr>& pool,
-                                                ProcessPtr* process);
+    std::vector<std::shared_ptr<PythonFunctionRuntime>> _snapshot_process_pools();
 
     // Weak references keep dropped-but-active processes visible without keeping them alive.
-    std::shared_ptr<ProcessRegistry> _process_registry = std::make_shared<ProcessRegistry>();
+    std::shared_ptr<PythonProcessRegistry> _process_registry =
+            std::make_shared<PythonProcessRegistry>();
 
     // function_id -> process_pool
-    std::unordered_map<int64_t, std::shared_ptr<FunctionProcessPool>> _process_pools;
+    std::unordered_map<int64_t, std::shared_ptr<PythonFunctionRuntime>> _process_pools;
     // Protects the function id -> pool map. DROP also stops the pool under this lock;
-    // when taking both locks, acquire this before FunctionProcessPool::mutex.
+    // when taking both locks, acquire this before PythonFunctionRuntime::mutex.
     std::mutex _pools_mutex;
     // Health check background thread
     std::unique_ptr<std::thread> _health_check_thread;
@@ -208,5 +175,24 @@ private:
     std::mutex _health_check_mutex;
     MemTracker _mem_tracker {"PythonUDFProcesses"};
 };
+
+extern template Status PythonServerManager::get_client<PythonUDFClient>(
+        const PythonUDFMeta&, const PythonVersion&, std::shared_ptr<PythonUDFClient>*,
+        const std::shared_ptr<arrow::Schema>&, std::shared_ptr<UserFunctionCacheEntry>);
+extern template Status PythonServerManager::get_client<PythonUDAFClient>(
+        const PythonUDFMeta&, const PythonVersion&, std::shared_ptr<PythonUDAFClient>*,
+        const std::shared_ptr<arrow::Schema>&, std::shared_ptr<UserFunctionCacheEntry>);
+extern template Status PythonServerManager::get_client<PythonUDTFClient>(
+        const PythonUDFMeta&, const PythonVersion&, std::shared_ptr<PythonUDTFClient>*,
+        const std::shared_ptr<arrow::Schema>&, std::shared_ptr<UserFunctionCacheEntry>);
+extern template Status PythonFunctionRuntime::get_client<PythonUDFClient>(
+        const PythonUDFMeta&, std::shared_ptr<PythonUDFClient>*,
+        const std::shared_ptr<arrow::Schema>&);
+extern template Status PythonFunctionRuntime::get_client<PythonUDAFClient>(
+        const PythonUDFMeta&, std::shared_ptr<PythonUDAFClient>*,
+        const std::shared_ptr<arrow::Schema>&);
+extern template Status PythonFunctionRuntime::get_client<PythonUDTFClient>(
+        const PythonUDFMeta&, std::shared_ptr<PythonUDTFClient>*,
+        const std::shared_ptr<arrow::Schema>&);
 
 } // namespace doris

@@ -27,6 +27,7 @@
 #include "udf/python/python_udf_meta.h"
 
 namespace doris {
+class PythonFunctionRuntime;
 
 struct UserFunctionCacheEntry;
 
@@ -174,7 +175,7 @@ private:
     DataTypePtr _return_type;
     PythonUDFMeta _func_meta;
     PythonVersion _python_version;
-    std::shared_ptr<UserFunctionCacheEntry> _package_cache_entry;
+    std::shared_ptr<PythonFunctionRuntime> _runtime;
     // Arrow Flight schema: [argument_types..., places: int64, binary_data: binary]
     // Used for all UDAF RPC operations
     // - places column is always present (NULL in single-place mode, actual place_id values in GROUP BY mode)
