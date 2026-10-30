@@ -414,6 +414,13 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
      */
     public static int computeGuardMask(Map<String, String> currentSessionVars,
             Map<String, String> persistSessionVars) {
+        if (planSessionVarFenceVersion(persistSessionVars)
+                > SessionVariable.CURRENT_PLAN_SESSION_VAR_FENCE_VERSION) {
+            // The persisted plan-variable set was written by a newer FE (metadata produced before a
+            // downgrade). This FE cannot interpret it, so it must not build a rewrite cache that any
+            // session could consume: select both guard families.
+            return GUARD_TIME_ZONE | GUARD_OTHER;
+        }
         int mask = GUARD_NONE;
         // The creation zone is unknown (pre-change metadata, including an empty map) or differs from the
         // current zone.
@@ -427,6 +434,26 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
             mask |= GUARD_OTHER;
         }
         return mask;
+    }
+
+    /**
+     * The plan-variable fence version stamped into a persisted session-variable map, 0 when the map predates
+     * the stamp. A value this FE cannot parse is reported as newer than anything it knows, so the read fence
+     * fails closed instead of trusting unknown metadata.
+     */
+    public static int planSessionVarFenceVersion(Map<String, String> persistSessionVars) {
+        if (persistSessionVars == null) {
+            return 0;
+        }
+        String version = persistSessionVars.get(SessionVariable.PLAN_SESSION_VAR_FENCE_VERSION);
+        if (version == null) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(version.trim());
+        } catch (NumberFormatException e) {
+            return Integer.MAX_VALUE;
+        }
     }
 
     /**
@@ -457,13 +484,17 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
      * view/MV was created) means the object was materialized with the other (default) value, so the current
      * non-default setting must disable rewrite; a persist-only variable likewise differs because its value
      * in the other map is unknown. This restores the conservative whole-map comparison semantics.
+     * time_zone and the fence version stamp are excluded: the zone difference is scoped to its own family,
+     * and the stamp only identifies the persisted plan-variable set (it is validated by
+     * {@link #planSessionVarFenceVersion}), it is not a setting that changes an expression's value.
      */
     private static boolean differsInNonTimeZoneVars(Map<String, String> currentVars, Map<String, String> persistVars) {
         if (currentVars == null || persistVars == null) {
             return false;
         }
         for (String key : Sets.union(currentVars.keySet(), persistVars.keySet())) {
-            if (SessionVariable.TIME_ZONE.equals(key)) {
+            if (SessionVariable.TIME_ZONE.equals(key)
+                    || SessionVariable.PLAN_SESSION_VAR_FENCE_VERSION.equals(key)) {
                 continue;
             }
             if (!Objects.equals(persistVars.get(key), currentVars.get(key))) {
@@ -528,8 +559,11 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
             return false;
         }
         if (expr instanceof IsNullPredicate) {
-            // the boolean result of IS (NOT) NULL does not depend on the time zone
-            return false;
+            // IS (NOT) NULL itself is zone invariant, but it only reads the null-ness of its operand: a
+            // nullable CASE built from a zone-sensitive expression (e.g.
+            // (CASE WHEN date_trunc(ts, 'day') = ts2 THEN NULL ELSE 1 END) IS NULL) therefore materializes
+            // different booleans in different write sessions, so the operand must be classified as well.
+            return isTimeZoneSensitiveStoredExpr(expr.getChild(0));
         }
         if (expr instanceof CastExpr) {
             return isTimeZoneSensitiveCast((CastExpr) expr);
@@ -564,7 +598,7 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
     }
 
     /**
-     * Classify a cast by both its source and its result type instead of only its children: casting INTO
+     * Classify a cast by comparing its source and result types instead of only its children: casting INTO
      * TIMESTAMPTZ interprets an offset-free source representation (string/datetime) in the session zone,
      * and casting a TIMESTAMPTZ instant OUT of TIMESTAMPTZ renders it in the session zone - including into
      * STRING, whose rendering embeds the write-session offset and is therefore not canonical.
@@ -572,12 +606,70 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
      */
     private static boolean isTimeZoneSensitiveCast(CastExpr castExpr) {
         Expr source = castExpr.getChild(0);
-        boolean sourceTz = containsTimeStampTz(source.getType());
-        boolean targetTz = containsTimeStampTz(castExpr.getType());
-        if (sourceTz != targetTz) {
+        if (isTimeZoneSensitiveTypeConversion(source.getType(), castExpr.getType())) {
             return true;
         }
         return isTimeZoneSensitiveStoredExpr(source);
+    }
+
+    /**
+     * Whether converting {@code from} into {@code to} renders or interprets a TIMESTAMPTZ instant in the
+     * session zone.
+     *
+     * <p>Array, map and struct conversions are compared leaf by leaf. A presence-only check is not enough:
+     * casting {@code STRUCT&lt;a:TIMESTAMPTZ, b:TIMESTAMPTZ&gt;} to
+     * {@code STRUCT&lt;a:TIMESTAMPTZ, b:STRING&gt;} keeps a TIMESTAMPTZ field in both types while the
+     * {@code b} leaf is rendered in the write session zone, so the same instant would be stored with
+     * different strings by different write sessions.
+     */
+    private static boolean isTimeZoneSensitiveTypeConversion(org.apache.doris.catalog.Type from,
+            org.apache.doris.catalog.Type to) {
+        if (from.isArrayType() && to.isArrayType()) {
+            return isTimeZoneSensitiveTypeConversion(((org.apache.doris.catalog.ArrayType) from).getItemType(),
+                    ((org.apache.doris.catalog.ArrayType) to).getItemType());
+        }
+        if (from.isMapType() && to.isMapType()) {
+            org.apache.doris.catalog.MapType fromMap = (org.apache.doris.catalog.MapType) from;
+            org.apache.doris.catalog.MapType toMap = (org.apache.doris.catalog.MapType) to;
+            return isTimeZoneSensitiveTypeConversion(fromMap.getKeyType(), toMap.getKeyType())
+                    || isTimeZoneSensitiveTypeConversion(fromMap.getValueType(), toMap.getValueType());
+        }
+        if (from.isStructType() && to.isStructType()) {
+            List<org.apache.doris.catalog.StructField> fromFields =
+                    ((org.apache.doris.catalog.StructType) from).getFields();
+            List<org.apache.doris.catalog.StructField> toFields =
+                    ((org.apache.doris.catalog.StructType) to).getFields();
+            // A struct cast requires the same fields in the same order, so any other shape is not a plain
+            // struct conversion and falls through to the presence-based check below.
+            if (fromFields.size() == toFields.size() && sameStructFieldNames(fromFields, toFields)) {
+                for (int i = 0; i < fromFields.size(); i++) {
+                    if (isTimeZoneSensitiveTypeConversion(fromFields.get(i).getType(),
+                            toFields.get(i).getType())) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+        }
+        boolean fromHasTimeStampTz = containsTimeStampTz(from);
+        boolean toHasTimeStampTz = containsTimeStampTz(to);
+        if (fromHasTimeStampTz != toHasTimeStampTz) {
+            return true;
+        }
+        // Both sides carry the same presence. Only a TIMESTAMPTZ -> TIMESTAMPTZ conversion of the same shape
+        // is instant preserving; a complex-to-different-complex conversion is not castable, so treating it as
+        // sensitive is the safe answer.
+        return fromHasTimeStampTz && !(from.isTimeStampTz() && to.isTimeStampTz());
+    }
+
+    private static boolean sameStructFieldNames(List<org.apache.doris.catalog.StructField> fromFields,
+            List<org.apache.doris.catalog.StructField> toFields) {
+        for (int i = 0; i < fromFields.size(); i++) {
+            if (!Objects.equals(fromFields.get(i).getName(), toFields.get(i).getName())) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**

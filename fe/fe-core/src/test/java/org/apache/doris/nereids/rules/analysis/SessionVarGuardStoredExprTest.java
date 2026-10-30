@@ -18,11 +18,19 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.CaseExpr;
+import org.apache.doris.analysis.CaseWhenClause;
 import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.Type;
 
+import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -150,5 +158,87 @@ public class SessionVarGuardStoredExprTest {
         // TIMESTAMPTZ GENERATED ALWAYS AS (ts): instant preserving, remains allowed
         CastExpr sameTarget = new CastExpr(ScalarType.createTimeStampTzType(6), tzSlot("ts"), true);
         Assertions.assertFalse(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(sameTarget));
+    }
+
+    /**
+     * IS (NOT) NULL only reads the null-ness of its operand, so the operand decides whether the stored
+     * boolean is zone dependent. A nullable CASE whose condition is built from a zone-sensitive expression
+     * (here a TIMESTAMPTZ rendering into DATETIME, the same shape as date_trunc(ts, 'day') = ts2) stores
+     * true in one write session and false in another for the same instants, so it must be rejected.
+     */
+    @Test
+    public void testIsNullOverZoneSensitiveOperandIsSensitive() {
+        CastExpr sensitiveCondition = new CastExpr(ScalarType.createDatetimeV2Type(6), tzSlot("ts"), true);
+        BinaryPredicate condition = new BinaryPredicate(BinaryPredicate.Operator.EQ, sensitiveCondition,
+                tzSlot("ts2"));
+        SlotRef nullSlot = new SlotRef(null, "null_value");
+        nullSlot.setType(Type.INT);
+        SlotRef oneSlot = new SlotRef(null, "one_value");
+        oneSlot.setType(Type.INT);
+        CaseExpr caseExpr = new CaseExpr(
+                Lists.newArrayList(new CaseWhenClause(condition, nullSlot)), oneSlot, true);
+        IsNullPredicate isNull = new IsNullPredicate(caseExpr, false);
+        Assertions.assertTrue(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(isNull));
+        IsNullPredicate isNotNull = new IsNullPredicate(caseExpr, true);
+        Assertions.assertTrue(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(isNotNull));
+    }
+
+    /**
+     * IS (NOT) NULL over a zone-invariant operand (a TIMESTAMPTZ slot holds the UTC instant) stays allowed.
+     */
+    @Test
+    public void testIsNullOverTimestampTzSlotIsZoneInvariant() {
+        Assertions.assertFalse(
+                SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(new IsNullPredicate(tzSlot("ts"), false)));
+        Assertions.assertFalse(
+                SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(new IsNullPredicate(tzSlot("ts"), true)));
+    }
+
+    /**
+     * A struct cast must be compared leaf by leaf. CAST(STRUCT&lt;a:TIMESTAMPTZ, b:TIMESTAMPTZ&gt; AS
+     * STRUCT&lt;a:TIMESTAMPTZ, b:STRING&gt;) keeps a TIMESTAMPTZ field on both sides, so a presence-only check
+     * accepts it, while the b leaf is rendered in the write session zone and the same instant is stored with
+     * different strings by different write sessions.
+     */
+    @Test
+    public void testMixedFieldStructCastIsSensitive() {
+        SlotRef structSlot = new SlotRef(null, "s");
+        structSlot.setType(new StructType(
+                new StructField("a", ScalarType.createTimeStampTzType(6)),
+                new StructField("b", ScalarType.createTimeStampTzType(6))));
+        CastExpr mixedTarget = new CastExpr(new StructType(
+                new StructField("a", ScalarType.createTimeStampTzType(6)),
+                new StructField("b", ScalarType.createVarcharType(100))), structSlot, true);
+        Assertions.assertTrue(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(mixedTarget));
+    }
+
+    /**
+     * The same struct cast with every field preserved is instant preserving and stays allowed.
+     */
+    @Test
+    public void testStructCastWithMatchingFieldsIsZoneInvariant() {
+        SlotRef structSlot = new SlotRef(null, "s");
+        structSlot.setType(new StructType(
+                new StructField("a", ScalarType.createTimeStampTzType(6)),
+                new StructField("b", ScalarType.createTimeStampTzType(6))));
+        CastExpr sameTarget = new CastExpr(new StructType(
+                new StructField("a", ScalarType.createTimeStampTzType(6)),
+                new StructField("b", ScalarType.createTimeStampTzType(6))), structSlot, true);
+        Assertions.assertFalse(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(sameTarget));
+    }
+
+    /**
+     * Array and map casts are compared leaf by leaf as well: ARRAY&lt;TIMESTAMPTZ&gt; -&gt; ARRAY&lt;STRING&gt;
+     * renders every element in the write session zone, while ARRAY&lt;TIMESTAMPTZ&gt; -&gt;
+     * ARRAY&lt;TIMESTAMPTZ&gt; is instant preserving.
+     */
+    @Test
+    public void testArrayCastRenderingTimestampTzIsSensitive() {
+        SlotRef arraySlot = new SlotRef(null, "arr");
+        arraySlot.setType(ArrayType.create(ScalarType.createTimeStampTzType(6)));
+        CastExpr rendered = new CastExpr(ArrayType.create(ScalarType.createVarcharType(100)), arraySlot, true);
+        Assertions.assertTrue(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(rendered));
+        CastExpr preserved = new CastExpr(ArrayType.create(ScalarType.createTimeStampTzType(6)), arraySlot, true);
+        Assertions.assertFalse(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(preserved));
     }
 }

@@ -1021,4 +1021,55 @@ public class VariablePersistTest extends ExpressionRewriteTestHelper {
         Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE,
                 SessionVarGuardRewriter.computeGuardMask(newMetadata, oldFeSession));
     }
+
+    /**
+     * The persisted plan-variable maps carry a fence version stamp, which is what makes the version fence a
+     * read fence instead of an incidental map difference: metadata stamped by a newer FE (the downgrade
+     * direction) cannot be interpreted by this FE, so it is never reused for rewrite; a map without the
+     * stamp predates the fence and keeps its time-zone guard; and the stamp itself never counts as a
+     * session-variable difference between two maps produced by this FE.
+     */
+    @Test
+    public void testPlanSessionVarFenceVersion() {
+        Assertions.assertEquals(0, SessionVarGuardRewriter.planSessionVarFenceVersion(null));
+        Assertions.assertEquals(0, SessionVarGuardRewriter.planSessionVarFenceVersion(new HashMap<>()));
+        Assertions.assertEquals(0, SessionVarGuardRewriter.planSessionVarFenceVersion(
+                ImmutableMap.of(SessionVariable.TIME_ZONE, "+00:00")));
+
+        // every map this FE produces is stamped with the current version
+        SessionVariable sessionVariable = new SessionVariable();
+        Map<String, String> stamped = sessionVariable.getAffectQueryResultInPlanVariables();
+        Assertions.assertEquals(String.valueOf(SessionVariable.CURRENT_PLAN_SESSION_VAR_FENCE_VERSION),
+                stamped.get(SessionVariable.PLAN_SESSION_VAR_FENCE_VERSION));
+        Assertions.assertEquals(SessionVariable.CURRENT_PLAN_SESSION_VAR_FENCE_VERSION,
+                SessionVarGuardRewriter.planSessionVarFenceVersion(stamped));
+        // ... and rewriting is not disabled by the stamp itself
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_NONE,
+                SessionVarGuardRewriter.computeGuardMask(stamped, stamped));
+        // a map written before the stamp existed (same plan variables, no stamp) is not a difference either
+        Map<String, String> beforeStamp = new HashMap<>(stamped);
+        beforeStamp.remove(SessionVariable.PLAN_SESSION_VAR_FENCE_VERSION);
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_NONE,
+                SessionVarGuardRewriter.computeGuardMask(stamped, beforeStamp));
+
+        // metadata written by a newer FE must not be reused: both guard families are selected (read fence)
+        Map<String, String> newerStamp = ImmutableMap.of(
+                SessionVariable.TIME_ZONE, sessionVariable.getTimeZone(),
+                SessionVariable.PLAN_SESSION_VAR_FENCE_VERSION,
+                String.valueOf(SessionVariable.CURRENT_PLAN_SESSION_VAR_FENCE_VERSION + 1));
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE | SessionVarGuardRewriter.GUARD_OTHER,
+                SessionVarGuardRewriter.computeGuardMask(stamped, newerStamp));
+        // an unparsable stamp fails closed as well
+        Map<String, String> malformedStamp = ImmutableMap.of(
+                SessionVariable.TIME_ZONE, sessionVariable.getTimeZone(),
+                SessionVariable.PLAN_SESSION_VAR_FENCE_VERSION, "not-a-version");
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE | SessionVarGuardRewriter.GUARD_OTHER,
+                SessionVarGuardRewriter.computeGuardMask(stamped, malformedStamp));
+        // pre-fence metadata (no stamp at all, written before time_zone was persisted either) keeps the
+        // time-zone guard
+        int preFenceMask = SessionVarGuardRewriter.computeGuardMask(stamped,
+                ImmutableMap.of(SessionVariable.SQL_MODE, "0"));
+        Assertions.assertTrue((preFenceMask & SessionVarGuardRewriter.GUARD_TIME_ZONE) != 0,
+                "pre-fence metadata must stay behind the time-zone guard, got " + preFenceMask);
+    }
 }
