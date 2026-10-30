@@ -389,8 +389,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             String foldedName = table.getName().toLowerCase(Locale.ROOT);
             // A refreshed list can omit an old hot object. Permit its cleanup unless a current alias
             // owns the same logical name; the names/object observations below fence later publication.
-            if (names.remoteNameForCaseInsensitiveLookup(table.getRemoteName()) != null
-                    || names.localNames().stream().anyMatch(
+            if (names.localNames().stream().anyMatch(
                             local -> local.toLowerCase(Locale.ROOT).equals(foldedName))) {
                 return Optional.empty();
             }
