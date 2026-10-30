@@ -837,14 +837,20 @@ public class StmtExecutor {
                 executeByNereids(queryId);
             } catch (NereidsException | ParseException e) {
                 // COMPUTE_GROUPS_NO_ALIVE_BE, planner can't get alive be, need retry
-                if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(e.getMessage())) {
+                if (e instanceof NereidsException && Config.isCloudMode()
+                        && SystemInfoService.needRetryWithReplan(e.getMessage())) {
                     profile.getSummaryProfile().recordFailedAttempt(context.queryId());
                     LOG.debug("planner failed with cloud compute group error, need retry. {}",
                             context.getQueryIdentifier(), e);
                     throw new UserException(e.getMessage());
                 }
-                ExceptionDiagnosticUtils.log(LOG, Level.WARN, "Analyze failed. {}",
-                        context.getQueryIdentifier(), e);
+                if (e instanceof ParseException) {
+                    // Parser diagnostics embed the original SQL, including any credentials.
+                    LOG.warn("Analyze failed. {} ({})", context.getQueryIdentifier(), e.getClass().getSimpleName());
+                } else {
+                    ExceptionDiagnosticUtils.log(LOG, Level.WARN, "Analyze failed. {}",
+                            context.getQueryIdentifier(), e);
+                }
                 // Planning wraps the window rejection in NereidsException/AnalysisException.
                 // NereidsException(Exception) keeps its wrapped exception outside Throwable.cause.
                 Throwable cause = e instanceof NereidsException
@@ -1367,7 +1373,7 @@ public class StmtExecutor {
                         // in the begining of retryTime/2
                         int randomMillis = 1000 + (int) (Math.random() * (1000 - 500));
                         LOG.debug("stmt executor retry times {}, wait randomMillis:{}, stmt:{}",
-                                i, randomMillis, originStmt.originStmt);
+                                i, randomMillis, getStmtForLogging(originStmt.originStmt));
                         try {
                             if (i > retryTime / 2) {
                                 // sleep random millis [2000, 2500] ms
@@ -1444,11 +1450,11 @@ public class StmtExecutor {
                     // the plan would read nothing, or only what the failed attempt left, and succeed.
                     LOG.warn("not retrying query {} with the same plan: a scan node's ranges cannot be read"
                             + " again by the backend. stmt: {}",
-                            DebugUtil.printId(context.queryId()), originStmt.originStmt);
+                            DebugUtil.printId(context.queryId()), getStmtForLogging(originStmt.originStmt));
                     throw e;
                 }
                 if (i != retryTime - 1 && isNeedRetry && context.getProtocolAdapter().canRetryQuery(context)) {
-                    LOG.warn("retry {} times. stmt: {}", (i + 1), originStmt.originStmt);
+                    LOG.warn("retry {} times. stmt: {}", (i + 1), getStmtForLogging(originStmt.originStmt));
                     willRetry = true;
                 } else {
                     throw e;
@@ -1790,7 +1796,7 @@ public class StmtExecutor {
     private void handleQueryStmt() throws Exception {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Handling query {} with query id {}",
-                    originStmt.originStmt, DebugUtil.printId(context.queryId));
+                    getStmtForLogging(originStmt.originStmt), DebugUtil.printId(context.queryId));
         }
 
         ResultSender sender = context.getResultSender();
@@ -2293,7 +2299,7 @@ public class StmtExecutor {
 
     public List<ResultRow> executeInternalQuery() {
         if (LOG.isDebugEnabled()) {
-            LOG.debug("INTERNAL QUERY: {}", originStmt.toString());
+            LOG.debug("INTERNAL QUERY: {}", getStmtForLoggingBeforeParse());
         }
         try {
             return executeInternalQueryCommon(null, null);
@@ -2499,21 +2505,21 @@ public class StmtExecutor {
             }
             return httpStreamParams;
         } catch (QueryStateException e) {
-            LOG.debug("Command(" + originStmt.originStmt + ") process failed.", e);
+            LOG.debug("Command({}) process failed.", getStmtForLogging(originStmt.originStmt), e);
             context.setState(e.getQueryState());
-            throw new NereidsException("Command(" + originStmt.originStmt + ") process failed",
+            throw new NereidsException("Command(" + getStmtForLogging(originStmt.originStmt) + ") process failed",
                     new AnalysisException(e.getMessage(), e));
         } catch (UserException e) {
             // Return message to info client what happened.
-            LOG.debug("Command(" + originStmt.originStmt + ") process failed.", e);
+            LOG.debug("Command({}) process failed.", getStmtForLogging(originStmt.originStmt), e);
             context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
-            throw new NereidsException("Command (" + originStmt.originStmt + ") process failed",
+            throw new NereidsException("Command (" + getStmtForLogging(originStmt.originStmt) + ") process failed",
                     new AnalysisException(e.getMessage(), e));
         } catch (Exception e) {
             // Maybe our bug
-            LOG.debug("Command (" + originStmt.originStmt + ") process failed.", e);
+            LOG.debug("Command({}) process failed.", getStmtForLogging(originStmt.originStmt), e);
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
-            throw new NereidsException("Command (" + originStmt.originStmt + ") process failed.",
+            throw new NereidsException("Command (" + getStmtForLogging(originStmt.originStmt) + ") process failed.",
                     new AnalysisException(e.getMessage(), e));
         }
     }
@@ -2528,8 +2534,13 @@ public class StmtExecutor {
             } catch (NereidsException | ParseException e) {
                 // try to fall back to legacy planner
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("nereids cannot process statement\n{}\n because of {}",
-                            originStmt.originStmt, e.getMessage(), e);
+                    if (e instanceof ParseException) {
+                        LOG.debug("nereids cannot parse statement\n{} ({})",
+                                getStmtForLoggingBeforeParse(), e.getClass().getSimpleName());
+                    } else {
+                        ExceptionDiagnosticUtils.log(LOG, Level.DEBUG, "nereids cannot process statement\n{}",
+                                getStmtForLogging(originStmt.originStmt), e);
+                    }
                 }
                 if (e instanceof NereidsException) {
                     LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
@@ -2588,49 +2599,21 @@ public class StmtExecutor {
         if (stmt == null) {
             return stmt;
         }
-        if (!(parsedStmt instanceof LogicalPlanAdapter)) {
-            return getStmtForLoggingBeforeParse(stmt);
-        }
         // Internal export outfile tasks use an empty origin SQL, so audit masking must skip reparsing here.
         if (stmt.isEmpty()) {
             return stmt;
         }
-        LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
-        if (!(logicalPlan instanceof NeedAuditEncryption)) {
-            return stmt;
-        }
         try {
-            return ((NeedAuditEncryption) logicalPlan).geneEncryptionSQL(stmt);
+            return NeedAuditEncryption.maskSql(stmt, true);
         } catch (Exception e) {
             // Logging must not leak plaintext or change command behavior when masking fails.
-            LOG.warn("failed to mask statement for FE logging", e);
+            LOG.warn("failed to mask statement for FE logging ({})", e.getClass().getSimpleName());
             return MASKED_STMT_FALLBACK;
         }
     }
 
     private String getStmtForLoggingBeforeParse() {
-        return getStmtForLoggingBeforeParse(originStmt == null ? null : originStmt.originStmt);
-    }
-
-    private String getStmtForLoggingBeforeParse(String stmt) {
-        if (stmt == null) {
-            return null;
-        }
-        // Empty SQL cannot produce a valid parse tree for audit masking, so keep the original text.
-        if (stmt.isEmpty()) {
-            return stmt;
-        }
-        try {
-            LogicalPlan logicalPlan = new NereidsParser().parseSingle(stmt);
-            if (!(logicalPlan instanceof NeedAuditEncryption)) {
-                return stmt;
-            }
-            return ((NeedAuditEncryption) logicalPlan).geneEncryptionSQL(stmt);
-        } catch (Exception e) {
-            // Logging must fail closed before parsing so secrets never fall back to plaintext.
-            LOG.warn("failed to prepare masked statement for FE logging", e);
-            return MASKED_STMT_FALLBACK;
-        }
+        return getStmtForLogging(originStmt == null ? null : originStmt.originStmt);
     }
 
     public void sendProxyQueryResult() throws IOException {
