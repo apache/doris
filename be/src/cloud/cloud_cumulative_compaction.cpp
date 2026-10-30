@@ -317,6 +317,7 @@ void CloudCumulativeCompaction::record_compaction_success(
     DorisMetrics::instance()->cumulative_compaction_bytes_total->increment(
             _input_rowsets_total_size);
     cumu_output_size << _output_rowset->total_disk_size();
+    record_changelog_ttl_cleanup(true);
 
     cloud_tablet()->set_last_cumu_compaction_status(Status::OK().to_string());
     cloud_tablet()->set_last_cumu_compaction_success_time(UnixMillis());
@@ -325,6 +326,7 @@ void CloudCumulativeCompaction::record_compaction_success(
 Status CloudCumulativeCompaction::record_compaction_failure(Status status) {
     LOG(WARNING) << "fail to do " << compaction_name() << ". res=" << status
                  << ", tablet=" << _tablet->tablet_id() << ", output_version=" << _output_version;
+    record_changelog_ttl_cleanup(false);
     cloud_tablet()->set_last_cumu_compaction_status(status.to_string());
     cloud_tablet()->set_last_cumu_compaction_failure_time(UnixMillis());
     return status;
