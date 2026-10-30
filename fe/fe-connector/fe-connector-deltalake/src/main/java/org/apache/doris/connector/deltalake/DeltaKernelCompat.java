@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.deltalake;
 
+import org.apache.doris.connector.cache.JvmSizeUtils;
 import org.apache.doris.thrift.TDeltaLakeDeletionVectorDesc;
 
 import io.delta.kernel.Snapshot;
@@ -24,6 +25,7 @@ import io.delta.kernel.data.Row;
 import io.delta.kernel.internal.InternalScanFileUtils;
 import io.delta.kernel.internal.actions.DeletionVectorDescriptor;
 import io.delta.kernel.internal.actions.Protocol;
+import io.delta.kernel.internal.snapshot.LogSegment;
 import io.delta.kernel.internal.tablefeatures.TableFeature;
 import io.delta.kernel.internal.util.PartitionUtils;
 import io.delta.kernel.statistics.DataFileStatistics;
@@ -43,6 +45,42 @@ final class DeltaKernelCompat {
 
     static String tableId(Snapshot snapshot) {
         return snapshot.getMetadata().getId();
+    }
+
+    static OptionalLong fileCount(Snapshot snapshot) {
+        return snapshot.getCurrentCrcInfo().map(crc -> OptionalLong.of(crc.getNumFiles()))
+                .orElseGet(OptionalLong::empty);
+    }
+
+    static long snapshotRetainedBytes(Snapshot snapshot) {
+        // Materialize the read-side lazy metadata before publishing across queries. Kernel's Lazy
+        // is not synchronized. Never retain scan iterators or the active AddFile list in this cache.
+        snapshot.getSchema();
+        snapshot.getTableProperties();
+        snapshot.getMetadata().getDataSchema();
+        snapshot.getScanBuilder();
+        snapshot.getCurrentCrcInfo();
+        LogSegment segment = snapshot.getLogSegment();
+        segment.allFilesWithCompactionsReversed();
+        // Kernel 4.4.1 retains metadata/schema copies, lazy lookup maps and log FileStatus lists.
+        // Charge a conservative expansion of schema JSON and CRC bytes, including optional allFiles
+        // embedded in a CRC. The catalog's shared Engine/FileIO service graph is not entry-owned.
+        long bytes = 16384L + 32L * snapshot.getMetadata().getSchemaString().length();
+        for (Map.Entry<String, String> property : snapshot.getTableProperties().entrySet()) {
+            bytes = JvmSizeUtils.saturatedAdd(bytes,
+                    128L + 4L * (property.getKey().length() + property.getValue().length()));
+        }
+        for (FileStatus file : segment.allLogFilesReversed()) {
+            bytes = JvmSizeUtils.saturatedAdd(bytes, 256L + 4L * file.getPath().length());
+        }
+        for (FileStatus file : segment.getCompactions()) {
+            bytes = JvmSizeUtils.saturatedAdd(bytes, 256L + 4L * file.getPath().length());
+        }
+        if (segment.getLastSeenChecksum().isPresent()) {
+            long size = segment.getLastSeenChecksum().get().getSize();
+            bytes = JvmSizeUtils.saturatedAdd(bytes, size > Long.MAX_VALUE / 32 ? Long.MAX_VALUE : size * 32);
+        }
+        return bytes;
     }
 
     static FileStatus fileStatus(Row file) {

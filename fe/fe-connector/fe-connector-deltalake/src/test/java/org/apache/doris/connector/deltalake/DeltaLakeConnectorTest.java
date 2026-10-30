@@ -82,6 +82,7 @@ class DeltaLakeConnectorTest {
             DeltaLakeTestTables.commit(table, 1, "first", original.add("added", StringType.STRING));
             Assertions.assertSame(first, metadata.getTableHandle(statement, "db", "table").orElseThrow());
             Assertions.assertEquals(1, metadata.getTableSchema(statement, first).getColumns().size());
+            connector.invalidateTable("db", "table");
             TestingConnectorSession next = new TestingConnectorSession("next");
             ConnectorTableHandle latest = metadata.getTableHandle(next, "db", "table").orElseThrow();
             Assertions.assertEquals(2, metadata.getTableSchema(next, latest).getColumns().size());

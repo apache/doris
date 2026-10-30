@@ -34,7 +34,6 @@ import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import io.delta.kernel.Snapshot;
-import io.delta.kernel.TableManager;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -47,10 +46,13 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
     private static final String TABLE_ID = "deltalake.table-id";
     private final DeltaLakeRuntime runtime;
     private final DeltaLakeCatalogProperties properties;
+    private final DeltaLakeSnapshotCache snapshots;
 
-    DeltaLakeConnectorMetadata(DeltaLakeRuntime runtime, DeltaLakeCatalogProperties properties) {
+    DeltaLakeConnectorMetadata(DeltaLakeRuntime runtime, DeltaLakeCatalogProperties properties,
+            DeltaLakeSnapshotCache snapshots) {
         this.runtime = runtime;
         this.properties = properties;
+        this.snapshots = snapshots;
     }
 
     @Override
@@ -75,8 +77,7 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
             if (location.isEmpty()) {
                 return Optional.empty();
             }
-            Snapshot snapshot = TableManager.loadSnapshot(location.get()).build(runtime.engine);
-            DeltaLakeFeatureCheck.check(snapshot);
+            Snapshot snapshot = snapshots.latest(session, database, table, location.get(), runtime.engine);
             return Optional.of(new DeltaLakeTableHandle(database, table, snapshot));
         })).map(handle -> handle);
     }

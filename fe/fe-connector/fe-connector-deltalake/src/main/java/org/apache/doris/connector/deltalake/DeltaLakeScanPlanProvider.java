@@ -26,6 +26,7 @@ import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
+import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.thrift.TDeltaLakeFileDesc;
 import org.apache.doris.thrift.TFileScanRangeParams;
@@ -33,6 +34,7 @@ import org.apache.doris.thrift.TFileScanRangeParams;
 import io.delta.kernel.Snapshot;
 import io.delta.kernel.data.Row;
 import io.delta.kernel.expressions.Predicate;
+import io.delta.kernel.utils.CloseableIterator;
 import io.delta.kernel.utils.FileStatus;
 
 import java.time.ZoneId;
@@ -42,6 +44,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
@@ -50,9 +53,150 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
     private static final String SCHEMA_MAPPING = "deltalake.schema_mapping";
     private static final long DEFAULT_SPLIT_SIZE = 128L << 20;
     private final DeltaLakeRuntime runtime;
+    // The connector creates a provider per scan node. The gate runs before that node opens its source.
+    private boolean streamingCount;
 
     DeltaLakeScanPlanProvider(DeltaLakeRuntime runtime) {
         this.runtime = runtime;
+    }
+
+    @Override
+    public long streamingSplitEstimate(ConnectorSession session, ConnectorTableHandle handle,
+            Optional<ConnectorExpression> filter, boolean countPushdown) {
+        streamingCount = false;
+        String enabled = session.getProperty("enable_external_table_batch_mode", String.class);
+        if (enabled != null && !Boolean.parseBoolean(enabled)) {
+            return -1;
+        }
+        String configured = session.getProperty("num_files_in_batch_mode", String.class);
+        long threshold = configured == null ? 10000 : Long.parseLong(configured);
+        return runtime.execute(() -> {
+            Snapshot snapshot = ((DeltaLakeTableHandle) handle).snapshot(runtime.engine);
+            OptionalLong files = DeltaKernelCompat.fileCount(snapshot);
+            // Old writers may not produce a checksum. Unknown size streams conservatively instead
+            // of enumerating all AddFiles merely to decide whether enumeration should be lazy.
+            if (files.isPresent() && files.getAsLong() < threshold) {
+                return -1L;
+            }
+            streamingCount = countPushdown && filter.isEmpty();
+            return files.orElse(threshold);
+        });
+    }
+
+    @Override
+    public ConnectorSplitSource streamSplits(ConnectorSession session, ConnectorTableHandle handle,
+            List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter, long limit) {
+        return runtime.execute(() -> new StreamingSource(session, (DeltaLakeTableHandle) handle, filter,
+                streamingCount && filter.isEmpty()));
+    }
+
+    private final class StreamingSource implements ConnectorSplitSource {
+        private final ConnectorSession session;
+        private final DeltaLakeTableHandle handle;
+        private final Snapshot snapshot;
+        private final Optional<Predicate> filter;
+        private final long targetSize;
+        private final boolean mapped;
+        private final boolean countPushdown;
+        private CloseableIterator<Row> files;
+        private DeltaLakeScanRange file;
+        private DeltaLakeScanRange buffered;
+        private long offset;
+        private boolean countChecked;
+        private boolean countOnly;
+        private boolean closed;
+
+        private StreamingSource(ConnectorSession session, DeltaLakeTableHandle handle,
+                Optional<ConnectorExpression> filter, boolean countPushdown) {
+            this.session = session;
+            this.handle = handle;
+            snapshot = handle.snapshot(runtime.engine);
+            DeltaLakeFeatureCheck.check(snapshot);
+            this.filter = predicate(session, snapshot, filter);
+            targetSize = targetSplitSize(session);
+            mapped = DeltaLakeSchemaBuilder.hasColumnMapping(snapshot);
+            this.countPushdown = countPushdown;
+        }
+
+        @Override
+        public boolean hasNext() {
+            if (closed) {
+                return false;
+            }
+            try {
+                return runtime.execute(() -> {
+                    if (Thread.currentThread().isInterrupted()) {
+                        throw new DorisConnectorException("Delta split planning interrupted for " + handle.getPath());
+                    }
+                    if (buffered != null) {
+                        return true;
+                    }
+                    if (countPushdown && !countChecked) {
+                        countChecked = true;
+                        CountSummary summary = countSummary(session, handle);
+                        countOnly = summary.count.isPresent();
+                        if (countOnly && summary.first != null) {
+                            buffered = summary.first.withRowCount(summary.count.getAsLong());
+                            return true;
+                        }
+                    }
+                    if (countOnly) {
+                        close();
+                        return false;
+                    }
+                    if (files == null) {
+                        files = DeltaLakeScanFiles.open(snapshot, runtime.engine, false, filter);
+                    }
+                    if (file == null || offset == file.getFileSize()) {
+                        if (!files.hasNext()) {
+                            close();
+                            return false;
+                        }
+                        Row row = files.next();
+                        file = fileRange(row, handle, DeltaLakePartitionValues.normalize(
+                                snapshot, DeltaKernelCompat.partitionValues(row)), targetSize, mapped);
+                        offset = 0;
+                    }
+                    long length = Math.min(targetSize, file.getFileSize() - offset);
+                    buffered = file.withByteRange(offset, length);
+                    offset += length;
+                    return true;
+                });
+            } catch (RuntimeException | Error e) {
+                try {
+                    close();
+                } catch (RuntimeException closeFailure) {
+                    e.addSuppressed(closeFailure);
+                }
+                throw e;
+            }
+        }
+
+        @Override
+        public ConnectorScanRange next() {
+            if (!hasNext()) {
+                throw new NoSuchElementException();
+            }
+            ConnectorScanRange result = buffered;
+            buffered = null;
+            return result;
+        }
+
+        @Override
+        public void close() {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            buffered = null;
+            file = null;
+            if (files != null) {
+                runtime.execute(() -> {
+                    files.close();
+                    return null;
+                });
+            }
+        }
     }
 
     @Override

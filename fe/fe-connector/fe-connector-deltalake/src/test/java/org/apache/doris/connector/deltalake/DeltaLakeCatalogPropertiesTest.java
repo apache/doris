@@ -70,4 +70,26 @@ class DeltaLakeCatalogPropertiesTest {
         raw.clear();
         Assertions.assertEquals("/warehouse", properties.getRaw().get("warehouse"));
     }
+
+    @Test
+    void validatesCachePropertiesAndRetainsSharedDisableSemantics() {
+        for (String entry : new String[] {"latest", "snapshot"}) {
+            String prefix = "meta.cache.deltalake." + entry;
+            for (Map.Entry<String, String> invalid : Map.of(".enable", "maybe", ".ttl-second", "-2",
+                    ".capacity", "-1", ".max-weight", "0").entrySet()) {
+                String key = prefix + invalid.getKey();
+                IllegalArgumentException error = Assertions.assertThrows(IllegalArgumentException.class,
+                        () -> DeltaLakeCatalogProperties.of(Map.of("warehouse", "/warehouse",
+                                key, invalid.getValue())));
+                Assertions.assertTrue(error.getMessage().contains(key), error.getMessage());
+            }
+            Assertions.assertFalse(DeltaLakeSnapshotCache.spec(Map.of(prefix + ".enable", "false"), entry).isEnable());
+            Assertions.assertEquals(0, DeltaLakeSnapshotCache.spec(
+                    Map.of(prefix + ".ttl-second", "0"), entry).getTtlSecond());
+            Assertions.assertEquals(-1, DeltaLakeSnapshotCache.spec(
+                    Map.of(prefix + ".ttl-second", "-1"), entry).getTtlSecond());
+            Assertions.assertEquals(1024, DeltaLakeSnapshotCache.spec(
+                    Map.of(prefix + ".max-weight", "1KB"), entry).getMaxWeight().getAsLong());
+        }
+    }
 }
