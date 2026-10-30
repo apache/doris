@@ -62,6 +62,9 @@ final class DeltaLakeScanRange implements ConnectorScanRange {
     }
 
     DeltaLakeScanRange withByteRange(long offset, long size) {
+        if (rowCount == -1 && start == offset && length == size) {
+            return this;
+        }
         return new DeltaLakeScanRange(path, offset, size, fileSize, modificationTime, targetSize,
                 partitions, descriptor, -1);
     }
