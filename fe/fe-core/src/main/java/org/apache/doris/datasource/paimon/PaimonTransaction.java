@@ -19,10 +19,14 @@ package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.thrift.TPaimonCommitMessage;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.Transaction;
 
 import com.google.common.base.Preconditions;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -40,6 +44,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Paimon transaction.
@@ -61,8 +66,16 @@ public class PaimonTransaction implements Transaction {
         PREPARED,
         COMMITTING,
         COMMITTED,
+        ABORTED,
         OUTCOME_UNKNOWN
     }
+
+    // Cancellation does not wait for every BE's final report. Keep only aborted transactions,
+    // without their payload buffers or query contexts, to clean files reported after unregister.
+    // This is bounded, best-effort cleanup; FE restart or reports outside this window still
+    // require Paimon's orphan-file maintenance.
+    private static final Cache<TUniqueId, PaimonTransaction> RECENTLY_ABORTED = CacheBuilder.newBuilder()
+            .maximumSize(1024).expireAfterWrite(10, TimeUnit.MINUTES).build();
 
     private static final int COMMIT_HEADER_SIZE = 12;
     private static final byte[] COMMIT_MAGIC = new byte[] {'D', 'P', 'C', 'M'};
@@ -71,6 +84,7 @@ public class PaimonTransaction implements Transaction {
     private final long transactionId;
     private final String commitUser;
     private PaimonWriteBinding binding;
+    private TUniqueId queryId;
     private CommitState state = CommitState.PREPARED;
 
     private final List<byte[]> commitPayloads = Lists.newArrayList();
@@ -93,6 +107,18 @@ public class PaimonTransaction implements Transaction {
         Preconditions.checkState(state == CommitState.PREPARED,
                 "Paimon transaction can only be bound while prepared");
         this.binding = binding;
+    }
+
+    public synchronized void setQueryId(TUniqueId queryId) {
+        Preconditions.checkState(this.queryId == null, "Paimon query id is already set");
+        this.queryId = new TUniqueId(Preconditions.checkNotNull(queryId));
+    }
+
+    public static void abortLateCommitMessages(TUniqueId queryId, List<TPaimonCommitMessage> messages) {
+        PaimonTransaction transaction = RECENTLY_ABORTED.getIfPresent(queryId);
+        if (transaction != null) {
+            transaction.updateCommitMessages(messages);
+        }
     }
 
     @Override
@@ -122,23 +148,27 @@ public class PaimonTransaction implements Transaction {
 
     @Override
     public void rollback() {
-        CommitState currentState = getState();
-        if (currentState == CommitState.COMMITTED) {
-            LOG.info("Skip rollback for committed PaimonTransaction, txnId={}, table={}",
-                    transactionId, tableName());
-            return;
+        List<byte[]> rawPayloads;
+        synchronized (this) {
+            if (state != CommitState.PREPARED) {
+                LOG.info("Skip rollback for PaimonTransaction in state {}, txnId={}, table={}. "
+                                + "Files are only aborted before commit starts", state, transactionId, tableName());
+                return;
+            }
+            state = CommitState.ABORTED;
+            // Register before the transaction manager and coordinator remove this transaction.
+            // A report racing with rollback is either drained below or aborted by its updater.
+            // Planning can fail before beforeExec associates a query; no BE runs in that case.
+            if (queryId != null) {
+                RECENTLY_ABORTED.put(queryId, this);
+            }
+            rawPayloads = drainPayloads();
         }
-        if (currentState == CommitState.COMMITTING
-                || currentState == CommitState.OUTCOME_UNKNOWN) {
-            LOG.warn("Skip rollback for PaimonTransaction in state {}, txnId={}, table={}. "
-                            + "Preserving data files for snapshot safety",
-                    currentState, transactionId, tableName());
-            return;
-        }
-        List<byte[]> rawPayloads = snapshotPayloads();
+        abortPayloads(rawPayloads);
+    }
+
+    private void abortPayloads(List<byte[]> rawPayloads) {
         if (rawPayloads.isEmpty()) {
-            LOG.info("Skip empty PaimonTransaction rollback, txnId={}, table={}",
-                    transactionId, tableName());
             return;
         }
         try {
@@ -166,11 +196,24 @@ public class PaimonTransaction implements Transaction {
         if (messages == null || messages.isEmpty()) {
             return;
         }
+        List<byte[]> abortedPayloads = Collections.emptyList();
         synchronized (this) {
             for (TPaimonCommitMessage msg : messages) {
                 addPayload(msg);
             }
+            if (state == CommitState.ABORTED) {
+                abortedPayloads = drainPayloads();
+            }
         }
+        // Object-store I/O must not hold the transaction lock or block other BE reports.
+        abortPayloads(abortedPayloads);
+    }
+
+    private List<byte[]> drainPayloads() {
+        List<byte[]> payloads = new ArrayList<>(commitPayloads);
+        commitPayloads.clear();
+        commitPayloadSet.clear();
+        return payloads;
     }
 
     private void addPayload(TPaimonCommitMessage message) {
@@ -232,6 +275,9 @@ public class PaimonTransaction implements Transaction {
     private void doCommit(PaimonWriteBinding writeBinding, List<CommitMessage> messages)
             throws Exception {
         ops.dorisCatalog.getExecutionAuthenticator().execute(() -> {
+            if (DebugPointUtil.isEnable("PaimonTransaction.commit.before")) {
+                throw new IOException("Injected Paimon failure before commit");
+            }
             InnerTableCommit committer = writeBinding.getTable().newCommit(commitUser);
             Exception commitFailure = null;
             try {
@@ -241,7 +287,13 @@ public class PaimonTransaction implements Transaction {
                 Map<Long, List<CommitMessage>> commitMap = new HashMap<>();
                 commitMap.put(transactionId, messages);
                 markCommitting();
+                if (DebugPointUtil.isEnable("PaimonTransaction.commit.unknown")) {
+                    throw new IOException("Injected Paimon commit failure with unknown outcome");
+                }
                 committer.filterAndCommit(commitMap);
+                if (DebugPointUtil.isEnable("PaimonTransaction.commit.after")) {
+                    throw new IOException("Injected Paimon failure after snapshot publication");
+                }
                 markCommitted();
                 return null;
             } catch (Exception e) {
@@ -278,7 +330,7 @@ public class PaimonTransaction implements Transaction {
                         transactionId, tableName(), e);
                 return;
             }
-            if (getState() == CommitState.PREPARED) {
+            if (getState() != CommitState.COMMITTING) {
                 throw e;
             }
             firstFailure = e;

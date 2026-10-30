@@ -38,6 +38,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group.h"
+#include "util/debug_points.h"
 #include "util/defer_op.h"
 
 namespace doris {
@@ -232,8 +233,11 @@ public:
     }
 
     Status prepare(std::vector<TPaimonCommitMessage>& messages) {
+        DBUG_EXECUTE_IF("FfiPaimonWriteBackend.prepare.block", DBUG_BLOCK);
         RETURN_IF_CANCELLED(_state);
         DORIS_CHECK(_writer && !_prepared && !_closed);
+        DBUG_EXECUTE_IF("FfiPaimonWriteBackend.prepare.fail",
+                        { return Status::InternalError("Injected Paimon Rust prepare failure"); });
         SCOPED_TIMER(_prepare_timer);
         auto prepared = paimon_table_write_prepare_commit(_writer.get());
         RETURN_IF_ERROR(rust_status(prepared.error, "prepare commit"));

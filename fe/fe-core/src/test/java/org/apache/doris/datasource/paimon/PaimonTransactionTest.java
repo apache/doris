@@ -19,12 +19,21 @@ package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.qe.Coordinator;
+import org.apache.doris.qe.QeProcessorImpl;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaimonCommitMessage;
+import org.apache.doris.thrift.TQueryOptions;
+import org.apache.doris.thrift.TReportExecStatusParams;
+import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.io.ByteStreams;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.io.CompactIncrement;
 import org.apache.paimon.io.DataIncrement;
+import org.apache.paimon.io.DataInputDeserializer;
 import org.apache.paimon.io.DataOutputViewStreamWrapper;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.sink.CommitMessage;
@@ -39,13 +48,27 @@ import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 
 import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class PaimonTransactionTest {
     private static final long TRANSACTION_ID = 12345L;
+    private static final AtomicLong QUERY_SEQUENCE = new AtomicLong();
+
+    private TUniqueId queryId;
 
     private PaimonWriteBinding binding;
     private PaimonMetadataOps ops;
@@ -57,6 +80,7 @@ public class PaimonTransactionTest {
 
     @Before
     public void setUp() throws Exception {
+        queryId = new TUniqueId(12345, QUERY_SEQUENCE.incrementAndGet());
         binding = Mockito.mock(PaimonWriteBinding.class);
         ops = Mockito.mock(PaimonMetadataOps.class);
         dorisCatalog = Mockito.mock(PaimonExternalCatalog.class);
@@ -97,6 +121,7 @@ public class PaimonTransactionTest {
         Assert.assertEquals(PaimonTransaction.CommitState.COMMITTED, transaction.getState());
         Mockito.verify(committer, Mockito.times(2)).filterAndCommit(ArgumentMatchers.anyMap());
         transaction.rollback();
+        PaimonTransaction.abortLateCommitMessages(queryId, rustPayloads());
         Mockito.verify(committer, Mockito.never()).abort(ArgumentMatchers.anyList());
     }
 
@@ -114,6 +139,7 @@ public class PaimonTransactionTest {
 
         Assert.assertEquals(PaimonTransaction.CommitState.OUTCOME_UNKNOWN, transaction.getState());
         transaction.rollback();
+        PaimonTransaction.abortLateCommitMessages(queryId, rustPayloads());
         Mockito.verify(committer, Mockito.never()).abort(ArgumentMatchers.anyList());
     }
 
@@ -160,6 +186,112 @@ public class PaimonTransactionTest {
     }
 
     @Test
+    public void testRustMessagesFromMultipleBackendsCommitTogether() throws Exception {
+        Mockito.when(binding.isOverwrite()).thenReturn(false);
+        PaimonTransaction transaction = createBoundTransaction();
+        List<TPaimonCommitMessage> payloads = rustPayloads();
+        for (TPaimonCommitMessage payload : payloads) {
+            transaction.updateCommitMessages(Collections.singletonList(payload));
+        }
+        // A repeated report must not add the same files twice.
+        transaction.updateCommitMessages(payloads);
+        transaction.commit();
+
+        Assert.assertEquals(PaimonTransaction.CommitState.COMMITTED, transaction.getState());
+        Mockito.verify(committer).filterAndCommit(ArgumentMatchers.argThat(commits ->
+                commits.size() == 1 && commits.get(TRANSACTION_ID).size() == 2));
+        transaction.rollback();
+        PaimonTransaction.abortLateCommitMessages(queryId, rustPayloads());
+        Mockito.verify(committer, Mockito.never()).abort(ArgumentMatchers.anyList());
+    }
+
+    @Test
+    public void testPreCommitFailureAbortsRustMessagesFromBothBackends() throws Exception {
+        Mockito.when(binding.isOverwrite()).thenReturn(false);
+        Mockito.when(table.newCommit(PaimonTransaction.commitUser(TRANSACTION_ID)))
+                .thenThrow(new RuntimeException("pre-commit failure"))
+                .thenReturn(committer);
+        PaimonTransaction transaction = createBoundTransaction();
+        transaction.updateCommitMessages(rustPayloads());
+
+        Assert.assertThrows(UserException.class, transaction::commit);
+        Assert.assertEquals(PaimonTransaction.CommitState.PREPARED, transaction.getState());
+        transaction.rollback();
+        Mockito.verify(committer).abort(ArgumentMatchers.argThat(messages -> messages.size() == 2));
+    }
+
+    @Test
+    public void testEmptyRollbackCleansReportAfterQueryRemoval() throws Exception {
+        PaimonTransaction transaction = createBoundTransaction();
+        transaction.rollback();
+        Assert.assertEquals(PaimonTransaction.CommitState.ABORTED, transaction.getState());
+
+        TReportExecStatusParams report = new TReportExecStatusParams().setQueryId(queryId)
+                .setPaimonCommitMessages(rustPayloads());
+        Assert.assertEquals(TStatusCode.OK, QeProcessorImpl.INSTANCE
+                .reportExecStatus(report, new TNetworkAddress("127.0.0.1", 9060)).getStatus().getStatusCode());
+
+        Mockito.verify(committer).abort(ArgumentMatchers.argThat(messages -> messages.size() == 2));
+        Assert.assertEquals(0, transaction.getPayloadCount());
+        // Rollback is terminal: a late commit must never publish files already deleted by abort.
+        Assert.assertThrows(UserException.class, transaction::commit);
+        Mockito.verify(committer, Mockito.never()).filterAndCommit(ArgumentMatchers.anyMap());
+    }
+
+    @Test
+    public void testReportRacesWithTransactionRemoval() throws Exception {
+        PaimonTransaction transaction = createBoundTransaction();
+        Coordinator coordinator = Mockito.mock(Coordinator.class);
+        Mockito.when(coordinator.getQueryOptions()).thenReturn(new TQueryOptions());
+        Mockito.doAnswer(invocation -> {
+            transaction.rollback();
+            throw new RuntimeException("Transaction was removed during report handling");
+        }).when(coordinator).updateFragmentExecStatus(ArgumentMatchers.any());
+        QeProcessorImpl.INSTANCE.registerQuery(queryId, new QeProcessorImpl.QueryInfo(coordinator));
+        try {
+            TReportExecStatusParams report = new TReportExecStatusParams().setQueryId(queryId)
+                    .setFragmentInstanceId(new TUniqueId(1, 2)).setPaimonCommitMessages(rustPayloads());
+            QeProcessorImpl.INSTANCE.reportExecStatus(report, new TNetworkAddress("127.0.0.1", 9060));
+            Mockito.verify(committer).abort(ArgumentMatchers.argThat(messages -> messages.size() == 2));
+            Assert.assertEquals(0, transaction.getPayloadCount());
+        } finally {
+            QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
+        }
+    }
+
+    @Test
+    public void testLateReportDoesNotWaitForRollbackFileIo() throws Exception {
+        PaimonTransaction transaction = createBoundTransaction();
+        List<TPaimonCommitMessage> payloads = rustPayloads();
+        transaction.updateCommitMessages(Collections.singletonList(payloads.get(0)));
+        CountDownLatch abortStarted = new CountDownLatch(1);
+        CountDownLatch finishAbort = new CountDownLatch(1);
+        AtomicInteger abortCalls = new AtomicInteger();
+        Mockito.doAnswer(invocation -> {
+            if (abortCalls.incrementAndGet() == 1) {
+                abortStarted.countDown();
+                Assert.assertTrue(finishAbort.await(10, TimeUnit.SECONDS));
+            }
+            return null;
+        }).when(committer).abort(ArgumentMatchers.anyList());
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        Future<?> rollback = executor.submit(transaction::rollback);
+        try {
+            Assert.assertTrue(abortStarted.await(5, TimeUnit.SECONDS));
+            Future<?> report = executor.submit(() ->
+                    transaction.updateCommitMessages(Collections.singletonList(payloads.get(1))));
+            report.get(5, TimeUnit.SECONDS);
+        } finally {
+            finishAbort.countDown();
+            executor.shutdown();
+        }
+        rollback.get(5, TimeUnit.SECONDS);
+        Mockito.verify(committer, Mockito.times(2)).abort(ArgumentMatchers.argThat(messages -> messages.size() == 1));
+        Assert.assertEquals(PaimonTransaction.CommitState.ABORTED, transaction.getState());
+        Assert.assertEquals(0, transaction.getPayloadCount());
+    }
+
+    @Test
     public void testCommitUserIsNamespacedByDorisCluster() {
         Assert.assertEquals(
                 PaimonTransaction.commitUser(10001, TRANSACTION_ID),
@@ -172,6 +304,7 @@ public class PaimonTransactionTest {
     private PaimonTransaction createBoundTransaction() {
         PaimonTransaction transaction = new PaimonTransaction(ops, TRANSACTION_ID);
         transaction.bind(binding);
+        transaction.setQueryId(queryId);
         return transaction;
     }
 
@@ -182,9 +315,27 @@ public class PaimonTransactionTest {
                 1,
                 DataIncrement.emptyIncrement(),
                 CompactIncrement.emptyIncrement());
+        return commitPayload(Collections.singletonList(message));
+    }
+
+    private List<TPaimonCommitMessage> rustPayloads() throws Exception {
+        byte[] bytes;
+        try (InputStream input = getClass().getResourceAsStream("/paimon/rust-append-v11.base64")) {
+            bytes = Base64.getMimeDecoder().decode(ByteStreams.toByteArray(input));
+        }
+        List<CommitMessage> messages = new CommitMessageSerializer().deserializeList(11,
+                new DataInputDeserializer(bytes));
+        List<TPaimonCommitMessage> payloads = new ArrayList<>();
+        for (CommitMessage message : messages) {
+            payloads.add(commitPayload(Collections.singletonList(message)));
+        }
+        return payloads;
+    }
+
+    private TPaimonCommitMessage commitPayload(List<CommitMessage> messages) throws Exception {
         CommitMessageSerializer serializer = new CommitMessageSerializer();
         ByteArrayOutputStream output = new ByteArrayOutputStream();
-        serializer.serializeList(Collections.singletonList(message),
+        serializer.serializeList(messages,
                 new DataOutputViewStreamWrapper(output));
         byte[] serialized = output.toByteArray();
         ByteBuffer framed = ByteBuffer.allocate(12 + serialized.length);

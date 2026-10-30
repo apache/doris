@@ -47,6 +47,7 @@ public class PaimonInsertExecutor extends BaseExternalTableInsertExecutor {
 
     @Override
     protected void beforeExec() throws UserException {
+        ((PaimonTransaction) transactionManager.getTransaction(txnId)).setQueryId(ctx.queryId());
     }
 
     @Override
