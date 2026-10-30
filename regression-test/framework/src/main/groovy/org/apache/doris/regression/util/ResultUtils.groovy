@@ -23,12 +23,14 @@ import org.junit.Assert
 import java.math.BigDecimal
 import java.math.BigInteger
 import java.nio.ByteBuffer
+import java.nio.charset.StandardCharsets
 import java.sql.Blob
 import java.sql.Clob
 import java.sql.Struct
 import java.sql.Time
 import java.sql.Timestamp
 import java.time.temporal.TemporalAccessor
+import java.util.regex.Matcher
 import java.util.regex.Pattern
 
 @CompileStatic
@@ -45,6 +47,21 @@ class ResultUtils {
     private static final Pattern DATETIME_PATTERN = Pattern.compile(
             "(\\d{4}-\\d{2}-\\d{2})[T ](\\d{2}:\\d{2})(?::(\\d{2})(?:\\.(\\d{1,9}))?)?")
     private static final Pattern UNICODE_ESCAPE_PATTERN = Pattern.compile("[0-9a-fA-F]{4}")
+    /**
+     * A "0x" token as Doris renders a VARBINARY nested in arrays/maps/structs.
+     * The negative lookbehind keeps the match at a VALUE/ELEMENT boundary: a
+     * token preceded by an alphanumeric ("prefix0x41"), a quote (a nested
+     * STRING the engine renders quoted) or a backslash is a literal-string
+     * fragment, not a binary rendering — substituting it could make unequal
+     * rows compare equal (Spark "prefixA" vs Doris "prefix0x41"). Only a token
+     * that Doris could only have produced as a binary element ("[0x616C, "
+     * / "{0x41: 0x42}" / "ROW(0x61)") is decoded. A literal string whose whole
+     * value coincides with a bare token ("0x41") is indistinguishable from a
+     * binary rendering without column types and remains the one known
+     * ambiguity.
+     */
+    private static final Pattern NESTED_BINARY_TOKEN = Pattern.compile(
+            /(?i)(?<![0-9a-zA-Z'"\\])0x(?:[0-9a-f]{2})+(?![0-9a-fA-F])/)
 
     static List<List<Object>> normalizeRows(List<List<Object>> rows) {
         List<List<Object>> normalizedRows = new ArrayList<>()
@@ -59,8 +76,8 @@ class ResultUtils {
     }
 
     static void assertSparkDorisResultEquals(List<List<Object>> sparkRows, List<List<Object>> dorisRows) {
-        List<List<Object>> normalizedSparkRows = normalizeRows(sparkRows)
-        List<List<Object>> normalizedDorisRows = normalizeRows(dorisRows)
+        List<List<Object>> normalizedSparkRows = decodeNestedBinaryTokens(normalizeRows(sparkRows))
+        List<List<Object>> normalizedDorisRows = decodeNestedBinaryTokens(normalizeRows(dorisRows))
         Assert.assertEquals("Spark and Doris result row count mismatch",
                 normalizedSparkRows.size(), normalizedDorisRows.size())
 
@@ -82,6 +99,87 @@ class ResultUtils {
                 }
             }
         }
+    }
+
+    /**
+     * Brings nested binary values rendered by the two engines to a common form.
+     *
+     * <p>Doris renders a VARBINARY nested in arrays/maps/structs as a
+     * "0x"-prefixed hex token ("[0x616C..., null]") while Spark's JDBC returns
+     * the raw bytes ("[alice-array-bin, null]"), so the same value compares
+     * unequal across engines. Decoding the tokens on both rows applies the same
+     * substitution to both sides — a no-op on the raw rendering — so equal stays
+     * equal, and scalar binary columns are unaffected: they arrive as byte[]
+     * and normalizeValue already hex-encodes them symmetrically.
+     */
+    static List<List<Object>> decodeNestedBinaryTokens(List<List<Object>> rows) {
+        List<List<Object>> decodedRows = new ArrayList<>(rows.size())
+        for (List<Object> row : rows) {
+            List<Object> decodedRow = new ArrayList<>(row.size())
+            for (Object value : row) {
+                decodedRow.add(decodeNestedBinaryTokens(value))
+            }
+            decodedRows.add(decodedRow)
+        }
+        return decodedRows
+    }
+
+    static Object decodeNestedBinaryTokens(Object value) {
+        if (value instanceof String) {
+            String text = (String) value
+            Matcher matcher = NESTED_BINARY_TOKEN.matcher(text)
+            StringBuffer sb = new StringBuffer()
+            while (matcher.find()) {
+                String hex = matcher.group().substring(2)
+                String decoded = decodeHexString(hex)
+                if (decoded == null) {
+                    // The bytes are not valid UTF-8: any String rendering would
+                    // go through a lossy replacement character, collapsing
+                    // distinct values (the single bytes 0x80 and 0x81 both
+                    // become U+FFFD) and making unequal results compare equal.
+                    // Keep the lossless 0x-hex token instead; a rendering that
+                    // cannot round-trip then fails loudly rather than passing.
+                    continue
+                }
+                matcher.appendReplacement(sb, Matcher.quoteReplacement(decoded))
+            }
+            matcher.appendTail(sb)
+            return sb.toString()
+        }
+        if (value instanceof List) {
+            List<Object> decoded = new ArrayList<>(((List<?>) value).size())
+            for (Object item : (List<?>) value) {
+                decoded.add(decodeNestedBinaryTokens(item))
+            }
+            return decoded
+        }
+        if (value instanceof Map) {
+            Map<Object, Object> decoded = new LinkedHashMap<>()
+            for (Map.Entry<?, ?> entry : ((Map<?, ?>) value).entrySet()) {
+                decoded.put(decodeNestedBinaryTokens(entry.getKey()),
+                        decodeNestedBinaryTokens(entry.getValue()))
+            }
+            return decoded
+        }
+        return value
+    }
+
+    /**
+     * Decodes a hex token to the String the other engine renders for the same
+     * bytes, or returns null when the bytes are not valid UTF-8: decoding then
+     * could only go through a lossy replacement character, and the caller keeps
+     * the lossless 0x-hex form instead.
+     */
+    private static String decodeHexString(String hex) {
+        byte[] bytes = new byte[hex.length().intdiv(2)]
+        for (int i = 0; i < bytes.length; i++) {
+            bytes[i] = (byte) Integer.parseInt(hex.substring(i * 2, i * 2 + 2), 16)
+        }
+        String decoded = new String(bytes, StandardCharsets.UTF_8)
+        if (!Arrays.equals(decoded.getBytes(StandardCharsets.UTF_8), bytes)) {
+            return null
+        }
+        return decoded
     }
 
     static Object normalizeValue(Object value) {

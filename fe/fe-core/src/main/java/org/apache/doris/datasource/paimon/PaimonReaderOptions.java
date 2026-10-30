@@ -22,7 +22,6 @@ import org.apache.paimon.CoreOptions;
 import org.apache.paimon.options.ConfigOption;
 import org.apache.paimon.options.MemorySize;
 import org.apache.paimon.options.Options;
-import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.table.DelegatedFileStoreTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
@@ -193,20 +192,11 @@ public final class PaimonReaderOptions {
         }
 
         if (table instanceof DelegatedFileStoreTable) {
-            if (!(table instanceof PrivilegedFileStoreTable)) {
-                throw new IllegalArgumentException("Unsupported Paimon planning table delegate: "
-                        + table.getClass().getName());
-            }
-            FileStoreTable wrapped = ((DelegatedFileStoreTable) table).wrapped();
-            FileStoreTable normalized = normalizeManifestParallelism(
-                    wrapped, safeBound, materializeAbsent);
-            if (normalized == wrapped) {
-                return table;
-            }
-            // A delegate copy broadcasts one value to every fallback branch. Check authorization
-            // before peeling the privilege-only layer so branch-local limits remain independent.
-            ((FileStoreTable) table).newScan();
-            return normalized;
+            // Paimon 2.1 dropped the privilege wrapper, so every delegate the factory produces is
+            // a FallbackReadFileStoreTable and was already rebuilt above. Any other delegate's
+            // copy() broadcasts one value through its private fallback tree, so reject it.
+            throw new IllegalArgumentException("Unsupported Paimon planning table delegate: "
+                    + table.getClass().getName());
         }
 
         if (!(table instanceof FileStoreTable)) {
@@ -234,7 +224,7 @@ public final class PaimonReaderOptions {
 
     static boolean isWrappedFirst(FallbackReadFileStoreTable table) {
         Map<String, String> options = table.options();
-        // Keep this in the exact order used by Paimon 1.4.2 FileStoreTableFactory. The same
+        // Keep this in the exact order used by Paimon's FileStoreTableFactory. The same
         // wrapper represents chain, fallback and primary reads, but the SDK exposes no accessor
         // for its private wrappedFirst flag. Remove this inference when Paimon exposes one.
         if (ChainTableUtils.isChainTable(options)) {
@@ -262,8 +252,8 @@ public final class PaimonReaderOptions {
             validateEffectiveTable(((FallbackReadFileStoreTable) table).other());
         }
         if (table instanceof DelegatedFileStoreTable) {
-            // Privilege and other supported delegates can hide a fallback planner behind their
-            // own visible main options, so traverse the complete planning-handle chain.
+            // Delegates can hide a fallback planner behind their own visible main options,
+            // so traverse the complete planning-handle chain.
             validateEffectiveTable(((DelegatedFileStoreTable) table).wrapped());
         }
     }
