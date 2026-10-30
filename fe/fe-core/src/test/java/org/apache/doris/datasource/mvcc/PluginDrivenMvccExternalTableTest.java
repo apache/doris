@@ -787,6 +787,35 @@ public class PluginDrivenMvccExternalTableTest {
     // ==================== loadSnapshot: B5a latest materialize ====================
 
     @Test
+    public void testViewSnapshotDoesNotUseTableMetadata() {
+        Fixture f = Fixture.partitioned();
+        PluginDrivenMvccExternalTable view = Mockito.spy(f.table);
+        Mockito.doReturn(true).when(view).isView();
+        // A catalog may support the view endpoint but reject table loads for this name. Query binding
+        // must not depend on whether the unrelated table request returns 404 or another error.
+        Mockito.when(f.metadata.getTableHandle(f.session, "REMOTE_DB", "REMOTE_TBL"))
+                .thenThrow(new IllegalStateException("table endpoint is unavailable for this view"));
+        PluginDrivenMvccSnapshot fence = new PluginDrivenMvccSnapshot(
+                ConnectorMvccSnapshot.builder().snapshotId(PINNED_SNAPSHOT_ID).build(),
+                Collections.emptyMap(), Collections.emptyMap());
+
+        List<MvccSnapshot> snapshots = Arrays.asList(
+                view.loadSnapshot(Optional.empty(), Optional.empty()),
+                view.loadSnapshot(Optional.empty(), Optional.empty(), Optional.empty()),
+                view.loadSnapshot(Optional.empty(), Optional.empty(), Optional.of(fence)));
+
+        for (MvccSnapshot snapshot : snapshots) {
+            PluginDrivenMvccSnapshot pin = Assertions.assertInstanceOf(PluginDrivenMvccSnapshot.class, snapshot);
+            Assertions.assertEquals(-1L, pin.getConnectorSnapshot().getSnapshotId());
+            Assertions.assertNull(pin.getPinnedSchema());
+            Assertions.assertTrue(pin.getNameToPartitionItem().isEmpty());
+            Assertions.assertTrue(pin.getNameToLastModifiedMillis().isEmpty());
+            Assertions.assertSame(f.latestCacheValue, view.getSchemaCacheValue(Optional.of(pin)).get());
+        }
+        Mockito.verifyNoInteractions(f.metadata);
+    }
+
+    @Test
     public void testLoadSnapshotEmptyMaterializes() {
         Fixture f = Fixture.partitioned();
         MvccSnapshot snap = f.table.loadSnapshot(Optional.empty(), Optional.empty());
