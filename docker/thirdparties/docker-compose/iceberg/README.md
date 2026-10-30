@@ -184,9 +184,14 @@ has no data objects, and `no_delta_log_folder` is an error-path fixture.
 The Spark service runs the SQL fixtures in
 `scripts/create_preinstalled_scripts/deltalake/`, followed by the log-compaction,
 golden registration and Parquet pruning helpers. Only after these complete and
-Spark Thrift answers a query does the service become healthy. SQL fixtures can
-be rerun: they replace their test tables before populating them. Regression
-suites retain their catalogs/tables for inspection. Spark uses two local cores
+Spark Thrift answers a query does the service become healthy. The first successful
+setup writes `cache/deltalake/spark/FIXTURES_READY`. Restarts reuse those fixtures
+and only restart Spark Thrift. To deliberately regenerate fixtures after changing
+their definitions, explicitly set `DELTALAKE_REGENERATE_FIXTURES=1`; this replaces
+the fixture tables before populating them. Return the flag to `0` for subsequent
+starts. Keep the Spark, HMS and MinIO state directories together when restoring a
+retained environment; the marker assumes their corresponding data is still present.
+Regression suites retain their catalogs/tables for inspection. Spark uses two local cores
 and a 2 GiB driver; allow additional Docker memory when running it alongside the
 full Iceberg stack.
 

@@ -60,6 +60,8 @@ services:
     image: apache/spark:4.0.0
     container_name: doris--spark-deltalake
     user: root
+    environment:
+      DELTALAKE_REGENERATE_FIXTURES: ${DELTALAKE_REGENERATE_FIXTURES:-0}
     depends_on:
       delta-hms:
         condition: service_healthy

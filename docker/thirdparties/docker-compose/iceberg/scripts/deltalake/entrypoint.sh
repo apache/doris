@@ -21,13 +21,23 @@ rm -f /delta-state/SUCCESS
 cp /delta-jars/*.jar /opt/spark/jars/
 config=/mnt/scripts/deltalake/spark-defaults.conf
 fixtures=/mnt/scripts/create_preinstalled_scripts/deltalake
-# Use one session for SQL fixtures; each Python helper owns and closes its Spark session.
-for fixture in "${fixtures}"/*.sql; do
-    printf 'source %s;\n' "${fixture}"
-done > /tmp/deltalake-fixtures.sql
-/opt/spark/bin/spark-sql --properties-file "${config}" -f /tmp/deltalake-fixtures.sql
-/opt/spark/bin/spark-submit --properties-file "${config}" "${fixtures}/04-prepare-metadata.py"
-/opt/spark/bin/spark-submit --properties-file "${config}" "${fixtures}/05-parquet-pruning.py"
+case "${DELTALAKE_REGENERATE_FIXTURES:-0}" in
+    0|1) ;;
+    *) echo "DELTALAKE_REGENERATE_FIXTURES must be 0 or 1" >&2; exit 1 ;;
+esac
+if [[ ! -f /delta-state/FIXTURES_READY || "${DELTALAKE_REGENERATE_FIXTURES:-0}" == 1 ]]; then
+    rm -f /delta-state/FIXTURES_READY
+    # Use one session for SQL fixtures; each Python helper owns and closes its Spark session.
+    for fixture in "${fixtures}"/*.sql; do
+        printf 'source %s;\n' "${fixture}"
+    done > /tmp/deltalake-fixtures.sql
+    /opt/spark/bin/spark-sql --properties-file "${config}" -f /tmp/deltalake-fixtures.sql
+    /opt/spark/bin/spark-submit --properties-file "${config}" "${fixtures}/04-prepare-metadata.py"
+    /opt/spark/bin/spark-submit --properties-file "${config}" "${fixtures}/05-parquet-pruning.py"
+    touch /delta-state/FIXTURES_READY
+else
+    echo "Reusing retained Delta fixtures; skipping data generation"
+fi
 /opt/spark/sbin/start-thriftserver.sh --properties-file "${config}" \
     --hiveconf hive.server2.thrift.port=10000
 for attempt in $(seq 1 120); do
