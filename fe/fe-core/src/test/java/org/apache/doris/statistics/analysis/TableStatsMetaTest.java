@@ -25,6 +25,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 
@@ -91,6 +92,30 @@ class TableStatsMetaTest {
                 .setJobColumns(new HashSet<>()).setColName("col1").build();
         tableStatsMeta.update(jobInfo, table);
         Assertions.assertEquals(4, tableStatsMeta.rowCount);
+    }
+
+    @Test
+    void testTheChangelogRowsOfALoadAreAccumulated() {
+        OlapTable table = mockOlapTable();
+        long changelogIndexId = 10003L;
+        MaterializedIndexMeta changelogMeta = Mockito.mock(MaterializedIndexMeta.class);
+        Mockito.doReturn(changelogIndexId).when(changelogMeta).getIndexId();
+        Mockito.doReturn(changelogMeta).when(table).getChangelogIndexMeta();
+        Mockito.doReturn(true).when(table).hasChangelog();
+
+        TableStatsMeta meta = new TableStatsMeta();
+        meta.addIndexUpdatedRows(changelogIndexId, 12);
+        meta.addIndexUpdatedRows(changelogIndexId, 8);
+        // Nothing to add: a load which wrote no change row must not create an entry.
+        meta.addIndexUpdatedRows(changelogIndexId, 0);
+
+        // A changelog index has no collected row count, so the rows the loads wrote to it are the
+        // count. They are neither the rows of the base index nor a lower bound of the table's rows:
+        // an update adds a change row without adding a base row, a delete adds none to the base.
+        Assertions.assertEquals(20, meta.getRowCountWithDeltaRows(table, changelogIndexId));
+        Assertions.assertEquals(20, meta.getIndexUpdatedRows(changelogIndexId));
+        Assertions.assertEquals(0, meta.getIndexUpdatedRows(BASE_INDEX_ID));
+        Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, meta.getRowCountWithDeltaRows(table, BASE_INDEX_ID));
     }
 
     @Test
