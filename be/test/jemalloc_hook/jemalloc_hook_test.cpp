@@ -27,6 +27,8 @@
 #include <memory>
 #include <thread>
 
+extern "C" void* doris_memalign(size_t alignment, size_t size) noexcept;
+
 namespace doris {
 
 class JemallocHookTest : public testing::Test {
@@ -34,9 +36,30 @@ protected:
     using MemalignFunction = void* (*)(size_t, size_t);
 
     void SetUp() override {
-        void* symbol = dlsym(RTLD_DEFAULT, "__libc_memalign");
-        ASSERT_NE(nullptr, symbol) << dlerror();
-        _memalign = reinterpret_cast<MemalignFunction>(symbol);
+        ASSERT_NO_FATAL_FAILURE(check_executable_interposition());
+        ASSERT_NO_FATAL_FAILURE(check_legacy_allocation_pair());
+    }
+
+    void check_executable_interposition() {
+        // Anchor the lookup to the linked production hook. A libc allocation
+        // paired with a libc free could otherwise pass without testing the hook.
+        Dl_info hook_image = {};
+        ASSERT_NE(0, dladdr(reinterpret_cast<void*>(&doris_memalign), &hook_image));
+        constexpr std::array<const char*, 3> symbol_names = {"__libc_memalign", "malloc", "free"};
+        std::array<void*, 3> symbols = {};
+        for (size_t i = 0; i < symbol_names.size(); ++i) {
+            symbols[i] = dlsym(RTLD_DEFAULT, symbol_names[i]);
+            ASSERT_NE(nullptr, symbols[i]) << symbol_names[i] << ": " << dlerror();
+            Dl_info symbol_image = {};
+            ASSERT_NE(0, dladdr(symbols[i], &symbol_image)) << symbol_names[i];
+            ASSERT_EQ(hook_image.dli_fbase, symbol_image.dli_fbase)
+                    << symbol_names[i] << " resolved to " << symbol_image.dli_fname
+                    << " instead of " << hook_image.dli_fname;
+        }
+        _memalign = reinterpret_cast<MemalignFunction>(symbols.front());
+    }
+
+    void check_legacy_allocation_pair() {
         // Exercise the legacy allocation/free pair even on newer glibc versions
         // whose loader no longer uses __libc_memalign for TLS. A subprocess turns
         // an allocator-mismatch crash into a test failure instead of aborting UT.
@@ -99,6 +122,17 @@ TEST_F(JemallocHookTest, LateLoadedDynamicTlsCanBeFreedAfterThreadsExit) {
     std::unique_ptr<void, decltype(&dlclose)> handle(
             dlopen(JEMALLOC_HOOK_TEST_DSO, RTLD_NOW | RTLD_LOCAL), &dlclose);
     ASSERT_NE(nullptr, handle) << dlerror();
+    using GetAllocatorSymbols = void (*)(void**, void**);
+    auto get_allocator_symbols = reinterpret_cast<GetAllocatorSymbols>(
+            dlsym(handle.get(), "jemalloc_hook_test_allocator_symbols"));
+    ASSERT_NE(nullptr, get_allocator_symbols) << dlerror();
+    void* memalign_symbol = nullptr;
+    void* free_symbol = nullptr;
+    get_allocator_symbols(&memalign_symbol, &free_symbol);
+    // Check the DSO's actual relocations before exercising dynamic TLS.
+    ASSERT_EQ(reinterpret_cast<void*>(_memalign), memalign_symbol);
+    ASSERT_EQ(reinterpret_cast<void*>(&std::free), free_symbol);
+
     using TouchTlsFunction = int (*)();
     auto touch_tls =
             reinterpret_cast<TouchTlsFunction>(dlsym(handle.get(), "jemalloc_hook_test_touch_tls"));

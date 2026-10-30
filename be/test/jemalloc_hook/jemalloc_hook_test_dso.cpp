@@ -15,6 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <cstdlib>
+
+extern "C" void* __libc_memalign(size_t alignment, size_t size) noexcept;
+
+extern "C" void jemalloc_hook_test_allocator_symbols(void** memalign_symbol, void** free_symbol) {
+    *memalign_symbol = reinterpret_cast<void*>(&__libc_memalign);
+    *free_symbol = reinterpret_cast<void*>(&std::free);
+}
+
 // Access TLS from a late-loaded library, as happens with JNI native libraries.
 extern "C" int jemalloc_hook_test_touch_tls() {
     static thread_local int tls_values[1024] = {};
