@@ -63,6 +63,12 @@ public class IvmStreamKeepAliveDaemon extends MasterDaemon {
         if (!Config.enable_table_stream || !Config.enable_ivm_stream_keepalive) {
             return;
         }
+        // The TSO service calibrates itself in its own first round once this FE is master, which can come after a
+        // check of this daemon. A round started before that would have no keep-alive TSO to take, and the next
+        // round would come a whole interval later, so a round waits until the TSO service is ready.
+        if (!Env.getCurrentEnv().getTSOService().getStatusSnapshot().isInitialized()) {
+            return;
+        }
         long now = System.currentTimeMillis();
         if (now - lastRoundMs < Config.ivm_stream_keepalive_interval_second * 1000L) {
             return;
