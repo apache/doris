@@ -56,6 +56,7 @@ constexpr int64_t kSlowSmallReadNs = 20 * 1000;
 // The low end of what one thread copies out of the page cache, so a hit is not taken for a miss.
 constexpr int64_t kPageCacheBytesPerNs = 4;
 std::atomic<int64_t> g_small_read_ns {0};
+std::atomic<bool> g_slow_read_hand_off {true}; // only tests turn this off
 
 // Notes how much longer than copying its `len` bytes a read took; returns whether it was slow.
 bool note_read(int64_t ns, size_t len) {
@@ -68,6 +69,10 @@ bool note_read(int64_t ns, size_t len) {
 
 void DorisSniiFileReader::reset_read_latency_for_test() {
     g_small_read_ns.store(0, std::memory_order_relaxed);
+}
+
+void DorisSniiFileReader::set_slow_read_hand_off_for_test(bool enabled) {
+    g_slow_read_hand_off.store(enabled, std::memory_order_relaxed);
 }
 
 thread_local const io::IOContext* DorisSniiFileReader::_scoped_io_ctx = nullptr;
@@ -346,7 +351,8 @@ Status DorisSniiFileReader::read_batch(const std::vector<::doris::snii::io::Rang
         size_t next = 0;
         while (next < num_segs) {
             const bool slow = run_segment(next++);
-            if (slow && pool != nullptr && num_segs - next > 1) {
+            if (slow && pool != nullptr && num_segs - next > 1 &&
+                g_slow_read_hand_off.load(std::memory_order_relaxed)) {
                 break;
             }
         }

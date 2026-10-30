@@ -1017,6 +1017,15 @@ private:
     int32_t _saved;
 };
 
+// For a test that a batch stays on the calling thread: on a busy host even a read from memory can
+// take longer than the slow-read threshold, which would send the rest of the batch to the pool.
+struct NoSlowReadHandOffGuard {
+    NoSlowReadHandOffGuard() { DorisSniiFileReader::set_slow_read_hand_off_for_test(false); }
+    ~NoSlowReadHandOffGuard() { DorisSniiFileReader::set_slow_read_hand_off_for_test(true); }
+    NoSlowReadHandOffGuard(const NoSlowReadHandOffGuard&) = delete;
+    NoSlowReadHandOffGuard& operator=(const NoSlowReadHandOffGuard&) = delete;
+};
+
 // Reads `segments` disjoint 4-byte ranges through a reader backed by a two-thread pool and returns
 // how many of the physical reads ran on the calling thread.
 size_t reads_on_calling_thread(
@@ -1062,6 +1071,7 @@ size_t reads_on_calling_thread(
 // pool costs more than the reads. The serial rounds then equal the segment count.
 TEST(DorisSniiFileReaderInlineReadTest, SmallLocalBatchRunsOnCallingThread) {
     InlineReadConfigGuard config_guard(4);
+    NoSlowReadHandOffGuard no_hand_off;
     io::FileCacheStatistics stats;
     EXPECT_EQ(reads_on_calling_thread(/*local_fs=*/true, 4, &stats), 4U);
     EXPECT_EQ(stats.inverted_index_range_read_count, 4);
@@ -1109,6 +1119,7 @@ TEST(DorisSniiFileReaderInlineReadTest, SlowReadsReturnToThePool) {
 // segments; while reads are fast those stay on the calling thread too. One more fans out.
 TEST(DorisSniiFileReaderInlineReadTest, PhrasePrefixSizedBatchRunsOnCallingThread) {
     InlineReadConfigGuard config_guard(16);
+    NoSlowReadHandOffGuard no_hand_off;
     io::FileCacheStatistics stats;
     EXPECT_EQ(reads_on_calling_thread(/*local_fs=*/true, 16, &stats), 16U);
     EXPECT_EQ(stats.inverted_index_serial_read_rounds, 16);
@@ -1142,6 +1153,7 @@ TEST(DorisSniiFileReaderInlineReadTest, LastSegmentAfterSlowReadStaysInline) {
 // storage one BE serves local and remote rowsets, and only local readers consult the average.
 TEST(DorisSniiFileReaderInlineReadTest, RemoteReadsDoNotSlowTheLocalEstimate) {
     InlineReadConfigGuard config_guard(4);
+    NoSlowReadHandOffGuard no_hand_off;
     for (int batch = 0; batch < 12; ++batch) {
         io::FileCacheStatistics remote_stats;
         EXPECT_EQ(reads_on_calling_thread(/*local_fs=*/false, 4, &remote_stats,
