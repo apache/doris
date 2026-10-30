@@ -1223,6 +1223,9 @@ public class StatementContext implements Closeable {
         partitionPolicyPlanner = null;
         partitionPolicyEpoch++;
         externalTablePreloadInfos.clear();
+        // The next attempt re-runs collection and must run the metadata preload pass again; the replaced
+        // attempt's completion latch would otherwise suppress it and push schema loading under planner locks.
+        externalMetadataPreloadResult = null;
     }
 
     /**
@@ -2027,6 +2030,10 @@ public class StatementContext implements Closeable {
             preloadInfo.setMtmvPartitionView(preloadInfo.getScanPartitionView());
             return;
         }
+        // Pin the statement's latest generation BEFORE materializing. Without this, getNameToPartitionItemsForScan
+        // materializes an unrecorded latest snapshot, binding later pins another one, and the warmed view is then
+        // served for the bound pin - so MV compensation and the scan would describe two different generations.
+        loadSnapshots(table, Optional.empty(), Optional.empty());
         preloadInfo.setMtmvPartitionView(
                 ((PluginDrivenExternalTable) table).getNameToPartitionItemsForScan(getSnapshot(table)));
     }

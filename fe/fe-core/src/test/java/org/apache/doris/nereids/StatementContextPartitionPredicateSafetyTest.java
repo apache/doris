@@ -209,7 +209,11 @@ public class StatementContextPartitionPredicateSafetyTest {
                     fixture.statement::lock);
             // ...and then plans again from the logical statement, so the new attempt must not inherit the
             // revocation of the attempt it replaced.
+            fixture.statement.setExternalMetadataPreloadResult(
+                    org.apache.doris.nereids.ExternalMetadataPreloadResult.executed(1, 1, 1));
             fixture.statement.beginPartitionPolicyReplan();
+            Assertions.assertFalse(fixture.statement.getExternalMetadataPreloadResult().isPresent(),
+                    "the new attempt must run the metadata preload pass again");
             fixture.lock();
             fixture.statement.preloadDeferredScanPartitionViewsBeforeLock(true);
         }

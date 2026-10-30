@@ -1050,6 +1050,8 @@ public class StatementContextTest {
         Mockito.when(catalog.getName()).thenReturn("hive_catalog");
         Mockito.when(hiveExternalTable.supportsExternalMetadataPreload()).thenReturn(true);
         Mockito.when(hiveExternalTable.supportsConnectorPartitionPruning()).thenReturn(true);
+        Mockito.when(hiveExternalTable.loadSnapshot(Mockito.any(), Mockito.any()))
+                .thenReturn(Mockito.mock(MvccSnapshot.class));
         Optional<Map<String, PartitionItem>> fullView =
                 Optional.of(ImmutableMap.of("p=1", Mockito.mock(PartitionItem.class)));
         Mockito.when(hiveExternalTable.getNameToPartitionItemsForScan(Mockito.any())).thenReturn(fullView);
@@ -1079,6 +1081,10 @@ public class StatementContextTest {
                     "a filtered scan must keep connector predicate pruning");
             org.junit.jupiter.api.Assertions.assertTrue(preloadInfo.hasMtmvPartitionView());
             org.junit.jupiter.api.Assertions.assertEquals(fullView, preloadInfo.getMtmvPartitionView());
+            // The warmed view must come from the statement's pinned latest snapshot, not from an unrecorded
+            // materialization that binding would later re-pin to a different generation.
+            org.junit.jupiter.api.Assertions.assertTrue(statementContext.getSnapshot(hiveExternalTable).isPresent(),
+                    "the warmup must pin the snapshot it materialized from");
             InOrder inOrder = Mockito.inOrder(candidateMtmv, hiveExternalTable);
             inOrder.verify(candidateMtmv).readMvLock();
             inOrder.verify(candidateMtmv).getMvPartitionInfo();
