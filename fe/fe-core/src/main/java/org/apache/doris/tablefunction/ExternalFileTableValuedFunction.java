@@ -47,7 +47,7 @@ import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.lance.metadata.LanceFragmentInfo;
-import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
+import org.apache.doris.datasource.lance.metadata.LancePlannedDataset;
 import org.apache.doris.datasource.lance.metadata.LanceTypeConverter;
 import org.apache.doris.datasource.lance.storage.LanceStorageOptions;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
@@ -94,6 +94,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.protobuf.ByteString;
 import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -143,8 +144,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     public FileFormatProperties fileFormatProperties;
     private String hiveParquetTimeZone = "";
     private long tableId;
-    private long lanceDatasetVersion = -1;
-    private List<LanceFragmentInfo> lanceFragments = Collections.emptyList();
+    // The Lance datasets this TVF reads, whether named by "uri" (one) or "uris" (several).
+    private List<LancePlannedDataset> lancePlannedDatasets = Collections.emptyList();
     private Set<String> lanceCurrentReaderColumns = Collections.emptySet();
 
     /** Return the only backend that may execute this TVF, or -1 when execution may be distributed. */
@@ -170,12 +171,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         return getTFileFormatType() == TFileFormatType.FORMAT_LANCE;
     }
 
-    public long getLanceDatasetVersion() {
-        return lanceDatasetVersion;
-    }
-
-    public List<LanceFragmentInfo> getLanceFragments() {
-        return lanceFragments;
+    public List<LancePlannedDataset> getLancePlannedDatasets() {
+        return lancePlannedDatasets;
     }
 
     /** Returns whether a Lance column needs the current BE materialization logic. */
@@ -411,15 +408,34 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         return columns;
     }
 
-    protected void setLanceTableMetadata(LanceTableMetadata metadata) throws AnalysisException {
-        if (metadata.getVersion() <= 0) {
-            throw new AnalysisException("Lance returned an invalid dataset version: "
-                    + metadata.getVersion());
+    /**
+     * Sets the Lance datasets this TVF reads and builds the plan's columns from their shared schema.
+     *
+     * @param datasets the datasets to read; must not be empty
+     * @param referenceSchema the schema every dataset was compared against, used to derive the columns
+     */
+    protected void setLancePlannedDatasets(List<LancePlannedDataset> datasets, Schema referenceSchema)
+            throws AnalysisException {
+        for (LancePlannedDataset dataset : datasets) {
+            requirePlannable(dataset);
         }
-        List<LanceFragmentInfo> fragments =
-                new ArrayList<>(metadata.getFragments().size());
+        lancePlannedDatasets = Collections.unmodifiableList(new ArrayList<>(datasets));
+        buildColumns(referenceSchema);
+    }
+
+    /**
+     * Checks that one dataset's version and fragment ids can be planned.
+     *
+     * @throws AnalysisException if the version is non-positive, or a fragment id is negative or
+     *         repeated within the dataset
+     */
+    private static void requirePlannable(LancePlannedDataset dataset) throws AnalysisException {
+        if (dataset.getVersion() <= 0) {
+            throw new AnalysisException("Lance returned an invalid dataset version: "
+                    + dataset.getVersion());
+        }
         Set<Long> uniqueIds = new HashSet<>();
-        for (LanceFragmentInfo fragment : metadata.getFragments()) {
+        for (LanceFragmentInfo fragment : dataset.getFragments()) {
             long fragmentId = fragment.getId();
             if (fragmentId < 0) {
                 throw new AnalysisException("Lance returned an invalid fragment id: " + fragmentId);
@@ -427,13 +443,15 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             if (!uniqueIds.add(fragmentId)) {
                 throw new AnalysisException("Lance returned duplicate fragment id: " + fragmentId);
             }
-            fragments.add(fragment);
         }
+    }
 
-        List<Column> lanceColumns = new ArrayList<>(metadata.getSchema().getFields().size());
+    /** Derives this TVF's columns from the schema every dataset was compared against. */
+    private void buildColumns(Schema schema) throws AnalysisException {
+        List<Column> lanceColumns = new ArrayList<>(schema.getFields().size());
         Set<String> columnLowerNames = new HashSet<>();
         Set<String> currentReaderColumns = new HashSet<>();
-        for (Field field : metadata.getSchema().getFields()) {
+        for (Field field : schema.getFields()) {
             String lowerName = field.getName().toLowerCase(Locale.ROOT);
             if (!columnLowerNames.add(lowerName)) {
                 throw new NotSupportedException("Repeated lowercase column names: " + lowerName);
@@ -452,8 +470,6 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             lanceColumns.add(new Column(field.getName(), type, field.isNullable(), comment));
         }
 
-        lanceDatasetVersion = metadata.getVersion();
-        lanceFragments = Collections.unmodifiableList(fragments);
         lanceCurrentReaderColumns = Collections.unmodifiableSet(currentReaderColumns);
         columns = lanceColumns;
     }
@@ -593,7 +609,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         if (fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_LANCE) {
             // lance-c opens the dataset itself and needs the options in Lance's own vocabulary.
             Map<String, String> lanceStorageOptions = LanceStorageOptions.fromDorisStorageProperties(
-                    filePath, Collections.singletonList(storageProperties));
+                    getFilePath(), Collections.singletonList(storageProperties));
             if (!lanceStorageOptions.isEmpty()) {
                 fileScanRangeParams.setLanceScanParams(
                         new TLanceScanParams().setLanceStorageOptions(lanceStorageOptions));

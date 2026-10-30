@@ -208,7 +208,7 @@ public class HdfsProperties extends HdfsCompatibleProperties {
     }
 
     @Override
-    public String validateAndGetUri(Map<String, String> loadProps) throws UserException {
+    protected String validateAndGetLocation(Map<String, String> loadProps) throws UserException {
         return HdfsPropertiesUtils.validateAndGetUri(loadProps, this.dfsNameServices, this.fsDefaultFS, supportSchema);
     }
 
