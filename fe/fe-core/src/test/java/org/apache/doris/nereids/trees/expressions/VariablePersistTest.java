@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -50,12 +51,16 @@ import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.system.Frontend;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -1003,9 +1008,10 @@ public class VariablePersistTest extends ExpressionRewriteTestHelper {
      * New-metadata -> old-FE direction of the compatibility fence. The new FE persists time_zone, which an
      * old FE does not register: its whole-map comparison still sees a mismatch (so it never uses the
      * unconditional-match cache), but its guarded cache does not classify TIMESTAMPTZ expressions, so the
-     * object must be rebuilt/recreated before an old read-serving FE is used. This test only pins the
-     * observable part of that contract: the persisted map is a whole-map mismatch for a session that does
-     * not know the key, and the same map reports a known creation session on the new FE.
+     * object must be rebuilt/recreated before an old read-serving FE is used. The creation side of that
+     * requirement is enforced by {@code checkClusterSupportsPlanTimeZoneFence}; this test pins the other
+     * observable part: the persisted map is a whole-map mismatch for a session that does not know the key,
+     * and the same map reports a known creation session on the new FE.
      */
     @Test
     public void testNewMetadataMismatchesWholeMapComparison() {
@@ -1020,6 +1026,85 @@ public class VariablePersistTest extends ExpressionRewriteTestHelper {
         // the old FE's own (time_zone-less) map stays fenced on the new FE
         Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE,
                 SessionVarGuardRewriter.computeGuardMask(newMetadata, oldFeSession));
+    }
+
+    /**
+     * A persisted map that predates a plan variable must not be exempted by the strict-table sql_mode
+     * shortcut: the current-only variable (e.g. enable_decimal256, which selects the decimal width and
+     * overflow semantics) means the expressions may have been materialized with another value, so the
+     * rewrite has to stay guarded even when the only visible difference is a strict-table bit.
+     */
+    @Test
+    public void testSyncMvCurrentOnlyVariableIsNotExempted() {
+        long baseMode = SqlModeHelper.MODE_ONLY_FULL_GROUP_BY;
+        Map<String, String> persisted = ImmutableMap.of(
+                SessionVariable.TIME_ZONE, "+08:00",
+                SessionVariable.SQL_MODE, Long.toString(baseMode));
+        Map<String, String> current = ImmutableMap.of(
+                SessionVariable.TIME_ZONE, "+08:00",
+                SessionVariable.SQL_MODE,
+                Long.toString(baseMode | SqlModeHelper.MODE_STRICT_TRANS_TABLES),
+                "enable_decimal256", "true");
+
+        Assertions.assertFalse(
+                SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(current, persisted),
+                "a current-only plan variable must not be exempted by the sql_mode shortcut");
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_OTHER,
+                SessionVarGuardRewriter.computeSyncMvGuardMask(current, persisted));
+        // the same holds for the opposite direction: a variable that only the persisted map has
+        Assertions.assertFalse(
+                SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(persisted, current));
+        // and the fence version stamp alone never denies the exemption
+        Map<String, String> stamped = new HashMap<>(persisted);
+        stamped.put(SessionVariable.PLAN_SESSION_VAR_FENCE_VERSION,
+                String.valueOf(SessionVariable.CURRENT_PLAN_SESSION_VAR_FENCE_VERSION));
+        Assertions.assertTrue(SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(current, current));
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_NONE,
+                SessionVarGuardRewriter.computeSyncMvGuardMask(stamped, stamped));
+    }
+
+    /**
+     * The cluster fence for new-metadata objects: creating one is only safe while every alive frontend can
+     * interpret the persisted plan variables, because an older frontend neither registers time_zone nor
+     * classifies TIMESTAMPTZ expressions and would refresh/rewrite the object without the time-zone guard.
+     */
+    @Test
+    public void testClusterPlanTimeZoneFence() {
+        Env env = Mockito.mock(Env.class);
+        HostInfo selfNode = new HostInfo("fe-self", 9030);
+        Mockito.when(env.getSelfNode()).thenReturn(selfNode);
+        Frontend self = mockFrontend("fe-self", "doris-4.1.4-rc01-abc", true);
+        Frontend olderAlive = mockFrontend("fe-old", "doris-4.1.3-release-abc", true);
+        Frontend olderDead = mockFrontend("fe-dead", "doris-4.1.3-release-abc", false);
+        Frontend newerAlive = mockFrontend("fe-new", "doris-4.1.5-rc01-abc", true);
+        Frontend selfDev = mockFrontend("fe-self", "doris-0.0.0-abcdef", true);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            // same or newer frontends are fine
+            Mockito.when(env.getFrontends(null)).thenReturn(ImmutableList.of(self, newerAlive));
+            Assertions.assertDoesNotThrow(SessionVarGuardRewriter::checkClusterSupportsPlanTimeZoneFence);
+            // an older frontend that is dead cannot serve reads, so it does not block
+            Mockito.when(env.getFrontends(null)).thenReturn(ImmutableList.of(self, olderDead));
+            Assertions.assertDoesNotThrow(SessionVarGuardRewriter::checkClusterSupportsPlanTimeZoneFence);
+            // an older live frontend must block creating new-metadata objects
+            Mockito.when(env.getFrontends(null)).thenReturn(ImmutableList.of(self, olderAlive));
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    SessionVarGuardRewriter::checkClusterSupportsPlanTimeZoneFence);
+            Assertions.assertTrue(exception.getMessage().contains("Upgrade all frontends first"),
+                    exception.getMessage());
+            // a development build (0.0.0) carries no release ordering, so there is nothing to compare
+            Mockito.when(env.getFrontends(null)).thenReturn(ImmutableList.of(selfDev, olderAlive));
+            Assertions.assertDoesNotThrow(SessionVarGuardRewriter::checkClusterSupportsPlanTimeZoneFence);
+        }
+    }
+
+    private static Frontend mockFrontend(String host, String version, boolean alive) {
+        Frontend frontend = Mockito.mock(Frontend.class);
+        Mockito.when(frontend.getHost()).thenReturn(host);
+        Mockito.when(frontend.getVersion()).thenReturn(version);
+        Mockito.when(frontend.isAlive()).thenReturn(alive);
+        return frontend;
     }
 
     /**
