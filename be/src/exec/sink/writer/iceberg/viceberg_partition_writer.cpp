@@ -22,7 +22,9 @@
 
 #include "core/block/materialize_block.h"
 #include "core/column/column_map.h"
+#include "format/arrow/arrow_utils.h"
 #include "format/table/iceberg/schema.h"
+#include "format/table/iceberg/spatial_parquet_schema.h"
 #include "format/transformer/viceberg_parquet_writer.h"
 #include "format/transformer/vorc_transformer.h"
 #include "format/transformer/vparquet_writer.h"
@@ -88,6 +90,11 @@ VIcebergPartitionWriter::VIcebergPartitionWriter(
 Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profile,
                                      const RowDescriptor* row_desc) {
     _state = state;
+    // Reject projjson references before creating a file: closing an empty S3 writer uploads a
+    // zero-byte object, and the async sink can report the write error before outer close deletes it.
+    if (_file_format_type == TFileFormatType::FORMAT_PARQUET) {
+        RETURN_DORIS_STATUS_IF_ERROR(validate_iceberg_spatial_crs_for_write(_schema.root_struct()));
+    }
     io::FSPropertiesRef fs_properties(_write_info.file_type);
     fs_properties.properties = &_hadoop_conf;
     if (!_write_info.broker_addresses.empty()) {

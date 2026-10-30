@@ -37,6 +37,8 @@ class Type;
 class Schema;
 } // namespace iceberg
 bool contains_spatial_type(iceberg::Type* type);
+// Check schema-only CRS restrictions before an output file or stream can be created.
+arrow::Status validate_iceberg_spatial_crs_for_write(const iceberg::Type& type);
 // Copy the physical schema, replacing only spatial leaf annotations.
 arrow::Result<std::shared_ptr<::parquet::schema::GroupNode>> make_iceberg_parquet_schema(
         const std::shared_ptr<arrow::Schema>& arrow_schema, const iceberg::Schema& iceberg_schema,

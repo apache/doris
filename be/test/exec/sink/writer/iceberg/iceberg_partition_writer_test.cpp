@@ -204,7 +204,65 @@ protected:
     static void cleanup_open_error(VIcebergPartitionWriter* writer) {
         writer->_defer_file_cleanup();
     }
+
+    static void expect_referenced_crs_rejected_before_output(RuntimeState* state,
+                                                             const iceberg::Schema& schema,
+                                                             const std::string& json) {
+        VExprContextSPtrs output_exprs;
+        std::map<std::string, std::string> hadoop_conf;
+        auto writer = make_writer(make_table_sink(false), output_exprs, schema, &json, hadoop_conf,
+                                  TFileFormatType::FORMAT_PARQUET);
+        writer->_write_info.write_path = ".";
+        writer->_file_name = "iceberg_rejected_crs_" + UniqueId::gen_uid().to_string();
+        writer->_compress_type = TFileCompressType::ZSTD;
+
+        const auto status = writer->open(state, nullptr, nullptr);
+
+        ASSERT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("Referenced spatial CRS"), std::string::npos);
+        EXPECT_EQ(nullptr, writer->_fs);
+        EXPECT_EQ(nullptr, writer->_file_writer);
+        EXPECT_EQ(nullptr, writer->_file_format_transformer);
+        EXPECT_TRUE(writer->_path.empty());
+        EXPECT_TRUE(writer->close(status).ok());
+    }
 };
+
+TEST_F(VIcebergPartitionWriterTest, RejectsReferencedSpatialCrsBeforeCreatingOutputResources) {
+    TimezoneUtils::load_timezones_to_cache();
+    auto* env = ExecEnv::GetInstance();
+    auto* previous_pool = env->_arrow_memory_pool;
+    env->_arrow_memory_pool = arrow::default_memory_pool();
+    Defer restore_pool([&] { env->_arrow_memory_pool = previous_pool; });
+    RuntimeState state;
+    state.set_timezone("UTC");
+
+    for (const std::string spatial_type :
+         {R"json("geometry(projjson:my_crs)")json", R"json("geometry(PrOjJsOn:my_crs)")json",
+          R"json("geography(projjson:my_crs,spherical)")json",
+          R"json("geography(PrOjJsOn:my_crs,spherical)")json"}) {
+        const std::vector<std::string> field_types {
+                spatial_type,
+                R"({"type":"struct","fields":[{"id":2,"name":"shape","required":false,"type":)" +
+                        spatial_type + R"(}]})",
+                R"({"type":"list","element-id":2,"element-required":false,"element":)" +
+                        spatial_type + R"(})",
+                R"({"type":"map","key-id":2,"key":)" + spatial_type +
+                        R"(,"value-id":3,"value":"string","value-required":false})",
+                R"({"type":"map","key-id":2,"key":"string","value-id":3,"value-required":false,"value":)" +
+                        spatial_type + R"(})"};
+        for (const auto& field_type : field_types) {
+            SCOPED_TRACE(field_type);
+            const std::string json =
+                    R"({"type":"struct","fields":[{"id":1,"name":"payload","required":false,"type":)" +
+                    field_type + R"(}]})";
+            auto schema = iceberg::SchemaParser::from_json(json);
+            for (int attempt = 0; attempt < 2; ++attempt) {
+                expect_referenced_crs_rejected_before_output(&state, *schema, json);
+            }
+        }
+    }
+}
 
 TEST_F(VIcebergPartitionWriterTest, FailedOpenFinishesUploadsBeforeDeletingObject) {
     for (bool with_stream : {false, true}) {

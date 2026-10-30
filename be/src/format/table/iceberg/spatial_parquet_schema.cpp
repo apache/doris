@@ -92,14 +92,12 @@ arrow::Result<::parquet::schema::NodePtr> spatial_parquet_node(const ::parquet::
     switch (type->type_id()) {
     case iceberg::TypeID::GEOMETRY: {
         const auto& geometry = static_cast<const iceberg::GeometryType&>(*type);
-        ARROW_RETURN_NOT_OK(validate_spatial_crs_for_write(geometry.crs()));
         return ::parquet::schema::PrimitiveNode::Make(
                 node.name(), node.repetition(), ::parquet::LogicalType::Geometry(geometry.crs()),
                 ::parquet::Type::BYTE_ARRAY, -1, node.field_id());
     }
     case iceberg::TypeID::GEOGRAPHY: {
         const auto& geography = static_cast<const iceberg::GeographyType&>(*type);
-        ARROW_RETURN_NOT_OK(validate_spatial_crs_for_write(geography.crs()));
         ARROW_ASSIGN_OR_RAISE(auto algorithm, geography_algorithm(geography.algorithm()));
         return ::parquet::schema::PrimitiveNode::Make(
                 node.name(), node.repetition(),
@@ -170,10 +168,37 @@ bool contains_spatial_type(iceberg::Type* type) {
     }
 }
 
+arrow::Status validate_iceberg_spatial_crs_for_write(const iceberg::Type& type) {
+    switch (type.type_id()) {
+    case iceberg::TypeID::GEOMETRY:
+        return validate_spatial_crs_for_write(
+                static_cast<const iceberg::GeometryType&>(type).crs());
+    case iceberg::TypeID::GEOGRAPHY:
+        return validate_spatial_crs_for_write(
+                static_cast<const iceberg::GeographyType&>(type).crs());
+    case iceberg::TypeID::STRUCT:
+        for (const auto& field : static_cast<const iceberg::StructType&>(type).fields()) {
+            ARROW_RETURN_NOT_OK(validate_iceberg_spatial_crs_for_write(*field.field_type()));
+        }
+        return arrow::Status::OK();
+    case iceberg::TypeID::LIST:
+        return validate_iceberg_spatial_crs_for_write(
+                *static_cast<const iceberg::ListType&>(type).element_field().field_type());
+    case iceberg::TypeID::MAP: {
+        const auto& map = static_cast<const iceberg::MapType&>(type);
+        ARROW_RETURN_NOT_OK(validate_iceberg_spatial_crs_for_write(*map.key_field().field_type()));
+        return validate_iceberg_spatial_crs_for_write(*map.value_field().field_type());
+    }
+    default:
+        return arrow::Status::OK();
+    }
+}
+
 arrow::Result<std::shared_ptr<::parquet::schema::GroupNode>> make_iceberg_parquet_schema(
         const std::shared_ptr<arrow::Schema>& arrow_schema, const iceberg::Schema& iceberg_schema,
         const std::shared_ptr<::parquet::WriterProperties>& writer_properties,
         const std::shared_ptr<::parquet::ArrowWriterProperties>& arrow_properties) {
+    ARROW_RETURN_NOT_OK(validate_iceberg_spatial_crs_for_write(iceberg_schema.root_struct()));
     std::shared_ptr<::parquet::SchemaDescriptor> parquet_schema;
     ARROW_RETURN_NOT_OK(::parquet::arrow::ToParquetSchema(arrow_schema.get(), *writer_properties,
                                                           *arrow_properties, &parquet_schema));
