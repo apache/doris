@@ -265,7 +265,7 @@ suite("test_spatial_wkb_compatibility") {
                 (function == "ST_DWithin" ? ", 1" : "")
         test {
             sql "select ${function}(${arguments})"
-            exception "requires GEOGRAPHY(OGC:CRS84, spherical)"
+            exception "Spatial calculation does not support typed GEOMETRY"
         }
     }
     // Same raw-degree great circle after a rotation; nearby distinct curves stay distinct.

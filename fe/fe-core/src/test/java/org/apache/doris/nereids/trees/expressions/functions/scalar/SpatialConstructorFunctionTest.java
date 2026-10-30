@@ -95,43 +95,7 @@ public class SpatialConstructorFunctionTest {
     }
 
     @Test
-    public void testSpatialFunctionsPreserveParameterizedInputTypes() {
-        GeometryType geometry = new GeometryType("EPSG:3857");
-        GeographyType geography = new GeographyType("OGC:CRS84", "vincenty");
-        SlotReference geometrySlot = new SlotReference("geometry", geometry);
-        SlotReference geographySlot = new SlotReference("geography", geography);
-
-        Assertions.assertEquals(geometry, new StAswkt(geometrySlot).expectedInputTypes().get(0));
-        Assertions.assertEquals(geometry, new StAsBinary(geometrySlot).expectedInputTypes().get(0));
-        Assertions.assertEquals(geometry, new StGeometryType(geometrySlot).expectedInputTypes().get(0));
-        Assertions.assertEquals(geometry, new StX(geometrySlot).expectedInputTypes().get(0));
-        Assertions.assertEquals(geometry, new StY(geometrySlot).expectedInputTypes().get(0));
-        Assertions.assertEquals(geography, new StLength(geographySlot).expectedInputTypes().get(0));
-
-        Assertions.assertEquals(geometry,
-                new StDistance(geometrySlot, geographySlot).expectedInputTypes().get(0));
-        Assertions.assertEquals(geography,
-                new StDistance(geometrySlot, geographySlot).expectedInputTypes().get(1));
-        Assertions.assertEquals(geometry,
-                new StContains(geometrySlot, geographySlot).expectedInputTypes().get(0));
-        Assertions.assertEquals(geometry,
-                new StIntersects(geometrySlot, geographySlot).expectedInputTypes().get(0));
-        Assertions.assertEquals(geometry,
-                new StDisjoint(geometrySlot, geographySlot).expectedInputTypes().get(0));
-        Assertions.assertEquals(geometry,
-                new StTouches(geometrySlot, geographySlot).expectedInputTypes().get(0));
-        Assertions.assertEquals(geography,
-                new StAzimuth(geometrySlot, geographySlot).expectedInputTypes().get(1));
-        Assertions.assertEquals(geometry,
-                new StWithin(geometrySlot, geographySlot).expectedInputTypes().get(0));
-        StAngle angle = new StAngle(geometrySlot, geographySlot, geometrySlot);
-        Assertions.assertEquals(geometry, angle.expectedInputTypes().get(0));
-        Assertions.assertEquals(geography, angle.expectedInputTypes().get(1));
-        Assertions.assertEquals(geometry, angle.expectedInputTypes().get(2));
-    }
-
-    @Test
-    public void testSpatialAreaPreservesMetadataDuringCoercion() {
+    public void testSpatialAccessorsPreserveParameterizedInputTypes() {
         for (DataType type : List.of(new GeometryType("OGC:CRS84"), new GeometryType("EPSG:3857"),
                 new GeographyType("OGC:CRS84", "spherical"),
                 new GeographyType("EPSG:3857", "spherical"),
@@ -139,14 +103,54 @@ public class SpatialConstructorFunctionTest {
             for (boolean nullable : List.of(false, true)) {
                 for (Expression argument : List.of(new SlotReference("shape", type, nullable),
                         new NullLiteral(type))) {
-                    for (ScalarFunction function : List.of(new StAreaSquareMeters(argument),
-                            new StAreaSquareKm(argument))) {
+                    for (ScalarFunction function : List.of(new StAstext(argument), new StAswkt(argument),
+                            new StAsBinary(argument), new StGeometryType(argument),
+                            new StX(argument), new StY(argument))) {
                         Expression coerced = TypeCoercionUtils.processBoundFunction(function);
                         Assertions.assertSame(argument, coerced.child(0));
                         Assertions.assertEquals(type, function.expectedInputTypes().get(0));
-                        Assertions.assertEquals(DoubleType.INSTANCE, coerced.getDataType());
-                        Assertions.assertTrue(coerced.nullable());
                     }
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testSpatialCalculationsRejectUnsupportedMetadata() {
+        SlotReference supported = new SlotReference("geog", new GeographyType("OGC:CRS84", "spherical"));
+        for (DataType type : List.of(new GeometryType("OGC:CRS84"), new GeometryType("EPSG:3857"),
+                new GeographyType("EPSG:3857", "spherical"),
+                new GeographyType("OGC:CRS84", "vincenty"))) {
+            for (Expression argument : List.of(new SlotReference("shape", type), new NullLiteral(type))) {
+                for (ScalarFunction function : List.of(new StLength(argument), new StAreaSquareMeters(argument),
+                        new StAreaSquareKm(argument), new StDistance(argument, supported),
+                        new StDistance(supported, argument), new StWithin(argument, NullLiteral.INSTANCE),
+                        new StAzimuth(NullLiteral.INSTANCE, argument), new StContains(argument, supported),
+                        new StIntersects(argument, supported), new StDisjoint(supported, argument),
+                        new StTouches(argument, supported), new StEquals(argument, supported),
+                        new StOverlaps(supported, argument),
+                        new StDWithin(argument, supported, new IntegerLiteral(1)),
+                        new StAngle(supported, argument, supported))) {
+                    Assertions.assertThrows(AnalysisException.class,
+                            () -> TypeCoercionUtils.processBoundFunction(function));
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testSpatialAreaPreservesMetadataDuringCoercion() {
+        GeographyType type = new GeographyType("OGC:CRS84", "spherical");
+        for (boolean nullable : List.of(false, true)) {
+            for (Expression argument : List.of(new SlotReference("shape", type, nullable),
+                    new NullLiteral(type))) {
+                for (ScalarFunction function : List.of(new StAreaSquareMeters(argument),
+                        new StAreaSquareKm(argument))) {
+                    Expression coerced = TypeCoercionUtils.processBoundFunction(function);
+                    Assertions.assertSame(argument, coerced.child(0));
+                    Assertions.assertEquals(type, function.expectedInputTypes().get(0));
+                    Assertions.assertEquals(DoubleType.INSTANCE, coerced.getDataType());
+                    Assertions.assertTrue(coerced.nullable());
                 }
             }
         }
@@ -178,25 +182,23 @@ public class SpatialConstructorFunctionTest {
 
     @Test
     public void testSpatialBinaryFunctionsCoerceLiteralNullWithSpatialMetadata() {
-        for (DataType type : List.of(new GeometryType("EPSG:3857"),
-                new GeographyType("OGC:CRS84", "vincenty"))) {
-            SlotReference slot = new SlotReference("spatial", type);
-            for (int position = 0; position < 2; position++) {
-                Expression left = position == 0 ? NullLiteral.INSTANCE : slot;
-                Expression right = position == 1 ? NullLiteral.INSTANCE : slot;
-                for (BoundFunction function : List.of(new StDistance(left, right), new StWithin(left, right),
-                        new StAzimuth(left, right))) {
-                    Expression coerced = TypeCoercionUtils.processBoundFunction(function);
-                    Assertions.assertEquals(type, coerced.child(position).getDataType());
-                    Assertions.assertEquals(type, coerced.child(1 - position).getDataType());
-                }
+        GeographyType type = new GeographyType("OGC:CRS84", "spherical");
+        SlotReference slot = new SlotReference("spatial", type);
+        for (int position = 0; position < 2; position++) {
+            Expression left = position == 0 ? NullLiteral.INSTANCE : slot;
+            Expression right = position == 1 ? NullLiteral.INSTANCE : slot;
+            for (BoundFunction function : List.of(new StDistance(left, right), new StWithin(left, right),
+                    new StAzimuth(left, right))) {
+                Expression coerced = TypeCoercionUtils.processBoundFunction(function);
+                Assertions.assertEquals(type, coerced.child(position).getDataType());
+                Assertions.assertEquals(type, coerced.child(1 - position).getDataType());
             }
         }
     }
 
     @Test
     public void testSpatialAngleCoercesLiteralNullInEveryPosition() {
-        GeographyType type = new GeographyType("OGC:CRS84", "vincenty");
+        GeographyType type = new GeographyType("OGC:CRS84", "spherical");
         SlotReference slot = new SlotReference("geography", type);
         for (int position = 0; position < 3; position++) {
             Expression[] arguments = {slot, slot, slot};

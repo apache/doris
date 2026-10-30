@@ -781,13 +781,13 @@ public class CreateIcebergSpatialV3Table {
     """
     test {
         sql """select ST_Distance(geog, geog) from projected_values"""
-        exception "requires GEOGRAPHY(OGC:CRS84, spherical)"
+        exception "Spatial calculation does not support typed GEOGRAPHY"
     }
     for (String expression : ["ST_Azimuth(geog, geog)", "ST_Within(geog, geog)",
             "ST_Angle(geog, geog, geog)"]) {
         test {
             sql """select ${expression} from projected_values"""
-            exception "requires GEOGRAPHY(OGC:CRS84, spherical)"
+            exception "Spatial calculation does not support typed GEOGRAPHY"
         }
     }
     String spatialSavedSqlMode = sql("select @@sql_mode")[0][0].toString()
@@ -1198,13 +1198,13 @@ public class CreateIcebergSpatialV3Table {
         for (String source : ["spatial_wkb_values", "projected_values"]) {
             test {
                 sql """select ${function}(geom) from ${source} where id = 1"""
-                exception "requires GEOGRAPHY(OGC:CRS84, spherical)"
+                exception "Spatial calculation does not support typed GEOMETRY"
             }
         }
         for (String source : ["projected_values", "referenced_crs_values"]) {
             test {
                 sql """select ${function}(geog) from ${source} where id = 1"""
-                exception "requires GEOGRAPHY(OGC:CRS84, spherical)"
+                exception "Spatial calculation does not support typed GEOGRAPHY"
             }
         }
     }
