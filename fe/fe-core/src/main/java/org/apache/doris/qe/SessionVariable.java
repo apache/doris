@@ -462,6 +462,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String REWRITE_OR_TO_IN_PREDICATE_THRESHOLD = "rewrite_or_to_in_predicate_threshold";
 
+    public static final String KEEP_IS_NOT_NULL_NUM_NULLS_THRESHOLD = "keep_is_not_null_num_nulls_threshold";
+
+    public static final long DEFAULT_KEEP_IS_NOT_NULL_NUM_NULLS_THRESHOLD = 1_000_000L;
+
     public static final String NEREIDS_CBO_PENALTY_FACTOR = "nereids_cbo_penalty_factor";
     public static final String ENABLE_EXPR_TRACE = "enable_expr_trace";
 
@@ -2211,6 +2215,13 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = REWRITE_OR_TO_IN_PREDICATE_THRESHOLD, fuzzy = true)
     private int rewriteOrToInPredicateThreshold = 2;
+
+    @VarAttrDef.VarAttr(name = KEEP_IS_NOT_NULL_NUM_NULLS_THRESHOLD, fuzzy = true,
+            description = "The inferred `is not null` predicate above a scan is kept instead of being eliminated "
+                    + "when the number of nulls of the column is greater than this threshold, so that the scan "
+                    + "can skip the rows whose value is null. A negative value always eliminates the inferred "
+                    + "`is not null` predicate.")
+    public long keepIsNotNullNumNullsThreshold = DEFAULT_KEEP_IS_NOT_NULL_NUM_NULLS_THRESHOLD;
 
     @VarAttrDef.VarAttr(name = "push_topn_to_agg", fuzzy = false, needForward = true)
     public boolean pushTopnToAgg = true;
