@@ -1378,6 +1378,12 @@ public class NereidsPlanner extends Planner {
                     && inputProps.get(i).getDistributionSpec() instanceof DistributionSpecHash;
             PlanWithCost childPlan = enforceChildProperties(chosenGE.child(i), childPlans.get(i),
                     inputProps.get(i), forceDistribution, cascadesContext);
+            childPlans.set(i, childPlan);
+        }
+        if (alignedChildren && !contractHolds) {
+            alignChildrenDistributions(chosenGE, inputProps, childPlans, cascadesContext);
+        }
+        for (PlanWithCost childPlan : childPlans) {
             planChildren.add(childPlan.plan);
             childrenCost += childPlan.cost;
         }
@@ -1596,8 +1602,8 @@ public class NereidsPlanner extends Planner {
             enforcedPlan = addSort(enforcedPlan, requiredOrder, SortPhase.LOCAL_SORT, childGroup, cascadesContext);
         }
         if (needDistribution) {
-            enforcedPlan = addExchange(enforcedPlan, requiredProperties.getDistributionSpec(),
-                    childGroup, cascadesContext);
+            enforcedPlan = addExchange(enforcedPlan,
+                    toExchangeDistribution(requiredProperties.getDistributionSpec()), childGroup, cascadesContext);
         }
         if (mergeSort) {
             enforcedPlan = addSort(enforcedPlan, requiredOrder, SortPhase.MERGE_SORT, childGroup, cascadesContext);
@@ -1608,15 +1614,86 @@ public class NereidsPlanner extends Planner {
     }
 
     /**
-     * Add an exchange which delivers the required distribution. A hash distribution without a shuffle
-     * type is delivered by a hash shuffle, the same way
+     * The inputs of a join or of a set operation must stay aligned after one of them was replaced by a
+     * materialization.
+     * <p>
+     * When one input is delivered by a global hash exchange, the translator reads the pairing as a
+     * partitioned join, whose inputs must be partitioned by the same global hash. An input which keeps
+     * its own storage layout in such a pairing is not partitioned by the join keys, so it is exchanged
+     * as well, no matter which property the memo costed for it.
+     */
+    private static void alignChildrenDistributions(GroupExpression groupExpression,
+            List<PhysicalProperties> inputProps, List<PlanWithCost> childPlans,
+            CascadesContext cascadesContext) {
+        boolean hasGlobalHashExchange = false;
+        for (PlanWithCost childPlan : childPlans) {
+            DistributionSpec distributionSpec = childPlan.plan.getPhysicalProperties().getDistributionSpec();
+            if (!(distributionSpec instanceof DistributionSpecHash)) {
+                // A broadcast or a gathered input does not take part in the hash pairing, the translator
+                // does not read the pairing as a partitioned join for it.
+                return;
+            }
+            if (isGlobalHashExchange(distributionSpec)) {
+                hasGlobalHashExchange = true;
+            }
+        }
+        if (!hasGlobalHashExchange) {
+            // Every input still delivers its own storage layout, they are co-located or bucket shuffled
+            // with each other, which is a valid pairing.
+            return;
+        }
+        for (int i = 0; i < childPlans.size(); i++) {
+            PlanWithCost childPlan = childPlans.get(i);
+            DistributionSpec distributionSpec = childPlan.plan.getPhysicalProperties().getDistributionSpec();
+            if (isGlobalHashExchange(distributionSpec)) {
+                continue;
+            }
+            childPlans.set(i, addExchange(childPlan, exchangeDistributionOf(inputProps.get(i), distributionSpec),
+                    groupExpression.child(i), cascadesContext));
+        }
+    }
+
+    /**
+     * Whether the distribution is delivered by a global hash exchange instead of a storage layout.
+     */
+    private static boolean isGlobalHashExchange(DistributionSpec distributionSpec) {
+        if (!(distributionSpec instanceof DistributionSpecHash)) {
+            return false;
+        }
+        ShuffleType shuffleType = ((DistributionSpecHash) distributionSpec).getShuffleType();
+        return shuffleType != ShuffleType.NATURAL && shuffleType != ShuffleType.STORAGE_BUCKETED;
+    }
+
+    /**
+     * The distribution of a global hash exchange which aligns a child with its siblings: the shuffle
+     * columns are the ones the memo required for it, so that the inputs are partitioned by the same
+     * keys.
+     */
+    private static DistributionSpec exchangeDistributionOf(PhysicalProperties requiredProperties,
+            DistributionSpec actualDistribution) {
+        DistributionSpec requiredDistribution = requiredProperties.getDistributionSpec();
+        if (requiredDistribution instanceof DistributionSpecHash) {
+            return ((DistributionSpecHash) requiredDistribution).withShuffleType(ShuffleType.EXECUTION_BUCKETED);
+        }
+        return ((DistributionSpecHash) actualDistribution).withShuffleType(ShuffleType.EXECUTION_BUCKETED);
+    }
+
+    /**
+     * The distribution of an exchange which delivers the required distribution. A hash distribution
+     * without a shuffle type is delivered by a hash shuffle, the same way
      * {@link org.apache.doris.nereids.properties.EnforceMissingPropertiesHelper} does it.
      */
-    private static PlanWithCost addExchange(PlanWithCost childPlan, DistributionSpec requiredDistribution,
-            Group childGroup, CascadesContext cascadesContext) {
-        DistributionSpec exchangeDistribution = requiredDistribution instanceof DistributionSpecHash
+    private static DistributionSpec toExchangeDistribution(DistributionSpec requiredDistribution) {
+        return requiredDistribution instanceof DistributionSpecHash
                 ? ((DistributionSpecHash) requiredDistribution).withShuffleType(ShuffleType.EXECUTION_BUCKETED)
                 : requiredDistribution;
+    }
+
+    /**
+     * Add an exchange which delivers the given distribution.
+     */
+    private static PlanWithCost addExchange(PlanWithCost childPlan, DistributionSpec exchangeDistribution,
+            Group childGroup, CascadesContext cascadesContext) {
         PhysicalDistribute<Plan> exchange = new PhysicalDistribute<>(exchangeDistribution, Optional.empty(),
                 childPlan.plan.getLogicalProperties(), new PhysicalProperties(exchangeDistribution),
                 childPlan.plan.getStats(), childPlan.plan);
