@@ -139,6 +139,13 @@ public class VariantType extends PrimitiveType {
                                     variantDocShardCount, enableNestedGroup, variantSerializeType);
     }
 
+    /** This type with the given serialize type, as a new instance. */
+    public VariantType withSerializeType(TVariantSerializeType serializeType) {
+        return new VariantType(predefinedFields, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
+                variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount, enableVariantDocMode,
+                variantDocMaterializationMinRows, variantDocShardCount, enableNestedGroup, serializeType);
+    }
+
     @Override
     public Type toCatalogDataType() {
         org.apache.doris.catalog.VariantType type = new org.apache.doris.catalog.VariantType(predefinedFields.stream()
@@ -206,9 +213,6 @@ public class VariantType extends PrimitiveType {
             sb.append("\"variant_enable_nested_group\" = \"")
                     .append(String.valueOf(enableNestedGroup)).append("\"");
         }
-        sb.append(",");
-        sb.append("\"variant_serialize_type\" = \"")
-                .append(variantSerializeType == TVariantSerializeType.V1 ? "v1" : "v2").append("\"");
         sb.append(")>");
         return sb.toString();
     }

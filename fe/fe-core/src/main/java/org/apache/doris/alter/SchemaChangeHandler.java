@@ -58,6 +58,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletBinlogConfig;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.VariantType;
 import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.cloud.qe.ComputeGroupException;
@@ -113,7 +114,6 @@ import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTaskType;
-import org.apache.doris.thrift.TVariantSerializeType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -330,10 +330,6 @@ public class SchemaChangeHandler extends AlterHandler {
         }
         if (newColumn.getType().isVariantType() && newColumn.getVariantEnableNestedGroup()) {
             throw new DdlException("can't add variant column with nested group on table with changelog, column: "
-                    + newColumn.getName());
-        }
-        if (newColumn.getType().isVariantType() && newColumn.getVariantSerializeType() != TVariantSerializeType.V2) {
-            throw new DdlException("variant column on table with changelog must use variant_serialize_type v2, column: "
                     + newColumn.getName());
         }
 
@@ -1008,6 +1004,11 @@ public class SchemaChangeHandler extends AlterHandler {
             if (col.getName().equalsIgnoreCase(newColName)) {
                 modColIndex = i;
                 found = true;
+                // A restated definition parses as V2, but the column keeps the layout its data is stored with.
+                if (col.getType().isVariantType() && modColumn.getType().isVariantType()) {
+                    modColumn.setType(((VariantType) modColumn.getType())
+                            .withSerializeType(col.getVariantSerializeType()));
+                }
                 if (!col.equals(modColumn)) {
                     typeChanged = true;
                     // TODO:the case where columnPos is not empty has not been considered

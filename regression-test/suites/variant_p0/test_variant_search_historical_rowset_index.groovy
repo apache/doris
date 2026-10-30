@@ -22,15 +22,13 @@ suite("test_variant_search_historical_rowset_index", "p0") {
     // Cloud requires this flag and a non-tokenized index for metadata-only creation.
     // A tokenized index uses full schema change and rebuilds the historical rowsets.
     sql "SET enable_add_index_for_new_data = true"
+    sql "SET default_variant_enable_doc_mode = false"
     sql "DROP TABLE IF EXISTS test_variant_search_historical_rowset_index"
     sql """
         CREATE TABLE test_variant_search_historical_rowset_index (
             id INT,
             title TEXT,
-            v VARIANT<PROPERTIES(
-                "variant_enable_doc_mode"="false",
-                "variant_serialize_type" = "v1"
-            )>,
+            v VARIANT<PROPERTIES("variant_max_subcolumns_count" = "2048")>,
             INDEX idx_title(title) USING INVERTED
                 PROPERTIES("parser"="unicode", "support_phrase"="true")
         ) DUPLICATE KEY(id)

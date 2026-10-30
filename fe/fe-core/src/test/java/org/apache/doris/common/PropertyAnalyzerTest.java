@@ -33,7 +33,6 @@ import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
-import org.apache.doris.thrift.TVariantSerializeType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -585,24 +584,6 @@ public class PropertyAnalyzerTest {
         } catch (AnalysisException e) {
             Assertions.assertNotNull(e.getMessage());
         }
-    }
-
-    @Test
-    public void testAnalyzeVariantSerializeType() throws AnalysisException {
-        Map<String, String> properties = Maps.newHashMap();
-        Assertions.assertEquals(TVariantSerializeType.V2,
-                PropertyAnalyzer.analyzeVariantSerializeType(properties, TVariantSerializeType.V2));
-
-        properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_SERIALIZE_TYPE, "V1");
-        Assertions.assertEquals(TVariantSerializeType.V1,
-                PropertyAnalyzer.analyzeVariantSerializeType(properties, TVariantSerializeType.V2));
-        Assertions.assertTrue(properties.isEmpty());
-
-        properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_SERIALIZE_TYPE, "legacy");
-        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
-                () -> PropertyAnalyzer.analyzeVariantSerializeType(properties, TVariantSerializeType.V2));
-        Assertions.assertTrue(exception.getMessage().contains("variant_serialize_type must be `v1` or `v2`"),
-                exception.getMessage());
     }
 
     @Test

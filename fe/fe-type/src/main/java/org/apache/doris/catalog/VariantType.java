@@ -165,6 +165,13 @@ public class VariantType extends ScalarType {
         this.variantSerializeType = variantSerializeType;
     }
 
+    /** This type with the given serialize type, as a new instance. */
+    public VariantType withSerializeType(TVariantSerializeType serializeType) {
+        return new VariantType(predefinedFields, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
+                variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount, enableVariantDocMode,
+                variantDocMaterializationMinRows, variantDocShardCount, enableNestedGroup, serializeType);
+    }
+
     /**
      * The layout a changelog stores this column with, as a new instance; this one is untouched. Both images of a
      * changelog row are only read whole, so every path goes to the sparse column (V2 with no dynamic subcolumn and
@@ -229,11 +236,6 @@ public class VariantType extends ScalarType {
             sb.append("\"variant_enable_nested_group\" = \"")
                     .append(String.valueOf(enableNestedGroup)).append("\"");
         }
-        // Stated for every column, so DDL printed from it replays with the layout the column is stored with
-        // whatever the default for new columns is.
-        sb.append(",");
-        sb.append("\"variant_serialize_type\" = \"")
-                .append(variantSerializeType == TVariantSerializeType.V1 ? "v1" : "v2").append("\"");
         sb.append(")>");
         return sb.toString();
     }
@@ -279,7 +281,9 @@ public class VariantType extends ScalarType {
                 && enableVariantDocMode == otherVariantType.enableVariantDocMode
                 && variantDocMaterializationMinRows == otherVariantType.variantDocMaterializationMinRows
                 && enableNestedGroup == otherVariantType.enableNestedGroup
-                && (!variantSerializeTypeMatters() || variantSerializeType == otherVariantType.variantSerializeType);
+                // the serialize type only changes what a max subcolumns count of 0 means
+                && (variantMaxSubcolumnsCount != 0 || enableVariantDocMode || enableNestedGroup
+                        || variantSerializeType == otherVariantType.variantSerializeType);
     }
 
     @Override

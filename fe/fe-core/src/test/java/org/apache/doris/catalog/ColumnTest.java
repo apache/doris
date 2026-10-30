@@ -207,23 +207,11 @@ public class ColumnTest {
     }
 
     @Test
-    public void testSchemaChangeVariantSerializeTypeRejected() throws DdlException {
-        // count 0: the serialize type decides the layout and cannot change
+    public void testVariantSerializeTypeReachesThriftAndPb() throws DdlException {
         Column v1Zero = new Column("v", new VariantType(new ArrayList<>(), 0, false, 10000, 1, false, 0L, 64, false,
                 TVariantSerializeType.V1), false, null, true, null, "");
         Column v2Zero = new Column("v", new VariantType(new ArrayList<>(), 0, false, 10000, 1, false, 0L, 64, false,
                 TVariantSerializeType.V2), false, null, true, null, "");
-        DdlException exception = Assertions.assertThrows(DdlException.class,
-                () -> v1Zero.checkSchemaChangeAllowed(v2Zero));
-        Assertions.assertTrue(exception.getMessage().contains("Can not change variant serialize type"),
-                exception.getMessage());
-        // any other count stores the same way under both
-        Column v1Counted = new Column("v", new VariantType(new ArrayList<>(), 2048, false, 10000, 1, false, 0L, 64,
-                false, TVariantSerializeType.V1), false, null, true, null, "");
-        Column v2Counted = new Column("v", new VariantType(new ArrayList<>(), 2048, false, 10000, 1, false, 0L, 64,
-                false, TVariantSerializeType.V2), false, null, true, null, "");
-        v1Counted.checkSchemaChangeAllowed(v2Counted);
-
         Assertions.assertEquals(TVariantSerializeType.V2,
                 ColumnToThrift.toThrift(v2Zero).getVariantSerializeType());
         Assertions.assertEquals(OlapFile.VariantSerializeTypePB.VARIANT_SERIALIZE_V2,

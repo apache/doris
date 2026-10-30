@@ -734,15 +734,12 @@ public class ScalarType extends Type {
             case DATEV2:
             case HLL:
             case BITMAP:
+            case VARIANT:
             case QUANTILE_STATE:
             case LAMBDA_FUNCTION:
             case NULL_TYPE:
                 stringBuilder.append(type.toString().toLowerCase());
                 break;
-            case VARIANT:
-                // Only metadata older than VariantType is a plain ScalarType. Its layout is V1 with count 0, the values
-                // of a default VariantType; bare `variant` would replay with the defaults for new columns instead.
-                return new VariantType().toSql(depth);
             case STRING:
                 stringBuilder.append("text");
                 break;
@@ -1101,16 +1098,7 @@ public class ScalarType extends Type {
         if (this instanceof VariantType) {
             return ((VariantType) this).getVariantSerializeType();
         }
-        return TVariantSerializeType.V1; // The old variant type predates the parameter.
-    }
-
-    /**
-     * Whether the serialize type decides how this variant column is shredded. It only changes what a max subcolumns
-     * count of 0 means, and the doc and nested-group layouts never consult the count, so two variant types that
-     * differ only in the serialize type store their data the same way unless this holds.
-     */
-    public boolean variantSerializeTypeMatters() {
-        return getVariantMaxSubcolumnsCount() == 0 && !getVariantEnableDocMode() && !getVariantEnableNestedGroup();
+        return TVariantSerializeType.V1; // The old variant type predates the field.
     }
 
     public boolean getVariantEnableNestedGroup() {

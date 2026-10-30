@@ -5454,8 +5454,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         boolean enableNestedGroup = ConnectContext.get() == null ? true :
                 ConnectContext.get().getSessionVariable().getDefaultVariantEnableNestedGroup();
 
-        TVariantSerializeType variantSerializeType = TVariantSerializeType.V2;
-
         try {
             // validate properties: variant_enable_doc_mode cannot be set together with other properties
             PropertyAnalyzer.validateVariantProperties(properties);
@@ -5476,8 +5474,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     .analyzeVariantDocHashShardCount(properties, variantDocHashShardCount);
             enableNestedGroup = PropertyAnalyzer
                     .analyzeEnableNestedGroup(properties, enableNestedGroup);
-            variantSerializeType = PropertyAnalyzer
-                    .analyzeVariantSerializeType(properties, variantSerializeType);
         } catch (org.apache.doris.common.AnalysisException e) {
             throw new NotSupportedException(e.getMessage());
         }
@@ -5528,14 +5524,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_DOC_MODE
                     + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_DOC_MATERIALIZATION_MIN_ROWS
                     + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT
-                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_NESTED_GROUP
-                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_SERIALIZE_TYPE);
+                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_NESTED_GROUP);
         }
 
         return new VariantType(fields, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
                     variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
                     enableVariantDocMode, variantDocMaterializationMinRows, variantDocHashShardCount,
-                    enableNestedGroup, variantSerializeType);
+                    // internal, not a property: a declared column is always new, and only old metadata is V1
+                    enableNestedGroup, TVariantSerializeType.V2);
     }
 
     private static boolean isSupportedVariantDocModeType(DataType type) {

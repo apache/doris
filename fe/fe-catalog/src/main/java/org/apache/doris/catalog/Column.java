@@ -834,11 +834,6 @@ public class Column implements GsonPostProcessable {
             if (this.getVariantEnableNestedGroup() != other.getVariantEnableNestedGroup()) {
                 throw new DdlException("Can not change variant enable nested group");
             }
-            // The count, doc mode and nested group are equal by now, so whether the serialize type matters is too.
-            if (((ScalarType) type).variantSerializeTypeMatters()
-                    && this.getVariantSerializeType() != other.getVariantSerializeType()) {
-                throw new DdlException("Can not change variant serialize type");
-            }
             if (CollectionUtils.isNotEmpty(this.getChildren()) || CollectionUtils.isNotEmpty(other.getChildren())) {
                 throw new DdlException("Can not change variant schema templates");
             }

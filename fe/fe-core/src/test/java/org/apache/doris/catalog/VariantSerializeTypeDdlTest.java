@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
@@ -30,64 +31,60 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 /**
- * DDL creates V2 variant columns, SHOW CREATE TABLE states every column's serialize type, and a V1 column with
- * count 0, whose layout it decides, cannot change it.
+ * The serialize type is internal: DDL creates V2 variant columns and cannot state it, and only metadata older than
+ * the field is V1. MODIFY COLUMN keeps what a column is stored with; a created column does not inherit it.
  */
 public class VariantSerializeTypeDdlTest extends TestWithFeService {
+    private static final String COUNT_ZERO = "VARIANT<PROPERTIES(\"variant_max_subcolumns_count\" = \"0\")>";
+
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("variant_serialize_type");
         connectContext.setDatabase("variant_serialize_type");
     }
 
-    @Test
-    public void testDdlDefaultsToV2AndShowCreateTableStatesSerializeType() throws Exception {
-        createTable("CREATE TABLE variant_serialize_type.t (k INT, "
-                + "z VARIANT<PROPERTIES(\"variant_max_subcolumns_count\" = \"0\")>, "
-                + "l VARIANT<PROPERTIES(\"variant_max_subcolumns_count\" = \"0\", "
-                + "\"variant_serialize_type\" = \"v1\")>, "
-                + "c VARIANT<PROPERTIES(\"variant_serialize_type\" = \"v1\")>) "
+    // DDL cannot create a V1 column, so the metadata is rewritten to what an old image reads as.
+    private OlapTable createTableWithOldColumn(String name) throws Exception {
+        createTable("CREATE TABLE variant_serialize_type." + name + " (k INT, v " + COUNT_ZERO + ") "
                 + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ('replication_num'='1')");
         OlapTable table = (OlapTable) Env.getCurrentInternalCatalog()
-                .getDbOrMetaException("variant_serialize_type").getTableOrMetaException("t");
-        Assertions.assertEquals(TVariantSerializeType.V2, table.getColumn("z").getVariantSerializeType());
-        Assertions.assertEquals(TVariantSerializeType.V1, table.getColumn("l").getVariantSerializeType());
-        Assertions.assertEquals(TVariantSerializeType.V1, table.getColumn("c").getVariantSerializeType());
-
-        // the printed DDL states every column's serialize type, so each one replays with its layout
-        List<String> createTableStmt = Lists.newArrayList();
-        Env.getDdlStmt(table, createTableStmt, null, null, false, true, -1L);
-        String ddl = createTableStmt.get(0);
-        List<ColumnDefinition> columns = ((CreateTableCommand) new NereidsParser().parseSingle(ddl))
-                .getCreateTableInfo().getColumnDefinitions();
-        Assertions.assertEquals(TVariantSerializeType.V2,
-                ((org.apache.doris.nereids.types.VariantType) columns.get(1).getType()).getVariantSerializeType());
-        Assertions.assertEquals(TVariantSerializeType.V1,
-                ((org.apache.doris.nereids.types.VariantType) columns.get(2).getType()).getVariantSerializeType());
-        Assertions.assertEquals(TVariantSerializeType.V1,
-                ((org.apache.doris.nereids.types.VariantType) columns.get(3).getType()).getVariantSerializeType());
-
-        // a V1 count-0 column cannot become V2 count 0, whose layout is the opposite
-        Exception error = Assertions.assertThrows(Exception.class, () -> alterTableSync(
-                "ALTER TABLE t MODIFY COLUMN l VARIANT<PROPERTIES(\"variant_max_subcolumns_count\" = \"0\")>"));
-        Assertions.assertTrue(error.getMessage().contains("Can not change variant serialize type"),
-                error.getMessage());
-        // restating the property, as the printed DDL does, keeps it V1
-        alterTableSync("ALTER TABLE t MODIFY COLUMN l VARIANT<PROPERTIES(\"variant_max_subcolumns_count\" = \"0\", "
-                + "\"variant_serialize_type\" = \"v1\")> COMMENT 'kept'");
-        Assertions.assertEquals(TVariantSerializeType.V1, table.getColumn("l").getVariantSerializeType());
-        // a V1 column with any other count stores the same way as a bare VARIANT, so it can be restated as one
-        alterTableSync("ALTER TABLE t MODIFY COLUMN c VARIANT COMMENT 'restated'");
-        Assertions.assertEquals("restated", table.getColumn("c").getComment());
+                .getDbOrMetaException("variant_serialize_type").getTableOrMetaException(name);
+        Column column = table.getColumn("v");
+        Assertions.assertEquals(TVariantSerializeType.V2, column.getVariantSerializeType());
+        column.setType(((VariantType) column.getType()).withSerializeType(TVariantSerializeType.V1));
+        return table;
     }
 
     @Test
-    public void testPlainScalarVariantReplaysAsV1CountZero() {
-        // Metadata older than VariantType deserializes as a plain ScalarType and predates the serialize type.
-        String printed = new ScalarType(PrimitiveType.VARIANT).toSql();
-        org.apache.doris.nereids.types.VariantType replayed =
-                (org.apache.doris.nereids.types.VariantType) new NereidsParser().parseDataType(printed);
-        Assertions.assertEquals(TVariantSerializeType.V1, replayed.getVariantSerializeType());
-        Assertions.assertEquals(0, replayed.getVariantMaxSubcolumnsCount());
+    public void testPrintedDdlReplaysOldColumnAsV2() throws Exception {
+        OlapTable table = createTableWithOldColumn("t_replay");
+        List<String> createTableStmt = Lists.newArrayList();
+        Env.getDdlStmt(table, createTableStmt, null, null, false, true, -1L);
+        List<ColumnDefinition> columns = ((CreateTableCommand) new NereidsParser().parseSingle(createTableStmt.get(0)))
+                .getCreateTableInfo().getColumnDefinitions();
+        Assertions.assertEquals(TVariantSerializeType.V2,
+                ((org.apache.doris.nereids.types.VariantType) columns.get(1).getType()).getVariantSerializeType());
+    }
+
+    @Test
+    public void testModifyColumnKeepsStoredSerializeType() throws Exception {
+        OlapTable table = createTableWithOldColumn("t_modify");
+        // the restated definition parses as V2
+        alterTableSync("ALTER TABLE t_modify MODIFY COLUMN v " + COUNT_ZERO + " COMMENT 'kept'");
+        Assertions.assertEquals("kept", table.getColumn("v").getComment());
+        Assertions.assertEquals(TVariantSerializeType.V1, table.getColumn("v").getVariantSerializeType());
+    }
+
+    @Test
+    public void testCtasOfOldColumnCreatesV2() throws Exception {
+        createTableWithOldColumn("t_ctas_source");
+        CreateTableCommand command = (CreateTableCommand) new NereidsParser().parseSingle(
+                "CREATE TABLE t_ctas DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ('replication_num'='1') "
+                        + "AS SELECT * FROM t_ctas_source");
+        connectContext.setStatementContext(new StatementContext());
+        command.validateCreateTableAsSelect(connectContext, command.getCtasQuery().get());
+        List<ColumnDefinition> columns = command.getCreateTableInfo().getColumnDefinitions();
+        Assertions.assertEquals(TVariantSerializeType.V2,
+                ((org.apache.doris.nereids.types.VariantType) columns.get(1).getType()).getVariantSerializeType());
     }
 }
