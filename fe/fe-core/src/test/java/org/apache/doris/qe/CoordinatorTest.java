@@ -32,6 +32,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.runtime.MultiFragmentsPipelineTask;
 import org.apache.doris.qe.runtime.PipelineExecutionTask;
+import org.apache.doris.qe.runtime.SingleFragmentPipelineTask;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TPipelineFragmentParams;
@@ -310,6 +311,30 @@ public class CoordinatorTest extends TestWithFeService {
         worker = new BackendWorker(999L, backend);
         Mockito.when(task.getChildrenTasks()).thenReturn(Map.of(worker, backendTask));
         Assertions.assertTrue(coordinator.shouldCancel(List.of()).ok());
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {-1L, 0L})
+    public void testBackendEpochInitializationCancelsWaitingQuery(long capturedEpoch) throws Exception {
+        Coordinator coordinator = EnvFactory.getInstance().createCoordinator(
+                connectContext, plan("select * from test.tbl"), null);
+        Backend backend = new Backend(10001L, "127.0.0.1", 9050);
+        backend.setAlive(true);
+        backend.setLastStartTime(capturedEpoch);
+        SingleFragmentPipelineTask fragmentTask = new SingleFragmentPipelineTask(backend, 0, Set.of());
+        PipelineExecutionTask task = Mockito.mock(PipelineExecutionTask.class);
+        MultiFragmentsPipelineTask backendTask = Mockito.mock(MultiFragmentsPipelineTask.class);
+        Mockito.when(backendTask.getBackend()).thenReturn(backend);
+        Mockito.when(backendTask.getChildrenTasks()).thenReturn(Map.of(0, fragmentTask));
+        Mockito.when(task.getChildrenTasks()).thenReturn(Map.of(new BackendWorker(0L, backend), backendTask));
+        coordinator.executionTask = task;
+
+        Assertions.assertTrue(coordinator.shouldCancel(List.of(backend)).ok());
+        backend.setLastStartTime(100L);
+        Assertions.assertFalse(coordinator.shouldCancel(List.of(backend)).ok());
+        // A current epoch of zero remains the legacy replay/upgrade exception.
+        backend.setLastStartTime(0L);
+        Assertions.assertTrue(coordinator.shouldCancel(List.of(backend)).ok());
     }
 
     @Test
