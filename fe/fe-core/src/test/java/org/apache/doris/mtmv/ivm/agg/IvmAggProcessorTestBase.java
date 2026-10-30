@@ -63,6 +63,11 @@ abstract class IvmAggProcessorTestBase {
         for (NamedExpression output : outputs) {
             outputByName.put(output.getName(), output.toSlot());
         }
+        return mappedDeltaSlots(processor, target, outputByName);
+    }
+
+    protected Map<String, Slot> mappedDeltaSlots(IvmAggFunctionProcessor processor, IvmAggTarget target,
+            Map<String, Slot> outputByName) {
         Map<IvmAggDeltaSlotRef, Slot> applyDeltaSlots = new HashMap<>();
         processor.mapApplyDeltaSlots(target, outputByName, applyDeltaSlots,
                 slot("delta_group_count", BigIntType.INSTANCE), IvmAggExpressionBuilder.INSTANCE);

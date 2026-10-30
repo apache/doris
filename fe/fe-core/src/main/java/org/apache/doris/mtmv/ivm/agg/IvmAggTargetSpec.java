@@ -24,10 +24,12 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Intermediate target specification for one aggregate function produced while normalizing the aggregate.
@@ -42,17 +44,20 @@ public class IvmAggTargetSpec {
     private final IvmAggFunctionKind functionKind;
     private final Alias visibleAlias;
     private final Map<IvmAggStateKey, Alias> hiddenStateAliases;
+    private final Set<IvmAggStateKey> internalStateKeys;
     private final Map<IvmAggStateKey, Alias> derivedStateAliases;
     private final List<Expression> targetArguments;
     private final long minMaxTopK;
 
     public IvmAggTargetSpec(int ordinal, IvmAggFunctionKind functionKind, Alias visibleAlias,
-            Map<IvmAggStateKey, Alias> hiddenStateAliases, Map<IvmAggStateKey, Alias> derivedStateAliases,
+            Map<IvmAggStateKey, Alias> hiddenStateAliases, Set<IvmAggStateKey> internalStateKeys,
+            Map<IvmAggStateKey, Alias> derivedStateAliases,
             List<Expression> targetArguments, long minMaxTopK) {
         this.ordinal = ordinal;
         this.functionKind = Objects.requireNonNull(functionKind);
         this.visibleAlias = Objects.requireNonNull(visibleAlias);
         this.hiddenStateAliases = ImmutableMap.copyOf(hiddenStateAliases);
+        this.internalStateKeys = ImmutableSet.copyOf(internalStateKeys);
         this.derivedStateAliases = ImmutableMap.copyOf(derivedStateAliases);
         this.targetArguments = ImmutableList.copyOf(targetArguments);
         this.minMaxTopK = minMaxTopK;
@@ -61,6 +66,18 @@ public class IvmAggTargetSpec {
     /** Hidden aggregate aliases that must be appended to the normalized aggregate output. */
     public List<NamedExpression> getHiddenAggregateOutputs() {
         return ImmutableList.copyOf(hiddenStateAliases.values());
+    }
+
+    /**
+     * Names of the aggregate outputs computed only to derive another state column. They stay in the
+     * aggregate, but the project above it does not project them, so they are not MV columns.
+     */
+    public Set<String> getInternalAggregateOutputNames() {
+        ImmutableSet.Builder<String> names = ImmutableSet.builder();
+        for (IvmAggStateKey stateKey : internalStateKeys) {
+            names.add(hiddenStateAliases.get(stateKey).getName());
+        }
+        return names.build();
     }
 
     /**
@@ -75,7 +92,9 @@ public class IvmAggTargetSpec {
     public IvmAggTarget toPlaceholderTarget() {
         ImmutableMap.Builder<IvmAggStateKey, Slot> hiddenSlots = ImmutableMap.builder();
         for (Map.Entry<IvmAggStateKey, Alias> entry : hiddenStateAliases.entrySet()) {
-            hiddenSlots.put(entry.getKey(), entry.getValue().toSlot());
+            if (!internalStateKeys.contains(entry.getKey())) {
+                hiddenSlots.put(entry.getKey(), entry.getValue().toSlot());
+            }
         }
         for (Map.Entry<IvmAggStateKey, Alias> entry : derivedStateAliases.entrySet()) {
             hiddenSlots.put(entry.getKey(), entry.getValue().toSlot());

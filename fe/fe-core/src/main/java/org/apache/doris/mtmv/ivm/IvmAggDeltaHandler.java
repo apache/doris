@@ -371,6 +371,10 @@ class IvmAggDeltaHandler {
         // Keep the normalized aggregate schema here. The normalize-added top project computes row-id above this
         // project, and the final sink project reorders columns by MV schema.
         for (Slot target : normalizedAgg.getOutput()) {
+            if (aggMeta.getInternalAggOutputNames().contains(target.getName())) {
+                // Computed only to derive another state column; it is not part of the MV row.
+                continue;
+            }
             emittedColumnNames.add(target.getName());
             // A group key output takes the delta-side key slot: a group that is new in the
             // delta has no MV row to copy from. Same-named keys are disambiguated by slot

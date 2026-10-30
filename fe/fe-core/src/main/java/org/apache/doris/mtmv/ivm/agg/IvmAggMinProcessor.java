@@ -20,10 +20,9 @@ package org.apache.doris.mtmv.ivm.agg;
 import org.apache.doris.mtmv.ivm.IvmFailureClassifier;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMin;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
-import org.apache.doris.nereids.trees.expressions.functions.agg.MinTopK;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
-import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 
 import java.util.List;
 
@@ -40,8 +39,13 @@ class IvmAggMinProcessor extends IvmAggExtremalProcessor {
     }
 
     @Override
-    protected AggregateFunction buildTopKAggregate(Expression input, long topK) {
-        return new MinTopK(input, new BigIntLiteral(topK));
+    protected AggregateFunction buildExtremeAggregate(Expression input) {
+        return new Min(input);
+    }
+
+    @Override
+    protected AggregateFunction buildExtremeCountAggregate(Expression input) {
+        return new CountAtMin(input);
     }
 
     @Override

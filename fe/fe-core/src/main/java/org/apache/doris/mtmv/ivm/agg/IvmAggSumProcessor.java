@@ -42,7 +42,7 @@ class IvmAggSumProcessor extends IvmAggSumLikeProcessor {
     }
 
     @Override
-    protected List<IvmAggStateKey> hiddenStateKeys(AggregateFunction function) {
+    protected List<IvmAggStateKey> hiddenStateKeys(AggregateFunction function, long minMaxTopK) {
         return ImmutableList.of(IvmAggStateKey.COUNT);
     }
 
