@@ -53,7 +53,7 @@ public class MapAggV2 extends NotNullableAggregateFunction
     /**
      * constructor with 2 arguments.
      */
-    private MapAggV2(boolean distinct, Expression arg0, Expression arg1) {
+    public MapAggV2(boolean distinct, Expression arg0, Expression arg1) {
         super("map_agg_v2", distinct, arg0, arg1);
     }
 
