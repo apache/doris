@@ -160,6 +160,13 @@ final class DeltaLakePredicateConverter {
         for (StructField field : schema.fields()) {
             if (field.getName().equalsIgnoreCase(name)) {
                 DataType type = field.getDataType();
+                // Kernel 4.4.1 parses min/max using the current type. Old DATE statistics
+                // contain only yyyy-MM-dd and fail its timestamp_ntz parser after widening.
+                // Keep predicates on these columns as BE residuals until Kernel handles them.
+                if (field.getTypeChanges().stream().anyMatch(change -> change.getFrom() instanceof DateType
+                        && change.getTo() instanceof TimestampNTZType)) {
+                    return null;
+                }
                 // The SPI currently carries root-column references, not nested field paths.
                 return (type instanceof BasePrimitiveType || type instanceof DecimalType) ? field : null;
             }
