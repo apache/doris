@@ -1437,10 +1437,11 @@ DEFINE_mInt32(snii_prx_zstd_level, "3");
 DEFINE_mInt32(snii_prx_zstd_min_saving_percent, "-1");
 // Zstd level for direct-load .prx regions. Compaction rewrites them using snii_prx_zstd_level.
 DEFINE_mInt32(snii_prx_zstd_level_direct_load, "3");
-// Handing a few small page-cache reads to the shared prefetch pool costs more than the reads: a
-// query that issues thousands of them queues on the pool lock. Remote, larger and slow (cold)
-// batches still fan out, so overlapping disk reads keep their parallelism.
-DEFINE_mInt32(snii_inline_read_max_segments, "4");
+// Handing small page-cache reads to the shared prefetch pool costs more than the reads: a query
+// that issues thousands of them queues on the pool lock. Remote, larger and slow (cold) batches
+// still fan out, so overlapping disk reads keep their parallelism. 16 covers the batches of a
+// phrase prefix, which reads the postings of every term the prefix expands to.
+DEFINE_mInt32(snii_inline_read_max_segments, "16");
 // G16-d: target SNII dict block size in bytes; 0 uses the format default
 // (64 KiB). Larger blocks compress better under the per-block zstd (the dict
 // is the dominant physical section on high-cardinality corpora) at the cost
