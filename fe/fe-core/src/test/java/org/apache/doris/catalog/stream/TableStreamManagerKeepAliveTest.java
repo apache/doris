@@ -54,7 +54,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 public class TableStreamManagerKeepAliveTest extends TestWithFeService {
@@ -91,8 +90,7 @@ public class TableStreamManagerKeepAliveTest extends TestWithFeService {
         // What was logged, replayed on a follower that has the same offsets, gives the same keep-alive TSOs.
         Assertions.assertEquals(1, logged.size());
         TableStreamCleanupInfo replayed = TableStreamCleanupInfo.read(roundTrip(logged.get(0)));
-        Deencapsulation.setField(context.stream, "partitionKeepAlive",
-                new ConcurrentHashMap<Long, OlapTableStream.PartitionKeepAlive>());
+        clearKeepAlives(context);
         Env.getCurrentEnv().getTableStreamManager().replayTableStreamCleanup(replayed);
         Assertions.assertEquals(keepAliveTso, keepAliveTso(context, context.partition("p1").getId()));
         Assertions.assertNull(keepAliveTso(context, context.partition("p2").getId()));
@@ -117,8 +115,9 @@ public class TableStreamManagerKeepAliveTest extends TestWithFeService {
         StreamContext context = createStreamContext("initial_snapshot");
         long partitionId = context.partition("p1").getId();
         setIdle(context, "p1", tsoSecondsAgo(60));
-        Deencapsulation.setField(context.stream, "historicalPartitionTSO",
-                new HashMap<>(Collections.singletonMap(partitionId, tsoSecondsAgo(60))));
+        OlapTableStream.PartitionStreamState state = partitionStates(context).get(partitionId);
+        partitionStates(context).put(partitionId, new OlapTableStream.PartitionStreamState(state.getOffset(),
+                state.getConsumptionTime(), tsoSecondsAgo(60), state.getKeepAlive()));
 
         keepAlive(context, tsoSecondsAgo(0), new ArrayList<>());
 
@@ -143,9 +142,8 @@ public class TableStreamManagerKeepAliveTest extends TestWithFeService {
         Assertions.assertEquals(freshKeepAliveTso, keepAliveTso(context, partitionId));
 
         // Six seconds old: less than half the TTL is left, and it is renewed.
-        Deencapsulation.setField(context.stream, "partitionKeepAlive", new ConcurrentHashMap<>(
-                Collections.singletonMap(partitionId,
-                        new OlapTableStream.PartitionKeepAlive(offset, tsoSecondsAgo(6)))));
+        partitionStates(context).put(partitionId, partitionStates(context).get(partitionId)
+                .withKeepAlive(new OlapTableStream.PartitionKeepAlive(offset, tsoSecondsAgo(6))));
         long renewed = tsoSecondsAgo(0);
         keepAlive(context, renewed, new ArrayList<>());
         Assertions.assertEquals(renewed, keepAliveTso(context, partitionId));
@@ -193,20 +191,7 @@ public class TableStreamManagerKeepAliveTest extends TestWithFeService {
     }
 
     @Test
-    public void testStateWrittenBeforeKeepAliveTsoReads() throws Exception {
-        StreamContext context = createStreamContext("old_json");
-        long partitionId = context.partition("p1").getId();
-        setIdle(context, "p1", tsoSecondsAgo(60));
-        String json = GsonUtils.GSON.toJson(context.stream);
-        Assertions.assertTrue(json.contains("\"pka\""), json);
-        String oldJson = json.replaceAll(",?\"pka\":\\{[^}]*}", "");
-        Assertions.assertFalse(oldJson.contains("\"pka\""), oldJson);
-
-        OlapTableStream oldStream = GsonUtils.GSON.fromJson(oldJson, OlapTableStream.class);
-        Assertions.assertNull(oldStream.getKeepAlive(partitionId));
-        Assertions.assertEquals(context.stream.getPartitionOffset(partitionId),
-                oldStream.getPartitionOffset(partitionId));
-
+    public void testCleanupInfoWrittenBeforeKeepAliveTsoReads() throws Exception {
         TableStreamCleanupInfo oldInfo = GsonUtils.GSON.fromJson(
                 "{\"entries\":[],\"staleDbIds\":[],\"staleStreamIds\":[]}", TableStreamCleanupInfo.class);
         Assertions.assertTrue(oldInfo.getKeepAliveEntries().isEmpty());
@@ -226,8 +211,9 @@ public class TableStreamManagerKeepAliveTest extends TestWithFeService {
         Assertions.assertNotNull(keepAlive);
         Assertions.assertEquals(offset, keepAlive.getOffset());
         Assertions.assertEquals(keepAliveTso, keepAlive.getKeepAliveTso());
+        Assertions.assertEquals(offset, read.getPartitionOffset(partitionId));
         // An IVM refresh reads it without the stream lock, so it stays a concurrent map once read from an image.
-        Assertions.assertInstanceOf(ConcurrentMap.class, Deencapsulation.getField(read, "partitionKeepAlive"));
+        Assertions.assertInstanceOf(ConcurrentMap.class, Deencapsulation.getField(read, "partitionStates"));
     }
 
     @Test
@@ -308,8 +294,7 @@ public class TableStreamManagerKeepAliveTest extends TestWithFeService {
         // What was logged replays to the same keep-alive TSOs.
         Assertions.assertEquals(1, logged.size());
         TableStreamCleanupInfo replayed = TableStreamCleanupInfo.read(roundTrip(logged.get(0)));
-        Deencapsulation.setField(context.stream, "partitionKeepAlive",
-                new ConcurrentHashMap<Long, OlapTableStream.PartitionKeepAlive>());
+        clearKeepAlives(context);
         Env.getCurrentEnv().getTableStreamManager().replayTableStreamCleanup(replayed);
         assertKeepAlive(context, p1, offset, committedTso);
         Assertions.assertNull(context.stream.getKeepAlive(p2));
@@ -616,9 +601,18 @@ public class TableStreamManagerKeepAliveTest extends TestWithFeService {
     private static void setIdle(StreamContext context, String partitionName, long offset) {
         Partition partition = context.partition(partitionName);
         setPartitionTso(partition, offset);
-        Map<Long, Long> partitionOffset = new HashMap<>(Deencapsulation.getField(context.stream, "partitionOffset"));
-        partitionOffset.put(partition.getId(), offset);
-        Deencapsulation.setField(context.stream, "partitionOffset", partitionOffset);
+        OlapTableStream.PartitionStreamState state = partitionStates(context).get(partition.getId());
+        partitionStates(context).put(partition.getId(), new OlapTableStream.PartitionStreamState(offset,
+                state.getConsumptionTime(), state.getHistoricalTso(), state.getKeepAlive()));
+    }
+
+    private static Map<Long, OlapTableStream.PartitionStreamState> partitionStates(StreamContext context) {
+        return Deencapsulation.getField(context.stream, "partitionStates");
+    }
+
+    // Drops the keep-alive TSOs of the stream and keeps everything else, as a follower that has not replayed them.
+    private static void clearKeepAlives(StreamContext context) {
+        partitionStates(context).replaceAll((partitionId, state) -> state.withKeepAlive(null));
     }
 
     private static void setPartitionTso(Partition partition, long tso) {
