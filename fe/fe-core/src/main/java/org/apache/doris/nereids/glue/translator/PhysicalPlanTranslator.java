@@ -3442,6 +3442,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (connectContext.getSessionVariable().enableSpill) {
             return null;
         }
+        // Gate: backend capability. GROUP_JOIN_NODE is a new plan node type: a backend that does
+        // not know it rejects the whole fragment, so a rolling upgrade must stay on the regular
+        // HashJoin + Aggregate plan until every backend of the cluster can accept it.
+        if (!GroupJoinFusionUtils.isSupportedByCluster(connectContext)) {
+            return null;
+        }
 
         // Child must be PhysicalHashJoin, optionally through one Project whose aggregate
         // arguments can be inlined (see the project gate in GroupJoinFusionUtils).
