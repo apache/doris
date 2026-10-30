@@ -40,6 +40,12 @@ public final class LanceStorageOptions {
     }
 
     /**
+     * object_store client options that cap how long a single native dataset open may run.
+     */
+    private static final String CLIENT_TIMEOUT = "timeout";
+    private static final String CLIENT_CONNECT_TIMEOUT = "connect_timeout";
+
+    /**
      * Doris's own storage configuration, in the vocabulary of the provider Lance routes
      * {@code uri} to.
      *
@@ -47,8 +53,19 @@ public final class LanceStorageOptions {
      * the {@code s3()} table-valued function.
      */
     public static Map<String, String> fromDorisStorageProperties(
+            String uri, List<StorageProperties> storageProperties, long openTimeoutSeconds) {
+        Map<String, String> options = buildStorageOptions(uri, storageProperties, null);
+        if (openTimeoutSeconds > 0) {
+            String seconds = openTimeoutSeconds + "s";
+            options.putIfAbsent(CLIENT_TIMEOUT, seconds);
+            options.putIfAbsent(CLIENT_CONNECT_TIMEOUT, seconds);
+        }
+        return options;
+    }
+
+    public static Map<String, String> fromDorisStorageProperties(
             String uri, List<StorageProperties> storageProperties) {
-        return buildStorageOptions(uri, storageProperties, null);
+        return fromDorisStorageProperties(uri, storageProperties, 0);
     }
 
     /**

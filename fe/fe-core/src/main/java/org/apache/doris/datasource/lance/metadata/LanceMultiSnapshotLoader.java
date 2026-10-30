@@ -19,6 +19,7 @@ package org.apache.doris.datasource.lance.metadata;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.lance.storage.LanceStorageProvider;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.datasource.property.storage.Uris;
@@ -26,29 +27,36 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.arrow.vector.types.pojo.Schema;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Opens every dataset a {@code uris} array names and pins one snapshot per dataset.
+ * Opens every dataset named by the {@code uris} array and pins one snapshot per dataset.
  *
  * <p>Each dataset is opened on its own and keeps the version, schema and fragments that one open
- * read. The result is ordered the way the caller wrote the array, so the first dataset is the
- * reference the rest are compared against.
+ * read. The result preserves the caller's array order, so the first dataset is the reference the
+ * others are compared against.
  *
  * <p>Any failure fails the whole query, and a failure names the path and the operation.
  */
 public final class LanceMultiSnapshotLoader {
+
+    private static final Logger LOG = LogManager.getLogger(LanceMultiSnapshotLoader.class);
 
     /** The maximum number of distinct datasets, after deduplication. */
     public static final int MAX_DATASETS = 500;
@@ -59,11 +67,15 @@ public final class LanceMultiSnapshotLoader {
     /** Fields in one dataset's schema. */
     public static final int MAX_FIELDS_PER_SCHEMA = 1_000;
 
+    // Datasets opened concurrently per query (and the batch size).
     private static final int MAX_CONCURRENT_OPENS = 4;
     // Pending opens allowed to wait in the executor queue.
     private static final int MAX_QUEUED_OPENS = 4096;
+    // Floor for the load deadline of small queries; the real deadline scales with the dataset count.
     private static final long DEADLINE_SECONDS = 60L;
-    private static final long PER_OPEN_TIMEOUT_SECONDS = 20L;
+    // Bound for one dataset open, applied to both the Java future.get wait and the native
+    // object_store client timeout.
+    private static final long PER_OPEN_TIMEOUT_SECONDS = 60L;
     private static final String SCHEME_DELIMITER = "://";
 
     private static final ThreadPoolExecutor EXECUTOR = ThreadPoolManager.newDaemonFixedThreadPool(
@@ -73,7 +85,7 @@ public final class LanceMultiSnapshotLoader {
     private LanceMultiSnapshotLoader() {
     }
 
-    /** The datasets the plan keeps, together with the one schema it still has to read. */
+    /** The planned result: one entry per dataset, plus the reference schema all datasets share. */
     public static final class Loaded {
         /** One entry per dataset, in the order written: URI, version and fragments. */
         public final List<LancePlannedDataset> datasets;
@@ -105,8 +117,11 @@ public final class LanceMultiSnapshotLoader {
         }
 
         List<StorageProperties> properties = Collections.singletonList(storageProperties);
-        long deadlineSeconds = deadlineSeconds();
+        long deadlineSeconds = deadlineSeconds(uris.size());
         long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(deadlineSeconds);
+        LOG.debug("Lance multi-dataset open starting: queryId={}, {} distinct datasets, {} batches ({} "
+                + "concurrently), planning deadline {}s", currentQueryId(), uris.size(),
+                batchCount(uris.size()), MAX_CONCURRENT_OPENS, deadlineSeconds);
 
         List<LanceTableMetadata> datasets = new ArrayList<>(uris.size());
         for (int start = 0; start < uris.size(); start += MAX_CONCURRENT_OPENS) {
@@ -178,52 +193,91 @@ public final class LanceMultiSnapshotLoader {
     private static List<LanceTableMetadata> openBatch(List<String> uris, int start, int end,
             List<StorageProperties> properties, long deadlineNanos, long deadlineSeconds)
             throws AnalysisException {
+        int totalBatches = batchCount(uris.size());
+        int batchIndex = start / MAX_CONCURRENT_OPENS + 1;
+        LOG.debug("Lance dataset open progress: queryId={}, batch {}/{}, datasets [{}, {})",
+                currentQueryId(), batchIndex, totalBatches, start, end);
         List<Future<LanceTableMetadata>> futures = new ArrayList<>(end - start);
-        for (int slot = start; slot < end; slot++) {
-            if (remainingNanos(deadlineNanos) <= 0) {
-                throw deadlineExceeded(deadlineSeconds, slot, uris.size());
+        List<TrackedOpen> tasks = new ArrayList<>(end - start);
+        boolean success = false;
+        try {
+            for (int slot = start; slot < end; slot++) {
+                if (remainingNanos(deadlineNanos) <= 0) {
+                    throw deadlineExceeded(deadlineSeconds, slot, uris.size());
+                }
+                final int index = slot;
+                try {
+                    TrackedOpen task = new TrackedOpen(uris.get(index), properties, PER_OPEN_TIMEOUT_SECONDS);
+                    tasks.add(task);
+                    futures.add(EXECUTOR.submit(task));
+                } catch (RejectedExecutionException e) {
+                    throw new AnalysisException("Lance dataset open capacity is exhausted (queryId="
+                            + currentQueryId() + "): the open queue is full because too many datasets are "
+                            + "being opened across all queries at once; reduce concurrency or retry");
+                }
             }
-            final int index = slot;
-            try {
-                futures.add(EXECUTOR.submit(
-                        () -> LanceMetadataLoader.loadLatestForTvf(uris.get(index), properties)));
-            } catch (RejectedExecutionException e) {
-                throw new AnalysisException("Lance dataset open capacity is exhausted: too many datasets "
-                        + "are being opened across all queries at once; reduce concurrency or retry");
-            }
-        }
 
-        List<LanceTableMetadata> opened = new ArrayList<>(futures.size());
-        for (int offset = 0; offset < futures.size(); offset++) {
-            String uri = uris.get(start + offset);
-            long remainingNanos = remainingNanos(deadlineNanos);
-            if (remainingNanos <= 0) {
-                throw deadlineExceeded(deadlineSeconds, start + offset, uris.size());
+            List<LanceTableMetadata> opened = new ArrayList<>(futures.size());
+            long fullPerOpen = TimeUnit.SECONDS.toNanos(PER_OPEN_TIMEOUT_SECONDS);
+            for (int offset = 0; offset < futures.size(); offset++) {
+                String uri = uris.get(start + offset);
+                long remainingNanos = remainingNanos(deadlineNanos);
+                if (remainingNanos <= 0) {
+                    throw deadlineExceeded(deadlineSeconds, start + offset, uris.size());
+                }
+                long waitNanos = Math.min(fullPerOpen, remainingNanos);
+                TrackedOpen task = tasks.get(offset);
+                try {
+                    opened.add(futures.get(offset).get(waitNanos, TimeUnit.NANOSECONDS));
+                } catch (TimeoutException e) {
+                    if (waitNanos < fullPerOpen) {
+                        throw deadlineExceeded(deadlineSeconds, start + offset, uris.size());
+                    }
+                    // The per-open budget is exhausted. The query thread and the worker race the same
+                    // PENDING->(STARTED|CANCELLED) CAS (see TrackedOpen): claiming CANCELLED means the
+                    // task never ran, otherwise the worker began Dataset.open() and this is a genuine
+                    // open timeout.
+                    if (task.phase.compareAndSet(TrackedOpen.Phase.PENDING, TrackedOpen.Phase.CANCELLED)) {
+                        throw new AnalysisException("Opening Lance dataset '" + uri + "' (queryId="
+                                + currentQueryId() + ") did not start within " + PER_OPEN_TIMEOUT_SECONDS
+                                + "s: the shared open pool is saturated by concurrent dataset opens across "
+                                + "all queries, so this query's tasks never got a thread. Reduce concurrency "
+                                + "or retry.");
+                    }
+                    throw new AnalysisException("Opening Lance dataset '" + uri + "' (queryId="
+                            + currentQueryId() + ") timed out after " + PER_OPEN_TIMEOUT_SECONDS
+                            + "s: Dataset.open() did not finish (slow or unresponsive storage).");
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new AnalysisException("Interrupted while opening the Lance datasets named by '"
+                            + Uris.KEY + "'");
+                } catch (ExecutionException e) {
+                    Throwable cause = e.getCause();
+                    String causeMessage = cause == null ? null : cause.getMessage();
+                    throw new AnalysisException("Failed to open Lance dataset '" + uri + "': "
+                            + (cause == null ? "unknown" : cause.getClass().getSimpleName())
+                            + (causeMessage == null || causeMessage.isEmpty() ? "" : ": " + causeMessage));
+                }
             }
-            long waitNanos = Math.min(TimeUnit.SECONDS.toNanos(PER_OPEN_TIMEOUT_SECONDS), remainingNanos);
-            try {
-                opened.add(futures.get(offset).get(waitNanos, TimeUnit.NANOSECONDS));
-            } catch (TimeoutException e) {
-                throw new AnalysisException("Opening Lance dataset '" + uri + "' timed out after "
-                        + PER_OPEN_TIMEOUT_SECONDS + "s");
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new AnalysisException("Interrupted while opening the Lance datasets named by '"
-                        + Uris.KEY + "'");
-            } catch (ExecutionException e) {
-                Throwable cause = e.getCause();
-                throw new AnalysisException("Failed to open Lance dataset '" + uri + "': "
-                        + (cause == null ? "unknown" : cause.getClass().getSimpleName())
-                        + ". A Lance TVF reads every dataset it names, so one dataset that cannot be "
-                        + "opened fails the whole query.");
+            success = true;
+            return opened;
+        } finally {
+            // A failed batch must not leave its futures running in the shared pool: an abandoned open
+            // holds a worker thread and may delay unrelated queries once storage recovers. Cancel every
+            // pending future to reclaim the slot. cancel(true) interrupts the worker; a native open
+            // already past its Java entry keeps running only until its own per-open client timeout
+            // (PER_OPEN_TIMEOUT_SECONDS) bounds how long it can hold the thread.
+            if (!success) {
+                for (Future<LanceTableMetadata> future : futures) {
+                    future.cancel(true);
+                }
             }
         }
-        return opened;
     }
 
     /**
-     * Rejects the URI shapes Lance will not read as a dataset location: a path below the authority,
-     * no empty path segment, and no trailing slash.
+     * Rejects URIs that are not valid Lance dataset locations: each must be scheme://authority/path,
+     * with no empty path segment ("//") and no trailing slash.
      */
     private static void requireWellFormed(List<String> uris) throws AnalysisException {
         for (int index = 0; index < uris.size(); index++) {
@@ -267,22 +321,79 @@ public final class LanceMultiSnapshotLoader {
     }
 
 
-    private static long deadlineSeconds() {
+    private static long deadlineSeconds(int numDatasets) {
+        // Size the load deadline to the work: every dataset may open at the per-open budget,
+        // MAX_CONCURRENT_OPENS at a time, plus a margin. A fixed cap sized for small queries would
+        // kill a healthy-but-slow query that merely has many datasets, so the deadline grows with
+        // the dataset count instead of being held at a constant.
+        long perBatch = batchCount(numDatasets) * PER_OPEN_TIMEOUT_SECONDS;
+        long workSized = Math.max(DEADLINE_SECONDS, perBatch + DEADLINE_SECONDS);
         ConnectContext context = ConnectContext.get();
-        if (context == null) {
-            return DEADLINE_SECONDS;
-        }
-        int queryTimeout = context.getQueryTimeoutS();
-        return queryTimeout > 0 ? Math.min(queryTimeout, DEADLINE_SECONDS) : DEADLINE_SECONDS;
+        int queryTimeout = context == null ? 0 : context.getQueryTimeoutS();
+        // Respect an explicit session query timeout as a floor, never as a ceiling that re-introduces
+        // the fixed cap.
+        return queryTimeout > 0 ? Math.max(queryTimeout, workSized) : workSized;
     }
 
     private static long remainingNanos(long deadlineNanos) {
         return deadlineNanos - System.nanoTime();
     }
 
+    /** Formats the current session query id for log lines, or "n/a" when no context is set. */
+    private static String currentQueryId() {
+        ConnectContext context = ConnectContext.get();
+        return context == null ? "n/a" : DebugUtil.printId(context.queryId());
+    }
+
+    /** Number of 4-at-a-time batches needed to open {@code datasetCount} datasets. */
+    private static int batchCount(int datasetCount) {
+        return (datasetCount + MAX_CONCURRENT_OPENS - 1) / MAX_CONCURRENT_OPENS;
+    }
+
     private static AnalysisException deadlineExceeded(long deadlineSeconds, int reached, int total) {
         return new AnalysisException("Opening the Lance datasets named by '" + Uris.KEY
-                + "' exceeded the planning deadline of " + deadlineSeconds + "s after " + reached
-                + " of " + total + " datasets");
+                + "' (queryId=" + currentQueryId() + ") exceeded the planning deadline of " + deadlineSeconds
+                + "s after " + reached + " of " + total + " datasets");
+    }
+
+    /**
+     * Wraps one dataset open so a timeout can tell a task that never got a worker thread from one that
+     * started but hung in Dataset.open().
+     *
+     * <p>The state is a single three-value machine (PENDING/STARTED/CANCELLED). The worker claims
+     * STARTED and the querying thread claims CANCELLED, both through the same PENDING->(STARTED|
+     * CANCELLED) CAS, so exactly one claim wins:
+     * <ul>
+     *   <li>worker wins -> it runs Dataset.open(); the query sees STARTED and reports a real open
+     *       timeout, then finally cancels this future to abort the in-flight open;</li>
+     *   <li>query wins -> the worker's claim fails and it skips Dataset.open(), so a "did not start"
+     *       verdict is accurate and no native open is left running.</li>
+     * </ul>
+     */
+    private static final class TrackedOpen implements Callable<LanceTableMetadata> {
+        private final String uri;
+        private final List<StorageProperties> properties;
+
+        private enum Phase { PENDING, STARTED, CANCELLED }
+
+        private final long openTimeoutSeconds;
+        private final AtomicReference<Phase> phase = new AtomicReference<>(Phase.PENDING);
+
+        TrackedOpen(String uri, List<StorageProperties> properties, long openTimeoutSeconds) {
+            this.uri = uri;
+            this.properties = properties;
+            this.openTimeoutSeconds = openTimeoutSeconds;
+        }
+
+        @Override
+        public LanceTableMetadata call() throws Exception {
+            // Run the open only if we claim STARTED. If the query thread already claimed CANCELLED
+            // for a timeout, this task must not start Dataset.open() (see the class note).
+            if (!phase.compareAndSet(Phase.PENDING, Phase.STARTED)) {
+                throw new CancellationException(
+                        "Lance dataset open was cancelled before it started");
+            }
+            return LanceMetadataLoader.loadLatestForTvf(uri, properties, openTimeoutSeconds);
+        }
     }
 }
