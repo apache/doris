@@ -624,19 +624,19 @@ s3.path-style-access=true
     // Cross-reader comparison protects against Doris accepting a DV/equality-delete result that
     // diverges from Spark, Trino, or Iceberg's Java reader.
     explain {
-        sql("SELECT count(*) FROM dv_test;")
+        sql("SELECT /*+ SET_VAR(enable_external_table_batch_mode=false) */ count(*) FROM dv_test;")
         verbose(true)
         contains "deleteFileNum"
     }
 
     explain {
-        sql("SELECT count(*) FROM dv_test_orc;")
+        sql("SELECT /*+ SET_VAR(enable_external_table_batch_mode=false) */ count(*) FROM dv_test_orc;")
         verbose(true)
         contains "deleteFileNum"
     }
 
     explain {
-        sql("SELECT count(*) FROM dv_test_v2;")
+        sql("SELECT /*+ SET_VAR(enable_external_table_batch_mode=false) */ count(*) FROM dv_test_v2;")
         verbose(true)
         contains "deleteFileNum"
     }

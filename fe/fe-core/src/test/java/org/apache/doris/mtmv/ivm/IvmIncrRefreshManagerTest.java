@@ -20,9 +20,11 @@ package org.apache.doris.mtmv.ivm;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.changelog.ChangelogUtils;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.qe.ConnectContext;
@@ -170,6 +172,25 @@ public class IvmIncrRefreshManagerTest {
                 IvmFailureClassifier.BITMAP_AGG_DELETE_MSG_PREFIX);
         assertKnownExecutionFailureFallback(IvmFailureReason.NON_DETERMINISTIC_ROW_ID,
                 IvmFailureClassifier.NON_DETERMINISTIC_ROW_ID_MSG_PREFIX);
+    }
+
+    @Test
+    public void testManagerReturnsChangelogBrokenFallbackForExpiredStreamOffset() throws Exception {
+        // What planning a MIN_DELTA read throws once changelog.ttl_seconds has expired the stream offset.
+        AnalysisException expired = Assertions.assertThrows(AnalysisException.class,
+                () -> ChangelogUtils.effectiveStartTso(99L, 100L, true));
+        MTMV mtmv = mockMtmv();
+        Command cmd = Mockito.mock(Command.class);
+        TestIvmIncrRefreshManager manager = new TestIvmIncrRefreshManager(newContext(mtmv), makeCommands(cmd));
+        manager.failureMessage = expired.getMessage();
+
+        IvmIncrRefreshResult result = manager.doRefresh(manager.context);
+
+        Assertions.assertFalse(result.isSuccess());
+        Assertions.assertEquals(IvmFailureReason.CHANGELOG_BROKEN, result.getFailureReason());
+        // A strict refresh reports this detail, so it has to keep the offset and the cutoff.
+        Assertions.assertTrue(result.getDetailMessage().contains(expired.getMessage()));
+        Assertions.assertTrue(manager.executeCalled);
     }
 
     @Test

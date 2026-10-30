@@ -14,8 +14,8 @@ PhysicalResultSink
 --------PhysicalStorageLayerAggregate[t2]
 
 Hint log:
-Used: leading(ta tb )
-UnUsed:
+Used:
+UnUsed: leading(ta broadcast tb)
 SyntaxError:
 
 -- !const_group_key_exe --
@@ -32,8 +32,8 @@ PhysicalResultSink
 --------PhysicalStorageLayerAggregate[t2]
 
 Hint log:
-Used: leading(ta broadcast tb )
-UnUsed:
+Used:
+UnUsed: leading(ta broadcast tb)
 SyntaxError:
 
 -- !pushdown_preserved_exe --

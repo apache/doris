@@ -67,6 +67,7 @@ import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.mtmv.ivm.IvmFailureClassifier;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.mtmv.ivm.IvmIncrRefreshContext;
 import org.apache.doris.mtmv.ivm.IvmIncrRefreshManager;
@@ -89,6 +90,7 @@ import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TStatusCode;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -346,6 +348,7 @@ public class MTMVTask extends AbstractTask {
                     mtmv.getQuerySql(), ctx);
             this.relation = MTMVPlanUtil.generateMTMVRelation(queryAnalysis.getAllLevelTables(),
                     queryAnalysis.getOneLevelTables());
+            checkNoRowTtlBaseTable();
             beforeMTMVRefresh();
             List<TableIf> tableIfs = Lists.newArrayList(queryAnalysis.getAllLevelTables());
             tableIfs.sort(Comparator.comparing(TableIf::getId));
@@ -417,6 +420,18 @@ public class MTMVTask extends AbstractTask {
             }
         } finally {
             closeExecutionContext(ctx);
+        }
+    }
+
+    @VisibleForTesting
+    public void checkNoRowTtlBaseTable() throws AnalysisException {
+        try {
+            MTMVUtil.checkNoRowTtlBaseTable(relation);
+        } catch (AnalysisException e) {
+            if (!MTMVState.SCHEMA_CHANGE.equals(mtmv.getStatus().getState())) {
+                mtmv.invalidateWholeMv(e.getMessage()).await();
+            }
+            throw e;
         }
     }
 
@@ -829,6 +844,19 @@ public class MTMVTask extends AbstractTask {
             this.refreshMode = generateRefreshMode(toRebuild);
             try {
                 executePartitionBasedRefresh(refreshContext, RefreshMode.PARTITIONS, ctx, toRebuild);
+            } catch (JobException e) {
+                // The rebuild reads the tables the MV does not partition by through their streams at the
+                // offsets, so an offset changelog.ttl_seconds has expired stops it the way it stops the delta
+                // below. Only a failure whose one repair is COMPLETE becomes a fallback here: the rebuild already
+                // is the partition refresh, and the sync-and-retry the delta has for a missing MV partition does
+                // not exist on this path. Any other failure still fails the attempt.
+                String detail = Util.getRootCauseMessage(e);
+                Optional<IvmFailureReason> reason = IvmFailureClassifier.classifyExecutionFailure(detail)
+                        .filter(IvmFailureReason::requiresCompleteRefresh);
+                if (reason.isEmpty()) {
+                    throw e;
+                }
+                return handleIvmFallbackResult(IvmIncrRefreshResult.fallback(reason.get(), detail), request);
             } finally {
                 recordRebuiltPartitions(request);
             }
@@ -1183,14 +1211,6 @@ public class MTMVTask extends AbstractTask {
                     "IVM incremental refresh failed for mv=" + mtmv.getName()
                     + ", reason=" + ivmResult.getFailureReason()
                     + ", detail=" + ivmResult.getDetailMessage());
-        }
-        if (ivmResult.getFailureReason() == IvmFailureReason.CHANGELOG_BROKEN) {
-            // The previous task already entered the IVM execution phase. If
-            // fallback is allowed, jump directly to COMPLETE recovery instead of
-            // trying PARTITIONS first.
-            LOG.warn("IVM previous run incomplete for mv={}, taskId={}. Continuing with COMPLETE recovery.",
-                    mtmv.getName(), getTaskId());
-            return AttemptResultType.FALLBACK_TO_COMPLETE;
         }
         if (ivmResult.getFailureReason().requiresCompleteRefresh()) {
             LOG.warn("IVM refresh fell back for mv={}, reason={}, detail={}, taskId={}. "

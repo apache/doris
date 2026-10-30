@@ -206,9 +206,13 @@ public class HiveDatePartitionPruningIntegrationTest {
             SelectedPartitions selected = Deencapsulation.invoke(new PruneFileScanPartition(),
                     "pruneExternalPartitions", table, filter, scan, cascades);
             HiveFileListingCache files = Mockito.mock(HiveFileListingCache.class);
+            org.mockito.stubbing.Answer<List<HiveFileStatus>> listing = invocation ->
+                    List.of(new HiveFileStatus(invocation.getArgument(2) + "/data.parquet", 10L, 1L));
             Mockito.when(files.listDataFiles(Mockito.eq("db"), Mockito.eq("t"), Mockito.anyString(),
-                    Mockito.anyList(), Mockito.nullable(FileSystem.class))).thenAnswer(invocation ->
-                            List.of(new HiveFileStatus(invocation.getArgument(2) + "/data.parquet", 10L, 1L)));
+                    Mockito.anyList(), Mockito.nullable(FileSystem.class))).thenAnswer(listing);
+            // Scans always carry a ConnectorScanContext, so the provider uses the cancellable overload.
+            Mockito.when(files.listDataFiles(Mockito.eq("db"), Mockito.eq("t"), Mockito.anyString(),
+                    Mockito.anyList(), Mockito.nullable(FileSystem.class), Mockito.any())).thenAnswer(listing);
             HiveScanPlanProvider provider = new HiveScanPlanProvider(client, properties, connectorContext,
                     files);
             if (unrepresentable) {

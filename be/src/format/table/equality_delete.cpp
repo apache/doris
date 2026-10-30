@@ -17,22 +17,81 @@
 
 #include "format/table/equality_delete.h"
 
+#include <gen_cpp/ExternalTableSchema_types.h>
+
+#include "core/assert_cast.h"
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
+#include "core/data_type/data_type_factory.hpp"
 #include "exprs/create_predicate_function.h"
+#include "format/column_type_convert.h"
 #include "util/hash_util.hpp"
 
 namespace doris {
 
-namespace {
+DataTypePtr equality_delete_key_type(const schema::external::TField* field,
+                                     const DataTypePtr& delete_key_type) {
+    DORIS_CHECK(delete_key_type->is_nullable());
+    // A plan from an FE that sends no scan schema, or no type for the field, leaves only the delete
+    // file's own type, which is how keys were compared before.
+    if (field == nullptr || !field->__isset.type || is_equality_delete_byte_type(delete_key_type)) {
+        return delete_key_type;
+    }
+    const auto primitive_type = thrift_to_type(field->type.type);
+    DORIS_CHECK(!is_complex_type(primitive_type));
+    return DataTypeFactory::instance().create_data_type(
+            primitive_type, true, field->type.__isset.precision ? field->type.precision : 0,
+            field->type.__isset.scale ? field->type.scale : 0,
+            field->type.__isset.len ? field->type.len : -1);
+}
 
-// Iceberg BINARY / FIXED keys are read as VARBINARY and string keys as STRING, and the delete file and
-// the data file may carry the same key in different ones of these classes (a delete block holding
-// STRING bytes for a VARBINARY data column, say). Keys of these types therefore match by their bytes.
 bool is_equality_delete_byte_type(const DataTypePtr& type) {
     const auto primitive_type = remove_nullable(type)->get_primitive_type();
     return is_string_type(primitive_type) || is_varbinary(primitive_type);
 }
+
+Status widen_equality_delete_key(ColumnPtr column, const DataTypePtr& column_type,
+                                 const DataTypePtr& key_type, ColumnPtr* result) {
+    DORIS_CHECK(result != nullptr);
+    DORIS_CHECK(column_type->is_nullable());
+    DORIS_CHECK(key_type->is_nullable());
+    if (column_type->equals(*key_type)) {
+        *result = std::move(column);
+        return Status::OK();
+    }
+    // Byte keys keep the type they were read in and match by their bytes, and the converters below
+    // would turn VARBINARY into its text form.
+    if (is_equality_delete_byte_type(column_type) || is_equality_delete_byte_type(key_type))
+            [[unlikely]] {
+        return Status::InternalError("Unexpected type change of equality delete key from {} to {}",
+                                     column_type->get_name(), key_type->get_name());
+    }
+    // The Parquet and ORC readers widen the data column of a promoted field with the same
+    // converters, so a widened delete key holds exactly the value of the data key it must match.
+    auto converter =
+            converter::ColumnTypeConverter::get_converter(column_type, key_type, converter::COMMON);
+    if (!converter->support()) {
+        return Status::InternalError(
+                "Not support type change of equality delete key from {} to {}: {}",
+                column_type->get_name(), key_type->get_name(), converter->get_error_msg());
+    }
+    if (converter->is_consistent()) {
+        // The same column layout, for example DATETIMEV2 of another scale.
+        *result = std::move(column);
+        return Status::OK();
+    }
+    MutableColumnPtr widened = key_type->create_column();
+    // The converters fill only the nested values; as in OrcReader::_orc_column_to_doris_column, the
+    // null map is copied before converting.
+    const auto& source_null_map = assert_cast<const ColumnNullable&>(*column).get_null_map_data();
+    assert_cast<ColumnNullable&>(*widened).get_null_map_data().insert(source_null_map.begin(),
+                                                                      source_null_map.end());
+    RETURN_IF_ERROR(converter->convert(column, widened));
+    *result = std::move(widened);
+    return Status::OK();
+}
+
+namespace {
 
 // The rows of a byte-key column. A const column repeats its single value, which can be NULL: when the FE does
 // not send Iceberg scan semantics v2, a key column that the data file lacks is filled from

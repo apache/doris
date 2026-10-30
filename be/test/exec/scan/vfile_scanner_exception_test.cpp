@@ -54,7 +54,8 @@ private:
 public:
     TestSplitSourceConnectorStub(const TFileScanRange& scan_range) : _scan_range(scan_range) {}
 
-    Status get_next(bool* has_next, TFileRangeDesc* range) override {
+    Status get_next(bool* has_next, TFileRangeDesc* range,
+                    const std::atomic_bool* /*scanner_stop*/) override {
         std::lock_guard<std::mutex> l(_range_lock);
         if (_range_index < _scan_range.ranges.size()) {
             *has_next = true;

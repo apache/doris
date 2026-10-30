@@ -87,7 +87,7 @@ public:
                 state->use_state = false;
                 return IFunction::open(context, scope);
             }
-            auto string_vale = column_string->column_ptr->get_data_at(0);
+            auto string_vale = column_string->column().get_data_at(0);
             if (string_vale.data == nullptr) {
                 // For concat(col, null), it is handled by default_implementation_for_nulls
                 state->use_state = false;

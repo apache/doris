@@ -193,6 +193,16 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
                 cachedOutputs, preloadRelationId));
     }
 
+    /**
+     * Return a new scan with the specified partition pruning state.
+     */
+    public LogicalFileScan withPartitionPruned(boolean isPruned) {
+        if (selectedPartitions.isNativePlanning() || selectedPartitions.isPruned == isPruned) {
+            return this;
+        }
+        return withSelectedPartitions(selectedPartitions.withPruned(isPruned));
+    }
+
     @Override
     public LogicalFileScan withRelationId(RelationId relationId) {
         return AbstractPlan.copyWithSameId(this, () ->
@@ -490,6 +500,17 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
 
         public boolean isNativePlanning() {
             return state == State.NATIVE;
+        }
+
+        /**
+         * Return a copy with the specified partition pruning state.
+         */
+        public SelectedPartitions withPruned(boolean isPruned) {
+            if (isNativePlanning() || this.isPruned == isPruned) {
+                return this;
+            }
+            return new SelectedPartitions(totalPartitionNum, selectedPartitions, isPruned,
+                    hasPartitionPredicate, sortedPartitionRanges, state);
         }
 
         @Override

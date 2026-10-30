@@ -107,6 +107,28 @@ Scan planning follows the same shape: the generic `PluginDrivenScanNode`
 `ConnectorScanPlanProvider` — note the interface lives in fe-connector-spi
 (`spi.scan`), not in fe-core.
 
+**Streaming scans.** `ConnectorScanRequest.getScanContext()` carries the
+scan's cancellation signal and progress counters; partition-batch requests
+share the same context. Check it before advancing file/partition iterators
+and issuing each remote request, including internal pagination. A cancelled
+listing must propagate cancellation instead of caching a partial result.
+The engine closes each split source serially with its reader, drops queued
+ranges on LIMIT/cancellation/error, and joins the statement's producers
+before releasing read transactions and statement metadata. An SDK call that
+cannot be interrupted may finish later; it must not issue another request
+after observing cancellation.
+
+`SET first_split_wait_timeout_ms = 2500` bounds the first split wait, including
+enumeration executor queueing. The default is 30000 ms; values must be positive.
+`SET_VAR` and FE forwarding are supported. Preparation before enumeration is
+still governed by the query timeout. A first-split timeout stops production
+and reports observed partition, file, split, and unfinished-producer counts.
+`fetch_splits_max_wait_time_ms` continues to control subsequent BE fetches.
+
+`split_producer_parallelism` defaults to 0, which preserves the scheduler-derived
+producer count. A positive value caps producers per scan; a whole-scan streaming
+source uses one producer.
+
 **Classloading.** Plugins load child-first, each carrying its own runtime
 closure. Wherever engine code crosses into a plugin — or a bundled library
 resolves classes by name, or a plugin spawns worker threads — the

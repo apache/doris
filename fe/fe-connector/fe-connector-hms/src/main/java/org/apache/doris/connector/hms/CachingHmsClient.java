@@ -23,6 +23,7 @@ import org.apache.doris.connector.cache.MetaCache;
 import org.apache.doris.connector.cache.MetaCacheDefinition;
 import org.apache.doris.connector.cache.MetaCacheSizeEstimator;
 import org.apache.doris.connector.cache.ScopePath;
+import org.apache.doris.connector.spi.scan.ConnectorScanContext;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -216,6 +217,22 @@ public class CachingHmsClient implements HmsClient {
     }
 
     @Override
+    public List<String> listPartitionNames(String dbName, String tableName, int maxParts,
+            ConnectorScanContext scanContext) {
+        scanContext.checkCancelled();
+        List<String> names = partitionNamesCache.getForLoadScope(
+                new PartitionNamesKey(dbName, tableName, maxParts), scanContext, key -> {
+                    scanContext.checkCancelled();
+                    List<String> loaded = delegate.listPartitionNames(
+                            key.dbName, key.tableName, key.maxParts, scanContext);
+                    scanContext.checkCancelled();
+                    return loaded;
+                });
+        scanContext.checkCancelled();
+        return names;
+    }
+
+    @Override
     public List<String> listPartitionNamesFresh(String dbName, String tableName, int maxParts) {
         // Fresh (cache-bypassing) listing for SHOW PARTITIONS / the partitions metadata TVF — legacy read the raw
         // pooled client, never the metadata cache. This neither READS nor WRITES partitionNamesCache: reading would
@@ -254,8 +271,22 @@ public class CachingHmsClient implements HmsClient {
         return getPartitionsWithStats(dbName, tableName, partNames, true);
     }
 
+    @Override
+    public HmsPartitionBatchResult getExistingPartitionsWithStats(String dbName, String tableName,
+            List<String> partNames, ConnectorScanContext scanContext) {
+        scanContext.checkCancelled();
+        HmsPartitionBatchResult result = getPartitionsWithStats(dbName, tableName, partNames, true, scanContext);
+        scanContext.checkCancelled();
+        return result;
+    }
+
     private HmsPartitionBatchResult getPartitionsWithStats(
             String dbName, String tableName, List<String> partNames, boolean allowMissing) {
+        return getPartitionsWithStats(dbName, tableName, partNames, allowMissing, null);
+    }
+
+    private HmsPartitionBatchResult getPartitionsWithStats(String dbName, String tableName,
+            List<String> partNames, boolean allowMissing, ConnectorScanContext scanContext) {
         long logicalStartNanos = System.nanoTime();
         if (partNames.isEmpty()) {
             HmsPartitionBatchStats stats = HmsPartitionBatchStats.builder()
@@ -283,8 +314,20 @@ public class CachingHmsClient implements HmsClient {
         PartitionStatsAccumulator physicalStats = new PartitionStatsAccumulator();
         if (!misses.isEmpty()) {
             try {
-                loadMissingPartitions(dbName, tableName, allowMissing, misses,
-                        resultByIdentity, physicalStats);
+                if (scanContext == null) {
+                    loadMissingPartitions(dbName, tableName, allowMissing, misses,
+                            resultByIdentity, physicalStats);
+                } else {
+                    // Share completed cache entries, but never attach a healthy caller to a cancellable load.
+                    // The owner and publication fence stay local to this logical scan request.
+                    PartitionLoadBatch ownedBatch = new PartitionLoadBatch(allowMissing);
+                    try {
+                        loadOwnedPartitions(dbName, tableName, allowMissing, misses,
+                                resultByIdentity, physicalStats, ownedBatch, scanContext);
+                    } finally {
+                        ownedBatch.releaseOwner();
+                    }
+                }
             } catch (HmsClientException e) {
                 HmsPartitionBatchStats failedStats = e.getPartitionBatchStats();
                 if (failedStats != null) {
@@ -333,7 +376,7 @@ public class CachingHmsClient implements HmsClient {
                 afterPartitionLoadRegistrationForTest();
                 if (!owned.isEmpty()) {
                     loadOwnedPartitions(dbName, tableName, allowMissing, registrationsToPartitions(owned),
-                            resultByIdentity, physicalStats, ownedBatch);
+                            resultByIdentity, physicalStats, ownedBatch, null);
                 }
                 ownedBatch.complete(null);
             } catch (RuntimeException | Error failure) {
@@ -406,7 +449,8 @@ public class CachingHmsClient implements HmsClient {
     private void loadOwnedPartitions(String dbName, String tableName, boolean allowMissing,
             List<HmsPartitionIdentity.ParsedPartitionName> owned,
             Map<List<String>, HmsPartitionInfo> resultByIdentity,
-            PartitionStatsAccumulator physicalStats, PartitionLoadBatch ownedBatch) {
+            PartitionStatsAccumulator physicalStats, PartitionLoadBatch ownedBatch,
+            ConnectorScanContext scanContext) {
         List<String> names = new ArrayList<>(owned.size());
         for (HmsPartitionIdentity.ParsedPartitionName partition : owned) {
             names.add(partition.getName());
@@ -414,9 +458,15 @@ public class CachingHmsClient implements HmsClient {
         MetaCache.BulkLoad<PartitionKey, HmsPartitionInfo> load =
                 partitionsCache.beginBulkLoad(ScopePath.table(dbName, tableName));
         ownedBatch.setLoad(load);
-        HmsPartitionBatchResult loadedResult = allowMissing
-                ? delegate.getExistingPartitionsWithStats(dbName, tableName, names)
-                : delegate.getPartitionsWithStats(dbName, tableName, names);
+        HmsPartitionBatchResult loadedResult;
+        if (scanContext != null) {
+            loadedResult = delegate.getExistingPartitionsWithStats(dbName, tableName, names, scanContext);
+            scanContext.checkCancelled();
+        } else {
+            loadedResult = allowMissing
+                    ? delegate.getExistingPartitionsWithStats(dbName, tableName, names)
+                    : delegate.getPartitionsWithStats(dbName, tableName, names);
+        }
         physicalStats.add(loadedResult.getStats());
         List<HmsPartitionInfo> loaded = loadedResult.getPartitions();
         for (HmsPartitionInfo info : loaded) {

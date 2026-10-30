@@ -265,7 +265,7 @@ public class StatementContext implements Closeable {
     // NOT cleared on close()/releasePlannerResources -- it survives to statement GC. A reused
     // prepared-statement context drops it per execution via resetConnectorStatementScope() (see
     // ExecuteCommand) so one execution's cached tables never leak into the next.
-    private ConnectorStatementScope connectorStatementScope;
+    private ConnectorStatementScopeImpl connectorStatementScope;
 
     // table locks
     private final Stack<CloseableResource> plannerResources = new Stack<>();
@@ -1151,6 +1151,18 @@ public class StatementContext implements Closeable {
     }
 
     /**
+     * The scope a connector session built now captures: {@link #getOrCreateConnectorStatementScope}, or
+     * {@link ConnectorStatementScope#NONE} once that scope is closed. The statement has ended by then, and what
+     * still builds a session on its context (the lineage of an INSERT, say) runs as offline work does instead of
+     * failing in the closed scope. A session captured before the close keeps the closed scope, which refuses to
+     * load, so a split producer that outlives the statement stops.
+     */
+    public synchronized ConnectorStatementScope getConnectorStatementScopeForNewSession() {
+        getOrCreateConnectorStatementScope();
+        return connectorStatementScope.isClosed() ? ConnectorStatementScope.NONE : connectorStatementScope;
+    }
+
+    /**
      * Drops the values of this statement's connector scope that only planning reads (see
      * {@link ConnectorStatementScope#endPlanning}), when a connector has opened the scope; unlike
      * {@link #getOrCreateConnectorStatementScope}, it never creates one. {@link #releasePlannerResources} calls it.
@@ -1169,13 +1181,12 @@ public class StatementContext implements Closeable {
     }
 
     /**
-     * Closes (deterministically) then drops the connector scope so the next statement execution starts fresh.
+     * Requests closure of the old connector scope and drops it so the next execution/attempt starts fresh.
      * Prepared-statement EXECUTE reuses one StatementContext across executions (see
-     * {@link org.apache.doris.nereids.trees.plans.commands.ExecuteCommand}) and a retry reuses it across attempts;
-     * this is called at the start of each, so a prior execution's / attempt's cached tables, pinned connector
-     * writer schema, and closeable state are released (closeAll is idempotent — a no-op if the query-finish
-     * callback already closed it) and never leak into the next. Callers invoke this only after the prior
-     * execution/attempt has finished (no off-thread pump still running), so close-before-drop is safe.
+     * {@link org.apache.doris.nereids.trees.plans.commands.ExecuteCommand}) and a retry reuses it across attempts.
+     * Old split producers and their cleanup retain the captured old scope until termination; closeAll defers
+     * disposal while those users remain. New sessions obtain a fresh scope, so cached tables, pinned writer
+     * schema, and closeable state cannot leak into the next attempt. Repeated close requests are idempotent.
      */
     public synchronized void resetConnectorStatementScope() {
         invalidatePartitionPolicy(true);
@@ -1574,14 +1585,15 @@ public class StatementContext implements Closeable {
         // After the table locks: stopping a remote Doris scan's node sends a CloseSession to the other
         // frontend, which must not be waited for under a lock.
         stopScanNodesLeftBehind();
-        // Fallback deterministic close of the per-statement connector scope, for statements that never reach the
-        // query-finish callback: external DDL / SHOW / DESCRIBE / EXPLAIN / foreground ANALYZE run via Command.run
-        // with no coordinator, so PluginDrivenScanNode.getSplits never registers a primary close for them. close()
-        // runs in ConnectProcessor's per-statement finally (direct connection) and the forwarded-request finally
-        // (master side), so it covers them. Guarded by isReturnResultFromLocal so an arrow-flight statement (which
-        // returns results asynchronously and defers cleanup to its own query-finish close) is not closed early
-        // here. Idempotent (closeAll is close-once), so a coordinated statement whose scope the primary already
-        // closed is a no-op. Command statements have no off-thread scan pump, so close-after-use holds.
+        // Fallback deterministic close of the per-statement connector scope, for statements that open it without
+        // planning a scan, so no query-finish callback closes it: external DDL / SHOW / DESCRIBE run via
+        // Command.run and only read metadata. (Every scan registers that callback when it starts planning splits,
+        // also under EXPLAIN or a plan that fails later; StmtExecutor runs it when the attempt ends.) close() runs
+        // in ConnectProcessor's per-statement finally (direct connection) and the forwarded-request finally (master
+        // side), so it covers them. Guarded by isReturnResultFromLocal so an arrow-flight statement (which returns
+        // results asynchronously and defers cleanup to its own query-finish close) is not closed early here.
+        // Idempotent (closeAll is close-once), so a statement whose scope the callback already closed is a no-op;
+        // a split producer still running after the close is refused by the closed scope.
         if (connectorStatementScope != null && connectContext != null && connectContext.isReturnResultFromLocal()) {
             connectorStatementScope.closeAll();
         }

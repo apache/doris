@@ -721,7 +721,7 @@ public class AccessControllerManager {
             if (entry != null && entry.catalogId == catalog.getId()) {
                 return entry.accessController;
             }
-            lazyLoadCtlAccessController((ExternalCatalog) catalog);
+            lazyLoadCtlAccessController((ExternalCatalog) catalog, ctl);
             entry = ctlToCtlAccessController.get(ctl);
             if (entry != null && entry.catalogId == catalog.getId()) {
                 return entry.accessController;
@@ -731,7 +731,7 @@ public class AccessControllerManager {
         return defaultAccessController;
     }
 
-    private void lazyLoadCtlAccessController(ExternalCatalog catalog) {
+    private void lazyLoadCtlAccessController(ExternalCatalog catalog, String catalogName) {
         if (authorizesNothing) {
             // Same reason the constructor loaded nothing: a checkpoint Env replays a CREATE CATALOG but never
             // authorizes against it, and the source it would build here starts threads nothing stops.
@@ -739,44 +739,44 @@ public class AccessControllerManager {
         }
         CatalogAccessControllerEntry staleEntry = null;
         synchronized (this) {
-            if (!isCurrentCatalog(catalog)) {
+            if (!isCurrentCatalog(catalog, catalogName)) {
                 return;
             }
-            CatalogAccessControllerEntry entry = ctlToCtlAccessController.get(catalog.getName());
+            CatalogAccessControllerEntry entry = ctlToCtlAccessController.get(catalogName);
             if (entry != null && entry.catalogId == catalog.getId()) {
                 return;
             }
-            if (entry != null && ctlToCtlAccessController.remove(catalog.getName(), entry)) {
+            if (entry != null && ctlToCtlAccessController.remove(catalogName, entry)) {
                 staleEntry = entry;
             }
         }
-        closeEntry(catalog.getName(), staleEntry);
+        closeEntry(catalogName, staleEntry);
 
         catalog.initAccessController(false);
 
         CatalogAccessControllerEntry displaced = null;
         boolean stillCurrent;
         synchronized (this) {
-            stillCurrent = isCurrentCatalog(catalog);
+            stillCurrent = isCurrentCatalog(catalog, catalogName);
             if (stillCurrent) {
-                CatalogAccessControllerEntry entry = ctlToCtlAccessController.get(catalog.getName());
+                CatalogAccessControllerEntry entry = ctlToCtlAccessController.get(catalogName);
                 if (entry == null || entry.catalogId != catalog.getId()) {
-                    displaced = ctlToCtlAccessController.put(catalog.getName(),
+                    displaced = ctlToCtlAccessController.put(catalogName,
                             new CatalogAccessControllerEntry(catalog.getId(), defaultAccessController, false));
                 }
             }
         }
-        closeEntry(catalog.getName(), displaced);
+        closeEntry(catalogName, displaced);
         if (!stillCurrent) {
             // A DROP can complete while initAccessController() is constructing the plugin. The custom
             // publication path performs the same post-publication check; this also covers the fallback path.
-            removeAccessController(catalog.getName(), catalog.getId());
+            removeAccessController(catalogName, catalog.getId());
             return;
         }
         // If DROP won immediately after the synchronized publication, its onClose() removes this id. If DROP
         // already completed before publication, this final identity check removes the orphan ourselves.
-        if (!isCurrentCatalog(catalog)) {
-            removeAccessController(catalog.getName(), catalog.getId());
+        if (!isCurrentCatalog(catalog, catalogName)) {
+            removeAccessController(catalogName, catalog.getId());
         }
     }
 
@@ -786,6 +786,8 @@ public class AccessControllerManager {
 
     public void createAccessController(ExternalCatalog catalog, String acFactoryClassName, Map<String, String> prop,
                                        boolean isDryRun) {
+        // Rename reuses the catalog object. Keep publication and rollback tied to the original name.
+        String catalogName = catalog.getName();
         String pluginIdentifier = getPluginIdentifierForAccessController(acFactoryClassName);
         AuthorizationPlugin accessController = create(pluginIdentifier, prop);
         if (isDryRun) {
@@ -797,36 +799,36 @@ public class AccessControllerManager {
             // source shares one plugin per service and keeps an unread one for a grace period, so that the
             // CREATE this validated for does not immediately rebuild what it just tore down - but a
             // validation nothing follows does stop polling once that period is up.
-            closeAccessController(catalog.getName(), accessController);
+            closeAccessController(catalogName, accessController);
             return;
         }
 
         CatalogAccessControllerEntry displaced = null;
         boolean installed = false;
         synchronized (this) {
-            if (isCurrentCatalog(catalog)) {
-                CatalogAccessControllerEntry current = ctlToCtlAccessController.get(catalog.getName());
+            if (isCurrentCatalog(catalog, catalogName)) {
+                CatalogAccessControllerEntry current = ctlToCtlAccessController.get(catalogName);
                 if (current == null || current.catalogId != catalog.getId()) {
-                    displaced = ctlToCtlAccessController.put(catalog.getName(),
+                    displaced = ctlToCtlAccessController.put(catalogName,
                             new CatalogAccessControllerEntry(catalog.getId(), accessController, true));
                     installed = true;
                 }
             }
         }
-        closeEntry(catalog.getName(), displaced);
+        closeEntry(catalogName, displaced);
         if (!installed) {
-            closeAccessController(catalog.getName(), accessController);
+            closeAccessController(catalogName, accessController);
             return;
         }
         LOG.info("create access controller {} for catalog {}:{}",
-                acFactoryClassName, catalog.getName(), catalog.getId());
-        if (!isCurrentCatalog(catalog)) {
-            removeAccessController(catalog.getName(), catalog.getId());
+                acFactoryClassName, catalogName, catalog.getId());
+        if (!isCurrentCatalog(catalog, catalogName)) {
+            removeAccessController(catalogName, catalog.getId());
         }
     }
 
-    private boolean isCurrentCatalog(ExternalCatalog catalog) {
-        CatalogIf currentCatalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalog.getName());
+    private boolean isCurrentCatalog(ExternalCatalog catalog, String catalogName) {
+        CatalogIf currentCatalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
         return currentCatalog == catalog && currentCatalog.getId() == catalog.getId();
     }
 

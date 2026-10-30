@@ -68,11 +68,14 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.rewrite.PruneFileScanPartition;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.qe.ConnectContext;
@@ -156,6 +159,111 @@ public class PluginDrivenMvccExternalTableTest {
             Assertions.assertFalse(result.getSelectedPartitions().isPruned);
             Assertions.assertEquals(2, result.getSelectedPartitions().totalPartitionNum);
             Assertions.assertEquals(2, result.getSelectedPartitions().selectedPartitions.size());
+        });
+    }
+
+    @Test
+    public void repeatedFileScanPruningPreservesPartitionPredicateEvidence() {
+        Fixture f = Fixture.partitioned();
+        MvccSnapshot pin = f.table.loadSnapshot(Optional.empty(), Optional.empty());
+        Map<String, PartitionItem> pinnedPartitions = f.table.getNameToPartitionItems(Optional.of(pin));
+        withContextSnapshot(f.table, pin, () -> {
+            SlotReference slot = new SlotReference("dt", DateV2Type.INSTANCE);
+            DateV2Literal predicateDate = new DateV2Literal(2024, 1, 1);
+            LogicalFileScan scan = new LogicalFileScan(new RelationId(12), f.table,
+                    Collections.singletonList("db"), Collections.emptyList(), Optional.empty(),
+                    Optional.empty(), Optional.empty(), Optional.of(Collections.singletonList(slot)));
+            Map<String, PartitionItem> retained = Collections.singletonMap(
+                    "dt=2024-01-01", pinnedPartitions.get("dt=2024-01-01"));
+            scan = scan.withSelectedPartitions(new SelectedPartitions(
+                    scan.getSelectedPartitions().totalPartitionNum, retained, false, true));
+            LogicalFilter<?> filter = new LogicalFilter<>(
+                    Collections.singleton(new EqualTo(slot, predicateDate)), scan);
+            CascadesContext context = CascadesContext.initContext(
+                    ConnectContext.get().getStatementContext(), filter, PhysicalProperties.ANY);
+
+            Plan rewritten = new PruneFileScanPartition().build().transform(filter, context).get(0);
+            LogicalFileScan result = (LogicalFileScan) rewritten.child(0);
+
+            Assertions.assertEquals(Collections.singleton("dt=2024-01-01"),
+                    result.getSelectedPartitions().selectedPartitions.keySet());
+            Assertions.assertTrue(result.hasPartitionPredicate());
+            Assertions.assertEquals(2, result.getSelectedPartitions().totalPartitionNum);
+        });
+    }
+
+    @Test
+    public void repeatedFileScanPruningRestrictsIndexToRetainedSelection() {
+        Fixture f = Fixture.with(Arrays.asList(
+                cpi("dt=2024-01-01", TS_2024_01_01),
+                cpi("dt=2024-01-02", TS_2024_01_01 + 1),
+                cpi("dt=2024-02-02", TS_2024_02_02)));
+        MvccSnapshot pin = f.table.loadSnapshot(Optional.empty(), Optional.empty());
+        Map<String, PartitionItem> pinnedPartitions = f.table.getNameToPartitionItems(Optional.of(pin));
+        withContextSnapshot(f.table, pin, () -> {
+            ConnectContext.get().getSessionVariable().enableBinarySearchFilteringPartitions = true;
+            SlotReference slot = new SlotReference("dt", DateV2Type.INSTANCE);
+            LogicalFileScan scan = new LogicalFileScan(new RelationId(13), f.table,
+                    Collections.singletonList("db"), Collections.emptyList(), Optional.empty(),
+                    Optional.empty(), Optional.empty(), Optional.of(Collections.singletonList(slot)));
+            Map<String, PartitionItem> retained = new HashMap<>();
+            retained.put("dt=2024-01-01", pinnedPartitions.get("dt=2024-01-01"));
+            retained.put("dt=2024-02-02", pinnedPartitions.get("dt=2024-02-02"));
+            scan = scan.withSelectedPartitions(new SelectedPartitions(
+                    scan.getSelectedPartitions().totalPartitionNum, retained, false, true));
+            Expression predicate = new Or(
+                    new EqualTo(slot, new DateV2Literal(2024, 1, 2)),
+                    new EqualTo(slot, new DateV2Literal(2024, 2, 2)));
+            LogicalFilter<?> filter = new LogicalFilter<>(Collections.singleton(predicate), scan);
+            CascadesContext context = CascadesContext.initContext(
+                    ConnectContext.get().getStatementContext(), filter, PhysicalProperties.ANY);
+
+            Plan rewritten = new PruneFileScanPartition().build().transform(filter, context).get(0);
+            LogicalFileScan result = (LogicalFileScan) rewritten.child(0);
+
+            Assertions.assertEquals(Collections.singleton("dt=2024-02-02"),
+                    result.getSelectedPartitions().selectedPartitions.keySet());
+            Assertions.assertEquals(3, result.getSelectedPartitions().totalPartitionNum);
+
+            LogicalFileScan secondCopy = result.withPartitionPruned(false);
+            Expression secondPredicate = new Or(
+                    new EqualTo(slot, new DateV2Literal(2024, 1, 1)),
+                    new EqualTo(slot, new DateV2Literal(2024, 1, 2)));
+            LogicalFilter<?> secondFilter = new LogicalFilter<>(
+                    Collections.singleton(secondPredicate), secondCopy);
+            CascadesContext secondContext = CascadesContext.initContext(
+                    ConnectContext.get().getStatementContext(), secondFilter, PhysicalProperties.ANY);
+            Plan secondRewritten =
+                    new PruneFileScanPartition().build().transform(secondFilter, secondContext).get(0);
+            LogicalFileScan secondResult = (LogicalFileScan) secondRewritten.child(0);
+
+            Assertions.assertTrue(secondResult.getSelectedPartitions().selectedPartitions.isEmpty());
+            Assertions.assertEquals(3, secondResult.getSelectedPartitions().totalPartitionNum);
+        });
+    }
+
+    @Test
+    public void repeatedFileScanPruningPreservesUniverseForEmptySelection() {
+        Fixture f = Fixture.partitioned();
+        MvccSnapshot pin = f.table.loadSnapshot(Optional.empty(), Optional.empty());
+        withContextSnapshot(f.table, pin, () -> {
+            SlotReference slot = new SlotReference("dt", DateV2Type.INSTANCE);
+            LogicalFileScan scan = new LogicalFileScan(new RelationId(14), f.table,
+                    Collections.singletonList("db"), Collections.emptyList(), Optional.empty(),
+                    Optional.empty(), Optional.empty(), Optional.of(Collections.singletonList(slot)));
+            scan = scan.withSelectedPartitions(new SelectedPartitions(
+                    scan.getSelectedPartitions().totalPartitionNum, Collections.emptyMap(), false, true));
+            LogicalFilter<?> filter = new LogicalFilter<>(
+                    Collections.singleton(new EqualTo(slot, new DateV2Literal(2024, 1, 1))), scan);
+            CascadesContext context = CascadesContext.initContext(
+                    ConnectContext.get().getStatementContext(), filter, PhysicalProperties.ANY);
+
+            Plan rewritten = new PruneFileScanPartition().build().transform(filter, context).get(0);
+            LogicalFileScan result = (LogicalFileScan) rewritten.child(0);
+
+            Assertions.assertTrue(result.getSelectedPartitions().selectedPartitions.isEmpty());
+            Assertions.assertEquals(2, result.getSelectedPartitions().totalPartitionNum);
+            Assertions.assertTrue(result.hasPartitionPredicate());
         });
     }
 

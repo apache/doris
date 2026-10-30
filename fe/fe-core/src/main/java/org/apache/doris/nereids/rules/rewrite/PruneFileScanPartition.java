@@ -235,10 +235,16 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
         boolean enableBinarySearch = ctx.getConnectContext() == null
                 || ctx.getConnectContext().getSessionVariable().enableBinarySearchFilteringPartitions;
         if (enableBinarySearch && !partitionItems.isEmpty()) {
-            sortedPartitionRanges = connectorFilteredPartitions
-                    ? Optional.ofNullable(SortedPartitionRanges.build(partitionItems))
-                    : fallbackSortedPartitionRanges(externalTable, scan,
-                            scan.getSelectedPartitions(), partitionItems);
+            if (connectorFilteredPartitions
+                    || partitionItems.size() < scan.getSelectedPartitions().totalPartitionNum) {
+                // Build from the map whenever it is not the recorded full selection: a connector-filtered
+                // view is this statement's single generation, and a pruned subset is not described by
+                // ranges cached for the full universe.
+                sortedPartitionRanges = Optional.ofNullable(SortedPartitionRanges.build(partitionItems));
+            } else {
+                sortedPartitionRanges = fallbackSortedPartitionRanges(externalTable, scan,
+                        scan.getSelectedPartitions(), partitionItems);
+            }
         }
         PartitionPruneResult<String> result = PartitionPruner.pruneWithResult(
                 partitionSlots, filter.getPredicate(), partitionItems, ctx,
@@ -253,9 +259,14 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
                     "pruned partition %s is missing in the selected partitions snapshot", name);
             selectedPartitionItems.put(name, item);
         }
+        // A connector-filtered universe has no known total. Otherwise keep the recorded total when an
+        // explicit PARTITION(...) selection made the map a subset, and fall back to the map size when this
+        // rule materialized the view for the first time.
         long totalPartitionNum = connectorFilteredPartitions
-                ? SelectedPartitions.UNKNOWN_TOTAL_PARTITION_NUM : partitionItems.size();
-        boolean hasPartitionPredicate = connectorFilteredPartitions || result.hasPartitionPredicate;
+                ? SelectedPartitions.UNKNOWN_TOTAL_PARTITION_NUM
+                : Math.max(partitionItems.size(), scan.getSelectedPartitions().totalPartitionNum);
+        boolean hasPartitionPredicate = connectorFilteredPartitions || result.hasPartitionPredicate
+                || scan.getSelectedPartitions().hasPartitionPredicate;
         if (connectorFilterResult.isPresent()) {
             return SelectedPartitions.connectorFiltered(totalPartitionNum, selectedPartitionItems,
                     hasPartitionPredicate, connectorFilterResult.get(), connectorPredicate);

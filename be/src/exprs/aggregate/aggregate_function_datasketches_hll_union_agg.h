@@ -41,6 +41,7 @@
 #include "exec/common/hash_table/hash.h"
 #include "exec/common/hash_table/phmap_fwd_decl.h"
 #include "exprs/aggregate/aggregate_function.h"
+#include "exprs/datasketches_hll_util.h"
 #include "util/var_int.h"
 template <typename T>
 struct HashCRC32;
@@ -56,9 +57,9 @@ struct AggregateFunctionHllSketchData {
     static constexpr uint8_t EMPTY_STATE_LOG_K = 12;
     static constexpr uint8_t MIN_UNION_LOG_K = 7;
     static constexpr uint8_t DEFAULT_UNION_LOG_K = datasketches::hll_constants::MAX_LOG_K;
-    using Alloc = CustomStdAllocator<uint8_t>;
-    using Sketch = datasketches::hll_sketch_alloc<Alloc>;
-    using Union = datasketches::hll_union_alloc<Alloc>;
+    using Alloc = datasketches_hll::Alloc;
+    using Sketch = datasketches_hll::Sketch;
+    using Union = datasketches_hll::Union;
 
     std::optional<Union> hll_union_data;
 
@@ -68,18 +69,23 @@ struct AggregateFunctionHllSketchData {
         if (sketch_data.is_empty()) {
             return;
         }
-        if (!hll_union_data.has_value()) {
-            hll_union_data.emplace(lg_max_k, Alloc());
-        }
         try {
+            if (!hll_union_data.has_value()) {
+                hll_union_data.emplace(lg_max_k, Alloc());
+            }
             hll_union_data->update(sketch_data);
         } catch (const doris::Exception& e) {
+            // A failed library update cannot be reused; the wrapper reclaims its allocations
+            // without dereferencing the possibly dangling library gadget.
+            hll_union_data.reset();
             throw Exception(e.code(), "Internal error happened when update HLL sketch: {}",
                             e.to_string());
         } catch (const std::exception& e) {
+            hll_union_data.reset();
             throw Exception(ErrorCode::INTERNAL_ERROR,
                             "Internal error happened when update HLL sketch: {}", e.what());
         } catch (...) {
+            hll_union_data.reset();
             throw Exception(ErrorCode::INTERNAL_ERROR,
                             "Internal error happened when update HLL sketch: unknown exception.");
         }
@@ -96,12 +102,15 @@ struct AggregateFunctionHllSketchData {
                 hll_union_data.emplace(lg_max_k, Alloc());
                 hll_union_data->update(current);
             } catch (const doris::Exception& e) {
+                hll_union_data.reset();
                 throw Exception(e.code(), "Internal error happened when update HLL sketch: {}",
                                 e.to_string());
             } catch (const std::exception& e) {
+                hll_union_data.reset();
                 throw Exception(ErrorCode::INTERNAL_ERROR,
                                 "Internal error happened when update HLL sketch: {}", e.what());
             } catch (...) {
+                hll_union_data.reset();
                 throw Exception(
                         ErrorCode::INTERNAL_ERROR,
                         "Internal error happened when update HLL sketch: unknown exception.");
@@ -140,23 +149,7 @@ struct AggregateFunctionHllSketchData {
     void read(BufferReadable& buf) {
         StringRef d;
         buf.read_binary(d);
-
-        auto cache = [&]() -> Sketch {
-            try {
-                return Sketch::deserialize(d.data, d.size, Alloc());
-            } catch (const doris::Exception& e) {
-                throw Exception(e.code(), "Failed to deserialize HLL sketch when read: {}",
-                                e.to_string());
-            } catch (const std::exception& e) {
-                throw Exception(ErrorCode::CORRUPTION, "HLL sketch data corrupted when read: {}",
-                                e.what());
-            } catch (...) {
-                throw Exception(ErrorCode::CORRUPTION,
-                                "HLL sketch data corrupted when read: unknown exception.");
-            }
-        }();
-
-        merge(cache);
+        merge(datasketches_hll::deserialize(d, "read"));
     }
     double get_result() const {
         if (hll_union_data.has_value()) {
@@ -249,30 +242,7 @@ private:
             const auto& src_column = assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
                                                  TypeCheckOnRelease::DISABLE>(column);
             StringRef value = src_column.get_data_at(static_cast<size_t>(row_num));
-            if (value.empty()) {
-                throw Exception(ErrorCode::CORRUPTION,
-                                "HLL sketch data corrupted when add: empty input.");
-            }
-
-            using Sketch = typename Data::Sketch;
-            using Alloc = typename Data::Alloc;
-
-            auto sketch_data = [&]() -> Sketch {
-                try {
-                    return Sketch::deserialize(value.begin(), value.size, Alloc());
-                } catch (const doris::Exception& e) {
-                    throw Exception(e.code(), "Failed to deserialize HLL sketch when add: {}",
-                                    e.to_string());
-                } catch (const std::exception& e) {
-                    throw Exception(ErrorCode::CORRUPTION, "HLL sketch data corrupted when add: {}",
-                                    e.what());
-                } catch (...) {
-                    throw Exception(ErrorCode::CORRUPTION,
-                                    "HLL sketch data corrupted when add: unknown exception.");
-                }
-            }();
-
-            data.merge(sketch_data, lg_max_k);
+            data.merge(datasketches_hll::deserialize(value, "add"), lg_max_k);
         }
     }
 };

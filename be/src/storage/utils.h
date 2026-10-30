@@ -41,6 +41,7 @@ static const std::string SKIP_BITMAP_COL = "__DORIS_SKIP_BITMAP_COL__";
 static const std::string SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
 static const std::string COMMIT_TSO_COL = "__DORIS_COMMIT_TSO_COL__";
 static const std::string ROW_LSN_COL = "__DORIS_ROW_LSN_COL__";
+static const std::string TTL_COL = "__DORIS_TTL_COL__";
 // ATTN(changelog-rename): formerly "__DORIS_BINLOG_TSO__"
 static const std::string CHANGELOG_TSO_COL = "__DORIS_CHANGELOG_TSO__";
 // ATTN(changelog-rename): formerly "__DORIS_BINLOG_LSN__"

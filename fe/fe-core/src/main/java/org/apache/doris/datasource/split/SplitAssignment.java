@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.split;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.connector.spi.scan.ConnectorScanContext;
 import org.apache.doris.datasource.scan.FederationBackendPolicy;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
@@ -29,15 +30,16 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.Closeable;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Deque;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -62,7 +64,13 @@ public class SplitAssignment {
     // Backend policy state is mutable; it must not delay publishing an already converted first split.
     private final Object backendAssignmentLock = new Object();
     private final Object readinessLock = new Object();
-    private Split sampleSplit = null;
+    private volatile Split sampleSplit = null;
+    private final ConnectorScanContext scanContext = new ConnectorScanContext();
+    private final CompletableFuture<Void> termination = new CompletableFuture<>();
+    private int liveProducers;
+    private boolean starting;
+    private long enumerationStartNanos;
+    private long sampleReadyNanos;
     private final AtomicBoolean isStopped = new AtomicBoolean(false);
     private final AtomicBoolean scheduleFinished = new AtomicBoolean(false);
 
@@ -71,21 +79,110 @@ public class SplitAssignment {
     private final ConcurrentHashMap<Long, Set<Runnable>> queueSpaceListeners = new ConcurrentHashMap<>();
     private volatile Runnable moreSplitsRequestedCallback = () -> {};
 
-    /** Data readiness and terminal state use the same per-backend wait channel. */
-    private static final class AssignmentQueue {
-        private final BlockingQueue<Collection<TScanRangeLocations>> batches;
-        // Written under this channel's monitor; producers avoid that monitor when nobody waits.
-        private volatile int waitingReaders;
+    /** Per-backend scan ranges; bulk operations amortize synchronization without reserving an entire batch. */
+    static final class AssignmentQueue {
+        private final Deque<TScanRangeLocations> splits = new ArrayDeque<>();
+        private final int capacity;
+        private int waitingReaders;
+        private int waitingProducers;
+        private boolean stopped;
 
         private AssignmentQueue(int capacity) {
-            batches = new LinkedBlockingQueue<>(capacity);
+            this.capacity = capacity;
         }
 
-        private void signalReaders() {
-            if (waitingReaders > 0) {
-                synchronized (this) {
-                    notifyAll();
+        synchronized int offer(List<TScanRangeLocations> batch, int offset) {
+            Preconditions.checkArgument(!batch.isEmpty() && offset >= 0 && offset < batch.size(),
+                    "Invalid split batch offset: %s", offset);
+            int accepted = stopped ? 0 : Math.min(batch.size() - offset, capacity - splits.size());
+            for (int i = offset; i < offset + accepted; i++) {
+                splits.addLast(batch.get(i));
+            }
+            if (accepted > 0 && waitingReaders > 0) {
+                notifyAll();
+            }
+            return accepted;
+        }
+
+        synchronized int offer(List<TScanRangeLocations> batch, int offset, long timeout, TimeUnit unit)
+                throws InterruptedException {
+            Preconditions.checkArgument(!batch.isEmpty() && offset >= 0 && offset < batch.size(),
+                    "Invalid split batch offset: %s", offset);
+            long remaining = unit.toNanos(timeout);
+            long deadline = System.nanoTime() + remaining;
+            while (!stopped && splits.size() == capacity) {
+                if (remaining <= 0) {
+                    return 0;
                 }
+                waitingProducers++;
+                try {
+                    TimeUnit.NANOSECONDS.timedWait(this, remaining);
+                } finally {
+                    waitingProducers--;
+                }
+                remaining = deadline - System.nanoTime();
+            }
+            return offer(batch, offset);
+        }
+
+        synchronized TScanRangeLocations poll() {
+            TScanRangeLocations split = splits.pollFirst();
+            if (split != null && waitingProducers > 0) {
+                notifyAll();
+            }
+            return split;
+        }
+
+        synchronized int drainTo(Collection<TScanRangeLocations> target, int maxSplits) {
+            int count = 0;
+            while (count < maxSplits && !splits.isEmpty()) {
+                target.add(splits.removeFirst());
+                count++;
+            }
+            if (count > 0 && waitingProducers > 0) {
+                notifyAll();
+            }
+            return count;
+        }
+
+        synchronized TScanRangeLocations awaitSplit(long waitNanos, SplitAssignment assignment)
+                throws InterruptedException {
+            waitingReaders++;
+            try {
+                if (splits.isEmpty() && assignment.needMoreSplit()) {
+                    TimeUnit.NANOSECONDS.timedWait(this, waitNanos);
+                }
+                return poll();
+            } finally {
+                waitingReaders--;
+            }
+        }
+
+        synchronized boolean isEmpty() {
+            return splits.isEmpty();
+        }
+
+        synchronized int size() {
+            return splits.size();
+        }
+
+        synchronized int remainingCapacity() {
+            return capacity - splits.size();
+        }
+
+        synchronized TScanRangeLocations peek() {
+            return splits.peekFirst();
+        }
+
+        synchronized void stop() {
+            stopped = true;
+            splits.clear();
+            notifyAll();
+        }
+
+        synchronized void signalWaiters() {
+            if (waitingReaders > 0 || waitingProducers > 0) {
+                notifyAll();
             }
         }
     }
@@ -107,31 +204,109 @@ public class SplitAssignment {
         this.locationProperties = locationProperties;
         this.pathPartitionKeys = pathPartitionKeys;
         this.fileCacheAdmission = fileCacheAdmission;
-        this.splitBatchSize = splitBatchSize;
+        this.splitBatchSize = Math.min(splitBatchSize, queueCapacity);
         this.queueCapacity = queueCapacity;
     }
 
     public void init() throws UserException {
-        splitGenerator.startSplit(backendPolicy.numBackends());
-        synchronized (readinessLock) {
-            final int waitIntervalTimeMillis = 100;
-            final int initTimeoutMillis = 30000; // 30s
-            int waitTotalTime = 0;
-            while (sampleSplit == null && needMoreSplit()) {
-                try {
-                    readinessLock.wait(waitIntervalTimeMillis);
-                } catch (InterruptedException e) {
-                    throw new UserException(e.getMessage(), e);
+        init(30000);
+    }
+
+    public void init(long timeoutMillis) throws UserException {
+        Preconditions.checkArgument(timeoutMillis > 0, "First split wait timeout must be positive");
+        try {
+            synchronized (readinessLock) {
+                starting = true;
+            }
+            try {
+                if (needMoreSplit()) {
+                    splitGenerator.startSplit(backendPolicy.numBackends());
                 }
-                waitTotalTime += waitIntervalTimeMillis;
-                if (waitTotalTime > initTimeoutMillis) {
-                    throw new UserException("Failed to get first split after waiting for "
-                            + (waitTotalTime / 1000) + " seconds.");
+            } finally {
+                synchronized (readinessLock) {
+                    starting = false;
+                }
+                completeTerminationIfReady();
+            }
+            synchronized (readinessLock) {
+                if (enumerationStartNanos == 0) {
+                    enumerationStartNanos = System.nanoTime();
+                }
+                long timeoutNanos = TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+                while (sampleSplit == null && needMoreSplit()) {
+                    long remaining = timeoutNanos - (System.nanoTime() - enumerationStartNanos);
+                    if (remaining <= 0) {
+                        throw firstSplitTimeout(timeoutMillis);
+                    }
+                    TimeUnit.NANOSECONDS.timedWait(readinessLock, remaining);
+                }
+                if (exception != null) {
+                    throw exception;
+                }
+                if (sampleSplit != null && sampleReadyNanos - enumerationStartNanos > timeoutNanos) {
+                    throw firstSplitTimeout(timeoutMillis);
                 }
             }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            setException(new UserException("Interrupted waiting for the first split", e));
+        } catch (UserException e) {
+            setException(e);
+        } catch (RuntimeException e) {
+            setException(new UserException(e.getMessage(), e));
         }
         if (exception != null) {
             throw exception;
+        }
+    }
+
+    private UserException firstSplitTimeout(long timeoutMillis) {
+        return new UserException("Timed out waiting for the first split after " + timeoutMillis
+                + " ms: " + scanContext.describeProgress() + ", active_producers=" + liveProducers);
+    }
+
+    /** Called after scan preparation, immediately before submitting enumeration tasks. */
+    public void startEnumeration() {
+        synchronized (readinessLock) {
+            enumerationStartNanos = System.nanoTime();
+        }
+    }
+
+    public ConnectorScanContext getScanContext() {
+        return scanContext;
+    }
+
+    public CompletableFuture<Void> getTerminationFuture() {
+        return termination;
+    }
+
+    boolean addProducer(SplitProducer producer) {
+        synchronized (readinessLock) {
+            if (isStopped.get()) {
+                return false;
+            }
+            liveProducers++;
+            closeableResources.add(producer);
+            return true;
+        }
+    }
+
+    void producerFinished(SplitProducer producer) {
+        synchronized (readinessLock) {
+            closeableResources.remove(producer);
+            liveProducers--;
+            Preconditions.checkState(liveProducers >= 0, "Unbalanced split producer completion");
+        }
+        completeTerminationIfReady();
+    }
+
+    private void completeTerminationIfReady() {
+        boolean ready;
+        synchronized (readinessLock) {
+            ready = !starting && liveProducers == 0 && (scheduleFinished.get() || isStopped.get());
+        }
+        if (ready) {
+            termination.complete(null);
         }
     }
 
@@ -141,14 +316,15 @@ public class SplitAssignment {
 
     private void appendBatch(Multimap<Backend, Split> batch) throws UserException {
         for (Backend backend : batch.keySet()) {
-            Collection<TScanRangeLocations> locations = createScanRanges(backend, batch.get(backend));
-            while (needMoreSplit()) {
+            List<TScanRangeLocations> locations = createScanRanges(backend, batch.get(backend));
+            int offset = 0;
+            while (offset < locations.size() && needMoreSplit()) {
                 AssignmentQueue queue = getOrCreateAssignmentQueue(backend);
+                if (queue == null) {
+                    break;
+                }
                 try {
-                    if (queue.batches.offer(locations, 100, TimeUnit.MILLISECONDS)) {
-                        queue.signalReaders();
-                        break;
-                    }
+                    offset += queue.offer(locations, offset, 100, TimeUnit.MILLISECONDS);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     setException(new UserException("Failed to offer batch split by interrupted", e));
@@ -160,11 +336,12 @@ public class SplitAssignment {
     Multimap<Backend, Split> assignBatch(List<Split> splits) throws UserException {
         Preconditions.checkArgument(splits.size() <= splitBatchSize, "Producer batch exceeds split batch size");
         synchronized (backendAssignmentLock) {
+            scanContext.splitsGenerated(splits.size());
             return backendPolicy.computeScanRangeAssignment(splits);
         }
     }
 
-    Collection<TScanRangeLocations> createScanRanges(Backend backend, Collection<Split> splits)
+    List<TScanRangeLocations> createScanRanges(Backend backend, Collection<Split> splits)
             throws UserException {
         List<TScanRangeLocations> locations = new ArrayList<>(splits.size());
         for (Split split : splits) {
@@ -173,43 +350,47 @@ public class SplitAssignment {
         }
         // Publish readiness after range conversion initializes the scan-level parameters.
         synchronized (readinessLock) {
-            if (sampleSplit == null) {
+            if (sampleSplit == null && needMoreSplit()) {
                 sampleSplit = splits.iterator().next();
+                sampleReadyNanos = System.nanoTime();
                 readinessLock.notifyAll();
             }
         }
         return locations;
     }
 
-    boolean offerBatch(Backend backend, Collection<TScanRangeLocations> locations, Runnable resume) {
+    int offerBatch(Backend backend, List<TScanRangeLocations> locations, int offset, Runnable resume) {
         if (!needMoreSplit()) {
-            return false;
+            return 0;
         }
         AssignmentQueue queue = getOrCreateAssignmentQueue(backend);
-        if (queue.batches.offer(locations)) {
-            queue.signalReaders();
+        if (queue == null) {
+            return 0;
+        }
+        int accepted = queue.offer(locations, offset);
+        if (accepted > 0) {
             removeQueueSpaceListener(backend, resume);
-            return true;
+            return accepted;
         }
         synchronized (queueSpaceListeners) {
             // An error/stop may race range conversion. Do not register a waiter after its wakeup.
             if (!needMoreSplit()) {
-                return false;
+                return 0;
             }
             queueSpaceListeners.computeIfAbsent(backend.getId(), key -> new HashSet<>()).add(resume);
             // A consumer with no registered waiter skips this monitor. Retry after registration
             // so capacity released between the first offer and registration cannot be missed.
-            if (queue.batches.offer(locations)) {
-                queue.signalReaders();
+            accepted = queue.offer(locations, offset);
+            if (accepted > 0) {
                 removeQueueSpaceListener(backend, resume);
-                return true;
+                return accepted;
             }
-            return false;
+            return 0;
         }
     }
 
     void removeQueueSpaceListener(Backend backend, Runnable listener) {
-        if (!queueSpaceListeners.containsKey(backend.getId())) {
+        if (backend == null || !queueSpaceListeners.containsKey(backend.getId())) {
             return;
         }
         synchronized (queueSpaceListeners) {
@@ -224,7 +405,7 @@ public class SplitAssignment {
     }
 
     void notifyQueueSpace(Backend backend) {
-        if (!queueSpaceListeners.containsKey(backend.getId())) {
+        if (backend == null || !queueSpaceListeners.containsKey(backend.getId())) {
             return;
         }
         Set<Runnable> listeners;
@@ -237,15 +418,24 @@ public class SplitAssignment {
     }
 
     public void registerSource(long uniqueId) {
-        sources.add(uniqueId);
+        synchronized (readinessLock) {
+            sources.add(uniqueId);
+        }
     }
 
     public Set<Long> getSources() {
-        return sources;
+        synchronized (readinessLock) {
+            return new HashSet<>(sources);
+        }
     }
 
-    public Split getSampleSplit() {
-        return sampleSplit;
+    public Split getSampleSplit() throws UserException {
+        synchronized (readinessLock) {
+            if (exception != null) {
+                throw exception;
+            }
+            return sampleSplit;
+        }
     }
 
     public void addToQueue(List<Split> splits) throws UserException {
@@ -261,92 +451,89 @@ public class SplitAssignment {
         return splitBatchSize;
     }
 
+    /** Serialize manager publication with stop: a cancelled planning thread cannot republish a source. */
+    public void publishSource(SplitSource source, SplitSourceManager manager) {
+        synchronized (readinessLock) {
+            if (!isStopped.get()) {
+                manager.registerSplitSource(source);
+            }
+        }
+    }
+
     private void notifyAssignment() {
         synchronized (readinessLock) {
             readinessLock.notifyAll();
         }
-        assignment.values().forEach(AssignmentQueue::signalReaders);
+        assignment.values().forEach(AssignmentQueue::signalWaiters);
     }
 
     private AssignmentQueue getOrCreateAssignmentQueue(Backend backend) {
-        return assignment.computeIfAbsent(backend.getId(), be -> new AssignmentQueue(queueCapacity));
+        synchronized (readinessLock) {
+            return isStopped.get() ? null
+                    : assignment.computeIfAbsent(backend.getId(), be -> new AssignmentQueue(queueCapacity));
+        }
     }
 
-    Collection<TScanRangeLocations> awaitBatch(Backend backend, long waitNanos) throws InterruptedException {
+    TScanRangeLocations awaitSplit(Backend backend, long waitNanos) throws InterruptedException {
         AssignmentQueue queue = getOrCreateAssignmentQueue(backend);
-        synchronized (queue) {
-            queue.waitingReaders++;
-            try {
-                // Register before checking both predicates. An offer or terminal transition either
-                // precedes this check or signals after wait releases this channel's monitor.
-                if (queue.batches.isEmpty() && needMoreSplit()) {
-                    TimeUnit.NANOSECONDS.timedWait(queue, waitNanos);
-                }
-                return queue.batches.poll();
-            } finally {
-                queue.waitingReaders--;
-            }
-        }
+        return queue == null ? null : queue.awaitSplit(waitNanos, this);
     }
 
-    public BlockingQueue<Collection<TScanRangeLocations>> getAssignedSplits(Backend backend) throws UserException {
-        if (exception != null) {
-            throw exception;
+    AssignmentQueue getAssignedSplits(Backend backend) throws UserException {
+        synchronized (readinessLock) {
+            if (exception != null) {
+                throw exception;
+            }
+            AssignmentQueue splits = getOrCreateAssignmentQueue(backend);
+            return splits == null || scheduleFinished.get() && splits.isEmpty() ? null : splits;
         }
-        BlockingQueue<Collection<TScanRangeLocations>> splits = getOrCreateAssignmentQueue(backend).batches;
-        if (scheduleFinished.get() && splits.isEmpty() || isStopped.get()) {
-            return null;
-        }
-        return splits;
     }
 
     public void setException(UserException e) {
-        addUserException(e);
-        notifyAssignment();
-        Set<Runnable> listeners = new HashSet<>();
-        synchronized (queueSpaceListeners) {
-            queueSpaceListeners.values().forEach(listeners::addAll);
-            queueSpaceListeners.clear();
-        }
-        listeners.forEach(Runnable::run);
-    }
-
-    private void addUserException(UserException e) {
         synchronized (readinessLock) {
-            // Cancellation can interrupt an active source; preserve failures published before stop.
-            if (isStopped.get()) {
+            // A successful LIMIT/cleanup already owns the terminal state. A producer or profile
+            // callback finishing later must not turn its EOF endpoints into errors.
+            if (isStopped.get() && exception == null) {
                 return;
             }
-            if (exception != null) {
-                exception.addSuppressed(e);
-            } else {
+            if (exception == null) {
                 exception = e;
+            } else if (exception != e) {
+                exception.addSuppressed(e);
             }
         }
+        stop();
     }
 
     public void finishSchedule() {
-        scheduleFinished.set(true);
+        synchronized (readinessLock) {
+            scheduleFinished.set(true);
+            readinessLock.notifyAll();
+        }
         notifyAssignment();
+        completeTerminationIfReady();
     }
 
     public void stop() {
+        List<Closeable> resources;
         synchronized (readinessLock) {
             if (!isStopped.compareAndSet(false, true)) {
                 return;
             }
-        }
-        notifyAssignment();
-        List<Closeable> resources;
-        synchronized (closeableResources) {
+            scanContext.cancel();
+            assignment.values().forEach(AssignmentQueue::stop);
+            assignment.clear();
+            synchronized (queueSpaceListeners) {
+                queueSpaceListeners.clear();
+            }
+            moreSplitsRequestedCallback = () -> {};
+            sampleSplit = null;
             resources = new ArrayList<>(closeableResources);
             closeableResources.clear();
-            moreSplitsRequestedCallback = () -> {};
+            readinessLock.notifyAll();
         }
         resources.forEach(this::closeResource);
-        if (exception != null) {
-            throw new RuntimeException(exception);
-        }
+        completeTerminationIfReady();
     }
 
     public boolean isStop() {
@@ -355,7 +542,7 @@ public class SplitAssignment {
 
     /** Registered by the streaming producer before publishing its first split. */
     public void setMoreSplitsRequestedCallback(Runnable callback) {
-        synchronized (closeableResources) {
+        synchronized (readinessLock) {
             if (!isStopped.get()) {
                 moreSplitsRequestedCallback = callback;
             }
@@ -369,7 +556,7 @@ public class SplitAssignment {
     }
 
     public void addCloseable(Closeable resource) {
-        synchronized (closeableResources) {
+        synchronized (readinessLock) {
             if (!isStop()) {
                 closeableResources.add(resource);
                 return;
@@ -379,7 +566,7 @@ public class SplitAssignment {
     }
 
     void removeCloseable(Closeable resource) {
-        synchronized (closeableResources) {
+        synchronized (readinessLock) {
             closeableResources.remove(resource);
         }
     }

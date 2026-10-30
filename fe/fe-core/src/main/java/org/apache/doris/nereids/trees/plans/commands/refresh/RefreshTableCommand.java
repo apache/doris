@@ -52,7 +52,7 @@ public class RefreshTableCommand extends Command implements ForwardWithSync {
         checkRefreshTableAccess();
         // refresh table execute logic
         Env.getCurrentEnv().getRefreshManager()
-                .handleRefreshTable(tableNameInfo.getCtl(), tableNameInfo.getDb(), tableNameInfo.getTbl(), false);
+                .handleRefreshTable(tableNameInfo.getCtl(), tableNameInfo.getDb(), tableNameInfo.getTbl());
     }
 
     @Override

@@ -415,6 +415,7 @@ public class PluginDrivenScanNodeBatchModeTest {
         // Non-count agg so countPushdown=false; sessionVariable needed by the partition fallback arg eval.
         Mockito.doReturn(TPushAggOp.NONE).when(node).getPushDownAggNoGroupingOp();
         SessionVariable sv = Mockito.mock(SessionVariable.class);
+        Mockito.when(sv.getEnableExternalTableBatchMode()).thenReturn(true);
         Mockito.when(sv.getNumPartitionsInBatchMode()).thenReturn(THRESHOLD);
         Mockito.when(sv.getEnableExternalTableBatchMode()).thenReturn(true);
         Deencapsulation.setField(node, "sessionVariable", sv);

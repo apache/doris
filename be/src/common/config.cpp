@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 // IWYU pragma: no_include <bthread/errno.h>
 #include <lz4/lz4hc.h>
 
@@ -1428,12 +1429,18 @@ DEFINE_mInt32(snii_dict_block_zstd_level, "3");
 DEFINE_mInt32(snii_prx_zstd_level, "3");
 // A .prx window is stored zstd-compressed only if that frame is smaller than the PFOR one by at
 // least this percentage; 0 picks the smaller frame. Every read of a zstd window pays a
-// decompression that PFOR does not, and on text positions zstd beats PFOR by 20-30% only on the
-// large windows of frequent terms, which are the ones phrase queries read most: 30 costs about 2%
-// of the index size. Readers handle every codec, so changing this never affects existing segments.
-DEFINE_mInt32(snii_prx_zstd_min_saving_percent, "30");
+// decompression that PFOR does not, but how much zstd saves depends on the data, so no one
+// percentage fits all data. The default (negative) lets each index choose: it stores in their
+// faster frame the windows zstd shrinks least, spending at most 8% of the smallest size of the
+// windows that get a zstd frame (see format::PrxZstdBudget). Readers handle every codec, so
+// changing this never affects existing segments.
+DEFINE_mInt32(snii_prx_zstd_min_saving_percent, "-1");
 // Zstd level for direct-load .prx regions. Compaction rewrites them using snii_prx_zstd_level.
 DEFINE_mInt32(snii_prx_zstd_level_direct_load, "3");
+// Handing a few small page-cache reads to the shared prefetch pool costs more than the reads: a
+// query that issues thousands of them queues on the pool lock. Remote, larger and slow (cold)
+// batches still fan out, so overlapping disk reads keep their parallelism.
+DEFINE_mInt32(snii_inline_read_max_segments, "4");
 // G16-d: target SNII dict block size in bytes; 0 uses the format default
 // (64 KiB). Larger blocks compress better under the per-block zstd (the dict
 // is the dominant physical section on high-cardinality corpora) at the cost
@@ -1508,6 +1515,13 @@ DEFINE_mInt32(tablet_path_check_batch_size, "1000");
 
 // it must be larger than or equal to 5MB
 DEFINE_mInt64(s3_write_buffer_size, "5242880");
+// Startup checks this alignment too. Reject runtime updates such as 5.5 MiB with 1 MiB
+// cache blocks, which would let upload writers create non-grid cache blocks.
+DEFINE_Validator(s3_write_buffer_size, [](int64_t value) {
+    return !enable_file_cache ||
+           (file_cache_each_block_size > 0 && value >= file_cache_each_block_size &&
+            value % file_cache_each_block_size == 0);
+});
 // Log interval when doing s3 upload task
 DEFINE_mInt32(s3_file_writer_log_interval_second, "60");
 DEFINE_mInt64(file_cache_max_file_reader_cache_size, "1000000");
@@ -1902,6 +1916,56 @@ DEFINE_mInt32(segment_file_cache_consume_rowids_batch_size, "8000");
 DEFINE_mBool(enable_query_segment_file_cache_prefetch, "false");
 // Number of blocks to prefetch ahead in segment iterator for query
 DEFINE_mInt32(query_segment_file_cache_prefetch_block_size, "2");
+// Enable exact range read-ahead for query data pages
+DEFINE_mBool(enable_query_read_ahead, "false");
+DEFINE_mBool(enable_read_io_trace, "false");
+// Separate diagnostic files; empty uses the BE log directory's read_io_trace subdirectory.
+DEFINE_String(read_io_trace_dir, "");
+DEFINE_Int64(read_io_trace_flush_bytes, "1048576"); // 1 MiB
+DEFINE_Validator(read_io_trace_flush_bytes, [](int64_t value) { return value > 0; });
+DEFINE_Int32(read_io_trace_flush_interval_ms, "1000");
+DEFINE_Validator(read_io_trace_flush_interval_ms, [](int32_t value) { return value > 0; });
+// Query-level resident read-ahead buffer limit
+DEFINE_Int64(read_ahead_max_bytes_per_query, "268435456"); // 256 MiB
+DEFINE_Validator(read_ahead_max_bytes_per_query, [](int64_t value) { return value > 0; });
+// BE-level resident read-ahead buffer limit
+DEFINE_Int64(read_ahead_max_bytes_per_be, "1073741824"); // 1 GiB
+DEFINE_Validator(read_ahead_max_bytes_per_be, [](int64_t value) { return value > 0; });
+// Compressed page bytes per eager read-ahead window; entering its trigger page appends the next.
+DEFINE_mInt64(read_ahead_eager_window_bytes, "4194304"); // 4 MiB
+DEFINE_Validator(read_ahead_eager_window_bytes, [](int64_t value) { return value > 0; });
+// Compressed page bytes per lazy read-ahead window.
+DEFINE_mInt64(read_ahead_lazy_window_bytes, "1048576"); // 1 MiB
+DEFINE_Validator(read_ahead_lazy_window_bytes, [](int64_t value) { return value > 0; });
+// Foreground file-range coalescing and cache-block completion policy
+DEFINE_mInt64(read_ahead_max_gap_bytes, "65536"); // 64 KiB
+DEFINE_Validator(read_ahead_max_gap_bytes, [](int64_t value) { return value >= 0; });
+DEFINE_mInt64(read_ahead_max_range_bytes, "2097152"); // 2 MiB
+DEFINE_Validator(read_ahead_max_range_bytes, [](int64_t value) { return value > 0; });
+DEFINE_mDouble(read_ahead_max_read_amplification_ratio, "1.0");
+DEFINE_Validator(read_ahead_max_read_amplification_ratio,
+                 [](double value) { return std::isfinite(value) && value >= 1.0; });
+DEFINE_mDouble(read_ahead_block_fill_min_coverage, "1.0");
+DEFINE_Validator(read_ahead_block_fill_min_coverage,
+                 [](double value) { return std::isfinite(value) && value > 0.0 && value <= 1.0; });
+// Background completion policy and BE-wide resource limits for partial File Cache blocks
+DEFINE_Int64(hole_fill_max_gap_bytes, "32768"); // 32 KiB
+DEFINE_Validator(hole_fill_max_gap_bytes, [](int64_t value) { return value >= 0; });
+DEFINE_Int64(hole_fill_max_range_bytes, "1048576"); // 1 MiB
+DEFINE_Validator(hole_fill_max_range_bytes, [](int64_t value) { return value > 0; });
+DEFINE_Double(hole_fill_max_read_amplification_ratio, "1.0");
+DEFINE_Validator(hole_fill_max_read_amplification_ratio,
+                 [](double value) { return std::isfinite(value) && value >= 1.0; });
+DEFINE_Int64(hole_fill_max_pending_bytes_per_be, "4294967296"); // 4 GiB
+DEFINE_Validator(hole_fill_max_pending_bytes_per_be, [](int64_t value) { return value > 0; });
+DEFINE_mInt32(hole_fill_workers_per_be, "32");
+DEFINE_Validator(hole_fill_workers_per_be, [](int32_t value) { return value > 0 && value <= 128; });
+// With 32 block workers, allow two pooled hole reads per active block on average.
+DEFINE_mInt32(hole_fill_remote_read_threads_per_be, "64");
+DEFINE_Validator(hole_fill_remote_read_threads_per_be, [](int32_t value) { return value > 0; });
+// Minimum aggregation time from first partial-block admission; zero disables the delay.
+DEFINE_mInt32(hole_fill_merge_delay_ms, "2000"); // 2000 ms
+DEFINE_Validator(hole_fill_merge_delay_ms, [](int32_t value) { return value >= 0; });
 // Enable segment file cache block prefetch for compaction
 DEFINE_mBool(enable_compaction_segment_file_cache_prefetch, "false");
 // Number of blocks to prefetch ahead in segment iterator for compaction

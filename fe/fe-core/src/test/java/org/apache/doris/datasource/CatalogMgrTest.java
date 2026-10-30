@@ -130,7 +130,7 @@ public class CatalogMgrTest {
 
         CountDownLatch cleanupStarted = new CountDownLatch(1);
         CountDownLatch allowCleanup = new CountDownLatch(1);
-        Mockito.when(blockingCatalog.modifyCatalogPropsWithDeferredAccessControllerCleanup(Mockito.anyMap()))
+        Mockito.when(blockingCatalog.modifyCatalogPropsWithDeferredResourceCleanup(Mockito.anyMap()))
                 .thenReturn(() -> {
                     cleanupStarted.countDown();
                     try {
@@ -142,7 +142,7 @@ public class CatalogMgrTest {
                         throw new IllegalStateException(e);
                     }
                 });
-        Mockito.when(otherCatalog.modifyCatalogPropsWithDeferredAccessControllerCleanup(Mockito.anyMap()))
+        Mockito.when(otherCatalog.modifyCatalogPropsWithDeferredResourceCleanup(Mockito.anyMap()))
                 .thenReturn(() -> { });
 
         CatalogLog blockingLog = new CatalogLog();
