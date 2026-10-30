@@ -1374,6 +1374,14 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         try {
             executeAuthenticated(() -> {
+                if (containsFormatProperty(properties)) {
+                    Table table = catalogOps.loadTable(iceHandle.getDbName(), iceHandle.getTableName());
+                    if (IcebergSpatialSchemaValidator.containsSpatial(table.schema())) {
+                        IcebergSpatialSchemaValidator.validateTable(
+                                getEffectiveFormatVersion(table, properties),
+                                getEffectiveFileFormat(table, properties));
+                    }
+                }
                 catalogOps.setTableProperties(iceHandle.getDbName(), iceHandle.getTableName(), properties);
                 return null;
             });
@@ -1382,6 +1390,32 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                     + iceHandle.getDbName() + "." + iceHandle.getTableName()
                     + ": " + ExceptionUtils.getRootCauseMessage(e), e);
         }
+    }
+
+    private static boolean containsFormatProperty(Map<String, String> properties) {
+        return properties.containsKey("write-format")
+                || properties.containsKey(TableProperties.DEFAULT_FILE_FORMAT)
+                || properties.containsKey(TableProperties.FORMAT_VERSION);
+    }
+
+    private static int getEffectiveFormatVersion(Table table, Map<String, String> properties) {
+        String version = properties.get(TableProperties.FORMAT_VERSION);
+        if (version == null) {
+            return getFormatVersion(table);
+        }
+        try {
+            return Integer.parseInt(version);
+        } catch (NumberFormatException ignored) {
+            return getFormatVersion(table);
+        }
+    }
+
+    private static String getEffectiveFileFormat(Table table, Map<String, String> properties) {
+        String format = properties.get("write-format");
+        if (format == null) {
+            format = properties.get(TableProperties.DEFAULT_FILE_FORMAT);
+        }
+        return format == null ? IcebergWriterHelper.getFileFormat(table).name() : format;
     }
 
     // ========== Column evolution (B2) — mirror legacy IcebergMetadataOps add/drop/rename/modify/reorder ==========

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.connector.converter.ConnectorSpatialWriteNormalizer;
 import org.apache.doris.datasource.connector.converter.ConnectorSpatialWriteValidator;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
@@ -208,8 +209,10 @@ public final class ConnectorChangelogPlanBuilder {
 
     private static Alias bindColumn(ExpressionAnalyzer analyzer, Expression expression, Column column) {
         Expression value = analyzer.analyze(expression);
+        DataType targetType = DataType.fromCatalogType(column.getType());
+        value = ConnectorSpatialWriteNormalizer.normalizeSpatialNullsBeforeBinding(value, targetType);
         ConnectorSpatialWriteValidator.validate(column, value);
-        value = TypeCoercionUtils.castIfNotSameType(value, DataType.fromCatalogType(column.getType()));
+        value = TypeCoercionUtils.castIfNotSameType(value, targetType);
         return new Alias(value, column.getName());
     }
 
@@ -288,8 +291,11 @@ public final class ConnectorChangelogPlanBuilder {
                 Expression value = new NullLiteral(type);
                 for (int index = branches.size() - 1; index >= 0; index--) {
                     if (column > 0) {
-                        ConnectorSpatialWriteValidator.validate(schema.get(column - 1),
-                                branches.get(index).get(column));
+                        DataType targetType = DataType.fromCatalogType(schema.get(column - 1).getType());
+                        Expression normalized = ConnectorSpatialWriteNormalizer.normalizeSpatialNullsBeforeBinding(
+                                branches.get(index).get(column), targetType);
+                        branches.get(index).set(column, normalized);
+                        ConnectorSpatialWriteValidator.validate(schema.get(column - 1), normalized);
                     }
                     Expression branchValue = TypeCoercionUtils.castIfNotSameType(
                             branches.get(index).get(column), type);

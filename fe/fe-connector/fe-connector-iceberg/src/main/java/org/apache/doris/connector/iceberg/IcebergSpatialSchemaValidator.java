@@ -19,6 +19,7 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.spi.DorisConnectorException;
 
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
@@ -40,6 +41,10 @@ final class IcebergSpatialSchemaValidator {
             }
         }
         return spatial;
+    }
+
+    static boolean containsSpatial(Schema schema) {
+        return schema.columns().stream().anyMatch(field -> containsSpatial(field.type()));
     }
 
     static void validateTable(int formatVersion, String fileFormat) {

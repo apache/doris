@@ -79,6 +79,20 @@ public class IcebergSpatialDdlTest {
         return ops;
     }
 
+    private static RecordingIcebergCatalogOps existingSpatialTable(int version, String fileFormat) {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("spatial", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        Map<String, String> properties = new HashMap<>();
+        properties.put(TableProperties.FORMAT_VERSION, Integer.toString(version));
+        properties.put(TableProperties.DEFAULT_FILE_FORMAT, fileFormat);
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = catalog.createTable(TableIdentifier.of("db1", "t1"),
+                new Schema(Types.NestedField.optional(1, "shape", Types.GeometryType.crs84())),
+                org.apache.iceberg.PartitionSpec.unpartitioned(), properties);
+        return ops;
+    }
+
     private static List<ConnectorType> nestedTypes() {
         return Arrays.asList(ConnectorType.arrayOf(GEOMETRY),
                 ConnectorType.mapOf(ConnectorType.of("INT"), GEOGRAPHY),
@@ -201,6 +215,22 @@ public class IcebergSpatialDdlTest {
                         || op.startsWith("modify")));
             }
         }
+    }
+
+    @Test
+    public void testSetPropertiesRejectsOrcForExistingSpatialTable() {
+        RecordingIcebergCatalogOps rejected = existingSpatialTable(3, "parquet");
+        IcebergConnectorMetadata md = metadata(rejected, Collections.emptyMap());
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> md.setTableProperties(null, HANDLE,
+                        Collections.singletonMap(TableProperties.DEFAULT_FILE_FORMAT, "orc")));
+        Assertions.assertTrue(rejected.log.stream().anyMatch(op -> op.startsWith("loadTable:")));
+        Assertions.assertTrue(rejected.log.stream().noneMatch(op -> op.startsWith("setTableProperties:")));
+
+        RecordingIcebergCatalogOps accepted = existingSpatialTable(3, "parquet");
+        metadata(accepted, Collections.emptyMap()).setTableProperties(null, HANDLE,
+                Collections.singletonMap(TableProperties.DEFAULT_FILE_FORMAT, "parquet"));
+        Assertions.assertTrue(accepted.log.stream().anyMatch(op -> op.startsWith("setTableProperties:")));
     }
 
 }
