@@ -21,6 +21,8 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.io.ByteArrayOutputStream;
 import java.math.BigInteger;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import java.util.regex.Pattern;
@@ -108,7 +110,7 @@ final class LanceManifestPaths {
             throw new IllegalArgumentException("Lance namespace returned no table location");
         }
         if (!URL_SCHEME.matcher(location).find()) {
-            return StringUtils.strip(location, "/");
+            return normalizeObjectPath(StringUtils.strip(location, "/"));
         }
         String path = StringUtils.substringBefore(StringUtils.substringBefore(location, "?"), "#");
         path = path.substring(path.indexOf(':') + 1);
@@ -116,7 +118,72 @@ final class LanceManifestPaths {
             int slash = path.indexOf('/', 2);
             path = slash < 0 ? "" : path.substring(slash);
         }
-        return StringUtils.strip(percentDecode(path), "/");
+        return normalizeUrlPath(path);
+    }
+
+    private static String normalizeUrlPath(String rawPath) {
+        if (rawPath == null) {
+            throw new IllegalArgumentException("Lance table location must have a hierarchical path");
+        }
+        String path = StringUtils.strip(rawPath, "/");
+        for (String segment : path.split("/", -1)) {
+            if (percentDecode(segment).indexOf('/') >= 0) {
+                throw new IllegalArgumentException(
+                        "Lance table location must not contain encoded path separators");
+            }
+        }
+        return normalizeObjectPath(percentDecode(path));
+    }
+
+    private static String normalizeObjectPath(String path) {
+        if (path.isEmpty()) {
+            return "";
+        }
+        // URL parsing resolves dot segments before percent-decoding, and empty segments affect
+        // which segment ".." consumes. Reject ambiguous paths instead of guessing SDK identity.
+        for (String segment : path.split("/", -1)) {
+            if (segment.isEmpty() || ".".equals(segment) || "..".equals(segment)
+                    || segment.indexOf('\\') >= 0) {
+                throw new IllegalArgumentException(
+                        "Lance table location must not contain ambiguous path segments");
+            }
+        }
+        return path;
+    }
+
+    static String normalizedLocation(String location) {
+        if (location == null) {
+            throw new IllegalArgumentException("Lance namespace returned no table location");
+        }
+        String stripped = StringUtils.substringBefore(StringUtils.substringBefore(location, "?"), "#");
+        if (!URL_SCHEME.matcher(stripped).find()) {
+            return normalizeObjectPath(StringUtils.strip(stripped, "/"));
+        }
+        try {
+            URI uri = new URI(stripped);
+            String path = normalizeUrlPath(uri.getRawPath());
+            StringBuilder result = new StringBuilder();
+            result.append(uri.getScheme()).append(":");
+            if (uri.getRawAuthority() != null) {
+                result.append("//").append(uri.getRawAuthority());
+            }
+            if (!path.isEmpty()) {
+                result.append("/").append(path);
+            }
+            return result.toString();
+        } catch (URISyntaxException e) {
+            String path = stripped.substring(stripped.indexOf(':') + 1);
+            if (path.startsWith("//")) {
+                int slash = path.indexOf('/', 2);
+                String authority = slash < 0 ? path.substring(2) : path.substring(2, slash);
+                String objectPath = slash < 0 ? ""
+                        : normalizeUrlPath(path.substring(slash));
+                return stripped.substring(0, stripped.indexOf(':') + 1) + "//" + authority
+                        + (objectPath.isEmpty() ? "" : "/" + objectPath);
+            }
+            return stripped.substring(0, stripped.indexOf(':') + 1)
+                    + normalizeUrlPath(path);
+        }
     }
 
     /** Decodes {@code %XX} escapes as UTF-8 bytes and keeps anything else, as Rust's percent_decode does. */
