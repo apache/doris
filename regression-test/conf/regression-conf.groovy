@@ -147,6 +147,7 @@ enablePaimonTest=false
 enableDeltaLakeTest=false
 deltalakeMinioPort=19001
 deltalakeHmsPort=9383
+deltalakeSparkPort=11002
 deltalakeWarehouse="s3a://delta/warehouse"
 
 // port of hive2 docker

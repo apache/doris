@@ -30,6 +30,7 @@ import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
+import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.thrift.TDeltaLakeDeletionVectorDesc;
 import org.apache.doris.thrift.TDeltaLakeFileDesc;
@@ -48,6 +49,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -94,6 +96,7 @@ class DeltaLakeScanPlanProviderTest {
             Assertions.assertEquals("parquet", properties.get(ScanNodePropertyKeys.FILE_FORMAT_TYPE));
             Assertions.assertEquals("p", properties.get(ScanNodePropertyKeys.PATH_PARTITION_KEYS));
             Assertions.assertEquals("test-key", properties.get(ScanNodePropertyKeys.LOCATION_PREFIX + "AWS_ACCESS_KEY"));
+            connector.invalidateTable("db", "table");
             TestingConnectorSession next = new TestingConnectorSession("next");
             ConnectorTableHandle latest = metadata.getTableHandle(next, "db", "table").orElseThrow();
             Assertions.assertEquals(4, metadata.listPartitions(next, latest, Optional.empty()).size());
@@ -178,6 +181,86 @@ class DeltaLakeScanPlanProviderTest {
             List<ConnectorScanRange> ranges = provider.planScan(session, request(handle).countPushdown(true).build());
             Assertions.assertEquals(2, ranges.size());
             Assertions.assertTrue(ranges.stream().allMatch(range -> range.getPushDownRowCount() == -1));
+        }
+    }
+
+    @Test
+    void streamingMatchesSynchronousByteRangesAndKeepsThePinnedVersion() throws Exception {
+        createTable();
+        appendFile(0, "a.parquet", "a", 257);
+        appendFile(0, "b.parquet", null, 25);
+        TestingConnectorSession session = new TestingConnectorSession("stream", Map.of("file_split_size", "128"));
+        try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(session)) {
+            ConnectorTableHandle handle = metadata.getTableHandle(session, "db", "table").orElseThrow();
+            ConnectorScanPlanProvider provider = connector.getScanPlanProvider();
+            Assertions.assertTrue(provider.streamingSplitEstimate(session, handle, Optional.empty(), false) >= 0);
+            try (ConnectorSplitSource source = provider.streamSplits(session, handle,
+                    Collections.emptyList(), Optional.empty(), -1)) {
+                appendFile(1, "later.parquet", "later", 25);
+                List<ConnectorScanRange> streamed = new ArrayList<>();
+                while (source.hasNext()) {
+                    streamed.add(source.next());
+                }
+                List<ConnectorScanRange> synchronous = provider.planScan(session, request(handle).build());
+                Assertions.assertEquals(synchronous.size(), streamed.size());
+                for (int i = 0; i < streamed.size(); i++) {
+                    Assertions.assertEquals(synchronous.get(i).getPath(), streamed.get(i).getPath());
+                    Assertions.assertEquals(synchronous.get(i).getStart(), streamed.get(i).getStart());
+                    Assertions.assertEquals(synchronous.get(i).getLength(), streamed.get(i).getLength());
+                    Assertions.assertEquals(synchronous.get(i).getPartitionValues(), streamed.get(i).getPartitionValues());
+                }
+                Assertions.assertEquals(4, streamed.size());
+                Assertions.assertFalse(source.hasNext());
+            }
+        }
+    }
+
+    @Test
+    void streamingCountCollapsesOnlyCompleteStatistics() throws Exception {
+        createTable();
+        appendStatsFile("a.parquet", "a", 1, 10);
+        TestingConnectorSession session = new TestingConnectorSession("stream-count");
+        try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(session)) {
+            ConnectorTableHandle handle = metadata.getTableHandle(session, "db", "table").orElseThrow();
+            ConnectorScanPlanProvider provider = connector.getScanPlanProvider();
+            Assertions.assertTrue(provider.streamingSplitEstimate(session, handle, Optional.empty(), true) >= 0);
+            try (ConnectorSplitSource source = provider.streamSplits(session, handle,
+                    Collections.emptyList(), Optional.empty(), -1)) {
+                Assertions.assertTrue(source.hasNext());
+                Assertions.assertEquals(10, source.next().getPushDownRowCount());
+                Assertions.assertFalse(source.hasNext());
+            }
+            appendFile(1, "b.parquet", "b", 25);
+            connector.invalidateTable("db", "table");
+            TestingConnectorSession next = new TestingConnectorSession("stream-no-stats");
+            ConnectorTableHandle newer = metadata.getTableHandle(next, "db", "table").orElseThrow();
+            Assertions.assertTrue(provider.streamingSplitEstimate(next, newer, Optional.empty(), true) >= 0);
+            try (ConnectorSplitSource source = provider.streamSplits(next, newer,
+                    Collections.emptyList(), Optional.empty(), -1)) {
+                int files = 0;
+                while (source.hasNext()) {
+                    Assertions.assertEquals(-1, source.next().getPushDownRowCount());
+                    files++;
+                }
+                Assertions.assertEquals(2, files);
+            }
+        }
+    }
+
+    @Test
+    void streamingDefersReadingUntilConsumptionAndHonorsTheBatchToggle() throws Exception {
+        createTable();
+        TestingConnectorSession session = new TestingConnectorSession("lazy",
+                Map.of("enable_external_table_batch_mode", "false"));
+        try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(session)) {
+            ConnectorTableHandle handle = metadata.getTableHandle(session, "db", "table").orElseThrow();
+            ConnectorScanPlanProvider provider = connector.getScanPlanProvider();
+            Assertions.assertEquals(-1, provider.streamingSplitEstimate(session, handle, Optional.empty(), false));
+            ConnectorSplitSource source = provider.streamSplits(session, handle,
+                    Collections.emptyList(), Optional.empty(), -1);
+            Files.delete(warehouse.resolve("db/table/_delta_log/00000000000000000000.json"));
+            source.close();
+            Assertions.assertFalse(source.hasNext());
         }
     }
 

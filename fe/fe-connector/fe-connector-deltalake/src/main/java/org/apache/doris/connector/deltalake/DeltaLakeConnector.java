@@ -18,6 +18,7 @@
 
 package org.apache.doris.connector.deltalake;
 
+import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorCapability;
 import org.apache.doris.connector.spi.ConnectorContext;
@@ -46,17 +47,21 @@ final class DeltaLakeConnector implements Connector {
 
     private final DeltaLakeCatalogProperties properties;
     private final ConnectorContext context;
+    private final CatalogMetaCache metaCache;
+    private final DeltaLakeSnapshotCache snapshotCache;
     private DeltaLakeRuntime runtime;
     private boolean closed;
 
     DeltaLakeConnector(Map<String, String> properties, ConnectorContext context) {
         this.properties = DeltaLakeCatalogProperties.of(properties);
         this.context = context;
+        metaCache = CatalogMetaCache.managed(context.getCatalogId(), "deltalake", properties);
+        snapshotCache = new DeltaLakeSnapshotCache(metaCache, properties);
     }
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
-        return new DeltaLakeConnectorMetadata(runtime(), properties);
+        return new DeltaLakeConnectorMetadata(runtime(), properties, snapshotCache);
     }
 
     @Override
@@ -93,6 +98,21 @@ final class DeltaLakeConnector implements Connector {
     }
 
     @Override
+    public void invalidateTable(String database, String table) {
+        metaCache.invalidateTable(database, table);
+    }
+
+    @Override
+    public void invalidateDb(String database) {
+        metaCache.invalidateDatabase(database);
+    }
+
+    @Override
+    public void invalidateAll() {
+        metaCache.invalidateCatalog();
+    }
+
+    @Override
     public void close() {
         DeltaLakeRuntime owned;
         synchronized (this) {
@@ -100,6 +120,7 @@ final class DeltaLakeConnector implements Connector {
             owned = runtime;
             runtime = null;
         }
+        metaCache.close();
         if (owned != null) {
             // ALTER/DROP may hold the catalog write lock. S3/HDFS client shutdown can wait for
             // networking threads; perform it outside that lock, as the Hudi connector does.

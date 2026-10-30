@@ -44,7 +44,8 @@ import java.util.TreeSet;
 final class DeltaLakeFeatureCheck {
     // Features are enabled alongside their end-to-end read coverage.
     static final Set<String> SUPPORTED_READER_FEATURES = Set.of(
-            "columnMapping", "timestampNtz", "typeWidening", "typeWidening-preview", "deletionVectors");
+            "columnMapping", "timestampNtz", "typeWidening", "typeWidening-preview", "deletionVectors",
+            "v2Checkpoint", "vacuumProtocolCheck");
 
     private DeltaLakeFeatureCheck() {
     }

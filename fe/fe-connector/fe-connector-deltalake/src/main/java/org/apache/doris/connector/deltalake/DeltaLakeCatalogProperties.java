@@ -68,6 +68,7 @@ final class DeltaLakeCatalogProperties {
         }
         result.metastore = MetaStoreProviders.bindForType(result.catalogType, properties, Collections.emptyMap());
         result.metastore.validate();
+        DeltaLakeSnapshotCache.validate(properties);
         new ParamRules().check(() -> result.hmsClientPoolSize < 0,
                 "hive.metastore.client.pool.size must not be negative").validate();
         return result;

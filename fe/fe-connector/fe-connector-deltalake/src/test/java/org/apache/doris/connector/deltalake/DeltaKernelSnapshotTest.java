@@ -71,6 +71,7 @@ class DeltaKernelSnapshotTest {
             long records, long deleted) throws Exception {
         Path path = Path.of(getClass().getResource("/deltalake/" + table).toURI());
         Snapshot snapshot = TableManager.loadSnapshot(path.toString()).build(engine);
+        DeltaLakeFeatureCheck.check(snapshot);
         Assertions.assertEquals(version, snapshot.getVersion());
         Assertions.assertEquals(Optional.of(checkpoint), snapshot.getLogSegment().getCheckpointVersionOpt());
         long fileCount = 0;
