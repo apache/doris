@@ -46,7 +46,7 @@ suite("test_paimon_rust_write_append", "p0,external,paimon") {
             's3.region' = 'us-east-1',
             's3.access_key' = 'admin',
             's3.secret_key' = 'password',
-            's3.path.style.access' = 'true'
+            'use_path_style' = 'true'
         )
     """
     sql "SWITCH test_paimon_rust_write_catalog"
@@ -83,6 +83,9 @@ suite("test_paimon_rust_write_append", "p0,external,paimon") {
         }
         // Failed input must not change the committed snapshot. Read Rust output
         // through Java in both Doris and Spark, together with the earlier JNI file.
+        qt_append_summary """SELECT COUNT(*), SUM(id), SUM(amount), SUM(length(payload))
+            FROM t_append"""
+        order_qt_append_rows "SELECT * FROM t_append WHERE id < 10"
         assertSparkDorisResultEquals(
                 spark_paimon("""SELECT COUNT(*), SUM(id), SUM(amount), SUM(length(payload))
                     FROM paimon.test_paimon_rust_write_db.t_append"""),
