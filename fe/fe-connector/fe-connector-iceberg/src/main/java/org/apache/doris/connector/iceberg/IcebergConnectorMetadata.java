@@ -618,6 +618,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // (system) tables report format-version 2 (BaseMetadataTable.properties() is empty), so the gate
         // naturally excludes them — matching legacy, which injects lineage only for data tables.
         if (getFormatVersion(table) >= ICEBERG_ROW_LINEAGE_MIN_VERSION) {
+            IcebergSchemaUtils.validateRowLineageSchema(schema);
             // reservedPassthrough() marks these as engine-recognized passthrough columns so fe-core MERGE/UPDATE
             // and sink binding pass them through generically (via Column.isReservedPassthrough()) instead of
             // string-matching the iceberg names — the engine no longer knows _row_id / _last_updated_sequence_number.

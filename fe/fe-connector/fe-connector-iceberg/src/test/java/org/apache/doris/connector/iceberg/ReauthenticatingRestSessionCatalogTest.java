@@ -20,8 +20,10 @@ package org.apache.doris.connector.iceberg;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.catalog.ImmutableTableCommit;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SessionCatalog.SessionContext;
+import org.apache.iceberg.catalog.TableCommit;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NotAuthorizedException;
 import org.apache.iceberg.io.FileIO;
@@ -51,8 +53,11 @@ public class ReauthenticatingRestSessionCatalogTest {
         private final String label;
         private final RuntimeException failure;
         private final AtomicInteger listCalls = new AtomicInteger();
+        private final AtomicInteger commitCalls = new AtomicInteger();
         private volatile Table loadedTable;
         private volatile Catalog.TableBuilder tableBuilder;
+        private volatile RuntimeException commitFailure;
+        private volatile List<TableCommit> committed;
         private volatile CountDownLatch loadStarted;
         private volatile CountDownLatch finishLoad;
         private volatile boolean closed;
@@ -80,6 +85,19 @@ public class ReauthenticatingRestSessionCatalogTest {
             loadedTable = table;
             loadStarted = started;
             finishLoad = finish;
+        }
+
+        void failCommit(RuntimeException failure) {
+            this.commitFailure = failure;
+        }
+
+        @Override
+        public void commitTransaction(SessionContext context, List<TableCommit> commits) {
+            commitCalls.incrementAndGet();
+            if (commitFailure != null) {
+                throw commitFailure;
+            }
+            committed = commits;
         }
 
         @Override
@@ -185,6 +203,44 @@ public class ReauthenticatingRestSessionCatalogTest {
         Assertions.assertEquals(0, rebuilds.get());
         Assertions.assertEquals(1, failing.listCalls.get());
         Assertions.assertFalse(failing.closed);
+    }
+
+    @Test
+    public void testTransactionCommitRoutesThroughRecovery() {
+        FakeRestSessionCatalog wedged = new FakeRestSessionCatalog("wedged", null);
+        wedged.failCommit(notAuthorized());
+        FakeRestSessionCatalog fresh = new FakeRestSessionCatalog("fresh", null);
+        ReauthenticatingRestSessionCatalog catalog =
+                new ReauthenticatingRestSessionCatalog(wedged, () -> fresh);
+        List<TableCommit> commits = Collections.singletonList(
+                ImmutableTableCommit.builder().identifier(TableIdentifier.of("db", "t")).build());
+
+        catalog.commitTransaction(SessionContext.createEmpty(), commits);
+
+        Assertions.assertEquals(1, wedged.commitCalls.get());
+        Assertions.assertEquals(1, fresh.commitCalls.get());
+        Assertions.assertSame(commits, fresh.committed);
+        Assertions.assertTrue(wedged.closed);
+    }
+
+    @Test
+    public void testDelegatedTransactionCommitIsNotRecovered() {
+        FakeRestSessionCatalog wedged = new FakeRestSessionCatalog("wedged", null);
+        wedged.failCommit(notAuthorized());
+        AtomicInteger rebuilds = new AtomicInteger();
+        ReauthenticatingRestSessionCatalog catalog = new ReauthenticatingRestSessionCatalog(wedged, () -> {
+            rebuilds.incrementAndGet();
+            return new FakeRestSessionCatalog("fresh", null);
+        });
+        List<TableCommit> commits = Collections.singletonList(
+                ImmutableTableCommit.builder().identifier(TableIdentifier.of("db", "t")).build());
+
+        Assertions.assertThrows(NotAuthorizedException.class,
+                () -> catalog.commitTransaction(delegatedUserContext(), commits));
+
+        Assertions.assertEquals(0, rebuilds.get());
+        Assertions.assertEquals(1, wedged.commitCalls.get());
+        Assertions.assertFalse(wedged.closed);
     }
 
     @Test
