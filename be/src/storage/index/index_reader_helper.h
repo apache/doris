@@ -22,6 +22,7 @@
 #include <string>
 
 #include "storage/index/index_iterator.h"
+#include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 
 namespace doris::segment_v2 {
@@ -106,33 +107,34 @@ public:
 
     static bool is_need_similarity_score(InvertedIndexQueryType query_type,
                                          const TabletIndex* index_meta) {
-        if (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
-            query_type == InvertedIndexQueryType::MATCH_ALL_QUERY ||
-            query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY ||
-            query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY) {
-            const auto& properties = index_meta->properties();
-            if (get_parser_phrase_support_string_from_properties(properties) ==
-                        INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES ||
-                is_normalizer_only(properties)) {
-                return true;
-            }
-        }
-        return false;
+        return (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
+                query_type == InvertedIndexQueryType::MATCH_ALL_QUERY ||
+                query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY ||
+                query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY) &&
+               can_score_match(index_meta);
     }
 
     static bool is_need_similarity_score(TExprOpcode::type query_type,
                                          const TabletIndex* index_meta) {
-        if (query_type == TExprOpcode::MATCH_ANY || query_type == TExprOpcode::MATCH_ALL ||
-            query_type == TExprOpcode::MATCH_PHRASE ||
-            query_type == TExprOpcode::MATCH_PHRASE_PREFIX) {
-            const auto& properties = index_meta->properties();
-            if (get_parser_phrase_support_string_from_properties(properties) ==
-                        INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES ||
-                is_normalizer_only(properties)) {
-                return true;
-            }
+        return (query_type == TExprOpcode::MATCH_ANY || query_type == TExprOpcode::MATCH_ALL ||
+                query_type == TExprOpcode::MATCH_PHRASE ||
+                query_type == TExprOpcode::MATCH_PHRASE_PREFIX) &&
+               can_score_match(index_meta);
+    }
+
+private:
+    static bool can_score_match(const TabletIndex* index_meta) {
+        const auto& properties = index_meta->properties();
+        // A keyword index keeps each value as one term, without positions or norms, and its
+        // postings score with unit frequency and length whatever support_phrase says, as an
+        // Elasticsearch keyword field does: over tags (x, x, y, z), tag MATCH 'x' scores
+        // idf(x) = ln(2) for both matching rows, the same as SEARCH('tag:x').
+        if (!inverted_index::InvertedIndexAnalyzer::should_analyzer(properties)) {
+            return true;
         }
-        return false;
+        return get_parser_phrase_support_string_from_properties(properties) ==
+                       INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES ||
+               is_normalizer_only(properties);
     }
 };
 

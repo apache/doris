@@ -288,10 +288,6 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
         index_metas = {selected};
     }
     for (const auto* index_meta : index_metas) {
-        if (!InvertedIndexAnalyzer::should_analyzer(index_meta->properties())) {
-            continue;
-        }
-
         if (!IndexReaderHelper::is_need_similarity_score(expr->op(), index_meta)) {
             continue;
         }
@@ -300,7 +296,12 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
         options.timezone = &state->timezone_obj();
         const std::string value = right_literal->value(options);
         std::vector<TermInfo> term_infos;
-        if (match_analyzer_ctx != nullptr) {
+        if (!InvertedIndexAnalyzer::should_analyzer(index_meta->properties())) {
+            // A keyword index stores the whole value as one term, case and spaces included, and
+            // its reader looks it up unanalyzed: tag MATCH 'Hello World' scores the single term
+            // "Hello World", as SEARCH('tag:"Hello World"') does.
+            term_infos.emplace_back(value);
+        } else if (match_analyzer_ctx != nullptr) {
             term_infos = DORIS_TRY(analyze_plain_query(value, *match_analyzer_ctx));
         } else {
             term_infos = DORIS_TRY(analyze_plain_query(value, index_meta->properties()));

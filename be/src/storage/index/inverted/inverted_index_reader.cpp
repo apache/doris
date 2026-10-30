@@ -537,8 +537,15 @@ Status StringTypeInvertedIndexReader::query(const IndexQueryContextPtr& context,
                                                      search_str};
         auto* cache = InvertedIndexQueryCache::instance();
         InvertedIndexQueryCacheHandle cache_handler;
-        if (handle_query_cache(context, cache, cache_key, &cache_handler, bit_map)) {
-            return Status::OK();
+        // A MATCH on a keyword index scores its whole value like SEARCH does, so with score() it
+        // must run and publish its scores instead of answering from the cached bitmap. Equality
+        // runs as MATCH_ANY below but keeps EQUAL_QUERY here, so it stays an unscored filter.
+        const bool is_similarity_score =
+                IndexReaderHelper::is_need_similarity_score(query_type, &_index_meta);
+        if (!(context->collection_similarity && is_similarity_score)) {
+            if (handle_query_cache(context, cache, cache_key, &cache_handler, bit_map)) {
+                return Status::OK();
+            }
         }
 
         std::wstring column_name_ws = StringUtil::string_to_wstring(column_name);
@@ -546,6 +553,7 @@ Status StringTypeInvertedIndexReader::query(const IndexQueryContextPtr& context,
         InvertedIndexQueryInfo query_info;
         query_info.field_name = column_name_ws;
         query_info.term_infos.emplace_back(search_str, 0);
+        query_info.is_similarity_score = is_similarity_score;
 
         auto result = std::make_shared<roaring::Roaring>();
         FulltextIndexSearcherPtr* searcher_ptr = nullptr;
