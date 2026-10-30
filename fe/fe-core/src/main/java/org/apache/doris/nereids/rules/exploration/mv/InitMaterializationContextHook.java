@@ -145,10 +145,13 @@ public class InitMaterializationContextHook implements PlannerHook {
                 matchedQualifiers.add(matchedParameter.get());
                 if (!matchedParameter.get().equals(mvQualifier)) {
                     // The sync MV is referenced by its bare name, e.g. USE_MV(mv1) for table.mv1.
-                    // Replace the parameter with the full identifier, so that the later
+                    // Record the full identifier in addition to the parameter, so that the later
                     // rewrite-success check and the hint status are computed on the same qualifier.
-                    useMvHint.getUseMvTableColumnMap().remove(matchedParameter.get());
-                    useMvHint.getUseMvTableColumnMap().put(mvQualifier, false);
+                    // The parameter must not be removed: it is also the exact identifier of the async
+                    // MV with the same name, because the sync MV name is table local, and removing it
+                    // would drop that async MV from the USE_MV hint.
+                    useMvHint.getUseMvTableColumnMap().putIfAbsent(mvQualifier, false);
+                    matchedQualifiers.add(mvQualifier);
                 }
             }
         }
