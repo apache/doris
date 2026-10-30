@@ -33,9 +33,14 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "util/threadpool.h"
 
+namespace butil {
+class IOBuf;
+}
+
 namespace doris::io {
 
 class BlockFileCache;
+class FileBlock;
 class AsyncCacheWriteEpochRegistry;
 
 /// Cache admission attributes captured on the query thread and replayed by a write worker.
@@ -54,22 +59,42 @@ struct CacheAdmissionContext {
     CacheContext to_cache_context(ReadStatistics* stats) const;
 };
 
-/// Reference-counted payload whose allocation is charged to the async-write memory tracker.
+/// Reference-counted payload of one cache block. A storage read owns an allocation charged to the
+/// async-write tracker; a peer read keeps the received IOBuf blocks, which bypass Doris Allocator,
+/// so their length is charged to the same tracker explicitly.
 class AsyncCacheWriteBuffer {
 public:
     ~AsyncCacheWriteBuffer();
 
-    char* data() { return _data; }
-    const char* data() const { return _data; }
+    /// Writable bytes of an allocated buffer; not valid for an IOBuf payload.
+    char* data() {
+        DCHECK(_iobuf == nullptr);
+        return _data;
+    }
+    const char* data() const {
+        DCHECK(_iobuf == nullptr);
+        return _data;
+    }
+    /// Capacity charged to pending-byte accounting.
     size_t size() const { return _size; }
+
+    /// Copy `n` payload bytes starting at `pos` into `dst`.
+    void copy_to(size_t pos, size_t n, char* dst) const;
+
+    /// Append `n` payload bytes starting at `pos` to `block`; an IOBuf payload is appended without
+    /// flattening.
+    Status append_to(FileBlock& block, size_t pos, size_t n) const;
 
 private:
     friend class AsyncCacheWriteManager;
 
     AsyncCacheWriteBuffer(size_t size, std::shared_ptr<MemTrackerLimiter> tracker);
+    AsyncCacheWriteBuffer(size_t capacity, butil::IOBuf&& payload,
+                          std::shared_ptr<MemTrackerLimiter> tracker);
 
     char* _data = nullptr;
     size_t _size = 0;
+    std::unique_ptr<butil::IOBuf> _iobuf; // peer payload; null for allocated buffers
     std::shared_ptr<MemTrackerLimiter> _tracker;
 };
 
@@ -175,6 +200,10 @@ public:
 
     /// Allocate `size` payload bytes charged to the manager tracker and return them in `buffer`.
     Status allocate_tracked_buffer(size_t size, AsyncCacheWriteBufferPtr* buffer);
+
+    /// Wrap one cache block of a peer response without copying. It is charged as `capacity` bytes
+    /// (one cache block) so pending accounting and EOF detection treat it like an allocated buffer.
+    AsyncCacheWriteBufferPtr wrap_iobuf(size_t capacity, butil::IOBuf payload);
 
     /// Capture the disk-wide epoch and current live generation for `cache_hash`.
     AsyncCacheWriteEpoch current_write_epoch(const UInt128Wrapper& cache_hash);

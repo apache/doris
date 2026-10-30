@@ -121,6 +121,7 @@ protected:
 private:
     struct AsyncReadBlock;
     struct AsyncReadPlan;
+    struct AsyncRemoteSpan;
 
     enum class FileCacheReadType {
         DATA,
@@ -220,6 +221,8 @@ private:
                                          size_t* indirect_read_bytes, bool* need_self_heal);
 
     /// Read the planned middle span once and copy only its overlap with the unread user range.
+    /// Peer is tried when every block in the span is a real cache miss, or, sparsely, when the
+    /// non-miss blocks between misses are cached or inflight and were first read locally.
     /// @param[in] plan Source plan containing user boundaries.
     /// @param[in] user_offset Original user request offset.
     /// @param[out] result Destination buffer for the complete user request.
@@ -228,25 +231,72 @@ private:
     /// @param[in,out] stats Remote-read timing and source flags.
     /// @param[in,out] source_read_breakdown Remote user bytes copied from this span.
     /// @param[in,out] indirect_read_bytes User bytes copied by the indirect path.
-    /// @param[out] remote_buffer Full aligned middle-span payload retained for async tasks.
+    /// @param[out] span Full aligned middle-span payload retained for async tasks.
     /// @return OK on success; otherwise the remote-read error.
     Status _read_async_remote_range(const AsyncReadPlan& plan, size_t user_offset, Slice result,
                                     bool need_self_heal, const IOContext* io_ctx,
                                     ReadStatistics& stats,
                                     SourceReadBreakdown& source_read_breakdown,
-                                    size_t* indirect_read_bytes,
-                                    std::unique_ptr<char[]>* remote_buffer);
+                                    size_t* indirect_read_bytes, AsyncRemoteSpan* span);
 
-    /// Copy each real cache-miss block from the remote span into one fixed cache-block-sized
-    /// tracked buffer and enqueue a per-block write task. `write_size` records the valid prefix for
-    /// a short physical EOF block. A final insert-if-absent prevents duplicate ownership after IO.
+    /// Decide whether an eligible remote span is read sparsely from peer, count the decision, and
+    /// start a candidate fetch when the tablet has no candidate.
+    /// @param[in] plan Source plan containing the remote span.
+    /// @param[in] user_offset Original user request offset.
+    /// @param[out] result Destination buffer for the complete user request.
+    /// @param[in] io_ctx Context deciding peer eligibility and cache admission accounting.
+    /// @param[in,out] stats Local-read timing and counters.
+    /// @param[in] all_misses Whether every block in the span is a real cache miss.
+    /// @param[out] local_bytes User bytes copied locally; meaningful only when true is returned.
+    /// @param[out] need_self_heal Set when a cached block is missing on disk.
+    /// @return true when the span's hits were read locally and peer should get only the misses.
+    bool _prepare_async_sparse_peer(const AsyncReadPlan& plan, size_t user_offset, Slice result,
+                                    const IOContext* io_ctx, ReadStatistics& stats, bool all_misses,
+                                    size_t* local_bytes, bool* need_self_heal);
+
+    /// Copy the cached/inflight blocks inside the remote span so peer can serve only the misses.
+    /// @param[in] plan Source plan containing the remote span.
+    /// @param[in] user_offset Original user request offset.
+    /// @param[out] result Destination buffer for the complete user request.
+    /// @param[in] io_ctx Context used for cache admission accounting.
+    /// @param[in,out] stats Local-read timing and counters.
+    /// @param[out] local_bytes User bytes copied; meaningful only when true is returned.
+    /// @param[out] need_self_heal Set when a cached block is missing on disk.
+    /// @return false when the span has a DOWNLOADING block, is the whole-range fallback, or a
+    /// local read fails; the caller then rereads the span from storage.
+    bool _materialize_async_span_hits(const AsyncReadPlan& plan, size_t user_offset, Slice result,
+                                      const IOContext* io_ctx, ReadStatistics& stats,
+                                      size_t* local_bytes, bool* need_self_heal);
+
+    /// Read only the cache misses of a span whose other blocks were already copied locally: peer
+    /// receives just the miss ranges, while a storage fallback still reads the whole span and
+    /// copies only the misses from it.
+    /// @param[in] plan Source plan containing user boundaries.
+    /// @param[in] user_offset Original user request offset.
+    /// @param[out] result Destination buffer for the complete user request.
+    /// @param[in] io_ctx Context passed to peer and remote storage.
+    /// @param[in,out] stats Remote-read timing and source flags.
+    /// @param[in] local_bytes User bytes already copied from the span's cached/inflight blocks.
+    /// @param[in,out] source_read_breakdown Local, peer or remote user bytes of this span.
+    /// @param[in,out] indirect_read_bytes User bytes copied by the indirect path.
+    /// @param[out] span Span payload retained for async tasks.
+    /// @return OK on success; otherwise the remote-read error.
+    Status _read_async_sparse_peer_span(const AsyncReadPlan& plan, size_t user_offset, Slice result,
+                                        const IOContext* io_ctx, ReadStatistics& stats,
+                                        size_t local_bytes,
+                                        SourceReadBreakdown& source_read_breakdown,
+                                        size_t* indirect_read_bytes, AsyncRemoteSpan* span);
+
+    /// Enqueue a per-block write task for each real cache-miss block in the remote span. Storage
+    /// data is copied into one fixed cache-block-sized tracked buffer; peer data is wrapped without
+    /// copying. `write_size` records the valid prefix for a short physical EOF block. A final
+    /// insert-if-absent prevents duplicate ownership after IO.
     /// @param[in] plan Classified blocks, remote boundaries, and the epoch captured before IO.
-    /// @param[in] remote_buffer Full payload for the plan's first-to-last remote span.
+    /// @param[in] span Payload for the plan's first-to-last remote span.
     /// @param[in] io_ctx Context converted to the worker's admission context.
     /// @param[in,out] stats Submission, rejection, allocation, and dedup counters.
     /// @return None.
-    void _submit_async_write_tasks(const AsyncReadPlan& plan,
-                                   const std::unique_ptr<char[]>& remote_buffer,
+    void _submit_async_write_tasks(const AsyncReadPlan& plan, const AsyncRemoteSpan& span,
                                    const IOContext* io_ctx, ReadStatistics& stats);
 
     /// Register a downloaded block in the direct-read map owned by this reader.
@@ -366,7 +416,7 @@ private:
 
     /// Sequential peer-then-S3 fallback: try the best peer candidate, update affinity on
     /// success/failure, and fall back to S3 if peer fails.
-    /// @param[in] empty_blocks Blocks whose data is missing from local cache.
+    /// @param[in] empty_ranges Ranges of the blocks whose data is missing from local cache.
     /// @param[in] empty_start Start offset of the contiguous remote-read range.
     /// @param[in] span_size Size of the remote-read range in bytes.
     /// @param[in,out] buffer Span buffer that receives S3 data on S3 fallback.
@@ -376,7 +426,7 @@ private:
     /// @param[in] candidates Peer candidates sorted by affinity.
     /// @param[in] tablet_id Tablet ID for affinity tracking.
     /// @return OK on success; otherwise the S3 read error.
-    Status _execute_sequential_peer_read(const std::vector<FileBlockSPtr>& empty_blocks,
+    Status _execute_sequential_peer_read(const std::vector<FileBlock::Range>& empty_ranges,
                                          size_t empty_start, size_t span_size,
                                          std::unique_ptr<char[]>& buffer,
                                          PeerFetchResult* peer_result, ReadStatistics& stats,
@@ -384,8 +434,18 @@ private:
                                          const std::vector<doris::PeerCandidate>& candidates,
                                          int64_t tablet_id);
 
+    /// Read-only check whether this tablet currently has usable peer candidates; the UT peer
+    /// debug point counts as one. Never refreshes candidate state.
+    /// @return true when a peer read would have a candidate to try.
+    bool _has_peer_candidates() const;
+
+    /// Start a background candidate fetch from FE for this tablet unless it is in peer cooldown.
+    /// Called when a read finds no candidate.
+    /// @return None.
+    void _fetch_peer_candidates_unless_cooldown() const;
+
     /// Execute a remote fetch for the contiguous empty range, trying peer first when enabled.
-    /// @param[in] empty_blocks Blocks whose data is missing from local cache.
+    /// @param[in] empty_ranges Ranges of the blocks whose data is missing from local cache.
     /// @param[in] empty_start Start offset of the contiguous remote-read range for S3 fallback.
     /// @param[in] span_size Size of the enclosing contiguous remote-read range for S3 fallback.
     /// @param[in,out] buffer Temporary span buffer receiving S3 data.
@@ -393,15 +453,15 @@ private:
     /// @param[in,out] stats Read statistics updated for peer/S3 execution.
     /// @param[in] io_ctx IO context passed to the remote reader.
     /// @return OK on success; otherwise the peer/S3 read error.
-    Status _execute_remote_read(const std::vector<FileBlockSPtr>& empty_blocks, size_t empty_start,
-                                size_t span_size, std::unique_ptr<char[]>& buffer,
-                                PeerFetchResult* peer_result, ReadStatistics& stats,
-                                const IOContext* io_ctx);
+    Status _execute_remote_read(const std::vector<FileBlock::Range>& empty_ranges,
+                                size_t empty_start, size_t span_size,
+                                std::unique_ptr<char[]>& buffer, PeerFetchResult* peer_result,
+                                ReadStatistics& stats, const IOContext* io_ctx);
 
     /// Execute a winner race between peer read and S3 read for cross compute group scenarios.
     /// Launches both peer and S3 reads concurrently in bthreads and returns the first successful
     /// result. Uses bthread::Mutex and bthread::ConditionVariable for synchronization.
-    /// @param[in] empty_blocks Blocks whose data is missing from local cache.
+    /// @param[in] empty_ranges Ranges of the blocks whose data is missing from local cache.
     /// @param[in] empty_start Start offset of the contiguous remote-read range.
     /// @param[in] span_size Size of the contiguous range for the S3 fallback read.
     /// @param[in,out] buffer Temporary span buffer that receives S3 data on S3 win.
@@ -410,10 +470,10 @@ private:
     /// @param[in] io_ctx IO context passed to both peer and S3 reads.
     /// @param[in] candidates All peer candidates for the tablet.
     /// @return OK on success with buffer or peer_result populated; otherwise an error.
-    Status _execute_winner_race(const std::vector<FileBlockSPtr>& empty_blocks, size_t empty_start,
-                                size_t span_size, std::unique_ptr<char[]>& buffer,
-                                PeerFetchResult* peer_result, ReadStatistics& stats,
-                                const IOContext* io_ctx,
+    Status _execute_winner_race(const std::vector<FileBlock::Range>& empty_ranges,
+                                size_t empty_start, size_t span_size,
+                                std::unique_ptr<char[]>& buffer, PeerFetchResult* peer_result,
+                                ReadStatistics& stats, const IOContext* io_ctx,
                                 const std::vector<doris::PeerCandidate>& candidates,
                                 int64_t tablet_id);
 
