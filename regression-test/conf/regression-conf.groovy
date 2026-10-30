@@ -147,6 +147,9 @@ enablePaimonTest=false
 enableDeltaLakeTest=false
 // Optional synthetic planning fixture; see the Delta planning README.
 enableDeltaLakePlanningTest=false
+// Supply a local JSON file with warehouse and storage properties for each storage matrix run.
+enableDeltaLakeStorageTest=false
+deltalakeStoragePropertiesFile=""
 deltalakeMinioPort=19001
 deltalakeHmsPort=9383
 deltalakeSparkPort=11002

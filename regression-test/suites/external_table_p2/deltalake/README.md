@@ -1,4 +1,62 @@
-# Delta planning scale acceptance
+# Delta Lake p2 acceptance
+
+## Storage backends
+
+`test_deltalake_storage` runs the same expected results against one storage
+backend at a time. Prepare the pinned golden tables with
+`docker/thirdparties/docker-compose/iceberg/scripts/deltalake/prepare.py`, then
+copy its `cache/deltalake/golden/` contents into
+`<warehouse>/delta_golden/` on the target storage. Preserve every table's
+relative paths, including `_delta_log`, checkpoint sidecars and DV files.
+
+For example, with an existing HDFS cluster and its Hadoop client configuration:
+
+```bash
+hdfs dfs -mkdir -p /warehouse/delta_golden
+hdfs dfs -put -f docker/thirdparties/docker-compose/iceberg/cache/deltalake/golden/* \
+    /warehouse/delta_golden/
+```
+
+Create a local JSON file containing the catalog's warehouse and normal
+`fe-filesystem` storage properties, for example:
+
+```json
+{
+  "warehouse": "hdfs://namenode:8020/warehouse",
+  "fs.defaultFS": "hdfs://namenode:8020",
+  "hadoop.username": "hadoop"
+}
+```
+
+Keep credentials and environment-specific files outside version control. Set
+these values in the local regression config:
+
+```groovy
+enableDeltaLakeTest=true
+enableDeltaLakeStorageTest=true
+deltalakeStoragePropertiesFile="/absolute/path/to/storage-properties.json"
+```
+
+Then run:
+
+```bash
+./run-regression-test.sh --run -d external_table_p2/deltalake -s test_deltalake_storage
+```
+
+The suite covers column mapping, timestamps, nested type widening, disk DVs,
+partitioned checkpoints and both V2 checkpoint formats. Synchronous and streaming
+planning read 128-byte splits, including splits sharing a file-global DV. It
+uses the same `.out` for each backend; an enabled but unavailable or misconfigured
+backend fails the suite rather than being skipped.
+
+Local acceptance on 2026-10-30 passed against both MinIO and ordinary HDFS 3.2.1.
+OSS, COS, OBS, Azure, GCS and Kerberos HDFS remain unverified pending test
+environments. Reusing filesystem properties does not establish coverage of
+these backends. On the local macOS ARM64 ASAN build, the embedded HDFS JVM needed
+compressed oops/class pointers and CDS disabled to avoid a JVM address-space
+allocation failure; this was a local BE configuration adjustment.
+
+## Planning scale
 
 This opt-in fixture declares one million active AddFiles in a classic checkpoint. It deliberately creates **no data objects**: it tests metadata COUNT and FE range planning, not Parquet read throughput or correctness across one million physical objects. The ordinary Delta p0 suites cover real data, deletes and schema evolution.
 
@@ -10,7 +68,7 @@ python3 docker/thirdparties/docker-compose/iceberg/scripts/create_preinstalled_s
   --output /path/to/warehouse/delta_bench/million_files
 ```
 
-The source golden table is Apache-2.0 licensed. Its original source is [Delta's pinned golden tables](https://github.com/delta-io/delta/tree/cebdc44dc07d331383e72811177af4ffc8638990/connectors/golden-tables/only-checkpoint-files). The generator uses its checkpoint schema and protocol/metadata, replaces the table id, and writes synthetic AddFiles plus the checkpoint's own JSON commit. Older commits are intentionally absent.
+The source golden table is Apache-2.0 licensed. Its original source is [Delta's pinned golden tables](https://github.com/delta-io/delta/tree/cebdc44dc07d331383e72811177af4ffc8638990/connectors/golden-tables/src/main/resources/golden/only-checkpoint-files). The generator uses its checkpoint schema and protocol/metadata, replaces the table id, and writes synthetic AddFiles plus the checkpoint's own JSON commit. Older commits are intentionally absent.
 
 Run the connector's actual streaming source three times with a small heap:
 
