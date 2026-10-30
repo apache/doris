@@ -24,6 +24,8 @@ import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
 import org.apache.doris.datasource.split.SplitAssignment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -32,6 +34,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -257,6 +261,76 @@ public class PluginDrivenScanNodeScanProfileTest {
         Assertions.assertEquals(2, group.getChildMap().size());
         Assertions.assertNotNull(group.getChildMap().get("Scan A"));
         Assertions.assertNotNull(group.getChildMap().get("Scan B"));
+    }
+
+    @Test
+    public void streamingPublishesAfterCloseOnCompletionAndBackpressureStop() throws Exception {
+        for (boolean complete : new boolean[] {true, false}) {
+            ConnectorSplitSource source = Mockito.mock(ConnectorSplitSource.class);
+            ConnectorScanRange range = Mockito.mock(ConnectorScanRange.class);
+            Mockito.when(source.hasNext()).thenReturn(true, true, false);
+            Mockito.when(source.next()).thenReturn(range);
+            AtomicInteger accepted = new AtomicInteger();
+            AtomicInteger finalized = new AtomicInteger();
+            PluginDrivenScanNode.consumeStreamingSource(() -> source,
+                    () -> complete || accepted.get() < 1, ignored -> accepted.incrementAndGet(), () -> {
+                        try {
+                            Mockito.verify(source).close();
+                        } catch (IOException e) {
+                            throw new AssertionError(e);
+                        }
+                        finalized.incrementAndGet();
+                    });
+            Assertions.assertEquals(complete ? 2 : 1, accepted.get());
+            Assertions.assertEquals(1, finalized.get());
+        }
+    }
+
+    @Test
+    public void streamingKeepsPrimaryFailureAndStillClosesAndPublishes() throws Exception {
+        ConnectorSplitSource source = Mockito.mock(ConnectorSplitSource.class);
+        RuntimeException failure = new IllegalStateException("iteration failed");
+        IOException closeFailure = new IOException("close failed");
+        RuntimeException profileFailure = new IllegalStateException("profile failed");
+        Mockito.when(source.hasNext()).thenThrow(failure);
+        Mockito.doThrow(closeFailure).when(source).close();
+        RuntimeException thrown = Assertions.assertThrows(RuntimeException.class,
+                () -> PluginDrivenScanNode.consumeStreamingSource(() -> source, () -> true,
+                        ignored -> Assertions.fail("no range expected"), () -> {
+                            throw profileFailure;
+                        }));
+        Assertions.assertSame(failure, thrown);
+        Assertions.assertArrayEquals(new Throwable[] {closeFailure, profileFailure}, thrown.getSuppressed());
+        Mockito.verify(source).close();
+    }
+
+    @Test
+    public void streamingClosesAndPublishesWhenLazyPluginLoadingFails() throws Exception {
+        ConnectorSplitSource source = Mockito.mock(ConnectorSplitSource.class);
+        NoClassDefFoundError failure = new NoClassDefFoundError("lazy connector dependency");
+        Mockito.when(source.hasNext()).thenThrow(failure);
+        AtomicInteger finalized = new AtomicInteger();
+        Assertions.assertSame(failure, Assertions.assertThrows(NoClassDefFoundError.class,
+                () -> PluginDrivenScanNode.consumeStreamingSource(() -> source, () -> true,
+                        ignored -> Assertions.fail("no range expected"), finalized::incrementAndGet)));
+        Mockito.verify(source).close();
+        Assertions.assertEquals(1, finalized.get());
+    }
+
+    @Test
+    public void streamingReportsOpenAndCloseFailuresBeforeSuccessfulScheduling() throws Exception {
+        AtomicInteger finalized = new AtomicInteger();
+        RuntimeException openFailure = new IllegalStateException("open failed");
+        Assertions.assertSame(openFailure, Assertions.assertThrows(RuntimeException.class,
+                () -> PluginDrivenScanNode.consumeStreamingSource(() -> {
+                    throw openFailure;
+                }, () -> true, ignored -> Assertions.fail("no range expected"), finalized::incrementAndGet)));
+        ConnectorSplitSource source = Mockito.mock(ConnectorSplitSource.class);
+        Mockito.doThrow(new IOException("close failed")).when(source).close();
+        Assertions.assertThrows(UncheckedIOException.class,
+                () -> PluginDrivenScanNode.consumeStreamingSource(() -> source, () -> true,
+                        ignored -> Assertions.fail("no range expected"), finalized::incrementAndGet));
+        Assertions.assertEquals(2, finalized.get());
     }
 
     private static void await(CountDownLatch latch) {

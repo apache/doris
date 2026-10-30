@@ -27,6 +27,18 @@ import java.util.function.Supplier;
 final class DeltaLakeStatementScope {
     static final String SNAPSHOT_NAMESPACE = "deltalake.snapshot";
 
+    static final String FILE_COUNT_NAMESPACE = "deltalake.file-count";
+
+    /** Observed only at this statement's fixed table identity/version; never a cross-query cache. */
+    static final class FileCount {
+        volatile long value = -1;
+    }
+
+    static FileCount fileCount(ConnectorSession session, DeltaLakeTableHandle handle) {
+        return ConnectorStatementScopes.resolveInStatement(session, FILE_COUNT_NAMESPACE, handle.getDatabase(),
+                handle.getTable() + ":" + handle.getTableId() + ":" + handle.getVersion(), FileCount::new);
+    }
+
     private DeltaLakeStatementScope() {
     }
 

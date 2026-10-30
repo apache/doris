@@ -93,6 +93,8 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -110,6 +112,8 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -542,11 +546,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             operationCompleted = true;
             profileFinalizer.run();
             return result;
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | Error failure) {
             if (!operationCompleted) {
                 try {
                     profileFinalizer.run();
-                } catch (RuntimeException profileFailure) {
+                } catch (RuntimeException | Error profileFailure) {
                     failure.addSuppressed(profileFailure);
                 }
             }
@@ -2223,36 +2227,56 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         final ConnectorTableHandle handle = currentHandle;
         final ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         queryFinishCleanup.bind(scanProvider);
+        SummaryProfile summary = SummaryProfile.getSummaryProfile(ConnectContext.get());
+        RuntimeProfile executionSummary = summary == null ? null : summary.getExecutionSummary();
         Executor scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
-        CompletableFuture.runAsync(() -> {
-            ConnectorSplitSource source = null;
-            try {
-                source = onPluginClassLoader(scanProvider,
-                        () -> scanProvider.streamSplits(connectorSession, handle, columns, remainingFilter, -1L));
-                // Pull ranges with backpressure (needMoreSplit) and pump them one at a time, exactly like
-                // legacy doStartSplit. The bounded SplitAssignment queue throttles the lazy source so FE
-                // heap stays bounded for million-file scans.
-                while (splitAssignment.needMoreSplit() && source.hasNext()) {
-                    List<Split> one = new ArrayList<>(1);
-                    one.add(toSplit(source.next()));
-                    splitAssignment.addToQueue(one);
+        try {
+            CompletableFuture.runAsync(() -> {
+                try {
+                    onPluginClassLoader(scanProvider, () -> {
+                        consumeStreamingSource(
+                                () -> scanProvider.streamSplits(
+                                        connectorSession, handle, columns, remainingFilter, -1L),
+                                splitAssignment::needMoreSplit,
+                                range -> {
+                                    try {
+                                        List<Split> one = new ArrayList<>(1);
+                                        one.add(toSplit(range));
+                                        splitAssignment.addToQueue(one);
+                                    } catch (UserException e) {
+                                        throw new RuntimeException(e.getMessage(), e);
+                                    }
+                                },
+                                () -> writeScanProfilesInto(executionSummary,
+                                        scanProvider.collectScanProfiles(connectorSession)));
+                        return null;
+                    });
+                } catch (Exception | Error e) {
+                    splitAssignment.setException(new UserException(e.getMessage(), e));
+                } finally {
+                    // SDK reports may be emitted on source.close(). Publish them before scheduling
+                    // completes, so the query's final profile cannot race the metadata worker.
+                    splitAssignment.finishSchedule();
                 }
-                splitAssignment.finishSchedule();
-            } catch (Exception e) {
-                splitAssignment.setException(new UserException(e.getMessage(), e));
-            } finally {
-                // Close in a finally that SWALLOWS close errors (NOT try-with-resources, whose close runs
-                // before the catch): a close() failure must not fail a scan whose splits were already
-                // enumerated + finishSchedule()-d (legacy doStartSplit swallowed close errors identically).
-                if (source != null) {
-                    try {
-                        source.close();
-                    } catch (Exception ce) {
-                        LOG.warn("Failed to close streaming split source for {}", handle, ce);
-                    }
+            }, scheduleExecutor);
+        } catch (Exception | Error e) {
+            splitAssignment.setException(new UserException(e.getMessage(), e));
+            splitAssignment.finishSchedule();
+        }
+    }
+
+    static void consumeStreamingSource(Supplier<ConnectorSplitSource> opener, BooleanSupplier needMore,
+            Consumer<ConnectorScanRange> consumer, Runnable profileFinalizer) {
+        executeWithProfileFinalization(() -> {
+            try (ConnectorSplitSource source = opener.get()) {
+                while (needMore.getAsBoolean() && source.hasNext()) {
+                    consumer.accept(source.next());
                 }
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
             }
-        }, scheduleExecutor);
+            return null;
+        }, profileFinalizer);
     }
 
     @Override
