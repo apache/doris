@@ -124,13 +124,13 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
                 return false;
             }
             try {
+                if (Thread.currentThread().isInterrupted()) {
+                    throw new DorisConnectorException("Delta split planning interrupted for " + handle.getPath());
+                }
+                if (buffered != null) {
+                    return true;
+                }
                 return runtime.execute(() -> {
-                    if (Thread.currentThread().isInterrupted()) {
-                        throw new DorisConnectorException("Delta split planning interrupted for " + handle.getPath());
-                    }
-                    if (buffered != null) {
-                        return true;
-                    }
                     if (countPushdown && !countChecked) {
                         countChecked = true;
                         CountSummary summary = countSummary(session, handle);

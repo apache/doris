@@ -44,3 +44,24 @@ Measured on 2026-10-30 with Java 17, Kernel 4.4.1, an 18-logical-CPU/48-GiB macO
 The cold snapshot includes first-use library initialization. Heap peaks are sampled, not continuous maxima. The streaming decision does not enumerate AddFiles. The warm runs reuse snapshot metadata while Kernel still enumerates the checkpoint.
 
 Against local MinIO, Doris metadata COUNT returned 1,000,000 in 1.648 and 1.372 seconds. Both profiles recorded zero data `FileReadBytes` and `FileReadCalls`. This count measurement is separate from the JVM range-enumeration test above.
+
+## Phase timing and cache decision
+
+`DeltaLakePlanningMetricsTest` uses the same opt-in property and heap command as the scale test. It times Kernel handler/iterator boundaries and expression evaluation, then creates the same range DTO shape used for this unpartitioned fixture. This probe is separate from the complete connector source measurement: it omits storage URI normalization, authentication-context entry and source buffering. Read/decode includes filesystem reads and Parquet decoding; replay/iteration is the remainder inside Kernel iteration. These are combined phase costs, not a claim to isolate disk wait from CPU time.
+
+| Probe | Checkpoint read/decode (ms) | Stats JSON parsing (ms) | Expression evaluation (ms) | Replay/iteration (ms) | Range DTO construction (ms) | Selected files |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| No filter | 310.370 | 0 | 2.118 | 226.255 | 1137.967 | 1,000,000 |
+| `id < 0` (all files skipped) | 272.070 | 365.928 | 220.749 | 167.768 | 0 | 0 |
+
+For this local workload, M1 keeps `DefaultEngine` without adding a log/checkpoint content cache: snapshot loading already becomes sub-millisecond on a hit, while range construction and stats/replay work account for most enumeration time. A byte cache cannot remove those costs, and would need additional memory accounting and ownership rules. The production planner instead avoids copying an immutable range when the split covers the complete file, and avoids re-entering the authentication context when `hasNext()` already has a buffered range. Remote high-latency storage or a long JSON-only history may have a different balance and should be measured before choosing a content cache.
+
+An isolated repeat of the complete-source test after those two changes produced:
+
+| Pass | Snapshot (ms) | Streaming decision (ms) | First range (ms) | Full enumeration (ms) | Highest sampled heap (MiB) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Cold | 1564.612 | 1.203 | 43.802 | 1529.518 | 169.7 |
+| Warm 1 | 0.782 | 0.013 | 21.083 | 1472.836 | 132.7 |
+| Warm 2 | 0.248 | 0.020 | 19.747 | 1418.931 | 131.6 |
+
+Both runs used the same fixture and 512-MiB heap. Individual timings and heap samples depend on JIT/GC state; this is evidence of preserved scale behavior and the observed improvement, not a statistical performance claim.
