@@ -309,4 +309,94 @@ suite("test_use_mv") {
     }
     sql """set pre_materialized_view_rewrite_strategy = 'TRY_IN_RBO';"""
 
+    // several hinted materializations are alternatives of each other: at least one of them must be
+    // enforced, even when the base plan is cheaper than every materialization plan
+    def hardDb = "test_use_mv_hard_constraint"
+    sql "DROP DATABASE IF EXISTS ${hardDb}"
+    sql "CREATE DATABASE IF NOT EXISTS ${hardDb}"
+    sql "use ${hardDb}"
+    sql """drop table if exists A;"""
+    sql """create table A (dt int, k int, v int) duplicate key(dt, k)
+        distributed by hash(k) buckets 4 properties('replication_num' = '1');"""
+    sql """insert into A values (1, 1, 1), (1, 2, 2), (2, 2, 3);"""
+    sql """drop materialized view if exists m1;"""
+    sql """create materialized view m1
+        build immediate refresh complete on manual
+        distributed by hash(k) buckets 7
+        properties('replication_num' = '1')
+        as select k, dt, v from A where dt >= 0;"""
+    waitingMTMVTaskFinishedByMvName("m1", hardDb)
+    sql """drop materialized view if exists m2;"""
+    sql """create materialized view m2
+        build immediate refresh complete on manual
+        distributed by hash(k) buckets 9
+        properties('replication_num' = '1')
+        as select k, dt, v from A where dt >= 0;"""
+    waitingMTMVTaskFinishedByMvName("m2", hardDb)
+    sql """drop materialized view if exists m_hash_v;"""
+    sql """create materialized view m_hash_v
+        build immediate refresh complete on manual
+        distributed by hash(v) buckets 5
+        properties('replication_num' = '1')
+        as select k, dt, v from A where dt >= 0;"""
+    waitingMTMVTaskFinishedByMvName("m_hash_v", hardDb)
+    sql """drop materialized view if exists m_cost;"""
+    sql """create materialized view m_cost
+        build immediate refresh complete on manual
+        distributed by hash(k) buckets 5
+        properties('replication_num' = '1')
+        as select k from A;"""
+    waitingMTMVTaskFinishedByMvName("m_cost", hardDb)
+    sql """sync;"""
+    sql """use ${hardDb};"""
+    sql """set pre_materialized_view_rewrite_strategy = 'NOT_IN_RBO';"""
+    // the base plan is cheaper than the materialization plans because only A matches the dt prefix
+    // of the filter, so the hint is the only reason to choose a materialization
+    sql """set filter_cost_factor = 10000;"""
+    explain {
+        sql """select /*+ use_mv(internal.${hardDb}.m1, internal.${hardDb}.m2) */ k, dt, v from A where dt = 1;"""
+        contains("Used: use_mv([internal, ${hardDb}, m1].[internal, ${hardDb}, m2] )")
+        notContains("TABLE: ${hardDb}.A(A)")
+    }
+    order_qt_use_mv_multi_hint """select /*+ use_mv(internal.${hardDb}.m1, internal.${hardDb}.m2) */ k, dt, v from A where dt = 1 order by k;"""
+
+    // the gather enforcer of the result sink must be rebuilt on the distribution which the
+    // materialization provides, instead of requiring the storage hash of the replaced table
+    sql """set enable_parallel_result_sink = false;"""
+    explain {
+        sql """select /*+ use_mv(internal.${hardDb}.m_hash_v) */ k, dt, v from A where dt = 1;"""
+        contains("Used: use_mv([internal, ${hardDb}, m_hash_v])")
+        notContains("TABLE: ${hardDb}.A(A)")
+        contains("PARTITION: UNPARTITIONED")
+    }
+    order_qt_use_mv_gather_hint """select /*+ use_mv(internal.${hardDb}.m_hash_v) */ k, dt, v from A where dt = 1 order by k;"""
+    sql """set enable_parallel_result_sink = true;"""
+
+    // the producer contract of the materialized CTE must be respected: the order of the producer is
+    // not dropped by a realignment, and the restored order is a real local sort
+    sql """set enable_cte_materialize = true;"""
+    sql """set inline_cte_referenced_threshold = 1;"""
+    sql """set cte_inline_mode = -1;"""
+    explain {
+        sql """with cte as (select k, v, row_number() over (partition by k order by v) as rn
+                from A where dt = 1)
+            select /*+ use_mv(internal.${hardDb}.m1) */ c1.k, c1.rn, c2.rn
+            from cte c1 join cte c2 on c1.k = c2.k;"""
+        contains("Used: use_mv([internal, ${hardDb}, m1])")
+        notContains("TABLE: ${hardDb}.A(A)")
+    }
+    order_qt_use_mv_cte_hint """with cte as (select k, v, row_number() over (partition by k order by v) as rn
+            from A where dt = 1)
+        select /*+ use_mv(internal.${hardDb}.m1) */ c1.k, c1.rn, c2.rn
+        from cte c1 join cte c2 on c1.k = c2.k order by c1.k;"""
+    sql """set filter_cost_factor = 0.0001;"""
+
+    // the cost of the selected materialization plan is kept for the EXPLAIN output
+    explain {
+        sql """physical plan select /*+ use_mv(internal.${hardDb}.m_cost) */ k + 1 from A;"""
+        contains("Used: use_mv([internal, ${hardDb}, m_cost])")
+        notContains("TABLE: ${hardDb}.A(A)")
+        notContains("cost = 0.0")
+    }
+
 }

@@ -36,6 +36,8 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.mysql.FieldInfo;
+import org.apache.doris.nereids.cost.Cost;
+import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
@@ -52,9 +54,9 @@ import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.ChildOutputPropertyDeriver;
 import org.apache.doris.nereids.properties.DistributionSpec;
+import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
-import org.apache.doris.nereids.properties.MustLocalSortOrderSpec;
 import org.apache.doris.nereids.properties.OrderSpec;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
@@ -76,6 +78,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
@@ -85,6 +88,8 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
@@ -353,8 +358,12 @@ public class NereidsPlanner extends Planner {
         }
         PhysicalPlan physicalPlan;
         if (!requiredUseMvIdentifiers.isEmpty()) {
-            physicalPlan = chooseBestPlanConsideringRequiredUseMv(getRoot(), requireProperties,
+            PlanWithCost chosenPlan = chooseBestPlanConsideringRequiredUseMv(getRoot(), requireProperties,
                     requiredUseMvIdentifiers, mvReachableCache, cascadesContext);
+            physicalPlan = chosenPlan.plan;
+            // Keep the cost of the selected alternative for the EXPLAIN output, the cost based
+            // selection methods are bypassed on this path.
+            cost = chosenPlan.cost;
         } else {
             Set<Integer> requiredGroupIds = cascadesContext.getConnectContext()
                     .getSessionVariable().getRequiredGroupIds();
@@ -948,35 +957,55 @@ public class NereidsPlanner extends Planner {
             return chooseBestPlan(rootGroup, physicalProperties, cascadesContext);
         }
         return chooseBestPlanConsideringRequiredUseMv(rootGroup, physicalProperties,
-                requiredUseMvIdentifiers, mvReachableCache, cascadesContext);
+                requiredUseMvIdentifiers, mvReachableCache, cascadesContext).plan;
     }
 
     /**
-     * Choose the best plan which contains the required USE_MV materializations.
+     * Choose the best plan which contains at least one of the required materializations.
      * <p>
      * Several hinted materializations may be alternatives of each other and can not be chosen at the
-     * same time, so only the single required materialization is enforced. The cost model already makes
-     * the hinted materializations the cheapest ones, so the cost based plan is used for the others.
+     * same time, so a single one of them satisfies the hint: the selection only requires at least one
+     * of the reachable materializations to be contained in the plan.
      */
-    private static PhysicalPlan chooseBestPlanConsideringRequiredUseMv(Group rootGroup,
+    private static PlanWithCost chooseBestPlanConsideringRequiredUseMv(Group rootGroup,
             PhysicalProperties physicalProperties, Set<List<String>> requiredUseMvIdentifiers,
             Map<Group, Set<List<String>>> mvReachableCache, CascadesContext cascadesContext)
             throws AnalysisException {
-        if (requiredUseMvIdentifiers.size() == 1) {
-            PhysicalPlan physicalPlan = chooseBestPlanWithRequiredMaterializations(rootGroup,
-                    physicalProperties, requiredUseMvIdentifiers, mvReachableCache, cascadesContext);
-            if (providesProperties(physicalPlan.getPhysicalProperties(), physicalProperties)) {
-                return physicalPlan;
-            }
-            // The forced plan does not provide the required output properties anymore, for example a
-            // materialization replaced one side of a colocate join and both sides are shuffled now.
-            PhysicalPlan enforced = addExchange(physicalPlan, physicalProperties.getDistributionSpec());
-            if (!enforced.getPhysicalProperties().getOrderSpec().satisfy(physicalProperties.getOrderSpec())) {
-                enforced = addSort(enforced, physicalProperties.getOrderSpec());
-            }
-            return enforced;
+        PlanWithCost chosenPlan = chooseBestPlanWithRequiredMaterializations(rootGroup,
+                physicalProperties, requiredUseMvIdentifiers, mvReachableCache, cascadesContext);
+        if (chosenPlan == null) {
+            // No materialization can be produced together with the required properties, fall back to
+            // the cost based plan instead of failing the query.
+            markUseMvNotChosen(cascadesContext.getStatementContext(), requiredUseMvIdentifiers);
+            return chooseBestPlanWithCost(rootGroup, physicalProperties, cascadesContext);
         }
-        return chooseBestPlan(rootGroup, physicalProperties, cascadesContext);
+        return enforceOutputProperties(chosenPlan, physicalProperties, rootGroup, cascadesContext);
+    }
+
+    /**
+     * Enforce the required output properties on the selected plan, the selected materialization can
+     * provide other properties than the costed plan which it replaced.
+     */
+    private static PlanWithCost enforceOutputProperties(PlanWithCost selectedPlan,
+            PhysicalProperties requiredProperties, Group group, CascadesContext cascadesContext) {
+        if (selectedPlan.plan instanceof PhysicalSink
+                || providesProperties(selectedPlan.plan.getPhysicalProperties(), requiredProperties)) {
+            // A sink is the root of the plan and its child is already required to provide the
+            // properties, an enforcer above it would be meaningless.
+            return selectedPlan;
+        }
+        return enforceProperties(selectedPlan, requiredProperties, false, group, cascadesContext);
+    }
+
+    /**
+     * Choose the cost based plan of the group together with its estimated cost.
+     */
+    private static PlanWithCost chooseBestPlanWithCost(Group rootGroup, PhysicalProperties physicalProperties,
+            CascadesContext cascadesContext) throws AnalysisException {
+        PhysicalPlan physicalPlan = chooseBestPlan(rootGroup, physicalProperties, cascadesContext);
+        double planCost = rootGroup.getLowestCostPlan(physicalProperties)
+                .map(costAndPlan -> costAndPlan.first.getValue()).orElse(0.0);
+        return new PlanWithCost(physicalPlan, planCost);
     }
 
     /**
@@ -1256,114 +1285,101 @@ public class NereidsPlanner extends Planner {
     }
 
     /**
-     * Choose the cheapest physical plan that contains all required MV identifiers.
-     * At each group, picks the cheapest physical GroupExpression whose own + children's
-     * reachable sets collectively cover all remaining required MV identifiers, then
-     * distributes the remaining requirements among children and recurses.
+     * Choose the cheapest physical plan which contains at least one of the required materializations.
+     * <p>
+     * At each group, picks the cheapest physical GroupExpression whose children can reach one of the
+     * remaining required materializations, then distributes the remaining requirements among children
+     * and recurses.
+     *
+     * @return the chosen plan together with its estimated cost, or null if no materialization can be
+     *         produced together with the required properties
      */
-    private static PhysicalPlan chooseBestPlanWithRequiredMaterializations(
+    private static PlanWithCost chooseBestPlanWithRequiredMaterializations(
             Group group, PhysicalProperties properties,
             Set<List<String>> remaining, Map<Group, Set<List<String>>> reachableCache,
             CascadesContext cascadesContext) {
-        remaining = new HashSet<>(remaining);
+        Set<List<String>> requiredMvs = new HashSet<>(remaining);
 
         // Remove MVs that this group's own scan expressions cover
         Set<List<String>> ownMvs = new HashSet<>();
         for (GroupExpression ge : group.getPhysicalExpressions()) {
-            ownMvs.addAll(getScanMvIdentifiers(ge.getPlan(), remaining));
+            ownMvs.addAll(getScanMvIdentifiers(ge.getPlan(), requiredMvs));
         }
-        remaining.removeAll(ownMvs);
+        requiredMvs.removeAll(ownMvs);
 
-        if (remaining.isEmpty()) {
-            return chooseBestPlan(group, properties, cascadesContext);
-        }
-
-        GroupExpression chosenGE = null;
-        double chosenCost = Double.MAX_VALUE;
-
-        // Check all physical GEs in this group
-        for (GroupExpression ge : group.getPhysicalExpressions()) {
-            if (!ge.getLowestCostTable().containsKey(properties)) {
-                continue;
-            }
-            double geCost = ge.getCostByProperties(properties);
-            if (geCost >= chosenCost) {
-                continue;
-            }
-            Set<List<String>> childReachable = new HashSet<>();
-            for (Group child : ge.children()) {
-                Set<List<String>> cr = reachableCache.get(child);
-                if (cr != null) {
-                    childReachable.addAll(cr);
-                }
-            }
-            if (childReachable.containsAll(remaining)) {
-                chosenGE = ge;
-                chosenCost = geCost;
-            }
+        if (requiredMvs.isEmpty()) {
+            return chooseBestPlanWithCost(group, properties, cascadesContext);
         }
 
-        // Also check enforcers
-        for (GroupExpression enforcer : group.getEnforcers().values()) {
-            if (!enforcer.getLowestCostTable().containsKey(properties)) {
-                continue;
-            }
-            double eCost = enforcer.getCostByProperties(properties);
-            if (eCost >= chosenCost) {
-                continue;
-            }
-            Set<List<String>> childReachable = new HashSet<>();
-            for (Group child : enforcer.children()) {
-                Set<List<String>> cr = reachableCache.get(child);
-                if (cr != null) {
-                    childReachable.addAll(cr);
-                }
-            }
-            if (childReachable.containsAll(remaining)) {
-                chosenGE = enforcer;
-                chosenCost = eCost;
-            }
-        }
-
+        PhysicalProperties selectedProperties = properties;
+        GroupExpression chosenGE = chooseGroupExpression(group, properties, requiredMvs, reachableCache);
         if (chosenGE == null) {
-            // The required materialization can not be produced with the required properties, for example
-            // the hinted materialization is not costed for the required distribution, so fall back to the
-            // cost based plan of this subtree instead of failing the query.
-            markUseMvNotChosen(cascadesContext.getStatementContext(), remaining);
-            return chooseBestPlan(group, properties, cascadesContext);
+            // The hinted materialization may be costed only with another property than the required
+            // one, for example ANY or its own storage distribution, because the cheapest alternative of
+            // the group owns the required property. Select it on an available property and enforce the
+            // required one afterwards.
+            Pair<GroupExpression, PhysicalProperties> alternative =
+                    findAlternativeWithProperty(group, requiredMvs, reachableCache);
+            if (alternative == null) {
+                return null;
+            }
+            chosenGE = alternative.first;
+            selectedProperties = alternative.second;
+        }
+
+        if (group.getEnforcers().containsKey(chosenGE)) {
+            return choosePlanWithEnforcer(group, chosenGE, properties, requiredMvs, reachableCache,
+                    cascadesContext);
         }
 
         // Handle enforcer marking (same as chooseBestPlan)
-        if ((chosenGE.getPlan() instanceof PhysicalDistribute
+        if (chosenGE.getPlan() instanceof PhysicalDistribute
                 && group.getEnforcerSpecs().containsKey(
-                        ((PhysicalDistribute<?>) chosenGE.getPlan()).getDistributionSpec()))
-                || group.getEnforcers().containsKey(chosenGE)) {
+                        ((PhysicalDistribute<?>) chosenGE.getPlan()).getDistributionSpec())) {
             group.addChosenEnforcerId(chosenGE.getId().asInt());
-            group.addChosenEnforcerProperties(properties);
+            group.addChosenEnforcerProperties(selectedProperties);
         } else {
-            group.setChosenProperties(properties);
+            group.setChosenProperties(selectedProperties);
             group.setChosenGroupExpressionId(chosenGE.getId().asInt());
         }
 
         // Distribute remaining among children and recurse
-        List<PhysicalProperties> inputProps = chosenGE.getInputPropertiesList(properties);
-        List<Plan> planChildren = Lists.newArrayList();
+        List<PhysicalProperties> inputProps = chosenGE.getInputPropertiesList(selectedProperties);
+        List<PlanWithCost> childPlans = Lists.newArrayListWithCapacity(chosenGE.arity());
+        double memoChildrenCost = 0.0;
         for (int i = 0; i < chosenGE.arity(); i++) {
             Group child = chosenGE.child(i);
             Set<List<String>> childReachable = reachableCache.getOrDefault(child, new HashSet<>());
-            Set<List<String>> childRemaining = new HashSet<>(remaining);
+            Set<List<String>> childRemaining = new HashSet<>(requiredMvs);
             childRemaining.retainAll(childReachable);
-            planChildren.add(chooseBestPlanWithRequiredMaterializations(
-                    child, inputProps.get(i), childRemaining, reachableCache, cascadesContext));
+            PlanWithCost childPlan = chooseBestPlanWithRequiredMaterializations(
+                    child, inputProps.get(i), childRemaining, reachableCache, cascadesContext);
+            if (childPlan == null) {
+                return null;
+            }
+            childPlans.add(childPlan);
+            memoChildrenCost += child.getLowestCostPlan(inputProps.get(i))
+                    .map(costAndPlan -> costAndPlan.first.getValue()).orElse(0.0);
         }
 
         // The children were chosen by the materialization reachability instead of the cost, so the
         // property contract of the costed group expression can be stale: a child can be replaced by a
         // materialization which is laid out by another relation. Re-derive the actual children outputs
         // and enforce the missing properties again, instead of keeping the costed contract.
-        boolean contractHolds = childrenProvideProperties(inputProps, planChildren);
-        if (!contractHolds) {
-            enforceChildrenProperties(inputProps, planChildren);
+        boolean contractHolds = childrenProvideProperties(inputProps, childPlans);
+        boolean alignedChildren = requiresAlignedChildren(chosenGE.getPlan());
+        List<Plan> planChildren = Lists.newArrayListWithCapacity(childPlans.size());
+        double childrenCost = 0.0;
+        for (int i = 0; i < childPlans.size(); i++) {
+            // Every hash distributed child of a join or of a set operation is realigned, not only the
+            // replaced one: the data layout pairing of the costed plan does not hold anymore once one
+            // child of such a group expression is replaced by a materialization.
+            boolean forceDistribution = alignedChildren && !contractHolds
+                    && inputProps.get(i).getDistributionSpec() instanceof DistributionSpecHash;
+            PlanWithCost childPlan = enforceChildProperties(chosenGE.child(i), childPlans.get(i),
+                    inputProps.get(i), forceDistribution, cascadesContext);
+            planChildren.add(childPlan.plan);
+            childrenCost += childPlan.cost;
         }
 
         Plan plan = chosenGE.getPlan().withChildren(planChildren);
@@ -1372,9 +1388,109 @@ public class NereidsPlanner extends Planner {
         }
         plan = plan.withGroupExpression(Optional.of(chosenGE));
         PhysicalProperties outputProperties = contractHolds
-                ? chosenGE.getOutputProperties(properties)
+                ? chosenGE.getOutputProperties(selectedProperties)
                 : deriveOutputProperties(plan, planChildren, cascadesContext);
-        return ((PhysicalPlan) plan).withPhysicalPropertiesAndStats(outputProperties, group.getStatistics());
+        PhysicalPlan physicalPlan = ((PhysicalPlan) plan)
+                .withPhysicalPropertiesAndStats(outputProperties, group.getStatistics());
+        // The node cost is what the memo costed for the group expression without its costed children,
+        // the children are charged with the forced alternatives and the synthesized enforcers instead.
+        double nodeCost = Math.max(0.0, chosenGE.getCostByProperties(selectedProperties) - memoChildrenCost);
+        return new PlanWithCost(physicalPlan, nodeCost + childrenCost);
+    }
+
+    /**
+     * Choose the cheapest group expression of the group which can produce the required materializations
+     * together with the required properties.
+     */
+    private static GroupExpression chooseGroupExpression(Group group, PhysicalProperties properties,
+            Set<List<String>> requiredMvs, Map<Group, Set<List<String>>> reachableCache) {
+        List<GroupExpression> candidates = Lists.newArrayList(group.getPhysicalExpressions());
+        candidates.addAll(group.getEnforcers().values());
+        GroupExpression chosenGE = null;
+        double chosenCost = Double.MAX_VALUE;
+        for (GroupExpression candidate : candidates) {
+            if (!candidate.getLowestCostTable().containsKey(properties)) {
+                continue;
+            }
+            double candidateCost = candidate.getCostByProperties(properties);
+            if (candidateCost >= chosenCost) {
+                continue;
+            }
+            if (reaches(candidate, requiredMvs, reachableCache)) {
+                chosenGE = candidate;
+                chosenCost = candidateCost;
+            }
+        }
+        return chosenGE;
+    }
+
+    /**
+     * Find the cheapest group expression which produces the required materializations, together with the
+     * property it is costed with.
+     */
+    private static Pair<GroupExpression, PhysicalProperties> findAlternativeWithProperty(Group group,
+            Set<List<String>> requiredMvs, Map<Group, Set<List<String>>> reachableCache) {
+        Pair<GroupExpression, PhysicalProperties> chosenAlternative = null;
+        double chosenCost = Double.MAX_VALUE;
+        for (GroupExpression candidate : group.getPhysicalExpressions()) {
+            if (!reaches(candidate, requiredMvs, reachableCache)) {
+                continue;
+            }
+            for (Map.Entry<PhysicalProperties, Pair<Cost, List<PhysicalProperties>>> propertyAndCost
+                    : candidate.getLowestCostTable().entrySet()) {
+                double candidateCost = propertyAndCost.getValue().first.getValue();
+                if (candidateCost < chosenCost) {
+                    chosenAlternative = Pair.of(candidate, propertyAndCost.getKey());
+                    chosenCost = candidateCost;
+                }
+            }
+        }
+        return chosenAlternative;
+    }
+
+    /**
+     * Whether the children of the group expression can reach at least one of the required
+     * materializations.
+     */
+    private static boolean reaches(GroupExpression groupExpression, Set<List<String>> requiredMvs,
+            Map<Group, Set<List<String>>> reachableCache) {
+        Set<List<String>> childReachable = new HashSet<>();
+        for (Group child : groupExpression.children()) {
+            Set<List<String>> reachable = reachableCache.get(child);
+            if (reachable != null) {
+                childReachable.addAll(reachable);
+            }
+        }
+        childReachable.retainAll(requiredMvs);
+        return !childReachable.isEmpty();
+    }
+
+    /**
+     * Plan the materializations behind an enforcer of the group.
+     * <p>
+     * An enforcer is shared by all the alternatives of the group and the input property it recorded is
+     * the one the cheapest alternative provided, so the forced alternative is planned on its own
+     * property and the required properties are then enforced on its actual output.
+     */
+    private static PlanWithCost choosePlanWithEnforcer(Group group, GroupExpression enforcer,
+            PhysicalProperties properties, Set<List<String>> requiredMvs,
+            Map<Group, Set<List<String>>> reachableCache, CascadesContext cascadesContext) {
+        PlanWithCost childPlan = chooseBestPlanWithRequiredMaterializations(group,
+                PhysicalProperties.ANY, requiredMvs, reachableCache, cascadesContext);
+        if (childPlan == null) {
+            return null;
+        }
+        group.addChosenEnforcerId(enforcer.getId().asInt());
+        group.addChosenEnforcerProperties(properties);
+        return enforceProperties(childPlan, properties, false, group, cascadesContext);
+    }
+
+    /**
+     * Whether the children of the plan must be aligned with each other, which is the case for joins and
+     * set operations. The other plans only inherit the properties of their single child.
+     */
+    private static boolean requiresAlignedChildren(Plan plan) {
+        return plan instanceof AbstractPhysicalJoin || plan instanceof PhysicalSetOperation;
     }
 
     /**
@@ -1429,9 +1545,9 @@ public class NereidsPlanner extends Planner {
      * with.
      */
     private static boolean childrenProvideProperties(List<PhysicalProperties> inputProps,
-            List<Plan> planChildren) {
-        for (int i = 0; i < planChildren.size(); i++) {
-            if (!providesProperties(getPhysicalProperties(planChildren.get(i)), inputProps.get(i))) {
+            List<PlanWithCost> childPlans) {
+        for (int i = 0; i < childPlans.size(); i++) {
+            if (!providesProperties(childPlans.get(i).plan.getPhysicalProperties(), inputProps.get(i))) {
                 return false;
             }
         }
@@ -1439,31 +1555,56 @@ public class NereidsPlanner extends Planner {
     }
 
     /**
-     * Enforce the input properties of the group expression on the forced children plans, the same way
-     * {@link org.apache.doris.nereids.properties.ChildrenPropertiesRegulator} does it during the cost
-     * based selection.
+     * Enforce the input properties which the group expression was costed with on a forced child.
+     *
+     * @param forceDistribution whether the distribution is enforced even if the child already delivers
+     *         the required shuffle columns
      */
-    private static void enforceChildrenProperties(List<PhysicalProperties> inputProps,
-            List<Plan> planChildren) {
-        boolean multiChild = planChildren.size() > 1;
-        for (int i = 0; i < planChildren.size(); i++) {
-            PhysicalProperties required = inputProps.get(i);
-            PhysicalProperties actual = getPhysicalProperties(planChildren.get(i));
-            if (!providesProperties(actual, required)) {
-                // Every hash distributed child of a join or of a set operation is realigned, not only
-                // the replaced one: the data layout pairing of the costed plan does not hold anymore
-                // once one child of such a group expression is replaced by a materialization.
-                if (multiChild && required.getDistributionSpec() instanceof DistributionSpecHash) {
-                    planChildren.set(i, addExchange(planChildren.get(i), required.getDistributionSpec()));
-                } else if (!providesShuffleColumns(
-                        actual.getDistributionSpec(), required.getDistributionSpec())) {
-                    planChildren.set(i, addExchange(planChildren.get(i), required.getDistributionSpec()));
-                }
-            }
-            if (!getPhysicalProperties(planChildren.get(i)).getOrderSpec().satisfy(required.getOrderSpec())) {
-                planChildren.set(i, addSort(planChildren.get(i), required.getOrderSpec()));
-            }
+    private static PlanWithCost enforceChildProperties(Group childGroup, PlanWithCost childPlan,
+            PhysicalProperties requiredProperties, boolean forceDistribution, CascadesContext cascadesContext) {
+        if (!forceDistribution
+                && providesProperties(childPlan.plan.getPhysicalProperties(), requiredProperties)) {
+            return childPlan;
         }
+        return enforceProperties(childPlan, requiredProperties, forceDistribution, childGroup, cascadesContext);
+    }
+
+    /**
+     * Add the enforcers which deliver the required properties, the same way
+     * {@link org.apache.doris.nereids.properties.EnforceMissingPropertiesHelper} does it during the cost
+     * based selection. A merge sort reads an already locally sorted input, so the local sort has to be
+     * placed below the exchange which gathers the sorted data.
+     *
+     * @param forceDistribution whether the distribution is enforced even if the child already delivers
+     *         the required shuffle columns
+     */
+    private static PlanWithCost enforceProperties(PlanWithCost childPlan, PhysicalProperties requiredProperties,
+            boolean forceDistribution, Group childGroup, CascadesContext cascadesContext) {
+        PhysicalProperties actualProperties = childPlan.plan.getPhysicalProperties();
+        boolean needDistribution = forceDistribution || !providesShuffleColumns(
+                actualProperties.getDistributionSpec(), requiredProperties.getDistributionSpec());
+        OrderSpec requiredOrder = requiredProperties.getOrderSpec();
+        boolean needOrder = !actualProperties.getOrderSpec().satisfy(requiredOrder);
+        if (!needDistribution && !needOrder) {
+            return childPlan;
+        }
+        // A merge sort requires an already locally sorted input, so the local sort is enforced below the
+        // exchange when the required distribution is gather.
+        boolean mergeSort = needOrder && requiredProperties.getDistributionSpec() instanceof DistributionSpecGather;
+        PlanWithCost enforcedPlan = childPlan;
+        if (mergeSort) {
+            enforcedPlan = addSort(enforcedPlan, requiredOrder, SortPhase.LOCAL_SORT, childGroup, cascadesContext);
+        }
+        if (needDistribution) {
+            enforcedPlan = addExchange(enforcedPlan, requiredProperties.getDistributionSpec(),
+                    childGroup, cascadesContext);
+        }
+        if (mergeSort) {
+            enforcedPlan = addSort(enforcedPlan, requiredOrder, SortPhase.MERGE_SORT, childGroup, cascadesContext);
+        } else if (needOrder) {
+            enforcedPlan = addSort(enforcedPlan, requiredOrder, SortPhase.LOCAL_SORT, childGroup, cascadesContext);
+        }
+        return enforcedPlan;
     }
 
     /**
@@ -1471,21 +1612,64 @@ public class NereidsPlanner extends Planner {
      * type is delivered by a hash shuffle, the same way
      * {@link org.apache.doris.nereids.properties.EnforceMissingPropertiesHelper} does it.
      */
-    private static PhysicalPlan addExchange(Plan child, DistributionSpec required) {
-        DistributionSpec exchangeDistribution = required instanceof DistributionSpecHash
-                ? ((DistributionSpecHash) required).withShuffleType(ShuffleType.EXECUTION_BUCKETED)
-                : required;
-        return new PhysicalDistribute<>(exchangeDistribution, Optional.empty(), child.getLogicalProperties(),
-                new PhysicalProperties(exchangeDistribution), child.getStats(), child);
+    private static PlanWithCost addExchange(PlanWithCost childPlan, DistributionSpec requiredDistribution,
+            Group childGroup, CascadesContext cascadesContext) {
+        DistributionSpec exchangeDistribution = requiredDistribution instanceof DistributionSpecHash
+                ? ((DistributionSpecHash) requiredDistribution).withShuffleType(ShuffleType.EXECUTION_BUCKETED)
+                : requiredDistribution;
+        PhysicalDistribute<Plan> exchange = new PhysicalDistribute<>(exchangeDistribution, Optional.empty(),
+                childPlan.plan.getLogicalProperties(), new PhysicalProperties(exchangeDistribution),
+                childPlan.plan.getStats(), childPlan.plan);
+        return new PlanWithCost(exchange,
+                childPlan.cost + calculateEnforcerCost(cascadesContext, exchange, childGroup, childPlan.plan));
     }
 
-    private static PhysicalPlan addSort(Plan child, OrderSpec requiredOrder) {
-        SortPhase sortPhase = requiredOrder instanceof MustLocalSortOrderSpec
-                ? SortPhase.LOCAL_SORT : SortPhase.MERGE_SORT;
-        return new PhysicalQuickSort<>(requiredOrder.getOrderKeys(), sortPhase, Optional.empty(),
-                child.getLogicalProperties(),
-                new PhysicalProperties(getPhysicalProperties(child).getDistributionSpec(), requiredOrder),
-                child.getStats(), child);
+    /**
+     * Add a sort which delivers the required order.
+     */
+    private static PlanWithCost addSort(PlanWithCost childPlan, OrderSpec requiredOrder, SortPhase sortPhase,
+            Group childGroup, CascadesContext cascadesContext) {
+        PhysicalProperties childProperties = childPlan.plan.getPhysicalProperties();
+        PhysicalQuickSort<Plan> sort = new PhysicalQuickSort<>(requiredOrder.getOrderKeys(), sortPhase,
+                Optional.empty(), childPlan.plan.getLogicalProperties(),
+                new PhysicalProperties(childProperties.getDistributionSpec(), requiredOrder),
+                childPlan.plan.getStats(), childPlan.plan);
+        return new PlanWithCost(sort,
+                childPlan.cost + calculateEnforcerCost(cascadesContext, sort, childGroup, childPlan.plan));
+    }
+
+    /**
+     * Estimate the cost of an enforcer which is synthesized outside of the memo, it is charged the same
+     * way as the enforcers which the cost based selection adds.
+     */
+    private static double calculateEnforcerCost(CascadesContext cascadesContext, PhysicalPlan enforcer,
+            Group childGroup, PhysicalPlan childPlan) {
+        GroupExpression groupExpression = new GroupExpression(enforcer, Lists.newArrayList(childGroup));
+        // The enforcer belongs to the group it enforces, its cost is estimated from the statistics of
+        // that group.
+        groupExpression.setOwnerGroup(childGroup);
+        try {
+            Cost cost = CostCalculator.calculateCost(cascadesContext.getConnectContext(), groupExpression,
+                    Lists.newArrayList(childPlan.getPhysicalProperties()),
+                    cascadesContext.getStatementContext().getCostWeight());
+            return cost.getValue();
+        } finally {
+            // The group expression is only created for the estimation, keep the memo untouched.
+            childGroup.removeParentExpression(groupExpression);
+        }
+    }
+
+    /**
+     * A physical plan together with its estimated cost.
+     */
+    private static class PlanWithCost {
+        private final PhysicalPlan plan;
+        private final double cost;
+
+        PlanWithCost(PhysicalPlan plan, double cost) {
+            this.plan = plan;
+            this.cost = cost;
+        }
     }
 
     /**
