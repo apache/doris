@@ -97,7 +97,8 @@ suite("test_match_keyword_score", "p0") {
         // A VARIANT path is typed per segment: n holds numbers, indexed as BKD, in the first
         // insert and text in the second. The plain VARIANT index makes every path a keyword
         // index, so CAST(v['n'] AS STRING) MATCH collects statistics for n; the BKD segment adds
-        // none instead of failing, and its rows match without the index with score 0.
+        // none instead of failing, and its rows match without the index with score 0. p exists
+        // only in the first insert: the other segment has no index for it and adds nothing.
         sql "set default_variant_enable_typed_paths_to_sparse = false"
         sql "set default_variant_enable_doc_mode = false"
         sql "DROP TABLE IF EXISTS test_match_keyword_score_variant"
@@ -116,8 +117,9 @@ suite("test_match_keyword_score", "p0") {
             )
         """
         sql """INSERT INTO test_match_keyword_score_variant VALUES
-            (1, parse_to_variant('{"n": 1, "s": "abc"}')), (2, parse_to_variant('{"n": 2, "s": "abd"}')),
-            (3, parse_to_variant('{"n": 1, "s": "xyz"}'))
+            (1, parse_to_variant('{"n": 1, "s": "abc", "p": "abc"}')),
+            (2, parse_to_variant('{"n": 2, "s": "abd", "p": "abd"}')),
+            (3, parse_to_variant('{"n": 1, "s": "xyz", "p": "xyz"}'))
         """
         sql """INSERT INTO test_match_keyword_score_variant VALUES
             (4, parse_to_variant('{"n": "1", "s": "abc"}'))
@@ -125,7 +127,8 @@ suite("test_match_keyword_score", "p0") {
         sql "sync"
         for (def query : [
                 ["variant_numeric_path", "CAST(v['n'] AS STRING) MATCH '1'"],
-                ["variant_text_path", "CAST(v['s'] AS STRING) MATCH 'abc'"]]) {
+                ["variant_text_path", "CAST(v['s'] AS STRING) MATCH 'abc'"],
+                ["variant_sparse_path", "CAST(v['p'] AS STRING) MATCH 'abc'"]]) {
             quickTest("${storageFormat}_${query[0]}", """
                 SELECT id, ROUND(s, 6) FROM (
                     SELECT id, score() AS s FROM test_match_keyword_score_variant
@@ -133,5 +136,14 @@ suite("test_match_keyword_score", "p0") {
                 ) hits ORDER BY id
             """, true)
         }
+        // A numeric predicate leaves the BKD searcher of n in the searcher cache, where collecting
+        // statistics finds it next: it used to take it for a text searcher and abort the BE.
+        sql "SELECT COUNT(*) FROM test_match_keyword_score_variant WHERE CAST(v['n'] AS BIGINT) = 1"
+        quickTest("${storageFormat}_variant_numeric_path_cached_bkd", """
+            SELECT id, ROUND(s, 6) FROM (
+                SELECT id, score() AS s FROM test_match_keyword_score_variant
+                WHERE CAST(v['n'] AS STRING) MATCH '1' ORDER BY s DESC LIMIT 10
+            ) hits ORDER BY id
+        """, true)
     }
 }

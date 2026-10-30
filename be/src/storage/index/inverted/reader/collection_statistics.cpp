@@ -98,15 +98,21 @@ Result<std::shared_ptr<lucene::search::IndexSearcher>> open_optional_clucene_sta
     return std::make_shared<lucene::search::IndexSearcher>(reader, true);
 }
 
-// Whether a SNII segment indexed this field with BKD; see open_optional_clucene_stats_searcher.
-Result<bool> is_snii_bkd_index(const segment_v2::IndexFileReader& file_reader,
-                               const TabletIndex& index) {
+// Whether a SNII segment has no terms for this field: it indexed the field with BKD, see
+// open_optional_clucene_stats_searcher, or the field is a VARIANT path this segment does not hold,
+// as segments of {"a": 1} hold no path b. Any other missing index was not built, and the caller
+// refuses to score the collection without it.
+Result<bool> snii_field_has_no_terms(const segment_v2::IndexFileReader& file_reader,
+                                     const TabletIndex& index) {
     const auto entries = DORIS_TRY(file_reader.snii_logical_indexes());
     const auto entry = std::ranges::find_if(entries, [&](const auto& candidate) {
         return candidate.index_id == static_cast<uint64_t>(index.index_id()) &&
                candidate.index_suffix == index.get_index_suffix();
     });
-    return entry != entries.end() && entry->kind == ::doris::snii::format::LogicalIndexKind::kBkd;
+    if (entry == entries.end()) {
+        return !index.get_index_suffix().empty();
+    }
+    return entry->kind == ::doris::snii::format::LogicalIndexKind::kBkd;
 }
 
 } // namespace
@@ -567,10 +573,10 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
         segment_v2::snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(io_ctx);
         SniiScoringSegmentAccumulator segment_accumulator;
         for (const auto& [ws_field_name, collect_info] : collect_infos) {
-            const bool bkd =
-                    DORIS_TRY(is_snii_bkd_index(*idx_file_reader, *collect_info.index_meta));
-            if (bkd) {
-                continue; // The field holds numbers in this segment: no terms, no statistics.
+            const bool no_terms =
+                    DORIS_TRY(snii_field_has_no_terms(*idx_file_reader, *collect_info.index_meta));
+            if (no_terms) {
+                continue;
             }
             auto logical_reader_result =
                     idx_file_reader->open_snii_index(collect_info.index_meta, io_ctx);
@@ -684,8 +690,13 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
 
         auto searcher_variant =
                 inverted_index_cache_handle.get<CluceneSearcherCacheValue>()->searcher;
-        auto index_searcher_ptr = std::get<FulltextIndexSearcherPtr>(searcher_variant);
-        index_searcher = index_searcher_ptr.get();
+        // CAST(v['n'] AS BIGINT) = 1 caches the BKD searcher of v.n under this key, so a BKD index
+        // can also arrive from the cache: no terms, as in open_optional_clucene_stats_searcher.
+        const auto* fulltext_searcher = std::get_if<FulltextIndexSearcherPtr>(&searcher_variant);
+        if (fulltext_searcher == nullptr) {
+            continue;
+        }
+        index_searcher = fulltext_searcher->get();
         index_reader = index_searcher->getReader();
 #endif
         auto source = segment_v2::clucene_index_source(segment_v2::non_owning_reader(index_reader),

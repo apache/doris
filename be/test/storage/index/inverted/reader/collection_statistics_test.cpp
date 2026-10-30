@@ -1622,6 +1622,69 @@ TEST_F(CollectionStatisticsTest, SniiScoringRejectsMissingLogicalIndexForWholeCo
     expect_no_collected_tokens(L"1");
 }
 
+// A VARIANT path can be absent from a segment, as in {"a": 1} next to {"host": "x"}. Unlike the
+// plain index above, whose absence means it was not built, the segment just adds no statistics.
+TEST_F(CollectionStatisticsTest, SniiScoringSkipsVariantPathMissingFromSegment) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(DUP_KEYS);
+    schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::SNII);
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->init_from_pb(schema_pb);
+
+    constexpr int32_t kVariantUid = 9002;
+    TabletColumn variant_col;
+    variant_col.set_unique_id(kVariantUid);
+    variant_col.set_name("v");
+    variant_col.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    tablet_schema->append_column(variant_col);
+
+    TabletColumn sub_col;
+    sub_col.set_unique_id(-1);
+    sub_col.set_name("v.host");
+    sub_col.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    sub_col.set_parent_unique_id(kVariantUid);
+    sub_col.set_path_info(PathInData("v.host"));
+    tablet_schema->append_column(sub_col);
+
+    TabletIndexPB index_pb;
+    index_pb.set_index_id(2002);
+    index_pb.set_index_name("variant_subcolumn_idx");
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.add_col_unique_id(kVariantUid);
+    (*index_pb.mutable_properties())["parser"] = "standard";
+    (*index_pb.mutable_properties())["support_phrase"] = "true";
+    TabletIndex sub_index;
+    sub_index.init_from_pb(index_pb);
+    sub_index.set_escaped_escaped_index_suffix_path(sub_col.suffix_path());
+    tablet_schema->append_index(std::move(sub_index));
+
+    constexpr int kSlotId = 43;
+    runtime_state_->_mock_desc_tbl->add_slot_descriptor(SlotId(kSlotId), kVariantUid);
+    auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+    match_expr->_children.push_back(
+            std::make_shared<collection_statistics::MockVSlotRef>("v.host", SlotId(kSlotId)));
+    match_expr->_children.push_back(std::make_shared<collection_statistics::MockVLiteral>("alpha"));
+    VExprContextSPtrs expr_contexts {std::make_shared<VExprContext>(match_expr)};
+
+    // The segment holds another logical index only.
+    const std::string segment_path = test_dir_ + "/snii_missing_variant_path_0.dat";
+    auto write_status = write_snii_scoring_segment(segment_path);
+    ASSERT_TRUE(write_status.ok()) << write_status;
+    auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+    auto rowset = std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
+    rowset->set_num_segments(1);
+    rowset->set_segment_path(0, segment_path);
+    auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
+    std::vector<RowSetSplits> splits {RowSetSplits(reader)};
+
+    auto status =
+            stats_->collect(runtime_state_.get(), splits, tablet_schema, expr_contexts, nullptr);
+
+    ASSERT_TRUE(status.ok()) << status.msg();
+    expect_no_collected_tokens(segment_v2::inverted_index::StringHelper::to_wstring(
+            std::to_string(kVariantUid) + ".v.host"));
+}
+
 TEST_F(CollectionStatisticsTest, CollectWithMultipleRowsetSplits) {
     auto tablet_schema = create_tablet_schema_with_inverted_index();
     auto expr_contexts = create_match_expr_contexts();
