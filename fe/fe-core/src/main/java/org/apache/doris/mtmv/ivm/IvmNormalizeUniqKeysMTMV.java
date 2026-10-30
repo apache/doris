@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.TopKFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
@@ -309,9 +310,34 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
         long topK = explicit != null
                 ? explicit
                 : (isAppendOnlyInnerJoinPlan(inputPlan) ? 0 : IvmUtil.DEFAULT_MINMAX_TOP_K);
+        // The bounded top-K state is built on min_topk/max_topk, which accept a fixed set of value
+        // types. A MIN/MAX over anything else keeps the extreme-plus-count state that a capacity of
+        // one describes, so the capacity resolves to 1 the same way an append-only plan resolves to
+        // 0. Like that one, the answer is persisted, so the property and the state agree.
+        if (topK > 1 && !extremalArgumentsSupportTopK(aggAliases)) {
+            topK = 1;
+        }
         resolvedMinMaxTopK = topK;
         ivmRewriteContext.setResolvedMinMaxTopK(topK);
         return topK;
+    }
+
+    /**
+     * Whether every MIN/MAX argument can be maintained by the bounded top-K state.
+     *
+     * <p>A value type the top-K aggregate does not accept (ARRAY, VARBINARY, ...) is still
+     * maintainable by the extreme-plus-count state, which is what a capacity of one means.
+     */
+    private static boolean extremalArgumentsSupportTopK(List<Alias> aggAliases) {
+        for (Alias alias : aggAliases) {
+            Expression function = alias.child();
+            if ((function instanceof Min || function instanceof Max)
+                    && !TopKFunction.isSupportedValueType(
+                            TopKFunction.normalizeValueType(function.child(0).getDataType()))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**

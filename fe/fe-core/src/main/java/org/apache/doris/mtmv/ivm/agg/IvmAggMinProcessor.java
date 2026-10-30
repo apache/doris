@@ -22,9 +22,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMin;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
-
-import java.util.List;
 
 /** MIN-specific top-K state, delta and merge. */
 class IvmAggMinProcessor extends IvmAggExtremalProcessor {
@@ -51,12 +48,6 @@ class IvmAggMinProcessor extends IvmAggExtremalProcessor {
     @Override
     protected boolean isTopKAscending() {
         return true;
-    }
-
-    @Override
-    protected Expression leastOrGreatest(List<Expression> values) {
-        return new Least(values.get(0),
-                values.subList(1, values.size()).toArray(new Expression[0]));
     }
 
     @Override

@@ -391,8 +391,29 @@ abstract class IvmAggExtremalProcessor extends IvmAggFunctionProcessor {
     /** Whether this side's top-K state list is sorted ascending (MIN) or descending (MAX). */
     protected abstract boolean isTopKAscending();
 
-    /** Returns the minimum (MIN) or maximum (MAX) of the given values. */
-    protected abstract Expression leastOrGreatest(List<Expression> values);
+    /**
+     * The better of two non-NULL values, by the side's order.
+     *
+     * <p>A CASE over the order comparison rather than LEAST/GREATEST: those two do not accept every
+     * comparable type (an ARRAY value, for one, is rejected by the BE), while the comparison does.
+     * Both inputs are non-NULL at every call site, so the NULL handling LEAST adds is not needed.
+     */
+    private Expression better(Expression left, Expression right) {
+        return new CaseWhen(
+                ImmutableList.of(new WhenClause(
+                        isTopKAscending() ? new LessThanEqual(left, right)
+                                : new GreaterThanEqual(left, right),
+                        left)),
+                right);
+    }
+
+    private Expression best(Expression first, Expression second) {
+        return better(first, second);
+    }
+
+    private Expression best(Expression first, Expression second, Expression third) {
+        return better(better(first, second), third);
+    }
 
     /**
      * Builds the merged list out of generic array functions: negate the delete side's counts so all
@@ -446,7 +467,7 @@ abstract class IvmAggExtremalProcessor extends IvmAggFunctionProcessor {
                         new WhenClause(oldPairNull, insertedValue),
                         new WhenClause(insertedPairNull, oldValue),
                         new WhenClause(sameValue, oldValue)),
-                leastOrGreatest(ImmutableList.of(oldValue, insertedValue)));
+                better(oldValue, insertedValue));
         // The count follows the better extreme: equal extremes add the two counts; otherwise the
         // better side's count is already complete, because no row of that value exists on the
         // other side (its own extreme differs).
@@ -519,13 +540,13 @@ abstract class IvmAggExtremalProcessor extends IvmAggFunctionProcessor {
         return new If(new IsNull(first),
                 new If(new IsNull(second), third,
                         new If(new IsNull(third), second,
-                                leastOrGreatest(ImmutableList.of(second, third)))),
+                                best(second, third))),
                 new If(new IsNull(second),
                         new If(new IsNull(third), first,
-                                leastOrGreatest(ImmutableList.of(first, third))),
+                                best(first, third)),
                         new If(new IsNull(third),
-                                leastOrGreatest(ImmutableList.of(first, second)),
-                                leastOrGreatest(ImmutableList.of(first, second, third)))));
+                                best(first, second),
+                                best(first, second, third))));
     }
 
     /**
