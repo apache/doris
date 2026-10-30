@@ -117,13 +117,15 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             }
             outputStats = builder.build();
         }
-        outputStats.normalizeColumnStatistics();
+        outputStats.enforceValid();
         return outputStats;
     }
 
     @Override
     public Statistics visit(Expression expr, EstimationContext context) {
-        return context.statistics.withSel(DEFAULT_INEQUALITY_COEFFICIENT);
+        Statistics outputStats = context.statistics.withSel(DEFAULT_INEQUALITY_COEFFICIENT);
+        outputStats.rescaleNumNulls(context.statistics.getRowCount());
+        return outputStats;
     }
 
     @Override
@@ -136,7 +138,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         }
         for (Expression child : children) {
             outputStats = child.accept(this, new EstimationContext(inputStats));
-            outputStats.normalizeColumnStatistics(inputStats.getRowCount(), false);
+            outputStats.enforceValid();
             inputStats = outputStats;
         }
         return outputStats;
@@ -147,7 +149,6 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         List<Expression> children = or.children();
         Set<Slot> leftInputSlots = Sets.newHashSet(children.get(0).getInputSlots());
         Statistics leftStats = children.get(0).accept(this, context);
-        leftStats.normalizeColumnStatistics(context.statistics.getRowCount(), true);
         Statistics outputStats = leftStats;
         Preconditions.checkArgument(children.size() > 1, "and expression abnormal: " + or);
         for (int i = 1; i < children.size(); i++) {
@@ -158,7 +159,6 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             // for the results of derivation. The lower limit may cause andStats.row > leftStats.row.
             double andStatsRowCount = Math.min(andStats.getRowCount(), leftStats.getRowCount());
             Statistics rightStats = child.accept(this, context);
-            rightStats.normalizeColumnStatistics(context.statistics.getRowCount(), true);
             double rowCount = leftStats.getRowCount() + rightStats.getRowCount() - andStatsRowCount;
             Statistics orStats = context.statistics.withRowCount(rowCount);
 
@@ -216,7 +216,9 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             ColumnStatistic leftStats, ColumnStatistic rightStats, EstimationContext context) {
         Preconditions.checkArgument(cp.right().isConstant(), "right hand should be const: " + cp.right());
         if (leftStats.isUnKnown || rightStats.isUnKnown) {
-            return context.statistics.withSel(DEFAULT_INEQUALITY_COEFFICIENT);
+            Statistics outputStats = context.statistics.withSel(DEFAULT_INEQUALITY_COEFFICIENT);
+            outputStats.rescaleNumNulls(context.statistics.getRowCount());
+            return outputStats;
         }
         Preconditions.checkArgument(rightStats.minValue == rightStats.maxValue,
                 "stats for const is not valid: " + rightStats);
@@ -266,7 +268,9 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             ColumnStatistic leftStats, ColumnStatistic rightStats, EstimationContext context) {
         Preconditions.checkArgument(cp.right().isConstant(), "right hand should be const: " + cp.right());
         if (leftStats.isUnKnown || rightStats.isUnKnown) {
-            return context.statistics.withSel(DEFAULT_INEQUALITY_COEFFICIENT);
+            Statistics outputStats = context.statistics.withSel(DEFAULT_INEQUALITY_COEFFICIENT);
+            outputStats.rescaleNumNulls(context.statistics.getRowCount());
+            return outputStats;
         }
 
         double selectivity;
@@ -318,7 +322,9 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             ColumnStatistic leftStats, ColumnStatistic rightStats, EstimationContext context) {
         Preconditions.checkArgument(cp.right().isConstant(), "right hand should be const: " + cp.right());
         if (leftStats.isUnKnown || rightStats.isUnKnown) {
-            return context.statistics.withSel(DEFAULT_INEQUALITY_COEFFICIENT);
+            Statistics outputStats = context.statistics.withSel(DEFAULT_INEQUALITY_COEFFICIENT);
+            outputStats.rescaleNumNulls(context.statistics.getRowCount());
+            return outputStats;
         }
         Preconditions.checkArgument(rightStats.minValue == rightStats.maxValue,
                 "stats for const is not valid: " + rightStats);
@@ -369,7 +375,9 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             ColumnStatistic leftStats, ColumnStatistic rightStats, EstimationContext context) {
         Preconditions.checkArgument(cp.right().isConstant(), "right hand should be const: " + cp.right());
         if (leftStats.isUnKnown || rightStats.isUnKnown) {
-            return context.statistics.withSel(DEFAULT_INEQUALITY_COEFFICIENT);
+            Statistics outputStats = context.statistics.withSel(DEFAULT_INEQUALITY_COEFFICIENT);
+            outputStats.rescaleNumNulls(context.statistics.getRowCount());
+            return outputStats;
         }
         Preconditions.checkArgument(rightStats.minValue == rightStats.maxValue,
                 "stats for const is not valid: " + rightStats);
@@ -458,7 +466,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         Statistics filterStatistics = context.statistics.withSel(selectivity);
 
         filterStatistics.addColumnStats(cp.left(), filterKeyColStatsBuilder.build());
-        filterStatistics.normalizeColumnStatistics(context.statistics.getRowCount(), true);
+        filterStatistics.rescaleNumNulls(context.statistics.getRowCount());
         return filterStatistics;
     }
 
@@ -466,7 +474,9 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         ColumnStatistic statsForLeft = ExpressionEstimation.estimate(cp.left(), context.statistics);
         ColumnStatistic statsForRight = ExpressionEstimation.estimate(cp.right(), context.statistics);
         if (statsForLeft.isUnKnown) {
-            return context.statistics.withSel(DEFAULT_INEQUALITY_COEFFICIENT);
+            Statistics outputStats = context.statistics.withSel(DEFAULT_INEQUALITY_COEFFICIENT);
+            outputStats.rescaleNumNulls(context.statistics.getRowCount());
+            return outputStats;
         }
         // A > cast (1 as xxx), min/max of cast is +infinity/-infinity
         // regard the stats for cast as UNKNOWN
@@ -680,7 +690,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             left.accept(new ColumnStatsAdjustVisitor(), equalStats);
         }
         // normalize column statistics here to sync numNulls by proportion and ndv by current row count
-        equalStats.normalizeColumnStatistics(context.statistics.getRowCount(), true);
+        equalStats.rescaleNumNulls(context.statistics.getRowCount());
         return equalStats;
     }
 
@@ -818,7 +828,9 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         Expression compareExpr = inPredicate.getCompareExpr();
         ColumnStatistic compareExprStats = ExpressionEstimation.estimate(compareExpr, context.statistics);
         if (compareExprStats.isUnKnown || compareExpr instanceof Function) {
-            return context.statistics.withSel(DEFAULT_IN_COEFFICIENT);
+            Statistics outputStats = context.statistics.withSel(DEFAULT_IN_COEFFICIENT);
+            outputStats.rescaleNumNulls(context.statistics.getRowCount());
+            return outputStats;
         }
 
         List<Expression> options = inPredicate.getOptions();
@@ -850,6 +862,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         selectivity = getNotNullSelectivity(compareExprStats.numNulls, estimated.getRowCount(),
                 compareExprStats.ndv, selectivity);
         estimated = estimated.withSel(selectivity);
+        estimated.rescaleNumNulls(context.statistics.getRowCount());
+        // add the statistics of the in predicate column after the null counts are scaled
         estimated.addColumnStats(compareExpr, newCompareExprStats);
         context.addKeyIfSlot(compareExpr);
         return estimated;
@@ -867,7 +881,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         }
         Expression child = not.child();
         Statistics childStats = child.accept(this, context);
-        childStats.normalizeColumnStatistics();
+        childStats.enforceValid();
         double rowCount = context.statistics.getRowCount() - childStats.getRowCount();
         if (child instanceof InPredicate
                 && Precision.equals(childStats.getRowCount(), context.statistics.getRowCount(), 0.000001)) {
@@ -948,7 +962,9 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             }
         }
 
-        return statisticsBuilder.build();
+        Statistics outputStats = statisticsBuilder.build();
+        outputStats.rescaleNumNulls(context.statistics.getRowCount());
+        return outputStats;
     }
 
     private boolean doubleNearlyEqual(double a, double b) {
@@ -970,7 +986,9 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         ColumnStatistic childColStats = ExpressionEstimation.estimate(isNull.child(), context.statistics);
         if (childColStats.isUnKnown()) {
             double row = context.statistics.getRowCount() * DEFAULT_ISNULL_SELECTIVITY;
-            return new StatisticsBuilder(context.statistics).setRowCount(row).build();
+            Statistics outputStats = new StatisticsBuilder(context.statistics).setRowCount(row).build();
+            outputStats.rescaleNumNulls(context.statistics.getRowCount());
+            return outputStats;
         }
         double outputRowCount = Math.min(childColStats.numNulls, context.statistics.getRowCount());
         if (!isOnBase(isNull.child(), context)) {
@@ -978,7 +996,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             // nulls will be generated such as outer join and then we do a protection
             Expression child = isNull.child();
             Statistics childStats = child.accept(this, context);
-            childStats.normalizeColumnStatistics();
+            childStats.enforceValid();
             outputRowCount = Math.max(childStats.getRowCount() * DEFAULT_ISNULL_SELECTIVITY, outputRowCount);
             outputRowCount = Math.max(outputRowCount,
                     Math.min(1, childStats.getRowCount()));
@@ -990,11 +1008,12 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 .setMinValue(Double.NEGATIVE_INFINITY)
                 .setNdv(0)
                 .setHotValues(null);
-        StatisticsBuilder builder = new StatisticsBuilder(context.statistics);
-        builder.setRowCount(outputRowCount);
-        builder.putColumnStatistics(isNull.child(), colBuilder.build());
+        Statistics filterStatistics = new StatisticsBuilder(context.statistics)
+                .setRowCount(outputRowCount).build();
+        filterStatistics.rescaleNumNulls(context.statistics.getRowCount());
+        filterStatistics.addColumnStats(isNull.child(), colBuilder.build());
         context.addKeyIfSlot(isNull.child());
-        return builder.build();
+        return filterStatistics;
     }
 
     static class EstimationContext {
@@ -1047,6 +1066,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 * (keepNull ? 1 : leftNotNullSel * rightNotNullSel);
 
         Statistics updatedStatistics = context.statistics.withSel(notNullSel, numNull);
+        updatedStatistics.rescaleNumNulls(context.statistics.getRowCount());
         // update hot values
         if (leftStats.getHotValues() != null && rightStats.getHotValues() != null) {
             Map<Literal, Float> newHotValues = Maps.newHashMap();
@@ -1086,9 +1106,10 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             Statistics statistics;
             // Left always less than Right
             if (leftRange.getHigh() < rightRange.getLow()) {
-                statistics =
-                        context.statistics.withRowCount(Math.min(context.statistics.getRowCount() - leftStats.numNulls,
-                                context.statistics.getRowCount() - rightStats.numNulls));
+                statistics = context.statistics.withRowCount(Math.min(
+                        context.statistics.getRowCount() - leftStats.numNulls,
+                        context.statistics.getRowCount() - rightStats.numNulls));
+                statistics.rescaleNumNulls(context.statistics.getRowCount());
                 statistics.addColumnStats(leftExpr, new ColumnStatisticBuilder(leftStats).setNumNulls(0.0).build());
                 statistics.addColumnStats(rightExpr, new ColumnStatisticBuilder(rightStats).setNumNulls(0.0).build());
                 context.addKeyIfSlot(leftExpr);
@@ -1140,8 +1161,9 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             }
             context.addKeyIfSlot(leftExpr);
             context.addKeyIfSlot(rightExpr);
-            return context.statistics.withSel(sel)
-                    .addColumnStats(leftExpr, leftColumnStatistic)
+            statistics = context.statistics.withSel(sel);
+            statistics.rescaleNumNulls(context.statistics.getRowCount());
+            return statistics.addColumnStats(leftExpr, leftColumnStatistic)
                     .addColumnStats(rightExpr, rightColumnStatistic);
         } else {
             ColumnStatistic leftColumnStatistic = new ColumnStatisticBuilder(leftStats)
@@ -1158,17 +1180,19 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                     .build();
             context.addKeyIfSlot(leftExpr);
             context.addKeyIfSlot(rightExpr);
-            return context.statistics.withSel(DEFAULT_INEQUALITY_COEFFICIENT)
-                    .addColumnStats(leftExpr, leftColumnStatistic)
+            Statistics filteredStatistics = context.statistics.withSel(DEFAULT_INEQUALITY_COEFFICIENT);
+            filteredStatistics.rescaleNumNulls(context.statistics.getRowCount());
+            return filteredStatistics.addColumnStats(leftExpr, leftColumnStatistic)
                     .addColumnStats(rightExpr, rightColumnStatistic);
         }
     }
 
     @Override
     public Statistics visitLike(Like like, EstimationContext context) {
-        StatisticsBuilder statsBuilder = new StatisticsBuilder(context.statistics);
         double rowCount = context.statistics.getRowCount() * DEFAULT_LIKE_COMPARISON_SELECTIVITY;
-        statsBuilder.setRowCount(rowCount);
+        Statistics likeStatistics = new StatisticsBuilder(context.statistics)
+                .setRowCount(rowCount).build();
+        likeStatistics.rescaleNumNulls(context.statistics.getRowCount());
         if (like.left() instanceof Slot) {
             ColumnStatistic origin = context.statistics.findColumnStatistics(like.left());
             Preconditions.checkArgument(origin != null,
@@ -1177,10 +1201,10 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             ColumnStatisticBuilder colBuilder = new ColumnStatisticBuilder(origin);
             colBuilder.setNdv(origin.ndv * DEFAULT_LIKE_COMPARISON_SELECTIVITY).setNumNulls(0);
             colBuilder.setHotValues(null);
-            statsBuilder.putColumnStatistics(like.left(), colBuilder.build());
+            likeStatistics.addColumnStats(like.left(), colBuilder.build());
             context.addKeyIfSlot(like.left());
         }
-        return statsBuilder.build();
+        return likeStatistics;
     }
 
     private double getNotNullSelectivity(double origNumNulls, double origRowCount, double origNdv, double origSel) {

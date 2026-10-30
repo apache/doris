@@ -303,7 +303,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 newStats = ((GroupPlan) plan.child(0)).getStats();
             }
         }
-        newStats.normalizeColumnStatistics();
+        newStats.enforceValid();
 
         // We ensure that the rowCount remains unchanged in order to make the cost of each plan comparable.
         if (groupExpression.getOwnerGroup().getStatistics() == null) {
@@ -1441,7 +1441,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             slotToColumnStats.put(outputExpression.toSlot(), columnStat);
         }
         Statistics aggOutputStats = new Statistics(rowCount, 1, slotToColumnStats);
-        aggOutputStats.normalizeColumnStatistics();
+        aggOutputStats.enforceValid();
         return aggOutputStats;
     }
 

@@ -104,7 +104,7 @@ public class Statistics {
     public Statistics withRowCountAndEnforceValid(double rowCount) {
         Statistics statistics = new Statistics(rowCount, widthInJoinCluster,
                 expressionToColumnStats, 0, isFromHbo);
-        statistics.normalizeColumnStatistics(this.rowCount, false);
+        statistics.enforceValid();
         return statistics;
     }
 
@@ -114,37 +114,53 @@ public class Statistics {
         return statistics;
     }
 
-    // IMPORTANT: it is suggested to do this action after each estimation critical visiting,
-    // since statistics will have serious deviation during the partial deriving.
-    public void normalizeColumnStatistics() {
-        normalizeColumnStatistics(this.rowCount);
-    }
-
-    public void normalizeColumnStatistics(double inputRowCount) {
-        normalizeColumnStatistics(inputRowCount, false);
-    }
-
-    public void normalizeColumnStatistics(double inputRowCount, boolean isNumNullsDecreaseByProportion) {
-        double factor = isNumNullsDecreaseByProportion ? rowCount / inputRowCount : 1.0;
+    /**
+     * Repair the column statistics which are not valid for the current row count: clamp ndv to the row
+     * count and numNulls to `rowCount - ndv`. The null proportions are not changed, so this is the method
+     * to call after the estimation of an operator or a predicate, where the null counts have already been
+     * scaled by the operator or the predicate itself.
+     */
+    public void enforceValid() {
         for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
             ColumnStatistic columnStatistic = entry.getValue();
-            // the following columnStatistic.isUnKnown() judgment is loop inside since current doris
-            // supports partial stats deriving, i.e, allowing part of tables have stats and other parts don't,
-            // or part of columns have stats but other parts don't, especially join and filter estimation.
-            if (!columnStatistic.isUnKnown() && (!checkColumnStatsValid(columnStatistic, rowCount)
-                    || isNumNullsDecreaseByProportion && columnStatistic.numNulls != 0)) {
-                ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);
-                double ndv = Math.min(columnStatistic.ndv, rowCount);
-                double numNulls = columnStatistic.numNulls;
-                if (numNulls > 0) {
-                    numNulls = Math.max(1, Math.min(columnStatistic.numNulls * factor, rowCount - ndv));
-                }
-                columnStatisticBuilder.setNumNulls(numNulls);
-                columnStatisticBuilder.setNdv(ndv);
-                columnStatistic = columnStatisticBuilder.build();
-                expressionToColumnStats.put(entry.getKey(), columnStatistic);
+            if (!columnStatistic.isUnKnown() && !checkColumnStatsValid(columnStatistic, rowCount)) {
+                entry.setValue(buildValidColumnStatistic(columnStatistic, columnStatistic.numNulls));
             }
         }
+    }
+
+    /**
+     * Scale the null counts of the columns with `rowCount / inputRowCount`, i.e. with the selectivity of
+     * the predicate which produced these statistics, and then repair invalid statistics.
+     *
+     * <p>A null count which is not scaled together with the row count no longer matches the row count it
+     * is combined with, and a following predicate which estimates from the absolute null count produces a
+     * wrong result. For example, for `a is null and not b is null`, when both columns have about 4.5%
+     * nulls, the base-table null count of `b` is almost equal to the row count left by `a is null`, so
+     * the `not b is null` estimation (`rowCount - numNulls`) cancels all the remaining rows.
+     */
+    public void rescaleNumNulls(double inputRowCount) {
+        if (inputRowCount <= 0) {
+            enforceValid();
+            return;
+        }
+        double factor = rowCount / inputRowCount;
+        for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
+            ColumnStatistic columnStatistic = entry.getValue();
+            if (!columnStatistic.isUnKnown() && (!checkColumnStatsValid(columnStatistic, rowCount)
+                    || columnStatistic.numNulls != 0)) {
+                double numNulls = columnStatistic.numNulls > 0 ? columnStatistic.numNulls * factor : 0;
+                entry.setValue(buildValidColumnStatistic(columnStatistic, numNulls));
+            }
+        }
+    }
+
+    private ColumnStatistic buildValidColumnStatistic(ColumnStatistic columnStatistic, double numNulls) {
+        double ndv = Math.min(columnStatistic.ndv, rowCount);
+        if (numNulls > 0) {
+            numNulls = Math.max(1, Math.min(numNulls, rowCount - ndv));
+        }
+        return new ColumnStatisticBuilder(columnStatistic).setNumNulls(numNulls).setNdv(ndv).build();
     }
 
     public boolean checkColumnStatsValid(ColumnStatistic columnStatistic, double rowCount) {
