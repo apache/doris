@@ -20,12 +20,16 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <atomic>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
+#include "common/config.h"
 #include "common/object_pool.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
@@ -44,12 +48,91 @@
 #include "format_v2/column_data.h"
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
 #include "testutil/mock/mock_runtime_state.h"
+#include "testutil/mock/obj_storage_client_test_stub.h"
 #include "testutil/scoped_temp_dir.h"
+#include "util/defer_op.h"
+#include "util/s3_util.h"
+#include "util/threadpool.h"
 
 namespace doris::format::json {
 namespace {
+
+class JsonPrefetchS3Client : public io::ObjStorageClientTestStub {
+public:
+    const std::string data = R"({"id":1,"name":"alice"})"
+                             "\n";
+    const std::thread::id scanner_thread = std::this_thread::get_id();
+    std::atomic<size_t> foreground_reads {0};
+    std::atomic<size_t> reads {0};
+
+    io::ObjStorageHeadResult head_object(const io::ObjStoragePath&) override {
+        return {.resp = io::ObjStorageResponse::OK(),
+                .file_size = static_cast<long long>(data.size())};
+    }
+
+    io::ObjStorageResponse get_object(const io::ObjStoragePath&, void* buffer, size_t offset,
+                                      size_t bytes_read, size_t* size_return) override {
+        ++reads;
+        if (std::this_thread::get_id() == scanner_thread) {
+            ++foreground_reads;
+        }
+        EXPECT_LE(offset + bytes_read, data.size());
+        *size_return = std::min(bytes_read, data.size() - offset);
+        std::memcpy(buffer, data.data() + offset, *size_return);
+        return io::ObjStorageResponse::OK();
+    }
+
+    // Only HEAD and GET belong to this read test. Explicit overrides avoid generating unused
+    // gMock expectation helpers for this anonymous-namespace client.
+    io::ObjStorageUploadResult create_multipart_upload(const io::ObjStoragePath&) override {
+        return {.resp = unexpected_operation()};
+    }
+
+    io::ObjStorageResponse put_object(const io::ObjStoragePath&, std::string_view) override {
+        return unexpected_operation();
+    }
+
+    io::ObjStorageUploadResult upload_part(const io::ObjStoragePath&, const std::string&,
+                                           std::string_view, int) override {
+        return {.resp = unexpected_operation()};
+    }
+
+    io::ObjStorageResponse complete_multipart_upload(
+            const io::ObjStoragePath&, const std::string&,
+            const std::vector<io::ObjStorageCompletedPart>&) override {
+        return unexpected_operation();
+    }
+
+    io::ObjStorageResponse delete_objects(const io::ObjStoragePath&,
+                                          std::vector<std::string>) override {
+        return unexpected_operation();
+    }
+
+    io::ObjStorageResponse delete_object(const io::ObjStoragePath&) override {
+        return unexpected_operation();
+    }
+
+    std::string generate_presigned_url(const io::ObjStoragePath&, int64_t) override {
+        ADD_FAILURE() << "Unexpected signed URL request in JSON prefetch test";
+        return {};
+    }
+
+    io::ObjStorageListPageResult list_objects_page(const io::ObjStoragePath&,
+                                                   std::string_view) override {
+        return {.resp = unexpected_operation()};
+    }
+
+private:
+    static io::ObjStorageResponse unexpected_operation() {
+        ADD_FAILURE() << "Unexpected object storage operation in JSON prefetch test";
+        return {.status = {TStatusCode::NOT_IMPLEMENTED_ERROR,
+                           "JSON prefetch test only supports HEAD and GET"},
+                .http_code = 0};
+    }
+};
 
 TFileScanRangeParams json_scan_params(bool read_json_by_line = true, bool strip_outer_array = false,
                                       std::string jsonpaths = "", std::string json_root = "",
@@ -466,6 +549,113 @@ TEST_F(JsonReaderSplitTest, FourRangesPreserveEveryRecord) {
     }
     EXPECT_EQ(ids, expected);
 }
+
+// Cover line scans, whole-document scans, and schema probes through the same S3 reader lifecycle.
+class JsonReaderPrefetchTest : public testing::TestWithParam<int> {
+protected:
+    static void read_rows(JsonReader& reader, RuntimeState& state) {
+        ASSERT_TRUE(reader.init(&state).ok());
+        std::vector<ColumnDefinition> schema;
+        ASSERT_TRUE(reader.get_schema(&schema).ok());
+        auto request = std::make_shared<FileScanRequest>();
+        request->local_positions.emplace(LocalColumnId(0), LocalIndex(0));
+        request->local_positions.emplace(LocalColumnId(1), LocalIndex(1));
+        ASSERT_TRUE(reader.open(request).ok());
+        auto block = make_block(schema, {0, 1});
+        size_t rows = 0;
+        bool eof = false;
+        ASSERT_TRUE(reader.get_block(&block, &rows, &eof).ok());
+        ASSERT_EQ(rows, 1);
+        EXPECT_EQ(nullable_int_at(*block.get_by_position(0).column, 0), 1);
+        EXPECT_EQ(nullable_string_at(*block.get_by_position(1).column, 0), "alice");
+        auto eof_block = make_block(schema, {0, 1});
+        ASSERT_TRUE(reader.get_block(&eof_block, &rows, &eof).ok());
+        EXPECT_EQ(rows, 0);
+        EXPECT_TRUE(eof);
+    }
+
+    static void probe_schema(JsonReader& reader, RuntimeState& state) {
+        std::vector<ColumnDefinition> schema;
+        ASSERT_TRUE(reader.infer_schema(&state, &schema).ok());
+        ASSERT_EQ(schema.size(), 2);
+        EXPECT_EQ(schema[0].name, "id");
+        EXPECT_EQ(schema[1].name, "name");
+    }
+
+    static void check_profile(JsonReader& reader, RuntimeProfile& profile) {
+        ASSERT_TRUE(reader.close().ok());
+        std::vector<std::pair<RuntimeProfile::Counter*, int64_t>> snapshots;
+        for (const auto* name : {"PreRequestIO", "PreRequestBytes", "ReadTime", "CopyTime"}) {
+            auto* counter = profile.get_counter(name);
+            ASSERT_NE(counter, nullptr) << name;
+            EXPECT_GT(counter->value(), 0) << name;
+            snapshots.emplace_back(counter, counter->value());
+        }
+        ASSERT_TRUE(reader.close().ok());
+        for (const auto& [counter, collected] : snapshots) {
+            EXPECT_EQ(counter->value(), collected);
+        }
+    }
+};
+
+TEST_P(JsonReaderPrefetchTest, ClosePublishesReadStatisticsOnce) {
+    auto* env = ExecEnv::GetInstance();
+    auto saved_pool = std::move(env->_buffered_reader_prefetch_thread_pool);
+    const auto saved_in_memory_size = config::in_memory_file_size;
+    Defer restore([&] {
+        env->_buffered_reader_prefetch_thread_pool.reset();
+        env->_buffered_reader_prefetch_thread_pool = std::move(saved_pool);
+        config::in_memory_file_size = saved_in_memory_size;
+        S3ClientFactory::instance().clear_client_creator_for_test();
+    });
+    ASSERT_TRUE(ThreadPoolBuilder("JsonPrefetchTest")
+                        .set_min_threads(1)
+                        .set_max_threads(1)
+                        .build(&env->_buffered_reader_prefetch_thread_pool)
+                        .ok());
+    // A small fixture must still use prefetch rather than the in-memory S3 optimization.
+    config::in_memory_file_size = 0;
+    auto client = std::make_shared<JsonPrefetchS3Client>();
+    S3ClientFactory::instance().set_client_creator_for_test(
+            [client](const S3ClientConf&) { return client; });
+    auto properties = std::make_shared<io::FileSystemProperties>();
+    properties->system_type = TFileType::FILE_S3;
+    properties->properties = {{"AWS_ENDPOINT", "http://json-prefetch.invalid"},
+                              {"AWS_REGION", "test-region"}};
+    auto desc = std::make_unique<io::FileDescription>();
+    desc->path = "s3://json-prefetch/reader.json";
+    desc->file_size = static_cast<int64_t>(client->data.size());
+    desc->range_size = desc->file_size;
+    TFileRangeDesc range;
+    range.__set_path(desc->path);
+    range.__set_start_offset(0);
+    range.__set_size(desc->file_size);
+    range.__set_file_size(desc->file_size);
+    auto params = json_scan_params(GetParam() != 1);
+    params.__set_file_type(TFileType::FILE_S3);
+    ObjectPool pool;
+    auto slots = build_slots(&pool);
+    RuntimeProfile profile("json_prefetch_test");
+    MockRuntimeState state;
+    state._query_options.__set_enable_file_cache(false);
+    io::FileReaderStats stats;
+    auto io_ctx = std::make_shared<io::IOContext>();
+    io_ctx->file_reader_stats = &stats;
+    JsonReader reader(properties, desc, io_ctx, &profile, &params, range, slots);
+    if (GetParam() == 2) {
+        probe_schema(reader, state);
+    } else {
+        read_rows(reader, state);
+    }
+    ASSERT_FALSE(HasFatalFailure());
+    EXPECT_GT(stats.read_calls, 0);
+    EXPECT_GT(stats.read_bytes, 0);
+    ASSERT_NO_FATAL_FAILURE(check_profile(reader, profile));
+    EXPECT_GT(client->reads.load(), 0);
+    EXPECT_EQ(client->foreground_reads.load(), 0);
+}
+
+INSTANTIATE_TEST_SUITE_P(S3, JsonReaderPrefetchTest, testing::Values(0, 1, 2));
 
 TEST(JsonReaderTest, ReadsRequestedColumnsInFileScanRequestOrder) {
     ObjectPool pool;

@@ -456,6 +456,12 @@ Status JsonReader::close() {
     }
     _json_parser.reset();
     _decompressor.reset();
+    // S3 prefetch counters are published only after workers drain; resetting the aliases alone
+    // loses them. Stream pipes remain owned by the load context and must not be closed here.
+    if (_physical_file_reader != nullptr && _scan_params->file_type != TFileType::FILE_STREAM) {
+        RETURN_IF_ERROR(_physical_file_reader->close());
+        _physical_file_reader->collect_profile_before_close();
+    }
     _physical_file_reader.reset();
     _tracing_file_reader.reset();
     _file_reader.reset();
