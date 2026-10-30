@@ -471,9 +471,12 @@ public class MaterializedViewUtils {
                     normalizedOutputExprList.add(normalizeExpression(originalExpression,
                             rewrittenExpression, true));
                 }
-                LogicalProject<Plan> project = new LogicalProject<>(normalizedOutputExprList,
-                        rewrittenPlan.child());
-                return rewrittenPlan.withChildren(project);
+                // Set the outputs on the sink itself. A project between the sink and the child would only
+                // pass the child outputs through with a changed nullable property, and the slot of such a
+                // project does not describe the expression which produces it: a rule which merges the
+                // projects, e.g. MergeProjectsCBO, then derives the original nullable property again and
+                // the plan no longer matches the logical properties of the group it is inserted into.
+                return rewrittenPlan.withOutputExprs(normalizedOutputExprList);
             }
         }, null);
 
@@ -527,11 +530,12 @@ public class MaterializedViewUtils {
         }
         if (rewrittenPlan instanceof LogicalSink) {
             LogicalSink<?> sink = (LogicalSink<?>) rewrittenPlan;
-            LogicalProject<Plan> project = new LogicalProject<>(alignedOutputs, sink.child());
             List<NamedExpression> sinkOutputs = alignedOutputs.stream()
                     .map(output -> (NamedExpression) output.toSlot())
                     .collect(ImmutableList.toImmutableList());
-            return sink.withOutputExprs(sinkOutputs).withChildren(project);
+            // Only the outputs of the sink have to be aligned, adding a project below it would repeat the
+            // outputs of the child with a changed nullable property, see normalizeSinkExpressions.
+            return sink.withOutputExprs(sinkOutputs);
         }
         return new LogicalProject<>(alignedOutputs, rewrittenPlan);
     }
