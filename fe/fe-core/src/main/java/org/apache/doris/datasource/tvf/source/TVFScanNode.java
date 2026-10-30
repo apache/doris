@@ -94,8 +94,11 @@ public class TVFScanNode extends FileQueryScanNode {
                     .anyMatch(slot -> slot.getColumn() != null
                             && tableValuedFunction.requiresCurrentLanceReader(
                                     slot.getColumn().getName()));
+            // A multi-dataset plan hands a single reader ranges from several datasets. Old
+            // smooth-upgrade-source BEs reject the second dataset key, so they must never receive one.
+            boolean requiresMultiDataset = tableValuedFunction.getLancePlannedDatasets().size() > 1;
             LanceScanNode.checkAdditionalTypeBackendCompatibility(
-                    requiresCurrentReader, backendPolicy.getBackends());
+                    requiresCurrentReader, requiresMultiDataset, backendPolicy.getBackends());
         }
     }
 
