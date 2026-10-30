@@ -17,14 +17,17 @@
 
 package org.apache.doris.connector.deltalake;
 
+import io.delta.kernel.ScanBuilder;
 import io.delta.kernel.Snapshot;
 import io.delta.kernel.data.FilteredColumnarBatch;
 import io.delta.kernel.data.Row;
 import io.delta.kernel.engine.Engine;
+import io.delta.kernel.expressions.Predicate;
 import io.delta.kernel.utils.CloseableIterator;
 
 import java.io.IOException;
 import java.io.InterruptedIOException;
+import java.util.Optional;
 import java.util.function.Consumer;
 
 /** Consumers must copy values they retain: Kernel rows belong to the current batch. */
@@ -34,14 +37,24 @@ final class DeltaLakeScanFiles {
 
     static void forEach(Snapshot snapshot, Engine engine, boolean includeStats, Consumer<Row> consumer)
             throws IOException {
+        forEach(snapshot, engine, includeStats, Optional.empty(), consumer);
+    }
+
+    static void forEach(Snapshot snapshot, Engine engine, boolean includeStats, Optional<Predicate> filter,
+            Consumer<Row> consumer) throws IOException {
+        ScanBuilder builder = snapshot.getScanBuilder();
+        filter.ifPresent(builder::withFilter);
         try (CloseableIterator<FilteredColumnarBatch> batches =
-                snapshot.getScanBuilder().build().getScanFiles(engine, includeStats)) {
+                builder.build().getScanFiles(engine, includeStats)) {
             while (batches.hasNext()) {
                 if (Thread.currentThread().isInterrupted()) {
                     throw new InterruptedIOException("Delta file planning interrupted");
                 }
                 try (CloseableIterator<Row> files = batches.next().getRows()) {
                     while (files.hasNext()) {
+                        if (Thread.currentThread().isInterrupted()) {
+                            throw new InterruptedIOException("Delta file planning interrupted");
+                        }
                         consumer.accept(files.next());
                     }
                 }
