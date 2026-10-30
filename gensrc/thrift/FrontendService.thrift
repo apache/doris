@@ -217,6 +217,9 @@ struct TQueryStatistics {
     15: optional i64 process_rows
     16: optional i32 finished_tasks_num
     17: optional i32 total_tasks_num
+    // Spill written to / read from object storage (spill_storage_type=s3); zero for local spill.
+    18: optional i64 spill_write_bytes_to_remote_storage
+    19: optional i64 spill_read_bytes_from_remote_storage
 }
 
 struct TQueryStatisticsResult {
@@ -475,6 +478,8 @@ struct TMasterOpResult {
     9: optional TTxnLoadInfo txnLoadInfo;
     10: optional i64 groupCommitLoadBeId;
     11: optional i64 affectedRows;
+    // Backend participants of a forwarded statement's final audit statistics.
+    12: optional list<i64> auditStatisticsBackendIds;
     // Confirms that the executing FE serialized raw MySQL packets with CLIENT_DEPRECATE_EOF.
     13: optional bool clientDeprecatedEofApplied;
 }

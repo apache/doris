@@ -138,6 +138,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.HashMultiset;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multiset;
@@ -235,6 +236,8 @@ public class Coordinator implements CoordInterface {
     private final List<PlanFragment> fragments;
 
     private Map<Long, PipelineExecContexts> beToPipelineExecCtxs = Maps.newHashMap();
+    // Only BEs whose fragment RPC was attempted may contribute final audit statistics.
+    private final Set<Long> dispatchedBackendIdsForAudit = Sets.newConcurrentHashSet();
 
     private final Map<Pair<Integer, Long>, PipelineExecContext> pipelineExecContexts = new HashMap<>();
     private final List<PipelineExecContext> needCheckPipelineExecContexts = Lists.newArrayList();
@@ -939,6 +942,7 @@ public class Coordinator implements CoordInterface {
             int backendIdx = 0;
             int profileFragmentId = 0;
             beToPipelineExecCtxs.clear();
+            dispatchedBackendIdsForAudit.clear();
             // fragment:backend
             List<Pair<PlanFragmentId, Long>> backendFragments = Lists.newArrayList();
             // If #fragments >=2, use twoPhaseExecution with exec_plan_fragments_prepare and exec_plan_fragments_start,
@@ -1067,6 +1071,7 @@ public class Coordinator implements CoordInterface {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug(ctxs.debugInfo());
                 }
+                dispatchedBackendIdsForAudit.add(ctxs.getBackend().getId());
                 futures.add(Pair.of(DateTime.now().getMillis(),
                         ImmutableTriple.of(ctxs, proxy, ctxs.execRemoteFragmentsAsync(proxy))));
             }
@@ -3831,6 +3836,10 @@ public class Coordinator implements CoordInterface {
             backendAddresses.add(new TNetworkAddress(backend.getHost(), backend.getBePort()));
         }
         return backendAddresses;
+    }
+
+    public Set<Long> getDispatchedBackendIdsForAudit() {
+        return ImmutableSet.copyOf(dispatchedBackendIdsForAudit);
     }
 
     /**

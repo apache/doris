@@ -17,8 +17,11 @@
 
 package org.apache.doris.plugin.audit;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchema;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.GlobalVariable;
@@ -35,6 +38,8 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Calendar;
+import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.zip.GZIPOutputStream;
 
@@ -45,6 +50,8 @@ public class AuditStreamLoader {
     private static final int HTTP_TIMEOUT_MS = 10000;
     private static final String COMPRESS_TYPE = "gz";
     private String hostPort;
+    private static final String REMOTE_WRITE_COLUMN = "spill_write_bytes_to_remote_storage";
+    private static final String REMOTE_READ_COLUMN = "spill_read_bytes_from_remote_storage";
     private String db;
     private String auditLogTbl;
     private String auditLogLoadUrlStr;
@@ -60,7 +67,7 @@ public class AuditStreamLoader {
     }
 
     private static HttpURLConnection getConnection(
-            String urlStr, String label, String clusterToken) throws IOException {
+            String urlStr, String label, String clusterToken, String columns) throws IOException {
         URL url = new URL(urlStr);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setInstanceFollowRedirects(false);
@@ -75,9 +82,7 @@ public class AuditStreamLoader {
         conn.setReadTimeout(HTTP_TIMEOUT_MS);
         conn.setRequestProperty("timeout", String.valueOf(GlobalVariable.auditPluginLoadTimeoutS));
         conn.addRequestProperty("max_filter_ratio", "1.0");
-        conn.addRequestProperty("columns",
-                InternalSchema.AUDIT_SCHEMA.stream().map(c -> c.getName()).collect(
-                        Collectors.joining(",")));
+        conn.addRequestProperty("columns", columns);
         conn.addRequestProperty("redirect-policy", "random-be");
         conn.addRequestProperty("column_separator", AuditLoader.AUDIT_TABLE_COL_SEPARATOR_STR);
         conn.addRequestProperty("line_delimiter", AuditLoader.AUDIT_TABLE_LINE_DELIMITER_STR);
@@ -96,8 +101,7 @@ public class AuditStreamLoader {
         sb.append("-H \"").append("max_filter_ratio\":").append("\"1.0\" \\\n  ");
         sb.append("-H \"").append("compress_type\":").append("\"").append(COMPRESS_TYPE).append("\" \\\n  ");
         sb.append("-H \"").append("columns\":")
-                .append("\"" + InternalSchema.AUDIT_SCHEMA.stream().map(c -> c.getName()).collect(
-                        Collectors.joining(",")) + "\" \\\n  ");
+                .append("\"" + conn.getRequestProperty("columns") + "\" \\\n  ");
         sb.append("-H \"").append("redirect-policy\":").append("\"random-be").append("\" \\\n  ");
         sb.append("\"").append(conn.getURL()).append("\"");
         return sb.toString();
@@ -129,15 +133,65 @@ public class AuditStreamLoader {
         }
     }
 
+    static boolean hasRemoteSpillColumns(List<Column> columns) {
+        return columns.stream().anyMatch(c -> REMOTE_WRITE_COLUMN.equalsIgnoreCase(c.getName()))
+                && columns.stream().anyMatch(c -> REMOTE_READ_COLUMN.equalsIgnoreCase(c.getName()));
+    }
+
+    static boolean targetHasRemoteSpillColumns() {
+        Optional<Database> db = Env.getCurrentEnv().getInternalCatalog().getDb(FeConstants.INTERNAL_DB_NAME);
+        return db.flatMap(database -> database.getTable(AuditLoader.AUDIT_LOG_TABLE))
+                .map(Table::getBaseSchema).map(AuditStreamLoader::hasRemoteSpillColumns).orElse(false);
+    }
+
+    static PreparedBatch prepareBatch(StringBuilder fullBatch, boolean remoteColumnsAvailable) {
+        List<String> names = InternalSchema.AUDIT_SCHEMA.stream().map(c -> c.getName())
+                .collect(Collectors.toList());
+        if (remoteColumnsAvailable) {
+            return new PreparedBatch(String.join(",", names), fullBatch);
+        }
+        int writeIndex = names.indexOf(REMOTE_WRITE_COLUMN);
+        int readIndex = names.indexOf(REMOTE_READ_COLUMN);
+        String columns = names.stream().filter(name -> !REMOTE_WRITE_COLUMN.equals(name)
+                && !REMOTE_READ_COLUMN.equals(name)).collect(Collectors.joining(","));
+        StringBuilder projected = new StringBuilder(fullBatch.length());
+        int fieldStart = 0;
+        int fieldIndex = 0;
+        for (int i = 0; i < fullBatch.length(); i++) {
+            char c = fullBatch.charAt(i);
+            if (c == AuditLoader.AUDIT_TABLE_COL_SEPARATOR || c == AuditLoader.AUDIT_TABLE_LINE_DELIMITER) {
+                if (fieldIndex != writeIndex && fieldIndex != readIndex) {
+                    projected.append(fullBatch, fieldStart, i + 1);
+                }
+                fieldStart = i + 1;
+                fieldIndex = c == AuditLoader.AUDIT_TABLE_LINE_DELIMITER ? 0 : fieldIndex + 1;
+            }
+        }
+        return new PreparedBatch(columns, projected);
+    }
+
+    static final class PreparedBatch {
+        final String columns;
+        final StringBuilder payload;
+
+        PreparedBatch(String columns, StringBuilder payload) {
+            this.columns = columns;
+            this.payload = payload;
+        }
+    }
+
     public LoadResponse loadBatch(StringBuilder sb, String clusterToken) {
         String label = genLabel();
+        // A new follower can run before the old master adds these columns. The buffer always
+        // has the new shape; project it at send time so a batch spanning a schema change is safe.
+        PreparedBatch batch = prepareBatch(sb, targetHasRemoteSpillColumns());
 
         HttpURLConnection feConn = null;
         HttpURLConnection beConn = null;
         try {
             // build request and send to fe
             label = "audit" + label;
-            feConn = getConnection(auditLogLoadUrlStr, label, clusterToken);
+            feConn = getConnection(auditLogLoadUrlStr, label, clusterToken, batch.columns);
             int status = feConn.getResponseCode();
             // fe send back http response code TEMPORARY_REDIRECT 307 and new be location
             if (status != 307) {
@@ -149,9 +203,9 @@ public class AuditStreamLoader {
                 throw new Exception("redirect location is null");
             }
             // build request and send to new be location
-            beConn = getConnection(location, label, clusterToken);
+            beConn = getConnection(location, label, clusterToken, batch.columns);
             // send data to be
-            writeCompressedBody(beConn.getOutputStream(), sb);
+            writeCompressedBody(beConn.getOutputStream(), batch.payload);
 
             // get respond
             status = beConn.getResponseCode();

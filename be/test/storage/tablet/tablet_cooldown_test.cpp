@@ -241,6 +241,8 @@ public:
         engine_ref = nullptr;
         exec_env->set_storage_engine(nullptr);
         exec_env->set_memtable_memory_limiter(nullptr);
+        delete_storage_policy(kStoragePolicyId);
+        delete_storage_resource(kResourceId);
     }
 };
 

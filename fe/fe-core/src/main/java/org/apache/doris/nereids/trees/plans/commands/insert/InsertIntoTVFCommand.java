@@ -126,6 +126,7 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
                 new QueryInfo(ctx, "INSERT INTO TVF", coordinator));
 
         try {
+            executor.setExternalDmlAuditCoordinator(coordinator);
             coordinator.exec();
 
             // Wait for completion

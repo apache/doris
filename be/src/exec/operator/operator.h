@@ -421,6 +421,9 @@ public:
                 ADD_COUNTER_WITH_LEVEL(Base::custom_profile(), "SpillWriteRows", TUnit::UNIT, 1);
         _spill_write_file_total_count = ADD_COUNTER_WITH_LEVEL(
                 Base::custom_profile(), "SpillWriteFileTotalCount", TUnit::UNIT, 1);
+        ADD_COUNTER_WITH_LEVEL(Base::custom_profile(), "SpillRemoteUploadBytes", TUnit::BYTES, 1);
+        ADD_TIMER_WITH_LEVEL(Base::custom_profile(), "SpillRemoteUploadTime", 1);
+        ADD_TIMER_WITH_LEVEL(Base::custom_profile(), "SpillRemoteUploadWaitTime", 1);
     }
 
     void init_spill_read_counters() {
@@ -440,6 +443,7 @@ public:
                 ADD_COUNTER_WITH_LEVEL(Base::custom_profile(), "SpillReadRows", TUnit::UNIT, 1);
         _spill_read_file_count = ADD_COUNTER_WITH_LEVEL(Base::custom_profile(),
                                                         "SpillReadFileCount", TUnit::UNIT, 1);
+        ADD_COUNTER_WITH_LEVEL(Base::custom_profile(), "SpillRemoteReadRequests", TUnit::UNIT, 1);
 
         _spill_file_current_size = ADD_COUNTER_WITH_LEVEL(
                 Base::custom_profile(), "SpillWriteFileCurrentBytes", TUnit::BYTES, 1);
@@ -777,6 +781,9 @@ public:
                 Base::custom_profile(), "SpillWriteBlockBytes", TUnit::BYTES, 1);
         _spill_write_rows_count =
                 ADD_COUNTER_WITH_LEVEL(Base::custom_profile(), "SpillWriteRows", TUnit::UNIT, 1);
+        ADD_COUNTER_WITH_LEVEL(Base::custom_profile(), "SpillRemoteUploadBytes", TUnit::BYTES, 1);
+        ADD_TIMER_WITH_LEVEL(Base::custom_profile(), "SpillRemoteUploadTime", 1);
+        ADD_TIMER_WITH_LEVEL(Base::custom_profile(), "SpillRemoteUploadWaitTime", 1);
 
         _spill_max_rows_of_partition = ADD_COUNTER_WITH_LEVEL(
                 Base::custom_profile(), "SpillMaxRowsOfPartition", TUnit::UNIT, 1);
