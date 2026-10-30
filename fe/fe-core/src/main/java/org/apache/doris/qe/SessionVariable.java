@@ -1862,8 +1862,12 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = RUNTIME_BLOOM_FILTER_MAX_SIZE, needForward = true)
     private int runtimeBloomFilterMaxSize = 67108864;
 
+    // How long the target scan waits for a runtime filter after its pipeline's join build side is
+    // ready. The wait is short on purpose: the scan must not stall the query, and the filters that
+    // arrive later are still applied at the scan and at the exchanges between the scan and the
+    // builder join.
     @VarAttrDef.VarAttr(name = RUNTIME_FILTER_WAIT_TIME_MS, needForward = true)
-    private int runtimeFilterWaitTimeMs = 1000;
+    private int runtimeFilterWaitTimeMs = 20;
 
     @VarAttrDef.VarAttr(name = runtime_filter_wait_infinitely, fuzzy = true, needForward = true)
     public boolean runtimeFilterWaitInfinitely = false;

@@ -133,6 +133,14 @@ public:
     void start_watcher() { _watcher.start(); }
     [[nodiscard]] int64_t watcher_elapse_time() { return _watcher.elapsed_time(); }
 
+    // Called by PipelineTask once the pipeline's join build side is ready. Only the runtime-filter
+    // dependency reacts: its wait budget starts counting from this moment instead of from the
+    // moment the consumer was created (fragment prepare). Other dependencies ignore it.
+    virtual void start_wait() {}
+
+    // True only for the dependency that blocks a pipeline task until its runtime filters arrive.
+    virtual bool is_runtime_filter_dependency() const { return false; }
+
     // Which dependency current pipeline task is blocked by. `nullptr` if this dependency is ready.
     [[nodiscard]] Dependency* is_blocked_by(std::shared_ptr<PipelineTask> task = nullptr);
     // Notify downstream pipeline tasks this dependency is ready.
@@ -229,6 +237,28 @@ private:
     uint32_t _counter = 0;
 };
 
+class RuntimeFilterTimer;
+
+// Dependency created by RuntimeFilterConsumerHelper for every runtime filter that may block the
+// pipeline task. Its wait clock starts only when the pipeline's join build side is ready, see
+// PipelineTask::_wait_to_start(). Starting the clock when the consumer is created (fragment
+// prepare) is wrong because the build side may still run for seconds, so the budget would expire
+// before the filter is published and the scan would start without a filter that arrives right
+// after the build finishes.
+class RuntimeFilterDependency final : public Dependency {
+public:
+    RuntimeFilterDependency(int id, int node_id, std::string name)
+            : Dependency(id, node_id, std::move(name)) {}
+    void start_wait() override;
+    bool is_runtime_filter_dependency() const override { return true; }
+    void set_start_wait_callback(std::function<void()> callback) {
+        _start_wait_callback = std::move(callback);
+    }
+
+private:
+    std::function<void()> _start_wait_callback;
+};
+
 struct RuntimeFilterTimerQueue;
 class RuntimeFilterTimer {
 public:
@@ -237,6 +267,7 @@ public:
             : _parent(std::move(parent)),
               _registration_time(registration_time),
               _wait_time_ms(wait_time_ms),
+              _wait_started(force_wait_timeout),
               _force_wait_timeout(force_wait_timeout) {}
 
     // Called by runtime filter producer.
@@ -245,7 +276,11 @@ public:
     // Called by RuntimeFilterTimerQueue which is responsible for checking if this rf is timeout.
     void call_timeout();
 
-    int64_t registration_time() const { return _registration_time; }
+    // Called when the timeout budget may start counting. Idempotent: only the first call sets the
+    // budget start time. `force_wait_timeout` timers (group commit) are started at construction.
+    void start_wait();
+
+    int64_t registration_time() const { return _registration_time.load(std::memory_order_acquire); }
     int32_t wait_time_ms() const { return _wait_time_ms; }
 
     void set_local_runtime_filter_dependencies(
@@ -262,8 +297,11 @@ private:
     std::shared_ptr<Dependency> _parent = nullptr;
     std::vector<std::shared_ptr<Dependency>> _local_runtime_filter_dependencies;
     std::mutex _lock;
-    int64_t _registration_time;
+    // Written by start_wait() on the pipeline thread, read by the timer queue thread.
+    std::atomic<int64_t> _registration_time;
     const int32_t _wait_time_ms;
+    // False until the pipeline's join build side is ready; the timer must not time out before it.
+    std::atomic<bool> _wait_started;
     // true only for group_commit_scan_operator
     bool _force_wait_timeout;
 };

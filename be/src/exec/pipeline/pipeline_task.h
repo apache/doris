@@ -206,6 +206,11 @@ private:
     bool _is_pending_finish();
 
     Status _extract_dependencies();
+    // The wait clock of a runtime filter must start only after the join build side of this
+    // pipeline is ready, not when the filter consumer is created during fragment prepare.
+    bool _is_join_build_dependency(Dependency* dependency) const;
+    void _collect_join_build_dependencies();
+    void _start_runtime_filter_wait();
     void _init_profile();
     void _fresh_profile_counter();
     Status _open();
@@ -267,6 +272,11 @@ private:
     std::vector<Dependency*> _write_dependencies;
     std::vector<Dependency*> _finish_dependencies;
     std::vector<Dependency*> _execution_dependencies;
+    // Join build dependencies of the operators in this pipeline. They are the dependencies that
+    // gate a scan from starting, e.g. the build side of the join that produces the runtime filter.
+    // Populated in prepare() so _wait_to_start() can use them before the first _open().
+    std::vector<Dependency*> _join_build_dependencies;
+    bool _has_runtime_filter_dependency = false;
 
     // All shared states of this pipeline task.
     std::map<int, std::shared_ptr<BasicSharedState>> _op_shared_states;

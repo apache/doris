@@ -20,12 +20,15 @@ package org.apache.doris.nereids.glue.translator;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.ToSqlParams;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -35,9 +38,14 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.planner.CTEScanNode;
 import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.DistributionMode;
+import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.HashJoinNode;
+import org.apache.doris.planner.MultiCastPlanFragment;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNode;
+import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.RecursiveCteNode;
+import org.apache.doris.planner.RepeatNode;
 import org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SetOperationNode;
@@ -53,10 +61,12 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * translate runtime filter
@@ -171,6 +181,10 @@ public class RuntimeFilterTranslator {
             List<Expr> targetExprList = new ArrayList<>();
             List<Map<TupleId, List<SlotId>>> targetTupleIdMapList = new ArrayList<>();
             List<ScanNode> scanNodeList = new ArrayList<>();
+            // Kept for the exchange targets added below, which need the Nereids target slot and
+            // expression to rebuild the filter against an exchange's output tuple.
+            List<Slot> targetSlotList = new ArrayList<>();
+            List<Expression> targetExpressionList = new ArrayList<>();
             Map<Integer, String> scanNodeTargetExprSql = new LinkedHashMap<>();
             Map<Integer, Boolean> scanNodeHasDifferentTargets = new LinkedHashMap<>();
             boolean hasInvalidTarget = false;
@@ -203,6 +217,8 @@ public class RuntimeFilterTranslator {
                 TupleId targetTupleId = targetSlotRef.getDesc().getParentId();
                 SlotId targetSlotId = targetSlotRef.getSlotId();
                 scanNodeList.add(scanNode);
+                targetSlotList.add(curTargetSlot);
+                targetExpressionList.add(curTargetExpression);
                 targetExprList.add(targetExpr);
                 targetTupleIdMapList.add(ImmutableMap.of(targetTupleId, ImmutableList.of(targetSlotId)));
                 int scanNodeId = scanNode.getId().asInt();
@@ -228,11 +244,14 @@ public class RuntimeFilterTranslator {
                 }
                 boolean isLocalTarget = scanNodeList.stream().allMatch(e ->
                         !(e instanceof CTEScanNode) && e.getFragmentId().equals(node.getFragmentId()));
+                Set<PlanNodeId> addedExchangeNodes = new HashSet<>();
                 for (int i = 0; i < targetExprList.size(); i++) {
                     ScanNode scanNode = scanNodeList.get(i);
                     Expr targetExpr = targetExprList.get(i);
                     origFilter.addTarget(new RuntimeFilterTarget(
                             scanNode, targetExpr, true, isLocalTarget));
+                    addExchangeTargets(origFilter, node, scanNode, targetSlotList.get(i),
+                            targetExpressionList.get(i), src, isLocalTarget, ctx, addedExchangeNodes);
                     updateConditionCacheEligibility(scanNode, group.get(i));
                     // TRuntimeFilterDesc keys target expressions and pruning metadata by scan node ID.
                     // If one grouped RF has different targets on the same scan, BE cannot match
@@ -247,7 +266,7 @@ public class RuntimeFilterTranslator {
                 // of the filters it merges must not: the wait would put back the edge that the non-blocking
                 // filter of the group removes, and a target of that filter can then wait for a builder which
                 // itself waits for the target.
-                setWaitTimeMs(origFilter, group.stream().anyMatch(RuntimeFilter::isNonBlocking), isLocalTarget);
+                setWaitTimeMs(origFilter, group.stream().anyMatch(RuntimeFilter::isNonBlocking));
                 org.apache.doris.planner.RuntimeFilter finalizedFilter = finalize(origFilter);
                 scanNodeList.stream().filter(CTEScanNode.class::isInstance)
                         .forEach(f -> {
@@ -332,16 +351,19 @@ public class RuntimeFilterTranslator {
                 }
                 boolean isLocalTarget = scanNodeList.stream().allMatch(e ->
                         !(e instanceof CTEScanNode) && e.getFragmentId().equals(node.getFragmentId()));
+                Set<PlanNodeId> addedExchangeNodes = new HashSet<>();
                 for (int i = 0; i < targetExprList.size(); i++) {
                     ScanNode scanNode = scanNodeList.get(i);
                     Expr targetExpr = targetExprList.get(i);
                     origFilter.addTarget(new RuntimeFilterTarget(
                             scanNode, targetExpr, true, isLocalTarget));
+                    addExchangeTargets(origFilter, node, scanNode, curTargetSlot, curTargetExpression,
+                            src, isLocalTarget, ctx, addedExchangeNodes);
                     updateConditionCacheEligibility(scanNode, filter);
                     setPruningMetadata(origFilter, scanNode, filter);
                 }
                 origFilter.setBloomFilterSizeCalculatedByNdv(filter.isBloomFilterSizeCalculatedByNdv());
-                setWaitTimeMs(origFilter, filter.isNonBlocking(), isLocalTarget);
+                setWaitTimeMs(origFilter, filter.isNonBlocking());
                 org.apache.doris.planner.RuntimeFilter finalizedFilter = finalize(origFilter);
                 scanNodeList.stream().filter(CTEScanNode.class::isInstance)
                         .forEach(f -> {
@@ -397,22 +419,143 @@ public class RuntimeFilterTranslator {
     }
 
     private void setWaitTimeMs(org.apache.doris.planner.RuntimeFilter filter,
-            boolean isNonBlocking, boolean isLocalTarget) {
+            boolean isNonBlocking) {
         if (isNonBlocking) {
             filter.setWaitTimeMs(0);
+        } else if (ConnectContext.get() != null) {
+            SessionVariable sessionVar = ConnectContext.get().getSessionVariable();
+            // The wait budget is short (runtime_filter_wait_time_ms, 20ms by default) and starts
+            // only after the pipeline's join build side is ready, so a local target does not need
+            // a different (infinite) budget any more: the filter is published when the build sink
+            // closes. See PipelineTask::_wait_to_start() in BE.
+            filter.setWaitTimeMs(sessionVar.runtimeFilterWaitInfinitely
+                    ? sessionVar.getQueryTimeoutS() * 1000
+                    : sessionVar.getRuntimeFilterWaitTimeMs());
         } else {
-            if (ConnectContext.get() != null) {
-                SessionVariable sessionVar = ConnectContext.get().getSessionVariable();
-                if (sessionVar.runtimeFilterWaitInfinitely || isLocalTarget) {
-                    // wait infinitely
-                    filter.setWaitTimeMs(sessionVar.getQueryTimeoutS() * 1000);
-                } else {
-                    filter.setWaitTimeMs(sessionVar.getRuntimeFilterWaitTimeMs());
-                }
-            } else {
-                filter.setWaitTimeMs(1000);
+            filter.setWaitTimeMs(20);
+        }
+    }
+
+    /**
+     * Apply the filter on the exchange nodes between the target scan and the builder join as well.
+     * The target scan no longer blocks for long waiting for the filter, so it can already produce
+     * blocks before the filter arrives. Filtering at the exchanges on the path lets those blocks be
+     * pruned before they are shuffled and probed.
+     *
+     * <p>Only exchanges whose output still carries the target expression and whose input path is a
+     * single chain back to the scan are used. An exchange that also merges other branches (a join
+     * or a set operation below it) carries rows that do not belong to the target scan, and the
+     * target expression is not meaningful for them, so filtering there could drop valid rows.
+     */
+    private void addExchangeTargets(org.apache.doris.planner.RuntimeFilter filter, PlanNode builderNode,
+            ScanNode scanNode, Slot targetSlot, Expression targetExpression, Expr src,
+            boolean isLocalTarget, PlanTranslatorContext ctx, Set<PlanNodeId> addedExchangeNodes) {
+        if (scanNode instanceof CTEScanNode) {
+            // A CTE target is applied at the CTE producer's sink; the consumer path is a multicast
+            // DAG and is not handled here.
+            return;
+        }
+        List<PlanNode> path = new ArrayList<>();
+        if (!findPlanNodePath(builderNode, scanNode, new HashSet<>(), path)) {
+            return;
+        }
+        for (PlanNode pathNode : path) {
+            if (pathNode.getFragment() instanceof MultiCastPlanFragment) {
+                // A CTE producer feeds several consumers; the target expression is not a property
+                // of every row that crosses an exchange in that DAG.
+                return;
             }
         }
+        boolean isIdentityTarget = targetSlot.equals(targetExpression);
+        for (int i = 0; i < path.size(); i++) {
+            PlanNode node = path.get(i);
+            if (!(node instanceof ExchangeNode)) {
+                continue;
+            }
+            // An exchange that also merges other branches (a join or a set operation below it)
+            // carries rows that do not belong to the target scan. The target expression is not
+            // meaningful for those rows, so filtering there could drop valid rows.
+            if (!isSafeSingleInputChain(path, i + 1)) {
+                continue;
+            }
+            if (addedExchangeNodes.contains(node.getId())) {
+                continue;
+            }
+            SlotRef exchangeSlotRef = findSlotRefInOutput(ctx, node, targetSlot.getExprId());
+            if (exchangeSlotRef == null) {
+                // The target slot is not part of this exchange's output tuple, e.g. an
+                // intermediate operator consumed it or renamed it.
+                continue;
+            }
+            addedExchangeNodes.add(node.getId());
+            Expr exchangeTargetExpr;
+            if (isIdentityTarget) {
+                exchangeTargetExpr = exchangeSlotRef;
+            } else {
+                exchangeTargetExpr = targetExpression.accept(
+                        new RuntimeFilterExpressionTranslator(exchangeSlotRef), ctx);
+            }
+            exchangeTargetExpr = castTargetToSourceTypeIfNeeded(src, exchangeTargetExpr);
+            // Locality is a property of the whole filter (all scan targets local or not), and BE
+            // requires has_local_targets != has_remote_targets. An exchange on the path of a
+            // remote target must therefore stay remote.
+            filter.addTarget(new RuntimeFilterTarget(node, exchangeTargetExpr, true, isLocalTarget));
+        }
+    }
+
+    private static SlotRef findSlotRefInOutput(PlanTranslatorContext ctx, PlanNode node,
+            ExprId exprId) {
+        for (TupleId tupleId : node.getOutputTupleIds()) {
+            TupleDescriptor tuple = ctx.getTupleDesc(tupleId);
+            for (SlotDescriptor slot : tuple.getSlots()) {
+                if (exprId.equals(ctx.findExprId(slot.getId()))) {
+                    return new SlotRef(slot);
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Collects the plan nodes on the path from {@code current} down to {@code target}. Exchange
+     * nodes keep their upstream fragment root as child, so the path crosses fragment boundaries.
+     */
+    private static boolean findPlanNodePath(PlanNode current, PlanNode target, Set<PlanNode> visited,
+            List<PlanNode> path) {
+        if (current == target) {
+            return true;
+        }
+        if (current == null || !visited.add(current) || current.getChildren() == null) {
+            return false;
+        }
+        for (PlanNode child : current.getChildren()) {
+            path.add(child);
+            if (findPlanNodePath(child, target, visited, path)) {
+                return true;
+            }
+            path.remove(path.size() - 1);
+        }
+        return false;
+    }
+
+    /**
+     * True when every node between the exchange and the scan produces exactly one output row per
+     * input row and preserves the input columns. Joins, set operations and table functions have
+     * several children and are rejected by the child count; grouping sets (repeat) and recursive
+     * CTEs can produce rows whose target slot is not a value of the scan, so they are rejected
+     * explicitly even though they have one child.
+     */
+    private static boolean isSafeSingleInputChain(List<PlanNode> path, int startIndex) {
+        for (int i = startIndex; i < path.size(); i++) {
+            PlanNode node = path.get(i);
+            if (node instanceof RepeatNode || node instanceof RecursiveCteNode) {
+                return false;
+            }
+            if (node.getChildren() != null && node.getChildren().size() > 1) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private Expr castTargetToSourceTypeIfNeeded(Expr src, Expr targetExpr) {

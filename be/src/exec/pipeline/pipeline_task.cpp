@@ -151,12 +151,19 @@ Status PipelineTask::prepare(const std::vector<TScanRangeParams>& scan_range, co
         RETURN_IF_ERROR(op->setup_local_state(_state, info));
         parent_profile = _state->get_local_state(op->operator_id())->operator_profile();
     }
+    // Collect the join build dependencies here because _wait_to_start() runs before the first
+    // _open() and needs them to decide when the runtime-filter wait clock may start. Local states
+    // are all initialized at this point, so their dependencies are available.
+    _collect_join_build_dependencies();
     {
         const auto& deps =
                 _state->get_local_state(_source->operator_id())->execution_dependencies();
         std::unique_lock<std::mutex> lc(_dependency_lifecycle_lock);
         std::copy(deps.begin(), deps.end(),
                   std::inserter(_execution_dependencies, _execution_dependencies.end()));
+        _has_runtime_filter_dependency = std::any_of(
+                _execution_dependencies.begin(), _execution_dependencies.end(),
+                [](const Dependency* dep) { return dep->is_runtime_filter_dependency(); });
     }
     if (auto fragment = _fragment_context.lock()) {
         if (fragment->get_query_ctx()->is_cancelled()) {
@@ -204,8 +211,47 @@ Status PipelineTask::_extract_dependencies() {
         read_dependencies.swap(_read_dependencies);
         write_dependencies.swap(_write_dependencies);
         finish_dependencies.swap(_finish_dependencies);
+        std::vector<Dependency*> join_build_dependencies;
+        for (const auto& dependencies : _read_dependencies) {
+            for (auto* dependency : dependencies) {
+                if (_is_join_build_dependency(dependency)) {
+                    join_build_dependencies.push_back(dependency);
+                }
+            }
+        }
+        _join_build_dependencies.swap(join_build_dependencies);
     }
     return Status::OK();
+}
+
+void PipelineTask::_collect_join_build_dependencies() {
+    std::vector<Dependency*> join_build_dependencies;
+    for (auto& op : _operators) {
+        auto* local_state = _state->get_local_state(op->operator_id());
+        DCHECK(local_state);
+        for (auto* dependency : local_state->dependencies()) {
+            if (_is_join_build_dependency(dependency)) {
+                join_build_dependencies.push_back(dependency);
+            }
+        }
+    }
+    std::unique_lock<std::mutex> lc(_dependency_lifecycle_lock);
+    _join_build_dependencies.swap(join_build_dependencies);
+}
+
+bool PipelineTask::_is_join_build_dependency(Dependency* dependency) const {
+    // Join probe operators take their input dependency from the join shared state, which is the
+    // dependency released when the build side has built its hash table. Other operators (exchange
+    // source, local exchange source, aggregate, ...) use their own shared state and are ignored
+    // on purpose: a scan only has to wait for the build side that produces its runtime filter.
+    return dependency != nullptr && dependency->shared_state() != nullptr &&
+           dynamic_cast<const JoinSharedState*>(dependency->shared_state()) != nullptr;
+}
+
+void PipelineTask::_start_runtime_filter_wait() {
+    for (auto* dependency : _execution_dependencies) {
+        dependency->start_wait();
+    }
 }
 
 bool PipelineTask::inject_shared_state(std::shared_ptr<BasicSharedState> shared_state) {
@@ -293,6 +339,43 @@ bool PipelineTask::_wait_to_start() {
     // 1. Execution dependency is ready (which is controlled by FE 2-phase commit)
     // 2. Runtime filter dependencies are ready
     // 3. All tablets are loaded into local storage
+    if (_has_runtime_filter_dependency) {
+        // The runtime-filter wait budget starts only when the pipeline can actually run, i.e. its
+        // join build side is ready. Otherwise the budget would be consumed while the build side is
+        // still running and the scan would start without a filter that is published right after
+        // the build finishes (the build dependency is released at build EOS; the filter itself is
+        // published when the build sink closes).
+        //
+        // Block on the build dependency here so this task is woken again when the build side
+        // finishes; otherwise it would stay blocked on the runtime filter forever because the
+        // filter timer is not allowed to time out before the wait starts.
+        for (auto* dependency : _join_build_dependencies) {
+            if (dependency->is_blocked_by(shared_from_this())) {
+                return true;
+            }
+        }
+        // Keep the FE-controlled execution dependency (two phase commit) ahead of the wait clock
+        // as well: only the runtime filters may still be missing when the clock starts.
+        for (auto* dependency : _execution_dependencies) {
+            if (!dependency->is_runtime_filter_dependency() &&
+                dependency->is_blocked_by(shared_from_this())) {
+                return true;
+            }
+        }
+        // When the pipeline has no join build side (the target scan is in another fragment) the
+        // wait starts as soon as the task runs; late filters are applied at the exchange nodes.
+        _start_runtime_filter_wait();
+        // Stop at the first blocked filter: registering the task on every blocked filter in one
+        // round would call blocked() more than once and trip the `_blocked_dep == nullptr` check.
+        // The task is woken when that filter is ready and re-checks the remaining ones.
+        for (auto* dependency : _execution_dependencies) {
+            if (dependency->is_runtime_filter_dependency() &&
+                dependency->is_blocked_by(shared_from_this())) {
+                return true;
+            }
+        }
+        return false;
+    }
     return std::any_of(
             _execution_dependencies.begin(), _execution_dependencies.end(),
             [&](Dependency* dep) -> bool { return dep->is_blocked_by(shared_from_this()); });
@@ -369,6 +452,10 @@ void PipelineTask::unblock_all_dependencies() {
             std::ranges::for_each(_read_dependencies, [&](std::vector<Dependency*>& deps) {
                 std::ranges::for_each(deps, [&](Dependency* dep) { dep->set_always_ready(); });
             });
+            // Collected in prepare(), so they may still be missing from `_read_dependencies` when
+            // the query is canceled before this task opens.
+            std::ranges::for_each(_join_build_dependencies,
+                                  [&](Dependency* dep) { dep->set_always_ready(); });
             // All `_execution_deps` will never be set blocking from ready. So we just set ready here.
             std::ranges::for_each(_execution_dependencies,
                                   [&](Dependency* dep) { dep->set_ready(); });

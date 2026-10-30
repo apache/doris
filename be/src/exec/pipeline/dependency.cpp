@@ -124,11 +124,38 @@ void RuntimeFilterTimer::call_ready() {
     _parent->set_ready();
 }
 
+void RuntimeFilterDependency::start_wait() {
+    if (_start_wait_callback) {
+        _start_wait_callback();
+    }
+}
+
+void RuntimeFilterTimer::start_wait() {
+    // Only the first call starts the budget. The pipeline task may call this on every run until
+    // the filter dependency becomes ready.
+    if (_wait_started.exchange(true, std::memory_order_acq_rel)) {
+        return;
+    }
+    _registration_time.store(MonotonicMillis(), std::memory_order_release);
+}
+
 // should check rf timeout in two case:
 // 1. the rf is ready just remove the wait queue
 // 2. if the rf have local dependency, the rf should start wait when all local dependency is ready
 bool RuntimeFilterTimer::should_be_check_timeout() {
-    if (!_parent->ready() && !_local_runtime_filter_dependencies.empty()) {
+    if (_parent->ready()) {
+        // The task is no longer blocked by this filter (it arrived, timed out, or was released),
+        // so the timer can leave the waiting queue.
+        return true;
+    }
+    // The timeout budget must not run while the pipeline still waits for its join build side: the
+    // filter is published when the build sink closes, which is exactly the moment the build
+    // dependency becomes ready. Counting earlier would mark the filter timed out although it is
+    // about to arrive. See PipelineTask::_wait_to_start().
+    if (!_wait_started.load(std::memory_order_acquire)) {
+        return false;
+    }
+    if (!_local_runtime_filter_dependencies.empty()) {
         bool all_ready = true;
         for (auto& dep : _local_runtime_filter_dependencies) {
             if (!dep->ready()) {
@@ -138,7 +165,7 @@ bool RuntimeFilterTimer::should_be_check_timeout() {
         }
         if (all_ready) {
             _local_runtime_filter_dependencies.clear();
-            _registration_time = MonotonicMillis();
+            _registration_time.store(MonotonicMillis(), std::memory_order_release);
         }
         return all_ready;
     }

@@ -28,7 +28,7 @@ RuntimeFilterConsumerHelper::RuntimeFilterConsumerHelper(
 Status RuntimeFilterConsumerHelper::init(RuntimeState* state, bool need_local_merge,
                                          int32_t node_id, int32_t operator_id,
                                          std::vector<std::shared_ptr<Dependency>>& dependencies,
-                                         const std::string& name) {
+                                         const std::string& name, bool wait_for_runtime_filter) {
     for (const auto& desc : _runtime_filter_descs) {
         std::shared_ptr<RuntimeFilterConsumer> filter;
         RETURN_IF_ERROR(
@@ -36,13 +36,26 @@ Status RuntimeFilterConsumerHelper::init(RuntimeState* state, bool need_local_me
         _consumers.emplace_back(filter);
     }
 
+    if (!wait_for_runtime_filter) {
+        return Status::OK();
+    }
+
     dependencies.resize(_runtime_filter_descs.size());
     std::vector<std::shared_ptr<RuntimeFilterTimer>> runtime_filter_timers(
             _runtime_filter_descs.size());
     std::vector<std::shared_ptr<Dependency>> local_dependencies;
     for (size_t i = 0; i < _consumers.size(); ++i) {
-        dependencies[i] = std::make_shared<Dependency>(operator_id, node_id, name);
-        runtime_filter_timers[i] = _consumers[i]->create_filter_timer(dependencies[i]);
+        auto dependency = std::make_shared<RuntimeFilterDependency>(operator_id, node_id, name);
+        dependencies[i] = dependency;
+        runtime_filter_timers[i] = _consumers[i]->create_filter_timer(dependency);
+        // The timer's budget starts only once the pipeline's join build side is ready, so the
+        // dependency must forward that event to the consumer.
+        dependency->set_start_wait_callback(
+                [weak_consumer = std::weak_ptr<RuntimeFilterConsumer> {_consumers[i]}]() {
+                    if (auto consumer = weak_consumer.lock()) {
+                        consumer->start_wait();
+                    }
+                });
         if (!_consumers[i]->has_remote_target()) {
             local_dependencies.emplace_back(dependencies[i]);
         }

@@ -20,7 +20,9 @@
 #include <stdint.h>
 
 #include <map>
+#include <memory>
 #include <set>
+#include <vector>
 
 #include "exec/operator/operator.h"
 #include "exprs/vexpr_fwd.h"
@@ -33,6 +35,8 @@ class VDataStreamRecvr;
 class Block;
 
 namespace doris {
+
+class RuntimeFilterConsumerHelper;
 
 class ExchangeSourceOperatorX;
 class ExchangeLocalState : public PipelineXLocalState<> {
@@ -88,6 +92,11 @@ public:
     RuntimeProfile::Counter* get_data_from_recvr_timer = nullptr;
     RuntimeProfile::Counter* filter_timer = nullptr;
     RuntimeProfile::Counter* create_merger_timer = nullptr;
+
+    // Runtime filters delivered to this exchange. The exchange only applies filters that have
+    // already arrived; it never blocks the pipeline, because the target scan in the fragment below
+    // is the only place that waits for the filter budget.
+    std::unique_ptr<RuntimeFilterConsumerHelper> runtime_filter_helper;
 };
 
 class ExchangeSourceOperatorX final : public OperatorX<ExchangeLocalState> {
@@ -112,6 +121,13 @@ public:
 
     Status close(RuntimeState* state) override;
     [[nodiscard]] bool is_source() const override { return true; }
+
+    // Runtime filters attached to this exchange node by the FE: they are applied to the blocks
+    // received from the senders, so rows produced before the filter reached the target scan are
+    // still filtered before they are shuffled/probed further.
+    const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() override {
+        return _runtime_filter_descs;
+    }
 
     [[nodiscard]] int num_senders() const { return _num_senders; }
     [[nodiscard]] bool is_merging() const { return _is_merging; }
@@ -168,6 +184,7 @@ private:
     doris::VExprContextSPtrs _ordering_expr_ctxs;
     std::vector<bool> _is_asc_order;
     std::vector<bool> _nulls_first;
+    std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 };
 
 } // namespace doris

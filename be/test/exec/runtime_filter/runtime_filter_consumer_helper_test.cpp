@@ -30,6 +30,7 @@
 #include "exec/runtime_filter/runtime_filter_consumer.h"
 #include "exec/runtime_filter/runtime_filter_test_utils.h"
 #include "runtime/descriptors.h"
+#include "util/time.h"
 
 namespace doris {
 
@@ -104,6 +105,32 @@ TEST_F(RuntimeFilterConsumerHelperTest, basic) {
             _runtime_states[0].get(), row_desc, arrived_rf_num, conjuncts));
     ASSERT_EQ(conjuncts.size(), 1);
     ASSERT_EQ(arrived_rf_num, 2);
+}
+
+// The runtime-filter wait budget must not run while the pipeline still waits for its join build
+// side: the filter is published when the build sink closes, which is when the build dependency is
+// released. See PipelineTask::_wait_to_start().
+TEST_F(RuntimeFilterConsumerHelperTest, runtime_filter_wait_starts_after_join_build) {
+    auto dependency = std::make_shared<RuntimeFilterDependency>(0, 0, "test");
+    auto timer = std::make_shared<RuntimeFilterTimer>(MonotonicMillis(), 1000, dependency);
+    dependency->set_start_wait_callback([weak_timer = std::weak_ptr<RuntimeFilterTimer>(timer)]() {
+        if (auto timer = weak_timer.lock()) {
+            timer->start_wait();
+        }
+    });
+    ASSERT_FALSE(timer->should_be_check_timeout());
+    dependency->start_wait();
+    ASSERT_TRUE(timer->should_be_check_timeout());
+
+    // A global filter additionally waits for the local filters of the same operator; its budget
+    // restarts when they are ready.
+    auto global_timer = std::make_shared<RuntimeFilterTimer>(MonotonicMillis(), 1000, dependency);
+    auto local_dependency = std::make_shared<Dependency>(0, 0, "local");
+    global_timer->set_local_runtime_filter_dependencies({local_dependency});
+    global_timer->start_wait();
+    ASSERT_FALSE(global_timer->should_be_check_timeout());
+    local_dependency->set_ready();
+    ASSERT_TRUE(global_timer->should_be_check_timeout());
 }
 
 } // namespace doris

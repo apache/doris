@@ -51,6 +51,11 @@ public:
     // Published by producer.
     void signal(RuntimeFilter* other);
 
+    // Called by RuntimeFilterDependency when the pipeline's join build side is ready. Moves the
+    // wait clock start to this moment so the profile/metrics do not include the build wait.
+    // Idempotent.
+    void start_wait();
+
     std::shared_ptr<RuntimeFilterTimer> create_filter_timer(
             std::shared_ptr<Dependency> dependencies);
 
@@ -123,7 +128,7 @@ private:
         } else if (rf_state == State::READY) {
             DorisMetrics::instance()->runtime_filter_consumer_ready_num->increment(1);
             DorisMetrics::instance()->runtime_filter_consumer_wait_ready_ms->increment(
-                    MonotonicMillis() - _registration_time);
+                    MonotonicMillis() - _registration_time.load(std::memory_order_acquire));
             _wrapper = other;
             _check_wrapper_state(
                     {RuntimeFilterWrapper::State::DISABLED, RuntimeFilterWrapper::State::READY});
@@ -151,7 +156,9 @@ private:
             std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0, 1);
 
     int32_t _rf_wait_time_ms;
-    const int64_t _registration_time;
+    // Written by start_wait() on the pipeline thread, read by signal()/metrics on other threads.
+    std::atomic<int64_t> _registration_time;
+    std::atomic<bool> _wait_started {false};
 
     std::atomic<State> _rf_state;
 
