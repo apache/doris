@@ -413,10 +413,11 @@ enum PatternTypePB {
 // How a VARIANT column shreds its paths into subcolumns and the sparse column. The value only
 // changes what variant_max_subcolumns_count == 0 means; every other count keeps one meaning.
 enum VariantSerializeTypePB {
-    // Columns created before the field existed: count 0 materializes every path as a subcolumn.
+    // Columns created before the field existed: count 0 materializes every dynamic path as a
+    // subcolumn.
     VARIANT_SERIALIZE_V1 = 0;
-    // Count 0 materializes no path, every path including the predefined typed paths goes to the
-    // sparse column.
+    // Count 0 materializes no dynamic path: they all go to the sparse column. Predefined typed
+    // paths are materialized as for any count, unless variant_enable_typed_paths_to_sparse.
     VARIANT_SERIALIZE_V2 = 1;
 }
 

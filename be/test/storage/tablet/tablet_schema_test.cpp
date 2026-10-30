@@ -197,7 +197,6 @@ TEST_F(TabletSchemaTest, test_tablet_column_init_from_thrift) {
     TColumnType column_type;
     column_type.__set_type(TPrimitiveType::STRING);
     column_type.__set_variant_max_subcolumns_count(100);
-    column_type.__set_variant_serialize_type(TVariantSerializeType::V2);
     column_type.__set_len(255);
     tcolumn.__set_column_type(column_type);
     tcolumn.__set_is_key(false);
@@ -207,6 +206,7 @@ TEST_F(TabletSchemaTest, test_tablet_column_init_from_thrift) {
     tcolumn.__set_visible(false);
     tcolumn.__set_default_value("default_test");
     tcolumn.__set_variant_enable_typed_paths_to_sparse(false);
+    tcolumn.__set_variant_serialize_type(TVariantSerializeType::V2);
     tcolumn.__set_pattern_type(TPatternType::MATCH_NAME_GLOB);
 
     TabletColumn tablet_column;

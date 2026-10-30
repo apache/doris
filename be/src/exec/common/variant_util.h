@@ -77,8 +77,7 @@ inline bool should_check_variant_path_stats(const TabletColumn& column) {
 struct VariantExtendedInfo {
     PathToNoneNullValues path_to_none_null_values; // key: path, value: number of none null values
     std::unordered_set<std::string> sparse_paths;  // sparse paths in this variant column
-    std::unordered_set<std::string> materialized_paths; // paths some input stores as a subcolumn
-    std::unordered_set<std::string> typed_paths;        // typed paths in this variant column
+    std::unordered_set<std::string> typed_paths;   // typed paths in this variant column
     std::unordered_set<PathInData, PathInData::Hash>
             nested_paths;               // nested paths in this variant column
     PathToDataTypes path_to_data_types; // key: path, value: data types
@@ -183,7 +182,8 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
 class VariantCompactionUtil {
 public:
     // get the subpaths and sparse paths for the variant column
-    static void get_subpaths(int32_t max_subcolumns_count, const PathToNoneNullValues& path_stats,
+    static void get_subpaths(int32_t max_subcolumns_count, VariantSerializeTypePB serialize_type,
+                             const PathToNoneNullValues& path_stats,
                              VariantCompactionPaths& paths_set_info);
 
     // collect extended info from the variant column

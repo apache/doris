@@ -38,14 +38,23 @@ TEST(IndexStorageVariantCompactionUtilTest, GetSubpathsHonorsZeroLimitAndTieOrde
     };
 
     VariantCompactionPaths unlimited;
-    variant_util::VariantCompactionUtil::get_subpaths(0, stats, unlimited);
+    variant_util::VariantCompactionUtil::get_subpaths(
+            0, VariantSerializeTypePB::VARIANT_SERIALIZE_V1, stats, unlimited);
     EXPECT_TRUE(unlimited.sub_path_set.contains(StringRef("alpha")));
     EXPECT_TRUE(unlimited.sub_path_set.contains(StringRef("beta")));
     EXPECT_TRUE(unlimited.sub_path_set.contains(StringRef("gamma")));
     EXPECT_TRUE(unlimited.sparse_path_set.empty());
 
+    // V2 reads a count of 0 as no dynamic subcolumn, so neither set gets a path
+    VariantCompactionPaths none;
+    variant_util::VariantCompactionUtil::get_subpaths(
+            0, VariantSerializeTypePB::VARIANT_SERIALIZE_V2, stats, none);
+    EXPECT_TRUE(none.sub_path_set.empty());
+    EXPECT_TRUE(none.sparse_path_set.empty());
+
     VariantCompactionPaths top_one;
-    variant_util::VariantCompactionUtil::get_subpaths(1, stats, top_one);
+    variant_util::VariantCompactionUtil::get_subpaths(
+            1, VariantSerializeTypePB::VARIANT_SERIALIZE_V1, stats, top_one);
     EXPECT_TRUE(top_one.sub_path_set.contains(StringRef("beta")));
     EXPECT_FALSE(top_one.sub_path_set.contains(StringRef("alpha")));
     EXPECT_TRUE(top_one.sparse_path_set.contains(StringRef("alpha")));
@@ -59,13 +68,15 @@ TEST(IndexStorageVariantCompactionUtilTest, GetSubpathsKeepsAllPathsAtLimitAndHa
     };
 
     VariantCompactionPaths at_limit;
-    variant_util::VariantCompactionUtil::get_subpaths(2, exact_limit, at_limit);
+    variant_util::VariantCompactionUtil::get_subpaths(
+            2, VariantSerializeTypePB::VARIANT_SERIALIZE_V1, exact_limit, at_limit);
     EXPECT_TRUE(at_limit.sub_path_set.contains(StringRef("alpha")));
     EXPECT_TRUE(at_limit.sub_path_set.contains(StringRef("beta")));
     EXPECT_TRUE(at_limit.sparse_path_set.empty());
 
     VariantCompactionPaths empty;
-    variant_util::VariantCompactionUtil::get_subpaths(1, {}, empty);
+    variant_util::VariantCompactionUtil::get_subpaths(
+            1, VariantSerializeTypePB::VARIANT_SERIALIZE_V1, {}, empty);
     EXPECT_TRUE(empty.sub_path_set.empty());
     EXPECT_TRUE(empty.sparse_path_set.empty());
 }
@@ -477,44 +488,5 @@ TEST_P(VariantCompactionSchemaMatrixTest, WriterCompactionSchemaAndCompactedLayo
 
 INSTANTIATE_TEST_SUITE_P(AllFeVariantParameters, VariantCompactionSchemaMatrixTest,
                          testing::ValuesIn(all_cases()), case_name);
-
-// A V2 count-0 column takes no materialized dynamic path from its inputs, so an input that has one
-// (written as V1) fails the compaction instead of losing that path, even when another input keeps
-// the same path in its sparse column.
-TEST_F(IndexStorageTestFixture, VariantV2CountZeroRejectsMaterializedDynamicInput) {
-    VariantColumnSpec variant;
-    variant.unique_id = 2;
-    variant.name = "v";
-    variant.max_subcolumns_count = 0;
-    IndexTabletOptions options;
-    options.tablet_id = 120001;
-    options.variant_columns = {variant};
-    ASSERT_TRUE(create_tablet(options).ok());
-    IndexRowsetSpec v1_spec;
-    v1_spec.version = 0;
-    v1_spec.batches.push_back(IndexBatch::single_variant({R"({"a": "a0"})", R"({"a": "a1"})"}, 0));
-    auto v1_rowset = write_rowset(v1_spec);
-    ASSERT_TRUE(v1_rowset.has_value()) << v1_rowset.error();
-    tablet_schema()->mutable_column_by_uid(2).set_variant_serialize_type(
-            VariantSerializeTypePB::VARIANT_SERIALIZE_V2);
-    IndexRowsetSpec v2_spec;
-    v2_spec.version = 1;
-    v2_spec.batches.push_back(IndexBatch::single_variant({R"({"a": "a2"})"}, 100));
-    auto v2_rowset = write_rowset(v2_spec);
-    ASSERT_TRUE(v2_rowset.has_value()) << v2_rowset.error();
-    auto v1_probe = probe_rowset(v1_rowset.value());
-    auto v2_probe = probe_rowset(v2_rowset.value());
-    ASSERT_TRUE(v1_probe.has_value() && v2_probe.has_value());
-    ASSERT_TRUE(has_variant_layout(v1_probe.value(), 2, "a"));
-    ASSERT_TRUE(has_sparse_path_stat(v2_probe.value(), "a"));
-
-    auto compaction_schema = std::make_shared<TabletSchema>(*tablet_schema());
-    VariantCompactionPathsMap compaction_paths;
-    auto status = variant_util::VariantCompactionUtil::get_extended_compaction_schema(
-            {v1_rowset.value(), v2_rowset.value()}, compaction_schema, compaction_paths);
-    EXPECT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>()) << status.to_string();
-    EXPECT_NE(status.to_string().find("materializes dynamic path a"), std::string::npos)
-            << status.to_string();
-}
 
 } // namespace doris::index_storage_test

@@ -28,7 +28,8 @@ suite("test_variant_search_historical_rowset_index", "p0") {
             id INT,
             title TEXT,
             v VARIANT<PROPERTIES(
-                "variant_enable_doc_mode"="false"
+                "variant_enable_doc_mode"="false",
+                "variant_serialize_type" = "v1"
             )>,
             INDEX idx_title(title) USING INVERTED
                 PROPERTIES("parser"="unicode", "support_phrase"="true")

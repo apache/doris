@@ -3765,10 +3765,7 @@ public class SessionVariable implements Serializable, Writable {
         // 10MB = 10 * 1024 * 1024 bytes
         int maxBytes = 10 * 1024 * 1024;
         this.exchangeMultiBlocksByteSize = minBytes + (int) (random.nextDouble() * (maxBytes - minBytes));
-        // Never 0: a new column with count 0 keeps every dynamic path in its sparse column, and cases that rely on
-        // materialized subcolumns (subcolumn indexes, DESC) do not pin the count, even after turning doc mode off.
-        // A doc mode column takes count 0 anyway.
-        this.defaultVariantMaxSubcolumnsCount = random.nextInt(9) + 1;
+        this.defaultVariantMaxSubcolumnsCount = random.nextInt(10);
         this.defaultVariantSparseHashShardCount = random.nextInt(5) + 1;
         this.useV3StorageFormat = random.nextBoolean();
         this.defaultVariantEnableDocMode = random.nextBoolean();
@@ -3776,6 +3773,7 @@ public class SessionVariable implements Serializable, Writable {
         boolean zeroOrOne = random.nextBoolean();
         this.defaultVariantDocMaterializationMinRows = zeroOrOne ? 0 : random.nextInt(20);
         if (this.defaultVariantEnableDocMode) {
+            this.defaultVariantMaxSubcolumnsCount = 0;
             this.defaultEnableTypedPathsToSparse = false;
         } else {
             this.defaultVariantDocMaterializationMinRows = 0L;

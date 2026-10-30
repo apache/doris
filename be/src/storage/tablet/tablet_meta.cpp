@@ -376,8 +376,8 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     if (tcolumn.column_type.__isset.variant_enable_doc_mode) {
         column->set_variant_enable_doc_mode(tcolumn.column_type.variant_enable_doc_mode);
     }
-    if (tcolumn.column_type.__isset.variant_serialize_type) {
-        switch (tcolumn.column_type.variant_serialize_type) {
+    if (tcolumn.__isset.variant_serialize_type) {
+        switch (tcolumn.variant_serialize_type) {
         case TVariantSerializeType::V1:
             column->set_variant_serialize_type(VariantSerializeTypePB::VARIANT_SERIALIZE_V1);
             break;

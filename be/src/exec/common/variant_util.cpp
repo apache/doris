@@ -834,7 +834,6 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
 
                 for (const auto& [path, size] : source_stats->subcolumns_non_null_size) {
                     extended_info.path_to_none_null_values[path] += size;
-                    extended_info.materialized_paths.emplace(path);
                 }
             }
 
@@ -855,8 +854,16 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
 
 // get the subpaths and sparse paths for the variant column
 void VariantCompactionUtil::get_subpaths(int32_t max_subcolumns_count,
+                                         VariantSerializeTypePB serialize_type,
                                          const PathToNoneNullValues& stats,
                                          VariantCompactionPaths& paths_set_info) {
+    // The serialize type only changes what a count of 0 means: no limit under V1, no dynamic
+    // subcolumn under V2. For stats {a, b} and a count of 0, V1 puts a and b in sub_path_set, while
+    // V2 leaves both sets empty, so the sparse merge keeps a and b in the sparse column(s).
+    if (max_subcolumns_count == 0 &&
+        serialize_type == VariantSerializeTypePB::VARIANT_SERIALIZE_V2) {
+        return;
+    }
     // max_subcolumns_count is 0 means no limit
     if (max_subcolumns_count > 0 && stats.size() > max_subcolumns_count) {
         std::vector<std::pair<size_t, std::string_view>> paths_with_sizes;
@@ -1235,25 +1242,8 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
                                                       output_schema, paths_set_info));
 
         // 3. get the subpaths
-        // A count of 0 means no limit under V1 and no dynamic subcolumn under V2, whose paths all
-        // stay in the sparse column(s).
-        if (column->variant_max_subcolumns_count() > 0 ||
-            column->variant_serialize_type() == VariantSerializeTypePB::VARIANT_SERIALIZE_V1) {
-            get_subpaths(column->variant_max_subcolumns_count(),
-                         extended_info.path_to_none_null_values, paths_set_info);
-        } else {
-            // No input of a V2 count-0 column materializes a dynamic path. Nothing would carry such
-            // a subcolumn into the output, so its data would be lost, even when another input keeps
-            // the same path in its sparse column.
-            for (const auto& path : extended_info.materialized_paths) {
-                if (!extended_info.typed_paths.contains(path)) {
-                    return Status::InternalError(
-                            "variant column {} uses serialize type V2 with max subcolumns count 0, "
-                            "but its compaction input materializes dynamic path {}",
-                            column->name(), path);
-                }
-            }
-        }
+        get_subpaths(column->variant_max_subcolumns_count(), column->variant_serialize_type(),
+                     extended_info.path_to_none_null_values, paths_set_info);
 
         // 4. append subcolumns
         if (column->variant_max_subcolumns_count() > 0 || !column->get_sub_columns().empty()) {

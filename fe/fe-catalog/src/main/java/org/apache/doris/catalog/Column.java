@@ -925,14 +925,13 @@ public class Column implements GsonPostProcessable {
     public String toSql(boolean isUniqueTable, boolean isCompatible, boolean useGeneratedColumnPlaceholder) {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
-        if (type instanceof VariantType) {
-            // DDL states what DESC leaves out: the serialize type, so the column replays with its layout.
-            sb.append(((VariantType) type).toDdlSql());
-        } else if (isCompatible) {
-            // show change datetimeV2/dateV2 to datetime/date
+        String typeStr = type.toSql();
+
+        // show change datetimeV2/dateV2 to datetime/date
+        if (isCompatible) {
             sb.append(type.hideVersionForVersionColumn(true, true));
         } else {
-            sb.append(type.toSql());
+            sb.append(typeStr);
         }
         if (aggregationType != null && aggregationType != AggregateType.NONE && !isUniqueTable
                 && !isAggregationTypeImplicit) {

@@ -221,7 +221,7 @@ public class TypeTest {
     }
 
     @Test
-    public void testVariantDdlSqlStatesSerializeType() {
+    public void testVariantToSqlStatesSerializeType() {
         VariantType v1Zero = new VariantType(new ArrayList<>(), 0, false, 10000, 1, false, 0L, 64, false,
                 TVariantSerializeType.V1);
         VariantType v2Zero = new VariantType(new ArrayList<>(), 0, false, 10000, 1, false, 0L, 64, false,
@@ -230,12 +230,15 @@ public class TypeTest {
                 TVariantSerializeType.V1);
         VariantType v2Counted = new VariantType(new ArrayList<>(), 2048, false, 10000, 1, false, 0L, 64, false,
                 TVariantSerializeType.V2);
-        // SHOW CREATE TABLE states the serialize type so the column replays with its layout; DESC never shows it
-        Assertions.assertTrue(v1Zero.toDdlSql().endsWith(",\"variant_serialize_type\" = \"v1\")>"), v1Zero.toDdlSql());
-        Assertions.assertTrue(v2Zero.toDdlSql().endsWith(",\"variant_serialize_type\" = \"v2\")>"), v2Zero.toDdlSql());
-        Assertions.assertTrue(v1Counted.toDdlSql().endsWith(",\"variant_serialize_type\" = \"v1\")>"),
-                v1Counted.toDdlSql());
-        Assertions.assertFalse(v1Zero.toSql().contains("variant_serialize_type"), v1Zero.toSql());
+        // every column states its serialize type, so DDL printed from it (SHOW CREATE TABLE, CREATE TABLE LIKE)
+        // replays with the layout it is stored with
+        Assertions.assertTrue(v1Zero.toSql().endsWith(",\"variant_serialize_type\" = \"v1\")>"), v1Zero.toSql());
+        Assertions.assertTrue(v2Zero.toSql().endsWith(",\"variant_serialize_type\" = \"v2\")>"), v2Zero.toSql());
+        Assertions.assertTrue(v1Counted.toSql().endsWith(",\"variant_serialize_type\" = \"v1\")>"),
+                v1Counted.toSql());
+        // the nereids type prints it the same way
+        Assertions.assertEquals(v2Zero.toSql(), new org.apache.doris.nereids.types.VariantType(new ArrayList<>(), 0,
+                false, 10000, 1, false, 0L, 64, false, TVariantSerializeType.V2).toSql());
         // the serialize type is compared only when the count is 0
         Assertions.assertNotEquals(v1Zero, v2Zero);
         Assertions.assertEquals(v1Counted, v2Counted);

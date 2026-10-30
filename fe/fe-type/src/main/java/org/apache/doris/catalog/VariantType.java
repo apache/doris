@@ -174,28 +174,23 @@ public class VariantType extends ScalarType {
     public VariantType forChangelog() {
         Preconditions.checkState(getClass() == VariantType.class,
                 "forChangelog copies a plain VariantType, not %s", getClass().getName());
-        // doc mode and nested group clear the sparse statistics size
+        // doc mode and nested group clear the sparse statistics size, so use its default
         int sparseColumnStatisticsSize = variantMaxSparseColumnStatisticsSize > 0
-                ? variantMaxSparseColumnStatisticsSize : new VariantType().variantMaxSparseColumnStatisticsSize;
-        return new VariantType(predefinedFields, 0, true, sparseColumnStatisticsSize,
-                variantSparseHashShardCount, false, 0L, 0, false, TVariantSerializeType.V2);
+                ? variantMaxSparseColumnStatisticsSize : 10000;
+        return new VariantType(predefinedFields,
+                /*variantMaxSubcolumnsCount*/ 0,
+                /*enableTypedPathsToSparse*/ true,
+                /*variantMaxSparseColumnStatisticsSize*/ sparseColumnStatisticsSize,
+                /*variantSparseHashShardCount*/ variantSparseHashShardCount,
+                /*variantEnableDocMode*/ false,
+                /*variantDocMaterializationMinRows*/ 0L,
+                /*variantDocShardCount*/ 0,
+                /*enableNestedGroup*/ false,
+                /*variantSerializeType*/ TVariantSerializeType.V2);
     }
 
     @Override
     public String toSql(int depth) {
-        return toSql(depth, false);
-    }
-
-    /**
-     * The type as CREATE TABLE states it. Unlike {@link #toSql(int)}, which DESC shows, it also states the
-     * serialize type, so the column replays with the layout it is stored with whatever the default for new
-     * columns is.
-     */
-    public String toDdlSql() {
-        return toSql(0, true);
-    }
-
-    private String toSql(int depth, boolean stateSerializeType) {
         StringBuilder sb = new StringBuilder();
         sb.append("variant");
         sb.append("<");
@@ -234,11 +229,11 @@ public class VariantType extends ScalarType {
             sb.append("\"variant_enable_nested_group\" = \"")
                     .append(String.valueOf(enableNestedGroup)).append("\"");
         }
-        if (stateSerializeType) {
-            sb.append(",");
-            sb.append("\"variant_serialize_type\" = \"")
-                    .append(variantSerializeType == TVariantSerializeType.V1 ? "v1" : "v2").append("\"");
-        }
+        // Stated for every column, so DDL printed from it replays with the layout the column is stored with
+        // whatever the default for new columns is.
+        sb.append(",");
+        sb.append("\"variant_serialize_type\" = \"")
+                .append(variantSerializeType == TVariantSerializeType.V1 ? "v1" : "v2").append("\"");
         sb.append(")>");
         return sb.toString();
     }

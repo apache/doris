@@ -49,7 +49,6 @@ public class ColumnToThrift {
         tColumnType.setPrecision(column.getPrecision());
         tColumnType.setScale(column.getScale());
         tColumnType.setVariantMaxSubcolumnsCount(column.getVariantMaxSubcolumnsCount());
-        tColumnType.setVariantSerializeType(column.getVariantSerializeType());
         tColumnType.setVariantEnableDocMode(column.getVariantEnableDocMode());
         tColumnType.setIndexLen(column.getOlapColumnIndexSize());
         tColumn.setColumnType(tColumnType);
@@ -88,6 +87,7 @@ public class ColumnToThrift {
         }
         tColumn.setClusterKeyId(column.getClusterKeyId());
         tColumn.setVariantEnableTypedPathsToSparse(column.getVariantEnableTypedPathsToSparse());
+        tColumn.setVariantSerializeType(column.getVariantSerializeType());
         tColumn.setVariantMaxSparseColumnStatisticsSize(column.getVariantMaxSparseColumnStatisticsSize());
         tColumn.setVariantSparseHashShardCount(column.getVariantSparseHashShardCount());
         tColumn.setVariantEnableDocMode(column.getVariantEnableDocMode());

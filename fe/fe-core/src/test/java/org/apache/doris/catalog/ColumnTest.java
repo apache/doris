@@ -225,7 +225,7 @@ public class ColumnTest {
         v1Counted.checkSchemaChangeAllowed(v2Counted);
 
         Assertions.assertEquals(TVariantSerializeType.V2,
-                ColumnToThrift.toThrift(v2Zero).getColumnType().getVariantSerializeType());
+                ColumnToThrift.toThrift(v2Zero).getVariantSerializeType());
         Assertions.assertEquals(OlapFile.VariantSerializeTypePB.VARIANT_SERIALIZE_V2,
                 ColumnToProtobuf.toPb(v2Zero, null, null).getVariantSerializeType());
         Assertions.assertEquals(OlapFile.VariantSerializeTypePB.VARIANT_SERIALIZE_V1,

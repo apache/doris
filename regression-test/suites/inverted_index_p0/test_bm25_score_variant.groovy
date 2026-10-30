@@ -74,7 +74,7 @@ suite("test_bm25_score_variant", "p0") {
         sql """
             CREATE TABLE test_bm25_score_variant_c (
                 id INT,
-                v VARIANT,
+                v VARIANT<PROPERTIES("variant_serialize_type" = "v1")>,
                 INDEX idx_v_plain (v) USING INVERTED PROPERTIES(
                     "parser"="english",
                     "support_phrase"="true"

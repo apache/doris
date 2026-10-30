@@ -206,6 +206,9 @@ public class VariantType extends PrimitiveType {
             sb.append("\"variant_enable_nested_group\" = \"")
                     .append(String.valueOf(enableNestedGroup)).append("\"");
         }
+        sb.append(",");
+        sb.append("\"variant_serialize_type\" = \"")
+                .append(variantSerializeType == TVariantSerializeType.V1 ? "v1" : "v2").append("\"");
         sb.append(")>");
         return sb.toString();
     }

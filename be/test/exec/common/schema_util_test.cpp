@@ -381,7 +381,9 @@ TEST_F(SchemaUtilTest, get_subpaths) {
 
     // get subpaths
     VariantCompactionPathsMap uid_to_paths_set_info;
-    variant_util::VariantCompactionUtil::get_subpaths(3, path_stats[1], uid_to_paths_set_info[1]);
+    variant_util::VariantCompactionUtil::get_subpaths(3,
+                                                      VariantSerializeTypePB::VARIANT_SERIALIZE_V1,
+                                                      path_stats[1], uid_to_paths_set_info[1]);
 
     EXPECT_EQ(uid_to_paths_set_info[1].sub_path_set.size(), 3);
     EXPECT_EQ(uid_to_paths_set_info[1].sparse_path_set.size(), 2);
@@ -410,7 +412,9 @@ TEST_F(SchemaUtilTest, get_subpaths_equal_to_max) {
     path_stats[1] = {{"path1", 1000}, {"path2", 800}, {"path3", 500}};
 
     VariantCompactionPathsMap uid_to_paths_set_info;
-    variant_util::VariantCompactionUtil::get_subpaths(3, path_stats[1], uid_to_paths_set_info[1]);
+    variant_util::VariantCompactionUtil::get_subpaths(3,
+                                                      VariantSerializeTypePB::VARIANT_SERIALIZE_V1,
+                                                      path_stats[1], uid_to_paths_set_info[1]);
 
     EXPECT_EQ(uid_to_paths_set_info[1].sub_path_set.size(), 3);
     EXPECT_EQ(uid_to_paths_set_info[1].sparse_path_set.size(), 0);
@@ -428,7 +432,8 @@ TEST_F(SchemaUtilTest, get_subpaths_selects_empty_key_as_subpath) {
             {"", 1000}, {"path1", 900}, {"path2", 800}, {"path3", 700}};
 
     VariantCompactionPaths limited_paths;
-    variant_util::VariantCompactionUtil::get_subpaths(2, path_stats, limited_paths);
+    variant_util::VariantCompactionUtil::get_subpaths(
+            2, VariantSerializeTypePB::VARIANT_SERIALIZE_V1, path_stats, limited_paths);
     EXPECT_TRUE(limited_paths.sub_path_set.contains(""));
     EXPECT_FALSE(limited_paths.sparse_path_set.contains(""));
     EXPECT_TRUE(limited_paths.sub_path_set.contains("path1"));
@@ -436,7 +441,8 @@ TEST_F(SchemaUtilTest, get_subpaths_selects_empty_key_as_subpath) {
     EXPECT_TRUE(limited_paths.sparse_path_set.contains("path3"));
 
     VariantCompactionPaths exact_limit_paths;
-    variant_util::VariantCompactionUtil::get_subpaths(4, path_stats, exact_limit_paths);
+    variant_util::VariantCompactionUtil::get_subpaths(
+            4, VariantSerializeTypePB::VARIANT_SERIALIZE_V1, path_stats, exact_limit_paths);
     EXPECT_TRUE(exact_limit_paths.sub_path_set.contains(""));
     EXPECT_FALSE(exact_limit_paths.sparse_path_set.contains(""));
     EXPECT_TRUE(exact_limit_paths.sub_path_set.contains("path1"));
@@ -444,7 +450,8 @@ TEST_F(SchemaUtilTest, get_subpaths_selects_empty_key_as_subpath) {
     EXPECT_TRUE(exact_limit_paths.sub_path_set.contains("path3"));
 
     VariantCompactionPaths unlimited_paths;
-    variant_util::VariantCompactionUtil::get_subpaths(0, path_stats, unlimited_paths);
+    variant_util::VariantCompactionUtil::get_subpaths(
+            0, VariantSerializeTypePB::VARIANT_SERIALIZE_V1, path_stats, unlimited_paths);
     EXPECT_TRUE(unlimited_paths.sub_path_set.contains(""));
     EXPECT_TRUE(unlimited_paths.sparse_path_set.empty());
     EXPECT_FALSE(unlimited_paths.sparse_path_set.contains(""));
@@ -455,8 +462,9 @@ TEST_F(SchemaUtilTest, get_subpaths_selects_empty_key_as_subpath) {
     variant_util::PathToNoneNullValues low_rank_empty_key_stats = {
             {"path1", 1000}, {"path2", 900}, {"", 100}};
     VariantCompactionPaths low_rank_empty_key_paths;
-    variant_util::VariantCompactionUtil::get_subpaths(2, low_rank_empty_key_stats,
-                                                      low_rank_empty_key_paths);
+    variant_util::VariantCompactionUtil::get_subpaths(
+            2, VariantSerializeTypePB::VARIANT_SERIALIZE_V1, low_rank_empty_key_stats,
+            low_rank_empty_key_paths);
     EXPECT_FALSE(low_rank_empty_key_paths.sub_path_set.contains(""));
     EXPECT_TRUE(low_rank_empty_key_paths.sparse_path_set.contains(""));
     EXPECT_TRUE(low_rank_empty_key_paths.sub_path_set.contains("path1"));
@@ -490,9 +498,15 @@ TEST_F(SchemaUtilTest, get_subpaths_multiple_variants) {
             {"path1", 1000}, {"path2", 800}, {"path3", 500}, {"path4", 300}, {"path5", 200}};
 
     VariantCompactionPathsMap uid_to_paths_set_info;
-    variant_util::VariantCompactionUtil::get_subpaths(3, path_stats[1], uid_to_paths_set_info[1]);
-    variant_util::VariantCompactionUtil::get_subpaths(2, path_stats[2], uid_to_paths_set_info[2]);
-    variant_util::VariantCompactionUtil::get_subpaths(4, path_stats[3], uid_to_paths_set_info[3]);
+    variant_util::VariantCompactionUtil::get_subpaths(3,
+                                                      VariantSerializeTypePB::VARIANT_SERIALIZE_V1,
+                                                      path_stats[1], uid_to_paths_set_info[1]);
+    variant_util::VariantCompactionUtil::get_subpaths(2,
+                                                      VariantSerializeTypePB::VARIANT_SERIALIZE_V1,
+                                                      path_stats[2], uid_to_paths_set_info[2]);
+    variant_util::VariantCompactionUtil::get_subpaths(4,
+                                                      VariantSerializeTypePB::VARIANT_SERIALIZE_V1,
+                                                      path_stats[3], uid_to_paths_set_info[3]);
 
     EXPECT_EQ(uid_to_paths_set_info[1].sub_path_set.size(), 3);
     EXPECT_EQ(uid_to_paths_set_info[1].sparse_path_set.size(), 2);
@@ -541,7 +555,9 @@ TEST_F(SchemaUtilTest, get_subpaths_no_path_stats) {
     path_stats[2] = {{"path1", 1000}, {"path2", 800}};
 
     VariantCompactionPathsMap uid_to_paths_set_info;
-    variant_util::VariantCompactionUtil::get_subpaths(3, path_stats[2], uid_to_paths_set_info[2]);
+    variant_util::VariantCompactionUtil::get_subpaths(3,
+                                                      VariantSerializeTypePB::VARIANT_SERIALIZE_V1,
+                                                      path_stats[2], uid_to_paths_set_info[2]);
 
     EXPECT_EQ(uid_to_paths_set_info[1].sub_path_set.size(), 0);
     EXPECT_EQ(uid_to_paths_set_info[1].sparse_path_set.size(), 0);
