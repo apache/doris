@@ -1,0 +1,2718 @@
+{
+  "repository": "https://github.com/delta-io/delta",
+  "commit": "9cb15d26156ac42e646e69d26652976fdb72f8df",
+  "archive_sha256": "ba2d327ef6f095903ac614b20e599b4d4785dccf5a0dd81b8b083e9855d2f022",
+  "cases": [
+    {
+      "name": "124-decimal-decode-bug",
+      "tag": "124_decimal_decode_bug",
+      "columns": [
+        {
+          "name": "large_decimal",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "125-iterator-bug",
+      "tag": "125_iterator_bug",
+      "columns": [
+        {
+          "name": "col1",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0
+        },
+        {
+          "version": 1
+        },
+        {
+          "version": 2
+        },
+        {
+          "version": 3
+        },
+        {
+          "version": 4
+        },
+        {
+          "version": 5
+        },
+        {
+          "version": 6
+        },
+        {
+          "version": 7
+        },
+        {
+          "version": 8
+        },
+        {
+          "version": 9
+        },
+        {
+          "version": 10
+        }
+      ]
+    },
+    {
+      "name": "basic-decimal-table",
+      "tag": "basic_decimal_table",
+      "columns": [
+        {
+          "name": "part",
+          "binary": false
+        },
+        {
+          "name": "col1",
+          "binary": false
+        },
+        {
+          "name": "col2",
+          "binary": false
+        },
+        {
+          "name": "col3",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "basic-decimal-table-legacy",
+      "tag": "basic_decimal_table_legacy",
+      "columns": [
+        {
+          "name": "part",
+          "binary": false
+        },
+        {
+          "name": "col1",
+          "binary": false
+        },
+        {
+          "name": "col2",
+          "binary": false
+        },
+        {
+          "name": "col3",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "basic-with-inserts-deletes-checkpoint",
+      "tag": "basic_with_inserts_deletes_checkpoint",
+      "columns": [
+        {
+          "name": "id",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0
+        },
+        {
+          "version": 1
+        },
+        {
+          "version": 2
+        },
+        {
+          "version": 3
+        },
+        {
+          "version": 4
+        },
+        {
+          "version": 5
+        },
+        {
+          "version": 6
+        },
+        {
+          "version": 7
+        },
+        {
+          "version": 8
+        },
+        {
+          "version": 9
+        },
+        {
+          "version": 10
+        },
+        {
+          "version": 11
+        },
+        {
+          "version": 12
+        }
+      ]
+    },
+    {
+      "name": "basic-with-inserts-merge",
+      "tag": "basic_with_inserts_merge",
+      "columns": [
+        {
+          "name": "id",
+          "binary": false
+        },
+        {
+          "name": "str",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0
+        }
+      ]
+    },
+    {
+      "name": "basic-with-inserts-overwrite-restore",
+      "tag": "basic_with_inserts_overwrite_restore",
+      "columns": [
+        {
+          "name": "id",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0
+        },
+        {
+          "version": 1
+        },
+        {
+          "version": 2
+        }
+      ]
+    },
+    {
+      "name": "basic-with-inserts-updates",
+      "tag": "basic_with_inserts_updates",
+      "columns": [
+        {
+          "name": "id",
+          "binary": false
+        },
+        {
+          "name": "str",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0
+        }
+      ]
+    },
+    {
+      "name": "basic-with-vacuum-protocol-check-feature",
+      "tag": "basic_with_vacuum_protocol_check_feature",
+      "columns": [
+        {
+          "name": "id",
+          "binary": false
+        },
+        {
+          "name": "str",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0
+        }
+      ]
+    },
+    {
+      "name": "canonicalized-paths-normal-a",
+      "tag": "canonicalized_paths_normal_a",
+      "error": "Table [golden] does not exist in database [default]",
+      "reason": "upstream metadata-only, malformed or non-Delta fixture"
+    },
+    {
+      "name": "canonicalized-paths-normal-b",
+      "tag": "canonicalized_paths_normal_b",
+      "error": "Table [golden] does not exist in database [default]",
+      "reason": "upstream metadata-only, malformed or non-Delta fixture"
+    },
+    {
+      "name": "canonicalized-paths-special-a",
+      "tag": "canonicalized_paths_special_a",
+      "error": "Table [golden] does not exist in database [default]",
+      "reason": "upstream metadata-only, malformed or non-Delta fixture"
+    },
+    {
+      "name": "canonicalized-paths-special-b",
+      "tag": "canonicalized_paths_special_b",
+      "error": "Table [golden] does not exist in database [default]",
+      "reason": "upstream metadata-only, malformed or non-Delta fixture"
+    },
+    {
+      "name": "checkpoint",
+      "tag": "checkpoint",
+      "error": "[NOT_FOUND]",
+      "reason": "missing committed data file"
+    },
+    {
+      "name": "collations-preview-table",
+      "tag": "collations_preview_table",
+      "error": "non-binary string collation",
+      "reason": "unsupported reader feature or collation"
+    },
+    {
+      "name": "collations-table",
+      "tag": "collations_table",
+      "error": "non-binary string collation",
+      "reason": "unsupported reader feature or collation"
+    },
+    {
+      "name": "commit-info-containing-arbitrary-operationParams-types",
+      "tag": "commit_info_containing_arbitrary_operationparams_types",
+      "columns": [
+        {
+          "name": "id",
+          "binary": false
+        },
+        {
+          "name": "month",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0
+        },
+        {
+          "version": 1
+        }
+      ]
+    },
+    {
+      "name": "corrupted-last-checkpoint",
+      "tag": "corrupted_last_checkpoint",
+      "error": "Table [golden] does not exist in database [default]",
+      "reason": "upstream metadata-only, malformed or non-Delta fixture"
+    },
+    {
+      "name": "corrupted-last-checkpoint-kernel",
+      "tag": "corrupted_last_checkpoint_kernel",
+      "columns": [
+        {
+          "name": "id",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0
+        },
+        {
+          "version": 1
+        },
+        {
+          "version": 2
+        },
+        {
+          "version": 3
+        },
+        {
+          "version": 4
+        },
+        {
+          "version": 5
+        },
+        {
+          "version": 6
+        },
+        {
+          "version": 7
+        },
+        {
+          "version": 8
+        },
+        {
+          "version": 9
+        },
+        {
+          "version": 10
+        }
+      ]
+    },
+    {
+      "name": "data-reader-absolute-paths-escaped-chars",
+      "tag": "data_reader_absolute_paths_escaped_chars",
+      "error": "Table [golden] does not exist in database [default]",
+      "reason": "upstream metadata-only, malformed or non-Delta fixture"
+    },
+    {
+      "name": "data-reader-array-complex-objects",
+      "tag": "data_reader_array_complex_objects",
+      "columns": [
+        {
+          "name": "i",
+          "binary": false
+        },
+        {
+          "name": "3d_int_list",
+          "binary": false
+        },
+        {
+          "name": "4d_int_list",
+          "binary": false
+        },
+        {
+          "name": "list_of_maps",
+          "binary": false
+        },
+        {
+          "name": "list_of_records",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "data-reader-array-primitives",
+      "tag": "data_reader_array_primitives",
+      "columns": [
+        {
+          "name": "as_array_int",
+          "binary": false
+        },
+        {
+          "name": "as_array_long",
+          "binary": false
+        },
+        {
+          "name": "as_array_byte",
+          "binary": false
+        },
+        {
+          "name": "as_array_short",
+          "binary": false
+        },
+        {
+          "name": "as_array_boolean",
+          "binary": false
+        },
+        {
+          "name": "as_array_float",
+          "binary": false
+        },
+        {
+          "name": "as_array_double",
+          "binary": false
+        },
+        {
+          "name": "as_array_string",
+          "binary": false
+        },
+        {
+          "name": "as_array_binary",
+          "binary": false
+        },
+        {
+          "name": "as_array_big_decimal",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "data-reader-date-types-America/Los_Angeles",
+      "tag": "data_reader_date_types_america_los_angeles",
+      "columns": [
+        {
+          "name": "timestamp",
+          "binary": false
+        },
+        {
+          "name": "date",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "data-reader-date-types-Asia/Beirut",
+      "tag": "data_reader_date_types_asia_beirut",
+      "columns": [
+        {
+          "name": "timestamp",
+          "binary": false
+        },
+        {
+          "name": "date",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "data-reader-date-types-Etc/GMT+9",
+      "tag": "data_reader_date_types_etc_gmt_9",
+      "columns": [
+        {
+          "name": "timestamp",
+          "binary": false
+        },
+        {
+          "name": "date",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "data-reader-date-types-Iceland",
+      "tag": "data_reader_date_types_iceland",
+      "columns": [
+        {
+          "name": "timestamp",
+          "binary": false
+        },
+        {
+          "name": "date",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "data-reader-date-types-JST",
+      "tag": "data_reader_date_types_jst",
+      "columns": [
+        {
+          "name": "timestamp",
+          "binary": false
+        },
+        {
+          "name": "date",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "data-reader-date-types-PST",
+      "tag": "data_reader_date_types_pst",
+      "columns": [
+        {
+          "name": "timestamp",
+          "binary": false
+        },
+        {
+          "name": "date",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "data-reader-date-types-UTC",
+      "tag": "data_reader_date_types_utc",
+      "columns": [
+        {
+          "name": "timestamp",
+          "binary": false
+        },
+        {
+          "name": "date",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "data-reader-escaped-chars",
+      "tag": "data_reader_escaped_chars",
+      "columns": [
+        {
+          "name": "_1",
+          "binary": false
+        },
+        {
+          "name": "_2",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0
+        },
+        {
+          "version": 1
+        }
+      ]
+    },
+    {
+      "name": "data-reader-map",
+      "tag": "data_reader_map",
+      "columns": [
+        {
+          "name": "i",
+          "binary": false
+        },
+        {
+          "name": "a",
+          "binary": false
+        },
+        {
+          "name": "b",
+          "binary": false
+        },
+        {
+          "name": "c",
+          "binary": false
+        },
+        {
+          "name": "d",
+          "binary": false
+        },
+        {
+          "name": "e",
+          "binary": false
+        },
+        {
+          "name": "f",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "data-reader-nested-struct",
+      "tag": "data_reader_nested_struct",
+      "columns": [
+        {
+          "name": "a",
+          "binary": false
+        },
+        {
+          "name": "b",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "data-reader-nullable-field-invalid-schema-key",
+      "tag": "data_reader_nullable_field_invalid_schema_key",
+      "columns": [
+        {
+          "name": "array_can_contain_null",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "data-reader-partition-values",
+      "tag": "data_reader_partition_values",
+      "columns": [
+        {
+          "name": "as_int",
+          "binary": false
+        },
+        {
+          "name": "as_long",
+          "binary": false
+        },
+        {
+          "name": "as_byte",
+          "binary": false
+        },
+        {
+          "name": "as_short",
+          "binary": false
+        },
+        {
+          "name": "as_boolean",
+          "binary": false
+        },
+        {
+          "name": "as_float",
+          "binary": false
+        },
+        {
+          "name": "as_double",
+          "binary": false
+        },
+        {
+          "name": "as_string",
+          "binary": false
+        },
+        {
+          "name": "as_string_lit_null",
+          "binary": false
+        },
+        {
+          "name": "as_date",
+          "binary": false
+        },
+        {
+          "name": "as_timestamp",
+          "binary": false
+        },
+        {
+          "name": "as_big_decimal",
+          "binary": false
+        },
+        {
+          "name": "as_list_of_records",
+          "binary": false
+        },
+        {
+          "name": "as_nested_struct",
+          "binary": false
+        },
+        {
+          "name": "value",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "data-reader-primitives",
+      "tag": "data_reader_primitives",
+      "columns": [
+        {
+          "name": "as_int",
+          "binary": false
+        },
+        {
+          "name": "as_long",
+          "binary": false
+        },
+        {
+          "name": "as_byte",
+          "binary": false
+        },
+        {
+          "name": "as_short",
+          "binary": false
+        },
+        {
+          "name": "as_boolean",
+          "binary": false
+        },
+        {
+          "name": "as_float",
+          "binary": false
+        },
+        {
+          "name": "as_double",
+          "binary": false
+        },
+        {
+          "name": "as_string",
+          "binary": false
+        },
+        {
+          "name": "as_binary",
+          "binary": true
+        },
+        {
+          "name": "as_big_decimal",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "data-reader-timestamp_ntz",
+      "tag": "data_reader_timestamp_ntz",
+      "columns": [
+        {
+          "name": "id",
+          "binary": false
+        },
+        {
+          "name": "tsNtz",
+          "binary": false
+        },
+        {
+          "name": "tsNtzPartition",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0
+        }
+      ]
+    },
+    {
+      "name": "data-reader-timestamp_ntz-id-mode",
+      "tag": "data_reader_timestamp_ntz_id_mode",
+      "columns": [
+        {
+          "name": "id",
+          "binary": false
+        },
+        {
+          "name": "tsNtz",
+          "binary": false
+        },
+        {
+          "name": "tsNtzPartition",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0
+        }
+      ]
+    },
+    {
+      "name": "data-reader-timestamp_ntz-name-mode",
+      "tag": "data_reader_timestamp_ntz_name_mode",
+      "columns": [
+        {
+          "name": "id",
+          "binary": false
+        },
+        {
+          "name": "tsNtz",
+          "binary": false
+        },
+        {
+          "name": "tsNtzPartition",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0
+        }
+      ]
+    },
+    {
+      "name": "data-skipping-basic-stats-all-types",
+      "tag": "data_skipping_basic_stats_all_types",
+      "columns": [
+        {
+          "name": "as_int",
+          "binary": false
+        },
+        {
+          "name": "as_long",
+          "binary": false
+        },
+        {
+          "name": "as_byte",
+          "binary": false
+        },
+        {
+          "name": "as_short",
+          "binary": false
+        },
+        {
+          "name": "as_float",
+          "binary": false
+        },
+        {
+          "name": "as_double",
+          "binary": false
+        },
+        {
+          "name": "as_string",
+          "binary": false
+        },
+        {
+          "name": "as_date",
+          "binary": false
+        },
+        {
+          "name": "as_timestamp",
+          "binary": false
+        },
+        {
+          "name": "as_big_decimal",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "data-skipping-basic-stats-all-types-checkpoint",
+      "tag": "data_skipping_basic_stats_all_types_checkpoint",
+      "columns": [
+        {
+          "name": "as_int",
+          "binary": false
+        },
+        {
+          "name": "as_long",
+          "binary": false
+        },
+        {
+          "name": "as_byte",
+          "binary": false
+        },
+        {
+          "name": "as_short",
+          "binary": false
+        },
+        {
+          "name": "as_float",
+          "binary": false
+        },
+        {
+          "name": "as_double",
+          "binary": false
+        },
+        {
+          "name": "as_string",
+          "binary": false
+        },
+        {
+          "name": "as_date",
+          "binary": false
+        },
+        {
+          "name": "as_timestamp",
+          "binary": false
+        },
+        {
+          "name": "as_big_decimal",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "data-skipping-basic-stats-all-types-columnmapping-id",
+      "tag": "data_skipping_basic_stats_all_types_columnmapping_id",
+      "columns": [
+        {
+          "name": "as_int",
+          "binary": false
+        },
+        {
+          "name": "as_long",
+          "binary": false
+        },
+        {
+          "name": "as_byte",
+          "binary": false
+        },
+        {
+          "name": "as_short",
+          "binary": false
+        },
+        {
+          "name": "as_float",
+          "binary": false
+        },
+        {
+          "name": "as_double",
+          "binary": false
+        },
+        {
+          "name": "as_string",
+          "binary": false
+        },
+        {
+          "name": "as_date",
+          "binary": false
+        },
+        {
+          "name": "as_timestamp",
+          "binary": false
+        },
+        {
+          "name": "as_big_decimal",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "data-skipping-basic-stats-all-types-columnmapping-name",
+      "tag": "data_skipping_basic_stats_all_types_columnmapping_name",
+      "columns": [
+        {
+          "name": "as_int",
+          "binary": false
+        },
+        {
+          "name": "as_long",
+          "binary": false
+        },
+        {
+          "name": "as_byte",
+          "binary": false
+        },
+        {
+          "name": "as_short",
+          "binary": false
+        },
+        {
+          "name": "as_float",
+          "binary": false
+        },
+        {
+          "name": "as_double",
+          "binary": false
+        },
+        {
+          "name": "as_string",
+          "binary": false
+        },
+        {
+          "name": "as_date",
+          "binary": false
+        },
+        {
+          "name": "as_timestamp",
+          "binary": false
+        },
+        {
+          "name": "as_big_decimal",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "data-skipping-change-stats-collected-across-versions",
+      "tag": "data_skipping_change_stats_collected_across_versions",
+      "columns": [
+        {
+          "name": "col1",
+          "binary": false
+        },
+        {
+          "name": "col2",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0
+        },
+        {
+          "version": 1
+        },
+        {
+          "version": 2
+        },
+        {
+          "version": 3
+        }
+      ]
+    },
+    {
+      "name": "data-skipping-partition-and-data-column",
+      "tag": "data_skipping_partition_and_data_column",
+      "columns": [
+        {
+          "name": "part",
+          "binary": false
+        },
+        {
+          "name": "id",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0
+        },
+        {
+          "version": 1
+        },
+        {
+          "version": 2
+        }
+      ]
+    },
+    {
+      "name": "decimal-various-scale-precision",
+      "tag": "decimal_various_scale_precision",
+      "columns": [
+        {
+          "name": "decimal_4_0",
+          "binary": false
+        },
+        {
+          "name": "decimal_7_0",
+          "binary": false
+        },
+        {
+          "name": "decimal_7_6",
+          "binary": false
+        },
+        {
+          "name": "decimal_12_0",
+          "binary": false
+        },
+        {
+          "name": "decimal_12_6",
+          "binary": false
+        },
+        {
+          "name": "decimal_15_0",
+          "binary": false
+        },
+        {
+          "name": "decimal_15_6",
+          "binary": false
+        },
+        {
+          "name": "decimal_15_12",
+          "binary": false
+        },
+        {
+          "name": "decimal_18_0",
+          "binary": false
+        },
+        {
+          "name": "decimal_18_6",
+          "binary": false
+        },
+        {
+          "name": "decimal_18_12",
+          "binary": false
+        },
+        {
+          "name": "decimal_25_0",
+          "binary": false
+        },
+        {
+          "name": "decimal_25_6",
+          "binary": false
+        },
+        {
+          "name": "decimal_25_12",
+          "binary": false
+        },
+        {
+          "name": "decimal_25_18",
+          "binary": false
+        },
+        {
+          "name": "decimal_25_24",
+          "binary": false
+        },
+        {
+          "name": "decimal_35_0",
+          "binary": false
+        },
+        {
+          "name": "decimal_35_6",
+          "binary": false
+        },
+        {
+          "name": "decimal_35_12",
+          "binary": false
+        },
+        {
+          "name": "decimal_35_18",
+          "binary": false
+        },
+        {
+          "name": "decimal_35_24",
+          "binary": false
+        },
+        {
+          "name": "decimal_35_30",
+          "binary": false
+        },
+        {
+          "name": "decimal_38_0",
+          "binary": false
+        },
+        {
+          "name": "decimal_38_6",
+          "binary": false
+        },
+        {
+          "name": "decimal_38_12",
+          "binary": false
+        },
+        {
+          "name": "decimal_38_18",
+          "binary": false
+        },
+        {
+          "name": "decimal_38_24",
+          "binary": false
+        },
+        {
+          "name": "decimal_38_30",
+          "binary": false
+        },
+        {
+          "name": "decimal_38_36",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "delete-re-add-same-file-different-transactions",
+      "tag": "delete_re_add_same_file_different_transactions",
+      "error": "[NOT_FOUND]",
+      "reason": "missing committed data file"
+    },
+    {
+      "name": "deltalog-commit-info",
+      "tag": "deltalog_commit_info",
+      "error": "Table [golden] does not exist in database [default]",
+      "reason": "upstream metadata-only, malformed or non-Delta fixture"
+    },
+    {
+      "name": "deltalog-getChanges",
+      "tag": "deltalog_getchanges",
+      "columns": [
+        {
+          "name": "part",
+          "binary": false
+        },
+        {
+          "name": "id",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0,
+          "error": "[NOT_FOUND]",
+          "reason": "historical data file is absent or vacuumed"
+        },
+        {
+          "version": 1
+        }
+      ]
+    },
+    {
+      "name": "deltalog-invalid-protocol-version",
+      "tag": "deltalog_invalid_protocol_version",
+      "error": "Table [golden] does not exist in database [default]",
+      "reason": "upstream metadata-only, malformed or non-Delta fixture"
+    },
+    {
+      "name": "deltalog-state-reconstruction-from-checkpoint-missing-metadata",
+      "tag": "deltalog_state_reconstruction_from_checkpoint_missing_metadata",
+      "error": "Table [golden] does not exist in database [default]",
+      "reason": "upstream metadata-only, malformed or non-Delta fixture"
+    },
+    {
+      "name": "deltalog-state-reconstruction-from-checkpoint-missing-protocol",
+      "tag": "deltalog_state_reconstruction_from_checkpoint_missing_protocol",
+      "error": "Table [golden] does not exist in database [default]",
+      "reason": "upstream metadata-only, malformed or non-Delta fixture"
+    },
+    {
+      "name": "deltalog-state-reconstruction-without-metadata",
+      "tag": "deltalog_state_reconstruction_without_metadata",
+      "error": "Table [golden] does not exist in database [default]",
+      "reason": "upstream metadata-only, malformed or non-Delta fixture"
+    },
+    {
+      "name": "deltalog-state-reconstruction-without-protocol",
+      "tag": "deltalog_state_reconstruction_without_protocol",
+      "error": "Table [golden] does not exist in database [default]",
+      "reason": "upstream metadata-only, malformed or non-Delta fixture"
+    },
+    {
+      "name": "dv-partitioned-with-checkpoint",
+      "tag": "dv_partitioned_with_checkpoint",
+      "columns": [
+        {
+          "name": "part",
+          "binary": false
+        },
+        {
+          "name": "col1",
+          "binary": false
+        },
+        {
+          "name": "col2",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0
+        },
+        {
+          "version": 1
+        },
+        {
+          "version": 2
+        },
+        {
+          "version": 3
+        },
+        {
+          "version": 4
+        },
+        {
+          "version": 5
+        },
+        {
+          "version": 6
+        },
+        {
+          "version": 7
+        },
+        {
+          "version": 8
+        },
+        {
+          "version": 9
+        },
+        {
+          "version": 10
+        },
+        {
+          "version": 11
+        },
+        {
+          "version": 12
+        },
+        {
+          "version": 13
+        },
+        {
+          "version": 14
+        }
+      ]
+    },
+    {
+      "name": "dv-with-columnmapping",
+      "tag": "dv_with_columnmapping",
+      "columns": [
+        {
+          "name": "part",
+          "binary": false
+        },
+        {
+          "name": "col1",
+          "binary": false
+        },
+        {
+          "name": "col2",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0
+        },
+        {
+          "version": 1
+        },
+        {
+          "version": 2
+        },
+        {
+          "version": 3
+        },
+        {
+          "version": 4
+        },
+        {
+          "version": 5
+        },
+        {
+          "version": 6
+        },
+        {
+          "version": 7
+        },
+        {
+          "version": 8
+        },
+        {
+          "version": 9
+        },
+        {
+          "version": 10
+        },
+        {
+          "version": 11
+        },
+        {
+          "version": 12
+        },
+        {
+          "version": 13
+        },
+        {
+          "version": 14
+        }
+      ]
+    },
+    {
+      "name": "hive/deltatbl-column-names-case-insensitive",
+      "tag": "hive_deltatbl_column_names_case_insensitive",
+      "columns": [
+        {
+          "name": "FooBar",
+          "binary": false
+        },
+        {
+          "name": "BarFoo",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "hive/deltatbl-deleted-path",
+      "tag": "hive_deltatbl_deleted_path",
+      "columns": [
+        {
+          "name": "c1",
+          "binary": false
+        },
+        {
+          "name": "c2",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "hive/deltatbl-incorrect-format-config",
+      "tag": "hive_deltatbl_incorrect_format_config",
+      "columns": [
+        {
+          "name": "a",
+          "binary": false
+        },
+        {
+          "name": "b",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "hive/deltatbl-map-types-correctly",
+      "tag": "hive_deltatbl_map_types_correctly",
+      "columns": [
+        {
+          "name": "c1",
+          "binary": false
+        },
+        {
+          "name": "c2",
+          "binary": true
+        },
+        {
+          "name": "c3",
+          "binary": false
+        },
+        {
+          "name": "c4",
+          "binary": false
+        },
+        {
+          "name": "c5",
+          "binary": false
+        },
+        {
+          "name": "c6",
+          "binary": false
+        },
+        {
+          "name": "c7",
+          "binary": false
+        },
+        {
+          "name": "c8",
+          "binary": false
+        },
+        {
+          "name": "c9",
+          "binary": false
+        },
+        {
+          "name": "c10",
+          "binary": false
+        },
+        {
+          "name": "c11",
+          "binary": false
+        },
+        {
+          "name": "c12",
+          "binary": false
+        },
+        {
+          "name": "c13",
+          "binary": false
+        },
+        {
+          "name": "c14",
+          "binary": false
+        },
+        {
+          "name": "c15",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "hive/deltatbl-non-partitioned",
+      "tag": "hive_deltatbl_non_partitioned",
+      "columns": [
+        {
+          "name": "c1",
+          "binary": false
+        },
+        {
+          "name": "c2",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "hive/deltatbl-not-allow-write",
+      "tag": "hive_deltatbl_not_allow_write",
+      "columns": [
+        {
+          "name": "a",
+          "binary": false
+        },
+        {
+          "name": "b",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "hive/deltatbl-partition-prune",
+      "tag": "hive_deltatbl_partition_prune",
+      "columns": [
+        {
+          "name": "city",
+          "binary": false
+        },
+        {
+          "name": "date",
+          "binary": false
+        },
+        {
+          "name": "name",
+          "binary": false
+        },
+        {
+          "name": "cnt",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "hive/deltatbl-partitioned",
+      "tag": "hive_deltatbl_partitioned",
+      "columns": [
+        {
+          "name": "c1",
+          "binary": false
+        },
+        {
+          "name": "c2",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "hive/deltatbl-schema-match",
+      "tag": "hive_deltatbl_schema_match",
+      "columns": [
+        {
+          "name": "a",
+          "binary": false
+        },
+        {
+          "name": "b",
+          "binary": false
+        },
+        {
+          "name": "c",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "hive/deltatbl-special-chars-in-partition-column",
+      "tag": "hive_deltatbl_special_chars_in_partition_column",
+      "columns": [
+        {
+          "name": "c1",
+          "binary": false
+        },
+        {
+          "name": "c2",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "hive/deltatbl-touch-files-needed-for-partitioned",
+      "tag": "hive_deltatbl_touch_files_needed_for_partitioned",
+      "columns": [
+        {
+          "name": "c1",
+          "binary": false
+        },
+        {
+          "name": "c2",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "kernel-timestamp-INT96",
+      "tag": "kernel_timestamp_int96",
+      "columns": [
+        {
+          "name": "id",
+          "binary": false
+        },
+        {
+          "name": "part",
+          "binary": false
+        },
+        {
+          "name": "time",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "kernel-timestamp-PST",
+      "tag": "kernel_timestamp_pst",
+      "columns": [
+        {
+          "name": "id",
+          "binary": false
+        },
+        {
+          "name": "part",
+          "binary": false
+        },
+        {
+          "name": "time",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "kernel-timestamp-TIMESTAMP_MICROS",
+      "tag": "kernel_timestamp_timestamp_micros",
+      "columns": [
+        {
+          "name": "id",
+          "binary": false
+        },
+        {
+          "name": "part",
+          "binary": false
+        },
+        {
+          "name": "time",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "kernel-timestamp-TIMESTAMP_MILLIS",
+      "tag": "kernel_timestamp_timestamp_millis",
+      "columns": [
+        {
+          "name": "id",
+          "binary": false
+        },
+        {
+          "name": "part",
+          "binary": false
+        },
+        {
+          "name": "time",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "kernel-timestamp-partition-col-ISO8601",
+      "tag": "kernel_timestamp_partition_col_iso8601",
+      "columns": [
+        {
+          "name": "str",
+          "binary": false
+        },
+        {
+          "name": "ts",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "log-replay-dv-key-cases",
+      "tag": "log_replay_dv_key_cases",
+      "columns": [
+        {
+          "name": "id",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0
+        },
+        {
+          "version": 1
+        },
+        {
+          "version": 2
+        }
+      ]
+    },
+    {
+      "name": "log-replay-latest-metadata-protocol",
+      "tag": "log_replay_latest_metadata_protocol",
+      "columns": [
+        {
+          "name": "col1",
+          "binary": false
+        },
+        {
+          "name": "col2",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0,
+          "error": "Delta time travel across schema or partition evolution is not supported",
+          "reason": "schema/partition evolution is explicitly unsupported"
+        },
+        {
+          "version": 1
+        }
+      ]
+    },
+    {
+      "name": "log-replay-special-characters",
+      "tag": "log_replay_special_characters",
+      "columns": [
+        {
+          "name": "intCol",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0,
+          "error": "[NOT_FOUND]",
+          "reason": "historical data file is absent or vacuumed"
+        }
+      ]
+    },
+    {
+      "name": "log-replay-special-characters-a",
+      "tag": "log_replay_special_characters_a",
+      "columns": [
+        {
+          "name": "intCol",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0,
+          "error": "[NOT_FOUND]",
+          "reason": "historical data file is absent or vacuumed"
+        }
+      ]
+    },
+    {
+      "name": "log-replay-special-characters-b",
+      "tag": "log_replay_special_characters_b",
+      "error": "[NOT_FOUND]",
+      "reason": "missing committed data file"
+    },
+    {
+      "name": "multi-part-checkpoint",
+      "tag": "multi_part_checkpoint",
+      "columns": [
+        {
+          "name": "id",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0
+        }
+      ]
+    },
+    {
+      "name": "only-checkpoint-files",
+      "tag": "only_checkpoint_files",
+      "columns": [
+        {
+          "name": "id",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0
+        },
+        {
+          "version": 1
+        }
+      ]
+    },
+    {
+      "name": "parquet-all-types",
+      "tag": "parquet_all_types",
+      "columns": [
+        {
+          "name": "ByteType",
+          "binary": false
+        },
+        {
+          "name": "ShortType",
+          "binary": false
+        },
+        {
+          "name": "IntegerType",
+          "binary": false
+        },
+        {
+          "name": "LongType",
+          "binary": false
+        },
+        {
+          "name": "FloatType",
+          "binary": false
+        },
+        {
+          "name": "DoubleType",
+          "binary": false
+        },
+        {
+          "name": "decimal",
+          "binary": false
+        },
+        {
+          "name": "BooleanType",
+          "binary": false
+        },
+        {
+          "name": "StringType",
+          "binary": false
+        },
+        {
+          "name": "BinaryType",
+          "binary": true
+        },
+        {
+          "name": "DateType",
+          "binary": false
+        },
+        {
+          "name": "TimestampType",
+          "binary": false
+        },
+        {
+          "name": "TimestampNTZType",
+          "binary": false
+        },
+        {
+          "name": "nested_struct",
+          "binary": false
+        },
+        {
+          "name": "array_of_prims",
+          "binary": false
+        },
+        {
+          "name": "array_of_arrays",
+          "binary": false
+        },
+        {
+          "name": "array_of_structs",
+          "binary": false
+        },
+        {
+          "name": "map_of_prims",
+          "binary": false
+        },
+        {
+          "name": "map_of_rows",
+          "binary": false
+        },
+        {
+          "name": "map_of_arrays",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "parquet-all-types-legacy-format",
+      "tag": "parquet_all_types_legacy_format",
+      "columns": [
+        {
+          "name": "ByteType",
+          "binary": false
+        },
+        {
+          "name": "ShortType",
+          "binary": false
+        },
+        {
+          "name": "IntegerType",
+          "binary": false
+        },
+        {
+          "name": "LongType",
+          "binary": false
+        },
+        {
+          "name": "FloatType",
+          "binary": false
+        },
+        {
+          "name": "DoubleType",
+          "binary": false
+        },
+        {
+          "name": "decimal",
+          "binary": false
+        },
+        {
+          "name": "BooleanType",
+          "binary": false
+        },
+        {
+          "name": "StringType",
+          "binary": false
+        },
+        {
+          "name": "BinaryType",
+          "binary": true
+        },
+        {
+          "name": "DateType",
+          "binary": false
+        },
+        {
+          "name": "TimestampType",
+          "binary": false
+        },
+        {
+          "name": "TimestampNTZType",
+          "binary": false
+        },
+        {
+          "name": "nested_struct",
+          "binary": false
+        },
+        {
+          "name": "array_of_prims",
+          "binary": false
+        },
+        {
+          "name": "array_of_arrays",
+          "binary": false
+        },
+        {
+          "name": "array_of_structs",
+          "binary": false
+        },
+        {
+          "name": "map_of_prims",
+          "binary": false
+        },
+        {
+          "name": "map_of_rows",
+          "binary": false
+        },
+        {
+          "name": "map_of_arrays",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "parquet-decimal-dictionaries",
+      "tag": "parquet_decimal_dictionaries",
+      "columns": [
+        {
+          "name": "id",
+          "binary": false
+        },
+        {
+          "name": "col1",
+          "binary": false
+        },
+        {
+          "name": "col2",
+          "binary": false
+        },
+        {
+          "name": "col3",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "parquet-decimal-dictionaries-v1",
+      "tag": "parquet_decimal_dictionaries_v1",
+      "columns": [
+        {
+          "name": "id",
+          "binary": false
+        },
+        {
+          "name": "col1",
+          "binary": false
+        },
+        {
+          "name": "col2",
+          "binary": false
+        },
+        {
+          "name": "col3",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "parquet-decimal-dictionaries-v2",
+      "tag": "parquet_decimal_dictionaries_v2",
+      "columns": [
+        {
+          "name": "id",
+          "binary": false
+        },
+        {
+          "name": "col1",
+          "binary": false
+        },
+        {
+          "name": "col2",
+          "binary": false
+        },
+        {
+          "name": "col3",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "parquet-decimal-type",
+      "tag": "parquet_decimal_type",
+      "columns": [
+        {
+          "name": "id",
+          "binary": false
+        },
+        {
+          "name": "col1",
+          "binary": false
+        },
+        {
+          "name": "col2",
+          "binary": false
+        },
+        {
+          "name": "col3",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "snapshot-data0",
+      "tag": "snapshot_data0",
+      "columns": [
+        {
+          "name": "col1",
+          "binary": false
+        },
+        {
+          "name": "col2",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "snapshot-data1",
+      "tag": "snapshot_data1",
+      "columns": [
+        {
+          "name": "col1",
+          "binary": false
+        },
+        {
+          "name": "col2",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0
+        }
+      ]
+    },
+    {
+      "name": "snapshot-data2",
+      "tag": "snapshot_data2",
+      "columns": [
+        {
+          "name": "col1",
+          "binary": false
+        },
+        {
+          "name": "col2",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0
+        },
+        {
+          "version": 1
+        }
+      ]
+    },
+    {
+      "name": "snapshot-data2-deleted",
+      "tag": "snapshot_data2_deleted",
+      "columns": [
+        {
+          "name": "col1",
+          "binary": false
+        },
+        {
+          "name": "col2",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0
+        },
+        {
+          "version": 1
+        },
+        {
+          "version": 2
+        },
+        {
+          "version": 3
+        }
+      ]
+    },
+    {
+      "name": "snapshot-data3",
+      "tag": "snapshot_data3",
+      "columns": [
+        {
+          "name": "col1",
+          "binary": false
+        },
+        {
+          "name": "col2",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0
+        },
+        {
+          "version": 1
+        },
+        {
+          "version": 2
+        }
+      ]
+    },
+    {
+      "name": "snapshot-repartitioned",
+      "tag": "snapshot_repartitioned",
+      "columns": [
+        {
+          "name": "col1",
+          "binary": false
+        },
+        {
+          "name": "col2",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0
+        },
+        {
+          "version": 1
+        },
+        {
+          "version": 2
+        },
+        {
+          "version": 3
+        },
+        {
+          "version": 4
+        }
+      ]
+    },
+    {
+      "name": "snapshot-vacuumed",
+      "tag": "snapshot_vacuumed",
+      "columns": [
+        {
+          "name": "col1",
+          "binary": false
+        },
+        {
+          "name": "col2",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0,
+          "error": "[NOT_FOUND]",
+          "reason": "historical data file is absent or vacuumed"
+        },
+        {
+          "version": 1,
+          "error": "[NOT_FOUND]",
+          "reason": "historical data file is absent or vacuumed"
+        },
+        {
+          "version": 2,
+          "error": "[NOT_FOUND]",
+          "reason": "historical data file is absent or vacuumed"
+        },
+        {
+          "version": 3,
+          "error": "[NOT_FOUND]",
+          "reason": "historical data file is absent or vacuumed"
+        },
+        {
+          "version": 4,
+          "error": "[NOT_FOUND]",
+          "reason": "historical data file is absent or vacuumed"
+        }
+      ]
+    },
+    {
+      "name": "spark-variant-checkpoint",
+      "tag": "spark_variant_checkpoint",
+      "error": "Table [golden] does not exist in database [default]",
+      "reason": "unsupported reader feature or collation"
+    },
+    {
+      "name": "table-with-columnmapping-mode-id",
+      "tag": "table_with_columnmapping_mode_id",
+      "columns": [
+        {
+          "name": "ByteType",
+          "binary": false
+        },
+        {
+          "name": "ShortType",
+          "binary": false
+        },
+        {
+          "name": "IntegerType",
+          "binary": false
+        },
+        {
+          "name": "LongType",
+          "binary": false
+        },
+        {
+          "name": "FloatType",
+          "binary": false
+        },
+        {
+          "name": "DoubleType",
+          "binary": false
+        },
+        {
+          "name": "decimal",
+          "binary": false
+        },
+        {
+          "name": "BooleanType",
+          "binary": false
+        },
+        {
+          "name": "StringType",
+          "binary": false
+        },
+        {
+          "name": "BinaryType",
+          "binary": true
+        },
+        {
+          "name": "DateType",
+          "binary": false
+        },
+        {
+          "name": "TimestampType",
+          "binary": false
+        },
+        {
+          "name": "nested_struct",
+          "binary": false
+        },
+        {
+          "name": "array_of_prims",
+          "binary": false
+        },
+        {
+          "name": "array_of_arrays",
+          "binary": false
+        },
+        {
+          "name": "array_of_map_of_arrays",
+          "binary": false
+        },
+        {
+          "name": "array_of_structs",
+          "binary": false
+        },
+        {
+          "name": "struct_of_arrays_maps_of_structs",
+          "binary": false
+        },
+        {
+          "name": "map_of_prims",
+          "binary": false
+        },
+        {
+          "name": "map_of_rows",
+          "binary": false
+        },
+        {
+          "name": "map_of_arrays",
+          "binary": false
+        },
+        {
+          "name": "map_of_maps",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "table-with-columnmapping-mode-name",
+      "tag": "table_with_columnmapping_mode_name",
+      "columns": [
+        {
+          "name": "ByteType",
+          "binary": false
+        },
+        {
+          "name": "ShortType",
+          "binary": false
+        },
+        {
+          "name": "IntegerType",
+          "binary": false
+        },
+        {
+          "name": "LongType",
+          "binary": false
+        },
+        {
+          "name": "FloatType",
+          "binary": false
+        },
+        {
+          "name": "DoubleType",
+          "binary": false
+        },
+        {
+          "name": "decimal",
+          "binary": false
+        },
+        {
+          "name": "BooleanType",
+          "binary": false
+        },
+        {
+          "name": "StringType",
+          "binary": false
+        },
+        {
+          "name": "BinaryType",
+          "binary": true
+        },
+        {
+          "name": "DateType",
+          "binary": false
+        },
+        {
+          "name": "TimestampType",
+          "binary": false
+        },
+        {
+          "name": "nested_struct",
+          "binary": false
+        },
+        {
+          "name": "array_of_prims",
+          "binary": false
+        },
+        {
+          "name": "array_of_arrays",
+          "binary": false
+        },
+        {
+          "name": "array_of_map_of_arrays",
+          "binary": false
+        },
+        {
+          "name": "array_of_structs",
+          "binary": false
+        },
+        {
+          "name": "struct_of_arrays_maps_of_structs",
+          "binary": false
+        },
+        {
+          "name": "map_of_prims",
+          "binary": false
+        },
+        {
+          "name": "map_of_rows",
+          "binary": false
+        },
+        {
+          "name": "map_of_arrays",
+          "binary": false
+        },
+        {
+          "name": "map_of_maps",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "table-with-icebegCompatV2Enabled",
+      "tag": "table_with_icebegcompatv2enabled",
+      "columns": [
+        {
+          "name": "ByteType",
+          "binary": false
+        },
+        {
+          "name": "ShortType",
+          "binary": false
+        },
+        {
+          "name": "IntegerType",
+          "binary": false
+        },
+        {
+          "name": "LongType",
+          "binary": false
+        },
+        {
+          "name": "FloatType",
+          "binary": false
+        },
+        {
+          "name": "DoubleType",
+          "binary": false
+        },
+        {
+          "name": "decimal",
+          "binary": false
+        },
+        {
+          "name": "BooleanType",
+          "binary": false
+        },
+        {
+          "name": "StringType",
+          "binary": false
+        },
+        {
+          "name": "BinaryType",
+          "binary": true
+        },
+        {
+          "name": "DateType",
+          "binary": false
+        },
+        {
+          "name": "TimestampType",
+          "binary": false
+        },
+        {
+          "name": "nested_struct",
+          "binary": false
+        },
+        {
+          "name": "array_of_prims",
+          "binary": false
+        },
+        {
+          "name": "array_of_arrays",
+          "binary": false
+        },
+        {
+          "name": "array_of_map_of_arrays",
+          "binary": false
+        },
+        {
+          "name": "array_of_structs",
+          "binary": false
+        },
+        {
+          "name": "struct_of_arrays_maps_of_structs",
+          "binary": false
+        },
+        {
+          "name": "map_of_prims",
+          "binary": false
+        },
+        {
+          "name": "map_of_rows",
+          "binary": false
+        },
+        {
+          "name": "map_of_arrays",
+          "binary": false
+        },
+        {
+          "name": "map_of_maps",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "time-travel-partition-changes-a",
+      "tag": "time_travel_partition_changes_a",
+      "columns": [
+        {
+          "name": "id",
+          "binary": false
+        },
+        {
+          "name": "part5",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "time-travel-partition-changes-b",
+      "tag": "time_travel_partition_changes_b",
+      "columns": [
+        {
+          "name": "id",
+          "binary": false
+        },
+        {
+          "name": "part2",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0,
+          "error": "Delta time travel across schema or partition evolution is not supported",
+          "reason": "schema/partition evolution is explicitly unsupported"
+        }
+      ]
+    },
+    {
+      "name": "time-travel-schema-changes-a",
+      "tag": "time_travel_schema_changes_a",
+      "columns": [
+        {
+          "name": "id",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "time-travel-schema-changes-b",
+      "tag": "time_travel_schema_changes_b",
+      "columns": [
+        {
+          "name": "id",
+          "binary": false
+        },
+        {
+          "name": "part",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0,
+          "error": "Delta time travel across schema or partition evolution is not supported",
+          "reason": "schema/partition evolution is explicitly unsupported"
+        }
+      ]
+    },
+    {
+      "name": "time-travel-start",
+      "tag": "time_travel_start",
+      "columns": [
+        {
+          "name": "id",
+          "binary": false
+        }
+      ],
+      "versions": []
+    },
+    {
+      "name": "time-travel-start-start20",
+      "tag": "time_travel_start_start20",
+      "columns": [
+        {
+          "name": "id",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0
+        }
+      ]
+    },
+    {
+      "name": "time-travel-start-start20-start40",
+      "tag": "time_travel_start_start20_start40",
+      "columns": [
+        {
+          "name": "id",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0
+        },
+        {
+          "version": 1
+        }
+      ]
+    },
+    {
+      "name": "type-widening",
+      "tag": "type_widening",
+      "error": "Table [golden] does not exist in database [default]",
+      "reason": "unsupported reader feature or collation"
+    },
+    {
+      "name": "type-widening-nested",
+      "tag": "type_widening_nested",
+      "error": "Table [golden] does not exist in database [default]",
+      "reason": "unsupported reader feature or collation"
+    },
+    {
+      "name": "update-deleted-directory",
+      "tag": "update_deleted_directory",
+      "error": "Table [golden] does not exist in database [default]",
+      "reason": "upstream metadata-only, malformed or non-Delta fixture"
+    },
+    {
+      "name": "v2-checkpoint-json",
+      "tag": "v2_checkpoint_json",
+      "columns": [
+        {
+          "name": "id",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0
+        },
+        {
+          "version": 1
+        }
+      ]
+    },
+    {
+      "name": "v2-checkpoint-parquet",
+      "tag": "v2_checkpoint_parquet",
+      "columns": [
+        {
+          "name": "id",
+          "binary": false
+        }
+      ],
+      "versions": [
+        {
+          "version": 0
+        },
+        {
+          "version": 1
+        }
+      ]
+    },
+    {
+      "name": "versions-not-contiguous",
+      "tag": "versions_not_contiguous",
+      "error": "Table [golden] does not exist in database [default]",
+      "reason": "upstream metadata-only, malformed or non-Delta fixture"
+    },
+    {
+      "name": "no-delta-log-folder",
+      "tag": "no_delta_log_folder",
+      "error": "Table [golden] does not exist in database [default]",
+      "reason": "upstream metadata-only, malformed or non-Delta fixture"
+    }
+  ]
+}

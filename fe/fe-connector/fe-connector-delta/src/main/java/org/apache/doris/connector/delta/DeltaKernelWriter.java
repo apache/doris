@@ -94,7 +94,7 @@ final class DeltaKernelWriter {
     DeltaKernelSnapshot createTable(String tablePath, StructType schema,
             Map<String, String> tableProperties, List<String> partitionColumns) {
         CreateTableTransactionBuilder builder = TableManager.buildCreateTableTransaction(
-                tablePath, schema, ENGINE_INFO)
+                DeltaPathUtils.toKernelPath(tablePath), schema, ENGINE_INFO)
                 .withDataLayoutSpec(dataLayoutSpec(schema, partitionColumns))
                 .withTableProperties(tableProperties)
                 .withMaxRetries(MAX_COMMIT_RETRIES);
@@ -152,7 +152,7 @@ final class DeltaKernelWriter {
                     "Unity managed Delta writes require catalog commits");
         }
         TransactionBuilder transactionBuilder = Table.forPath(
-                engine, tableHandle.getTablePath())
+                engine, DeltaPathUtils.toKernelPath(tableHandle.getTablePath()))
                 .createTransactionBuilder(engine, ENGINE_INFO, Operation.WRITE)
                 .withMaxRetries(overwrite ? 0 : MAX_COMMIT_RETRIES);
         if (applicationId != null && !applicationId.isBlank()) {

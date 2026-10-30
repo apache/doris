@@ -70,4 +70,18 @@ TEST(FileScanRangeUtilsTest, OtherFilesRespectIgnoreSetting) {
     }
 }
 
+TEST(FileScanRangeUtilsTest, DeltaFilesCannotBeIgnoredWithOrWithoutDeletionVectors) {
+    TFileRangeDesc range;
+    TTableFormatFileDesc table;
+    table.__set_table_format_type("delta");
+    range.__set_table_format_params(table);
+    range.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    EXPECT_FALSE(can_ignore_not_found_file(range, true));
+    EXPECT_FALSE(can_ignore_not_found_file(range, false));
+
+    range.table_format_params.__set_delta_params(TDeltaFileDesc {});
+    EXPECT_FALSE(can_ignore_not_found_file(range, true));
+    EXPECT_FALSE(can_ignore_not_found_file(range, false));
+}
+
 } // namespace doris

@@ -72,7 +72,7 @@ public class DeltaKernelSnapshotLoader {
     }
 
     public DeltaKernelSnapshot load(String tablePath) throws IOException {
-        Snapshot snapshot = Table.forPath(engine, tablePath).getLatestSnapshot(engine);
+        Snapshot snapshot = Table.forPath(engine, DeltaPathUtils.toKernelPath(tablePath)).getLatestSnapshot(engine);
         return loadSnapshot(snapshot, false);
     }
 
@@ -81,7 +81,8 @@ public class DeltaKernelSnapshotLoader {
     }
 
     public DeltaKernelSnapshot load(String tablePath, long version) throws IOException {
-        Snapshot snapshot = Table.forPath(engine, tablePath).getSnapshotAsOfVersion(engine, version);
+        Snapshot snapshot = Table.forPath(engine, DeltaPathUtils.toKernelPath(tablePath))
+                .getSnapshotAsOfVersion(engine, version);
         return loadSnapshot(snapshot, false);
     }
 
@@ -91,7 +92,7 @@ public class DeltaKernelSnapshotLoader {
 
     public DeltaKernelSnapshot loadTimestamp(String tablePath, long timestampMillis)
             throws IOException {
-        Snapshot snapshot = Table.forPath(engine, tablePath)
+        Snapshot snapshot = Table.forPath(engine, DeltaPathUtils.toKernelPath(tablePath))
                 .getSnapshotAsOfTimestamp(engine, timestampMillis);
         return loadSnapshot(snapshot, false);
     }

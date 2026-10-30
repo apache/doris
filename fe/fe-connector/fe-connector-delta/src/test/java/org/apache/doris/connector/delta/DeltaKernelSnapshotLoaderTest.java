@@ -51,6 +51,25 @@ public class DeltaKernelSnapshotLoaderTest {
     @TempDir
     Path tempDirectory;
 
+    @ParameterizedTest
+    @ValueSource(strings = {"GMT+9", "space name", "literal%2B", "hash#question?"})
+    public void testEscapedTableLocations(String directoryName) throws Exception {
+        Path source = Paths.get(Objects.requireNonNull(getClass().getClassLoader()
+                .getResource("delta/path_table/_delta_log")).toURI());
+        Path log = Files.createDirectories(tempDirectory.resolve(directoryName).resolve("_delta_log"));
+        for (int version = 0; version < 2; version++) {
+            Path file = log.resolve(String.format("%020d.json", version));
+            Files.copy(source.resolve(file.getFileName()), file);
+            Files.setLastModifiedTime(file, FileTime.fromMillis(1_700_000_000_000L + version * 2000L));
+        }
+        String location = log.getParent().toUri().toASCIIString().replace("+", "%2B");
+        DeltaKernelSnapshotLoader loader = new DeltaKernelSnapshotLoader(DefaultEngine.create(new Configuration()));
+
+        Assertions.assertEquals(1, loader.loadLatest(location).getVersion());
+        Assertions.assertEquals(0, loader.loadVersion(location, 0).getVersion());
+        Assertions.assertEquals(0, loader.loadTimestamp(location, 1_700_000_001_000L).getVersion());
+    }
+
     @Test
     public void testLoadLatestSnapshotAndActiveFiles() throws Exception {
         URL fixture = Objects.requireNonNull(

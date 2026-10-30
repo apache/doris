@@ -46,6 +46,28 @@ public class DeltaKernelWriterTest {
     Path tempDirectory;
 
     @Test
+    public void testCreateAndAppendAtEscapedTableLocation() throws Exception {
+        Path tableDirectory = tempDirectory.resolve("new table + literal%2B#");
+        String location = tableDirectory.toUri().toASCIIString().replace("+", "%2B");
+        Engine engine = DefaultEngine.create(new Configuration());
+        DeltaKernelWriter writer = new DeltaKernelWriter(engine);
+        StructType schema = new StructType().add("id", io.delta.kernel.types.LongType.LONG);
+        writer.createTable(location, schema, Map.of());
+        Assertions.assertTrue(Files.exists(tableDirectory.resolve("_delta_log/00000000000000000000.json")));
+
+        Path file = tableDirectory.resolve("part-doris.parquet");
+        Files.write(file, new byte[] {1, 2, 3, 4});
+        DeltaInsertHandle insert = writer.beginInsert(new DeltaTableHandle("default", "events", location, 0));
+        writer.finishInsert(insert, List.of(new DeltaFileCommitInfo(
+                file.toUri().toASCIIString().replace("+", "%2B"), 1, Files.size(file),
+                Files.getLastModifiedTime(file).toMillis(), Map.of())));
+
+        DeltaKernelSnapshot snapshot = new DeltaKernelSnapshotLoader(engine).loadLatest(location);
+        Assertions.assertEquals(1, snapshot.getVersion());
+        Assertions.assertEquals(1, snapshot.getActiveFiles().size());
+    }
+
+    @Test
     public void testCreatesVersionZeroTable() {
         Path tableDirectory = tempDirectory.resolve("created-table");
         Engine engine = DefaultEngine.create(new Configuration());

@@ -50,10 +50,11 @@ inline Status validate_file_scan_support(const TFileScanRangeParams& params,
 }
 
 inline bool can_ignore_not_found_file(const TFileRangeDesc& range, bool ignore_not_found) {
-    // Iceberg ranges belong to a committed snapshot, not a stale directory listing. Skipping a
+    // Iceberg and Delta ranges belong to a committed snapshot, not a stale directory listing. Skipping a
     // missing data or delete file would silently return an incomplete or incorrect snapshot.
     return ignore_not_found && !(range.__isset.table_format_params &&
-                                 range.table_format_params.table_format_type == "iceberg");
+                                 (range.table_format_params.table_format_type == "iceberg" ||
+                                  range.table_format_params.table_format_type == "delta"));
 }
 
 } // namespace doris
