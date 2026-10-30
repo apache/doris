@@ -201,9 +201,9 @@ suite("prune_predicates_mv_test") {
     // cost to be 0. Previously the negative-infinity cost bias was also normalized to 0
     // (Cost constructor does Double.max(0, ...)), making the MV not reliably chosen.
     // The hard-constraint selector now guarantees USE_MV(mv_2) forces mv_2 into the
-    // final plan regardless of cost. Verify the USE_MV hint appears in explain output.
+    // final plan regardless of cost. Verify the USE_MV hint is marked as Used.
     explain {
         sql "${query_2}"
-        contains "use_mv(mv_2)"
+        contains "Used: use_mv([mv_2])"
     }
 }
