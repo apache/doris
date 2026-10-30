@@ -36,10 +36,14 @@ import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.parser.SqlDialectHelper;
+import org.apache.doris.nereids.rules.rewrite.CTEInline;
 import org.apache.doris.nereids.rules.rewrite.CheckPrivileges;
+import org.apache.doris.nereids.rules.rewrite.PullUpCteAnchor;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PrepareCommandPlanner;
@@ -63,6 +67,7 @@ import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTable
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTVFCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.insert.WarmupSelectCommand;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.SwitchCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.UseCommand;
@@ -100,10 +105,13 @@ final class FlightSqlQuerySchema {
 
     /**
      * The statement's result schema can only be told by running it: DESCRIBE and the other commands
-     * whose result columns depend on what they find, a request whose statements before the last are
+     * whose result columns depend on what they find (WARM UP SELECT answers OK instead of its
+     * statistics when its source turns out empty), a request whose statements before the last are
      * not USE or SWITCH, a query with parameter placeholders, a result type this frontend cannot
-     * describe as the backend sends it. Prepare advertises the placeholder schema for such a
-     * statement and does not check its executions; GetSchema answers UNIMPLEMENTED.
+     * describe as the backend sends it, a query that the privilege check of its analyzed plan denies
+     * (only the check of the executed plan decides, see checkPrivileges). Prepare advertises the
+     * placeholder schema for such a statement and does not check its executions; GetSchema answers
+     * UNIMPLEMENTED.
      */
     static final class UndiscoverableSchemaException extends Exception {
         UndiscoverableSchemaException(String message) {
@@ -203,8 +211,7 @@ final class FlightSqlQuerySchema {
                 planner.plan(statement, context.getSessionVariable().toThrift());
                 CascadesContext cascades = planner.getCascadesContext();
                 Plan analyzed = cascades.getRewritePlan();
-                // PrepareCommandPlanner stops before the rewrite phase that normally checks privileges.
-                new CheckPrivileges().rewriteRoot(analyzed, cascades.getCurrentJobContext());
+                checkPrivileges(analyzed, cascades.getCurrentJobContext());
                 // The zone BE stamps on TIMESTAMPTZ: the one it is sent, see CoordinatorContext.
                 String timezone = TimeUtils.getCanonicalTimeZone(context.getSessionVariable().getTimeZone());
                 for (Slot slot : analyzed.getOutput()) {
@@ -234,6 +241,27 @@ final class FlightSqlQuerySchema {
                 context.restoreNameSpaceContext(previousNamespace);
                 context.setCommand(MysqlCommand.COM_SLEEP);
             }
+        }
+    }
+
+    /**
+     * Checks privileges on {@code analyzed}: PrepareCommandPlanner stops before the rewrite phase that
+     * checks them for execution. As that phase does before its check, the CTEs execution inlines are
+     * inlined first, so a CTE used once is checked on the columns the query reads instead of on every
+     * column it selects. The rewriter normalizes the plan further before its check (it drops an ORDER
+     * BY under a derived table, for one), so the analyzed plan can still read a column the executed
+     * plan does not: a denial here does not show that execution is denied, and only running the
+     * statement can tell. Such a statement is undiscoverable rather than refused, and execution
+     * decides as it did before Prepare analyzed anything.
+     */
+    private static void checkPrivileges(Plan analyzed, JobContext jobContext) throws UndiscoverableSchemaException {
+        Plan inlined = new CTEInline().rewriteRoot(new PullUpCteAnchor().rewriteRoot(analyzed, jobContext),
+                jobContext);
+        try {
+            new CheckPrivileges().rewriteRoot(inlined, jobContext);
+        } catch (AnalysisException e) {
+            throw new UndiscoverableSchemaException("Only execution can decide the privileges of this query: "
+                    + e.getMessage());
         }
     }
 
@@ -284,11 +312,13 @@ final class FlightSqlQuerySchema {
     }
 
     private static ResultSetMetaData commandMetadata(ConnectContext context, Command command) throws Exception {
-        // These getters depend on execution-time state or remote responses. Do not advertise a
-        // guessed schema, or run the command merely to discover it.
+        // These getters depend on execution-time state or remote responses, and WARM UP SELECT answers
+        // OK instead of its statistics when planning proves its source empty (a predicate folded to false,
+        // no partition left, or none with data). Do not advertise a guessed schema, or run the command
+        // merely to discover it.
         if (command instanceof ShowPythonPackagesCommand || command instanceof DescribeCommand
                 || command instanceof ShowDataCommand || command instanceof ShowPartitionsCommand
-                || command instanceof ShowQueryStatsCommand) {
+                || command instanceof ShowQueryStatsCommand || command instanceof WarmupSelectCommand) {
             throw new UndiscoverableSchemaException("Command schema requires execution-time metadata");
         }
         if (command instanceof HelpCommand) {
@@ -314,7 +344,7 @@ final class FlightSqlQuerySchema {
             return stringMetadata("Explain String(Nereids Planner)");
         }
         ResultSetMetaData metadata = command.getResultSetMetaData();
-        // Concrete DML commands return OK, but subclasses such as WARM UP SELECT supply rows.
+        // Concrete DML commands return OK; a subclass that declares its own header keeps it.
         if (metadata != null && metadata.getColumnCount() == 0 && (command instanceof InsertIntoTableCommand
                 || command instanceof InsertOverwriteTableCommand || command instanceof BatchInsertIntoTableCommand
                 || command instanceof InsertIntoTVFCommand || command instanceof UpdateCommand

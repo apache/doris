@@ -21,6 +21,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.policy.PolicyMgr;
+import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSetMetaData;
 import org.apache.doris.qe.help.HelpModule;
@@ -119,6 +121,27 @@ class SchemaOnlyCommandMetadataTest {
                         names(command.getMetaData(null)));
             }
             Mockito.verify(env, Mockito.never()).getBackupHandler();
+        }
+    }
+
+    @Test
+    void storagePolicyHeadersMatchExecution() throws Exception {
+        Env env = Mockito.mock(Env.class, Mockito.RETURNS_DEEP_STUBS);
+        Mockito.when(env.getAccessManager().checkGlobalPriv(Mockito.nullable(ConnectContext.class),
+                Mockito.eq(PrivPredicate.ADMIN))).thenReturn(true);
+        Mockito.when(env.getPolicyMgr()).thenReturn(new PolicyMgr());
+        Mockito.when(env.getInternalCatalog().getDbs()).thenReturn(Collections.emptyList());
+        try (MockedStatic<Env> ignored = Mockito.mockStatic(Env.class)) {
+            ignored.when(Env::getCurrentEnv).thenReturn(env);
+            for (String sql : Arrays.asList("SHOW STORAGE POLICY", "SHOW STORAGE POLICY USING",
+                    "SHOW STORAGE POLICY USING FOR example_policy")) {
+                ShowStoragePolicyCommand command = (ShowStoragePolicyCommand) new NereidsParser().parseSingle(sql);
+                Assertions.assertEquals(names(command.doRun(null, null).getMetaData()), names(command.getMetaData()),
+                        sql);
+            }
+            // Without USING it lists the policies themselves, not the objects that use them.
+            Assertions.assertEquals(names(StoragePolicy.STORAGE_META_DATA), names(((ShowStoragePolicyCommand)
+                    new NereidsParser().parseSingle("SHOW STORAGE POLICY")).getMetaData()));
         }
     }
 }

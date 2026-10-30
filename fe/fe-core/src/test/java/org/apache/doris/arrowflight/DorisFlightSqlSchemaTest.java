@@ -22,20 +22,27 @@ import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
 import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcService;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.SqlDialectHelper;
+import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.protobuf.Any;
@@ -329,8 +336,25 @@ public class DorisFlightSqlSchemaTest extends TestWithFeService {
         }
     }
 
+    // The privilege check of the analyzed plan denies sql: Prepare cannot tell whether the executed plan is
+    // denied too, so it keeps the placeholder and leaves the decision to execution, and GetSchema reports the
+    // denial without a schema.
+    private void assertPrivilegesLeftToExecution(String sql) throws Exception {
+        FlightRuntimeException failure = Assertions.assertThrows(FlightRuntimeException.class, () -> schema(sql), sql);
+        Assertions.assertEquals(FlightStatusCode.UNIMPLEMENTED, failure.status().code(), sql);
+        Assertions.assertTrue(failure.getMessage().contains("denied"), failure.getMessage());
+        ActionCreatePreparedStatementResult result = prepare(sql);
+        try {
+            Assertions.assertEquals(Collections.singletonList("ResultMeta"), datasetSchema(result).getFields()
+                    .stream().map(Field::getName).collect(Collectors.toList()), sql);
+            Assertions.assertNull(flightContext.getPreparedQuery(preparedId(result)).getSchema(), sql);
+        } finally {
+            flightContext.removePreparedQuery(preparedId(result));
+        }
+    }
+
     @Test
-    void schemaDiscoveryChecksTablePrivileges() {
+    void schemaDiscoveryChecksTablePrivileges() throws Exception {
         UserIdentity originalUser = flightContext.getCurrentUserIdentity();
         flightContext.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("schema_reader", "%"));
         try {
@@ -338,12 +362,57 @@ public class DorisFlightSqlSchemaTest extends TestWithFeService {
                     "WITH source AS (SELECT id FROM schema_input) SELECT * FROM source",
                     "SELECT (SELECT MAX(id) FROM schema_input) AS value",
                     "SELECT SUM(id) FROM schema_input")) {
-                FlightRuntimeException failure = Assertions.assertThrows(FlightRuntimeException.class,
-                        () -> schema(sql), sql);
-                Assertions.assertTrue(failure.getMessage().contains("denied"), failure.getMessage());
+                assertPrivilegesLeftToExecution(sql);
             }
         } finally {
             flightContext.setCurrentUserIdentity(originalUser);
+        }
+    }
+
+    @Test
+    void columnGrantsAreCheckedAsExecutionChecksThem() throws Exception {
+        addUser("schema_column_reader", true);
+        grantPriv("GRANT SELECT_PRIV(id) ON schema_test.schema_input TO 'schema_column_reader'@'%'");
+        UserIdentity reader = UserIdentity.createAnalyzedUserIdentWithIp("schema_column_reader", "%");
+        UserIdentity originalFlightUser = flightContext.getCurrentUserIdentity();
+        UserIdentity originalUser = connectContext.getCurrentUserIdentity();
+        // connectContext plans as execution does (PlanChecker runs the whole rewriter), flightContext discovers.
+        connectContext.setThreadLocalInfo();
+        connectContext.setCurrentUserIdentity(reader);
+        flightContext.setCurrentUserIdentity(reader);
+        try {
+            // Execution inlines a CTE used once before it checks privileges, so only the columns read are checked.
+            for (String sql : Arrays.asList("WITH c AS (SELECT id, name FROM schema_input) SELECT id FROM c",
+                    "WITH c AS (SELECT * FROM schema_input) SELECT id FROM c",
+                    "WITH c AS (SELECT id, name FROM (SELECT id, name FROM schema_input) d) SELECT id FROM c",
+                    "WITH c AS (SELECT id, MAX(name) AS top FROM schema_input GROUP BY id) SELECT id FROM c")) {
+                PlanChecker.from(connectContext).parse(sql).analyze().rewrite();
+                Assertions.assertEquals(Collections.singletonList("id"), schema(sql).getFields().stream()
+                        .map(Field::getName).collect(Collectors.toList()), sql);
+                ActionCreatePreparedStatementResult result = prepare(sql);
+                try {
+                    Assertions.assertEquals(schema(sql), datasetSchema(result), sql);
+                    Assertions.assertNotNull(flightContext.getPreparedQuery(preparedId(result)).getSchema(), sql);
+                } finally {
+                    flightContext.removePreparedQuery(preparedId(result));
+                }
+            }
+            // Execution denies these as well: a column without the grant, and a CTE used twice, which it does not
+            // inline and checks on every column the CTE selects.
+            for (String sql : Arrays.asList("SELECT name FROM schema_input",
+                    "WITH c AS (SELECT id, name FROM schema_input) SELECT a.id FROM c a JOIN c b ON a.id = b.id")) {
+                Assertions.assertThrows(AnalysisException.class,
+                        () -> PlanChecker.from(connectContext).parse(sql).analyze().rewrite(), sql);
+                assertPrivilegesLeftToExecution(sql);
+            }
+            // Execution drops an ORDER BY under a derived table before it checks privileges, while the analyzed
+            // plan still sorts on the column without the grant: Prepare must not refuse what execution runs.
+            String sorted = "SELECT id FROM (SELECT id, name FROM schema_input ORDER BY name) d";
+            PlanChecker.from(connectContext).parse(sorted).analyze().rewrite();
+            assertPrivilegesLeftToExecution(sorted);
+        } finally {
+            flightContext.setCurrentUserIdentity(originalFlightUser);
+            connectContext.setCurrentUserIdentity(originalUser);
         }
     }
 
@@ -450,7 +519,7 @@ public class DorisFlightSqlSchemaTest extends TestWithFeService {
         for (String query : Arrays.asList("SHOW PYTHON PACKAGES IN '3.11'", "DESC schema_input ALL",
                 "SHOW DATA FROM schema_input", "SHOW PARTITIONS FROM schema_input", "SHOW QUERY STATS",
                 "COPY INTO schema_input FROM @~", "WARM UP CLUSTER target WITH CLUSTER source",
-                "SET @multi = 2; SELECT @multi")) {
+                "WARM UP SELECT * FROM schema_input", "SET @multi = 2; SELECT @multi")) {
             FlightRuntimeException error = Assertions.assertThrows(FlightRuntimeException.class,
                     () -> schema(query), query);
             Assertions.assertEquals(FlightStatusCode.UNIMPLEMENTED, error.status().code(), query);
@@ -692,12 +761,41 @@ public class DorisFlightSqlSchemaTest extends TestWithFeService {
     }
 
     @Test
-    void warmupSelectHasStatisticsInsteadOfOkHeader() throws Exception {
-        String query = "WARM UP SELECT * FROM schema_input";
-        Assertions.assertEquals(Arrays.asList("BackendId", "ScanRows", "ScanBytes", "ScanBytesFromLocalStorage",
-                "ScanBytesFromRemoteStorage", "BytesWriteIntoCache"), preparedSchema(query).getFields().stream()
-                .map(Field::getName).collect(Collectors.toList()));
-        Assertions.assertEquals(schema(query), preparedSchema(query));
+    void warmupSelectRunsUncheckedWhateverItsSourceHolds() throws Exception {
+        // WARM UP SELECT answers OK when planning proves its source empty, and its statistics otherwise.
+        List<String> statistics = Arrays.asList("BackendId", "ScanRows", "ScanBytes", "ScanBytesFromLocalStorage",
+                "ScanBytesFromRemoteStorage", "BytesWriteIntoCache");
+        ActionCreatePreparedStatementResult result = prepare("WARM UP SELECT * FROM schema_input");
+        try {
+            for (boolean emptySource : Arrays.asList(true, false)) {
+                try (MockedConstruction<FlightSqlConnectProcessor> processors = Mockito.mockConstruction(
+                        FlightSqlConnectProcessor.class, (processor, context) -> {
+                            Mockito.doAnswer(invocation -> {
+                                flightContext.getState().reset();
+                                FlightProtocolAdapter.of(flightContext).beforeStatement(flightContext);
+                                if (!emptySource) {
+                                    ShowResultSetMetaData.Builder header = ShowResultSetMetaData.builder();
+                                    statistics.forEach(name -> header.addColumn(new Column(name, Type.STRING)));
+                                    flightContext.setQueryId(new TUniqueId(48, 1));
+                                    flightContext.getFlightSqlChannel().addResult(
+                                            DebugUtil.printId(flightContext.queryId()), invocation.getArgument(0),
+                                            new ShowResultSet(header.build(), Collections.emptyList()));
+                                }
+                                return null;
+                            }).when(processor).handleQuery(Mockito.anyString());
+                        })) {
+                    Schema executed = producer.getFlightInfoPreparedStatement(command(result), callContext,
+                            FlightDescriptor.command(new byte[0])).getSchema();
+                    Assertions.assertEquals(emptySource ? Collections.singletonList("StatusResult") : statistics,
+                            executed.getFields().stream().map(Field::getName).collect(Collectors.toList()));
+                    Assertions.assertNotNull(flightContext.getPreparedQuery(preparedId(result)));
+                } finally {
+                    flightContext.getFlightSqlChannel().reset();
+                }
+            }
+        } finally {
+            flightContext.removePreparedQuery(preparedId(result));
+        }
     }
 
     @Test

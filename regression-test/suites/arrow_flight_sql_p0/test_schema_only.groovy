@@ -105,8 +105,9 @@ suite("test_schema_only", "arrow_flight_sql") {
                                                   "OwnerName", "CreateTime", "ModifyTime"]],
                         ["EXPLAIN SELECT 1", ["Explain String(Nereids Planner)"]],
                         ["EXPLAIN PLAN PROCESS SELECT 1", ["Rule", "Before", "After"]],
-                        ["WARM UP SELECT * FROM schema_source", ["BackendId", "ScanRows", "ScanBytes",
-                         "ScanBytesFromLocalStorage", "ScanBytesFromRemoteStorage", "BytesWriteIntoCache"]],
+                        ["SHOW STORAGE POLICY", ["PolicyName", "Id", "Version", "Type", "StorageResource",
+                                                "CooldownDatetime", "CooldownTtl"]],
+                        ["SHOW STORAGE POLICY USING", ["PolicyName", "Database", "Table", "Partitions"]],
                         ["INSERT INTO schema_source VALUES (1)", ["StatusResult"]],
                         ["UPDATE schema_source SET id=1", ["StatusResult"]],
                         ["DELETE FROM schema_source WHERE id=1", ["StatusResult"]],
@@ -119,6 +120,30 @@ suite("test_schema_only", "arrow_flight_sql") {
                     assertEquals(entry[1], schema.getFields()*.getName())
                     assertEquals(schema, client.getExecuteSchema(entry[0], options).getSchema())
                     assertTrue(schema.getFields().every { it.getType() == new ArrowType.Utf8() })
+                }
+                // A frontend-side result is checked against its prepared schema in full, so the header Prepare
+                // tells without running a command must be the one running it sends: run the commands above that
+                // have no side effects, and the other frontend-side ones this suite prepares.
+                def executeAsPrepared = { String query ->
+                    def prepared = client.prepare(query, options)
+                    try {
+                        def advertised = prepared.getResultSetSchema()
+                        assertTrue(advertised.getFields()*.getName() != ["ResultMeta"], query)
+                        def info = prepared.execute(options)
+                        assertEquals(advertised, info.getSchema(), query)
+                        flight.getStream(info.getEndpoints()[0].getTicket(), options).withCloseable { stream ->
+                            while (stream.next()) {
+                                assertEquals(advertised, stream.getRoot().getSchema(), query)
+                            }
+                        }
+                    } finally {
+                        prepared.close(options)
+                    }
+                }
+                ["SHOW PROCEDURE STATUS", "EXPLAIN SELECT 1", "EXPLAIN PLAN PROCESS SELECT 1", "SHOW STORAGE POLICY",
+                 "SHOW STORAGE POLICY USING", "SHOW STORAGE POLICY USING FOR schema_only_missing_policy",
+                 showTimeout, "SHOW FRONTEND CONFIG", "SHOW PROC '/'"].each { query ->
+                    executeAsPrepared(query)
                 }
                 // Re-parsing a prepared statement must not silently change its advertised result type.
                 String previousMode = readVariable("sql_mode")
@@ -202,7 +227,7 @@ suite("test_schema_only", "arrow_flight_sql") {
                 // since the Arrow Flight SQL JDBC driver prepares every statement and does not fall back when
                 // Prepare refuses one; GetSchema, asked for that schema itself, answers UNIMPLEMENTED.
                 ["SHOW PYTHON PACKAGES IN '3.11'", "SHOW QUERY STATS", "DESC information_schema.tables",
-                 "SET @schema_only = 1; SELECT @schema_only AS v"].each { query ->
+                 "WARM UP SELECT * FROM schema_source", "SET @schema_only = 1; SELECT @schema_only AS v"].each { query ->
                     def placeholder = client.prepare(query, options)
                     try {
                         assertEquals(["ResultMeta"], placeholder.getResultSetSchema().getFields()*.getName())
@@ -247,6 +272,23 @@ suite("test_schema_only", "arrow_flight_sql") {
                     assertEquals(["7"], values)
                 } finally {
                     unchecked.close(options)
+                }
+                // WARM UP SELECT answers OK instead of its statistics when planning proves its source empty, as for a
+                // table without data: its placeholder handle runs that unchecked rather than refusing it.
+                client.execute("CREATE DATABASE IF NOT EXISTS ${context.dbName}", options)
+                client.execute("DROP TABLE IF EXISTS ${context.dbName}.schema_only_warmup_source", options)
+                client.execute("""CREATE TABLE ${context.dbName}.schema_only_warmup_source (id INT)
+                        DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
+                        PROPERTIES ("replication_num" = "1")""", options)
+                def warmup = client.prepare("WARM UP SELECT * FROM ${context.dbName}.schema_only_warmup_source", options)
+                try {
+                    assertEquals(["ResultMeta"], warmup.getResultSetSchema().getFields()*.getName())
+                    // Only cloud mode warms up internal tables; elsewhere WARM UP SELECT reads external tables only.
+                    if (isCloudMode()) {
+                        assertEquals(["StatusResult"], warmup.execute(options).getSchema().getFields()*.getName())
+                    }
+                } finally {
+                    warmup.close(options)
                 }
 
                 // The serialized group_concat state is advertised as UTF8; running it checks that against the
