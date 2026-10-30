@@ -58,6 +58,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.algebra.TVFRelation;
+import org.apache.doris.nereids.trees.plans.commands.AuditDigestProvider;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
@@ -112,7 +113,7 @@ import java.util.function.Supplier;
  * ExplainCommand(Query())
  */
 public class InsertIntoTableCommand extends Command
-        implements NeedAuditEncryption, ForwardWithSync, Explainable, CancelableCommand {
+        implements AuditDigestProvider, NeedAuditEncryption, ForwardWithSync, Explainable, CancelableCommand {
 
     public static final Logger LOG = LogManager.getLogger(InsertIntoTableCommand.class);
 
@@ -949,5 +950,10 @@ public class InsertIntoTableCommand extends Command
             sb.append(" ").append(cte.get().toDigest());
         }
         return sb.toString();
+    }
+
+    @Override
+    public Optional<String> getAuditDigest() {
+        return InsertUtils.getSelectDigestForAudit(originLogicalQuery, cte);
     }
 }
