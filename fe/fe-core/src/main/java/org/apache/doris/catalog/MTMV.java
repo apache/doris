@@ -57,6 +57,7 @@ import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.mtmv.ivm.IvmUtil;
+import org.apache.doris.mtmv.ivm.agg.IvmAggStateKey;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
 import org.apache.doris.persist.AlterMTMV;
@@ -568,12 +569,32 @@ public class MTMV extends OlapTable {
         }
         // The persisted MIN/MAX state was built for the old capacity. A larger K needs values the old
         // state already dropped; a smaller one would keep entries the new apply never produces. Either
-        // direction makes the state unreadable, so any change rebuilds the whole MV.
-        return !Objects.equals(oldMinMaxTopK,
-                        MTMVPropertyUtil.getIvmMinMaxTopK(this.mvProperties).orElse(null))
+        // direction makes the state unreadable, so any change rebuilds the whole MV -- but only when
+        // the MV actually keeps that state: an aggregate MV without MIN/MAX, or a detail MV, has
+        // nothing for the property to describe.
+        boolean minMaxTopKChanged = !Objects.equals(oldMinMaxTopK,
+                MTMVPropertyUtil.getIvmMinMaxTopK(this.mvProperties).orElse(null));
+        return (minMaxTopKChanged && keepsMinMaxTopKState())
                 || unexcludesABaseTable(oldExcludedTriggerTables)
                 || widensPartitionWindowLimit(oldWindowLimits)
                 || widensSyncWindow(oldSyncWindow);
+    }
+
+    /**
+     * Whether this MV keeps a MIN/MAX top-K state, i.e. it is an aggregate MV containing MIN or MAX
+     * that IVM normalized. The state lives in hidden columns named after its state key, so the MV's
+     * own schema answers the question without re-analyzing the query; a detail MV and an aggregate
+     * MV without MIN/MAX have none of them.
+     */
+    private boolean keepsMinMaxTopKState() {
+        for (Column column : getColumns()) {
+            if (IvmUtil.isIvmMinMaxTopKStateColumn(column.getName(), IvmAggStateKey.MIN_TOPK.name())
+                    || IvmUtil.isIvmMinMaxTopKStateColumn(column.getName(),
+                            IvmAggStateKey.MAX_TOPK.name())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

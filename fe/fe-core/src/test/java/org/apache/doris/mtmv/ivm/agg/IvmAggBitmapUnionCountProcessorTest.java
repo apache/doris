@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv.ivm.agg;
 
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
@@ -40,7 +41,7 @@ class IvmAggBitmapUnionCountProcessorTest extends IvmAggProcessorTestBase {
         Assertions.assertTrue(processor.supportsOriginalFunction(new BitmapUnionCount(bitmap)));
         Assertions.assertEquals(IvmAggFunctionKind.BITMAP_UNION_COUNT, processor.handledFunctionKind());
         Assertions.assertEquals(ImmutableList.of(IvmAggStateKey.BITMAP_UNION),
-                processor.hiddenStateKeys(new BitmapUnionCount(bitmap)));
+                processor.hiddenStateKeys(new BitmapUnionCount(bitmap), IvmUtil.DEFAULT_MINMAX_TOP_K));
 
         IvmAggTarget target = target(1, IvmAggFunctionKind.BITMAP_UNION_COUNT, "buc", BigIntType.INSTANCE,
                 ImmutableMap.of(IvmAggStateKey.BITMAP_UNION, slot("__ivm_bitmap", BitmapType.INSTANCE)),
