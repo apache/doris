@@ -308,9 +308,22 @@ Status FileScannerV2::init(RuntimeState* state, const VExprContextSPtrs& conjunc
     return Status::OK();
 }
 
+Status FileScannerV2::_append_current_file_path(Status status) {
+    // A multi-file scan may fail while preparing or refreshing its next file, before reading a
+    // block. Add the selected path once at the scanner boundary without replacing reader context.
+    if (!status.ok()) {
+        status.append(". cur path: " + get_current_scan_range_name());
+    }
+    return status;
+}
+
 Status FileScannerV2::_open_impl(RuntimeState* state) {
     SCOPED_TIMER(_scanner_total_timer);
     SCOPED_TIMER(_open_timer);
+    return _append_current_file_path(_open_wrapped(state));
+}
+
+Status FileScannerV2::_open_wrapped(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(Scanner::_open_impl(state));
     RETURN_IF_ERROR(_get_next_scan_range(&_first_scan_range));
@@ -342,6 +355,12 @@ Status FileScannerV2::_get_next_scan_range(bool* has_next) {
 Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
     SCOPED_TIMER(_scanner_total_timer);
     SCOPED_TIMER(_get_block_timer);
+    return _append_current_file_path(_get_block_wrapped(state, block, eof));
+}
+
+// Keep split skip/retry/EOF transitions together; the outer wrapper only adds error context.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+Status FileScannerV2::_get_block_wrapped(RuntimeState* state, Block* block, bool* eof) {
     while (true) {
         RETURN_IF_CANCELLED(state);
         if (!_has_prepared_split) {
@@ -403,8 +422,8 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
 }
 
 Status FileScannerV2::_filter_output_block(Block* block) {
-    return _contextualize_output_filter_status(Scanner::_filter_output_block(block),
-                                               _get_current_format_type());
+    return _append_current_file_path(_contextualize_output_filter_status(
+            Scanner::_filter_output_block(block), _get_current_format_type()));
 }
 
 bool FileScannerV2::_can_merge_padding_blocks(const Block& /*left*/, const Block& /*right*/) const {
@@ -437,7 +456,6 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
             return Status::OK();
         }
         DORIS_CHECK(_table_reader != nullptr);
-        _current_range_path = _current_range.path;
 
         const auto format_type = get_range_format_type(*_params, _current_range);
         _init_adaptive_batch_size_state(format_type);
@@ -535,6 +553,15 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
 Status FileScannerV2::read_by_rows(const TFileRangeDesc& range, const std::list<int64_t>& row_ids,
                                    Block* result_block, int64_t* init_reader_ms,
                                    int64_t* get_block_ms) {
+    return _append_current_file_path(
+            _read_by_rows_wrapped(range, row_ids, result_block, init_reader_ms, get_block_ms));
+}
+
+// Keep timed initialization, row-id materialization, and reader cleanup in the same path.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+Status FileScannerV2::_read_by_rows_wrapped(const TFileRangeDesc& range,
+                                            const std::list<int64_t>& row_ids, Block* result_block,
+                                            int64_t* init_reader_ms, int64_t* get_block_ms) {
     DORIS_CHECK(result_block != nullptr);
     DORIS_CHECK(init_reader_ms != nullptr);
     DORIS_CHECK(get_block_ms != nullptr);

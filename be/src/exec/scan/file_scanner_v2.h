@@ -122,7 +122,8 @@ public:
     Status close(RuntimeState* state) override;
     void try_stop() override;
     std::string get_name() override { return FileScannerV2::NAME; }
-    std::string get_current_scan_range_name() override { return _current_range_path; }
+    // A selected range can fail validation before prepare_split() starts.
+    std::string get_current_scan_range_name() override { return _current_range.path; }
     void update_realtime_counters() override;
 
 protected:
@@ -133,6 +134,12 @@ protected:
     bool _should_update_load_counters() const override;
 
 private:
+    Status _append_current_file_path(Status status);
+    Status _open_wrapped(RuntimeState* state);
+    Status _get_block_wrapped(RuntimeState* state, Block* block, bool* eof);
+    Status _read_by_rows_wrapped(const TFileRangeDesc& range, const std::list<int64_t>& row_ids,
+                                 Block* result_block, int64_t* init_reader_ms,
+                                 int64_t* get_block_ms);
     Status _get_next_scan_range(bool* has_next);
     TFileFormatType::type _get_current_format_type() const;
     Status _init_io_ctx();
@@ -191,7 +198,6 @@ private:
     bool _has_prepared_split = false;
     int _table_reader_rf_num = 0;
     TFileRangeDesc _current_range;
-    std::string _current_range_path;
 
     std::unique_ptr<format::TableReader> _table_reader;
     std::vector<format::ColumnDefinition> _projected_columns;

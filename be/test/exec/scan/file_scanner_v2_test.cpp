@@ -143,6 +143,162 @@ public:
     size_t partition_prune_conjunct_count = 0;
 };
 
+class ErrorContextTableReader final : public format::TableReader {
+public:
+    Status prepare_split(const format::SplitReadOptions&) override { return prepare_status; }
+    Status refresh_conjuncts(VExprContextSPtrs) override { return refresh_status; }
+    Status get_block(Block*, bool* eof) override {
+        *eof = false;
+        return read_status;
+    }
+
+    Status prepare_status;
+    Status refresh_status;
+    Status read_status;
+};
+
+TEST(FileScannerV2Test, ReaderErrorsRetainCurrentPathAndOrcContext) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("file_error_context");
+    TFileScanRangeParams params;
+    auto reader = std::make_unique<ErrorContextTableReader>();
+    auto* errors = reader.get();
+    FileScannerV2 scanner(&state, &profile, std::move(reader));
+    scanner._params = &params;
+    scanner._io_ctx = std::make_shared<io::IOContext>();
+    scanner._has_prepared_split = true;
+    Block block;
+    bool eof = false;
+    for (const auto format : {TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_ORC}) {
+        params.__set_format_type(format);
+        const std::string reason = format == TFileFormatType::FORMAT_ORC
+                                           ? "Orc row reader nextBatch failed. reason = bad data"
+                                           : "bad data";
+        errors->read_status = Status::InvalidArgument(reason);
+        for (const auto* path : {"s3://test-bucket/first.data", "s3://test-bucket/second.data"}) {
+            scanner._current_range.__set_path(path);
+            auto status = scanner._get_block_impl(&state, &block, &eof);
+            EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);
+            EXPECT_NE(status.to_string().find(reason), std::string::npos) << status;
+            EXPECT_NE(status.to_string().find(std::string(". cur path: ") + path),
+                      std::string::npos)
+                    << status;
+            EXPECT_FALSE(eof);
+        }
+    }
+    errors->read_status = Status::OK();
+    EXPECT_TRUE(scanner._get_block_impl(&state, &block, &eof).ok());
+}
+
+TEST(FileScannerV2Test, RefreshErrorsRetainCurrentPath) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("refresh_error_context");
+    TFileScanRangeParams params;
+    auto reader = std::make_unique<ErrorContextTableReader>();
+    reader->refresh_status = Status::InvalidArgument("injected refresh failure");
+    FileScannerV2 scanner(&state, &profile, std::move(reader));
+    scanner._params = &params;
+    scanner._has_prepared_split = true;
+    scanner._applied_rf_num = 1;
+    scanner._current_range.__set_path("s3://test-bucket/refresh.parquet");
+    Block block;
+    bool eof = false;
+    const auto status = scanner._get_block_impl(&state, &block, &eof);
+    EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);
+    EXPECT_NE(status.to_string().find("injected refresh failure"), std::string::npos) << status;
+    EXPECT_NE(status.to_string().find(". cur path: s3://test-bucket/refresh.parquet"),
+              std::string::npos)
+            << status;
+}
+
+TEST(FileScannerV2Test, OpenErrorsNameSelectedRangeBeforePreparingReader) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("open_error_context");
+    TFileScanRangeParams params;
+    TScanRangeParams split;
+    auto range = range_with_format("", TFileFormatType::FORMAT_AVRO);
+    range.__set_path("s3://test-bucket/unsupported.avro");
+    split.scan_range.ext_scan_range.file_scan_range.ranges.push_back(range);
+    FileScannerV2 scanner(&state, &profile, nullptr);
+    scanner._params = &params;
+    scanner._split_source =
+            std::make_shared<LocalSplitSourceConnector>(std::vector<TScanRangeParams> {split}, 1);
+    const auto status = scanner._open_impl(&state);
+    EXPECT_EQ(status.code(), ErrorCode::NOT_IMPLEMENTED_ERROR);
+    EXPECT_NE(status.to_string().find("Avro file reads"), std::string::npos) << status;
+    EXPECT_NE(status.to_string().find(". cur path: s3://test-bucket/unsupported.avro"),
+              std::string::npos)
+            << status;
+    EXPECT_EQ(scanner.get_current_scan_range_name(), range.path);
+}
+
+TEST(FileScannerV2Test, PrepareErrorsNameNextFileInsteadOfPreviousFile) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("prepare_error_context");
+    ObjectPool pool;
+    TDescriptorTable thrift_descriptors;
+    TTupleDescriptor tuple;
+    tuple.__set_id(0);
+    thrift_descriptors.tupleDescriptors.push_back(tuple);
+    DescriptorTbl* descriptors = nullptr;
+    ASSERT_TRUE(DescriptorTbl::create(&pool, thrift_descriptors, &descriptors).ok());
+    TPlanNode plan;
+    plan.__set_node_id(0);
+    plan.__set_node_type(TPlanNodeType::FILE_SCAN_NODE);
+    plan.__set_limit(-1);
+    plan.__set_row_tuples({0});
+    TFileScanNode scan;
+    scan.__set_tuple_id(0);
+    plan.__set_file_scan_node(scan);
+    FileScanOperatorX parent(&pool, plan, 0, *descriptors, 1);
+    FileScanLocalState local_state(&state, &parent);
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_WAL);
+    auto reader = std::make_unique<ErrorContextTableReader>();
+    reader->prepare_status = Status::InvalidArgument("injected prepare failure");
+    FileScannerV2 scanner(&state, &profile, std::move(reader));
+    scanner._params = &params;
+    scanner._local_state = &local_state;
+    scanner._io_ctx = std::make_shared<io::IOContext>();
+    scanner._adaptive_batch_predicted_rows_counter =
+            ADD_COUNTER(&profile, "Predicted", TUnit::UNIT);
+    scanner._adaptive_batch_actual_bytes_counter = ADD_COUNTER(&profile, "Actual", TUnit::BYTES);
+    scanner._current_range.__set_path("s3://test-bucket/previous.wal");
+    auto range = range_with_format("", TFileFormatType::FORMAT_WAL);
+    range.__set_path("s3://test-bucket/next.wal");
+    TScanRangeParams split;
+    split.scan_range.ext_scan_range.file_scan_range.ranges.push_back(range);
+    scanner._split_source =
+            std::make_shared<LocalSplitSourceConnector>(std::vector<TScanRangeParams> {split}, 1);
+    Block block;
+    bool eof = false;
+    const auto status = scanner._get_block_impl(&state, &block, &eof);
+    EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);
+    EXPECT_NE(status.to_string().find("injected prepare failure"), std::string::npos) << status;
+    EXPECT_NE(status.to_string().find(". cur path: s3://test-bucket/next.wal"), std::string::npos)
+            << status;
+    EXPECT_EQ(status.to_string().find("previous.wal"), std::string::npos) << status;
+}
+
+TEST(FileScannerV2Test, RowIdErrorsRetainCurrentPath) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("row_id_error_context");
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_CSV_PLAIN);
+    auto range = range_with_format("", TFileFormatType::FORMAT_CSV_PLAIN);
+    range.__set_path("s3://test-bucket/row-id.csv");
+    FileScannerV2 scanner(&state, &profile, nullptr);
+    scanner._params = &params;
+    Block block;
+    int64_t init_ms = 0;
+    int64_t read_ms = 0;
+    const auto status = scanner.read_by_rows(range, {0}, &block, &init_ms, &read_ms);
+    EXPECT_EQ(status.code(), ErrorCode::NOT_IMPLEMENTED_ERROR);
+    EXPECT_NE(status.to_string().find("row-id fetch supports only"), std::string::npos) << status;
+    EXPECT_NE(status.to_string().find(". cur path: s3://test-bucket/row-id.csv"), std::string::npos)
+            << status;
+}
+
 VExprSPtr slot_ref(int slot_id, int column_id, DataTypePtr type, const std::string& name) {
     return VSlotRef::create_shared(slot_id, column_id, -1, std::move(type), name);
 }
