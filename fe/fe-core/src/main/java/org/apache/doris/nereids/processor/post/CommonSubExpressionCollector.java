@@ -19,6 +19,7 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference.ArrayItemSlot;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
@@ -80,19 +81,62 @@ public class CommonSubExpressionCollector extends ExpressionVisitor<Integer, Boo
 
     private int collectCommonExpressionByDepth(int depth, Expression expr, boolean inLambda) {
         Set<Expression> expressions = getExpressionsFromDepthMap(depth, expressionsByDepth);
-        // An expression that contains a lambda argument cannot be evaluated outside that lambda:
-        // hoisting it into an earlier projection leaves the argument without its binding. The
-        // check must not depend on the inLambda flag -- a lambda nested in another expression can
-        // be visited again from a context that does not carry the flag (for example when the same
-        // subtree appears in two projections), and the extraction then breaks the lambda scope.
+        // An expression that mentions a lambda argument bound outside it cannot be evaluated
+        // outside that lambda: hoisting it into an earlier projection leaves the argument without
+        // its binding. The check must not depend on the inLambda flag -- a lambda nested in another
+        // expression can be visited again from a context that does not carry the flag (for example
+        // when the same subtree appears in two projections), and the extraction then breaks the
+        // lambda scope. An expression that *contains* the whole lambda, such as an array_map with
+        // its lambda, binds its own arguments and stays extractable.
+        // A lambda and its parameter references are not standalone values: only an expression that
+        // contains the whole binding can be hoisted, never the binding pieces themselves.
         if (expressions.contains(expr)
                 && !(expr instanceof WhenClause)
-                && !expr.containsType(ArrayItemSlot.class, ArrayItemReference.class)) {
+                && !(expr instanceof Lambda)
+                && !(expr instanceof ArrayItemReference)
+                && !hasFreeArrayItem(expr)) {
             Set<Expression> commonExpression = getExpressionsFromDepthMap(depth, commonExprByDepth);
             commonExpression.add(expr);
         }
         expressions.add(expr);
         return depth;
+    }
+
+    /**
+     * Whether {@code expr} mentions a lambda argument that no lambda inside {@code expr} binds.
+     *
+     * <p>A lambda binds its parameter references for its body only, so the walk carries the set of
+     * bound argument ids: entering a lambda adds its parameters, and an array item slot is free
+     * when its id is not in that set.
+     */
+    private static boolean hasFreeArrayItem(Expression expr) {
+        return hasFreeArrayItem(expr, new LinkedHashSet<>());
+    }
+
+    private static boolean hasFreeArrayItem(Expression expr, Set<ExprId> bound) {
+        if (expr instanceof Lambda) {
+            Set<ExprId> inner = new LinkedHashSet<>(bound);
+            for (Expression child : expr.children()) {
+                if (child instanceof ArrayItemReference) {
+                    inner.add(((ArrayItemReference) child).getExprId());
+                }
+            }
+            for (Expression child : expr.children()) {
+                if (!(child instanceof ArrayItemReference) && hasFreeArrayItem(child, inner)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (expr instanceof ArrayItemSlot) {
+            return !bound.contains(((ArrayItemSlot) expr).getExprId());
+        }
+        for (Expression child : expr.children()) {
+            if (hasFreeArrayItem(child, bound)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static Set<Expression> getExpressionsFromDepthMap(
