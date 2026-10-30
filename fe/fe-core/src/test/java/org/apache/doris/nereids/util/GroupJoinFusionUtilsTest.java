@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -41,6 +44,9 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -198,5 +204,37 @@ class GroupJoinFusionUtilsTest {
                 .thenReturn(List.of(leftKey, new Alias(guarded, "sum")));
         Assertions.assertNull(
                 GroupJoinFusionUtils.alignedConjunctsForGroupJoin(aggregate, null, join));
+    }
+
+    @Test
+    void testBackendCapabilityGateForMixedVersionCluster() {
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        StatementContext statementContext = Mockito.mock(StatementContext.class);
+        Mockito.when(connectContext.getStatementContext()).thenReturn(statementContext);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(connectContext.getEnv()).thenReturn(env);
+        SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
+        Mockito.when(env.getClusterInfo()).thenReturn(systemInfoService);
+        Mockito.when(systemInfoService.getAllBackendByCurrentCluster(true)).thenReturn(List.of(1L));
+        Backend backend = Mockito.mock(Backend.class);
+        Mockito.when(systemInfoService.getBackend(1L)).thenReturn(backend);
+        Mockito.when(statementContext.hasBeExecVersion()).thenReturn(true);
+
+        // The cluster is still pinned to an exec version that predates GROUP_JOIN_NODE, e.g. an
+        // ordinary rolling upgrade before the operator raises be_exec_version.
+        Mockito.when(statementContext.getBeExecVersion())
+                .thenReturn(Config.GROUP_JOIN_MIN_BE_EXEC_VERSION - 1);
+        Assertions.assertFalse(GroupJoinFusionUtils.isSupportedByCluster(connectContext));
+
+        // New enough exec version and only upgraded backends.
+        Mockito.when(statementContext.getBeExecVersion())
+                .thenReturn(Config.GROUP_JOIN_MIN_BE_EXEC_VERSION);
+        Mockito.when(backend.isSmoothUpgradeSrc()).thenReturn(false);
+        Assertions.assertTrue(GroupJoinFusionUtils.isSupportedByCluster(connectContext));
+
+        // A smooth-upgrade source is the old process of a same-node blue/green upgrade: it is
+        // still query-eligible although the cluster exec version already moved on.
+        Mockito.when(backend.isSmoothUpgradeSrc()).thenReturn(true);
+        Assertions.assertFalse(GroupJoinFusionUtils.isSupportedByCluster(connectContext));
     }
 }
