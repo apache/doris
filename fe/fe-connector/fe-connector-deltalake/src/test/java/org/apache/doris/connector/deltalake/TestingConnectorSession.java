@@ -28,6 +28,7 @@ import java.util.function.Supplier;
 
 final class TestingConnectorSession implements ConnectorSession {
     private final String queryId;
+    private final Map<String, String> properties;
     private final ConnectorStatementScope scope = new ConnectorStatementScope() {
         private final Map<String, Object> values = new HashMap<>();
 
@@ -39,7 +40,12 @@ final class TestingConnectorSession implements ConnectorSession {
     };
 
     TestingConnectorSession(String queryId) {
+        this(queryId, Collections.emptyMap());
+    }
+
+    TestingConnectorSession(String queryId, Map<String, String> properties) {
         this.queryId = queryId;
+        this.properties = Map.copyOf(properties);
     }
 
     @Override
@@ -74,7 +80,7 @@ final class TestingConnectorSession implements ConnectorSession {
 
     @Override
     public <T> T getProperty(String name, Class<T> type) {
-        return null;
+        return type.cast(properties.get(name));
     }
 
     @Override

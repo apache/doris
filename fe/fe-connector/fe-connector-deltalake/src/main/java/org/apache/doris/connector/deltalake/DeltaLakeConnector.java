@@ -25,6 +25,7 @@ import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -56,6 +57,11 @@ final class DeltaLakeConnector implements Connector {
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
         return new DeltaLakeConnectorMetadata(runtime(), properties);
+    }
+
+    @Override
+    public ConnectorScanPlanProvider getScanPlanProvider() {
+        return new DeltaLakeScanPlanProvider(runtime());
     }
 
     private synchronized DeltaLakeRuntime runtime() {

@@ -143,6 +143,12 @@ oceanbase_cdc_port=2883
 enableHiveTest=false
 enablePaimonTest=false
 
+// Delta uses a separate Spark configuration, with Hive 3 HMS and MinIO.
+enableDeltaLakeTest=false
+deltalakeMinioPort=19001
+deltalakeHmsPort=9383
+deltalakeWarehouse="s3a://delta/warehouse"
+
 // port of hive2 docker
 hive2HmsPort=9083
 hive2HdfsPort=8020

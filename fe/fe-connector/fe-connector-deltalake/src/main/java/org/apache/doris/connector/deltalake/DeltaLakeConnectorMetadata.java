@@ -20,6 +20,7 @@ package org.apache.doris.connector.deltalake;
 
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.DorisConnectorException;
@@ -27,6 +28,7 @@ import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.NamedColumnHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -39,6 +41,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
     private static final String TABLE_ID = "deltalake.table-id";
@@ -98,6 +101,39 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
             columns.put(column.getName(), new NamedColumnHandle(column.getName()));
         }
         return columns;
+    }
+
+    @Override
+    public List<String> listPartitionNames(ConnectorSession session, ConnectorTableHandle handle) {
+        return listPartitions(session, handle, Optional.empty()).stream()
+                .map(ConnectorPartitionInfo::getPartitionName).collect(Collectors.toList());
+    }
+
+    @Override
+    public List<ConnectorPartitionInfo> listPartitions(ConnectorSession session, ConnectorTableHandle handle,
+            Optional<ConnectorExpression> filter) {
+        return runtime.execute(() -> {
+            Snapshot snapshot = ((DeltaLakeTableHandle) handle).snapshot(runtime.engine);
+            if (snapshot.getPartitionColumnNames().isEmpty()) {
+                return Collections.emptyList();
+            }
+            Map<String, ConnectorPartitionInfo> partitions = new LinkedHashMap<>();
+            DeltaLakeScanFiles.forEach(snapshot, runtime.engine, false, row -> {
+                Map<String, String> values = DeltaLakePartitionValues.normalize(
+                        snapshot, DeltaKernelCompat.partitionValues(row));
+                String name = DeltaLakePartitionValues.partitionName(values);
+                partitions.computeIfAbsent(name, ignored -> new ConnectorPartitionInfo(name, values,
+                        Collections.emptyMap(), values.values().stream().map(value -> value == null ? "" : value)
+                                .collect(Collectors.toList()),
+                        values.values().stream().map(value -> value == null).collect(Collectors.toList())));
+            });
+            return List.copyOf(partitions.values());
+        });
+    }
+
+    @Override
+    public boolean listsPartitionsAtSnapshot(ConnectorSession session, ConnectorTableHandle handle) {
+        return true;
     }
 
     @Override

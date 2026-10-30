@@ -1,0 +1,172 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.connector.deltalake;
+
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorPartitionInfo;
+import org.apache.doris.connector.spi.ConnectorStorageContext;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
+import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
+import org.apache.doris.thrift.TDeltaLakeDeletionVectorDesc;
+import org.apache.doris.thrift.TDeltaLakeFileDesc;
+import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TTableFormatFileDesc;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.delta.kernel.types.LongType;
+import io.delta.kernel.types.StringType;
+import io.delta.kernel.types.StructType;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
+
+class DeltaLakeScanPlanProviderTest {
+    @TempDir
+    Path warehouse;
+
+    @Test
+    void splitsByteRangesAndKeepsPartitionsAndFilesOnThePinnedVersion() throws Exception {
+        createTable();
+        appendFile(0, "s3a://bucket/first.parquet", "a/b", 257);
+        appendFile(0, "s3a://bucket/null.parquet", null, 25);
+        appendFile(0, "s3a://bucket/sentinel.parquet", "__HIVE_DEFAULT_PARTITION__", 25);
+        TestingConnectorSession session = new TestingConnectorSession("first", Map.of("file_split_size", "128"));
+        try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(session)) {
+            ConnectorTableHandle handle = metadata.getTableHandle(session, "db", "table").orElseThrow();
+            appendFile(1, "s3a://bucket/later.parquet", "later", 25);
+            List<ConnectorPartitionInfo> partitions = metadata.listPartitions(session, handle, Optional.empty());
+            Assertions.assertEquals(3, partitions.size());
+            Assertions.assertEquals(3, partitions.stream().map(ConnectorPartitionInfo::getPartitionName)
+                    .distinct().count());
+            Assertions.assertEquals(1, partitions.stream()
+                    .filter(partition -> partition.getPartitionValueNullFlags().get(0)).count());
+            ConnectorScanPlanProvider planner = connector.getScanPlanProvider();
+            List<ConnectorScanRange> ranges = planner.planScan(session, request(handle).build());
+            Assertions.assertEquals(5, ranges.size());
+            Assertions.assertEquals(307, ranges.stream().mapToLong(ConnectorScanRange::getLength).sum());
+            List<ConnectorScanRange> first = ranges.stream()
+                    .filter(range -> range.getPath().orElseThrow().equals("s3://bucket/first.parquet"))
+                    .collect(Collectors.toList());
+            Assertions.assertEquals(Arrays.asList(0L, 128L, 256L),
+                    first.stream().map(ConnectorScanRange::getStart).collect(Collectors.toList()));
+            Assertions.assertEquals(3, planner.scannedPartitionCount(ranges).orElseThrow());
+            Assertions.assertEquals(3, planner.planScan(session, request(handle)
+                    .requiredPartitions(Collections.singletonList("p=a%2Fb")).build()).size());
+            Assertions.assertTrue(planner.planScan(session, request(handle).partitionsPrunedToEmpty(true).build())
+                    .isEmpty());
+            Map<String, String> properties = planner.getScanNodeProperties(session, handle,
+                    Collections.emptyList(), Optional.empty());
+            Assertions.assertEquals("parquet", properties.get(ScanNodePropertyKeys.FILE_FORMAT_TYPE));
+            Assertions.assertEquals("p", properties.get(ScanNodePropertyKeys.PATH_PARTITION_KEYS));
+            Assertions.assertEquals("test-key", properties.get(ScanNodePropertyKeys.LOCATION_PREFIX + "AWS_ACCESS_KEY"));
+            TestingConnectorSession next = new TestingConnectorSession("next");
+            ConnectorTableHandle latest = metadata.getTableHandle(next, "db", "table").orElseThrow();
+            Assertions.assertEquals(4, metadata.listPartitions(next, latest, Optional.empty()).size());
+        }
+    }
+
+    @Test
+    void emptyTableReturnsNoSplitsAndInvalidFilesFailPlanning() throws Exception {
+        createTable();
+        try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(null)) {
+            ConnectorTableHandle empty = metadata.getTableHandle(null, "db", "table").orElseThrow();
+            Assertions.assertTrue(connector.getScanPlanProvider().planScan(null, request(empty).build()).isEmpty());
+            appendFile(1, "broken.parquet", "a", 0);
+            ConnectorTableHandle invalid = metadata.getTableHandle(null, "db", "table").orElseThrow();
+            Assertions.assertThrows(DorisConnectorException.class,
+                    () -> connector.getScanPlanProvider().planScan(null, request(invalid).build()));
+        }
+    }
+
+    @Test
+    void rangeThriftKeepsNullEmptyAndSentinelValuesDistinctAndOwnsItsDescriptor() {
+        TDeltaLakeFileDesc descriptor = new TDeltaLakeFileDesc();
+        descriptor.setDeletionVector(new TDeltaLakeDeletionVectorDesc().setSizeInBytes(12).setCardinality(1)
+                .setInlineData(new byte[] {1, 2, 3}));
+        for (String value : Arrays.asList(null, "", "__HIVE_DEFAULT_PARTITION__")) {
+            DeltaLakeScanRange range = new DeltaLakeScanRange("s3://bucket/data.parquet", 0, 10, 10, 1, 128,
+                    Collections.singletonMap("p", value), descriptor);
+            TFileRangeDesc file = new TFileRangeDesc();
+            file.setColumnsFromPath(Collections.singletonList("wrong generic path value"));
+            TTableFormatFileDesc format = new TTableFormatFileDesc();
+            range.populateRangeParams(format, file);
+            Assertions.assertEquals(TFileFormatType.FORMAT_PARQUET, file.getFormatType());
+            Assertions.assertEquals(Collections.singletonList("p"), file.getColumnsFromPathKeys());
+            Assertions.assertEquals(Collections.singletonList(value == null ? "" : value), file.getColumnsFromPath());
+            Assertions.assertEquals(Collections.singletonList(value == null), file.getColumnsFromPathIsNull());
+            Assertions.assertFalse(format.getDeltalakeParams().isSetSchemaId());
+            format.getDeltalakeParams().getDeletionVector().setCardinality(999);
+            range.populateRangeParams(format, file);
+            Assertions.assertEquals(1, format.getDeltalakeParams().getDeletionVector().getCardinality());
+        }
+    }
+
+    private void createTable() throws Exception {
+        DeltaLakeTestTables.commit(warehouse.resolve("db/table"), 0, "table-id",
+                new StructType().add("id", LongType.LONG).add("p", StringType.STRING),
+                Collections.singletonList("p"));
+    }
+
+    private void appendFile(long version, String path, String partition, long size) throws Exception {
+        String action = new ObjectMapper().writeValueAsString(Map.of("add", Map.of("path", path, "size", size,
+                "partitionValues", Collections.singletonMap("p", partition),
+                "modificationTime", 1L, "dataChange", true)));
+        Files.writeString(warehouse.resolve("db/table/_delta_log").resolve(String.format("%020d.json", version)),
+                action + "\n", StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+    }
+
+    private static ConnectorScanRequest.Builder request(ConnectorTableHandle handle) {
+        return ConnectorScanRequest.builder(handle, Collections.emptyList());
+    }
+
+    private Connector connector() {
+        return new DeltaLakeConnectorProvider().create(Collections.singletonMap("warehouse", warehouse.toString()),
+                new RecordingConnectorContext() {
+                    @Override
+                    public ConnectorStorageContext getStorageContext() {
+                        return new ConnectorStorageContext() {
+                            @Override
+                            public String normalizeStorageUri(String uri) {
+                                return uri.replace("s3a://", "s3://");
+                            }
+
+                            @Override
+                            public Map<String, String> getBackendStorageProperties() {
+                                return Map.of("AWS_ACCESS_KEY", "test-key");
+                            }
+                        };
+                    }
+                });
+    }
+}
