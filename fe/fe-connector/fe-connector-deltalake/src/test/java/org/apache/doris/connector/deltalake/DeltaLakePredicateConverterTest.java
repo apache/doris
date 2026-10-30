@@ -40,9 +40,11 @@ import io.delta.kernel.types.IntegerType;
 import io.delta.kernel.types.LongType;
 import io.delta.kernel.types.ShortType;
 import io.delta.kernel.types.StringType;
+import io.delta.kernel.types.StructField;
 import io.delta.kernel.types.StructType;
 import io.delta.kernel.types.TimestampNTZType;
 import io.delta.kernel.types.TimestampType;
+import io.delta.kernel.types.TypeChange;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -139,5 +141,22 @@ class DeltaLakePredicateConverterTest {
                 ConnectorLiteral.ofDatetime(epoch)).getValue());
         Assertions.assertEquals(-1L, converter.literal(TimestampNTZType.TIMESTAMP_NTZ,
                 ConnectorLiteral.ofDatetime(epoch.minusNanos(1000))).getValue());
+    }
+
+    @Test
+    void leavesDateToNtzPredicatesResidualBecauseOldStatsUseDateStrings() {
+        StructField field = new StructField("dt", TimestampNTZType.TIMESTAMP_NTZ, true)
+                .withTypeChanges(List.of(new TypeChange(DateType.DATE, TimestampNTZType.TIMESTAMP_NTZ)));
+        DeltaLakePredicateConverter widening = new DeltaLakePredicateConverter(
+                new StructType().add(field).add("MiXeD", LongType.LONG), ZoneId.of("UTC"));
+        ConnectorExpression date = new ConnectorComparison(ConnectorComparison.Operator.GT,
+                new ConnectorColumnRef("dt", ConnectorType.of("DATETIMEV2", 6, 0)),
+                ConnectorLiteral.ofDatetime(LocalDateTime.of(2024, 2, 29, 0, 0)));
+        ConnectorExpression integer = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                column, ConnectorLiteral.ofLong(1));
+        Assertions.assertTrue(widening.convert(date).isEmpty());
+        Assertions.assertEquals(widening.convert(integer).orElseThrow().toString(),
+                widening.convert(new ConnectorAnd(List.of(date, integer))).orElseThrow().toString());
+        Assertions.assertTrue(widening.convert(new ConnectorOr(List.of(date, integer))).isEmpty());
     }
 }
