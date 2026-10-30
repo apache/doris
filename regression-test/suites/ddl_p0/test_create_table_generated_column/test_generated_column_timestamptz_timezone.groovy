@@ -102,6 +102,41 @@ suite("test_generated_column_timestamptz_timezone","ddl") {
         exception "time-zone sensitive"
     }
 
+    // IS (NOT) NULL only reads the null-ness of its operand, so a nullable CASE built from a zone-sensitive
+    // expression is zone dependent too: the same instants make the condition true in one write session and
+    // false in another. Must be rejected.
+    test {
+        sql """
+        create table gencol_case_is_null(
+            id int,
+            ts TIMESTAMPTZ(6),
+            ts2 TIMESTAMPTZ(6),
+            broken BOOLEAN generated always as (
+                (case when date_trunc(ts, 'day') = ts2 then null else 1 end) is null) not null
+        )
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_num" = "1");
+        """
+        exception "time-zone sensitive"
+    }
+
+    // A struct cast is compared leaf by leaf: keeping one TIMESTAMPTZ field while rendering another into a
+    // zone-free representation still depends on the write session zone. Must be rejected.
+    test {
+        sql """
+        create table gencol_struct_mixed(
+            id int,
+            s struct<a: TIMESTAMPTZ(6), b: TIMESTAMPTZ(6)>,
+            g struct<a: TIMESTAMPTZ(6), b: STRING> generated always as (s) not null
+        )
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_num" = "1");
+        """
+        exception "time-zone sensitive"
+    }
+
     // A TIMESTAMPTZ generated column that stores the instant directly (no rendering) is zone-invariant.
     sql "DROP TABLE IF EXISTS gencol_copy_ts"
     sql """

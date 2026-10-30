@@ -59,6 +59,30 @@ public class MTMVCacheManagerTest {
         Assertions.assertEquals(0L, manager.size());
     }
 
+    /**
+     * A refresh invalidates an MV by dropping the (at most) four guard-mask entries it can be published
+     * under and must not touch any other MV's entries: this runs on every successful refresh while holding
+     * the MV write lock, so it has to be constant work per MV instead of a scan over the shared cache.
+     */
+    @Test
+    public void testInvalidateDropsAllGuardMasksOfOneMvOnly() {
+        MTMVCacheManager manager = new MTMVCacheManager();
+        int[] masks = {0, 1, 2, 1 | 2};
+        for (int mask : masks) {
+            manager.put(1L, mask, Mockito.mock(MTMVCache.class));
+            manager.put(2L, mask, Mockito.mock(MTMVCache.class));
+        }
+        Assertions.assertEquals(8L, manager.size());
+
+        manager.invalidate(1L);
+
+        for (int mask : masks) {
+            Assertions.assertNull(manager.getIfPresent(1L, mask));
+            Assertions.assertNotNull(manager.getIfPresent(2L, mask));
+        }
+        Assertions.assertEquals(4L, manager.size());
+    }
+
     @Test
     public void testPutRejectsNull() {
         MTMVCacheManager manager = new MTMVCacheManager();

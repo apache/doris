@@ -20,11 +20,13 @@ package org.apache.doris.mtmv;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase.DefaultConfHandler;
+import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 
 import java.lang.reflect.Field;
 import java.time.Duration;
@@ -39,6 +41,20 @@ import java.util.stream.Collectors;
  */
 public class MTMVCacheManager {
 
+    /**
+     * The guard masks a cache entry can be published under: the four combinations of the two session-variable
+     * dependency families (see {@link SessionVarGuardRewriter#GUARD_NONE}, {@link
+     * SessionVarGuardRewriter#GUARD_TIME_ZONE} and {@link SessionVarGuardRewriter#GUARD_OTHER}). Both
+     * production writers - the lazy query path in {@code MTMV#getOrGenerateCache} and the refresh path in
+     * {@code MTMV#addTaskResult} - only publish these, so invalidating them directly is constant per MV.
+     */
+    private static final int[] GUARD_MASKS = {
+            SessionVarGuardRewriter.GUARD_NONE,
+            SessionVarGuardRewriter.GUARD_TIME_ZONE,
+            SessionVarGuardRewriter.GUARD_OTHER,
+            SessionVarGuardRewriter.GUARD_TIME_ZONE | SessionVarGuardRewriter.GUARD_OTHER,
+    };
+
     private final Object swapLock = new Object();
     private volatile Cache<Key, MTMVCache> caches;
 
@@ -52,15 +68,34 @@ public class MTMVCacheManager {
 
     public void put(long mtmvId, int guardMask, MTMVCache cache) {
         Objects.requireNonNull(cache, "mtmv cache to publish must not be null");
+        // invalidate() drops exactly GUARD_MASKS, so an entry published under any other mask could never be
+        // invalidated. Assert the invariant at the only publish entry point instead of scanning the cache.
+        Preconditions.checkArgument(isInvalidatableGuardMask(guardMask),
+                "unexpected mtmv cache guard mask %s", guardMask);
         synchronized (swapLock) {
             caches.put(new Key(mtmvId, guardMask), cache);
         }
     }
 
+    private static boolean isInvalidatableGuardMask(int guardMask) {
+        for (int mask : GUARD_MASKS) {
+            if (mask == guardMask) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public void invalidate(long mtmvId) {
         synchronized (swapLock) {
-            // Every guard mask is an independent entry for the same MV, so drop them all.
-            caches.asMap().keySet().removeIf(key -> key.mtmvId == mtmvId);
+            // Every guard mask is an independent entry for the same MV, so drop them all. Invalidate the
+            // known masks directly: this runs on every successful refresh while holding the MV write lock
+            // (and under swapLock, which also serializes all publishes), so scanning the key set - i.e.
+            // visiting every cached MV to remove at most four entries - would make refreshing the fleet
+            // O(N^2) and stall unrelated publications for no reason.
+            for (int guardMask : GUARD_MASKS) {
+                caches.invalidate(new Key(mtmvId, guardMask));
+            }
         }
     }
 
