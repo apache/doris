@@ -526,6 +526,10 @@ std::string TableColumnMapper::debug_string() const {
     return out.str();
 }
 
+// Defined with the mapping-shape helpers below. Whole-root shortcuts must use the same
+// missing-child contract as the generic slot rewrite.
+static bool mapping_slot_has_unmapped_child(const ColumnMapping& mapping);
+
 static const FileSlotRewriteInfo* find_slot_rewrite_info(
         const VExprSPtr& expr,
         const std::map<GlobalIndex, FileSlotRewriteInfo>& global_to_file_slot,
@@ -535,7 +539,7 @@ static const FileSlotRewriteInfo* find_slot_rewrite_info(
     }
     VExprSPtr slot_expr = expr;
     const bool input_is_cast = is_cast_expr(expr) && expr->get_num_children() == 1;
-    if (is_cast_expr(expr) && expr->get_num_children() == 1) {
+    if (input_is_cast) {
         slot_expr = expr->children()[0];
     }
     if (!slot_expr->is_slot_ref()) {
@@ -547,6 +551,13 @@ static const FileSlotRewriteInfo* find_slot_rewrite_info(
         return nullptr;
     }
     if (input_is_cast && !expr->data_type()->equals(*rewrite_it->second.table_type)) {
+        return nullptr;
+    }
+    DORIS_CHECK(rewrite_it->second.root_mapping != nullptr);
+    if (mapping_slot_has_unmapped_child(*rewrite_it->second.root_mapping)) {
+        // A file slot with missing descendants is not the finalized table value. Let the generic
+        // slot rewrite retain the predicate above TableReader, including binary/IN and cast
+        // shortcuts that would otherwise return before visiting the slot.
         return nullptr;
     }
     if (slot_ref != nullptr) {
@@ -1243,10 +1254,6 @@ static bool rewrite_in_struct_literal_predicate(
     return true;
 }
 
-// Defined with the other mapping-shape helpers below; needed when rewriting table expressions to
-// file-local expressions (a slot with unmapped children cannot stand in for the table value).
-static bool mapping_slot_has_unmapped_child(const ColumnMapping& mapping);
-
 static VExprSPtr rewrite_struct_or_slot_expr_to_file_expr(
         const VExprSPtr& expr,
         const std::map<GlobalIndex, FileSlotRewriteInfo>& global_to_file_slot,
@@ -1360,25 +1367,19 @@ static VExprSPtr rewrite_table_expr_to_file_expr(
     // inserted Cast(slot). Keep that rewrite idempotent: rewrite the cast child from table slot to
     // the current split's file slot, and drop the cast when the current split no longer needs it.
     if (is_cast_expr(expr) && expr->get_num_children() == 1) {
-        const auto& child = expr->children()[0];
-        if (child->is_slot_ref()) {
-            const auto* slot_ref = assert_cast<const VSlotRef*>(child.get());
-            const auto rewrite_it = global_to_file_slot.find(slot_ref_global_index(*slot_ref));
-            if (rewrite_it != global_to_file_slot.end() &&
-                expr->data_type()->equals(*rewrite_it->second.table_type)) {
-                auto rewritten_child =
-                        create_file_slot_ref(*slot_ref, rewrite_it->second, rewrite_context);
-                if (rewrite_it->second.file_type->equals(*rewrite_it->second.table_type)) {
-                    return rewritten_child;
-                }
-                if (needs_complex_file_slot_cast(rewrite_it->second.file_type,
-                                                 rewrite_it->second.table_type)) {
-                    *can_localize = false;
-                    return expr;
-                }
-                expr->set_children({std::move(rewritten_child)});
+        const VSlotRef* slot_ref = nullptr;
+        const auto* rewrite_info = find_slot_rewrite_info(expr, global_to_file_slot, &slot_ref);
+        if (rewrite_info != nullptr) {
+            auto rewritten_child = create_file_slot_ref(*slot_ref, *rewrite_info, rewrite_context);
+            if (rewrite_info->file_type->equals(*rewrite_info->table_type)) {
+                return rewritten_child;
+            }
+            if (needs_complex_file_slot_cast(rewrite_info->file_type, rewrite_info->table_type)) {
+                *can_localize = false;
                 return expr;
             }
+            expr->set_children({std::move(rewritten_child)});
+            return expr;
         }
     }
 
