@@ -352,16 +352,21 @@ public class PluginDrivenSysExternalTable extends PluginDrivenExternalTable {
         if (connector == null) {
             return Optional.empty();
         }
-        ConnectorSession session = pluginCatalog.buildConnectorSession();
-        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
-        Optional<ConnectorTableHandle> sysHandle = resolveConnectorTableHandle(session, metadata);
-        if (!sysHandle.isPresent()) {
-            return Optional.empty();
+        ConnectorSession session = buildSchemaSession(pluginCatalog);
+        try {
+            ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+            MetadataRead read = observeConnectorMetadata(session, metadata);
+            Optional<ConnectorTableHandle> sysHandle = resolveConnectorTableHandle(session, metadata);
+            if (!sysHandle.isPresent()) {
+                return Optional.empty();
+            }
+            String dbName = db != null ? db.getRemoteName() : "";
+            ConnectorTableSchema schema = read.execute(
+                    () -> metadata.getTableSchema(session, sysHandle.get(), connectorSnapshot));
+            return Optional.of(toSchemaCacheValue(metadata, session, dbName, getRemoteName(), schema));
+        } finally {
+            closeSchemaSession(session);
         }
-        String dbName = db != null ? db.getRemoteName() : "";
-        ConnectorTableSchema schema =
-                metadata.getTableSchema(session, sysHandle.get(), connectorSnapshot);
-        return Optional.of(toSchemaCacheValue(metadata, session, dbName, getRemoteName(), schema));
     }
 
     /**

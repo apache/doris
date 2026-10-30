@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.plugin;
 
+import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
@@ -33,6 +35,7 @@ import org.apache.doris.connector.spi.ConnectorTableNotFoundException;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
@@ -45,7 +48,9 @@ import org.apache.doris.datasource.metacache.ExternalMetaCache;
 import org.apache.doris.datasource.metacache.FeMetaCacheEntry;
 import org.apache.doris.datasource.metacache.IdNameIndex;
 import org.apache.doris.datasource.metacache.NameCacheValue;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
+import org.apache.doris.datasource.mvcc.PluginDrivenMvccSnapshot;
 import org.apache.doris.datasource.scan.PluginDrivenScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -299,6 +304,154 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
                 ConnectorTableNotFoundException.class, old::getShowCreateTableDdl));
         Assertions.assertEquals(1, failure.getSuppressed().length);
         Assertions.assertSame(old, database.getTableNullable(old.getId()));
+    }
+
+    @Test
+    void wideRefreshProtectsReplacementPublishedBeforeItCompletes() throws Exception {
+        verifyLookupRefreshProtectsReplacement(false);
+    }
+
+    @Test
+    void coldTableRefreshProtectsReplacementPublishedBeforeItCompletes() throws Exception {
+        verifyLookupRefreshProtectsReplacement(true);
+    }
+
+    private void verifyLookupRefreshProtectsReplacement(boolean coldTable) throws Exception {
+        catalog.lowerCaseMode = 2;
+        PluginDrivenExternalTable old = warmTarget();
+        if (coldTable) {
+            database.evictTableObjectForTest("a");
+        }
+        database.lookupRefreshPaused = new CountDownLatch(1);
+        database.finishLookupRefresh = new CountDownLatch(1);
+        Mockito.when(metadata.renderShowCreateTableDdl(Mockito.any(), Mockito.any())).thenAnswer(call -> {
+            remoteTables.remove("a");
+            missingStarted.countDown();
+            Assertions.assertTrue(releaseMissing.await(10, TimeUnit.SECONDS));
+            throw new ConnectorTableNotFoundException("db", "a", null);
+        });
+        Future<?> refresh = worker.submit(() -> {
+            new RefreshManager().handleRefreshTable(catalog.getName(), "db", "a");
+            return null;
+        });
+        try {
+            Assertions.assertTrue(database.lookupRefreshPaused.await(10, TimeUnit.SECONDS));
+            PluginDrivenExternalTable replacement = database.getTableNullable("a");
+            Assertions.assertNotSame(old, replacement);
+            Future<?> missing = worker.submit(() -> Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                    replacement::getShowCreateTableDdl));
+            Assertions.assertTrue(missingStarted.await(10, TimeUnit.SECONDS));
+            remoteTables.put("a", "recreated_column");
+            database.finishLookupRefresh.countDown();
+            refresh.get(10, TimeUnit.SECONDS);
+            List<Column> freshSchema = replacement.getFullSchema();
+            Assertions.assertEquals("recreated_column", freshSchema.get(0).getName());
+            remoteCache.put("a", "recreated metadata");
+            int loads = catalog.nameLoads.get();
+            releaseMissing.countDown();
+            missing.get(10, TimeUnit.SECONDS);
+            Assertions.assertSame(replacement, database.getTableNullable(replacement.getId()));
+            Assertions.assertSame(freshSchema, replacement.getFullSchema());
+            Assertions.assertEquals("recreated metadata", remoteCache.get("a"));
+            Assertions.assertEquals(loads, catalog.nameLoads.get());
+        } finally {
+            database.finishLookupRefresh.countDown();
+            releaseMissing.countDown();
+        }
+    }
+
+    @Test
+    void overlappingLookupRefreshesKeepReplacementUnobservable() {
+        PluginDrivenExternalTable table = warmTarget();
+        database.beginTableLookupRefresh();
+        database.beginTableLookupRefresh();
+        Assertions.assertFalse(database.observeTableLookup(table, () -> { }).isPresent());
+        database.endTableLookupRefresh();
+        Assertions.assertFalse(database.observeTableLookup(table, () -> { }).isPresent());
+        database.endTableLookupRefresh();
+        Assertions.assertTrue(database.observeTableLookup(table, () -> { }).isPresent());
+    }
+
+    @Test
+    void failedLookupRefreshReleasesTheDatabaseFence() {
+        warmTarget();
+        failInvalidation = true;
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> new RefreshManager().handleRefreshTable(catalog.getName(), "db", "a"));
+        failInvalidation = false;
+        PluginDrivenExternalTable replacement = database.getTableNullable("a");
+        database.getTableNamesWithLock();
+        Assertions.assertTrue(database.observeTableLookup(replacement, () -> { }).isPresent());
+        remoteTables.remove("a");
+        readMissingHandle(replacement);
+        Assertions.assertNull(database.getTableNullable(replacement.getId()));
+    }
+
+    @Test
+    void pinnedSysSchemaMissingRepairsSourceAndHonorsSessionLifecycle() throws Exception {
+        verifyPinnedSysSchemaMissing(false);
+    }
+
+    @Test
+    void delayedPinnedSysSchemaMissingPreservesRecreatedSource() throws Exception {
+        verifyPinnedSysSchemaMissing(true);
+    }
+
+    private void verifyPinnedSysSchemaMissing(boolean recreate) throws Exception {
+        PluginDrivenExternalTable old = warmTarget();
+        ConnectorMvccSnapshot snapshot = ConnectorMvccSnapshot.builder().snapshotId(1L).build();
+        PluginDrivenMvccSnapshot pin = new PluginDrivenMvccSnapshot(snapshot,
+                Collections.emptyMap(), Collections.emptyMap());
+        AtomicInteger schemaSessionFinished = new AtomicInteger();
+        PluginDrivenSysExternalTable sys = new PluginDrivenSysExternalTable(old, "snapshots") {
+            @Override
+            public Optional<MvccSnapshot> resolveScanPin(Optional<TableSnapshot> tableSnapshot,
+                    Optional<TableScanParams> scanParams) {
+                return Optional.of(pin);
+            }
+
+            @Override
+            protected void closeSchemaSession(ConnectorSession session) {
+                schemaSessionFinished.incrementAndGet();
+                super.closeSchemaSession(session);
+            }
+        };
+        Mockito.when(metadata.getSysTableHandle(Mockito.any(), Mockito.any(), Mockito.anyString()))
+                .thenReturn(Optional.of(new Handle("a$snapshots", "snapshot_id")));
+        Mockito.when(metadata.getTableSchema(Mockito.any(), Mockito.any(), Mockito.eq(snapshot))).thenAnswer(call -> {
+            remoteTables.remove("a");
+            missingStarted.countDown();
+            Assertions.assertTrue(releaseMissing.await(10, TimeUnit.SECONDS));
+            throw new ConnectorTableNotFoundException("db", "a", null);
+        });
+        Future<?> missing = worker.submit(() -> Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                () -> sys.getFullSchemaAt(Optional.empty(), Optional.empty())));
+        try {
+            Assertions.assertTrue(missingStarted.await(10, TimeUnit.SECONDS));
+            PluginDrivenExternalTable replacement = null;
+            List<Column> freshSchema = null;
+            if (recreate) {
+                remoteTables.put("a", "recreated_column");
+                new RefreshManager().handleRefreshTable(catalog.getName(), "db", "a");
+                replacement = database.getTableNullable("a");
+                freshSchema = replacement.getFullSchema();
+                remoteCache.put("a", "recreated metadata");
+            }
+            releaseMissing.countDown();
+            missing.get(10, TimeUnit.SECONDS);
+            Assertions.assertEquals(1, schemaSessionFinished.get());
+            if (recreate) {
+                Assertions.assertSame(replacement, database.getTableNullable(replacement.getId()));
+                Assertions.assertSame(freshSchema, replacement.getFullSchema());
+                Assertions.assertEquals("recreated metadata", remoteCache.get("a"));
+            } else {
+                Assertions.assertNull(database.getTableNullable(old.getId()));
+                Assertions.assertNull(remoteCache.get("a"));
+                Assertions.assertEquals(Set.of("b"), database.getTableNamesWithLock());
+            }
+        } finally {
+            releaseMissing.countDown();
+        }
     }
 
     @Test
@@ -1061,6 +1214,22 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
     }
 
     private class TestDatabase extends ExternalDatabase<PluginDrivenExternalTable> {
+        private CountDownLatch lookupRefreshPaused;
+        private CountDownLatch finishLookupRefresh;
+
+        @Override
+        public void invalidateTableLookup(String tableName) {
+            super.invalidateTableLookup(tableName);
+            if (lookupRefreshPaused != null) {
+                lookupRefreshPaused.countDown();
+                try {
+                    Assertions.assertTrue(finishLookupRefresh.await(10, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    throw new AssertionError(e);
+                }
+            }
+        }
+
         private CountDownLatch numericBuildProgress;
         private CountDownLatch finishNumericBuild;
 
