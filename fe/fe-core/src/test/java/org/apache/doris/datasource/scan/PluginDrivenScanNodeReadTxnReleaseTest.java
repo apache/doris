@@ -17,24 +17,38 @@
 
 package org.apache.doris.datasource.scan;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.connector.ConnectorStatementScopeImpl;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
 import org.apache.doris.datasource.split.SplitAssignment;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QeProcessorImpl;
+import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InOrder;
 import org.mockito.Mockito;
 
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -44,14 +58,86 @@ import java.util.concurrent.atomic.AtomicReference;
  * {@code getSplits} to commit it (releasing the lock) when the query finishes. Without the release the shared
  * read lock leaks for the metastore's lifetime.
  *
- * <p><b>Why this matters:</b> the callback runs on the StmtExecutor thread at query finish, whose TCCL is the
- * fe-core app loader. {@code releaseReadTransaction -> txn.commit -> hmsClient.commitTxn} resolves
+ * <p><b>Why this matters:</b> query-finish cleanup schedules the callback on the cleanup executor after split
+ * producers terminate. {@code releaseReadTransaction -> txn.commit -> hmsClient.commitTxn} resolves
  * metastore/thrift classes by name via the TCCL, so the callback MUST pin the provider's plugin classloader for
  * the duration of the release, else it split-brains against the app loader's duplicate copies (ClassCast /
  * NoClassDef at commit). Each test kills a mutation: (1) dropping the release call / wrong queryId, (2) dropping
  * the TCCL pin, (3) leaking the pin.</p>
  */
 public class PluginDrivenScanNodeReadTxnReleaseTest {
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @ResourceLock("global")
+    public void outerReplanReplacesConnectorScopeWhileOldCleanupOwnsItsResources(boolean holdOldProducer)
+            throws Exception {
+        String oldCloudId = Config.cloud_unique_id;
+        int oldRetryTime = Config.max_query_retry_time;
+        ConnectContext context = new ConnectContext();
+        StmtExecutor executor = Mockito.spy(new StmtExecutor(context, "select 1"));
+        List<ConnectorStatementScopeImpl> scopes = new ArrayList<>();
+        CountDownLatch allMetadataClosed = new CountDownLatch(2);
+        CompletableFuture<Void> oldProducerTermination = new CompletableFuture<>();
+        Mockito.doAnswer(call -> {
+            TUniqueId queryId = call.getArgument(0);
+            context.setQueryId(queryId);
+            ConnectorStatementScopeImpl scope = (ConnectorStatementScopeImpl)
+                    context.getStatementContext().getOrCreateConnectorStatementScope();
+            if (!scopes.isEmpty()) {
+                Assertions.assertNotSame(scopes.get(0), scope);
+                Assertions.assertEquals(holdOldProducer ? 2 : 1, allMetadataClosed.getCount());
+            }
+            scopes.add(scope);
+            CountDownLatch metadataClosed = new CountDownLatch(1);
+            CountDownLatch transactionReleased = new CountDownLatch(1);
+            scope.computeIfAbsent("metadata", () -> (AutoCloseable) () -> {
+                metadataClosed.countDown();
+                allMetadataClosed.countDown();
+            });
+            ConnectorSession session = Mockito.mock(ConnectorSession.class);
+            Mockito.when(session.getQueryId()).thenReturn(DebugUtil.printId(queryId));
+            Mockito.when(session.getStatementScope()).thenReturn(scope);
+            ConnectorScanPlanProvider provider = Mockito.mock(ConnectorScanPlanProvider.class);
+            Mockito.doAnswer(release -> {
+                transactionReleased.countDown();
+                return null;
+            }).when(provider).releaseReadTransaction(DebugUtil.printId(queryId));
+            PluginDrivenScanNode.QueryFinishCleanup cleanup = PluginDrivenScanNode.registerQueryFinishCleanup(session);
+            cleanup.bind(provider);
+            if (scopes.size() == 1 && holdOldProducer) {
+                SplitAssignment assignment = Mockito.mock(SplitAssignment.class);
+                Mockito.when(assignment.getTerminationFuture()).thenReturn(oldProducerTermination);
+                cleanup.waitFor(assignment);
+            }
+            QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
+            if (scopes.size() == 1 && holdOldProducer) {
+                Assertions.assertEquals(1, transactionReleased.getCount());
+                Assertions.assertEquals(1, metadataClosed.getCount());
+            } else {
+                Assertions.assertTrue(transactionReleased.await(5, TimeUnit.SECONDS));
+                Assertions.assertTrue(metadataClosed.await(5, TimeUnit.SECONDS));
+            }
+            if (scopes.size() == 1) {
+                throw new UserException(SystemInfoService.ERROR_E230);
+            }
+            return null;
+        }).when(executor).execute(Mockito.any(TUniqueId.class));
+        try {
+            Config.cloud_unique_id = "connector-scope-replan-test";
+            Config.max_query_retry_time = 1;
+            executor.queryRetry(new TUniqueId(37, 41));
+            Assertions.assertEquals(2, scopes.size());
+            oldProducerTermination.complete(null);
+            Assertions.assertTrue(allMetadataClosed.await(5, TimeUnit.SECONDS));
+        } finally {
+            oldProducerTermination.complete(null);
+            QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
+            context.getStatementContext().resetConnectorStatementScope();
+            Config.cloud_unique_id = oldCloudId;
+            Config.max_query_retry_time = oldRetryTime;
+        }
+    }
 
     @Test
     public void demandCallbackPinsAndRestoresThePluginLoader() throws Exception {
@@ -140,6 +226,47 @@ public class PluginDrivenScanNodeReadTxnReleaseTest {
         InOrder cleanupOrder = Mockito.inOrder(provider, statementScope);
         cleanupOrder.verify(provider).releaseReadTransaction(DebugUtil.printId(queryId));
         cleanupOrder.verify(statementScope).closeAll();
+    }
+
+    @Test
+    public void queryFinishWaitsForProducerClosureBeforeReleasingTransactionsAndMetadata() throws Exception {
+        TUniqueId queryId = new TUniqueId(17L, 30L);
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        ConnectorStatementScopeImpl scope = new ConnectorStatementScopeImpl();
+        ConnectorScanPlanProvider provider = Mockito.mock(ConnectorScanPlanProvider.class);
+        Mockito.when(session.getQueryId()).thenReturn(DebugUtil.printId(queryId));
+        Mockito.when(session.getStatementScope()).thenReturn(scope);
+        AtomicInteger step = new AtomicInteger();
+        CountDownLatch metadataClosed = new CountDownLatch(1);
+        scope.computeIfAbsent("metadata", () -> (AutoCloseable) () -> {
+            Assertions.assertEquals(1, step.getAndIncrement());
+            metadataClosed.countDown();
+        });
+        Mockito.doAnswer(call -> {
+            Assertions.assertEquals(0, step.getAndIncrement());
+            return null;
+        }).when(provider).releaseReadTransaction(DebugUtil.printId(queryId));
+        SplitAssignment assignment = Mockito.mock(SplitAssignment.class);
+        CompletableFuture<Void> terminated = new CompletableFuture<>();
+        Mockito.when(assignment.getTerminationFuture()).thenReturn(terminated);
+        PluginDrivenScanNode.QueryFinishCleanup cleanup = PluginDrivenScanNode.registerQueryFinishCleanup(session);
+        cleanup.bind(provider);
+        cleanup.waitFor(assignment);
+        CompletableFuture<Void> otherScan = new CompletableFuture<>();
+        scope.registerSplitTask(otherScan);
+        Runnable releaseOther = scope.retain();
+        QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
+        scope.closeAll();
+        Assertions.assertEquals(0, step.get());
+        Mockito.verifyNoInteractions(provider);
+        terminated.complete(null);
+        Assertions.assertEquals(0, step.get(), "a shared read transaction still belongs to the other scan");
+        releaseOther.run();
+        otherScan.complete(null);
+        Assertions.assertTrue(metadataClosed.await(5, TimeUnit.SECONDS));
+        Assertions.assertEquals(2, step.get());
+        QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
+        Mockito.verify(provider).releaseReadTransaction(DebugUtil.printId(queryId));
     }
 
     @Test

@@ -73,6 +73,7 @@ public class FileSystemPluginSurfaceTest {
             org.apache.doris.filesystem.auth.GcpCredentialSpec.ProviderType.class,
             org.apache.doris.filesystem.auth.ObjectStorageAuthentication.class,
             ObjFileSystem.class,
+            org.apache.doris.filesystem.FileIterator.class,
             ObjStorage.class,
             org.apache.doris.extension.spi.Plugin.class,
             org.apache.doris.extension.spi.PluginFactory.class,

@@ -37,6 +37,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.Counter;
 import org.apache.doris.common.profile.RuntimeProfile;
 import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.connector.ConnectorStatementScopeImpl;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
@@ -74,6 +75,7 @@ import org.apache.doris.datasource.split.FileSplit;
 import org.apache.doris.datasource.split.PluginDrivenSplit;
 import org.apache.doris.datasource.split.SplitAssignment;
 import org.apache.doris.datasource.split.SplitProducer;
+import org.apache.doris.datasource.split.SplitTaskCleanup;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.PlanNodeId;
@@ -111,6 +113,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -997,9 +1000,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * callback commits it (releasing the lock) when the query finishes. Registered UNCONDITIONALLY for every
      * plugin scan before synchronous or asynchronous split planning — connector-agnostic, since a connector that
      * opens no read transaction inherits the no-op {@link ConnectorScanPlanProvider#releaseReadTransaction}
-     * default and the callback is inert for it. The release runs on the StmtExecutor thread at query finish,
-     * whose TCCL is the fe-core app
-     * loader, so it MUST be pinned to the provider's plugin classloader ({@link #onPluginClassLoader}) or the
+     * default and the callback is inert for it. Query-finish cleanup schedules the release on the cleanup
+     * executor after the statement's split producers terminate. Its TCCL must be pinned to the provider's
+     * plugin classloader ({@link #onPluginClassLoader}) regardless of the calling thread, or the
      * commit's by-name class resolution (metastore/thrift) would split-brain against the app loader's copies.
      * Extracted as a pure function of {@code (scanProvider, queryId)} so the release + TCCL-pin behavior is
      * unit-testable without driving a full {@code getSplits}.
@@ -1023,27 +1026,59 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         private final String queryId;
         private final ConnectorStatementScope statementScope;
         private volatile ConnectorScanPlanProvider scanProvider;
+        private CompletableFuture<Void> termination;
+        private Runnable releaseScope = () -> { };
+        private final AtomicBoolean finished = new AtomicBoolean();
 
         private QueryFinishCleanup(ConnectorSession connectorSession) {
             this.queryId = connectorSession.getQueryId();
             this.statementScope = connectorSession.getStatementScope();
+            if (statementScope instanceof ConnectorStatementScopeImpl) {
+                releaseScope = ((ConnectorStatementScopeImpl) statementScope).retain();
+            }
         }
 
         void bind(ConnectorScanPlanProvider scanProvider) {
             this.scanProvider = scanProvider;
         }
 
+        void waitFor(SplitAssignment assignment) {
+            termination = assignment.getTerminationFuture();
+            if (statementScope instanceof ConnectorStatementScopeImpl) {
+                ((ConnectorStatementScopeImpl) statementScope).registerSplitTask(termination);
+            }
+        }
+
         @Override
         public void run() {
+            if (!finished.compareAndSet(false, true)) {
+                return;
+            }
+            CompletableFuture<Void> allSplits = statementScope instanceof ConnectorStatementScopeImpl
+                    ? ((ConnectorStatementScopeImpl) statementScope).getSplitTerminationFuture() : termination;
+            if (allSplits == null) {
+                release();
+            } else {
+                allSplits.thenRunAsync(this::release, SplitTaskCleanup.executor()).whenComplete((ignored, failure) -> {
+                    if (failure != null) {
+                        LOG.warn("Failed to release split resources for query {}", queryId, failure);
+                    }
+                });
+            }
+        }
+
+        private void release() {
             try {
                 ConnectorScanPlanProvider provider = scanProvider;
                 if (provider != null) {
                     buildReadTransactionReleaseCallback(provider, queryId).run();
                 }
             } finally {
+                releaseScope.run();
                 if (statementScope != ConnectorStatementScope.NONE) {
                     statementScope.closeAll();
                 }
+                scanProvider = null;
             }
         }
     }
@@ -1676,8 +1711,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // its release callback in place. Unconditional and connector-agnostic: a connector that opens no read
         // transaction (every connector except transactional/ACID hive) inherits the no-op
         // releaseReadTransaction default, so this is inert for it (the callback only pins TCCL and calls the
-        // no-op). The callback runs on the StmtExecutor thread at query finish, whose TCCL is the fe-core app
-        // loader, so the release is pinned to the provider's plugin classloader (see the helper). One string:
+        // no-op). Cleanup runs the callback after all statement split producers terminate, with the TCCL
+        // pinned to the provider's plugin classloader (see the helper). One string:
         // connectorSession.getQueryId() == the query-finish registry key == the connector's txnMap key.
         queryFinishCleanup.bind(scanProvider);
 
@@ -1882,7 +1917,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      */
     @Override
     public boolean cannotBeRedispatched() {
-        return plannedSingleUseRange;
+        return plannedSingleUseRange || splitAssignment != null;
     }
 
     /** Capabilities supported by every backend eligible for this scan. */
@@ -2101,6 +2136,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // EXPLAIN also initializes batch scans, but has no BE to drain their bounded queues.
         QeProcessorImpl.INSTANCE.registerQueryFinishCallback(connectorSession.getQueryId(), this::stop);
         QueryFinishCleanup queryFinishCleanup = registerQueryFinishCleanup(connectorSession);
+        queryFinishCleanup.waitFor(splitAssignment);
         try {
             checkSysTableScanConstraints();
         } catch (UserException e) {
@@ -2163,7 +2199,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         pinMvccSnapshot();
         pinRewriteFileScope();
         queryFinishCleanup.bind(resolveScanProvider());
-        return ConnectorScanRequest.builder(currentHandle, columns).filter(remainingFilter).build();
+        return ConnectorScanRequest.builder(currentHandle, columns).filter(remainingFilter)
+                .scanContext(splitAssignment.getScanContext()).build();
     }
 
     private void startSplitProducers(ConnectorScanPlanProvider scanProvider, List<SplitProducer.BatchSource> sources,
@@ -2171,9 +2208,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         AtomicReference<UserException> batchException = new AtomicReference<>(null);
         SubmittedTaskFinalizer profileFinalizer = new SubmittedTaskFinalizer(() -> {
             try {
-                // Whole-scan streaming previously collected profiles only on successful completion;
-                // partition batching also retains partial profiles when a producer fails or is stopped.
-                if (!streamingBatch || splitAssignment.needMoreSplit()) {
+                // Do not start additional connector work once the query has stopped.
+                if (!splitAssignment.isStop()) {
                     List<ConnectorScanProfile> profiles = onPluginClassLoader(scanProvider,
                             () -> scanProvider.collectScanProfiles(connectorSession));
                     writeScanProfilesInto(executionSummary, profiles);
@@ -2191,9 +2227,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             }
         });
 
-        // Admitting the bounded number of lanes does no listing or planning. Each producer
-        // independently suspends on task-queue capacity without occupying a worker.
+        // Admission does no connector I/O and remains owned by the planning thread.
         try {
+            splitAssignment.startEnumeration();
             Executor scheduleExecutor = connectorSession.getTaskScheduler(ConnectorTaskScheduler.Stage.SPLIT);
             for (SplitProducer.BatchSource source : sources) {
                 if (batchException.get() != null || splitAssignment.isStop()) {
@@ -2203,8 +2239,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 new SplitProducer(splitAssignment, scheduleExecutor, source, failure -> {
                     try {
                         if (failure != null) {
-                            publishBatchFailure(batchException, splitAssignment,
-                                    new UserException(failure.getMessage(), failure));
+                            publishBatchFailure(batchException, splitAssignment, failure instanceof UserException
+                                    ? (UserException) failure : new UserException(failure.getMessage(), failure));
                         }
                     } finally {
                         profileFinalizer.taskFinished();
@@ -2220,8 +2256,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
     List<SplitProducer.BatchSource> createPartitionBatchSources(ConnectorScanPlanProvider scanProvider,
             ConnectorScanRequest request, List<String> partitions, int partitionsPerBatch, int parallelism) {
+        request.getScanContext().setTotalPartitions(partitions.size());
         AtomicInteger nextPartition = new AtomicInteger();
         int sourceCount = Math.min(parallelism, (partitions.size() - 1) / partitionsPerBatch + 1);
+        int producerLimit = sessionVariable.getSplitProducerParallelism();
+        if (producerLimit > 0) {
+            sourceCount = Math.min(sourceCount, producerLimit);
+        }
         List<SplitProducer.BatchSource> sources = new ArrayList<>(sourceCount);
         // Bound active partition batches even when full queues make producers yield their workers.
         // Hive streams within each batch; the SPI adapter retains one list for older implementations.
@@ -2246,6 +2287,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                                 break;
                             }
                             int end = Math.min(begin + partitionsPerBatch, partitions.size());
+                            request.getScanContext().checkCancelled();
                             source = scanProvider.streamSplits(connectorSession,
                                     request.withRequiredPartitions(partitions.subList(begin, end)));
                         }
@@ -2295,6 +2337,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             @Override
             public List<Split> getNextBatch() {
                 return onPluginClassLoader(scanProvider, () -> {
+                    request.getScanContext().checkCancelled();
                     if (source == null) {
                         source = scanProvider.streamSplits(connectorSession, request);
                         splitAssignment.setMoreSplitsRequestedCallback(
@@ -2318,6 +2361,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                             source.close();
                         } catch (IOException e) {
                             throw new UncheckedIOException(e);
+                        } finally {
+                            source = null;
                         }
                         return null;
                     });

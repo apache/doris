@@ -28,6 +28,7 @@ import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.scan.ConnectorColumnCategory;
+import org.apache.doris.connector.spi.scan.ConnectorScanContext;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
@@ -563,6 +564,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      */
     @Override
     public ConnectorSplitSource streamSplits(ConnectorSession session, ConnectorScanRequest request) {
+        request.getScanContext().checkCancelled();
         ConnectorTableHandle handle = request.getTableHandle();
         List<ConnectorColumnHandle> columns = request.getColumns();
         Optional<ConnectorExpression> filter = request.getFilter();
@@ -590,10 +592,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         try {
             ManifestReadControl readControl = new ManifestReadControl(false);
             CloseableIterable<FileScanTask> tasks = streamingFileScanTasks(
-                    scan, session, table, filter, sliceSize, readControl, iceHandle);
+                    scan, session, table, filter, sliceSize, readControl, iceHandle, request.getScanContext());
             return new IcebergStreamingSplitSource(tasks, table, scanSchema, formatVersion, partitioned,
                     orderedPartitionKeys, zone, uriNormalizer, sliceSize,
-                    iceHandle.getRewriteFileScope(), iceHandle, readControl, requiresRowId(columns));
+                    iceHandle.getRewriteFileScope(), iceHandle, readControl, requiresRowId(columns),
+                    request.getScanContext());
         } catch (RuntimeException e) {
             throw IcebergExceptionUtils.wrapMetadataReadFailure(iceHandle, e);
         }
@@ -627,23 +630,93 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      */
     private CloseableIterable<FileScanTask> streamingFileScanTasks(TableScan scan, ConnectorSession session,
             Table table, Optional<ConnectorExpression> filter, long sliceSize,
-            ManifestReadControl readControl, IcebergTableHandle readHandle) {
+            ManifestReadControl readControl, IcebergTableHandle readHandle, ConnectorScanContext scanContext) {
+        scanContext.checkCancelled();
         if (isManifestCacheEnabled()) {
             try {
                 return TableScanUtil.splitFiles(
-                        cacheBackedFileScanTasks(scan, session, table, filter, null, readControl, readHandle),
+                        cacheBackedFileScanTasks(scan, session, table, filter, null, readControl, readHandle,
+                                scanContext),
                         sliceSize);
             } catch (CancellationException e) {
                 // A stopped query must not restart file planning through the SDK fallback.
                 throw e;
             } catch (Exception e) {
+                scanContext.checkCancelled();
                 requireActiveManifestScheduler(session);
                 LOG.warn("Iceberg streaming plan with manifest cache failed, falling back to SDK scan: {}",
                         e.getMessage(), e);
                 manifestCache.recordFailure(session.getQueryId());
             }
         }
-        return TableScanUtil.splitFiles(scan.planFiles(), sliceSize);
+        scanContext.checkCancelled();
+        return TableScanUtil.splitFiles(sdkStreamingFileScanTasks(scan, scanContext), sliceSize);
+    }
+
+    private CloseableIterable<FileScanTask> sdkStreamingFileScanTasks(TableScan scan,
+            ConnectorScanContext scanContext) {
+        IcebergScanPlanningScope scope = new IcebergScanPlanningScope(scanContext);
+        try {
+            scope.checkCancelled();
+            Optional<TableScan> scoped = SchemaAwareDataTableScan.withFileIO(scan,
+                    io -> new IcebergScanFileIO(io, scope::checkCancelled), scope);
+            if (!scoped.isPresent()) {
+                // Custom Table/Scan implementations retain their SDK semantics. An opaque entered SDK call
+                // remains cooperative only at our outer source boundary.
+                scope.close();
+                scanContext.checkCancelled();
+                return scan.planFiles();
+            }
+            scope.checkCancelled();
+            CloseableIterable<FileScanTask> tasks = scoped.get().planFiles();
+            return new CloseableIterable<FileScanTask>() {
+                @Override
+                public CloseableIterator<FileScanTask> iterator() {
+                    CloseableIterator<FileScanTask> iterator = tasks.iterator();
+                    return new CloseableIterator<FileScanTask>() {
+                        @Override
+                        public boolean hasNext() {
+                            return iterator.hasNext();
+                        }
+
+                        @Override
+                        public FileScanTask next() {
+                            return iterator.next();
+                        }
+
+                        @Override
+                        public void close() throws IOException {
+                            try {
+                                scope.close();
+                            } finally {
+                                iterator.close();
+                            }
+                        }
+                    };
+                }
+
+                @Override
+                public void close() throws IOException {
+                    try {
+                        scope.close();
+                    } finally {
+                        tasks.close();
+                    }
+                }
+            };
+        } catch (RuntimeException | Error e) {
+            // Delete-file planning is eager: a partial submission failure can precede the source's creation.
+            // Its accepted SDK jobs still belong to this source and must actually exit before it unwinds.
+            try {
+                scope.close();
+            } catch (RuntimeException | Error closeFailure) {
+                e.addSuppressed(closeFailure);
+            }
+            if (e instanceof RuntimeException) {
+                scanContext.checkCancelled();
+            }
+            throw e;
+        }
     }
 
     private static final class ManifestReadControl {
@@ -689,6 +762,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         private volatile CloseableIterator<FileScanTask> iterator;
         private final AtomicBoolean closed = new AtomicBoolean();
         private final ManifestReadControl readControl;
+        private final ConnectorScanContext scanContext;
         // Look-ahead buffer so hasNext() can skip data files filtered out by the rewrite scope.
         private IcebergScanRange buffered;
         // Per-file invariant cache (PERF-11): per split-source = per scan; the pump is single-threaded, so the
@@ -699,9 +773,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 int formatVersion,
                 boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
                 UnaryOperator<String> uriNormalizer, long sliceSize, Set<String> rewriteScope,
-                IcebergTableHandle handle, ManifestReadControl readControl, boolean requiresRowId) {
+                IcebergTableHandle handle, ManifestReadControl readControl, boolean requiresRowId,
+                ConnectorScanContext scanContext) {
             this.tasks = tasks;
             this.readControl = readControl;
+            this.scanContext = scanContext;
             this.table = table;
             this.scanSchema = scanSchema;
             this.formatVersion = formatVersion;
@@ -723,6 +799,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         @Override
         public boolean hasNext() {
             try {
+                scanContext.checkCancelled();
                 if (closed.get()) {
                     return false;
                 }
@@ -732,7 +809,12 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 if (iterator == null) {
                     iterator = tasks.iterator();
                 }
-                while (!closed.get() && iterator.hasNext()) {
+                while (!closed.get()) {
+                    scanContext.checkCancelled();
+                    if (!iterator.hasNext()) {
+                        return false;
+                    }
+                    scanContext.checkCancelled();
                     IcebergScanRange range = buildRangeForTask(
                             iterator.next(), table, scanSchema, formatVersion, partitioned,
                             orderedPartitionKeys, zone, uriNormalizer, sliceSize, rewriteScope, null, scratch);
@@ -747,6 +829,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 }
                 return false;
             } catch (RuntimeException e) {
+                scanContext.checkCancelled();
                 // Lazy manifest opening happens on the split-pump thread, after streamSplits has returned.
                 throw IcebergExceptionUtils.wrapMetadataReadFailure(handle, e);
             }
@@ -3064,6 +3147,14 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     private CloseableIterable<FileScanTask> cacheBackedFileScanTasks(TableScan scan,
             ConnectorSession session, Table table, Optional<ConnectorExpression> filter, String statsQueryId,
             ManifestReadControl readControl, IcebergTableHandle readHandle) {
+        return cacheBackedFileScanTasks(scan, session, table, filter, statsQueryId, readControl, readHandle,
+                new ConnectorScanContext());
+    }
+
+    private CloseableIterable<FileScanTask> cacheBackedFileScanTasks(TableScan scan,
+            ConnectorSession session, Table table, Optional<ConnectorExpression> filter, String statsQueryId,
+            ManifestReadControl readControl, IcebergTableHandle readHandle, ConnectorScanContext scanContext) {
+        scanContext.checkCancelled();
         ConnectorTaskScheduler scheduler = requireActiveManifestScheduler(session);
         Snapshot snapshot = scan.snapshot();
         if (snapshot == null) {
@@ -3087,11 +3178,12 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         Supplier<AutoCloseable> retainLoadOwner = IcebergStatementScope.readTableLeaseFactory(session,
                 readHandle.getDbName(), readHandle.getTableName());
         IcebergManifestReadContext deleteReadContext = new IcebergManifestReadContext(context, readPermits,
-                () -> scheduler != null && scheduler.isClosed(), retainLoadOwner);
+                () -> scanContext.isCancelled() || scheduler != null && scheduler.isClosed(), retainLoadOwner);
 
         // Phase 1 (eager): partition-prune + cache-load delete manifests into the delete-file index.
         List<DeleteFile> deleteFiles = new ArrayList<>();
         for (ManifestFile manifest : snapshot.deleteManifests(table.io())) {
+            scanContext.checkCancelled();
             if (manifest.content() != ManifestContent.DELETES) {
                 continue;
             }
@@ -3114,6 +3206,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                     throw cancelled;
                 }
             }
+            scanContext.checkCancelled();
             deleteFiles.addAll(value.forScan(spec).getDeleteFiles());
         }
         DeleteFileIndex deleteIndex = DeleteFileIndex.builderFor(deleteFiles)
@@ -3122,8 +3215,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 .caseSensitive(caseSensitive)
                 .build();
 
+        scanContext.checkCancelled();
         CloseableIterable<ManifestFile> matching =
-                getMatchingManifest(snapshot.dataManifests(table.io()), specsById, filterExpr);
+                getMatchingManifest(snapshot.dataManifests(table.io()), specsById, filterExpr,
+                        scanContext::checkCancelled);
         CloseableIterable<ManifestFile> dataManifests = CloseableIterable.filter(matching,
                 manifest -> manifest.content() == ManifestContent.DATA
                         && specsById.containsKey(manifest.partitionSpecId())
@@ -3147,8 +3242,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                         readControl::allowPrefetch, scheduler,
                         manifest -> manifestCache.getManifestCacheValueFuture(manifest, table, statsQueryId),
                         retainLoadOwner);
+                scanContext.whenCancelled(prefetcher::cancel);
+                scanContext.checkCancelled();
                 iterator = new ManifestCacheFileScanTaskIterator(prefetcher, specsById,
-                        residualEvaluators, metricsEvaluator, deleteIndex, schemaJson);
+                        residualEvaluators, metricsEvaluator, deleteIndex, schemaJson, scanContext::checkCancelled);
                 return iterator;
             }
 
@@ -3221,6 +3318,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         private final InclusiveMetricsEvaluator metricsEvaluator;
         private final DeleteFileIndex deleteIndex;
         private final String schemaJson;
+        private final Runnable checkCancelled;
 
         private Iterator<DataFile> dataFileIt;
         private ResidualEvaluator currentResidual;
@@ -3229,13 +3327,15 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
         ManifestCacheFileScanTaskIterator(IcebergManifestPrefetcher manifestIt,
                 Map<Integer, PartitionSpec> specsById, Map<Integer, ResidualEvaluator> residualEvaluators,
-                InclusiveMetricsEvaluator metricsEvaluator, DeleteFileIndex deleteIndex, String schemaJson) {
+                InclusiveMetricsEvaluator metricsEvaluator, DeleteFileIndex deleteIndex, String schemaJson,
+                Runnable checkCancelled) {
             this.manifestIt = manifestIt;
             this.specsById = specsById;
             this.residualEvaluators = residualEvaluators;
             this.metricsEvaluator = metricsEvaluator;
             this.deleteIndex = deleteIndex;
             this.schemaJson = schemaJson;
+            this.checkCancelled = checkCancelled;
         }
 
         @Override
@@ -3259,6 +3359,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // further data manifests as needed. Per-file logic mirrors the pre-PERF-04 materialized Phase 2 exactly.
         private void advance() {
             while (!closed && next == null) {
+                checkCancelled.run();
                 if (dataFileIt != null && dataFileIt.hasNext()) {
                     DataFile dataFile = dataFileIt.next();
                     if (!metricsEvaluator.eval(dataFile)) {
@@ -3328,16 +3429,24 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      */
     private static CloseableIterable<ManifestFile> getMatchingManifest(List<ManifestFile> dataManifests,
             Map<Integer, PartitionSpec> specsById, Expression dataFilter) {
+        return getMatchingManifest(dataManifests, specsById, dataFilter, () -> {});
+    }
+
+    private static CloseableIterable<ManifestFile> getMatchingManifest(List<ManifestFile> dataManifests,
+            Map<Integer, PartitionSpec> specsById, Expression dataFilter, Runnable checkCancelled) {
         Map<Integer, ManifestEvaluator> evalCache = new HashMap<>();
         CloseableIterable<ManifestFile> matching = CloseableIterable.filter(
                 CloseableIterable.withNoopClose(dataManifests),
-                manifest -> evalCache.computeIfAbsent(manifest.partitionSpecId(), specId -> {
-                    PartitionSpec spec = specsById.get(specId);
-                    return ManifestEvaluator.forPartitionFilter(
-                            Expressions.and(Expressions.alwaysTrue(),
-                                    Projections.inclusive(spec, true).project(dataFilter)),
-                            spec, true);
-                }).eval(manifest));
+                manifest -> {
+                    checkCancelled.run();
+                    return evalCache.computeIfAbsent(manifest.partitionSpecId(), specId -> {
+                        PartitionSpec spec = specsById.get(specId);
+                        return ManifestEvaluator.forPartitionFilter(
+                                Expressions.and(Expressions.alwaysTrue(),
+                                        Projections.inclusive(spec, true).project(dataFilter)),
+                                spec, true);
+                    }).eval(manifest);
+                });
         return CloseableIterable.filter(matching,
                 manifest -> manifest.hasAddedFiles() || manifest.hasExistingFiles());
     }

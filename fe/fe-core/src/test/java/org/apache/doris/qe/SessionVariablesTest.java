@@ -483,24 +483,36 @@ public class SessionVariablesTest extends TestWithFeService {
     }
 
     @Test
-    public void testSplitBatchAndQueueLimitsUseTheirOwnVariableCheckers() throws Exception {
+    public void testSplitSettingsUseTheirOwnVariableCheckers() throws Exception {
         SessionVariable variable = new SessionVariable();
         Assertions.assertEquals(16, variable.getSplitPartitionBatchSize());
         Assertions.assertEquals(1024, variable.getSplitQueueCapacity());
         for (String name : new String[] {SessionVariable.SPLIT_BATCH_SIZE,
-                SessionVariable.SPLIT_PARTITION_BATCH_SIZE, SessionVariable.SPLIT_QUEUE_CAPACITY}) {
+                SessionVariable.SPLIT_PARTITION_BATCH_SIZE, SessionVariable.SPLIT_QUEUE_CAPACITY,
+                SessionVariable.FIRST_SPLIT_WAIT_TIMEOUT_MS}) {
             Field field = VariableMgr.getVarContext(name).getField();
             for (int value : new int[] {1, 9}) {
                 VariableMgr.setVar(variable, new SetVar(SetType.SESSION, name, new IntLiteral(value)));
-                Assertions.assertEquals(value, field.getInt(variable));
+                Assertions.assertEquals(value, field.getLong(variable));
             }
             for (int value : new int[] {0, -1}) {
                 DdlException failure = Assertions.assertThrows(DdlException.class,
                         () -> VariableMgr.setVar(variable, new SetVar(SetType.SESSION, name, new IntLiteral(value))));
                 Assertions.assertTrue(failure.getMessage().contains(name + " value should greater than or equal 1"));
-                Assertions.assertEquals(9, field.getInt(variable));
+                Assertions.assertEquals(9, field.getLong(variable));
             }
         }
+    }
+
+    @Test
+    public void testFirstSplitTimeoutIsForwardedToThePlanningFe() throws Exception {
+        SessionVariable origin = new SessionVariable();
+        Assertions.assertEquals(30000L, origin.getFirstSplitWaitTimeoutMs());
+        VariableMgr.setVar(origin, new SetVar(SetType.SESSION, SessionVariable.FIRST_SPLIT_WAIT_TIMEOUT_MS,
+                new IntLiteral(2500)));
+        SessionVariable forwarded = new SessionVariable();
+        forwarded.setForwardedSessionVariables(origin.getForwardVariables());
+        Assertions.assertEquals(2500L, forwarded.getFirstSplitWaitTimeoutMs());
     }
 
     @Test
