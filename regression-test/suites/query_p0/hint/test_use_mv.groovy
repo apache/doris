@@ -233,4 +233,80 @@ suite("test_use_mv") {
         notContains("internal.test_cbo_use_mv.mv3")
     }
 
+    // a sync index and an async materialized view can have the same name because the sync index name
+    // is table local, the USE_MV hint must still be able to reference the async materialized view
+    def syncAsyncDb = "test_use_mv_sync_async"
+    sql "DROP DATABASE IF EXISTS ${syncAsyncDb}"
+    sql "CREATE DATABASE IF NOT EXISTS ${syncAsyncDb}"
+    sql "use ${syncAsyncDb}"
+    sql """drop table if exists t_sync_async;"""
+    sql """create table t_sync_async (k int, v int, w int) duplicate key(k)
+        distributed by hash(k) buckets 3 properties('replication_num' = '1');"""
+    sql """insert into t_sync_async values (1, 1, 1), (2, 2, 2);"""
+    // the sync index is named m as the async materialized view below, it can not answer v
+    sql """alter table t_sync_async add rollup m(w, k);"""
+    waitingMVTaskFinishedByMvName(syncAsyncDb, "t_sync_async", "m")
+    // the async materialized view is named m as well, it answers k and v
+    async_create_mv(syncAsyncDb, "select k, v from t_sync_async", "m")
+    sql """use ${syncAsyncDb};"""
+    explain {
+        sql """select /*+ use_mv(internal.${syncAsyncDb}.m) */ k, v from t_sync_async;"""
+        contains("internal.${syncAsyncDb}.m chose")
+    }
+    order_qt_sync_async_same_name """select /*+ use_mv(internal.${syncAsyncDb}.m) */ k, v from t_sync_async order by k;"""
+    // the sync index selected directly by the INDEX clause must be reported as used as well
+    explain {
+        sql """select /*+ use_mv(t_sync_async.m) */ k from t_sync_async index m;"""
+        contains("Used: use_mv([t_sync_async, m])")
+        contains("t_sync_async(m)")
+    }
+
+    // USE_MV forces a materialization whose bucket layout differs from the table it replaces, the
+    // colocate join of the replaced table must not be kept, an exchange is required for the
+    // materialization. The filter cost of the base table is lower because dt is its prefix key,
+    // so only the USE_MV hint forces the materialization into the plan.
+    def bucketDb = "test_use_mv_bucket_layout"
+    sql "DROP DATABASE IF EXISTS ${bucketDb}"
+    sql "CREATE DATABASE IF NOT EXISTS ${bucketDb}"
+    sql "use ${bucketDb}"
+    sql """drop table if exists colocate_a;"""
+    sql """drop table if exists colocate_b;"""
+    sql """drop materialized view if exists mv_bucket_layout;"""
+    sql """create table colocate_a (dt int, k int, v int) duplicate key(dt, k)
+        partition by range(dt) (partition p1 values less than (2), partition p2 values less than (3))
+        distributed by hash(k) buckets 4
+        properties('replication_num' = '1', 'colocate_with' = 'grp_use_mv');"""
+    sql """create table colocate_b (k int, w int) duplicate key(k)
+        distributed by hash(k) buckets 4
+        properties('replication_num' = '1', 'colocate_with' = 'grp_use_mv');"""
+    sql """insert into colocate_a values (1, 1, 1), (1, 2, 2), (2, 2, 3);"""
+    sql """insert into colocate_b values (1, 10), (2, 20), (3, 30);"""
+    sql """create materialized view mv_bucket_layout
+        build immediate refresh complete on manual
+        distributed by hash(k) buckets 7
+        properties('replication_num' = '1')
+        as select k, dt, v from colocate_a where dt >= 0;"""
+    waitingMTMVTaskFinishedByMvName("mv_bucket_layout", bucketDb)
+    sql """sync;"""
+    sql """use ${bucketDb};"""
+    sql """set pre_materialized_view_rewrite_strategy = 'NOT_IN_RBO';"""
+    sql """set filter_cost_factor = 10000;"""
+    explain {
+        sql """select /*+ use_mv(internal.${bucketDb}.mv_bucket_layout) */ colocate_a.k, colocate_a.v, colocate_b.k
+            from colocate_a join colocate_b on colocate_a.k = colocate_b.k where colocate_a.dt = 1;"""
+        contains("Used: use_mv([internal, ${bucketDb}, mv_bucket_layout])")
+        notContains("HAS_COLO_PLAN_NODE: true")
+    }
+    order_qt_use_mv_bucket_layout """select /*+ use_mv(internal.${bucketDb}.mv_bucket_layout) */ colocate_a.k, colocate_a.v, colocate_b.k
+        from colocate_a join colocate_b on colocate_a.k = colocate_b.k where colocate_a.dt = 1 order by colocate_a.k;"""
+    sql """set filter_cost_factor = 0.0001;"""
+    // the pre rewrite (RBO) path finalizes the USE_MV hint from the pre rewritten plan as well
+    sql """set pre_materialized_view_rewrite_strategy = 'FORCE_IN_RBO';"""
+    explain {
+        sql """select /*+ use_mv(internal.${bucketDb}.mv_bucket_layout) */ k, v from colocate_a where dt = 1;"""
+        contains("Used: use_mv([internal, ${bucketDb}, mv_bucket_layout])")
+        contains("RBO.internal.${bucketDb}.mv_bucket_layout chose")
+    }
+    sql """set pre_materialized_view_rewrite_strategy = 'TRY_IN_RBO';"""
+
 }

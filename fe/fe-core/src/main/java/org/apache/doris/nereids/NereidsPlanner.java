@@ -50,6 +50,12 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
+import org.apache.doris.nereids.properties.ChildOutputPropertyDeriver;
+import org.apache.doris.nereids.properties.DistributionSpec;
+import org.apache.doris.nereids.properties.DistributionSpecHash;
+import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
+import org.apache.doris.nereids.properties.MustLocalSortOrderSpec;
+import org.apache.doris.nereids.properties.OrderSpec;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
@@ -60,6 +66,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.distribute.DistributePlanner;
@@ -72,12 +79,15 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.planner.AddLocalExchange;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNodeId;
@@ -368,8 +378,7 @@ public class NereidsPlanner extends Planner {
 
         physicalPlan = postProcess(physicalPlan);
         // Finalize USE_MV hint status based on actually chosen MVs in the physical plan
-        finalizeUseMvHintStatus(statementContext,
-                cascadesContext.getMaterializationContexts(), physicalPlan);
+        finalizeUseMvHintStatus(statementContext, physicalPlan);
         if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
             String tree = physicalPlan.treeString();
             LOG.info("{}\n{}", ConnectContext.get().getQueryIdentifier(), tree);
@@ -954,8 +963,18 @@ public class NereidsPlanner extends Planner {
             Map<Group, Set<List<String>>> mvReachableCache, CascadesContext cascadesContext)
             throws AnalysisException {
         if (requiredUseMvIdentifiers.size() == 1) {
-            return chooseBestPlanWithRequiredMaterializations(rootGroup, physicalProperties,
-                    requiredUseMvIdentifiers, mvReachableCache, cascadesContext);
+            PhysicalPlan physicalPlan = chooseBestPlanWithRequiredMaterializations(rootGroup,
+                    physicalProperties, requiredUseMvIdentifiers, mvReachableCache, cascadesContext);
+            if (providesProperties(physicalPlan.getPhysicalProperties(), physicalProperties)) {
+                return physicalPlan;
+            }
+            // The forced plan does not provide the required output properties anymore, for example a
+            // materialization replaced one side of a colocate join and both sides are shuffled now.
+            PhysicalPlan enforced = addExchange(physicalPlan, physicalProperties.getDistributionSpec());
+            if (!enforced.getPhysicalProperties().getOrderSpec().satisfy(physicalProperties.getOrderSpec())) {
+                enforced = addSort(enforced, physicalProperties.getOrderSpec());
+            }
+            return enforced;
         }
         return chooseBestPlan(rootGroup, physicalProperties, cascadesContext);
     }
@@ -1338,22 +1357,166 @@ public class NereidsPlanner extends Planner {
                     child, inputProps.get(i), childRemaining, reachableCache, cascadesContext));
         }
 
+        // The children were chosen by the materialization reachability instead of the cost, so the
+        // property contract of the costed group expression can be stale: a child can be replaced by a
+        // materialization which is laid out by another relation. Re-derive the actual children outputs
+        // and enforce the missing properties again, instead of keeping the costed contract.
+        boolean contractHolds = childrenProvideProperties(inputProps, planChildren);
+        if (!contractHolds) {
+            enforceChildrenProperties(inputProps, planChildren);
+        }
+
         Plan plan = chosenGE.getPlan().withChildren(planChildren);
         if (!(plan instanceof PhysicalPlan)) {
             throw new AnalysisException("Result plan must be PhysicalPlan");
         }
         plan = plan.withGroupExpression(Optional.of(chosenGE));
-        PhysicalPlan physicalPlan = ((PhysicalPlan) plan).withPhysicalPropertiesAndStats(
-                properties, group.getStatistics());
-        return physicalPlan;
+        PhysicalProperties outputProperties = contractHolds
+                ? chosenGE.getOutputProperties(properties)
+                : deriveOutputProperties(plan, planChildren, cascadesContext);
+        return ((PhysicalPlan) plan).withPhysicalPropertiesAndStats(outputProperties, group.getStatistics());
+    }
+
+    /**
+     * Check whether the actual physical properties provide the required ones.
+     * <p>
+     * {@link DistributionSpecHash#satisfy} and {@link DistributionSpecHash#equals} compare the shuffle
+     * type and the shuffle columns only, they ignore the relation, the index and the partitions. A
+     * materialization which replaces a relation is laid out by its own table, so it compares equal to
+     * the distribution of the replaced relation even though the two are not co-located. The layout
+     * identity must be compared explicitly when the property regulation of the cost based selection is
+     * by-passed.
+     */
+    private static boolean providesProperties(PhysicalProperties actual, PhysicalProperties required) {
+        return providesDistribution(actual.getDistributionSpec(), required.getDistributionSpec())
+                && actual.getOrderSpec().satisfy(required.getOrderSpec());
+    }
+
+    private static boolean providesDistribution(DistributionSpec actual, DistributionSpec required) {
+        if (!actual.satisfy(required)) {
+            return false;
+        }
+        if (!(required instanceof DistributionSpecHash) || !(actual instanceof DistributionSpecHash)) {
+            return true;
+        }
+        DistributionSpecHash requiredHash = (DistributionSpecHash) required;
+        ShuffleType requiredShuffleType = requiredHash.getShuffleType();
+        if (requiredShuffleType != ShuffleType.NATURAL && requiredShuffleType != ShuffleType.STORAGE_BUCKETED) {
+            // The required distribution does not identify a storage layout.
+            return true;
+        }
+        DistributionSpecHash actualHash = (DistributionSpecHash) actual;
+        return actualHash.getTableId() == requiredHash.getTableId()
+                && actualHash.getSelectedIndexId() == requiredHash.getSelectedIndexId()
+                && actualHash.getPartitionIds().equals(requiredHash.getPartitionIds());
+    }
+
+    /**
+     * Check whether the actual distribution delivers the shuffle columns of the required one. Unlike
+     * {@link #providesDistribution}, a distribution with another storage layout is accepted, because a
+     * single child only propagates its distribution to the group expression, so replacing it with a
+     * materialization does not need a data movement as long as the shuffle columns keep matching.
+     */
+    private static boolean providesShuffleColumns(DistributionSpec actual, DistributionSpec required) {
+        if (!(required instanceof DistributionSpecHash) || !(actual instanceof DistributionSpecHash)) {
+            return actual.satisfy(required);
+        }
+        return actual.satisfy(((DistributionSpecHash) required).withShuffleType(ShuffleType.REQUIRE));
+    }
+
+    /**
+     * Check whether every forced child provides the properties the memo costed the group expression
+     * with.
+     */
+    private static boolean childrenProvideProperties(List<PhysicalProperties> inputProps,
+            List<Plan> planChildren) {
+        for (int i = 0; i < planChildren.size(); i++) {
+            if (!providesProperties(getPhysicalProperties(planChildren.get(i)), inputProps.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Enforce the input properties of the group expression on the forced children plans, the same way
+     * {@link org.apache.doris.nereids.properties.ChildrenPropertiesRegulator} does it during the cost
+     * based selection.
+     */
+    private static void enforceChildrenProperties(List<PhysicalProperties> inputProps,
+            List<Plan> planChildren) {
+        boolean multiChild = planChildren.size() > 1;
+        for (int i = 0; i < planChildren.size(); i++) {
+            PhysicalProperties required = inputProps.get(i);
+            PhysicalProperties actual = getPhysicalProperties(planChildren.get(i));
+            if (!providesProperties(actual, required)) {
+                // Every hash distributed child of a join or of a set operation is realigned, not only
+                // the replaced one: the data layout pairing of the costed plan does not hold anymore
+                // once one child of such a group expression is replaced by a materialization.
+                if (multiChild && required.getDistributionSpec() instanceof DistributionSpecHash) {
+                    planChildren.set(i, addExchange(planChildren.get(i), required.getDistributionSpec()));
+                } else if (!providesShuffleColumns(
+                        actual.getDistributionSpec(), required.getDistributionSpec())) {
+                    planChildren.set(i, addExchange(planChildren.get(i), required.getDistributionSpec()));
+                }
+            }
+            if (!getPhysicalProperties(planChildren.get(i)).getOrderSpec().satisfy(required.getOrderSpec())) {
+                planChildren.set(i, addSort(planChildren.get(i), required.getOrderSpec()));
+            }
+        }
+    }
+
+    /**
+     * Add an exchange which delivers the required distribution. A hash distribution without a shuffle
+     * type is delivered by a hash shuffle, the same way
+     * {@link org.apache.doris.nereids.properties.EnforceMissingPropertiesHelper} does it.
+     */
+    private static PhysicalPlan addExchange(Plan child, DistributionSpec required) {
+        DistributionSpec exchangeDistribution = required instanceof DistributionSpecHash
+                ? ((DistributionSpecHash) required).withShuffleType(ShuffleType.EXECUTION_BUCKETED)
+                : required;
+        return new PhysicalDistribute<>(exchangeDistribution, Optional.empty(), child.getLogicalProperties(),
+                new PhysicalProperties(exchangeDistribution), child.getStats(), child);
+    }
+
+    private static PhysicalPlan addSort(Plan child, OrderSpec requiredOrder) {
+        SortPhase sortPhase = requiredOrder instanceof MustLocalSortOrderSpec
+                ? SortPhase.LOCAL_SORT : SortPhase.MERGE_SORT;
+        return new PhysicalQuickSort<>(requiredOrder.getOrderKeys(), sortPhase, Optional.empty(),
+                child.getLogicalProperties(),
+                new PhysicalProperties(getPhysicalProperties(child).getDistributionSpec(), requiredOrder),
+                child.getStats(), child);
+    }
+
+    /**
+     * Re-derive the output properties of a forced plan from its actual children, the same way the
+     * physical properties are derived during the cost computation.
+     */
+    private static PhysicalProperties deriveOutputProperties(Plan plan, List<Plan> planChildren,
+            CascadesContext cascadesContext) {
+        if (plan instanceof PhysicalDistribute) {
+            // An exchange is annotated with the distribution it delivers when it is built, the
+            // group expression plan kept in the memo is not.
+            return new PhysicalProperties(((PhysicalDistribute<?>) plan).getDistributionSpec());
+        }
+        List<PhysicalProperties> childrenProperties = Lists.newArrayListWithCapacity(planChildren.size());
+        for (Plan child : planChildren) {
+            childrenProperties.add(getPhysicalProperties(child));
+        }
+        return plan.accept(new ChildOutputPropertyDeriver(childrenProperties),
+                new PlanContext(cascadesContext.getConnectContext(), plan.getGroupExpression().orElse(null),
+                        childrenProperties));
+    }
+
+    private static PhysicalProperties getPhysicalProperties(Plan plan) {
+        return ((PhysicalPlan) plan).getPhysicalProperties();
     }
 
     /**
      * After final physical plan is chosen, validate USE_MV hint status
      * by checking which required MVs are actually in the chosen plan.
      */
-    public static void finalizeUseMvHintStatus(StatementContext statementContext,
-            List<MaterializationContext> materializationContexts, PhysicalPlan physicalPlan) {
+    public static void finalizeUseMvHintStatus(StatementContext statementContext, PhysicalPlan physicalPlan) {
         Optional<UseMvHint> useMvHint = statementContext.getUseMvHint("USE_MV");
         if (!useMvHint.isPresent()) {
             return;
@@ -1362,32 +1525,53 @@ public class NereidsPlanner extends Planner {
         if (useMvHint.get().isSyntaxError()) {
             return;
         }
-        // Collect actually chosen MV qualifiers from the physical plan
-        Set<List<String>> chosenQualifiers = MaterializationContext.getChosenMvsQualifiers(
-                materializationContexts, physicalPlan);
         Map<List<String>, Boolean> useMvMap = useMvHint.get().getUseMvTableColumnMap();
         Set<List<String>> useMvQualifiers = new HashSet<>(useMvMap.keySet());
-        Set<List<String>> rewrittenSuccessSet = statementContext.getMaterializationRewrittenSuccessSet();
-        Set<List<String>> requiredRewritten = new HashSet<>(useMvQualifiers);
-        requiredRewritten.retainAll(rewrittenSuccessSet);
+        // The selected scans are the ground truth of which materializations are used. The rewrite
+        // success flag of a materialization context can not be used here: a sync materialization is
+        // selected directly by the INDEX clause or by the USE_MV hint when the relation is bound, and
+        // it then does not go through a successful cost based rewrite.
+        Set<List<String>> chosenQualifiers = collectChosenMvIdentifiers(physicalPlan, useMvQualifiers);
 
         // Check if the required MVs are actually chosen, USE_MV is satisfied when at least one
         // of the hinted MVs is chosen because several hinted MVs may be alternatives of each other
         boolean anyChosen = false;
-        for (List<String> qualifier : requiredRewritten) {
+        for (List<String> qualifier : useMvQualifiers) {
             boolean chosen = chosenQualifiers.contains(qualifier);
             useMvMap.put(qualifier, chosen);
             anyChosen = anyChosen || chosen;
         }
         if (anyChosen) {
             useMvHint.get().setStatus(Hint.HintStatus.SUCCESS);
-        } else if (!requiredRewritten.isEmpty()) {
-            Set<List<String>> notChosen = new HashSet<>(requiredRewritten);
-            notChosen.removeAll(chosenQualifiers);
+        } else if (!useMvQualifiers.isEmpty()) {
             useMvHint.get().setStatus(Hint.HintStatus.UNUSED);
-            useMvHint.get().setErrorMessage("MV(s) rewrite-success but not chosen in final plan: "
-                    + notChosen);
+            useMvHint.get().setErrorMessage("MV(s) are not used in the final plan: " + useMvQualifiers);
         }
+    }
+
+    /**
+     * Collect the identifiers of the materializations which are selected in the physical plan.
+     *
+     * @param candidates the materialization identifiers to collect, the others are ignored
+     */
+    private static Set<List<String>> collectChosenMvIdentifiers(PhysicalPlan physicalPlan,
+            Set<List<String>> candidates) {
+        Set<List<String>> chosen = new HashSet<>();
+        physicalPlan.accept(new DefaultPlanVisitor<Void, Void>() {
+            @Override
+            public Void visitPhysicalRelation(PhysicalRelation physicalRelation, Void context) {
+                chosen.addAll(getScanMvIdentifiers(physicalRelation, candidates));
+                return null;
+            }
+
+            @Override
+            public Void visitPhysicalLazyMaterializeOlapScan(PhysicalLazyMaterializeOlapScan lazyScan,
+                    Void context) {
+                chosen.addAll(getScanMvIdentifiers(lazyScan, candidates));
+                return null;
+            }
+        }, null);
+        return chosen;
     }
 
     private long getGarbageCollectionTime() {
