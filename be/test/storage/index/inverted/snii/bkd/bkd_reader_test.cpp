@@ -22,7 +22,9 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <memory>
+#include <numeric>
 #include <roaring/roaring.hh>
 #include <string>
 #include <thread>
@@ -94,6 +96,8 @@ public:
 
     Status read_into(uint64_t offset, uint8_t* out, size_t out_len) override {
         reads_.fetch_add(1);
+        bytes_read_.fetch_add(out_len);
+        last_offset_.store(offset);
         if (out_len == 0) {
             return Status::OK();
         }
@@ -107,10 +111,14 @@ public:
     uint64_t size() const override { return bytes_.size(); }
 
     uint64_t reads() const { return reads_.load(); }
+    uint64_t bytes_read() const { return bytes_read_.load(); }
+    uint64_t last_offset() const { return last_offset_.load(); }
 
 private:
     std::vector<uint8_t> bytes_;
     mutable std::atomic<uint64_t> reads_ {0};
+    mutable std::atomic<uint64_t> bytes_read_ {0};
+    mutable std::atomic<uint64_t> last_offset_ {0};
 };
 
 // ---------------------------------------------------------------------------
@@ -243,6 +251,10 @@ std::vector<uint32_t> to_sorted_vector(const roaring::Roaring& bitmap) {
             interval.has_upper ? Slice(upper) : Slice(), interval.upper_inclusive, &hits);
     if (!status.ok()) {
         return ::testing::AssertionFailure() << describe(interval) << " failed: " << status;
+    }
+    const char* reason = "";
+    if (!roaring::api::roaring_bitmap_internal_validate(&hits.roaring, &reason)) {
+        return ::testing::AssertionFailure() << describe(interval) << " built: " << reason;
     }
     const std::vector<uint32_t> got = to_sorted_vector(hits);
     const std::vector<uint32_t> expected = brute_force(points, interval);
@@ -512,7 +524,7 @@ TEST(BkdReaderTest, IntervalsEntirelyOutsideTheGlobalBoundsCostNoIo) {
     EXPECT_EQ(opened.file->reads(), reads_after_open);
 }
 
-TEST(BkdReaderTest, ReadsExactlyOnePositionedReadPerTouchedLeaf) {
+TEST(BkdReaderTest, ReadsOnlyTheTouchedLeavesAndWholeLeafHitsInOneRead) {
     std::vector<Point> points;
     for (uint32_t i = 0; i < 40; ++i) {
         points.push_back(Point {static_cast<int64_t>(i), i});
@@ -521,16 +533,162 @@ TEST(BkdReaderTest, ReadsExactlyOnePositionedReadPerTouchedLeaf) {
     ASSERT_TRUE(open_index(points, 4, &opened).ok());
     ASSERT_EQ(opened.reader->leaf_count(), 10U);
 
-    // Leaf j holds values [4j, 4j+3], so [10, 25] spans leaves 2..6 -- two
-    // boundary leaves plus three whole-leaf hits.
-    const uint64_t before = opened.file->reads();
-    EXPECT_TRUE(matches_brute_force(*opened.reader, points, closed(10, 25)));
-    EXPECT_EQ(opened.file->reads() - before, 5U);
-
     // One leaf, one read.
-    const uint64_t before_single = opened.file->reads();
-    EXPECT_TRUE(matches_brute_force(*opened.reader, points, closed(13, 14)));
-    EXPECT_EQ(opened.file->reads() - before_single, 1U);
+    uint64_t touched_bytes = 0;
+    for (int64_t leaf = 2; leaf <= 6; ++leaf) {
+        const uint64_t reads_before = opened.file->reads();
+        const uint64_t bytes_before = opened.file->bytes_read();
+        EXPECT_TRUE(
+                matches_brute_force(*opened.reader, points, closed(4 * leaf + 1, 4 * leaf + 2)));
+        EXPECT_EQ(opened.file->reads() - reads_before, 1U);
+        touched_bytes += opened.file->bytes_read() - bytes_before;
+    }
+
+    // Leaf j holds values [4j, 4j+3], so [10, 25] spans leaves 2..6 -- two
+    // boundary leaves plus three whole-leaf hits, which take one read together.
+    const uint64_t reads_before = opened.file->reads();
+    const uint64_t bytes_before = opened.file->bytes_read();
+    EXPECT_TRUE(matches_brute_force(*opened.reader, points, closed(10, 25)));
+    EXPECT_EQ(opened.file->reads() - reads_before, 3U);
+    EXPECT_EQ(opened.file->bytes_read() - bytes_before, touched_bytes);
+}
+
+// One read takes at most about 1 MiB of whole-leaf hits, and all of them are still read.
+TEST(BkdReaderTest, ReadsOfWholeLeafHitsAreBounded) {
+    Rng rng(7);
+    std::vector<Point> points;
+    for (uint32_t i = 0; i < 400000; ++i) {
+        points.push_back(Point {.value = rng.next_in(0, int64_t {1} << 40), .doc_id = i});
+    }
+    OpenedIndex opened;
+    ASSERT_TRUE(open_index(points, 512, &opened).ok());
+    const uint64_t data_length = opened.container.sections.data_length;
+    ASSERT_GT(data_length, 2U << 20);
+
+    const uint64_t reads_before = opened.file->reads();
+    const uint64_t bytes_before = opened.file->bytes_read();
+    EXPECT_TRUE(matches_brute_force(*opened.reader, points, Interval {}));
+    const uint64_t reads = opened.file->reads() - reads_before;
+    EXPECT_EQ(opened.file->bytes_read() - bytes_before, data_length);
+    EXPECT_GE(reads, 2U + data_length / (1U << 20));
+    EXPECT_LE(reads, 4U + data_length / (1U << 20));
+}
+
+// Doc ids of whole-leaf hits go through a flat bitmap when the range is wide and through a sort
+// when it is narrow, or when a doc id is too large for the bitmap.
+TEST(BkdReaderTest, WideAndNarrowRangesMatchBruteForceForEveryShapeOfDocIds) {
+    constexpr uint32_t kDocs = 60000;
+    constexpr int64_t kValues = 100000;
+    constexpr uint32_t kBitmapLimit = 1U << 28;
+    Rng rng(20261030);
+    const auto with_values = [&rng](const std::vector<uint32_t>& doc_ids) {
+        std::vector<Point> points;
+        for (const uint32_t doc_id : doc_ids) {
+            points.push_back(Point {.value = rng.next_in(0, kValues), .doc_id = doc_id});
+        }
+        return points;
+    };
+
+    std::vector<std::vector<Point>> shapes;
+    std::vector<uint32_t> dense(kDocs);
+    std::iota(dense.begin(), dense.end(), 0U);
+    shapes.push_back(with_values(dense));
+    std::vector<uint32_t> sparse;
+    for (uint32_t i = 0; i < kDocs; ++i) {
+        sparse.push_back(i * 97);
+    }
+    shapes.push_back(with_values(sparse));
+    std::vector<uint32_t> many_values_per_doc;
+    for (uint32_t i = 0; i < kDocs / 3; ++i) {
+        many_values_per_doc.insert(many_values_per_doc.end(), 3, i);
+    }
+    shapes.push_back(with_values(many_values_per_doc));
+    // Doc ids on both sides of the bitmap's limit, in the same leaves.
+    std::vector<uint32_t> around_limit = dense;
+    for (uint32_t i = 0; i < 2000; ++i) {
+        around_limit.push_back(kBitmapLimit - 2000 + i);
+    }
+    for (uint32_t i = 0; i < 2000; ++i) {
+        around_limit.push_back(kBitmapLimit + i);
+    }
+    for (uint32_t i = 2000; i > 0; --i) {
+        around_limit.push_back(std::numeric_limits<uint32_t>::max() - i + 1);
+    }
+    shapes.push_back(with_values(around_limit));
+
+    for (size_t shape = 0; shape < shapes.size(); ++shape) {
+        SCOPED_TRACE("shape " + std::to_string(shape));
+        OpenedIndex opened;
+        ASSERT_TRUE(open_index(shapes[shape], 64, &opened).ok());
+        for (const Interval& interval :
+             {Interval {}, closed(0, kValues / 2), closed(kValues / 4, kValues),
+              closed(kValues / 3, kValues / 3 + 40), closed(kValues / 3, kValues / 3 + 400),
+              closed(kValues / 3, kValues / 3 + 2000)}) {
+            EXPECT_TRUE(matches_brute_force(*opened.reader, shapes[shape], interval));
+        }
+        // The bitmap stops at its limit, whatever doc ids the leaves hold.
+        BkdQueryScratch scratch;
+        roaring::Roaring hits;
+        ASSERT_TRUE(opened.reader->range(Slice(), true, Slice(), true, &hits, &scratch).ok());
+        EXPECT_LE(scratch.doc_bits.size() * sizeof(uint64_t), kBitmapLimit / 8);
+    }
+}
+
+// A container holds up to 4096 doc ids as an array and more as a bitset.
+TEST(BkdReaderTest, WideRangesBuildBothKindsOfContainer) {
+    std::vector<Point> points;
+    const auto add_docs = [&points](uint32_t first, uint32_t count, int64_t value) {
+        for (uint32_t i = 0; i < count; ++i) {
+            points.push_back(Point {.value = value + i, .doc_id = first + i * 3});
+        }
+    };
+    // These containers fill from whole leaves alone: exactly an array's limit, one past it, a single
+    // document and many.
+    add_docs(0, 4096, 1000);
+    add_docs(1U << 16, 4097, 10000);
+    add_docs(2U << 16, 1, 20000);
+    add_docs(3U << 16, 20000, 30000);
+    // The lowest and highest values, so that the boundary leaves hold nothing but these.
+    add_docs(5U << 16, 32, 0);
+    add_docs(6U << 16, 64, 100000);
+    OpenedIndex opened;
+    ASSERT_TRUE(open_index(points, 32, &opened).ok());
+    EXPECT_TRUE(matches_brute_force(*opened.reader, points, Interval {}));
+
+    roaring::Roaring hits;
+    ASSERT_TRUE(opened.reader->range(Slice(), true, Slice(), true, &hits).ok());
+    roaring::api::roaring_statistics_t stats;
+    roaring::api::roaring_bitmap_statistics(&hits.roaring, &stats);
+    EXPECT_EQ(stats.n_array_containers, 4U);
+    EXPECT_EQ(stats.n_bitset_containers, 2U);
+    EXPECT_EQ(hits.cardinality(), points.size());
+}
+
+// A damaged leaf in the middle of one read is found like any other.
+TEST(BkdReaderTest, DamagedWholeLeafHitIsReportedFromInsideARead) {
+    std::vector<Point> points;
+    for (uint32_t i = 0; i < 400; ++i) {
+        points.push_back(Point {.value = static_cast<int64_t>(i), .doc_id = i});
+    }
+    OpenedIndex opened;
+    ASSERT_TRUE(open_index(points, 4, &opened).ok());
+    // Measures one leaf: value 201 is inside leaf 50.
+    const uint64_t bytes_before = opened.file->bytes_read();
+    ASSERT_TRUE(matches_brute_force(*opened.reader, points, closed(201, 202)));
+    const uint64_t leaf_length = opened.file->bytes_read() - bytes_before;
+    const uint64_t leaf_offset = opened.file->last_offset();
+
+    Container damaged = opened.container;
+    damaged.image[leaf_offset + leaf_length - 1] = 0xFF;
+    CountingFileReader file(damaged.image);
+    std::unique_ptr<BkdReader> reader;
+    ASSERT_TRUE(BkdReader::open(&file, damaged.sections, &reader).ok());
+
+    const std::vector<uint8_t> lower = sortable_bigint(0);
+    const std::vector<uint8_t> upper = sortable_bigint(399);
+    roaring::Roaring hits;
+    const Status status = reader->range(Slice(lower), true, Slice(upper), true, &hits);
+    EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status;
 }
 
 // ---------------------------------------------------------------------------
