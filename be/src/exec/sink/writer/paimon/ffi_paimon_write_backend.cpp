@@ -30,6 +30,7 @@
 #include "common/check.h"
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/metrics/doris_metrics.h"
 #include "format/parquet/arrow_memory_pool.h"
 #include "format/table/paimon/paimon_arrow_block_convertor.h"
 #include "runtime/memory/global_memory_arbitrator.h"
@@ -52,6 +53,31 @@ constexpr size_t MAX_INPUT_ROW_BYTES = 1024 * 1024;
 std::mutex rust_writer_admission_mutex;
 int rust_active_writers = 0;
 
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(paimon_rust_active_writers, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(paimon_rust_fixed_memory_bytes, MetricUnit::BYTES);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(paimon_rust_admission_rejections_total, MetricUnit::REQUESTS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(paimon_rust_resource_exhaustions_total, MetricUnit::REQUESTS);
+
+struct RustWriterMetrics {
+    RustWriterMetrics() {
+        auto* entity = DorisMetrics::instance()->server_entity();
+        INT_GAUGE_METRIC_REGISTER(entity, paimon_rust_active_writers);
+        INT_GAUGE_METRIC_REGISTER(entity, paimon_rust_fixed_memory_bytes);
+        INT_COUNTER_METRIC_REGISTER(entity, paimon_rust_admission_rejections_total);
+        INT_COUNTER_METRIC_REGISTER(entity, paimon_rust_resource_exhaustions_total);
+    }
+
+    static RustWriterMetrics& instance() {
+        static RustWriterMetrics metrics;
+        return metrics;
+    }
+
+    IntGauge* paimon_rust_active_writers = nullptr;
+    IntGauge* paimon_rust_fixed_memory_bytes = nullptr;
+    IntCounter* paimon_rust_admission_rejections_total = nullptr;
+    IntCounter* paimon_rust_resource_exhaustions_total = nullptr;
+};
+
 template <typename T, void (*Free)(T*)>
 struct RustHandleDeleter {
     void operator()(T* handle) const { Free(handle); }
@@ -66,6 +92,7 @@ Status rust_status(paimon_error* error, const char* operation) {
     }
     RustHandle<paimon_error, paimon_error_free> owned(error);
     if (error->code == 6) {
+        RustWriterMetrics::instance().paimon_rust_resource_exhaustions_total->increment(1);
         return Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>(
                 "Paimon Rust {} exhausted its resource budget", operation);
     }
@@ -128,6 +155,28 @@ public:
     }
 
     Status open(const TPaimonTableSink& sink, RuntimeProfile* profile) {
+        RuntimeProfile* rust_profile = profile->create_child("RustPaimonWriteBackend", true, true);
+        _reserved_counter = ADD_COUNTER(rust_profile, "ReservedMemoryBytes", TUnit::BYTES);
+        _peak_counter = ADD_COUNTER(rust_profile, "PeakReservedMemoryBytes", TUnit::BYTES);
+        _budget_counter = ADD_COUNTER(rust_profile, "FixedBudgetBytes", TUnit::BYTES);
+        _prepare_timer = ADD_TIMER(rust_profile, "RustPrepareTime");
+        _stop_timer = ADD_TIMER(rust_profile, "RustStopTime");
+        _query_credit_counter = ADD_COUNTER(rust_profile, "QueryReservedBytes", TUnit::BYTES);
+        _input_batches = ADD_COUNTER(rust_profile, "InputBatches", TUnit::UNIT);
+        _input_bytes = ADD_COUNTER(rust_profile, "InputEstimatedBytes", TUnit::BYTES);
+        _input_rows = ADD_COUNTER(rust_profile, "InputRows", TUnit::UNIT);
+        _arrow_bytes = ADD_COUNTER(rust_profile, "ArrowBufferBytes", TUnit::BYTES);
+        _arrow_peak_bytes = ADD_COUNTER(rust_profile, "PeakArrowBufferBytes", TUnit::BYTES);
+        _prepared_messages = ADD_COUNTER(rust_profile, "PreparedCommitMessages", TUnit::UNIT);
+        _admission_rejections = ADD_COUNTER(rust_profile, "AdmissionRejections", TUnit::UNIT);
+        _failed_operations = ADD_COUNTER(rust_profile, "FailedOperations", TUnit::UNIT);
+        _cancellations = ADD_COUNTER(rust_profile, "CancelledOperations", TUnit::UNIT);
+        _abort_timer = ADD_TIMER(rust_profile, "RustAbortTime");
+        _write_timer = ADD_TIMER(rust_profile, "RustWriteTime");
+        _admission_timer = ADD_TIMER(rust_profile, "AdmissionTime");
+        rust_profile->add_info_string("MemoryAccounting",
+                                      "Fixed estimated query credit; SDK reservations cover part "
+                                      "of Rust memory, not RSS");
         if (!sink.__isset.table_desc || sink.write_mode != TPaimonWriteMode::APPEND) {
             return Status::InvalidArgument("Paimon Rust requires resolved append table metadata");
         }
@@ -140,15 +189,20 @@ public:
         DORIS_CHECK(sink.__isset.commit_user && !sink.commit_user.empty());
         DORIS_CHECK(sink.__isset.column_names);
         _commit_version = desc.commit_message_version;
-        RETURN_IF_ERROR(admit());
-
-        RuntimeProfile* rust_profile = profile->create_child("RustPaimonWriteBackend", true, true);
-        _reserved_counter = ADD_COUNTER(rust_profile, "ReservedMemoryBytes", TUnit::BYTES);
-        _peak_counter = ADD_COUNTER(rust_profile, "PeakReservedMemoryBytes", TUnit::BYTES);
-        _budget_counter = ADD_COUNTER(rust_profile, "FixedBudgetBytes", TUnit::BYTES);
-        _prepare_timer = ADD_TIMER(rust_profile, "RustPrepareTime");
-        _stop_timer = ADD_TIMER(rust_profile, "RustStopTime");
+        Status admission_status;
+        {
+            SCOPED_TIMER(_admission_timer);
+            admission_status = admit();
+        }
         COUNTER_SET(_budget_counter, _budget);
+        if (!admission_status.ok()) {
+            COUNTER_UPDATE(_admission_rejections, 1);
+            RustWriterMetrics::instance().paimon_rust_admission_rejections_total->increment(1);
+            return admission_status;
+        }
+        COUNTER_SET(_query_credit_counter, _budget);
+        RustWriterMetrics::instance().paimon_rust_active_writers->increment(1);
+        RustWriterMetrics::instance().paimon_rust_fixed_memory_bytes->increment(_budget);
 
         auto resources = paimon_resource_context_create(_budget);
         RETURN_IF_ERROR(rust_status(resources.error, "create resource context"));
@@ -174,12 +228,12 @@ public:
         explicit Writer(std::shared_ptr<Impl> impl) : _impl(std::move(impl)) {}
         Status write(RuntimeState* state, Block& block) override {
             DCHECK_EQ(state, _impl->_state);
-            return _impl->write(block);
+            return _impl->record_result(_impl->write(block));
         }
         Status prepare_commit(std::vector<TPaimonCommitMessage>& messages) override {
-            return _impl->prepare(messages);
+            return _impl->record_result(_impl->prepare(messages));
         }
-        Status abort() override { return _impl->abort(); }
+        Status abort() override { return _impl->record_result(_impl->abort()); }
 
     private:
         std::shared_ptr<Impl> _impl;
@@ -224,9 +278,16 @@ public:
                     schema.release(&schema);
                 }
             });
-            RETURN_IF_ERROR(rust_status(
-                    paimon_table_write_write_arrow_batch(_writer.get(), &array, &schema), "write"));
-            update_metrics();
+            {
+                SCOPED_TIMER(_write_timer);
+                Status status = rust_status(
+                        paimon_table_write_write_arrow_batch(_writer.get(), &array, &schema),
+                        "write");
+                RETURN_IF_ERROR(status);
+            }
+            COUNTER_UPDATE(_input_batches, 1);
+            COUNTER_UPDATE(_input_bytes, bytes);
+            COUNTER_UPDATE(_input_rows, end - begin);
             begin = end;
         }
         return Status::OK();
@@ -246,6 +307,7 @@ public:
         size_t offset = 0;
         size_t total = 0;
         const size_t count = paimon_commit_messages_count(_messages.get());
+        COUNTER_SET(_prepared_messages, static_cast<int64_t>(count));
         while (offset < count) {
             RETURN_IF_CANCELLED(_state);
             size_t chunk = std::min<size_t>(512, count - offset);
@@ -286,6 +348,7 @@ public:
     }
 
     Status abort() {
+        SCOPED_TIMER(_abort_timer);
         RETURN_IF_ERROR(stop());
         // No messages have been published before backend.close() succeeds.
         if (_messages) {
@@ -312,12 +375,26 @@ public:
         DORIS_CHECK(_arrow_pool.bytes_allocated() == 0);
         if (_admitted) {
             _tracker->release(_budget);
+            COUNTER_SET(_query_credit_counter, int64_t {0});
+            RustWriterMetrics::instance().paimon_rust_active_writers->increment(-1);
+            RustWriterMetrics::instance().paimon_rust_fixed_memory_bytes->increment(-_budget);
             std::lock_guard<std::mutex> guard(rust_writer_admission_mutex);
             --rust_active_writers;
             _admitted = false;
         }
         _closed = true;
         return Status::OK();
+    }
+
+    Status record_result(Status status) {
+        update_metrics();
+        if (!status.ok()) {
+            COUNTER_UPDATE(_failed_operations, 1);
+            if (status.is<ErrorCode::CANCELLED>()) {
+                COUNTER_UPDATE(_cancellations, 1);
+            }
+        }
+        return status;
     }
 
 private:
@@ -430,6 +507,8 @@ private:
     }
 
     void update_metrics() {
+        COUNTER_SET(_arrow_bytes, _arrow_pool.bytes_allocated());
+        COUNTER_SET(_arrow_peak_bytes, _arrow_pool.max_memory());
         if (_resources) {
             paimon_resource_metrics metrics {};
             auto status = rust_status(paimon_resource_context_metrics(_resources.get(), &metrics),
@@ -454,6 +533,19 @@ private:
     RuntimeProfile::Counter* _budget_counter = nullptr;
     RuntimeProfile::Counter* _prepare_timer = nullptr;
     RuntimeProfile::Counter* _stop_timer = nullptr;
+    RuntimeProfile::Counter* _query_credit_counter = nullptr;
+    RuntimeProfile::Counter* _input_batches = nullptr;
+    RuntimeProfile::Counter* _input_bytes = nullptr;
+    RuntimeProfile::Counter* _input_rows = nullptr;
+    RuntimeProfile::Counter* _arrow_bytes = nullptr;
+    RuntimeProfile::Counter* _arrow_peak_bytes = nullptr;
+    RuntimeProfile::Counter* _prepared_messages = nullptr;
+    RuntimeProfile::Counter* _admission_rejections = nullptr;
+    RuntimeProfile::Counter* _failed_operations = nullptr;
+    RuntimeProfile::Counter* _cancellations = nullptr;
+    RuntimeProfile::Counter* _abort_timer = nullptr;
+    RuntimeProfile::Counter* _write_timer = nullptr;
+    RuntimeProfile::Counter* _admission_timer = nullptr;
     std::shared_ptr<MemTrackerLimiter> _tracker;
     int32_t _commit_version = 0;
     bool _admitted = false;
@@ -469,7 +561,7 @@ Status FfiPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     DORIS_CHECK(state->get_query_ctx() != nullptr);
     DORIS_CHECK(state->query_mem_tracker() != nullptr);
     _impl = std::make_shared<Impl>(state);
-    return _impl->open(sink, profile);
+    return _impl->record_result(_impl->open(sink, profile));
 }
 
 Status FfiPaimonWriteBackend::create_writer(std::unique_ptr<IPaimonWriter>* writer) {
@@ -479,7 +571,7 @@ Status FfiPaimonWriteBackend::create_writer(std::unique_ptr<IPaimonWriter>* writ
 }
 
 Status FfiPaimonWriteBackend::close() {
-    return _impl ? _impl->close() : Status::OK();
+    return _impl ? _impl->record_result(_impl->close()) : Status::OK();
 }
 
 } // namespace doris

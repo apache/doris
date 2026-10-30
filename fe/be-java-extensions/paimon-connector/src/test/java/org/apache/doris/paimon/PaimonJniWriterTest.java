@@ -81,7 +81,7 @@ public class PaimonJniWriterTest {
         thread.setContextClassLoader(testClassLoader);
         try {
             Assertions.assertThrows(Exception.class, () -> writer.open(
-                    "not-a-serialized-table", Collections.emptyMap(), new String[0],
+                    new byte[] {1, 2, 3}, Collections.emptyMap(), new String[0],
                     1L, "test-user", false, false, "UTC", 64L * 1024 * 1024, 1L, 1L));
             Assertions.assertSame(testClassLoader, thread.getContextClassLoader());
         } finally {

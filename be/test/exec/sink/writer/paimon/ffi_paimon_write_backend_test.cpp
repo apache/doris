@@ -23,12 +23,14 @@
 #include <filesystem>
 
 #include "common/config.h"
+#include "common/metrics/doris_metrics.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "exec/sink/writer/paimon/jni_paimon_write_backend.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_profile.h"
@@ -104,6 +106,10 @@ protected:
         return _writer->write(_state.get(), block);
     }
 
+    int64_t counter(const std::string& name) {
+        return _profile.get_child("RustPaimonWriteBackend")->get_counter(name)->value();
+    }
+
     Block input() {
         auto values = ColumnInt32::create();
         values->insert_value(10);
@@ -140,6 +146,11 @@ TEST_F(FfiPaimonWriteBackendTest, WritesDpcmAndReleasesFixedBudget) {
     EXPECT_GT(_state->query_mem_tracker()->consumption(), before);
     auto block = input();
     ASSERT_TRUE(write(block).ok());
+    EXPECT_EQ(counter("InputRows"), 3);
+    EXPECT_EQ(counter("InputBatches"), 1);
+    EXPECT_GT(counter("InputEstimatedBytes"), 0);
+    EXPECT_GT(counter("PeakArrowBufferBytes"), 0);
+    EXPECT_GT(counter("QueryReservedBytes"), 0);
     std::vector<TPaimonCommitMessage> messages;
     ASSERT_TRUE(_writer->prepare_commit(messages).ok());
     ASSERT_EQ(messages.size(), 1);
@@ -151,6 +162,14 @@ TEST_F(FfiPaimonWriteBackendTest, WritesDpcmAndReleasesFixedBudget) {
     _writer.reset();
     ASSERT_TRUE(_backend.close().ok());
     EXPECT_EQ(_state->query_mem_tracker()->consumption(), before);
+    EXPECT_EQ(counter("QueryReservedBytes"), 0);
+    EXPECT_EQ(counter("ReservedMemoryBytes"), 0);
+    EXPECT_EQ(counter("ArrowBufferBytes"), 0);
+    EXPECT_EQ(counter("PreparedCommitMessages"), 1);
+    auto* entity = DorisMetrics::instance()->server_entity();
+    EXPECT_EQ(static_cast<IntGauge*>(entity->get_metric("paimon_rust_active_writers"))->value(), 0);
+    EXPECT_EQ(static_cast<IntGauge*>(entity->get_metric("paimon_rust_fixed_memory_bytes"))->value(),
+              0);
     // Once prepared, normal shutdown must preserve files for the FE transaction.
     EXPECT_EQ(file_count(), 1);
 }
@@ -164,6 +183,19 @@ TEST_F(FfiPaimonWriteBackendTest, AbortRemovesProducerOwnedRolledFiles) {
     _writer.reset();
     ASSERT_TRUE(_backend.close().ok());
     EXPECT_EQ(file_count(), 0);
+}
+
+TEST_F(FfiPaimonWriteBackendTest, MissingDescriptorReturnsErrorForBothBackends) {
+    _sink.__isset.table_desc = false;
+    auto status = _backend.open(_sink, _state.get(), &_profile);
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(counter("QueryReservedBytes"), 0);
+    EXPECT_TRUE(_backend.close().ok());
+    JniPaimonWriteBackend jni;
+    status = jni.open(_sink, _state.get(), &_profile);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("upgrade the FE"), std::string::npos);
+    EXPECT_TRUE(jni.close().ok());
 }
 
 TEST_F(FfiPaimonWriteBackendTest, NullableInputUsesPinnedArrowSchema) {
@@ -251,6 +283,7 @@ TEST_F(FfiPaimonWriteBackendTest, ResourceExhaustionFailsAndReleasesBudget) {
     Block over_budget({{std::move(values), std::make_shared<DataTypeInt32>(), "id"}});
     auto status = write(over_budget);
     EXPECT_TRUE(status.is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) << status;
+    EXPECT_EQ(counter("FailedOperations"), 1);
     ASSERT_TRUE(_writer->abort().ok());
     _writer.reset();
     ASSERT_TRUE(_backend.close().ok());

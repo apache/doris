@@ -30,6 +30,8 @@ import java.util.Optional;
  * Insert executor for Paimon tables.
  */
 public class PaimonInsertExecutor extends BaseExternalTableInsertExecutor {
+    private PaimonTransaction transaction;
+
     public PaimonInsertExecutor(ConnectContext ctx, PaimonExternalTable table,
             String labelName, NereidsPlanner planner,
             Optional<InsertCommandContext> insertCtx,
@@ -47,7 +49,34 @@ public class PaimonInsertExecutor extends BaseExternalTableInsertExecutor {
 
     @Override
     protected void beforeExec() throws UserException {
-        ((PaimonTransaction) transactionManager.getTransaction(txnId)).setQueryId(ctx.queryId());
+        transaction = (PaimonTransaction) transactionManager.getTransaction(txnId);
+        transaction.setQueryId(ctx.queryId());
+    }
+
+    @Override
+    protected void onComplete() throws UserException {
+        try {
+            super.onComplete();
+        } finally {
+            updateTransactionProfile();
+        }
+    }
+
+    @Override
+    protected void onFail(Throwable failure) {
+        try {
+            super.onFail(failure);
+        } finally {
+            updateTransactionProfile();
+        }
+    }
+
+    private void updateTransactionProfile() {
+        // beforeExec may fail while resolving a transaction removed with its catalog.
+        if (transaction != null) {
+            coordinator.getExecutionProfile().getRoot().addInfoString("PaimonTransactionState",
+                    transaction.getStateName());
+        }
     }
 
     @Override

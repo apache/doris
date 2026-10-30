@@ -658,6 +658,19 @@ struct TPaimonCommitMessage {
     1: optional binary payload          // Paimon native CommitMessageSerializer bytes (DPCM-framed)
 }
 
+// Invalid Java serialization, used only to make legacy BEs return an error instead of asserting.
+const string PAIMON_LEGACY_BE_REJECTION_MARKER = "Paimon table descriptor required: upgrade the BE";
+
+// Portable catalog services used by the Java writer. No serialized SDK objects.
+struct TPaimonCatalogContext {
+    1: optional map<string, string> options
+    2: optional map<string, string> hadoop_config
+    3: optional string table_uuid
+    4: optional bool catalog_loader_enabled
+    5: optional bool supports_version_management
+    6: optional bool supports_partition_modification
+}
+
 // Resolved, statement-pinned metadata shared by Paimon SDK backends.
 struct TPaimonTableDesc {
     1: optional string table_path
@@ -667,10 +680,12 @@ struct TPaimonTableDesc {
     5: optional string branch
     6: optional map<string, string> storage_options
     7: optional i32 commit_message_version
+    8: optional TPaimonCatalogContext catalog_context
 }
 
 struct TPaimonTableSink {
-    1: optional string serialized_table           // required for JNI; serialized Paimon Table object (base64)
+    // Fixed invalid marker only: legacy BEs reject it instead of asserting on an absent field.
+    1: optional string serialized_table
     2: optional map<string, string> hadoop_config
     3: optional list<string> column_names
     4: optional TPaimonWriteBackendType backend_type
@@ -678,6 +693,7 @@ struct TPaimonTableSink {
     6: optional i64 transaction_id
     7: optional string commit_user
     8: optional TPaimonTableDesc table_desc
+    9: optional string backend_selection_reason
 }
 
 struct TDataSink {

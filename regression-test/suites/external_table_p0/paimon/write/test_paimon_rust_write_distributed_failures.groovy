@@ -84,6 +84,17 @@ suite("test_paimon_rust_write_distributed_failures", "p0,external,paimon,nonConc
         Http.GET("http://${hosts[backend]}:${ports[backend]}/api/running_pipeline_tasks", false, false)
                 .toString().toLowerCase().contains("paimon")
     }
+    def master = sql_return_maparray("SHOW FRONTENDS").find { it.IsMaster.toString().equalsIgnoreCase("true") }
+    def transactionEvents = {
+        String metrics = Http.GET("http://${master.Host}:${master.HttpPort}/metrics", false, false).toString()
+        def events = [:]
+        ["committed", "aborted", "outcome_unknown", "commit_retry", "late_report"].each { event ->
+            def value = metrics =~ /(?m)^doris_fe_paimon_write_events_total\{[^}]*event="${event}"[^}]*\}\s+([0-9.]+)/
+            assertTrue(value.find(), "Missing Paimon transaction metric: ${event}")
+            events[event] = value.group(1).toDouble() as long
+        }
+        return events
+    }
     def originalRust = sql "SELECT @@enable_paimon_rust_writer"
     def originalScanner = sql "SELECT @@force_jni_scanner"
     def originalParallelism = sql "SELECT @@parallel_pipeline_task_num"
@@ -131,6 +142,7 @@ suite("test_paimon_rust_write_distributed_failures", "p0,external,paimon,nonConc
         }
         sql "SWITCH test_paimon_rust_distributed_catalog"
         sql "USE test_paimon_rust_distributed_db"
+        def beforeEvents = transactionEvents()
         sql insertSql("t_multi")
         order_qt_multi "SELECT COUNT(*), SUM(id) FROM t_multi"
         assertSparkDorisResultEquals(
@@ -219,6 +231,13 @@ suite("test_paimon_rust_write_distributed_failures", "p0,external,paimon,nonConc
         assertTrue(keys("t_fe_unknown", "bucket-0").size() > oldData.size())
         assertEquals(oldSnapshots, keys("t_fe_unknown", "snapshot"))
         order_qt_fe_unknown "SELECT COUNT(*), SUM(id) FROM t_fe_unknown"
+        def afterEvents = transactionEvents()
+        assertEquals(2L, afterEvents.committed - beforeEvents.committed)
+        assertEquals(2L, afterEvents.aborted - beforeEvents.aborted)
+        assertEquals(1L, afterEvents.outcome_unknown - beforeEvents.outcome_unknown)
+        assertEquals(2L, afterEvents.commit_retry - beforeEvents.commit_retry)
+        // The successful report can arrive before rollback when the failing BE takes longer
+        // to abort. File-set checks above cover either ordering; a late event is not guaranteed.
     } finally {
         GetDebugPoint().disableDebugPointForAllFEs("PaimonTransaction.commit.before")
         GetDebugPoint().disableDebugPointForAllFEs("PaimonTransaction.commit.after")

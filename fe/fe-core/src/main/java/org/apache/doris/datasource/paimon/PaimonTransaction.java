@@ -20,6 +20,7 @@ package org.apache.doris.datasource.paimon;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.thrift.TPaimonCommitMessage;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.Transaction;
@@ -117,6 +118,7 @@ public class PaimonTransaction implements Transaction {
     public static void abortLateCommitMessages(TUniqueId queryId, List<TPaimonCommitMessage> messages) {
         PaimonTransaction transaction = RECENTLY_ABORTED.getIfPresent(queryId);
         if (transaction != null) {
+            countEvent("late_report");
             transaction.updateCommitMessages(messages);
         }
     }
@@ -156,6 +158,7 @@ public class PaimonTransaction implements Transaction {
                 return;
             }
             state = CommitState.ABORTED;
+            countEvent("aborted");
             // Register before the transaction manager and coordinator remove this transaction.
             // A report racing with rollback is either drained below or aborted by its updater.
             // Planning can fail before beforeExec associates a query; no BE runs in that case.
@@ -183,6 +186,7 @@ public class PaimonTransaction implements Transaction {
                     transactionId, tableName(), rawPayloads.size(), allMessages.size());
             doAbort(writeBinding, allMessages);
         } catch (Exception e) {
+            countEvent("cleanup_failure");
             LOG.warn("Failed to rollback PaimonTransaction, txnId={}, table={}",
                     transactionId, tableName(), e);
         }
@@ -256,6 +260,17 @@ public class PaimonTransaction implements Transaction {
 
     public long getTransactionId() {
         return transactionId;
+    }
+
+    public synchronized String getStateName() {
+        return state.name();
+    }
+
+    private static void countEvent(String event) {
+        // FE unit tests and bootstrap can run before MetricRepo.init().
+        if (MetricRepo.isInit) {
+            MetricRepo.COUNTER_PAIMON_WRITE_EVENTS.getOrAdd(event).increase(1L);
+        }
     }
 
     synchronized CommitState getState() {
@@ -338,6 +353,7 @@ public class PaimonTransaction implements Transaction {
 
         LOG.warn("Paimon atomic commit failed with an unknown outcome; retrying idempotently, "
                         + "txnId={}, table={}", transactionId, tableName(), firstFailure);
+        countEvent("commit_retry");
         Exception retryFailure;
         try {
             doCommit(writeBinding, messages);
@@ -386,6 +402,7 @@ public class PaimonTransaction implements Transaction {
         Preconditions.checkState(state == CommitState.PREPARED,
                 "Only a prepared Paimon transaction can complete without a commit");
         state = CommitState.COMMITTED;
+        countEvent("committed");
     }
 
     private synchronized void markCommitting() {
@@ -398,12 +415,14 @@ public class PaimonTransaction implements Transaction {
         Preconditions.checkState(state == CommitState.COMMITTING,
                 "Only a committing Paimon transaction can be committed");
         state = CommitState.COMMITTED;
+        countEvent("committed");
     }
 
     private synchronized void markOutcomeUnknown() {
         Preconditions.checkState(state == CommitState.COMMITTING,
                 "Only a committing Paimon transaction can have an unknown outcome");
         state = CommitState.OUTCOME_UNKNOWN;
+        countEvent("outcome_unknown");
     }
 
     private synchronized PaimonWriteBinding requireBinding() throws UserException {

@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.action.ProfileAction
+import org.apache.doris.regression.util.Http
+
 suite("test_paimon_rust_write_append", "p0,external,paimon") {
     if (!context.config.otherConfigs.get("enablePaimonTest")?.equalsIgnoreCase("true")) {
         logger.info("disable paimon test.")
@@ -59,12 +62,25 @@ suite("test_paimon_rust_write_append", "p0,external,paimon") {
     def originalRustWriter = sql "SELECT @@enable_paimon_rust_writer"
     def originalJniScanner = sql "SELECT @@force_jni_scanner"
     def originalParallelism = sql "SELECT @@parallel_pipeline_task_num"
+    def originalProfile = sql "SELECT @@enable_profile"
+    def profiles = new ProfileAction(context)
+    def checkWriter = { String backend, String reason, List counters ->
+        String queryId = sql("SELECT last_query_id()")[0][0].toString()
+        def required = ["PaimonWriteBackend: ${backend}".toString(),
+                        "PaimonWriterSelectionReason: ${reason}".toString(),
+                        "PaimonTableMetadata: Thrift table descriptor",
+                        "PaimonTransactionState: COMMITTED", "Profile Completion State: COMPLETE"]
+        required.addAll(counters)
+        profiles.getProfile(queryId, required)
+    }
     try {
+        sql "SET enable_profile=true"
         // Leave room under the BE-wide Rust writer admission cap.
         sql "SET parallel_pipeline_task_num = 4"
         sql "SET force_jni_scanner = true"
         sql "SET enable_paimon_rust_writer = false"
-        sql "INSERT INTO t_append VALUES (0, 'java', 1.25, DATE '2026-01-01')"
+        sql "INSERT INTO t_append SELECT 0, 'java', 1.25, DATE '2026-01-01'"
+        checkWriter("Java JNI", "rust_writer_disabled", ["NativePageMemoryPeak"])
         sql "SET enable_paimon_rust_writer = true"
         sql """INSERT INTO t_append VALUES
             (1, 'rust', -2.50, DATE '2026-02-02'), (2, NULL, NULL, NULL)"""
@@ -78,6 +94,8 @@ suite("test_paimon_rust_write_append", "p0,external,paimon") {
                     CAST(number AS DECIMAL(18, 2)), DATE '2026-03-03'
                 FROM numbers("number" = "20000")
             """
+            checkWriter("Rust FFI", "supported_append", ["InputBatches", "InputRows", "RustWriteTime",
+                    "QueryReservedBytes: 0", "ArrowBufferBytes: 0", "MemoryAccounting"])
         }
         sql "SET parallel_pipeline_task_num = 4"
         // This Rust-specific error also proves the supported table selected FFI.
@@ -107,7 +125,8 @@ suite("test_paimon_rust_write_append", "p0,external,paimon") {
                 sql("SELECT * FROM t_append WHERE id < 10 ORDER BY id"))
 
         // Partitioned writes select JNI before input is consumed.
-        sql "INSERT INTO t_partitioned VALUES (1, 'east'), (2, 'west')"
+        sql "INSERT INTO t_partitioned SELECT 1, 'east' UNION ALL SELECT 2, 'west'"
+        checkWriter("Java JNI", "partitioned_table", [])
         assertSparkDorisResultEquals(
                 spark_paimon("""SELECT * FROM paimon.test_paimon_rust_write_db.t_partitioned
                     ORDER BY id"""),
@@ -115,13 +134,31 @@ suite("test_paimon_rust_write_append", "p0,external,paimon") {
 
         // Java applies schema defaults even to explicit NULLs. These tables must
         // select JNI while the Rust file-store writer lacks that behavior.
-        sql "INSERT INTO t_defaults VALUES (1, NULL), (2, 7)"
+        sql "INSERT INTO t_defaults SELECT 1, CAST(NULL AS INT) UNION ALL SELECT 2, 7"
+        checkWriter("Java JNI", "schema_defaults", [])
         order_qt_schema_defaults "SELECT * FROM t_defaults"
         assertSparkDorisResultEquals(
                 spark_paimon("""SELECT * FROM paimon.test_paimon_rust_write_db.t_defaults
                     ORDER BY id"""),
                 sql("SELECT * FROM t_defaults ORDER BY id"))
+        def hosts = [:]
+        def ports = [:]
+        getBackendIpHttpPort(hosts, ports)
+        boolean sawMetrics = false
+        ports.each { id, port ->
+            String metrics = Http.GET("http://${hosts[id]}:${port}/metrics", false, false).toString()
+            def active = metrics =~ /(?m)^doris_be_paimon_rust_active_writers\s+([0-9.]+)/
+            if (active.find()) {
+                sawMetrics = true
+                assertEquals(0.0d, active.group(1).toDouble())
+                def credit = metrics =~ /(?m)^doris_be_paimon_rust_fixed_memory_bytes\s+([0-9.]+)/
+                assertTrue(credit.find())
+                assertEquals(0.0d, credit.group(1).toDouble())
+            }
+        }
+        assertTrue(sawMetrics)
     } finally {
+        sql "SET enable_profile = ${originalProfile[0][0]}"
         sql "SET enable_paimon_rust_writer = ${originalRustWriter[0][0]}"
         sql "SET force_jni_scanner = ${originalJniScanner[0][0]}"
         sql "SET parallel_pipeline_task_num = ${originalParallelism[0][0]}"

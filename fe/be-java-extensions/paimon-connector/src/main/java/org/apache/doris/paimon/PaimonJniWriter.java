@@ -133,13 +133,13 @@ public class PaimonJniWriter {
      *
      * <p>This method:
      * <ol>
-     *   <li>Deserializes the target Paimon {@link FileStoreTable} selected by FE.</li>
+     *   <li>Reconstructs the target Paimon {@link FileStoreTable} from metadata pinned by FE.</li>
      *   <li>Creates a {@link PaimonWriteSchema} which normalizes Doris input
      *       columns to the table-schema row layout.</li>
      *   <li>Opens one Paimon SDK writer session.</li>
      * </ol>
      *
-     * @param serializedTable serialized Paimon table selected by FE
+     * @param tableDescriptor Thrift table descriptor pinned by FE
      * @param hadoopConfig   filesystem and authentication configuration
      * @param columnNames    output column names in the order produced by BE
      * @param transactionId  Doris external transaction identifier
@@ -151,7 +151,7 @@ public class PaimonJniWriter {
      * @param nativeMemoryManager opaque BE manager used to allocate tracked native pages
      * @param nativeSpillSession opaque managed spill session used for capacity and I/O accounting
      */
-    public void open(String serializedTable, Map<String, String> hadoopConfig,
+    public void open(byte[] tableDescriptor, Map<String, String> hadoopConfig,
                      String[] columnNames, long transactionId, String commitUser,
                      boolean overwrite, boolean changelogWrite, String timeZone,
                      long nativePageMemoryLimitBytes, long nativeMemoryManager,
@@ -168,7 +168,7 @@ public class PaimonJniWriter {
             this.preExecutionAuthenticator = PreExecutionAuthenticatorCache.getAuthenticator(hadoopConfig);
             preExecutionAuthenticator.execute(() -> {
                 try {
-                    FileStoreTable table = PaimonUtils.deserialize(serializedTable);
+                    FileStoreTable table = PaimonTableDescriptor.resolve(tableDescriptor, hadoopConfig);
                     LOG.info("PaimonJniWriter opening: table={}, columns={}",
                             table.fullName(), columnNames != null ? columnNames.length : 0);
                     this.commitIdentifier = transactionId;

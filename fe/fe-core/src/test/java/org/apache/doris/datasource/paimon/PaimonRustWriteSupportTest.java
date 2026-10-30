@@ -20,9 +20,14 @@ package org.apache.doris.datasource.paimon;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TPaimonTableDesc;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.paimon.catalog.CatalogContext;
+import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.fs.Path;
+import org.apache.paimon.options.Options;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.AppendOnlyFileStoreTable;
+import org.apache.paimon.table.CatalogEnvironment;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.utils.JsonSerdeUtil;
@@ -45,6 +50,7 @@ public class PaimonRustWriteSupportTest {
                 Collections.emptyList(), Collections.emptyList(), options, null);
         AppendOnlyFileStoreTable table = Mockito.mock(AppendOnlyFileStoreTable.class);
         Mockito.when(table.options()).thenReturn(options);
+        Mockito.when(table.catalogEnvironment()).thenReturn(CatalogEnvironment.empty());
         Mockito.when(table.schema()).thenReturn(schema);
         Mockito.when(table.partitionKeys()).thenReturn(Collections.emptyList());
         Mockito.when(table.primaryKeys()).thenReturn(Collections.emptyList());
@@ -140,13 +146,47 @@ public class PaimonRustWriteSupportTest {
     }
 
     @Test
+    public void testDescriptorCarriesHadoopOverridesWithoutBuiltInDefaults() {
+        AppendOnlyFileStoreTable table = table("file:/tmp/jni-writer-test",
+                DataTypes.FIELD(0, "id", DataTypes.INT()));
+        Configuration configuration = new Configuration();
+        configuration.set("fs.s3a.endpoint", "test-endpoint");
+        configuration.set("io.file.buffer.size", "12345");
+        CatalogEnvironment environment = new CatalogEnvironment(new Identifier("RemoteDB", "RemoteTable"), "uuid-7",
+                null, null, null, CatalogContext.create(new Options(), configuration), false, false);
+        Mockito.when(table.catalogEnvironment()).thenReturn(environment);
+        TPaimonTableDesc desc = PaimonTableDescriptor.describe(table, "db", "t",
+                Collections.emptyMap(), false, false);
+        Assert.assertEquals("test-endpoint", desc.getCatalogContext().getHadoopConfig().get("fs.s3a.endpoint"));
+        Assert.assertEquals("12345", desc.getCatalogContext().getHadoopConfig().get("io.file.buffer.size"));
+        Assert.assertFalse(desc.getCatalogContext().getHadoopConfig().containsKey("ipc.client.connect.max.retries"));
+        Assert.assertEquals("uuid-7", desc.getCatalogContext().getTableUuid());
+        Assert.assertEquals("RemoteDB", desc.getDatabaseName());
+        Assert.assertEquals("RemoteTable", desc.getTableName());
+    }
+
+    @Test
+    public void testJniDescriptorPreservesOptionsAndReportsFallbackReason() {
+        AppendOnlyFileStoreTable table = table("file:/tmp/jni-writer-test",
+                DataTypes.FIELD(0, "id", DataTypes.INT()).newDefaultValue("42"));
+        TPaimonTableDesc desc = PaimonTableDescriptor.describe(table, "db", "t",
+                Collections.emptyMap(), false, false);
+        TableSchema schema = JsonSerdeUtil.fromJson(desc.getSchemaJson(), TableSchema.class);
+        Assert.assertEquals(table.schema().options(), schema.options());
+        Assert.assertEquals(table.schema().fields(), schema.fields());
+        Assert.assertTrue(desc.isSetCatalogContext());
+        Assert.assertEquals("schema_defaults", PaimonRustWriteSupport.unsupportedReason(table,
+                Collections.singletonList("id"), Collections.emptyMap()).get());
+    }
+
+    @Test
     public void testDescriptorPreservesPinnedSchemaWithoutJavaSerialization() {
         AppendOnlyFileStoreTable table = table("s3://bucket/rust-writer-test",
                 DataTypes.FIELD(0, "id", DataTypes.INT()));
         Map<String, String> storage = new HashMap<>();
         storage.put("AWS_ACCESS_KEY", "test-access");
         storage.put("AWS_SECRET_KEY", "test-secret");
-        TPaimonTableDesc desc = PaimonRustWriteSupport.describe(table, "db", "t", storage);
+        TPaimonTableDesc desc = PaimonTableDescriptor.describe(table, "db", "t", storage, true, false);
         TableSchema restored = JsonSerdeUtil.fromJson(desc.getSchemaJson(), TableSchema.class);
         Assert.assertEquals(7, restored.id());
         Assert.assertEquals(table.schema().fields(), restored.fields());

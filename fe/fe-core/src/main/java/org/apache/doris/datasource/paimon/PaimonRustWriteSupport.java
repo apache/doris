@@ -17,8 +17,6 @@
 
 package org.apache.doris.datasource.paimon;
 
-import org.apache.doris.thrift.TPaimonTableDesc;
-
 import org.apache.commons.lang3.StringUtils;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.table.AppendOnlyFileStoreTable;
@@ -27,9 +25,9 @@ import org.apache.paimon.table.sink.CommitMessageSerializer;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.TimestampType;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /** Selects the append subset whose write and commit semantics the Rust backend implements. */
@@ -39,17 +37,36 @@ public final class PaimonRustWriteSupport {
 
     public static boolean isSupported(FileStoreTable table, List<String> columns,
             Map<String, String> storageOptions) {
+        return !unsupportedReason(table, columns, storageOptions).isPresent();
+    }
+
+    public static Optional<String> unsupportedReason(FileStoreTable table, List<String> columns,
+            Map<String, String> storageOptions) {
         Map<String, String> options = table.options();
         CoreOptions coreOptions = new CoreOptions(options);
-        if (new CommitMessageSerializer().getVersion() != 11
-                || !(table instanceof AppendOnlyFileStoreTable)
-                || !table.partitionKeys().isEmpty() || !table.primaryKeys().isEmpty()
-                || coreOptions.bucket() != -1
-                || !"main".equals(CoreOptions.branch(options))
-                || !"parquet".equalsIgnoreCase(coreOptions.formatType())
-                || !columns.equals(table.schema().fields().stream()
-                        .map(DataField::name).collect(Collectors.toList()))) {
-            return false;
+        if (new CommitMessageSerializer().getVersion() != 11) {
+            return Optional.of("commit_protocol_version");
+        }
+        if (!table.primaryKeys().isEmpty()) {
+            return Optional.of("primary_key_table");
+        }
+        if (!(table instanceof AppendOnlyFileStoreTable)) {
+            return Optional.of("table_implementation");
+        }
+        if (!table.partitionKeys().isEmpty()) {
+            return Optional.of("partitioned_table");
+        }
+        if (coreOptions.bucket() != -1) {
+            return Optional.of("bucket_mode");
+        }
+        if (!"main".equals(CoreOptions.branch(options))) {
+            return Optional.of("non_main_branch");
+        }
+        if (!"parquet".equalsIgnoreCase(coreOptions.formatType())) {
+            return Optional.of("file_format");
+        }
+        if (!columns.equals(table.schema().fields().stream().map(DataField::name).collect(Collectors.toList()))) {
+            return Optional.of("column_mapping");
         }
         for (Map.Entry<String, String> option : options.entrySet()) {
             String key = option.getKey();
@@ -62,14 +79,14 @@ public final class PaimonRustWriteSupport {
                             || key.equals("deletion-vectors.enabled"))
                             && Boolean.parseBoolean(option.getValue()))
                     || (key.equals("type") && !option.getValue().equals("paimon"))) {
-                return false;
+                return Optional.of("table_option:" + key);
             }
         }
         for (DataField field : table.schema().fields()) {
             // Java replaces nullable input with schema defaults. The Rust file-store
             // writer does not implement this behavior yet, including explicit NULLs.
             if (field.defaultValue() != null) {
-                return false;
+                return Optional.of("schema_defaults");
             }
             switch (field.type().getTypeRoot()) {
                 case BOOLEAN:
@@ -88,60 +105,28 @@ public final class PaimonRustWriteSupport {
                     break;
                 case TIMESTAMP_WITHOUT_TIME_ZONE:
                     if (((TimestampType) field.type()).getPrecision() > 6) {
-                        return false;
+                        return Optional.of("timestamp_precision");
                     }
                     break;
                 default:
-                    return false;
+                    return Optional.of("column_type:" + field.type().getTypeRoot().name());
             }
         }
         String scheme = table.location().toUri().getScheme();
         if (scheme == null || scheme.equals("file")) {
-            return true;
+            return Optional.empty();
         }
         if (!scheme.equals("s3")) {
-            return false;
+            return Optional.of("unsupported_filesystem");
         }
-        Map<String, String> normalized = normalizeStorage(storageOptions);
+        Map<String, String> normalized = PaimonTableDescriptor.normalizeStorage(storageOptions);
         // Refreshable credentials and ambient SDK provider chains require separate integration.
-        return !normalized.containsKey("AWS_ROLE_ARN")
+        boolean supported = !normalized.containsKey("AWS_ROLE_ARN")
                 && !normalized.containsKey("s3.assumed.role.arn")
                 && !normalized.containsKey("fs.s3a.assumed.role.arn")
                 && StringUtils.isNotBlank(normalized.get("s3.access-key"))
                 && StringUtils.isNotBlank(normalized.get("s3.secret-key"))
                 && StringUtils.isNotBlank(normalized.get("s3.region"));
-    }
-
-    public static TPaimonTableDesc describe(FileStoreTable table, String database, String name,
-            Map<String, String> storageOptions) {
-        TPaimonTableDesc result = new TPaimonTableDesc();
-        result.setTablePath(table.location().toString());
-        Map<String, String> writerOptions = new HashMap<>(table.schema().options());
-        // Bound the native writer's row-group flushing threshold independently of file size.
-        writerOptions.put("write.parquet-buffer-size", "8 mb");
-        result.setSchemaJson(PaimonUtil.encodeTableSchemaToJson(table.schema().copy(writerOptions)));
-        result.setDatabaseName(database);
-        result.setTableName(name);
-        result.setBranch(CoreOptions.branch(table.options()));
-        result.setStorageOptions(normalizeStorage(storageOptions));
-        result.setCommitMessageVersion(new CommitMessageSerializer().getVersion());
-        return result;
-    }
-
-    private static Map<String, String> normalizeStorage(Map<String, String> original) {
-        Map<String, String> result = new HashMap<>(original);
-        String[][] aliases = {
-                {"AWS_ACCESS_KEY", "s3.access-key"}, {"AWS_SECRET_KEY", "s3.secret-key"},
-                {"AWS_TOKEN", "s3.session.token"}, {"AWS_ENDPOINT", "s3.endpoint"},
-                {"AWS_REGION", "s3.region"}, {"use_path_style", "s3.path-style-access"},
-                {"fs.s3a.access.key", "s3.access-key"}, {"fs.s3a.secret.key", "s3.secret-key"},
-                {"fs.s3a.endpoint.region", "s3.region"}
-        };
-        for (String[] alias : aliases) {
-            if (original.containsKey(alias[0])) {
-                result.putIfAbsent(alias[1], original.get(alias[0]));
-            }
-        }
-        return result;
+        return supported ? Optional.empty() : Optional.of("s3_credentials_or_region");
     }
 }

@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.plans.commands.insert.PaimonInsertCommandContext;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.thrift.TPaimonTableDesc;
 
 import com.google.common.base.Preconditions;
 import org.apache.paimon.CoreOptions;
@@ -114,8 +115,11 @@ public class PaimonWriteBinding {
         return table;
     }
 
-    public String getSerializedTable() {
-        return PaimonUtil.encodeObjectToString(table);
+    public TPaimonTableDesc getTableDescriptor(boolean rustWriter) {
+        PaimonExternalCatalog catalog = (PaimonExternalCatalog) dorisTable.getCatalog();
+        return PaimonTableDescriptor.describe(table, dorisTable.getDbName(), dorisTable.getName(),
+                getStorageOptions(), rustWriter,
+                ((PaimonMetadataOps) catalog.getMetadataOps()).getCatalog().supportsPartitionModification());
     }
 
     public Map<String, String> getStorageOptions() {
