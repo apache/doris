@@ -28,7 +28,8 @@ suite("test_iceberg_table_meta_cache", "p0,external") {
             String default_fs = "hdfs://${externalEnvIp}:${hdfs_port}"
             String warehouse = "${default_fs}/warehouse"
 
-            // 1. test default catalog
+            // 1. test a catalog-level memory bound without a global bound. The existing
+            // create/insert/select/refresh flow below is the weighted-cache happy path.
             sql """drop catalog if exists ${catalog_name};"""
             sql """
             create catalog ${catalog_name} properties (
@@ -37,6 +38,7 @@ suite("test_iceberg_table_meta_cache", "p0,external") {
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hmsPort}',
                 'fs.defaultFS' = '${default_fs}',
                 'warehouse' = '${warehouse}',
+                'meta.cache.max-weight' = '128MB',
                 'meta.cache.iceberg.manifest.enable' = 'true'
             );
             """
@@ -63,6 +65,26 @@ suite("test_iceberg_table_meta_cache", "p0,external") {
             sql """refresh table test_iceberg_meta_cache_db.sales"""
             // select 3 rows
             sql """select * from test_iceberg_meta_cache_db.sales"""
+            // The weight-bounded entries expose their budget hierarchy in the statistics view. Only the
+            // catalog is bounded, so it bounds every weighted entry, and the catalog's charge covers the entry's.
+            def weightStats = sql """
+                select entry_name, max_weight, estimated_weight, eviction_weight, catalog_max_weight,
+                       catalog_estimated_weight, global_max_weight, global_estimated_weight
+                from internal.information_schema.catalog_meta_cache_statistics
+                where catalog_name = "${catalog_name}" and engine_name = "iceberg" and weight_bounded = true
+                order by entry_name;
+            """
+            assertTrue(weightStats.size() > 0)
+            for (row in weightStats) {
+                assertTrue((row[1] as long) > 0L)
+                assertTrue((row[2] as long) >= 0L)
+                assertTrue((row[3] as long) >= 0L)
+                assertEquals(row[1] as long, row[4] as long)
+                assertTrue((row[5] as long) >= (row[2] as long))
+                long globalMax = row[6] as long
+                assertTrue(globalMax == -1L || globalMax >= (row[4] as long))
+                assertTrue((row[7] as long) >= (row[5] as long))
+            }
             sql """drop table test_iceberg_meta_cache_db.sales"""
 
             // 2. test catalog with meta.cache.iceberg.table.ttl-second

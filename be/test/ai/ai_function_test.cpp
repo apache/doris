@@ -32,6 +32,7 @@
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
+#include "exec/pipeline/pipeline_fragment_context.h"
 #include "exprs/function/ai/ai_adapter.h"
 #include "exprs/function/ai/ai_classify.h"
 #include "exprs/function/ai/ai_extract.h"
@@ -45,6 +46,7 @@
 #include "exprs/function/ai/ai_translate.h"
 #include "exprs/function/ai/embed.h"
 #include "exprs/function/simple_function_factory.h"
+#include "runtime/runtime_profile.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
 
@@ -229,6 +231,37 @@ Columns get_prompt_columns(const Block& block, const ColumnNumbers& arguments) {
     return prompt_columns;
 }
 } // namespace
+
+template <typename Function>
+void check_batch_system_prompt() {
+    const char* structured = Function::batch_system_prompt(true);
+    const char* legacy = Function::batch_system_prompt(false);
+    EXPECT_EQ(structured, Function::batch_system_prompt(true));
+    EXPECT_EQ(legacy, Function::batch_system_prompt(false));
+    const std::string structured_text(structured);
+    const std::string legacy_text(legacy);
+    EXPECT_NE(structured_text.find(Function::system_prompt), std::string::npos);
+    EXPECT_NE(legacy_text.find(Function::system_prompt), std::string::npos);
+    EXPECT_NE(structured_text.find(R"({"results":["row1","row2"]})"), std::string::npos);
+    EXPECT_EQ(structured_text.find("Return exactly one JSON array"), std::string::npos);
+    EXPECT_NE(legacy_text.find(R"(["row1","row2"])"), std::string::npos);
+    EXPECT_EQ(legacy_text.find("`results`"), std::string::npos);
+    EXPECT_NE(structured_text.find("same length and order"), std::string::npos);
+    EXPECT_NE(legacy_text.find("same length and order"), std::string::npos);
+}
+
+TEST(AIFunctionTest, cached_batch_system_prompts) {
+    check_batch_system_prompt<FunctionAIClassify>();
+    check_batch_system_prompt<FunctionAIExtract>();
+    check_batch_system_prompt<FunctionAIFilter>();
+    check_batch_system_prompt<FunctionAIFixGrammar>();
+    check_batch_system_prompt<FunctionAIGenerate>();
+    check_batch_system_prompt<FunctionAIMask>();
+    check_batch_system_prompt<FunctionAISentiment>();
+    check_batch_system_prompt<FunctionAISimilarity>();
+    check_batch_system_prompt<FunctionAISummarize>();
+    check_batch_system_prompt<FunctionAITranslate>();
+}
 
 TEST(AIFunctionTest, AISummarizeTest) {
     FunctionAISummarize function;
@@ -564,6 +597,7 @@ TEST(AIFunctionTest, AISimilarityTrimWhitespace) {
 
 TEST(AIFunctionTest, AISimilarityInvalidValue) {
     auto runtime_state = std::make_unique<MockRuntimeState>();
+    runtime_state->_query_options.__set_enable_profile(true);
     auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
 
     std::vector<std::string> invalid_cases = {"abc", "1.2x", "", " ", "\n\t", "1,2"};
@@ -596,6 +630,14 @@ TEST(AIFunctionTest, AISimilarityInvalidValue) {
         ASSERT_NE(exec_status.to_string().find("Failed to parse float value"), std::string::npos);
     }
     unsetenv("AI_TEST_RESULT");
+    auto statistics =
+            runtime_state->get_query_ctx()->find_ai_statistics(runtime_state->fragment_id());
+    ASSERT_NE(statistics, nullptr);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionParseErrorCount")->value(),
+              invalid_cases.size());
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionErrorCount")->value(),
+              invalid_cases.size());
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionRequestCount")->value(), 0);
 }
 
 TEST(AIFunctionTest, AISimilarityBatchExecuteTest) {
@@ -1304,6 +1346,7 @@ TEST(AIFunctionTest, NullableBoolResultThroughPreparedFunction) {
 
 TEST(AIFunctionTest, NullableFloatResultMergesArgumentNullMaps) {
     auto runtime_state = std::make_unique<MockRuntimeState>();
+    runtime_state->_query_options.__set_enable_profile(true);
     auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
     setenv("AI_TEST_RESULT", R"(["0.5","1.5"])", 1);
 
@@ -1338,6 +1381,12 @@ TEST(AIFunctionTest, NullableFloatResultMergesArgumentNullMaps) {
     EXPECT_TRUE(result.is_null_at(2));
     EXPECT_FALSE(result.is_null_at(3));
     EXPECT_FLOAT_EQ(nested.get_element(3), 1.5f);
+    auto statistics =
+            runtime_state->get_query_ctx()->find_ai_statistics(runtime_state->fragment_id());
+    ASSERT_NE(statistics, nullptr);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionInputRows")->value(), 4);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionSkippedNullRows")->value(), 2);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionRequestCount")->value(), 0);
 }
 
 TEST(AIFunctionTest, NullableArrayArgumentThroughPreparedFunction) {
@@ -1408,6 +1457,7 @@ TEST(AIFunctionTest, NullableLabelElementsThroughPreparedFunction) {
 
 TEST(AIFunctionTest, AllNullConstArgumentReturnsConstNull) {
     auto runtime_state = std::make_unique<MockRuntimeState>();
+    runtime_state->_query_options.__set_enable_profile(true);
     auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
     constexpr size_t row_count = 5;
 
@@ -1435,10 +1485,17 @@ TEST(AIFunctionTest, AllNullConstArgumentReturnsConstNull) {
     for (size_t row = 0; row < row_count; ++row) {
         EXPECT_TRUE(nullable_result.is_null_at(row));
     }
+    auto statistics =
+            runtime_state->get_query_ctx()->find_ai_statistics(runtime_state->fragment_id());
+    ASSERT_NE(statistics, nullptr);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionInputRows")->value(), 1);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionSkippedNullRows")->value(), 1);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionRequestCount")->value(), 0);
 }
 
 TEST(AIFunctionTest, NullResourceReturnsConstNullBeforeLookup) {
     auto runtime_state = std::make_unique<MockRuntimeState>();
+    runtime_state->_query_options.__set_enable_profile(true);
     auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
     constexpr size_t row_count = 3;
 
@@ -1462,6 +1519,12 @@ TEST(AIFunctionTest, NullResourceReturnsConstNullBeforeLookup) {
     ASSERT_TRUE(status.ok()) << status.to_string();
     ASSERT_TRUE(is_column_const(*block.get_by_position(2).column));
     EXPECT_TRUE(block.get_by_position(2).column->only_null());
+    auto statistics =
+            runtime_state->get_query_ctx()->find_ai_statistics(runtime_state->fragment_id());
+    ASSERT_NE(statistics, nullptr);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionInputRows")->value(), 3);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionSkippedNullRows")->value(), 3);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionRequestCount")->value(), 0);
 }
 
 TEST(AIFunctionTest, MissingAIResourcesMetadataTest) {
@@ -1639,7 +1702,8 @@ TEST(AIFunctionTest, ExecuteBatchRequestSuccess) {
                                query_ctx.get());
     auto ctx = FunctionContext::create_context(&runtime_state, {}, {});
 
-    OneShotHttpServer server(200, R"({"choices":[{"message":{"content":"[\"1\",\"0\"]"}}]})");
+    OneShotHttpServer server(
+            200, R"({"choices":[{"message":{"content":"{\"results\":[\"1\",\"0\"]}"}}]})");
 
     TAIResource config;
     config.endpoint = server.endpoint();
@@ -1669,6 +1733,61 @@ TEST(AIFunctionTest, ExecuteBatchRequestSuccess) {
             std::string::npos);
 }
 
+TEST(AIFunctionTest, StructuredOutputDisabledStillBatchesRows) {
+    TQueryOptions query_options = create_fake_query_options();
+    query_options.__set_query_timeout(5);
+    auto query_ctx = MockQueryContext::create(TUniqueId(), ExecEnv::GetInstance(), query_options);
+    TQueryGlobals query_globals;
+    RuntimeState runtime_state(TUniqueId(), 0, query_options, query_globals, nullptr,
+                               query_ctx.get());
+    auto ctx = FunctionContext::create_context(&runtime_state, {}, {});
+
+    OneShotHttpServer server(
+            200,
+            R"({"choices":[{"message":{"content":"{\"results\":[\"A\\u0000B\",\"second row\"]}"}}]})");
+    TAIResource config;
+    config.endpoint = server.endpoint();
+    config.provider_type = "OPENAI";
+    config.model_name = "gpt-4-turbo";
+    config.max_retries = 0;
+    config.__set_enable_structured_output(false);
+    std::shared_ptr<AIAdapter> adapter = std::make_shared<OpenAIAdapter>();
+    adapter->init(config);
+
+    FunctionAIFilterBatchTestHelper helper;
+    std::vector<std::string> results;
+    auto status = helper.execute_batch_request({"first row", "second row"}, results, config,
+                                               adapter, ctx.get());
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_EQ(results.size(), 2);
+    EXPECT_EQ(results[0], std::string("A\0B", 3));
+    EXPECT_EQ(results[1], "second row");
+    auto request_text = server.join_and_get_request();
+    auto body_start = request_text.find("\r\n\r\n");
+    ASSERT_NE(body_start, std::string::npos);
+    rapidjson::Document request;
+    request.Parse(request_text.substr(body_start + 4).c_str());
+    ASSERT_FALSE(request.HasParseError());
+    EXPECT_FALSE(request.HasMember("response_format"));
+    EXPECT_STREQ(request["messages"][0]["content"].GetString(),
+                 FunctionAIFilter::batch_system_prompt(true));
+    rapidjson::Document input;
+    input.Parse(request["messages"][1]["content"].GetString());
+    ASSERT_TRUE(input.IsArray());
+    ASSERT_EQ(input.Size(), 2);
+    EXPECT_STREQ(input[0]["input"].GetString(), "first row");
+    EXPECT_STREQ(input[1]["input"].GetString(), "second row");
+}
+
+TEST(AIFunctionTest, StructuredOutputDefaultsTrueForOlderResources) {
+    TAIResource config;
+    EXPECT_TRUE(AIResource(config).enable_structured_output);
+    config.__set_enable_structured_output(false);
+    EXPECT_FALSE(AIResource(config).enable_structured_output);
+    config.__set_enable_structured_output(true);
+    EXPECT_TRUE(AIResource(config).enable_structured_output);
+}
+
 TEST(AIFunctionTest, ExecuteBatchRequestResultSizeMismatch) {
     TQueryOptions query_options = create_fake_query_options();
     query_options.__set_query_timeout(5);
@@ -1678,7 +1797,8 @@ TEST(AIFunctionTest, ExecuteBatchRequestResultSizeMismatch) {
                                query_ctx.get());
     auto ctx = FunctionContext::create_context(&runtime_state, {}, {});
 
-    OneShotHttpServer server(200, R"({"choices":[{"message":{"content":"[\"1\"]"}}]})");
+    OneShotHttpServer server(200,
+                             R"({"choices":[{"message":{"content":"{\"results\":[\"1\"]}"}}]})");
 
     TAIResource config;
     config.endpoint = server.endpoint();
@@ -1795,6 +1915,59 @@ TEST(AIFunctionTest, DoSendRequestSuccess) {
     std::string request = server.join_and_get_request();
     ASSERT_NE(request.find("POST "), std::string::npos);
     ASSERT_NE(request.find(R"({"message":"hello"})"), std::string::npos);
+}
+
+// Keep the snapshot lifetime scenario together; GTest macros inflate its complexity.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST(AIFunctionTest, FragmentProfileSnapshotsAreIsolatedAndDoNotDuplicateCounters) {
+    auto query = MockQueryContext::create();
+    TPipelineFragmentParams params;
+    params.fragment_id = 7;
+    auto fragment = PipelineFragmentContext::create_unique(
+            TUniqueId(), params, query, ExecEnv::GetInstance(),
+            std::function<void(RuntimeState*, Status*)> {});
+    fragment->_runtime_state = std::make_unique<MockRuntimeState>();
+    fragment->_runtime_state->_profile_level = 1;
+    fragment->_fragment_level_profile = std::make_unique<RuntimeProfile>("Fragment");
+    fragment->_prepared = true;
+    EXPECT_EQ(query->find_ai_statistics(7), nullptr);
+    auto empty = fragment->collect_realtime_profile();
+    ASSERT_EQ(empty.size(), 1);
+    EXPECT_EQ(query->find_ai_statistics(7), nullptr);
+
+    auto statistics = query->get_ai_statistics(7);
+    EXPECT_EQ(statistics, query->get_ai_statistics(7));
+    statistics->record_input(10, 3);
+    query->get_ai_statistics(8)->record_input(100, 90);
+    auto first = fragment->collect_realtime_profile();
+    auto repeated = fragment->collect_realtime_profile();
+    for (const auto& snapshot : {first, repeated}) {
+        ASSERT_EQ(snapshot.size(), 1);
+        ASSERT_EQ(snapshot.front()->nodes.size(), 1);
+        const auto& root = snapshot.front()->nodes.front();
+        EXPECT_EQ(root.num_children, 0);
+        int input_counter_count = 0;
+        for (const auto& counter : root.counters) {
+            if (counter.name == "AIFunctionInputRows") {
+                ++input_counter_count;
+                EXPECT_EQ(counter.value, 10);
+            }
+            if (counter.name == "AIFunctionSkippedNullRows") {
+                EXPECT_EQ(counter.value, 3);
+            }
+        }
+        EXPECT_EQ(input_counter_count, 1);
+        EXPECT_TRUE(root.child_counters_map.at("").contains("AIFunctionInputRows"));
+    }
+    statistics->record_input(1, 0);
+    fragment.reset();
+    query.reset();
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionInputRows")->value(), 11);
+    for (const auto& counter : first.front()->nodes.front().counters) {
+        if (counter.name == "AIFunctionInputRows") {
+            EXPECT_EQ(counter.value, 10);
+        }
+    }
 }
 
 } // namespace doris

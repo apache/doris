@@ -34,6 +34,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
+import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
@@ -196,8 +197,16 @@ public class RebalanceTest {
             for (int i = 0; i < 3; i++) {
                 backends.add(RebalancerTestUtil.createBackend(10086 + i, 2048, 0));
             }
-            rebalancer.addPrioBackends(backends, 1000);
+            long beforeMs = System.currentTimeMillis();
+            rebalancer.addPrioBackends(backends, 86400L);
+            long afterMs = System.currentTimeMillis();
+
             Assertions.assertTrue(rebalancer.hasPrioBackends());
+            for (Backend backend : backends) {
+                long expireTimeMs = rebalancer.prioBackends.get(backend.getId());
+                Assertions.assertTrue(expireTimeMs >= beforeMs + 86400000L);
+                Assertions.assertTrue(expireTimeMs <= afterMs + 86400000L);
+            }
         } // CHECKSTYLE IGNORE THIS LINE
 
         // remove
@@ -210,6 +219,75 @@ public class RebalanceTest {
                 Assertions.assertTrue(rebalancer.hasPrioBackends());
             }
         }
+    }
+
+    @Test
+    public void testFilterByPrioBackends() {
+        DiskRebalancer rebalancer = new DiskRebalancer(systemInfoService, invertedIndex, null);
+        Backend priorityBackend = RebalancerTestUtil.createBackend(10086L, 2048, 0);
+        Backend expiredBackend = RebalancerTestUtil.createBackend(10087L, 2048, 0);
+        rebalancer.addPrioBackends(Lists.newArrayList(priorityBackend, expiredBackend), 86400L);
+
+        long priorityExpireTimeMs = rebalancer.prioBackends.get(priorityBackend.getId());
+        rebalancer.prioBackends.put(expiredBackend.getId(), System.currentTimeMillis() - 86400000L);
+
+        BackendLoadStatistic priority = new BackendLoadStatistic(
+                priorityBackend.getId(), Tag.DEFAULT_BACKEND_TAG, systemInfoService, invertedIndex);
+        BackendLoadStatistic expired = new BackendLoadStatistic(
+                expiredBackend.getId(), Tag.DEFAULT_BACKEND_TAG, systemInfoService, invertedIndex);
+        BackendLoadStatistic ordinary = new BackendLoadStatistic(
+                10088L, Tag.DEFAULT_BACKEND_TAG, systemInfoService, invertedIndex);
+
+        Assertions.assertEquals(Collections.singletonList(priority),
+                rebalancer.filterByPrioBackends(Lists.newArrayList(ordinary, expired, priority)));
+        Assertions.assertEquals(Collections.singletonMap(priorityBackend.getId(), priorityExpireTimeMs),
+                rebalancer.prioBackends);
+    }
+
+    @Test
+    public void testDirectRowTtlTableCanBeBalanced() {
+        OlapTable directTable = Mockito.spy(olapTable);
+        Mockito.doReturn(true).when(directTable).isDirectRowTtl();
+        db.unregisterTable(olapTable.getId());
+        Assertions.assertTrue(db.registerTable(directTable));
+        olapTable = directTable;
+
+        TabletMeta tabletMeta = invertedIndex.getTabletMeta(50000);
+        Assertions.assertNotNull(tabletMeta);
+        Rebalancer rebalancer = new DiskRebalancer(
+                Env.getCurrentSystemInfo(), Env.getCurrentInvertedIndex(), null);
+        Assertions.assertTrue(rebalancer.canBalanceTablet(tabletMeta));
+
+        Mockito.doReturn(false).when(directTable).isDirectRowTtl();
+        Assertions.assertTrue(rebalancer.canBalanceTablet(tabletMeta));
+    }
+
+    @Test
+    public void testTabletCheckerEnqueuesDirectRowTtlRepair() throws Exception {
+        Partition partition = olapTable.getPartition("p0");
+        Tablet tablet = partition.getBaseIndex().getTablets().get(0);
+        long removedBackendId = tablet.getReplicas().get(2).getBackendId();
+        tablet.deleteReplicaByBackendId(removedBackendId);
+        Tablet.TabletHealth tabletHealth = tablet.getHealth(
+                systemInfoService, partition.getVisibleVersion(),
+                olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()),
+                systemInfoService.getAllBackendIds(true));
+        Assertions.assertEquals(Tablet.TabletStatus.REPLICA_MISSING, tabletHealth.status);
+
+        OlapTable legacyDirectTable = Mockito.spy(olapTable);
+        Mockito.doReturn(true).when(legacyDirectTable).isDirectRowTtl();
+        db.unregisterTable(olapTable.getId());
+        Assertions.assertTrue(db.registerTable(legacyDirectTable));
+        olapTable = legacyDirectTable;
+
+        TabletSchedulerStat stat = new TabletSchedulerStat();
+        TabletScheduler tabletScheduler = new TabletScheduler(
+                env, systemInfoService, invertedIndex, stat, "");
+        TabletChecker tabletChecker = new TabletChecker(
+                env, systemInfoService, tabletScheduler, stat);
+        tabletChecker.runAfterCatalogReady();
+
+        Assertions.assertTrue(tabletScheduler.containsTablet(tablet.getId()));
     }
 
     @Test

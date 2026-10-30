@@ -41,7 +41,7 @@ private:
     phmap::flat_hash_map<int32_t, std::unique_ptr<DictSegment>> children_map_;
 
     DictSegment* lookforSegment(int32_t key_char, bool create_if_missing);
-    int node_state_ {0};
+    bool is_word_end_ = false;
     size_t store_size_ {0};
 
 public:

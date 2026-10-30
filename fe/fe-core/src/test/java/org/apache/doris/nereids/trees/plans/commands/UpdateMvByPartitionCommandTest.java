@@ -68,7 +68,7 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         Config.enable_table_stream = true;
-        Config.enable_feature_binlog = true;
+        Config.enable_feature_changelog = true;
         createDatabase("test");
         useDatabase("test");
         createTable("create table test.ivm_base (\n"
@@ -76,7 +76,7 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
                 + "  value int\n"
                 + ") duplicate key(id)\n"
                 + "distributed by hash(id) buckets 1\n"
-                + "properties('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW');");
+                + "properties('replication_num' = '1', 'changelog.enable' = 'true');");
         // The row-id assertions below are about the unique-key model, so this MV asks for it: without the
         // property the same append-only query is a detail MV, which has no row-id at all.
         createMvByNereids("create materialized view test.ivm_mv\n"
@@ -97,8 +97,8 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
                 + "  value int\n"
                 + ") unique key(id, name)\n"
                 + "distributed by hash(id) buckets 1\n"
-                + "properties('replication_num' = '1', 'binlog.enable' = 'true',"
-                + " 'binlog.format' = 'ROW', 'binlog.need_historical_value' = 'true',"
+                + "properties('replication_num' = '1', 'changelog.enable' = 'true',"
+                + " 'changelog.need_historical_value' = 'true',"
                 + " 'enable_unique_key_merge_on_write' = 'true');");
         createMvByNereids("create materialized view test.ivm_mv_uniq\n"
                 + "build deferred refresh incremental on manual\n"
@@ -233,7 +233,7 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
 
     @Test
     void testPlannerKeepsIvmRowIdAsBigIntInSinkTupleAndOutputExprs() throws Exception {
-        // ivm_base is a DUP_KEYS table with row binlog, so the IVM row-id is the row-binlog lsn
+        // ivm_base is a DUP_KEYS table with changelog, so the IVM row-id is the changelog lsn
         // (BIGINT) instead of the LARGEINT hash used for tables without a deterministic key.
         MTMV mtmv = getMtmv("ivm_mv");
         UpdateMvByPartitionCommand command = newRefreshCommand(mtmv);

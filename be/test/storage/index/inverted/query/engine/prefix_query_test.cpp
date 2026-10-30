@@ -18,7 +18,6 @@
 #include <CLucene.h>
 #include <gtest/gtest.h>
 
-#include <cmath>
 #include <memory>
 #include <roaring/roaring.hh>
 #include <string>
@@ -33,8 +32,6 @@
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/index/inverted/query/engine/expand_query/expand_query.h"
 #include "storage/index/inverted/query/logical/node.h"
-#include "storage/index/inverted/query/scoring/bm25_similarity.h"
-#include "storage/index/inverted/query/scoring/collection_similarity.h"
 #include "storage/index/inverted/query/spi/fake_index_source.h"
 #include "storage/olap_common.h"
 
@@ -495,8 +492,6 @@ TEST(ExpansionLeafTest, KeepsPatternLimitsAndLeavesRootCandidatesToTheCaller) {
         auto source = std::make_shared<index_query::testing::FakeIndexSource>();
         source->batches = batches;
         source->set_doc_count(10);
-        // Scored regexp and wildcard leaves need statistics from their bound source.
-        source->set_scoring_stats({.doc_count = 10, .token_count = 10});
         source->add("apple", {0, 4});
         source->add("application", {1});
         source->add("apply", {2, 4});
@@ -514,30 +509,12 @@ TEST(ExpansionLeafTest, KeepsPatternLimitsAndLeavesRootCandidatesToTheCaller) {
                 expected.add(2);
             }
             for (const bool scoring : {false, true}) {
-                context->collection_similarity =
-                        scoring ? std::make_shared<CollectionSimilarity>() : nullptr;
                 auto result = std::make_shared<roaring::Roaring>();
                 result->add(9);
                 const auto status = run_leaf(context, L"content", leaf, &candidates, scoring,
                                              source, source->doc_count(), result);
                 ASSERT_TRUE(status.ok()) << status;
                 EXPECT_EQ(*result, expected) << pattern << " scoring=" << scoring;
-                if (scoring) {
-                    const auto& scores = context->collection_similarity->_bm25_scores;
-                    EXPECT_EQ(scores.size(), expected.cardinality() - 1);
-                    const bool bm25 = kind == logical::ExpandKind::kWildcard ||
-                                      kind == logical::ExpandKind::kRegexp;
-                    for (const auto& [doc, score] : scores) {
-                        // Row 9 predates this leaf and must not acquire a score from it.
-                        EXPECT_NE(doc, 9U);
-                        EXPECT_TRUE(expected.contains(doc));
-                        const float df = doc == 1 ? 1.0F : 2.0F;
-                        const float idf = std::log1p((10.0F - df + 0.5F) / (df + 0.5F));
-                        const float expected_score =
-                                bm25 ? BM25Similarity(idf, 1.0F).score(1.0F, 1) : 1.0F;
-                        EXPECT_FLOAT_EQ(score, expected_score) << pattern << " doc=" << doc;
-                    }
-                }
             }
         }
     }

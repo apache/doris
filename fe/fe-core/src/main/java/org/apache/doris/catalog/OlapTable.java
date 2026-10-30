@@ -23,7 +23,6 @@ import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.backup.Status;
 import org.apache.doris.backup.Status.ErrCode;
-import org.apache.doris.binlog.BinlogUtils;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
@@ -34,6 +33,7 @@ import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.StreamReadMode;
+import org.apache.doris.changelog.ChangelogUtils;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
@@ -311,6 +311,35 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public void setBinlogConfig(BinlogConfig binlogConfig) {
         getOrCreatTableProperty().setBinlogConfig(binlogConfig);
+    }
+
+    public ChangelogConfig getChangelogConfig() {
+        return getOrCreatTableProperty().getChangelogConfig();
+    }
+
+    public void setChangelogConfig(ChangelogConfig changelogConfig) {
+        getOrCreatTableProperty().setChangelogConfig(changelogConfig);
+    }
+
+    // The binlog config shipped to BE and Meta Service with every tablet of this table.
+    public TabletBinlogConfig getTabletBinlogConfig() {
+        return TabletBinlogConfig.of(getBinlogConfig(), getChangelogConfig());
+    }
+
+    /**
+     * Whether the table still enables changelog through "binlog.format" = "ROW", the configuration the
+     * changelog.* properties replaced. Such a table keeps its metadata as it is but has neither CCR binlog nor
+     * changelog: queries, loads and every DDL except DROP fail with {@link #getLegacyChangelogMessage()}.
+     */
+    public boolean isLegacyChangelog() {
+        return tableProperty != null && tableProperty.isLegacyChangelog();
+    }
+
+    public String getLegacyChangelogMessage() {
+        return "Table " + getQualifiedName() + " was created with \""
+                + PropertyAnalyzer.PROPERTIES_LEGACY_BINLOG_FORMAT + "\" = \"ROW\", which is no longer supported;"
+                + " drop the table and create it again with \"" + PropertyAnalyzer.PROPERTIES_CHANGELOG_ENABLE
+                + "\" = \"true\"";
     }
 
     public void setIsBeingSynced(boolean isBeingSynced) {
@@ -612,7 +641,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public Map<String, Long> getIndexNameToId() {
         return ImmutableMap.copyOf(Maps.filterValues(indexNameToId, indexId ->
-                indexIdToMeta.containsKey(indexId) && !indexIdToMeta.get(indexId).isRowBinlogIndex()));
+                indexIdToMeta.containsKey(indexId) && !indexIdToMeta.get(indexId).isChangelogIndex()));
     }
 
     public Map<String, Long> getMutableIndexNameToId() {
@@ -737,12 +766,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return getVisibleIndex(false);
     }
 
-    public List<MaterializedIndex> getVisibleIndex(boolean includeRowBinlog) {
+    public List<MaterializedIndex> getVisibleIndex(boolean includeChangelog) {
         Optional<Partition> partition = idToPartition.values().stream().findFirst();
         if (!partition.isPresent()) {
             partition = tempPartitions.getAllPartitions().stream().findFirst();
         }
-        return partition.isPresent() ? partition.get().getMaterializedIndices(IndexExtState.VISIBLE, includeRowBinlog)
+        return partition.isPresent() ? partition.get().getMaterializedIndices(IndexExtState.VISIBLE, includeChangelog)
                 : Collections.emptyList();
     }
 
@@ -892,7 +921,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             indexIdToMeta.put(newIdxId, indexMeta);
             indexNameToId.put(entry.getValue(), newIdxId);
 
-            if (!indexMeta.isRowBinlogIndex()) {
+            if (!indexMeta.isChangelogIndex()) {
                 origDataIdxIdToName.put(entry.getKey(), entry.getValue());
             }
         }
@@ -1098,17 +1127,17 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return getIndexIdToMeta().size();
     }
 
-    public int getIndexNumber(boolean includeRowBinlog) {
-        return getIndexIdToMeta(includeRowBinlog).size();
+    public int getIndexNumber(boolean includeChangelog) {
+        return getIndexIdToMeta(includeChangelog).size();
     }
 
     public Map<Long, MaterializedIndexMeta> getIndexIdToMeta() {
         return getIndexIdToMeta(false);
     }
 
-    public Map<Long, MaterializedIndexMeta> getIndexIdToMeta(boolean includeRowBinlog) {
-        return includeRowBinlog ? ImmutableMap.copyOf(indexIdToMeta)
-                : ImmutableMap.copyOf(Maps.filterValues(indexIdToMeta, meta -> !meta.isRowBinlogIndex()));
+    public Map<Long, MaterializedIndexMeta> getIndexIdToMeta(boolean includeChangelog) {
+        return includeChangelog ? ImmutableMap.copyOf(indexIdToMeta)
+                : ImmutableMap.copyOf(Maps.filterValues(indexIdToMeta, meta -> !meta.isChangelogIndex()));
     }
 
     public Map<Long, MaterializedIndexMeta> getMutableIndexIdToMeta() {
@@ -1123,8 +1152,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return getCopiedIndexIdToMeta(false);
     }
 
-    public Map<Long, MaterializedIndexMeta> getCopiedIndexIdToMeta(boolean includeRowBinlog) {
-        return new HashMap<>(getIndexIdToMeta(includeRowBinlog));
+    public Map<Long, MaterializedIndexMeta> getCopiedIndexIdToMeta(boolean includeChangelog) {
+        return new HashMap<>(getIndexIdToMeta(includeChangelog));
     }
 
     public MaterializedIndexMeta getIndexMetaByIndexId(long indexId) {
@@ -1135,9 +1164,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return getIndexIdListExceptBaseIndex(false);
     }
 
-    public List<Long> getIndexIdListExceptBaseIndex(boolean includeRowBinlog) {
+    public List<Long> getIndexIdListExceptBaseIndex(boolean includeChangelog) {
         List<Long> result = Lists.newArrayList();
-        for (Long indexId : getIndexIdToMeta(includeRowBinlog).keySet()) {
+        for (Long indexId : getIndexIdToMeta(includeChangelog).keySet()) {
             if (indexId != baseIndexId) {
                 result.add(indexId);
             }
@@ -1149,8 +1178,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return getIndexIdList(false);
     }
 
-    public List<Long> getIndexIdList(boolean includeRowBinlog) {
-        return Lists.newArrayList(getIndexIdToMeta(includeRowBinlog).keySet());
+    public List<Long> getIndexIdList(boolean includeChangelog) {
+        return Lists.newArrayList(getIndexIdToMeta(includeChangelog).keySet());
     }
 
     // schema
@@ -1163,9 +1192,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return getIndexIdToSchema(full, false);
     }
 
-    public Map<Long, List<Column>> getIndexIdToSchema(boolean full, boolean includeRowBinlog) {
+    public Map<Long, List<Column>> getIndexIdToSchema(boolean full, boolean includeChangelog) {
         Map<Long, List<Column>> result = Maps.newHashMap();
-        for (Map.Entry<Long, MaterializedIndexMeta> entry : getIndexIdToMeta(includeRowBinlog).entrySet()) {
+        for (Map.Entry<Long, MaterializedIndexMeta> entry : getIndexIdToMeta(includeChangelog).entrySet()) {
             result.put(entry.getKey(), entry.getValue().getSchema(full));
         }
         return result;
@@ -1176,9 +1205,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return getCopiedIndexIdToSchema(full, false);
     }
 
-    public Map<Long, List<Column>> getCopiedIndexIdToSchema(boolean full, boolean includeRowBinlog) {
+    public Map<Long, List<Column>> getCopiedIndexIdToSchema(boolean full, boolean includeChangelog) {
         Map<Long, List<Column>> result = Maps.newHashMap();
-        for (Map.Entry<Long, MaterializedIndexMeta> entry : getIndexIdToMeta(includeRowBinlog).entrySet()) {
+        for (Map.Entry<Long, MaterializedIndexMeta> entry : getIndexIdToMeta(includeChangelog).entrySet()) {
             result.put(entry.getKey(), new ArrayList<>(entry.getValue().getSchema(full)));
         }
         return result;
@@ -1239,6 +1268,39 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             }
         }
         return null;
+    }
+
+    public boolean hasRowTtl() {
+        return getTtlColumn() != null;
+    }
+
+    public Column getTtlColumn() {
+        return getColumn(Column.TTL_COL);
+    }
+
+    public String getRowTtlCol() {
+        return tableProperty == null ? null : tableProperty.getRowTtlCol();
+    }
+
+    public long getRowTtlDurationMicros() {
+        return tableProperty == null ? -1 : tableProperty.getRowTtlDurationMicros();
+    }
+
+    public RowTtlConfig getRowTtlConfig() {
+        if (tableProperty == null) {
+            return new RowTtlConfig(-1, 0);
+        }
+        Map<String, String> properties = tableProperty.getProperties();
+        return new RowTtlConfig(getRowTtlDurationMicros(),
+                Long.parseLong(properties.getOrDefault(RowTtlConfig.VERSION_PROPERTY, "0")));
+    }
+
+    public int getRowTtlTimeZoneOffsetSeconds() {
+        return tableProperty == null ? 0 : tableProperty.getRowTtlTimeZoneOffsetSeconds();
+    }
+
+    public boolean isDirectRowTtl() {
+        return hasRowTtl() && getRowTtlCol() == null;
     }
 
     // schemaHash
@@ -1553,7 +1615,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
      * Get the materialized index for scan planning.
      *
      * <p>Default behavior is equivalent to {@link Partition#getIndex(long)}.
-     * Wrapper tables may override this to redirect index selection (e.g. row-binlog wrapper
+     * Wrapper tables may override this to redirect index selection (e.g. changelog wrapper
      * uses the base index's tablets while keeping a different schema/index meta).
      */
     public MaterializedIndex getPartitionIndex(Partition partition, long indexId) {
@@ -2126,6 +2188,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         for (Partition partition : idToPartition.values()) {
             nameToPartition.put(partition.getName(), partition);
         }
+        if (isLegacyChangelog()) {
+            LOG.warn(getLegacyChangelogMessage());
+        }
 
         if (autoIncrementGenerator != null) {
             autoIncrementGenerator.setEditLog(Env.getCurrentEnv().getEditLog());
@@ -2298,6 +2363,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     public void checkNormalStateForAlter() throws DdlException {
+        if (isLegacyChangelog()) {
+            throw new DdlException(getLegacyChangelogMessage());
+        }
         if (state != OlapTableState.NORMAL) {
             throw new DdlException("Table[" + name + "]'s state(" + state.toString()
                     + ") is not NORMAL. Do not allow doing ALTER ops");
@@ -2417,75 +2485,75 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return getSchemaByIndexId(baseIndexId, full);
     }
 
-    public boolean needRowBinlog() {
-        return getBinlogConfig().isEnableForStreaming();
+    public boolean hasChangelog() {
+        return getChangelogConfig().isEnable();
     }
 
-    public boolean hasRowBinlogTtl() {
-        return getBinlogConfig().isRowTtlEnabled();
+    public boolean hasChangelogTtl() {
+        return getChangelogConfig().isTtlEnabled();
     }
 
-    // Whether the base table physically stores the row LSN column (dup table with row binlog).
+    // Whether the base table physically stores the row LSN column (dup table with changelog).
     public boolean hasRowLsnColumn() {
         return getBaseSchema(true).stream().anyMatch(Column::isRowLsnColumn);
     }
 
-    public void createNewRowBinlogMeta(IdGeneratorBuffer idGeneratorBuffer, long dbId)
+    public void createChangelogIndexMeta(IdGeneratorBuffer idGeneratorBuffer, long dbId)
             throws DdlException {
         writeLock();
         try {
-            List<Column> schema = generateTableRowBinlogSchema();
+            List<Column> schema = generateTableChangelogSchema();
             long indexId = idGeneratorBuffer.getNextId();
-            MaterializedIndexMeta rowBinlogMeta = new MaterializedIndexMeta(indexId, schema,
+            MaterializedIndexMeta changelogIndexMeta = new MaterializedIndexMeta(indexId, schema,
                     this.getBaseSchemaVersion(), Util.generateSchemaHash(),
                     this.getBaseIndexMeta().getShortKeyColumnCount(), TStorageType.COLUMN,
                     KeysType.DUP_KEYS, null, null, getQualifiedDbName(), null);
-            rowBinlogMeta.initSchemaColumnUniqueId();
-            rowBinlogMeta.setRowBinlogIndexId(indexId);
-            this.setRowBinlogMeta(rowBinlogMeta, BinlogUtils.wrapBinlogName(this.name));
+            changelogIndexMeta.initSchemaColumnUniqueId();
+            changelogIndexMeta.setChangelogIndexId(indexId);
+            this.setChangelogIndexMeta(changelogIndexMeta, ChangelogUtils.wrapChangelogIndexName(this.name));
 
             // todo: support multi column for autoIncrementGenerator
             if (autoIncrementGenerator != null) {
-                throw new DdlException("enable binlog isn't allowed on the table with auto-increment column");
+                throw new DdlException("enable changelog isn't allowed on the table with auto-increment column");
             }
         } finally {
             writeUnlock();
         }
     }
 
-    public void setRowBinlogMeta(MaterializedIndexMeta rowBinlogMeta, String indexName) {
-        long rowBinlogIndexId = getBaseIndexMeta().getRowBinlogIndexId();
-        if (rowBinlogIndexId > 0) {
-            indexIdToMeta.remove(rowBinlogIndexId);
+    public void setChangelogIndexMeta(MaterializedIndexMeta changelogIndexMeta, String indexName) {
+        long changelogIndexId = getBaseIndexMeta().getChangelogIndexId();
+        if (changelogIndexId > 0) {
+            indexIdToMeta.remove(changelogIndexId);
             indexNameToId.remove(indexName);
-            getBaseIndexMeta().resetRowBinlogIndexId();
+            getBaseIndexMeta().resetChangelogIndexId();
         }
-        if (rowBinlogMeta == null) {
+        if (changelogIndexMeta == null) {
             return;
         }
-        rowBinlogIndexId = rowBinlogMeta.getIndexId();
-        rowBinlogMeta.setRowBinlogIndexId(rowBinlogIndexId);
-        getBaseIndexMeta().setRowBinlogIndexId(rowBinlogIndexId);
-        indexIdToMeta.put(rowBinlogIndexId, rowBinlogMeta);
-        indexNameToId.put(indexName, rowBinlogIndexId);
+        changelogIndexId = changelogIndexMeta.getIndexId();
+        changelogIndexMeta.setChangelogIndexId(changelogIndexId);
+        getBaseIndexMeta().setChangelogIndexId(changelogIndexId);
+        indexIdToMeta.put(changelogIndexId, changelogIndexMeta);
+        indexNameToId.put(indexName, changelogIndexId);
     }
 
-    public MaterializedIndexMeta getRowBinlogMeta() {
-        Preconditions.checkState(needRowBinlog());
-        long rowBinlogIndexId = getBaseIndexMeta().getRowBinlogIndexId();
-        if (rowBinlogIndexId <= 0) {
+    public MaterializedIndexMeta getChangelogIndexMeta() {
+        Preconditions.checkState(hasChangelog());
+        long changelogIndexId = getBaseIndexMeta().getChangelogIndexId();
+        if (changelogIndexId <= 0) {
             return null;
         }
-        return indexIdToMeta.get(rowBinlogIndexId);
+        return indexIdToMeta.get(changelogIndexId);
     }
 
     public MaterializedIndexMeta getBaseIndexMeta() {
         return indexIdToMeta.get(baseIndexId);
     }
 
-    public List<Column> generateTableRowBinlogSchema() {
-        List<Column> tableRowBinlogSchema = new ArrayList<>();
-        boolean needHistoricalValue = getBinlogConfig().getNeedHistoricalValue();
+    public List<Column> generateTableChangelogSchema() {
+        List<Column> tableChangelogSchema = new ArrayList<>();
+        boolean needHistoricalValue = getChangelogConfig().getNeedHistoricalValue();
         List<Column> beforeColumns = new ArrayList<>();
 
         for (Column column : getBaseSchema(true)) {
@@ -2493,13 +2561,13 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 continue;
             }
             Preconditions.checkState(!column.getType().isVariantType(),
-                    "binlog<Row> does not support VARIANT column: " + column.getName());
+                    "changelog does not support VARIANT column: " + column.getName());
             Preconditions.checkState(!column.isAutoInc(),
-                    "binlog<Row> does not support AUTO_INCREMENT column: " + column.getName());
+                    "changelog does not support AUTO_INCREMENT column: " + column.getName());
             if (column.isKey()) {
-                tableRowBinlogSchema.add(Column.generateRowBinlogKeyColumn(column));
+                tableChangelogSchema.add(Column.generateChangelogKeyColumn(column));
             } else {
-                tableRowBinlogSchema.add(Column.generateAfterValueColumn(column));
+                tableChangelogSchema.add(Column.generateAfterValueColumn(column));
                 if (needHistoricalValue) {
                     beforeColumns.add(Column.generateBeforeValueColumn(column));
                 }
@@ -2510,25 +2578,25 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             Preconditions.checkState(keysType == KeysType.PRIMARY_KEYS
                             || (keysType == KeysType.UNIQUE_KEYS && getEnableUniqueKeyMergeOnWrite()),
                     "only mow table support record historical value");
-            tableRowBinlogSchema.addAll(beforeColumns);
+            tableChangelogSchema.addAll(beforeColumns);
         }
 
-        tableRowBinlogSchema.add(new ColumnDef(Column.BINLOG_TSO_COL,
+        tableChangelogSchema.add(new ColumnDef(Column.CHANGELOG_TSO_COL,
                 ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.NONE, true, -1,
-                ColumnDef.DefaultValue.NOT_SET, "doris binlog tso column", false).toColumn());
-        tableRowBinlogSchema.add(new ColumnDef(Column.BINLOG_LSN_COL, ScalarType.createType(PrimitiveType.BIGINT),
+                ColumnDef.DefaultValue.NOT_SET, "doris changelog tso column", false).toColumn());
+        tableChangelogSchema.add(new ColumnDef(Column.CHANGELOG_LSN_COL, ScalarType.createType(PrimitiveType.BIGINT),
                 false, AggregateType.NONE, false, -1, ColumnDef.DefaultValue.NOT_SET,
-                "doris binlog lsn column", false).toColumn());
-        tableRowBinlogSchema.add(new ColumnDef(Column.BINLOG_OPERATION_COL,
+                "doris changelog lsn column", false).toColumn());
+        tableChangelogSchema.add(new ColumnDef(Column.CHANGELOG_OP_COL,
                 ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.NONE, false, -1,
-                ColumnDef.DefaultValue.NOT_SET, "doris binlog operation column", false).toColumn());
+                ColumnDef.DefaultValue.NOT_SET, "doris changelog operation column", false).toColumn());
 
-        for (Column column : tableRowBinlogSchema) {
+        for (Column column : tableChangelogSchema) {
             if (!column.isKey()) {
                 column.setAggregationTypeImplicit(true);
             }
         }
-        return tableRowBinlogSchema;
+        return tableChangelogSchema;
     }
 
     @Override
@@ -2877,11 +2945,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     /**
-     * Returns whether table-level TSO is enabled by row binlog format.
+     * Returns whether table-level TSO is enabled by changelog.
      */
     public Boolean enableTso() {
         if (tableProperty != null) {
-            return getBinlogConfig().isRowFormat();
+            return getChangelogConfig().isEnable();
         }
         return false;
     }
@@ -3293,14 +3361,22 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
      * Validate that the table supports flexible partial update.
      * Checks the following constraints:
      * 1. Must be MoW unique key table
-     * 2. Must have skip_bitmap column
-     * 3. Must have light_schema_change enabled
-     * 4. Cannot have variant columns
+     * 2. Every materialized index must have a skip_bitmap column
+     * 3. Must have skip_bitmap column
+     * 4. Must have light_schema_change enabled
+     * 5. Cannot have variant columns
      * @throws UserException if any constraint is not satisfied
      */
     public void validateForFlexiblePartialUpdate() throws UserException {
         if (!getEnableUniqueKeyMergeOnWrite()) {
             throw new UserException("Flexible partial update is only supported in unique table MoW");
+        }
+        boolean hasIndexWithoutSkipBitmap = getIndexIdListExceptBaseIndex().stream()
+                .map(indexId -> getSchemaByIndexId(indexId, true))
+                .anyMatch(schema -> schema.stream().noneMatch(Column::isSkipBitmapColumn));
+        if (hasIndexWithoutSkipBitmap) {
+            throw new UserException("Flexible partial update requires every materialized index"
+                    + " to contain the skip bitmap hidden column.");
         }
         if (!hasSkipBitmapColumn()) {
             throw new UserException("Flexible partial update can only support table with skip bitmap hidden column."
@@ -3411,12 +3487,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             }
         }
 
-        if (needRowBinlog()) {
-            // use auto-increment allocator to improve locality of Binlog LSN.
+        if (hasChangelog()) {
+            // use auto-increment allocator to improve locality of changelog LSN.
             Preconditions.checkState(autoIncrementGenerator == null);
-            MaterializedIndexMeta rowBinlogMeta = getRowBinlogMeta();
-            Preconditions.checkNotNull(rowBinlogMeta);
-            autoIncrementGenerator = new AutoIncrementGenerator(dbId, id, Column.BINLOG_LSN_AUTO_INC_ID, 1L);
+            MaterializedIndexMeta changelogIndexMeta = getChangelogIndexMeta();
+            Preconditions.checkNotNull(changelogIndexMeta);
+            autoIncrementGenerator = new AutoIncrementGenerator(dbId, id, Column.CHANGELOG_LSN_AUTO_INC_ID, 1L);
             autoIncrementGenerator.setEditLog(Env.getCurrentEnv().getEditLog());
         }
     }
@@ -3949,9 +4025,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         private long remoteSegmentSize;        // single replica
 
         @Getter
-        private long localBinlogSize;          // single replica binlog size
+        private long localChangelogSize;          // single replica changelog size
         @Getter
-        private long totalReplicaBinlogSize;
+        private long totalReplicaChangelogSize;
 
         public Statistics() {
             this.dbName = null;
@@ -3971,8 +4047,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             this.localSegmentSize = 0L;
             this.remoteInvertedIndexSize = 0L;
             this.remoteSegmentSize = 0L;
-            this.localBinlogSize = 0L;
-            this.totalReplicaBinlogSize = 0L;
+            this.localChangelogSize = 0L;
+            this.totalReplicaChangelogSize = 0L;
         }
 
         public Statistics(String dbName, String tableName,
@@ -3981,7 +4057,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 long rowsetCount, long segmentCount,
                 long localInvertedIndexSize, long localSegmentSize,
                 long remoteInvertedIndexSize, long remoteSegmentSize,
-                long localBinlogSize, long totalReplicaBinlogSize) {
+                long localChangelogSize, long totalReplicaChangelogSize) {
 
             this.dbName = dbName;
             this.tableName = tableName;
@@ -4002,8 +4078,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             this.remoteInvertedIndexSize = remoteInvertedIndexSize;
             this.remoteSegmentSize = remoteSegmentSize;
 
-            this.localBinlogSize = localBinlogSize;
-            this.totalReplicaBinlogSize = totalReplicaBinlogSize;
+            this.localChangelogSize = localChangelogSize;
+            this.totalReplicaChangelogSize = totalReplicaChangelogSize;
         }
     }
 
@@ -4023,16 +4099,16 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return statistics.getRemoteDataSize();
     }
 
-    public long getBinlogSize() {
-        return getBinlogSize(false);
+    public long getChangelogSize() {
+        return getChangelogSize(false);
     }
 
-    public long getBinlogSize(boolean singleReplica) {
+    public long getChangelogSize(boolean singleReplica) {
         if (singleReplica) {
-            return statistics.getLocalBinlogSize();
+            return statistics.getLocalChangelogSize();
         }
 
-        return statistics.getTotalReplicaBinlogSize();
+        return statistics.getTotalReplicaChangelogSize();
     }
 
     public long getReplicaCount() {
@@ -4114,7 +4190,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 : filteredInvertedIndexes.stream().filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
         }
 
-        // subPath is not empty, means it is a variant column, find the field pattern from children
+        // subPath is not empty, means it is a variant column, find the field pattern from children.
+        // The first match wins, the same as the BE writer that picks the physical index of a subcolumn
+        // (variant_util.cpp), so a write and a query on one path land on the same index even when
+        // the predefined patterns overlap.
         String subPathString = String.join(".", subPath);
         String fieldPattern = "";
         if (column.getChildren() != null) {
@@ -4126,6 +4205,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                                 .getPathMatcher("glob:" + childName);
                         if (matcher.matches(java.nio.file.Paths.get(subPathString))) {
                             fieldPattern = childName;
+                            break;
                         }
                     } catch (Exception e) {
                         continue;
@@ -4133,6 +4213,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 } else if (child.getFieldPatternType() == PatternType.MATCH_NAME) {
                     if (childName.equals(subPathString)) {
                         fieldPattern = childName;
+                        break;
                     }
                 }
             }
@@ -4268,17 +4349,24 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     public void checkAsTableStreamBaseTable(BaseTableStream.StreamScanType streamScanType) throws DdlException {
-        if (!needRowBinlog()) {
+        if (hasRowTtl()) {
+            throw new DdlException("CREATE STREAM is not supported on tables with row TTL. Table "
+                    + getQualifiedName() + ".");
+        }
+        if (isLegacyChangelog()) {
+            throw new DdlException(getLegacyChangelogMessage());
+        }
+        if (!hasChangelog()) {
             throw new DdlException("Base Olap table " + getQualifiedName()
-                    + " need to enable row binlog for table stream");
+                    + " need to enable changelog for table stream");
         }
         if (streamScanType.equals(BaseTableStream.StreamScanType.MIN_DELTA)
                 && (getKeysType().equals(KeysType.PRIMARY_KEYS)
                 || (getKeysType().equals(KeysType.UNIQUE_KEYS)))
-                && (!getBinlogConfig().getNeedHistoricalValue() || !isUniqKeyMergeOnWrite())) {
+                && (!getChangelogConfig().getNeedHistoricalValue() || !isUniqKeyMergeOnWrite())) {
             throw new DdlException("MIN_DELTA table stream requires base mow table to enable "
-                    + "binlog.need_historical_value=true. Table " + getQualifiedName()
-                    + " doesn't enable historical value in row binlog.");
+                    + "changelog.need_historical_value=true. Table " + getQualifiedName()
+                    + " doesn't enable historical value in changelog.");
         }
     }
 }

@@ -44,9 +44,7 @@ struct PointRef {
     uint32_t doc_id = 0;
 };
 
-// One decoded leaf-directory row. The directory is stored column-wise in
-// bkd_index as delta-varint64 offsets followed by varint32 counts (design 5.1);
-// this is the row view a reader works with.
+// One decoded leaf offset and point count from bkd_index.
 struct LeafRef {
     // Byte offset of the leaf block within bkd_data. Directory offsets are
     // strictly increasing and the last one is bounded by the bkd_data length --
@@ -57,10 +55,7 @@ struct LeafRef {
     uint32_t count = 0;
 };
 
-// Decoded bkd_index header (design 5.1). A default-constructed value already
-// reads as the EMPTY index: leaf_count == 0 states emptiness explicitly,
-// unlike the old implementation's implicit indexFP == 0 sentinel over an
-// unchecked bkd_meta.
+// Decoded bkd_index header; leaf_count == 0 represents an empty index.
 struct BkdIndexHeader {
     uint32_t format_version = kFormatVersion;
     // index_flags bits; diagnostic only, never branched on while reading.
@@ -82,9 +77,7 @@ struct BkdIndexHeader {
     uint32_t points_per_leaf = 0;
 };
 
-// Builder construction parameters (design 6.1). Validated once by
-// BkdBuilder::create, so a constructed builder is always fully valid -- there
-// is no half-initialized state to defend against later.
+// Builder options validated by BkdBuilder::create.
 struct BkdBuilderOptions {
     // REQUIRED, == sizeof(CppType). 0 is the unset sentinel.
     uint32_t bytes_per_dim = 0;
@@ -122,9 +115,7 @@ struct BkdStats {
     uint64_t peak_merge_buffer_bytes = 0;
 };
 
-// Where the two sub-files live inside the SNII container, as resolved from the
-// blob logical index's named-file table. length == 0 is LEGAL and means the
-// empty index (design 5.3) -- it must never be treated as corruption.
+// Extents of BKD sub-files in the SNII container. A zero-length bkd_data is valid for an empty index.
 struct BkdSections {
     uint64_t index_offset = 0;
     uint64_t index_length = 0;

@@ -47,6 +47,19 @@ public class JdbcClickHouseConnectorClientTest {
     }
 
     @Test
+    void testPrefixedDriverVersions() {
+        for (String version : new String[] {"clickhouse-jdbc 0.3.2-patch11 (revision: 27f8951)",
+                "clickhouse-jdbc 0.4.2 (revision: 1513b27)"}) {
+            Assertions.assertFalse(JdbcClickHouseConnectorClient.isNewClickHouseDriverVersion(version));
+            Assertions.assertFalse(JdbcClickHouseConnectorClient.isDatabaseTermCatalog(version, true));
+        }
+        Assertions.assertTrue(JdbcClickHouseConnectorClient.isNewClickHouseDriverVersion(
+                "clickhouse-jdbc 0.5.0 (revision: test)"));
+        Assertions.assertTrue(JdbcClickHouseConnectorClient.isDatabaseTermCatalog(
+                "clickhouse-jdbc 1.0.0", true));
+    }
+
+    @Test
     void testDatabaseTermFollowsDriverMetadata() {
         Assertions.assertFalse(JdbcClickHouseConnectorClient.isDatabaseTermCatalog("0.9.8", false));
         Assertions.assertTrue(JdbcClickHouseConnectorClient.isDatabaseTermCatalog("0.7.1", true));

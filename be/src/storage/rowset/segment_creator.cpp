@@ -122,6 +122,11 @@ Status SegmentFlusher::transform_block(Block* block, int32_t segment_id,
 Status SegmentFlusher::close() {
     RETURN_IF_ERROR(_seg_files.close());
     RETURN_IF_ERROR(_preload_segment_indexes_to_file_cache());
+    // Index compaction appends postings after data segments are flushed. Seal the compound
+    // files only now, when all of their raw-built and compacted indexes are present.
+    if (_context.has_index_compaction()) {
+        RETURN_IF_ERROR(_idx_files.begin_close());
+    }
     RETURN_IF_ERROR(_idx_files.finish_close());
     return Status::OK();
 }
@@ -162,9 +167,11 @@ Status SegmentFlusher::_create_segment_writer(
         writer_options.compression_type = NO_COMPRESSION;
     }
 
-    writer = std::make_unique<segment_v2::VerticalSegmentWriter>(
-            segment_file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
-            _context.data_dir, writer_options, index_file_writer.get());
+    RETURN_IF_CATCH_EXCEPTION({
+        writer = std::make_unique<segment_v2::VerticalSegmentWriter>(
+                segment_file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
+                _context.data_dir, writer_options, index_file_writer.get());
+    });
     RETURN_IF_ERROR(_seg_files.add(segment_id, std::move(segment_file_writer)));
     if (_context.tablet_schema->has_inverted_or_ann_index()) {
         RETURN_IF_ERROR(_idx_files.add(segment_id, std::move(index_file_writer)));
@@ -192,7 +199,7 @@ Status SegmentFlusher::_flush_segment_writer(
     uint64_t segment_file_size;
     uint64_t common_index_size;
     segment_v2::SegmentIndexFileCacheInfo index_file_cache_info;
-    RETURN_IF_ERROR(writer->finalize_columns(&common_index_size));
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(writer->finalize_columns(&common_index_size));
     RETURN_IF_ERROR(writer->finalize_footer(&segment_file_size, &index_file_cache_info));
     finalize_timer.stop();
 
@@ -207,7 +214,11 @@ Status SegmentFlusher::_flush_segment_writer(
     MonotonicStopWatch inverted_index_timer;
     inverted_index_timer.start();
     int64_t inverted_index_file_size = 0;
-    RETURN_IF_ERROR(writer->close_inverted_index(&inverted_index_file_size));
+    // A horizontal compaction can write a numeric index here and merge a string index later.
+    // Closing now would persist only the numeric index; defer both sealing and size accounting.
+    if (!_context.has_index_compaction()) {
+        RETURN_IF_ERROR(writer->close_inverted_index(&inverted_index_file_size));
+    }
     inverted_index_timer.stop();
 
     VLOG_DEBUG << "tablet_id:" << _context.tablet_id
@@ -272,7 +283,7 @@ SegmentFlusher::Writer::~Writer() = default;
 
 Status SegmentFlusher::Writer::add_rows(const Block* block, size_t row_offset,
                                         size_t input_row_num) {
-    RETURN_IF_ERROR(_writer->append_block(block, row_offset, input_row_num));
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_writer->append_block(block, row_offset, input_row_num));
     _flusher->_num_rows_written += input_row_num;
     return Status::OK();
 }

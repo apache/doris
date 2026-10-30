@@ -32,6 +32,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.datasource.ExternalResourceReclaimer;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
@@ -324,6 +325,30 @@ public final class MetricRepo {
     private static final ScheduledThreadPoolExecutor metricTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
             "metric-timer-pool", true);
     private static final MetricCalculator metricCalculator = new MetricCalculator();
+    private static final long VERSION_METRIC_COMPONENT_BASE = 100L;
+
+    static long encodeVersionMetricValue(int major, int minor, int patch, int hotfix) {
+        int[] components = {major, minor, patch, hotfix};
+        for (int component : components) {
+            if (component < 0 || component >= VERSION_METRIC_COMPONENT_BASE) {
+                throw new IllegalArgumentException("version metric components must be between 0 and 99");
+            }
+        }
+
+        // Each component is one base-100 digit: 26.0.1.0 becomes 26000100.
+        return (((major * VERSION_METRIC_COMPONENT_BASE + minor) * VERSION_METRIC_COMPONENT_BASE + patch)
+                * VERSION_METRIC_COMPONENT_BASE + hotfix);
+    }
+
+    private static void addExternalResourceCleanupGauge(String name, MetricUnit unit, Supplier<Long> value) {
+        DORIS_METRIC_REGISTER.addMetrics(new GaugeMetric<Long>("external_resource_cleanup_" + name,
+                unit, "External resource cleanup " + name) {
+            @Override
+            public Long getValue() {
+                return value.get();
+            }
+        });
+    }
 
     // init() should only be called after catalog is constructed.
     public static synchronized void init() {
@@ -336,12 +361,9 @@ public final class MetricRepo {
             @Override
             public Long getValue() {
                 try {
-                    String verStr = Version.DORIS_BUILD_VERSION_MAJOR + "0" + Version.DORIS_BUILD_VERSION_MINOR + "0"
-                            + Version.DORIS_BUILD_VERSION_PATCH;
-                    if (Version.DORIS_BUILD_VERSION_HOTFIX > 0) {
-                        verStr += ("0" + Version.DORIS_BUILD_VERSION_HOTFIX);
-                    }
-                    return Long.parseLong(verStr);
+                    return encodeVersionMetricValue(Version.DORIS_BUILD_VERSION_MAJOR,
+                            Version.DORIS_BUILD_VERSION_MINOR, Version.DORIS_BUILD_VERSION_PATCH,
+                            Version.DORIS_BUILD_VERSION_HOTFIX);
                 } catch (Throwable t) {
                     LOG.warn("failed to init version metrics", t);
                     return 0L;
@@ -875,6 +897,16 @@ public final class MetricRepo {
             }
         };
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_CATALOG_NUM);
+        addExternalResourceCleanupGauge("pending", MetricUnit.NOUNIT,
+                () -> ExternalResourceReclaimer.getInstance().pendingCount());
+        addExternalResourceCleanupGauge("running", MetricUnit.NOUNIT,
+                () -> ExternalResourceReclaimer.getInstance().runningCount());
+        addExternalResourceCleanupGauge("failures", MetricUnit.NOUNIT,
+                () -> ExternalResourceReclaimer.getInstance().failureCount());
+        addExternalResourceCleanupGauge("oldest_age_ms", MetricUnit.MILLISECONDS,
+                () -> ExternalResourceReclaimer.getInstance().oldestAgeMillis());
+        addExternalResourceCleanupGauge("last_duration_ms", MetricUnit.MILLISECONDS,
+                () -> ExternalResourceReclaimer.getInstance().lastDurationMillis());
 
         GAUGE_INTERNAL_DATABASE_NUM = new GaugeMetric<Integer>("internal_database_num",
                 MetricUnit.NOUNIT, "total internal database num") {

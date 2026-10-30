@@ -62,7 +62,7 @@ class RowsetReader;
 //    ROWSET_LOADED         |
 //          ↓               |
 //    ROWSET_UNLOADING   -->|
-enum RowsetState {
+enum class RowsetState {
     // state for new created rowset
     ROWSET_UNLOADED,
     // state after load() called
@@ -73,12 +73,12 @@ enum RowsetState {
 
 class RowsetStateMachine {
 public:
-    RowsetStateMachine() : _rowset_state(ROWSET_UNLOADED) {}
+    RowsetStateMachine() : _rowset_state(RowsetState::ROWSET_UNLOADED) {}
 
     Status on_load() {
         switch (_rowset_state) {
-        case ROWSET_UNLOADED:
-            _rowset_state = ROWSET_LOADED;
+        case RowsetState::ROWSET_UNLOADED:
+            _rowset_state = RowsetState::ROWSET_LOADED;
             break;
 
         default:
@@ -90,11 +90,11 @@ public:
 
     Status on_close(uint64_t refs_by_reader) {
         switch (_rowset_state) {
-        case ROWSET_LOADED:
+        case RowsetState::ROWSET_LOADED:
             if (refs_by_reader == 0) {
-                _rowset_state = ROWSET_UNLOADED;
+                _rowset_state = RowsetState::ROWSET_UNLOADED;
             } else {
-                _rowset_state = ROWSET_UNLOADING;
+                _rowset_state = RowsetState::ROWSET_UNLOADING;
             }
             break;
 
@@ -107,8 +107,8 @@ public:
 
     Status on_release() {
         switch (_rowset_state) {
-        case ROWSET_UNLOADING:
-            _rowset_state = ROWSET_UNLOADED;
+        case RowsetState::ROWSET_UNLOADING:
+            _rowset_state = RowsetState::ROWSET_UNLOADED;
             break;
 
         default:
@@ -190,7 +190,7 @@ public:
     // NOTICE: can not call this function in multithreads
     void close() {
         RowsetState old_state = _rowset_state_machine.rowset_state();
-        if (old_state != ROWSET_LOADED) {
+        if (old_state != RowsetState::ROWSET_LOADED) {
             return;
         }
         Status st = Status::OK();
@@ -198,7 +198,7 @@ public:
             std::lock_guard close_lock(_lock);
             uint64_t current_refs = _refs_by_reader;
             old_state = _rowset_state_machine.rowset_state();
-            if (old_state != ROWSET_LOADED) {
+            if (old_state != RowsetState::ROWSET_LOADED) {
                 return;
             }
             if (current_refs == 0) {
@@ -207,12 +207,14 @@ public:
             st = _rowset_state_machine.on_close(current_refs);
         }
         if (!st.ok()) {
-            LOG(WARNING) << "state transition failed from:" << _rowset_state_machine.rowset_state();
+            LOG(WARNING) << "state transition failed from:"
+                         << static_cast<int>(_rowset_state_machine.rowset_state());
             return;
         }
-        VLOG_NOTICE << "rowset is close. rowset state from:" << old_state << " to "
-                    << _rowset_state_machine.rowset_state() << ", version:" << start_version()
-                    << "-" << end_version() << ", tabletid:" << _rowset_meta->tablet_id();
+        VLOG_NOTICE << "rowset is close. rowset state from:" << static_cast<int>(old_state)
+                    << " to " << static_cast<int>(_rowset_state_machine.rowset_state())
+                    << ", version:" << start_version() << "-" << end_version()
+                    << ", tabletid:" << _rowset_meta->tablet_id();
     }
 
     // hard link all files in this rowset to `dir` to form a new rowset with id `new_rowset_id`.
@@ -249,18 +251,19 @@ public:
     void release() {
         // if the refs by reader is 0 and the rowset is closed, should release the resouce
         uint64_t current_refs = --_refs_by_reader;
-        if (current_refs == 0 && _rowset_state_machine.rowset_state() == ROWSET_UNLOADING) {
+        if (current_refs == 0 &&
+            _rowset_state_machine.rowset_state() == RowsetState::ROWSET_UNLOADING) {
             {
                 std::lock_guard release_lock(_lock);
                 // rejudge _refs_by_reader because we do not add lock in create reader
                 if (_refs_by_reader == 0 &&
-                    _rowset_state_machine.rowset_state() == ROWSET_UNLOADING) {
+                    _rowset_state_machine.rowset_state() == RowsetState::ROWSET_UNLOADING) {
                     // first do close, then change state
                     do_close();
                     static_cast<void>(_rowset_state_machine.on_release());
                 }
             }
-            if (_rowset_state_machine.rowset_state() == ROWSET_UNLOADED) {
+            if (_rowset_state_machine.rowset_state() == RowsetState::ROWSET_UNLOADED) {
                 VLOG_NOTICE
                         << "close the rowset. rowset state from ROWSET_UNLOADING to ROWSET_UNLOADED"
                         << ", version:" << start_version() << "-" << end_version()

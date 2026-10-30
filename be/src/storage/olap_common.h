@@ -55,13 +55,22 @@ using SchemaHash = int32_t;
 
 using TabletUid = UniqueId;
 
-enum CompactionType {
+enum class CompactionType {
     BASE_COMPACTION = 1,
     CUMULATIVE_COMPACTION = 2,
     FULL_COMPACTION = 3,
-    // Only used by scheduler to route row-binlog tablets to the binlog thread pool.
-    CUMU_BINLOG_COMPACTION = 4
+    // Only used by scheduler to route changelog tablets to the changelog thread pool.
+    CHANGELOG_COMPACTION = 4
 };
+
+inline constexpr CompactionType BASE_COMPACTION = CompactionType::BASE_COMPACTION;
+inline constexpr CompactionType CUMULATIVE_COMPACTION = CompactionType::CUMULATIVE_COMPACTION;
+inline constexpr CompactionType FULL_COMPACTION = CompactionType::FULL_COMPACTION;
+inline constexpr CompactionType CHANGELOG_COMPACTION = CompactionType::CHANGELOG_COMPACTION;
+
+inline std::ostream& operator<<(std::ostream& os, CompactionType type) {
+    return os << static_cast<int>(type);
+}
 
 struct CompactionScoreStats {
     int64_t max_score = 0;
@@ -70,7 +79,7 @@ struct CompactionScoreStats {
     bool scanned = false;
 };
 
-enum DataDirType {
+enum class DataDirType {
     SPILL_DISK_DIR,
     OLAP_DATA_DIR,
     DATA_CACHE_DIR,
@@ -289,8 +298,8 @@ struct OlapReaderStatistics {
     int64_t in_zonemap_range_only_count = 0;
     int64_t rows_bf_filtered = 0;
     int64_t segment_dict_filtered = 0;
-    // Including the number of rows filtered out according to the Delete information in the Tablet,
-    // and the number of rows filtered for marked deleted rows under the unique key model.
+    // Including rows filtered by Tablet delete information, unique-key delete signs, and the
+    // conditional row TTL delete sign.
     // This metric is mainly used to record the number of rows filtered by the delete condition in Segment V1,
     // and it is also used to record the replaced rows in the Unique key model in the "Reader" class.
     // In segmentv2, if you want to get all filtered rows, you need the sum of "rows_del_filtered" and "rows_conditions_filtered".

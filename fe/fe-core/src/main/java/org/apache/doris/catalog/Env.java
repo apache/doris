@@ -36,7 +36,6 @@ import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.binlog.BinlogGcer;
 import org.apache.doris.binlog.BinlogManager;
-import org.apache.doris.binlog.RowBinlogTtlDiscovery;
 import org.apache.doris.blockrule.SqlBlockRuleMgr;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
@@ -51,6 +50,7 @@ import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.TableStreamManager;
+import org.apache.doris.changelog.ChangelogTtlDiscovery;
 import org.apache.doris.clone.ColocateTableCheckerAndBalancer;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.clone.TabletChecker;
@@ -211,6 +211,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.RenamePartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.RenameRollupOp;
 import org.apache.doris.nereids.trees.plans.commands.info.RenameTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionOp;
+import org.apache.doris.nereids.util.SqlLiteralUtils;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.BackendReplicasInfo;
@@ -568,7 +569,7 @@ public class Env {
     private ConstraintManager constraintManager;
 
     private BinlogGcer binlogGcer;
-    private final RowBinlogTtlDiscovery rowBinlogTtlDiscovery = new RowBinlogTtlDiscovery();
+    private final ChangelogTtlDiscovery changelogTtlDiscovery = new ChangelogTtlDiscovery();
 
     private QueryCancelWorker queryCancelWorker;
 
@@ -2084,7 +2085,7 @@ public class Env {
         // binlog gcer
         binlogGcer.start();
         if (Config.isCloudMode()) {
-            rowBinlogTtlDiscovery.start();
+            changelogTtlDiscovery.start();
         }
         columnIdFlusher.start();
         insertOverwriteManager.start();
@@ -3851,8 +3852,18 @@ public class Env {
                                              boolean writeEditLog,
                                              List<Pair<PartitionPersistInfo, Partition>> batchPartitions)
             throws DdlException {
+        addPartition(db, tableName, addPartitionOp, isCreateTable, generatedPartitionId,
+                writeEditLog, batchPartitions, false);
+    }
+
+    public void addPartition(Database db, String tableName, AddPartitionOp addPartitionOp,
+                                             boolean isCreateTable, long generatedPartitionId,
+                                             boolean writeEditLog,
+                                             List<Pair<PartitionPersistInfo, Partition>> batchPartitions,
+                                             boolean enforceAutoPartitionLimit)
+            throws DdlException {
         getInternalCatalog().addPartition(db, tableName, addPartitionOp,
-                isCreateTable, generatedPartitionId, writeEditLog, batchPartitions);
+                isCreateTable, generatedPartitionId, writeEditLog, batchPartitions, enforceAutoPartitionLimit);
     }
 
     public void addMultiPartitions(Database db, String tableName, AlterMultiPartitionOp multiPartitionOp)
@@ -4022,6 +4033,13 @@ public class Env {
         }
     }
 
+    // Whether the database of the table gives changelog to the tables created in it. A table that is not in a
+    // database, like one read from a backup, has no such default.
+    private static boolean hasChangelogDefault(OlapTable olapTable) {
+        DatabaseIf db = olapTable.getDatabase();
+        return db instanceof Database && ((Database) db).getChangelogConfig().isEnable();
+    }
+
     private static void addOlapTablePropertyInfo(OlapTable olapTable, StringBuilder sb, boolean separatePartition,
             boolean getDdlForSync, List<Long> partitionId) {
         // replicationNum
@@ -4156,6 +4174,48 @@ public class Env {
         if (olapTable.getStoragePolicy() != null && !olapTable.getStoragePolicy().equals("")) {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY).append("\" = \"");
             sb.append(olapTable.getStoragePolicy()).append("\"");
+        }
+
+        // row ttl
+        if (olapTable.hasRowTtl()) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_ROW_TTL).append("\" = \"true\"");
+
+            Column ttlColumn = Preconditions.checkNotNull(olapTable.getTtlColumn(),
+                    "Row TTL hidden column is missing from table %s", olapTable.getName());
+            if (!ttlColumn.getType().getPrimitiveType().isDateLikeType()) {
+                Preconditions.checkState(ttlColumn.getType().getPrimitiveType() == PrimitiveType.BIGINT
+                                && olapTable.isDirectRowTtl(),
+                        "Unsupported Row TTL hidden column or properties in table %s", olapTable.getName());
+            } else {
+                TableProperty tableProperty = Preconditions.checkNotNull(olapTable.getTableProperty(),
+                        "Row TTL properties are missing from table %s", olapTable.getName());
+                Map<String, String> properties = tableProperty.getProperties();
+                String ttlColProperty = PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                        + PropertyAnalyzer.PROPERTIES_TTL_COL;
+                String ttlProperty = PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                        + PropertyAnalyzer.PROPERTIES_TTL;
+                String ttlTimeZoneProperty = PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                        + PropertyAnalyzer.PROPERTIES_TTL_TIME_ZONE;
+                String ttlCol = properties.get(ttlColProperty);
+                String ttl = properties.get(ttlProperty);
+                String ttlTimeZone = Preconditions.checkNotNull(properties.get(ttlTimeZoneProperty),
+                        "Row TTL time zone property is missing from table %s", olapTable.getName());
+
+                Preconditions.checkState(!Strings.isNullOrEmpty(ttlCol),
+                        "Row TTL source column property is missing from table %s", olapTable.getName());
+                Column sourceColumn = Preconditions.checkNotNull(olapTable.getColumn(ttlCol),
+                        "Row TTL source column %s is missing from table %s", ttlCol, olapTable.getName());
+                Preconditions.checkState(sourceColumn.getType().equals(ttlColumn.getType()),
+                        "Row TTL source and hidden column types differ in table %s", olapTable.getName());
+                Preconditions.checkState(!Strings.isNullOrEmpty(ttl) && olapTable.getRowTtlDurationMicros() >= 0,
+                        "Row TTL duration property is missing or invalid in table %s", olapTable.getName());
+
+                sb.append(",\n\"").append(ttlColProperty).append("\" = ")
+                        .append(SqlLiteralUtils.quoteStringLiteral(ttlCol));
+                sb.append(",\n\"").append(ttlProperty).append("\" = \"").append(ttl).append("\"");
+                sb.append(",\n\"").append(ttlTimeZoneProperty).append("\" = \"")
+                        .append(ttlTimeZone).append("\"");
+            }
         }
 
         // sequence type
@@ -4294,6 +4354,16 @@ public class Env {
         if (Config.enable_feature_binlog) {
             BinlogConfig binlogConfig = olapTable.getBinlogConfig();
             binlogConfig.appendToShowCreateTable(sb);
+        }
+
+        // changelog
+        if (olapTable.hasChangelog()) {
+            if (Config.enable_feature_changelog) {
+                olapTable.getChangelogConfig().appendToShowCreateTable(sb);
+            }
+        } else if (hasChangelogDefault(olapTable)) {
+            // Keep the table out of the changelog default of its database when the statement runs again.
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_CHANGELOG_ENABLE).append("\" = \"false\"");
         }
 
         // group commit interval ms
@@ -6429,6 +6499,9 @@ public class Env {
                 new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
                         properties);
         editLog.logModifyTableProperties(info);
+        if (properties.containsKey(RowTtlConfig.TTL_PROPERTY)) {
+            getSqlCacheManager().invalidateAboutTable(table);
+        }
     }
 
     public void updateBinlogConfig(Database db, OlapTable table, BinlogConfig newBinlogConfig) {
@@ -6438,6 +6511,18 @@ public class Env {
         ModifyTablePropertyOperationLog info =
                 new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
                         newBinlogConfig.toProperties());
+        editLog.logUpdateBinlogConfig(info);
+    }
+
+    // The changelog config is journaled as OP_UPDATE_BINLOG_CONFIG too: its replay rebuilds both configs from
+    // the table properties.
+    public void updateChangelogConfig(Database db, OlapTable table, ChangelogConfig newChangelogConfig) {
+        Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
+        table.setChangelogConfig(newChangelogConfig);
+        getSqlCacheManager().invalidateAboutTable(table);
+        ModifyTablePropertyOperationLog info =
+                new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
+                        newChangelogConfig.toProperties());
         editLog.logUpdateBinlogConfig(info);
     }
 
@@ -6470,6 +6555,9 @@ public class Env {
             // need to replay partition info meta
             switch (opCode) {
                 case OperationType.OP_MODIFY_TABLE_PROPERTIES:
+                    if (properties.containsKey(RowTtlConfig.TTL_PROPERTY)) {
+                        getSqlCacheManager().invalidateAboutTable(olapTable);
+                    }
                     for (Partition partition : olapTable.getPartitions()) {
                         olapTable.getPartitionInfo().setIsInMemory(partition.getId(), tableProperty.isInMemory());
                         // storage policy re-use modify in memory
@@ -6481,9 +6569,7 @@ public class Env {
                     }
                     break;
                 case OperationType.OP_UPDATE_BINLOG_CONFIG:
-                    BinlogConfig newBinlogConfig = new BinlogConfig();
-                    newBinlogConfig.mergeFromProperties(properties, true);
-                    olapTable.setBinlogConfig(newBinlogConfig);
+                    // buildProperty has rebuilt the binlog and the changelog config from the table properties.
                     getSqlCacheManager().invalidateAboutTable(olapTable);
                     break;
                 default:
@@ -6616,21 +6702,28 @@ public class Env {
                 ctx.addLastDBOfCatalog(ctx.getCurrentCatalog().getName(), currentDB);
             }
         }
-        ctx.changeDefaultCatalog(catalogName);
-        String lastDb = ctx.getLastDBOfCatalog(catalogName);
-        if (StringUtils.isNotEmpty(lastDb)) {
-            ctx.setDatabase(lastDb);
-        }
-        // A data source whose metadata model has no database layer can name the single database Doris
-        // presents for it; the connector owns that name. Asked of the provider, not the connector, because
-        // switching to a catalog must not force it to initialize. Applied after the remembered database on
-        // purpose: such a catalog has exactly one database, so there is nothing else to return to.
-        Map<String, String> catalogProps = catalogIf.getProperties();
-        String catalogType = catalogProps.get(CatalogMgr.CATALOG_TYPE_PROP);
-        if (catalogType != null) {
-            ConnectorFactory.findProvider(catalogType, catalogProps)
-                    .flatMap(ConnectorProvider::defaultDatabaseOnUse)
-                    .ifPresent(ctx::setDatabase);
+        NameSpaceContext previousNamespace = ctx.getNameSpaceContext();
+        try {
+            ctx.changeDefaultCatalog(catalogName);
+            String lastDb = ctx.getLastDBOfCatalog(catalogName);
+            if (StringUtils.isNotEmpty(lastDb)) {
+                ctx.setDatabase(lastDb);
+            }
+            // A data source whose metadata model has no database layer can name the single database Doris
+            // presents for it; the connector owns that name. Asked of the provider, not the connector, because
+            // switching to a catalog must not force it to initialize. Applied after the remembered database on
+            // purpose: such a catalog has exactly one database, so there is nothing else to return to.
+            Map<String, String> catalogProps = catalogIf.getProperties();
+            String catalogType = catalogProps.get(CatalogMgr.CATALOG_TYPE_PROP);
+            if (catalogType != null) {
+                ConnectorFactory.findProvider(catalogType, catalogProps)
+                        .flatMap(ConnectorProvider::defaultDatabaseOnUse)
+                        .ifPresent(ctx::setDatabase);
+            }
+        } catch (RuntimeException | Error e) {
+            // A failed remembered/default database lookup must not leave a partially switched session.
+            ctx.restoreNameSpaceContext(previousNamespace);
+            throw e;
         }
     }
 
@@ -7094,10 +7187,10 @@ public class Env {
             }
             getMtmvService().getRelationManager().markIvmBaselineRebuildForPartitionChange(
                     new BaseTableInfo(olapTable), replacedPartitions,
-                    "Base table partitions were replaced without row binlog");
+                    "Base table partitions were replaced without changelog");
         } else {
             getMtmvService().getRelationManager().markIvmBaselineRebuild(
-                    new BaseTableInfo(olapTable), "Base table partitions were replaced without row binlog");
+                    new BaseTableInfo(olapTable), "Base table partitions were replaced without changelog");
         }
         List<Long> replacedPartitionIds = olapTable.replaceTempPartitions(db.getId(), partitionNames,
                 tempPartitionNames, isStrictRange,

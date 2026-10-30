@@ -150,6 +150,7 @@ import org.apache.doris.statistics.model.Statistics;
 import org.apache.doris.statistics.model.StatisticsBuilder;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -381,14 +382,21 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     /**
-     * returns the sum of deltaRowCount for all selected partitions or for the table.
+     * The rows loaded into the base index which the collected column statistics don't describe yet, i.e. the
+     * population {@link FilterEstimation#estimate} retries a zero estimate with. It is deliberately not
+     * restricted to an index which keeps one row per base row: such an index must not add the delta to its own
+     * row count ({@link TableStatsMeta#getRowCountWithDeltaRows} gates that), but stale column statistics
+     * affect every index in the same way, and for an index which aggregates the rows the delta is an upper
+     * bound of the rows it gained.
      */
-    private long computeDeltaRowCount(OlapScan olapScan) {
+    @VisibleForTesting
+    long computeDeltaRowCount(OlapScan olapScan) {
+        OlapTable olapTable = olapScan.getTable();
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
-        TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapScan.getTable().getId());
+        TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapTable.getId());
         long deltaRowCount = 0;
         if (tableMeta != null) {
-            deltaRowCount = tableMeta.getBaseIndexDeltaRowCount(olapScan.getTable());
+            deltaRowCount = tableMeta.getBaseIndexDeltaRowCount(olapTable);
         }
         return deltaRowCount;
     }
@@ -471,7 +479,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             rowCount = olapTable.getRowCountForIndex(olapScan.getSelectedIndexId(), true);
             if (rowCount == -1) {
                 if (tableMeta != null) {
-                    rowCount = tableMeta.getRowCount(olapScan.getSelectedIndexId()) + computeDeltaRowCount(olapScan);
+                    // The collected row count and the rows loaded since it was collected are read as one
+                    // snapshot.
+                    rowCount = tableMeta.getRowCountWithDeltaRows(olapTable, olapScan.getSelectedIndexId());
                 }
             }
         }
@@ -588,10 +598,20 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     && connectContext.getSessionVariable().enablePartitionAnalyze;
             for (SlotReference slot : visibleOutputSlots) {
                 ColumnStatistic cache;
+                // numNulls of the table level statistics covers the whole table, so it has to be scaled
+                // to the selected partitions. numNulls of the partition level statistics is already
+                // scoped to them and must not be scaled again.
+                boolean scaleNumNulls;
                 if (enablePartitionStatics) {
-                    cache = getColumnStatistic(olapTableStats, slot.getName(), selectedPartitionNames);
+                    cache = getPartitionColumnStatistic(olapTableStats, slot.getName(), selectedPartitionNames);
+                    scaleNumNulls = cache == null;
+                    if (scaleNumNulls) {
+                        // partition level statistics are unavailable, fall back to table level statistics
+                        cache = olapTableStats.getColumnStatistics(slot.getName(), connectContext);
+                    }
                 } else {
                     cache = olapTableStats.getColumnStatistics(slot.getName(), connectContext);
+                    scaleNumNulls = true;
                 }
                 if (slot.getOriginalColumn().isPresent()) {
                     cache = updateMinMaxForPartitionKey(olapTable, selectedPartitionNames, slot, cache);
@@ -599,9 +619,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache,
                         selectedPartitionsRowCount);
                 colStatsBuilder.normalizeAvgSizeByte(slot.getDataType());
-                //scale null_num
-                double scale = tableRowCount == 0 ? 1 : selectedPartitionsRowCount / tableRowCount;
-                colStatsBuilder.setNumNulls(colStatsBuilder.getNumNulls() * scale);
+                if (scaleNumNulls) {
+                    double scale = tableRowCount == 0 ? 1 : selectedPartitionsRowCount / tableRowCount;
+                    colStatsBuilder.setNumNulls(colStatsBuilder.getNumNulls() * scale);
+                }
                 builder.putColumnStatistics(slot, colStatsBuilder.build());
             }
             checkIfUnknownStatsUsedAsKey(builder);
@@ -1206,46 +1227,47 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     /**
-     * - partition pruned: try to get partition col stats, if failed, then fall back to table level col stats
-     * - no partition pruned: get table level col stats
+     * Merge the column statistics of the given partitions.
+     *
+     * <p>The returned statistic is scoped to the given partitions, i.e. its count and numNulls only
+     * cover them. Returns null if the statistics of any partition is unknown, so that the caller can
+     * decide whether to fall back to the table level column statistics.
      */
-    private ColumnStatistic getColumnStatistic(
+    private ColumnStatistic getPartitionColumnStatistic(
             OlapTableStatistics olapTableStatistics, String colName, List<String> partitionNames) {
         if (connectContext != null && connectContext.getState().isPlanWithUnKnownColumnStats()) {
             return ColumnStatistic.UNKNOWN;
         }
-        if (!partitionNames.isEmpty()) {
-            PartitionColumnStatisticBuilder builder = new PartitionColumnStatisticBuilder();
-            boolean hasUnknown = false;
-            // check if there is any unknown stats to avoid unnecessary partition column stats merge.
-            List<PartitionColumnStatistic> pColStatsLists = new ArrayList<>(partitionNames.size());
-            for (String partitionName : partitionNames) {
-                PartitionColumnStatistic pcolStats
-                        = olapTableStatistics.getPartitionColumnStatistics(partitionName, colName, connectContext);
-                if (pcolStats.isUnKnown) {
-                    hasUnknown = true;
-                    break;
-                } else {
-                    pColStatsLists.add(pcolStats);
-                }
+        if (partitionNames.isEmpty()) {
+            return null;
+        }
+        PartitionColumnStatisticBuilder builder = new PartitionColumnStatisticBuilder();
+        boolean hasUnknown = false;
+        // check if there is any unknown stats to avoid unnecessary partition column stats merge.
+        List<PartitionColumnStatistic> pColStatsLists = new ArrayList<>(partitionNames.size());
+        for (String partitionName : partitionNames) {
+            PartitionColumnStatistic pcolStats
+                    = olapTableStatistics.getPartitionColumnStatistics(partitionName, colName, connectContext);
+            if (pcolStats.isUnKnown) {
+                hasUnknown = true;
+                break;
             }
-            if (!hasUnknown) {
-                boolean isFirst = true;
-                // try to merge partition column stats
-                for (PartitionColumnStatistic pcolStats : pColStatsLists) {
-                    if (isFirst) {
-                        builder = new PartitionColumnStatisticBuilder(pcolStats);
-                        isFirst = false;
-                    } else {
-                        builder.merge(pcolStats);
-                    }
-                }
-                return builder.toColumnStatistics();
+            pColStatsLists.add(pcolStats);
+        }
+        if (hasUnknown) {
+            return null;
+        }
+        boolean isFirst = true;
+        // try to merge partition column stats
+        for (PartitionColumnStatistic pcolStats : pColStatsLists) {
+            if (isFirst) {
+                builder = new PartitionColumnStatisticBuilder(pcolStats);
+                isFirst = false;
+            } else {
+                builder.merge(pcolStats);
             }
         }
-
-        // if any partition-col-stats is unknown, fall back to table level col stats
-        return olapTableStatistics.getColumnStatistics(colName, connectContext);
+        return builder.toColumnStatistics();
     }
 
     /**

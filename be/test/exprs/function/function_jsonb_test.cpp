@@ -1163,6 +1163,49 @@ TEST(FunctionJsonbTEST, JsonbModifyMissingPathParent) {
     }
 }
 
+TEST(FunctionJsonbTEST, JsonbModifyNestedMissingMemberKeepsFollowingSiblings) {
+    InputTypeSet input_types = {PrimitiveType::TYPE_JSONB, PrimitiveType::TYPE_VARCHAR,
+                                PrimitiveType::TYPE_JSONB};
+
+    // Adding a missing member to a nested object must keep the members that follow that
+    // object in its ancestors. Before the fix the enclosing object was closed one level
+    // too early, so every following sibling was silently dropped.
+    DataSet data_set = {
+            // Nested empty object followed by a sibling.
+            {{STRING(R"({"a":{},"b":2})"), STRING(R"($.a.c)"), STRING("1")},
+             STRING(R"({"a":{"c":1},"b":2})")},
+            // Non-empty nested object.
+            {{STRING(R"({"a":{"d":4},"b":2})"), STRING(R"($.a.c)"), STRING("1")},
+             STRING(R"({"a":{"d":4,"c":1},"b":2})")},
+            // Control: a sibling written before the nested object was already correct.
+            {{STRING(R"({"b":2,"a":{}})"), STRING(R"($.a.c)"), STRING("1")},
+             STRING(R"({"b":2,"a":{"c":1}})")},
+            // Two nested levels: the premature close dropped the sibling one level up.
+            {{STRING(R"({"a":{"b":{}},"x":1})"), STRING(R"($.a.b.c)"), STRING("1")},
+             STRING(R"({"a":{"b":{"c":1}},"x":1})")},
+            // Following siblings of any type must be preserved.
+            {{STRING(R"({"a":{},"b":[1,2],"c":{"d":3}})"), STRING(R"($.a.e)"), STRING("1")},
+             STRING(R"({"a":{"e":1},"b":[1,2],"c":{"d":3}})")},
+            // An empty key can be the inserted member.
+            {{STRING(R"({"a":{},"b":2})"), STRING(R"($.a."")"), STRING("1")},
+             STRING(R"({"a":{"":1},"b":2})")},
+            // An object element inside an array was not affected; keep it as a guard.
+            {{STRING(R"({"a":[{"x":1}],"b":2})"), STRING(R"($.a[0].y)"), STRING("1")},
+             STRING(R"({"a":[{"x":1,"y":1}],"b":2})")},
+    };
+    for (const auto* func_name : {"jsonb_insert", "jsonb_set", "json_insert", "json_set"}) {
+        static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set));
+    }
+
+    // jsonb_replace rewrites an existing member and already preserved its siblings.
+    DataSet replace_data_set = {
+            {{STRING(R"({"a":{"d":4},"b":2})"), STRING("$.a.d"), STRING("5")},
+             STRING(R"({"a":{"d":5},"b":2})")},
+    };
+    static_cast<void>(
+            check_function<DataTypeJsonb, true>("jsonb_replace", input_types, replace_data_set));
+}
+
 TEST(FunctionJsonbTEST, JsonbModifyMemberPathOnArray) {
     InputTypeSet input_types = {PrimitiveType::TYPE_JSONB, PrimitiveType::TYPE_VARCHAR,
                                 PrimitiveType::TYPE_JSONB};

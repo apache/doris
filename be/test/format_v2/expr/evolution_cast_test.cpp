@@ -179,4 +179,54 @@ TEST_F(EvolutionCastTest, NumericPromotionUsesExistingConversion) {
     EXPECT_EQ(column.get_data()[2], 3);
 }
 
+TEST_F(EvolutionCastTest, PaimonPrecisionNarrowingSurvivesCloneAndPreservesNull) {
+    for (uint32_t scale : {0, 4, 5}) {
+        for (bool clone : {false, true}) {
+            const auto input_type = make_nullable(std::make_shared<DataTypeDateTimeV2>(6));
+            const auto output_type = make_nullable(std::make_shared<DataTypeDateTimeV2>(scale));
+            VExprSPtr expr = EvolutionCast::create_shared(output_type, true);
+            expr->add_child(VSlotRef::create_shared(0, 0, -1, input_type, "source"));
+            if (clone) {
+                VExprSPtr cloned;
+                ASSERT_TRUE(expr->deep_clone(&cloned).ok());
+                expr = std::move(cloned);
+            }
+            DateV2Value<DateTimeV2ValueType> value;
+            value.unchecked_set_time(1969, 12, 31, 23, 59, 59, 699999);
+            Block block;
+            block.insert({ColumnHelper::create_nullable_column<DataTypeDateTimeV2>({value, value},
+                                                                                   {0, 1}),
+                          input_type, "source"});
+            int result = -1;
+            ASSERT_TRUE(execute(expr, &block, &result).ok());
+            const auto& column =
+                    assert_cast<const ColumnNullable&>(*block.get_by_position(result).column);
+            EXPECT_TRUE(column.is_null_at(1));
+            const auto& values = assert_cast<const ColumnDateTimeV2&>(column.get_nested_column());
+            EXPECT_EQ(values.get_data()[0].second(), 59);
+            EXPECT_EQ(values.get_data()[0].microsecond(),
+                      scale == 0 ? 0 : (scale == 4 ? 699900 : 699990));
+        }
+    }
+}
+
+TEST_F(EvolutionCastTest, OrdinaryEvolutionDoesNotEnablePaimonTruncation) {
+    const auto input_type = std::make_shared<DataTypeDateTimeV2>(6);
+    const auto output_type = make_nullable(std::make_shared<DataTypeDateTimeV2>(0));
+    DateV2Value<DateTimeV2ValueType> value;
+    value.unchecked_set_time(2025, 1, 1, 0, 0, 1, 600000);
+    Block block;
+    block.insert({ColumnHelper::create_column<DataTypeDateTimeV2>({value}), input_type, "source"});
+    auto expr = EvolutionCast::create_shared(output_type);
+    expr->add_child(VSlotRef::create_shared(0, 0, -1, input_type, "source"));
+    int result = -1;
+    const auto status = execute(expr, &block, &result);
+    ASSERT_TRUE(status.ok()) << status;
+    const auto& nullable_column =
+            assert_cast<const ColumnNullable&>(*block.get_by_position(result).column);
+    EXPECT_FALSE(nullable_column.is_null_at(0));
+    const auto& column = assert_cast<const ColumnDateTimeV2&>(nullable_column.get_nested_column());
+    EXPECT_EQ(column.get_data()[0].second(), 2);
+}
+
 } // namespace doris::format

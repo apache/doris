@@ -59,6 +59,7 @@
 #include "common/metrics/doris_metrics.h"
 #include "common/status.h"
 #include "cpp/obj-client/obj_storage_client.h"
+#include "exec/spill/spill_file_manager.h"
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
@@ -867,6 +868,7 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
     LOG(INFO) << "get update tablet meta task. signature=" << req.signature;
 
     Status status;
+    int64_t row_ttl_config_version = -1;
     const auto& update_tablet_meta_req = req.update_tablet_meta_info_req;
     for (const auto& tablet_meta_info : update_tablet_meta_req.tabletMetaInfos) {
         auto tablet = engine.tablet_manager()->get_tablet(tablet_meta_info.tablet_id);
@@ -874,9 +876,25 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             status = Status::NotFound("tablet not found");
             LOG(WARNING) << "could not find tablet when update tablet meta. tablet_id="
                          << tablet_meta_info.tablet_id;
+            // A later success in this batch must not acknowledge a failed TTL update.
+            if (tablet_meta_info.__isset.row_ttl_config) {
+                break;
+            }
             continue;
         }
         bool need_to_save = false;
+        if (tablet_meta_info.__isset.row_ttl_config) {
+            RowTtlConfigPB config;
+            config.set_duration_us(tablet_meta_info.row_ttl_config.duration_us);
+            config.set_config_version(tablet_meta_info.row_ttl_config.config_version);
+            std::unique_lock lock(tablet->get_header_lock());
+            status = tablet->tablet_meta()->update_row_ttl_config(config);
+            if (!status.ok()) {
+                break;
+            }
+            tablet->save_meta();
+            row_ttl_config_version = config.config_version();
+        }
         if (tablet_meta_info.__isset.partition_id) {
             // for fix partition_id = 0
             LOG(WARNING) << "change be tablet id: " << tablet->tablet_meta()->tablet_id()
@@ -909,10 +927,10 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.compaction_policy) {
-            // The binlog policy is set when a row binlog tablet is created and never changes.
-            if (tablet->is_row_binlog_tablet()) {
+            // The changelog policy is set when a changelog tablet is created and never changes.
+            if (tablet->is_changelog_tablet()) {
                 status = Status::InvalidArgument(
-                        "can not change compaction policy of row binlog tablet {}",
+                        "can not change compaction policy of changelog tablet {}",
                         tablet_meta_info.tablet_id);
                 continue;
             }
@@ -1041,6 +1059,9 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
     LOG(INFO) << "finish update tablet meta task. signature=" << req.signature;
     if (req.signature != -1) {
         TFinishTaskRequest finish_task_request;
+        if (row_ttl_config_version >= 0) {
+            finish_task_request.__set_row_ttl_config_version(row_ttl_config_version);
+        }
         finish_task_request.__set_task_status(status.to_thrift());
         finish_task_request.__set_backend(BackendOptions::get_local_backend());
         finish_task_request.__set_task_type(req.task_type);
@@ -1159,6 +1180,9 @@ void report_disk_callback(CloudStorageEngine& engine, const ClusterInfo* cluster
     request.__set_pipeline_executor_size(config::pipeline_executor_size > 0
                                                  ? config::pipeline_executor_size
                                                  : CpuInfo::num_cores());
+    // The master FE sums it over the alive BEs for SHOW DATA.
+    request.__set_remote_spill_bytes(
+            ExecEnv::GetInstance()->spill_file_mgr()->remote_spill_data_bytes());
     bool succ = handle_report(request, cluster_info, "disk");
     report_disk_total << 1;
     report_disk_failed << !succ;
@@ -1628,7 +1652,7 @@ void submit_table_compaction_callback(StorageEngine& engine, const TAgentTaskReq
         tablet_ptr->set_last_full_compaction_schedule_time(UnixMillis());
         Status status = engine.submit_compaction_task(tablet_ptr, CompactionType::FULL_COMPACTION,
                                                       /*force=*/false, /*eager=*/true,
-                                                      /*trigger_method=*/1);
+                                                      /*trigger_method=*/TriggerMethod::MANUAL);
         if (!status.ok()) {
             LOG(WARNING) << "failed to submit full compaction task. tablet_id="
                          << tablet_ptr->tablet_id() << ", error=" << status;
@@ -1640,7 +1664,7 @@ void submit_table_compaction_callback(StorageEngine& engine, const TAgentTaskReq
     auto* data_dir = tablet_ptr->data_dir();
     if (!tablet_ptr->can_do_compaction(data_dir->path_hash(), compaction_type)) {
         LOG(WARNING) << "could not do compaction. tablet_id=" << tablet_ptr->tablet_id()
-                     << ", compaction_type=" << compaction_type;
+                     << ", compaction_type=" << static_cast<int>(compaction_type);
         return;
     }
 
@@ -2353,7 +2377,8 @@ void set_alter_version_before_enqueue(CloudStorageEngine& engine, const TAgentTa
         return;
     }
     auto new_tablet = engine.tablet_mgr().get_tablet(alter_req.new_tablet_id);
-    if (!new_tablet.has_value() || new_tablet.value()->tablet_state() == TABLET_RUNNING) {
+    if (!new_tablet.has_value() ||
+        new_tablet.value()->tablet_state() == TabletState::TABLET_RUNNING) {
         return;
     }
     auto base_tablet = engine.tablet_mgr().get_tablet(alter_req.base_tablet_id);

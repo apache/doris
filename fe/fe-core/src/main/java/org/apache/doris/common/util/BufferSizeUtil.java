@@ -18,7 +18,7 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.analysis.SinglePartitionDesc;
-import org.apache.doris.catalog.BinlogConfig;
+import org.apache.doris.catalog.ChangelogConfig;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -38,8 +38,8 @@ public class BufferSizeUtil {
         long partitionNum = createTableInfo.getPartitionDesc() == null ? 1 :
                 createTableInfo.getPartitionDesc().getSinglePartitionDescs().size();
         long indexNum = createTableInfo.getAddRollupOps().size() + 1;
-        // The row binlog companion index needs its own index/tablet/replica ids reserved.
-        if (BinlogConfig.fromProperties(createTableInfo.getProperties()).isEnableForStreaming()) {
+        // The changelog companion index needs its own index/tablet/replica ids reserved.
+        if (ChangelogConfig.fromProperties(createTableInfo.getProperties()).isEnable()) {
             indexNum++;
         }
         long bucketNum = createTableInfo.getDistributionDesc().toDistributionInfo(createTableInfo.getColumns())

@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.hive;
 
+import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
 import org.apache.doris.connector.cache.ScopePath;
@@ -96,12 +97,8 @@ public class HiveConnector implements Connector {
     private volatile HadoopAuthenticator pluginAuth;
     private volatile boolean pluginAuthComputed;
 
-    // Read-transaction manager for transactional (ACID) Hive scans. One per connector, keyed by query.
-    // Plugin-owned; live since the read cutover wired its query-finish commit (see the manager).
-    private final HiveReadTransactionManager readTxnManager = new HiveReadTransactionManager();
-
     // Connector-owned directory-listing cache, shared by the (per-call) scan provider and metadata. One per
-    // connector (like readTxnManager above) — the scan provider / metadata are rebuilt per query, so the cache
+    // connector — the scan provider / metadata are rebuilt per query, so the cache
     // must live on the long-lived connector to survive across scans. Built from catalog props. Its
     // metastore-metadata sibling is the CachingHmsClient wrapping the HmsClient.
     private final HiveFileListingCache fileListingCache;
@@ -153,12 +150,21 @@ public class HiveConnector implements Connector {
         this.context = context;
         this.metaCache = CatalogMetaCache.managed(context.getCatalogId(), "hive", this.properties);
         this.fileListingCache = new HiveFileListingCache(metaCache, props);
-        // Reads its own meta.cache.hive.partition_view.(enable|ttl-second|capacity) from the catalog properties
-        // via the framework's CacheSpec (default ON / 24h / 1000).
+        // The derived view must inherit the partition-name TTL when no view TTL is specified. Otherwise
+        // partition.cache.ttl-second=0 still leaves a 24h cached view, and batch scans miss new partitions.
         this.partitionViewCache = new ConnectorMetadataCache<>(metaCache, "hive-partition-view",
-                "hive", "partition_view", this.properties,
+                "hive", "partition_view", partitionViewProperties(this.properties),
                 key -> ScopePath.partitionCollection(key.getDb(), key.getTable()),
                 HivePartitionViewSizeEstimator::estimateEntry);
+    }
+
+    private static Map<String, String> partitionViewProperties(Map<String, String> properties) {
+        String partitionNamesTtl = CacheSpec.metaCacheTtlKey("hive", "partition_names");
+        String partitionViewTtl = CacheSpec.metaCacheTtlKey("hive", "partition_view");
+        Map<String, String> withLegacyTtl = CacheSpec.applyCompatibilityMap(properties,
+                Collections.singletonMap("partition.cache.ttl-second", partitionNamesTtl));
+        return CacheSpec.applyCompatibilityMap(withLegacyTtl,
+                Collections.singletonMap(partitionNamesTtl, partitionViewTtl));
     }
 
     @Override
@@ -256,7 +262,7 @@ public class HiveConnector implements Connector {
 
     @Override
     public ConnectorScanPlanProvider getScanPlanProvider() {
-        return new HiveScanPlanProvider(getOrCreateClient(), props, context, readTxnManager, fileListingCache);
+        return new HiveScanPlanProvider(getOrCreateClient(), props, context, fileListingCache);
     }
 
     /**

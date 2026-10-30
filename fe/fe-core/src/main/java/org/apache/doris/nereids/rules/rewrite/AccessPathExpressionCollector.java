@@ -231,7 +231,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         // e.g. ["str_col", "OFFSET"] or ["c_struct", "f3", "OFFSET"].
         //
         // CHAR is excluded: CHAR(N) is stored padded to N bytes per row (see BE
-        // OlapColumnDataConvertorChar::clone_and_padding), so the per-row length
+        // StorageLayout<CHAR>::pad_column), so the per-row length
         // information available without reading the chars buffer is the padded
         // length (always N), not the logical post-trim length expected by
         // length(). There is no way to recover the logical length from offsets
@@ -292,12 +292,23 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             offsetContext.setType(ColumnAccessPathType.META);
             // cardinality(map_keys(m)) == cardinality(m) == cardinality(map_values(m)):
             // all three count map entries, so emit the same [map_col, OFFSET] path.
-            Expression effectiveArg = (arg instanceof MapKeys || arg instanceof MapValues)
-                    ? arg.child(0) : arg;
+            Expression effectiveArg = normalizeMapArrayProducer(arg);
             return effectiveArg.accept(this, offsetContext);
         }
         // fall through to default
         return visit(cardinality, context);
+    }
+
+    /**
+     * map_keys / map_values produce an array whose container shape (length and nullness) is the
+     * map's own: their metadata requirement belongs to the map column, not to the KEYS / VALUES
+     * sub-column, which has no offsets of its own (the BE rejects e.g. `m.VALUES.OFFSET` when the
+     * value is a struct). Returns the map expression for such an array producer, the expression
+     * itself otherwise.
+     */
+    private static Expression normalizeMapArrayProducer(Expression expression) {
+        return (expression instanceof MapKeys || expression instanceof MapValues)
+                ? expression.child(0) : expression;
     }
 
     @Override
@@ -576,9 +587,53 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
 
         Expression argument = arrayMap.getArgument(0);
         if ((argument instanceof Lambda)) {
-            return collectArrayPathInLambda((Lambda) argument, context);
+            Lambda lambda = (Lambda) argument;
+            return collectArrayMapPathInLambda(lambda, context);
         }
         return visit(arrayMap, context);
+    }
+
+    private Void collectArrayMapPathInLambda(Lambda lambda, CollectorContext context) {
+        if (isRootContainerMetadata(context)) {
+            // A metadata requirement on the ARRAY_MAP result itself (OFFSET for cardinality(arr),
+            // NULL for arr IS NULL) describes the output ARRAY container, not the lambda elements.
+            // The output container is shaped by the input arrays: array_map copies the first
+            // input's offsets and its null map is the union of all inputs' null maps. Pushing that
+            // context into the lambda body would attach the metadata to the element layer instead,
+            // producing e.g. `arr.*.OFFSET`, which the BE rejects for a struct element (OFFSET
+            // metadata is only supported at array/map/string level). Route the container metadata
+            // to the input arrays, and collect the element paths the lambda actually reads with a
+            // fresh data context so that the elements stay available to the lambda body.
+            // A map_keys / map_values input is normalized to its map column: the produced array's
+            // container is the map itself, so the metadata must not be attached to the KEYS /
+            // VALUES sub-column (which has no offsets of its own, e.g. for a struct value).
+            for (ArrayItemReference lambdaArgument : lambda.getLambdaArguments()) {
+                continueCollectAccessPath(
+                        normalizeMapArrayProducer(lambdaArgument.getArrayExpression()),
+                        copyContext(context));
+            }
+            return collectArrayPathInLambda(lambda,
+                    new CollectorContext(context.statementContext, context.bottomFilter));
+        }
+        // Only a root request is routed to the input containers. A prefixed request such as the
+        // `[*, OFFSET]` of cardinality(element_at(array_map(...), 1)) addresses an element of the
+        // ARRAY_MAP result, whose shape is produced by the lambda and is unrelated to the input
+        // array's containers. Keep the lambda traversal for it: the unrepresentable metadata is
+        // dropped and the element data the lambda reads is preserved.
+        return collectArrayPathInLambda(lambda, context);
+    }
+
+    /**
+     * Whether the pending metadata requirement addresses the current expression's own container,
+     * e.g. the `[OFFSET]` of cardinality(arr) or the `[NULL]` of arr IS NULL, rather than one of
+     * its descendants such as the `[*, OFFSET]` produced by cardinality(element_at(&lt;array&gt;, 1)).
+     * Every metadata request is created together with exactly one OFFSET / NULL suffix (see
+     * visitCardinality / visitLength / visitMapSize / visitIsNull), and the visitors only prepend
+     * the components they descend through, so a single-component metadata path is a root request.
+     */
+    private static boolean isRootContainerMetadata(CollectorContext context) {
+        return context.getType() == ColumnAccessPathType.META
+                && context.getAccessPathBuilder().getPathList().size() == 1;
     }
 
     @Override
