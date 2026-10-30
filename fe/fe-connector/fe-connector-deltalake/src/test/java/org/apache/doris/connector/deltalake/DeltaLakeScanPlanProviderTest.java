@@ -21,8 +21,12 @@ import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
+import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
+import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
@@ -130,6 +134,63 @@ class DeltaLakeScanPlanProviderTest {
             range.populateRangeParams(format, file);
             Assertions.assertEquals(1, format.getDeltalakeParams().getDeletionVector().getCardinality());
         }
+    }
+
+    @Test
+    void skipsFilesByStatisticsAndCountsOnlyCompleteUnfilteredMetadata() throws Exception {
+        createTable();
+        appendStatsFile("a.parquet", "a", 1, 10);
+        appendStatsFile("b.parquet", "b", 11, 20);
+        TestingConnectorSession session = new TestingConnectorSession("stats");
+        try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(session)) {
+            ConnectorTableHandle handle = metadata.getTableHandle(session, "db", "table").orElseThrow();
+            ConnectorScanPlanProvider provider = connector.getScanPlanProvider();
+            ConnectorComparison filter = new ConnectorComparison(ConnectorComparison.Operator.LT,
+                    new ConnectorColumnRef("id", ConnectorType.of("BIGINT")), ConnectorLiteral.ofLong(5));
+            List<ConnectorScanRange> filtered = provider.planScan(session, request(handle)
+                    .filter(Optional.of(filter)).build());
+            Assertions.assertEquals(1, filtered.size());
+            Assertions.assertTrue(filtered.get(0).getPath().orElseThrow().endsWith("a.parquet"));
+            Assertions.assertFalse(provider.canServeMetadataOnlyCount(session, handle, Optional.of(filter)));
+            Assertions.assertTrue(provider.canServeMetadataOnlyCount(session, handle, Optional.empty()));
+            List<ConnectorScanRange> count = provider.planScan(session, request(handle).countPushdown(true).build());
+            Assertions.assertEquals(1, count.size());
+            Assertions.assertEquals(20, count.get(0).getPushDownRowCount());
+            TTableFormatFileDesc format = new TTableFormatFileDesc();
+            count.get(0).populateRangeParams(format, new TFileRangeDesc());
+            Assertions.assertEquals(20, format.getTableLevelRowCount());
+            Assertions.assertTrue(count.get(0).isNativeReadRange());
+            Assertions.assertEquals(-1, provider.planScan(session, request(handle).countPushdown(true)
+                    .filter(Optional.of(filter)).build()).get(0).getPushDownRowCount());
+        }
+    }
+
+    @Test
+    void missingStatisticsFallBackToAllFilesWithoutGuessingCounts() throws Exception {
+        createTable();
+        appendStatsFile("a.parquet", "a", 1, 10);
+        appendFile(0, "b.parquet", "b", 25);
+        TestingConnectorSession session = new TestingConnectorSession("missing-stats");
+        try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(session)) {
+            ConnectorTableHandle handle = metadata.getTableHandle(session, "db", "table").orElseThrow();
+            ConnectorScanPlanProvider provider = connector.getScanPlanProvider();
+            Assertions.assertFalse(provider.canServeMetadataOnlyCount(session, handle, Optional.empty()));
+            List<ConnectorScanRange> ranges = provider.planScan(session, request(handle).countPushdown(true).build());
+            Assertions.assertEquals(2, ranges.size());
+            Assertions.assertTrue(ranges.stream().allMatch(range -> range.getPushDownRowCount() == -1));
+        }
+    }
+
+    private void appendStatsFile(String path, String partition, long minimum, long maximum) throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        String stats = mapper.writeValueAsString(Map.of("numRecords", maximum - minimum + 1,
+                "minValues", Map.of("id", minimum), "maxValues", Map.of("id", maximum),
+                "nullCount", Map.of("id", 0)));
+        String action = mapper.writeValueAsString(Map.of("add", Map.of("path", path, "size", 25,
+                "partitionValues", Map.of("p", partition), "stats", stats,
+                "modificationTime", 1L, "dataChange", true)));
+        Files.writeString(warehouse.resolve("db/table/_delta_log/00000000000000000000.json"),
+                action + "\n", StandardOpenOption.APPEND);
     }
 
     private void createTable() throws Exception {

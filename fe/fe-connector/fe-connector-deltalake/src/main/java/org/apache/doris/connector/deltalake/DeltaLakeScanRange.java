@@ -41,9 +41,15 @@ final class DeltaLakeScanRange implements ConnectorScanRange {
     private final long targetSize;
     private final Map<String, String> partitions;
     private final TDeltaLakeFileDesc descriptor;
+    private final long rowCount;
 
     DeltaLakeScanRange(String path, long start, long length, long fileSize, long modificationTime,
             long targetSize, Map<String, String> partitions, TDeltaLakeFileDesc descriptor) {
+        this(path, start, length, fileSize, modificationTime, targetSize, partitions, descriptor, -1);
+    }
+
+    private DeltaLakeScanRange(String path, long start, long length, long fileSize, long modificationTime,
+            long targetSize, Map<String, String> partitions, TDeltaLakeFileDesc descriptor, long rowCount) {
         this.path = path;
         this.start = start;
         this.length = length;
@@ -52,6 +58,27 @@ final class DeltaLakeScanRange implements ConnectorScanRange {
         this.targetSize = targetSize;
         this.partitions = Collections.unmodifiableMap(new LinkedHashMap<>(partitions));
         this.descriptor = descriptor.deepCopy();
+        this.rowCount = rowCount;
+    }
+
+    DeltaLakeScanRange withByteRange(long offset, long size) {
+        return new DeltaLakeScanRange(path, offset, size, fileSize, modificationTime, targetSize,
+                partitions, descriptor, -1);
+    }
+
+    DeltaLakeScanRange withRowCount(long count) {
+        return new DeltaLakeScanRange(path, start, length, fileSize, modificationTime, targetSize,
+                partitions, descriptor, count);
+    }
+
+    @Override
+    public long getPushDownRowCount() {
+        return rowCount;
+    }
+
+    @Override
+    public boolean isNativeReadRange() {
+        return true;
     }
 
     @Override
@@ -118,6 +145,7 @@ final class DeltaLakeScanRange implements ConnectorScanRange {
     @Override
     public void populateRangeParams(TTableFormatFileDesc formatDesc, TFileRangeDesc rangeDesc) {
         formatDesc.setDeltalakeParams(descriptor.deepCopy());
+        formatDesc.setTableLevelRowCount(rowCount);
         rangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET);
         List<String> keys = new ArrayList<>(partitions.size());
         List<String> values = new ArrayList<>(partitions.size());

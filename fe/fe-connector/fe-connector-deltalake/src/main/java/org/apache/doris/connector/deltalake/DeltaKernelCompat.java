@@ -67,6 +67,11 @@ final class DeltaKernelCompat {
         return count.isPresent() ? OptionalLong.of(count.get()) : OptionalLong.empty();
     }
 
+    static long deletionCardinality(Row file) {
+        DeletionVectorDescriptor dv = InternalScanFileUtils.getDeletionVectorDescriptorFromRow(file);
+        return dv == null ? 0 : dv.getCardinality();
+    }
+
     static Optional<TDeltaLakeDeletionVectorDesc> deletionVector(Row file, String tablePath) {
         DeletionVectorDescriptor dv = InternalScanFileUtils.getDeletionVectorDescriptorFromRow(file);
         if (dv == null || dv.getCardinality() == 0) {
