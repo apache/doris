@@ -884,7 +884,7 @@ TEST_F(CsvV2ReaderTest, StringFastPathPreservesValuesForSingleAndMultiByteSepara
             params.file_attributes.text_params.__set_null_format("NULL");
             params.file_attributes.text_params.__set_empty_field_as_null(empty_as_null);
             params.file_attributes.text_params.__set_escape('\\');
-            auto reader = create_reader(_file_path, &params, slots, &_state, nullptr);
+            auto reader = create_reader(_file_path, &params, slots, &_state, &_profile);
             reader->set_batch_size(1);
             auto request = std::make_shared<FileScanRequest>();
             request->local_positions.emplace(LocalColumnId(2), LocalIndex(0));
