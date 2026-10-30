@@ -17,7 +17,9 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <limits>
+#include <memory>
 #include <string>
 
 #include "cctz/time_zone.h"
@@ -38,6 +40,7 @@
 #include "exprs/function/function_test_util.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "util/timezone_utils.h"
+#include "util/weekday_parser.h"
 
 namespace doris {
 using namespace ut_type;
@@ -1880,6 +1883,44 @@ TEST(VTimestampFunctionsTest, months_between_test) {
     check_function_all_arg_comb<DataTypeFloat64, true>(func_name, input_types, data_set);
 }
 
+TEST(WeekdayParserTest, aliases_and_case) {
+    constexpr std::array<std::string_view, 21> aliases = {
+            "MO",     "MON",       "MONDAY", "TU",       "TUE",      "TUESDAY", "WE",
+            "WED",    "WEDNESDAY", "TH",     "THU",      "THURSDAY", "FR",      "FRI",
+            "FRIDAY", "SA",        "SAT",    "SATURDAY", "SU",       "SUN",     "SUNDAY"};
+    for (size_t i = 0; i < aliases.size(); ++i) {
+        auto exact_input = std::make_unique<char[]>(aliases[i].size());
+        std::copy(aliases[i].begin(), aliases[i].end(), exact_input.get());
+        EXPECT_EQ(parse_weekday(std::string_view(exact_input.get(), aliases[i].size())), i / 3 + 1);
+        // Exercise every ASCII case combination, including all 512 forms of WEDNESDAY.
+        for (size_t mask = 0; mask < (size_t {1} << aliases[i].size()); ++mask) {
+            std::string input(aliases[i]);
+            for (size_t j = 0; j < input.size(); ++j) {
+                if ((mask & (size_t {1} << j)) != 0) {
+                    input[j] += 'a' - 'A';
+                }
+            }
+            EXPECT_EQ(parse_weekday(input), i / 3 + 1) << input;
+        }
+    }
+}
+
+TEST(WeekdayParserTest, invalid_names) {
+    EXPECT_EQ(parse_weekday(std::string_view {}), 0);
+    constexpr std::array<std::string_view, 16> invalid = {
+            "",     "M",    "MOND",     "MONDDY",   "MONDAYX", "MO ",     " MON", "SO",
+            "TUES", "THUR", "WEDNESDA", "SATURDAX", "SUNDAX",  "Sunday!", "123",  "1234567890"};
+    for (auto input : invalid) {
+        EXPECT_EQ(parse_weekday(input), 0) << input;
+    }
+    EXPECT_EQ(parse_weekday(std::string_view("MO\0", 3)), 0);
+    EXPECT_EQ(parse_weekday(std::string_view("MON\0AY", 6)), 0);
+    EXPECT_EQ(parse_weekday(std::string_view("\xCDON", 3)), 0);
+    // The input is an exact-size view: parsing must not require padding or a terminator.
+    const std::array<char, 3> input = {'M', 'o', 'N'};
+    EXPECT_EQ(parse_weekday(std::string_view(input.data(), input.size())), 1);
+}
+
 TEST(VTimestampFunctionsTest, next_day_test) {
     std::string func_name = "next_day";
     InputTypeSet input_types = {PrimitiveType::TYPE_DATEV2, PrimitiveType::TYPE_VARCHAR};
@@ -1950,6 +1991,30 @@ TEST(VTimestampFunctionsTest, relative_day_nullable_test) {
              {{Null(), Null()}, Null()},
              {{std::string("2024-01-01"), Null()}, Null()},
              {{Null(), std::string("MON")}, Null()}}));
+}
+
+TEST(VTimestampFunctionsTest, relative_day_invalid_weekday_after_nulls) {
+    const InputTypeSet input_types = {PrimitiveType::TYPE_DATEV2, PrimitiveType::TYPE_VARCHAR};
+    for (const std::string name : {"next_day", "previous_day"}) {
+        const DataSet all_null_dates = {{{Null(), std::string("MONDDY")}, Null()},
+                                        {{Null(), std::string("MONDDY")}, Null()}};
+        check_function_all_arg_comb<DataTypeDateV2, true>(name, input_types, all_null_dates);
+
+        const auto status = check_function<DataTypeDateV2, true>(
+                name, input_types,
+                {{{Null(), std::string("MONDDY")}, Null()},
+                 {{std::string("2024-01-01"), std::string("MONDDY")}, Null()}},
+                -1, -1, true);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("failed to parse weekday: MONDDY"), std::string::npos);
+        const InputTypeSet constant_weekday = {PrimitiveType::TYPE_DATEV2,
+                                               Consted {PrimitiveType::TYPE_VARCHAR}};
+        EXPECT_FALSE((check_function<DataTypeDateV2, true>(
+                              name, constant_weekday,
+                              {{{std::string("2024-01-01"), std::string("MONDDY")}, Null()}}, -1,
+                              -1, true)
+                              .ok()));
+    }
 }
 
 TEST(VTimestampFunctionsTest, from_iso8601_date) {

@@ -67,6 +67,7 @@
 #include "exprs/function_context.h"
 #include "runtime/runtime_state.h"
 #include "util/string_parser.hpp"
+#include "util/weekday_parser.h"
 
 namespace doris {
 #include "common/compile_check_avoid_begin.h"
@@ -1703,21 +1704,6 @@ public:
     }
 
 private:
-    static int day_of_week(const StringRef& weekday) {
-        static const std::unordered_map<std::string, int> weekday_map = {
-                {"MO", 1}, {"MON", 1}, {"MONDAY", 1},    {"TU", 2}, {"TUE", 2}, {"TUESDAY", 2},
-                {"WE", 3}, {"WED", 3}, {"WEDNESDAY", 3}, {"TH", 4}, {"THU", 4}, {"THURSDAY", 4},
-                {"FR", 5}, {"FRI", 5}, {"FRIDAY", 5},    {"SA", 6}, {"SAT", 6}, {"SATURDAY", 6},
-                {"SU", 7}, {"SUN", 7}, {"SUNDAY", 7}};
-        auto weekday_upper = weekday.to_string();
-        std::transform(weekday_upper.begin(), weekday_upper.end(), weekday_upper.begin(),
-                       ::toupper);
-        auto it = weekday_map.find(weekday_upper);
-        if (it == weekday_map.end()) {
-            return 0;
-        }
-        return it->second;
-    }
     static Status compute_relative_day(DateV2Value<DateV2ValueType>& dtv, const int week_day) {
         auto delta_days = IsPrevious ? ((dtv.weekday() + 1) - week_day + 7) % 7
                                      : (week_day - (dtv.weekday() + 1) + 7) % 7;
@@ -1732,6 +1718,10 @@ private:
                                  NullMap* null_map) {
         const auto date_view = ColumnView<DateType>::create(date_column);
         const auto week_view = ColumnView<TYPE_STRING>::create(week_column);
+        int const_week_day = 0;
+        if (week_view.is_const && input_rows_count > 0 && !week_view.is_null_at(0)) {
+            const_week_day = parse_weekday(week_view.value_at(0));
+        }
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (date_view.is_null_at(i) || week_view.is_null_at(i)) {
                 DORIS_CHECK(null_map != nullptr);
@@ -1741,7 +1731,9 @@ private:
             }
             auto dtv = date_v2_from_date_like(date_view.value_at(i));
             auto week = week_view.value_at(i);
-            auto week_day = day_of_week(week);
+            const auto week_day = week_view.is_const ? const_week_day : parse_weekday(week);
+            // Validate after NULL propagation: next_day(NULL, 'MONDDY') must remain NULL,
+            // even though the constant weekday is parsed before entering the row loop.
             if (week_day == 0) {
                 return Status::InvalidArgument("Function {} failed to parse weekday: {}", name,
                                                week);
