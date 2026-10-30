@@ -27,6 +27,7 @@ suite("test_show_catalog", "query,catalog") {
 
     checkNereidsExecute("""show catalog ${catalog_name}""")
     checkNereidsExecute("""show catalogs like 'e%'""")
+    checkNereidsExecute("""show catalogs where CatalogName = '${catalog_name}'""")
     checkNereidsExecute("""show catalogs """)
 
     sql """drop catalog if exists ${catalog_name}"""
