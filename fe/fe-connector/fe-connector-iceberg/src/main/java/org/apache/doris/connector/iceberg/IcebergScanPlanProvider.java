@@ -2119,6 +2119,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
         FileIO fileIO = table.io();
         Map<String, String> ioProps = new HashMap<>(fileIO.properties());
+        // REST credentials live outside properties(). Authentication decorators must not hide them from BE.
+        while (fileIO instanceof IcebergAuthenticatedFileIO) {
+            fileIO = ((IcebergAuthenticatedFileIO) fileIO).delegate();
+        }
         if (fileIO instanceof SupportsStorageCredentials) {
             for (StorageCredential storageCredential : ((SupportsStorageCredentials) fileIO).credentials()) {
                 ioProps.putAll(storageCredential.config());
@@ -3655,9 +3659,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * test_iceberg_hadoop_catalog_kerberos failed SASL reading snap-*.avro at plan time).
      *
      * <p>Non-Kerberos catalogs ({@code getPluginAuthenticator() == null}) and offline tests (plain context /
-     * non-{@link BaseTable} fakes) pass through unchanged. Kerberos and REST vended credentials are disjoint
-     * (the authenticator is gated on hadoop.security.authentication=kerberos), so
-     * {@code extractVendedToken}'s {@code instanceof SupportsStorageCredentials} probe never sees the wrapper.
+     * non-{@link BaseTable} fakes) pass through unchanged. REST catalogs can also inherit Kerberos settings from
+     * XML; credential extraction reads through this decorator while file operations stay authenticated.
      * The system-table path deliberately does NOT use this wrap: its {@code FileScanTask}s are Java-serialized
      * to the BE JNI reader and the wrapper (authenticator-bearing) is not serializable — it is covered by the
      * thread-level wrap in {@link #planSystemTableScan} instead. Package-private for unit testing.
