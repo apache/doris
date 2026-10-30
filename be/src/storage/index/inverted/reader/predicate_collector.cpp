@@ -369,6 +369,11 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
         !IndexReaderHelper::is_need_similarity_score(expr->op(), index_meta)) {
         return Status::OK();
     }
+    // A regexp scores a constant and reads no statistics. Its value is a pattern, not text, so
+    // analyzing it would collect statistics for made-up terms: 'ap.*' would become "ap".
+    if (expr->op() == TExprOpcode::MATCH_REGEXP) {
+        return Status::OK();
+    }
 
     DORIS_CHECK(analyzer_ctx->analyzer_provider != nullptr);
     auto options = DataTypeSerDe::get_default_format_options();
