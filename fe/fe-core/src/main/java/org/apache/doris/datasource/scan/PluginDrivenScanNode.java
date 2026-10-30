@@ -1815,8 +1815,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 .explainOnly(isExplainOnly())
                 .build();
         List<ConnectorScanRange> ranges = executeWithProfileFinalization(
-                () -> onPluginClassLoader(scanProvider,
-                        () -> scanProvider.planScan(connectorSession, request)),
+                () -> readMetadata(() -> onPluginClassLoader(scanProvider,
+                        () -> scanProvider.planScan(connectorSession, request))),
                 () -> collectAndAppendConnectorScanProfiles(scanProvider));
 
         if (variantCompatibilityDeferred) {

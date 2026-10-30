@@ -3697,19 +3697,26 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     /** The base table a system-table scan reads, shared with metadata binding; see {@link #resolveSysTable}. */
     private Table resolveSysBaseTable(ConnectorSession session, IcebergTableHandle handle) {
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);
+        Supplier<Table> directLoader = () -> {
+            try {
+                return ops.loadTable(handle.getDbName(), handle.getTableName());
+            } catch (RuntimeException failure) {
+                throw IcebergExceptionUtils.wrapTableAbsenceFailure(handle, failure);
+            }
+        };
         // Keep the raw base shared with metadata binding and ordinary scan properties. The caller already owns
         // the auth scope, and avoiding a fresh load prevents system-table slots and rows crossing generations.
         Table base = tableCache == null
                 ? resourceTracker == null
                         ? IcebergStatementScope.sharedTable(session, handle.getDbName(), handle.getTableName(),
-                                () -> ops.loadTable(handle.getDbName(), handle.getTableName()))
+                                directLoader)
                         : IcebergStatementScope.sharedTrackedTable(session, handle.getDbName(), handle.getTableName(),
-                                resourceTracker, () -> ops.loadTable(handle.getDbName(), handle.getTableName()),
+                                resourceTracker, directLoader,
                                 table -> IcebergConnector.cachedTableCleanup(table, catalogProps.getFlavor()))
                 : IcebergStatementScope.sharedBorrowedTable(session, handle.getDbName(), handle.getTableName(),
                         () -> tableCache.borrow(TableIdentifier.of(handle.getDbName(), handle.getTableName()),
-                                () -> ops.loadTable(handle.getDbName(), handle.getTableName())),
-                        () -> ops.loadTable(handle.getDbName(), handle.getTableName()));
+                                directLoader),
+                        directLoader);
         rejectServerSideScanPlanning(base, handle);
         return base;
     }

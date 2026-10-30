@@ -36,6 +36,7 @@ import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
@@ -448,6 +449,83 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
                 Assertions.assertNull(database.getTableNullable(old.getId()));
                 Assertions.assertNull(remoteCache.get("a"));
                 Assertions.assertEquals(Set.of("b"), database.getTableNamesWithLock());
+            }
+        } finally {
+            releaseMissing.countDown();
+        }
+    }
+
+    @Test
+    void droppedMappedRemoteDoesNotHideBehindDistinctFoldedRemote() {
+        catalog.lowerCaseMode = 1;
+        Mockito.when(metadata.fromRemoteTableName(Mockito.any(), Mockito.anyString(), Mockito.anyString()))
+                .thenAnswer(call -> {
+                    String name = call.getArgument(2);
+                    return "Foo".equals(name) ? "foo_old" : "FOO".equals(name) ? "foo_new" : name;
+                });
+        remoteTables.remove("a");
+        remoteTables.put("Foo", "old_column");
+        remoteTables.put("FOO", "new_column");
+        Assertions.assertEquals(Set.of("foo_old", "foo_new", "b"), database.getTableNamesWithLock());
+        PluginDrivenExternalTable old = database.getTableNullable("foo_old");
+        PluginDrivenExternalTable sibling = database.getTableNullable("foo_new");
+        remoteTables.remove("Foo");
+        FeMetaCacheEntry<String, NameCacheValue> names = Deencapsulation.getField(database, "tableNames");
+        names.invalidateKey("");
+        Assertions.assertEquals(Set.of("foo_new", "b"), database.getTableNamesWithLock());
+        readMissingHandle(old);
+        Assertions.assertNull(database.getTableNullable(old.getId()));
+        Assertions.assertNotNull(database.getTableNullable(sibling.getId()));
+        Assertions.assertEquals("FOO", database.getTableNullable("foo_new").getRemoteName());
+    }
+
+    @Test
+    void sysSplitPlanningMissingRepairsSource() throws Exception {
+        verifySysSplitPlanningMissing(false);
+    }
+
+    @Test
+    void delayedSysSplitPlanningMissingPreservesRecreatedSource() throws Exception {
+        verifySysSplitPlanningMissing(true);
+    }
+
+    private void verifySysSplitPlanningMissing(boolean recreate) throws Exception {
+        PluginDrivenExternalTable old = warmTarget();
+        PluginDrivenSysExternalTable sys = new PluginDrivenSysExternalTable(old, "labels");
+        Mockito.when(metadata.getSysTableHandle(Mockito.any(), Mockito.any(), Mockito.anyString()))
+                .thenReturn(Optional.of(new Handle("a$labels", "label")));
+        TupleDescriptor tuple = new TupleDescriptor(new TupleId(0));
+        tuple.setTable(sys);
+        ConnectorScanPlanProvider provider = Mockito.mock(ConnectorScanPlanProvider.class);
+        Mockito.when(connector.getScanPlanProvider(Mockito.any())).thenReturn(provider);
+        PluginDrivenScanNode scan = PluginDrivenScanNode.create(new PlanNodeId(0), tuple, false,
+                new SessionVariable(), ScanContext.EMPTY, catalog, sys);
+        Mockito.when(provider.planScan(Mockito.any(), Mockito.any())).thenAnswer(call -> {
+            remoteTables.remove("a");
+            missingStarted.countDown();
+            Assertions.assertTrue(releaseMissing.await(10, TimeUnit.SECONDS));
+            throw new ConnectorTableNotFoundException("db", "a", null);
+        });
+        Future<?> missing = worker.submit(() -> Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                () -> scan.getSplits(1)));
+        try {
+            Assertions.assertTrue(missingStarted.await(10, TimeUnit.SECONDS));
+            PluginDrivenExternalTable replacement = null;
+            if (recreate) {
+                remoteTables.put("a", "recreated_column");
+                new RefreshManager().handleRefreshTable(catalog.getName(), "db", "a");
+                replacement = database.getTableNullable("a");
+                replacement.getFullSchema();
+                remoteCache.put("a", "recreated metadata");
+            }
+            releaseMissing.countDown();
+            missing.get(10, TimeUnit.SECONDS);
+            if (recreate) {
+                Assertions.assertSame(replacement, database.getTableNullable(replacement.getId()));
+                Assertions.assertEquals("recreated metadata", remoteCache.get("a"));
+            } else {
+                Assertions.assertNull(database.getTableNullable(old.getId()));
+                Assertions.assertNull(remoteCache.get("a"));
             }
         } finally {
             releaseMissing.countDown();

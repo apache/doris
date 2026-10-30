@@ -171,6 +171,53 @@ public class IcebergConnectorMetadataTest {
     }
 
     @Test
+    public void labelsPlanningAfterCachedHandleReportsTypedAbsence() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = new FakeIcebergTable("t", idNameSchema(), PartitionSpec.unpartitioned(),
+                "s3://bucket/db/t", Collections.emptyMap());
+        IcebergCatalogProperties properties = IcebergCatalogProperties.of(Collections.singletonMap(
+                IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, IcebergCatalogProperties.TYPE_REST));
+        IcebergTableCache cache = new IcebergTableCache(60L, 8);
+        TableIdentifier id = TableIdentifier.of("db", "t");
+        cache.getOrLoad(id, () -> ops.table);
+        IcebergConnectorMetadata metadata = new IcebergConnectorMetadata(ops, properties,
+                new RecordingConnectorContext(), new IcebergLatestSnapshotCache(0L, 1), cache);
+        TestStatementScope scope = new TestStatementScope();
+        ConnectorSession session = new IcebergStatementScopeTest.ScopeSession(1L, "labels", scope);
+        ConnectorTableHandle base = metadata.getTableHandle(session, "db", "t").get();
+        ConnectorTableHandle labels = metadata.getSysTableHandle(session, base, "labels").get();
+        metadata.getTableSchema(session, labels);
+        Assertions.assertTrue(ops.log.isEmpty(), "cached handle and fixed labels schema must not load the base table");
+        cache.invalidate(id);
+        ops.loadTableFailure = new NoSuchTableException("dropped before labels split planning");
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(properties, ignored -> ops,
+                new RecordingConnectorContext(), null, cache);
+        try {
+            ConnectorTableNotFoundException missing = Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                    () -> provider.planScan(session,
+                            org.apache.doris.connector.spi.scan.ConnectorScanRequest.builder(
+                                    labels, Collections.emptyList()).build()));
+            Assertions.assertEquals("db", missing.getDatabaseName());
+            Assertions.assertEquals("t", missing.getTableName());
+            ops.loadTableFailure = new RuntimeException(new NoSuchTableException("wrapped table absence"));
+            Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                    () -> provider.planScan(session,
+                            org.apache.doris.connector.spi.scan.ConnectorScanRequest.builder(
+                                    labels, Collections.emptyList()).build()));
+            RuntimeException missingFile = new org.apache.iceberg.exceptions.NotFoundException("metadata.json");
+            ops.loadTableFailure = missingFile;
+            RuntimeException failure = Assertions.assertThrows(RuntimeException.class,
+                    () -> provider.planScan(session,
+                            org.apache.doris.connector.spi.scan.ConnectorScanRequest.builder(
+                                    labels, Collections.emptyList()).build()));
+            Assertions.assertSame(missingFile, failure, "missing files keep the existing system-scan error contract");
+        } finally {
+            scope.closeAll();
+            cache.invalidateAll();
+        }
+    }
+
+    @Test
     public void noTableCacheSnapshotReadCanDiscoverDropAfterHandleResolution() {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.tableExists = true;
