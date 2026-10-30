@@ -1145,6 +1145,56 @@ void write_idless_wrapper_int96_parquet_file(const std::string& file_path,
             ::parquet::WriterProperties::Builder().build(), arrow_builder.build()));
 }
 
+// Writes `id` (field id 0) and a nullable `payload` STRUCT (1) of `existing` (2) and `ts` (4), with
+// `ts` stored as INT96 the way Spark writes a timestamptz. A true `parent_nulls` entry makes that
+// row's `payload` NULL.
+void write_nested_equality_int96_sibling_parquet_file(const std::string& file_path,
+                                                      const std::vector<int32_t>& ids,
+                                                      const std::vector<int32_t>& values,
+                                                      const std::vector<int64_t>& timestamps,
+                                                      const std::vector<bool>& parent_nulls) {
+    ASSERT_EQ(ids.size(), values.size());
+    ASSERT_EQ(ids.size(), timestamps.size());
+    ASSERT_EQ(ids.size(), parent_nulls.size());
+    const auto field_id = [](int32_t id) {
+        return arrow::key_value_metadata({"PARQUET:field_id"}, {std::to_string(id)});
+    };
+    const auto timestamp_type = arrow::timestamp(arrow::TimeUnit::MICRO, "UTC");
+    const auto payload_type = arrow::struct_(
+            {arrow::field("existing", arrow::int32(), false)->WithMetadata(field_id(2)),
+             arrow::field("ts", timestamp_type, false)->WithMetadata(field_id(4))});
+    arrow::StructBuilder payload_builder(payload_type, arrow::default_memory_pool(),
+                                         {std::make_shared<arrow::Int32Builder>(),
+                                          std::make_shared<arrow::TimestampBuilder>(
+                                                  timestamp_type, arrow::default_memory_pool())});
+    auto* existing_builder = assert_cast<arrow::Int32Builder*>(payload_builder.field_builder(0));
+    auto* ts_builder = assert_cast<arrow::TimestampBuilder*>(payload_builder.field_builder(1));
+    for (size_t row = 0; row < ids.size(); ++row) {
+        if (parent_nulls[row]) {
+            ASSERT_TRUE(payload_builder.AppendNull().ok());
+        } else {
+            ASSERT_TRUE(payload_builder.Append().ok());
+            ASSERT_TRUE(existing_builder->Append(values[row]).ok());
+            ASSERT_TRUE(ts_builder->Append(timestamps[row]).ok());
+        }
+    }
+    auto schema = arrow::schema({
+            arrow::field("id", arrow::int32(), false)->WithMetadata(field_id(0)),
+            arrow::field("payload", payload_type)->WithMetadata(field_id(1)),
+    });
+    auto table =
+            arrow::Table::Make(schema, {build_int32_array(ids), finish_array(&payload_builder)});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+    ::parquet::ArrowWriterProperties::Builder arrow_builder;
+    arrow_builder.enable_force_write_int96_timestamps();
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(
+            *table, arrow::default_memory_pool(), out, static_cast<int64_t>(ids.size()),
+            ::parquet::WriterProperties::Builder().build(), arrow_builder.build()));
+}
+
 void write_iceberg_equality_delete_bigint_parquet_file(const std::string& file_path,
                                                        int32_t field_id, int64_t value) {
     const auto metadata =
@@ -4731,6 +4781,156 @@ TEST(IcebergV2ReaderTest, IcebergMissingNestedEqualityKeyPreservesNullableParent
     for (const auto file_format : {FileFormat::PARQUET, FileFormat::ORC}) {
         run_case(file_format);
     }
+}
+
+// An older Parquet file holds a nullable payload {existing, ts}, `ts` an INT96 timestamptz as
+// Spark writes it, and the table later added payload.k with the default 7. An equality delete on k
+// reads the whole `payload` for its NULLs: rows under a non-NULL payload take the key 7, the row
+// under the NULL one keeps a NULL key. FE's marker turns `ts` into TIMESTAMPTZ in the annotated
+// file schema, so that ancestor read must carry the marker too, or Parquet still decodes `ts` as
+// DATETIMEV2 and the scan fails the reader's type check. A query projecting `payload` failed the
+// same way: reading the root as a predicate column replaced the projection its mapping had marked.
+// A plan without the marker keeps the file types and reads as before.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): marker, projection, tombstone cases.
+TEST(IcebergV2ReaderTest, IcebergMissingNestedEqualityKeyAncestorKeepsInt96TimestampTzMarker) {
+    TimezoneUtils::load_timezones_to_cache();
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_v2_missing_nested_equality_key_int96_sibling";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto file_path = (test_dir / "split.parquet").string();
+    // 2024-01-01 00:00:00.123456 UTC, then one and two seconds later.
+    constexpr int64_t T1_MICROS = 1'704'067'200'123'456L;
+    write_nested_equality_int96_sibling_parquet_file(
+            file_path, {1, 2, 3}, {10, 20, 30},
+            {T1_MICROS, T1_MICROS + 1'000'000L, T1_MICROS + 2'000'000L}, {false, true, false});
+    auto physical_reader = ::parquet::ParquetFileReader::OpenFile(file_path, false);
+    ASSERT_EQ(::parquet::Type::INT96,
+              physical_reader->metadata()->schema()->Column(2)->physical_type());
+    physical_reader->Close();
+    // The two delete files have the same size and may share an mtime second, so each tombstone
+    // gets its own path: one rewritten path could serve the first one from the Parquet caches.
+    const auto delete_file_path = [&test_dir](int32_t tombstone) {
+        return (test_dir / ("equality-delete-" + std::to_string(tombstone) + ".parquet")).string();
+    };
+    for (const int32_t tombstone : {7, 8}) {
+        write_nested_equality_parquet_file(delete_file_path(tombstone), {}, {tombstone}, {false},
+                                           true, "k", 3);
+    }
+
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto tz_type = std::make_shared<DataTypeTimeStampTz>(6);
+    const auto nullable_tz_type = make_nullable(tz_type);
+    auto payload = make_table_column(1, "payload",
+                                     std::make_shared<DataTypeStruct>(DataTypes {int_type, tz_type},
+                                                                      Strings {"existing", "ts"}));
+    payload.children = {make_table_column(2, "existing", int_type),
+                        make_table_column(4, "ts", tz_type)};
+
+    struct Case {
+        bool marked;
+        bool project_payload;
+        int32_t tombstone;
+        std::vector<int32_t> ids;
+        // `ts` of each surviving row when `payload` is projected; nullopt under a NULL payload.
+        std::vector<std::optional<std::string>> timestamps;
+    };
+    const std::vector<Case> cases = {
+            // A plan from an FE that sends no marker.
+            {false, false, 7, {2}, {}},
+            // The key is the default 7 under a non-NULL payload and NULL under the NULL one.
+            {true, false, 7, {2}, {}},
+            {true, true, 7, {2}, {std::nullopt}},
+            // Instants, not session wall clocks read eight hours early in Asia/Shanghai.
+            {true,
+             true,
+             8,
+             {1, 2, 3},
+             {"2024-01-01 00:00:00.123456+00:00", std::nullopt,
+              "2024-01-01 00:00:02.123456+00:00"}},
+    };
+    for (const auto& c : cases) {
+        SCOPED_TRACE("marked=" + std::to_string(c.marked) +
+                     " project_payload=" + std::to_string(c.project_payload) +
+                     " tombstone=" + std::to_string(c.tombstone));
+        std::vector<ColumnDefinition> projected_columns {make_table_column(0, "id", int_type)};
+        if (c.project_payload) {
+            projected_columns.push_back(payload);
+        }
+        auto ts_field =
+                external_schema_field("ts", 4, {}, std::nullopt,
+                                      external_primitive_type(TPrimitiveType::TIMESTAMPTZ, -1, 6));
+        if (c.marked) {
+            ts_field.field_ptr->__set_timestamp_is_adjusted_to_utc(true);
+        }
+        auto payload_field = external_struct_schema_field(
+                "payload", 1,
+                {external_schema_field("existing", 2, {}, std::nullopt,
+                                       external_primitive_type(TPrimitiveType::INT)),
+                 std::move(ts_field),
+                 external_schema_field("k", 3, {}, "7",
+                                       external_primitive_type(TPrimitiveType::INT), false, true)},
+                true);
+        auto scan_params = make_local_parquet_scan_params();
+        scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+        scan_params.__set_parquet_timestamp_semantics_version(1);
+        scan_params.__set_enable_mapping_timestamp_tz(true);
+        scan_params.__set_current_schema_id(100);
+        scan_params.__set_history_schema_info(
+                {external_schema(100, {external_schema_field("id", 0), std::move(payload_field)})});
+
+        RuntimeProfile profile("test_profile");
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        state.set_timezone("Asia/Shanghai");
+        io::FileReaderStats file_reader_stats;
+        io::FileCacheStatistics file_cache_stats;
+        auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+        ShardedKVCache cache(1);
+        doris::format::iceberg::IcebergTableReader reader;
+        init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
+        auto split_options = build_split_options(file_path);
+        split_options.cache = &cache;
+        split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+                file_path, {make_iceberg_equality_delete_file(delete_file_path(c.tombstone), {3})},
+                3));
+        ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+        std::vector<int32_t> ids;
+        std::vector<std::optional<std::string>> timestamps;
+        bool eos = false;
+        while (!eos) {
+            Block block = build_table_block(projected_columns);
+            const auto status = reader.get_block(&block, &eos);
+            ASSERT_TRUE(status.ok()) << status;
+            if (block.rows() == 0) {
+                continue;
+            }
+            const auto& id_column =
+                    assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 0));
+            for (size_t row = 0; row < block.rows(); ++row) {
+                ids.push_back(id_column.get_element(row));
+            }
+            if (!c.project_payload) {
+                continue;
+            }
+            const auto& payload_column =
+                    assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+            const auto& payload_struct =
+                    assert_cast<const ColumnStruct&>(payload_column.get_nested_column());
+            for (size_t row = 0; row < block.rows(); ++row) {
+                if (payload_column.is_null_at(row)) {
+                    timestamps.emplace_back(std::nullopt);
+                } else {
+                    timestamps.emplace_back(
+                            nullable_tz_type->to_string(payload_struct.get_column(1), row));
+                }
+            }
+        }
+        EXPECT_EQ(ids, c.ids);
+        EXPECT_EQ(timestamps, c.timestamps);
+        ASSERT_TRUE(reader.close().ok());
+    }
+    std::filesystem::remove_all(test_dir);
 }
 
 // Keep the shared Parquet/ORC reader setup together so both V2 paths materialize missing struct

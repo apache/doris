@@ -1190,6 +1190,23 @@ static Status build_equality_delete_key_expr(
     return build_nested_equality_delete_key_expr(path, std::move(root_expr), key_expr);
 }
 
+// Project the root file column of an equality key read without a ColumnMapping, carrying the
+// timestamp markers annotate_file_schema() and _load_equality_delete_file() put on the file schema.
+// The file block and the key expressions take the rewritten types from that schema, but the file
+// reader learns them only from the projection. For example, an older file holds payload
+// {existing INT, ts INT96 timestamptz} and the table later added payload.k: a delete on k reads
+// `payload` for its NULLs, and a bare top-level projection makes Parquet read
+// STRUCT<existing, DATETIMEV2(6)> into a STRUCT<existing, TIMESTAMPTZ(6)> file block, which fails
+// the scan.
+static format::LocalColumnIndex equality_delete_root_projection(
+        const format::ColumnDefinition& root) {
+    auto projection =
+            format::LocalColumnIndex::top_level(format::LocalColumnId(root.file_local_id()));
+    format::attach_timestamp_semantics(root.timestamp_is_adjusted_to_utc, root.children,
+                                       &projection);
+    return projection;
+}
+
 // Whether a missing key's default is NULL. `missing_path` runs from the missing root to the key,
 // and the root's initial default is walked down it with the key expression's child matching. The
 // root having a default is not enough: a missing `payload` defaulting to the struct `{}` takes
@@ -2037,7 +2054,10 @@ Status IcebergTableReader::_build_missing_equality_delete_key_expr(
 
     const auto* root = data_path.front();
     const auto field_column_id = format::LocalColumnId(root->file_local_id());
-    _append_file_scan_column(request, field_column_id, &request->predicate_columns);
+    // The whole ancestor is read for its NULLs, so a marked timestamp leaf inside it, such as an
+    // INT96 timestamptz sibling of the missing key, needs its marker as well.
+    RETURN_IF_ERROR(format::FileScanRequestBuilder(request).add_predicate_column(
+            equality_delete_root_projection(*root)));
     const auto block_position = request->local_positions.at(field_column_id).value();
     VExprSPtr ancestor_expr;
     RETURN_IF_ERROR(build_equality_delete_key_expr(data_path, block_position, &ancestor_expr));
@@ -2079,16 +2099,14 @@ Status IcebergTableReader::_append_equality_delete_predicates(format::FileScanRe
             } else {
                 const auto* root = data_path.front();
                 const auto field_column_id = format::LocalColumnId(root->file_local_id());
-                // A hidden key has no ColumnMapping to carry the timestamp marker that
-                // annotate_file_schema() put on the file column. Without it Parquet decodes an
-                // INT96 timestamptz key as DATETIMEV2 while the key expression below, built from
-                // the annotated file schema, expects TIMESTAMPTZ. A projected key moves into the
-                // predicate columns here and must keep the marker its mapping carried.
-                auto projection = format::LocalColumnIndex::top_level(field_column_id);
-                format::attach_timestamp_semantics(root->timestamp_is_adjusted_to_utc,
-                                                   root->children, &projection);
+                // A hidden key, like the missing key's ancestor above and the delete file's keys,
+                // has no ColumnMapping to carry the timestamp marker annotate_file_schema() put on
+                // its file column. Without it Parquet decodes an INT96 timestamptz key as
+                // DATETIMEV2 while the key expression below, built from the annotated file schema,
+                // expects TIMESTAMPTZ. A projected key, or a projected ancestor of a missing key,
+                // moves into the predicate columns and must keep the marker its mapping carried.
                 RETURN_IF_ERROR(format::FileScanRequestBuilder(request).add_predicate_column(
-                        std::move(projection)));
+                        equality_delete_root_projection(*root)));
                 const auto block_position = request->local_positions.at(field_column_id).value();
                 RETURN_IF_ERROR(
                         build_equality_delete_key_expr(data_path, block_position, &key_expr));
@@ -2427,12 +2445,8 @@ Status IcebergTableReader::_load_equality_delete_file(const TIcebergDeleteFileDe
     format::FileScanRequestBuilder request_builder(request.get());
     for (const auto& path : delete_paths) {
         DORIS_CHECK(!path.empty());
-        const auto* root = path.front();
-        auto projection =
-                format::LocalColumnIndex::top_level(format::LocalColumnId(root->file_local_id()));
-        format::attach_timestamp_semantics(root->timestamp_is_adjusted_to_utc, root->children,
-                                           &projection);
-        RETURN_IF_ERROR(request_builder.add_non_predicate_column(std::move(projection)));
+        RETURN_IF_ERROR(request_builder.add_non_predicate_column(
+                equality_delete_root_projection(*path.front())));
     }
     Block file_block_template;
     std::vector<const format::ColumnDefinition*> roots(request->local_positions.size());
