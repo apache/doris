@@ -480,6 +480,112 @@ public class MaterializedViewUtils {
     }
 
     /**
+     * Align the outputs of a plan rewritten by a materialized view with the origin query plan, so that both plans
+     * can be alternatives of one memo group.
+     *
+     * <p>An output keeps its exprId. The exprId of the origin output may only be substituted
+     * <ul>
+     *     <li>when both plans define that output as the same constant: a column which a predicate pins to a
+     *     literal can be materialized with a fresh exprId, and the two plans then still compute the same value,
+     *     or</li>
+     *     <li>when the rewritten output describes the same column as the origin one (name, type and, when both
+     *     sides keep it, qualifier), which is what the view rewrite keeps for the outputs it does not derive from
+     *     a constant.</li>
+     * </ul>
+     * Otherwise the two plans are not known to produce the same columns (e.g. a self join can expose two same
+     * named columns of two relations) and the rewritten plan must not be used.
+     */
+    public static Plan alignPlanOutputWithOrigin(Plan rewrittenPlan, Plan originPlan) {
+        List<Slot> originOutputs = originPlan.getOutput();
+        List<Slot> rewrittenOutputs = rewrittenPlan instanceof LogicalSink
+                ? ((LogicalSink<?>) rewrittenPlan).child().getOutput()
+                : rewrittenPlan.getOutput();
+        if (originOutputs.size() != rewrittenOutputs.size()) {
+            return null;
+        }
+        Map<ExprId, Expression> originOutputDefinitions = collectNamedExpressionDefinitions(originPlan);
+        Map<ExprId, Expression> rewrittenOutputDefinitions = collectNamedExpressionDefinitions(rewrittenPlan);
+        List<NamedExpression> alignedOutputs = new ArrayList<>(originOutputs.size());
+        for (int i = 0; i < originOutputs.size(); i++) {
+            Slot originSlot = originOutputs.get(i);
+            Slot rewrittenSlot = rewrittenOutputs.get(i);
+            if (rewrittenSlot.getExprId().equals(originSlot.getExprId())) {
+                alignedOutputs.add(rewrittenSlot);
+                continue;
+            }
+            // the slot itself is not a constant, the definition of its exprId is
+            Expression originDefinition = originOutputDefinitions.get(originSlot.getExprId());
+            Expression rewrittenDefinition = rewrittenOutputDefinitions.get(rewrittenSlot.getExprId());
+            if (!isSameConstant(rewrittenDefinition, originDefinition)
+                    && !isSameColumn(rewrittenSlot, originSlot)) {
+                return null;
+            }
+            Expression inner = rewrittenSlot.nullable() == originSlot.nullable()
+                    ? rewrittenSlot
+                    : (originSlot.nullable() ? new Nullable(rewrittenSlot) : new NonNullable(rewrittenSlot));
+            alignedOutputs.add(new Alias(originSlot.getExprId(), inner, originSlot.getName()));
+        }
+        if (rewrittenPlan instanceof LogicalSink) {
+            LogicalSink<?> sink = (LogicalSink<?>) rewrittenPlan;
+            LogicalProject<Plan> project = new LogicalProject<>(alignedOutputs, sink.child());
+            List<NamedExpression> sinkOutputs = alignedOutputs.stream()
+                    .map(output -> (NamedExpression) output.toSlot())
+                    .collect(ImmutableList.toImmutableList());
+            return sink.withOutputExprs(sinkOutputs).withChildren(project);
+        }
+        return new LogicalProject<>(alignedOutputs, rewrittenPlan);
+    }
+
+    /**
+     * Whether the rewritten output describes the same column as the origin one. The rewritten plan is built by the
+     * materialized view rewrite which keeps the position of the query outputs, so the name, the type and (when both
+     * sides keep it) the qualifier have to match. This rejects a same named column of another relation, e.g. a self
+     * join, and an output which is added or removed and shifts the columns.
+     */
+    private static boolean isSameColumn(Slot rewrittenSlot, Slot originSlot) {
+        if (!rewrittenSlot.getName().equalsIgnoreCase(originSlot.getName())
+                || !rewrittenSlot.getDataType().equals(originSlot.getDataType())) {
+            return false;
+        }
+        List<String> rewrittenQualifier = rewrittenSlot.getQualifier();
+        List<String> originQualifier = originSlot.getQualifier();
+        return rewrittenQualifier.isEmpty() || originQualifier.isEmpty()
+                || rewrittenQualifier.equals(originQualifier);
+    }
+
+    private static Map<ExprId, Expression> collectNamedExpressionDefinitions(Plan plan) {
+        Map<ExprId, Expression> definitions = Maps.newHashMap();
+        plan.foreach(node -> {
+            for (Expression expression : ((Plan) node).getExpressions()) {
+                if (!(expression instanceof NamedExpression)) {
+                    continue;
+                }
+                NamedExpression namedExpression = (NamedExpression) expression;
+                Expression existing = definitions.get(namedExpression.getExprId());
+                // prefer the definition which materializes the value, a plain slot reference only consumes it
+                if (existing == null || (!existing.isConstant() && namedExpression.isConstant())) {
+                    definitions.put(namedExpression.getExprId(), namedExpression);
+                }
+            }
+            return false;
+        });
+        return definitions;
+    }
+
+    private static boolean isSameConstant(Expression rewrittenDefinition, Expression originDefinition) {
+        if (rewrittenDefinition == null || originDefinition == null
+                || !rewrittenDefinition.isConstant() || !originDefinition.isConstant()) {
+            return false;
+        }
+        Expression rewrittenConstant = rewrittenDefinition instanceof Alias
+                ? rewrittenDefinition.child(0) : rewrittenDefinition;
+        Expression originConstant = originDefinition instanceof Alias
+                ? originDefinition.child(0) : originDefinition;
+        return rewrittenConstant.getDataType().equals(originConstant.getDataType())
+                && rewrittenConstant.equals(originConstant);
+    }
+
+    /**
      * Normalize expression with query, keep the consistency of exprId and nullable props with
      * query
      * Keep the replacedExpression slot property is the same as the sourceExpression
