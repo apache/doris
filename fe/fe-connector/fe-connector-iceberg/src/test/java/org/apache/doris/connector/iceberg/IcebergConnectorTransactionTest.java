@@ -49,6 +49,7 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableOperations;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -1973,26 +1974,36 @@ public class IcebergConnectorTransactionTest {
         IcebergConnectorTransaction txn = txnFor(opsReturning(null), new RecordingConnectorContext());
 
         Table dflt = catalog.createTable(TableIdentifier.of("db1", "d"), SCHEMA, PartitionSpec.unpartitioned());
-        Assertions.assertTrue(txn.isSerializableIsolationLevel(dflt), "missing property defaults to serializable");
+        for (WriteOperation operation : Arrays.asList(
+                WriteOperation.DELETE, WriteOperation.UPDATE, WriteOperation.MERGE)) {
+            Assertions.assertTrue(txn.isSerializableIsolationLevel(dflt, operation),
+                    "missing property defaults to serializable for " + operation);
+        }
 
-        Table ser = catalog.createTable(TableIdentifier.of("db1", "s"), SCHEMA, PartitionSpec.unpartitioned(),
-                props("delete_isolation_level", "serializable"));
-        Assertions.assertTrue(txn.isSerializableIsolationLevel(ser));
+        Table opSpecific = catalog.createTable(TableIdentifier.of("db1", "s"), SCHEMA,
+                PartitionSpec.unpartitioned(), props(
+                        TableProperties.DELETE_ISOLATION_LEVEL, "snapshot",
+                        TableProperties.UPDATE_ISOLATION_LEVEL, "serializable",
+                        TableProperties.MERGE_ISOLATION_LEVEL, "snapshot"));
+        Assertions.assertFalse(txn.isSerializableIsolationLevel(opSpecific, WriteOperation.DELETE));
+        Assertions.assertTrue(txn.isSerializableIsolationLevel(opSpecific, WriteOperation.UPDATE));
+        Assertions.assertFalse(txn.isSerializableIsolationLevel(opSpecific, WriteOperation.MERGE));
 
-        Table snap = catalog.createTable(TableIdentifier.of("db1", "n"), SCHEMA, PartitionSpec.unpartitioned(),
-                props("delete_isolation_level", "snapshot"));
-        Assertions.assertFalse(txn.isSerializableIsolationLevel(snap), "snapshot isolation is not serializable");
+        Table invalid = catalog.createTable(TableIdentifier.of("db1", "i"), SCHEMA,
+                PartitionSpec.unpartitioned(), props(TableProperties.MERGE_ISOLATION_LEVEL, "invalid"));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> txn.isSerializableIsolationLevel(invalid, WriteOperation.MERGE));
     }
 
     @Test
     public void deleteSnapshotIsolationSkipsConcurrentDataFileValidation() {
-        // parity: at delete_isolation_level=snapshot (non-serializable) validateNoConflictingDataFiles is NOT
+        // parity: at write.delete.isolation-level=snapshot (non-serializable) validateNoConflictingDataFiles is NOT
         // applied, so a concurrent data-file append since the base snapshot does NOT fail the delete — the inverse
         // of deleteDetectsConcurrentDataFileConflict (which runs at the default serializable level).
         InMemoryCatalog catalog = freshCatalog();
         TableIdentifier id = TableIdentifier.of("db1", "t1");
         Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(),
-                props("format-version", "2", "delete_isolation_level", "snapshot"));
+                props("format-version", "2", TableProperties.DELETE_ISOLATION_LEVEL, "snapshot"));
         table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db1/t1/seed.parquet", 5L)).commit();
 
         IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());

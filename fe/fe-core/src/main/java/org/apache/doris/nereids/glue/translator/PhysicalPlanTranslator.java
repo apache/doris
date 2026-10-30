@@ -609,19 +609,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             outputExprs.add(slotRef);
         }
         rootFragment.setOutputExprs(outputExprs);
-        // The MERGE/UPDATE target is a PluginDrivenExternalTable: route through the connector's
-        // PluginDrivenTableSink with WriteOperation.MERGE so the connector's planWrite emits its
-        // TIcebergMergeSink dialect (which threads its own sort_fields).
-        // SQL MERGE INTO carries the cardinality requirement onto the write handle; UPDATE shares this
-        // sink dialect but has no such rule, so it threads false (see PhysicalExternalRowLevelMergeSink).
-        rootFragment.setSink(buildPluginRowLevelDmlSink(mergeSink, WriteOperation.MERGE,
+        // UPDATE and SQL MERGE share the plugin BE sink dialect, but their per-operation connector
+        // behavior differs. The existing SQL-MERGE cardinality requirement is set only by the MERGE
+        // builder, so preserve the statement identity when selecting the connector write operation.
+        WriteOperation rowLevelOperation = mergeSink.isRequireMergeCardinalityCheck()
+                ? WriteOperation.MERGE : WriteOperation.UPDATE;
+        rootFragment.setSink(buildPluginRowLevelDmlSink(mergeSink, rowLevelOperation,
                 mergeSink.isWritesDataFiles(), mergeSink.isRequireMergeCardinalityCheck(),
                 mergeSink.getBoundWriteMetadataIdentity(), context));
         return rootFragment;
     }
 
     /**
-     * Builds the plugin-driven sink for an iceberg row-level DML (DELETE / MERGE) whose target has
+     * Builds the plugin-driven sink for an iceberg row-level DML (DELETE / UPDATE / MERGE) whose target has
      * been flipped to a {@link PluginDrivenExternalTable}. Mirrors {@link #visitPhysicalConnectorTableSink}'s
      * connector resolution (catalog -&gt; connector -&gt; metadata -&gt; pinned table handle) but threads the
      * given {@link WriteOperation} so the connector's {@code planWrite} dispatches to its DELETE / MERGE BE sink
@@ -664,10 +664,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         Set<WriteOperation> writeOps = writePlanProvider == null
                 ? EnumSet.noneOf(WriteOperation.class)
                 : writePlanProvider.supportedOperations();
-        if (!(writeOps.contains(WriteOperation.DELETE) || writeOps.contains(WriteOperation.MERGE))) {
+        if (!writeOps.contains(writeOperation)) {
             throw new AnalysisException(
                     "Connector '" + catalog.getName() + "' (type: " + catalog.getType()
-                            + ") does not support row-level DML operations");
+                            + ") does not support " + writeOperation + " row-level DML");
         }
         // writeSortInfo == null: a row-level DML has no engine-resolved write sort (MERGE's sort lives in the
         // connector's TIcebergMergeSink.sort_fields, DELETE is unsorted).

@@ -38,6 +38,7 @@ import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.HasTableOperations;
+import org.apache.iceberg.IsolationLevel;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.ManifestReader;
@@ -129,8 +130,6 @@ import java.util.Set;
 public class IcebergConnectorTransaction implements ConnectorTransaction, RewriteCapableTransaction {
 
     private static final Logger LOG = LogManager.getLogger(IcebergConnectorTransaction.class);
-    private static final String DELETE_ISOLATION_LEVEL = "delete_isolation_level";
-    private static final String DELETE_ISOLATION_LEVEL_DEFAULT = "serializable";
     // Scope of a bare INSERT OVERWRITE (no PARTITION clause). Key + values are byte-identical to the fe-core
     // SessionVariable constants (the connector cannot import fe-core); the value reaches the commit through
     // ConnectorSession.getProperty, which reads the session-variable registry by name.
@@ -1195,7 +1194,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             List<TIcebergCommitData> commitData, List<String> referencedDataFiles) {
         applyBaseSnapshotValidation(rowDelta);
         applyConflictDetectionFilter(rowDelta, icebergTable, commitData);
-        if (isSerializableIsolationLevel(icebergTable)) {
+        if (isSerializableIsolationLevel(icebergTable, writeOperation)) {
             rowDelta.validateNoConflictingDataFiles();
         }
         rowDelta.validateDeletedFiles();
@@ -1350,13 +1349,32 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
         return Collections.emptyList();
     }
 
-    boolean isSerializableIsolationLevel(Table icebergTable) {
+    boolean isSerializableIsolationLevel(Table icebergTable, WriteOperation operation) {
         if (icebergTable == null) {
             return true;
         }
-        String level = icebergTable.properties()
-                .getOrDefault(DELETE_ISOLATION_LEVEL, DELETE_ISOLATION_LEVEL_DEFAULT);
-        return "serializable".equalsIgnoreCase(level);
+        String level;
+        switch (operation) {
+            case DELETE:
+                level = icebergTable.properties().getOrDefault(
+                        TableProperties.DELETE_ISOLATION_LEVEL,
+                        TableProperties.DELETE_ISOLATION_LEVEL_DEFAULT);
+                break;
+            case UPDATE:
+                level = icebergTable.properties().getOrDefault(
+                        TableProperties.UPDATE_ISOLATION_LEVEL,
+                        TableProperties.UPDATE_ISOLATION_LEVEL_DEFAULT);
+                break;
+            case MERGE:
+                level = icebergTable.properties().getOrDefault(
+                        TableProperties.MERGE_ISOLATION_LEVEL,
+                        TableProperties.MERGE_ISOLATION_LEVEL_DEFAULT);
+                break;
+            default:
+                throw new IllegalArgumentException(
+                        "Unsupported iceberg row-level write operation: " + operation);
+        }
+        return IsolationLevel.fromName(level) == IsolationLevel.SERIALIZABLE;
     }
 
     // ─────────────────── V3 deletion-vector "rewrite previous delete files" (legacy :786-851) ───────────────────
