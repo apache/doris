@@ -22,10 +22,11 @@ import org.junit.Assert;
  * time zone, otherwise the query returns stale materialized values computed in the MV creation zone.
  *
  * 1. A synchronous MV column that converts a TIMESTAMPTZ into a time-zone dependent value (date_trunc,
- *    cast, floor, ...) is allowed at creation: keeping the materialized value consistent across sessions
- *    is the user's responsibility, not enforced by Doris.
- * 2. Zone-invariant operations on TIMESTAMPTZ (MIN/MAX aggregates preserve the UTC instant) are allowed
- *    and still rewrite across zones.
+ *    cast, floor, ...) is rejected at creation: BE evaluates such columns in the write/load session zone,
+ *    so the materialized value cannot be kept consistent across sessions (the FE-side session guard is
+ *    dropped before execution).
+ * 2. Zone-invariant operations on TIMESTAMPTZ (MIN/MAX aggregates preserve the UTC instant, comparing two
+ *    instants) are allowed and still rewrite across zones.
  * 3. An asynchronous MTMV with a time-zone sensitive expression is allowed (it is refreshed in a
  *    consistent zone) but is NOT rewritten in a session with a different time zone; in the same zone it
  *    rewrites and returns the same result as the base query.
@@ -62,52 +63,34 @@ suite("test_timestamptz_sync_mv_rewrite_timezone","mtmv") {
     """
     sql "sync"
 
-    // A synchronous MV that converts a TIMESTAMPTZ into a time-zone dependent value (date_trunc here) is
-    // no longer rejected at creation: the materialized value is computed in the write/load session zone
-    // and keeping it consistent across sessions is the user's responsibility. Each such MV is built on its
-    // own DUPLICATE table (a DUPLICATE table cannot host several sync MVs whose columns collide).
-    def tableNameTruncCol = "timestamptz_sync_mv_rewrite_timezone_trunc_col"
-    def truncColMvName = "timestamptz_sync_mv_rewrite_timezone_trunc_col_mv"
-    sql "DROP TABLE IF EXISTS ${tableNameTruncCol}"
-    sql """
-        CREATE TABLE ${tableNameTruncCol} (
-            id INT,
-            ts TIMESTAMPTZ(6),
-            v INT
-        )
-        DUPLICATE KEY(id)
-        DISTRIBUTED BY HASH(id) BUCKETS 1
-        PROPERTIES('replication_num' = '1')
-    """
-    create_sync_mv(context.dbName, tableNameTruncCol, truncColMvName, """
-        SELECT date_trunc(ts, 'day') AS day_ts, SUM(v) AS s
-        FROM ${tableNameTruncCol}
-        WHERE ts IS NOT NULL
-        GROUP BY date_trunc(ts, 'day')
-    """)
+    // A synchronous MV that converts a TIMESTAMPTZ into a time-zone dependent value is rejected,
+    // because such a column is materialized in the write/load session time zone and would silently
+    // become inconsistent when data is loaded from a different zone.
+    test {
+        sql "CREATE MATERIALIZED VIEW ${syncMvName} AS " +
+                "SELECT date_trunc(ts, 'day') AS day_ts, SUM(v) AS s FROM ${tableName} " +
+                "WHERE ts IS NOT NULL GROUP BY date_trunc(ts, 'day')"
+        exception "time-zone sensitive"
+    }
 
     // A synchronous MV whose SELECT columns are safe but whose WHERE compares a time-zone dependent
-    // expression is likewise no longer rejected at creation: the WHERE is stored separately
-    // (whereClauseItem) and its zone dependence is the user's responsibility.
-    def tableNameTruncWhere = "timestamptz_sync_mv_rewrite_timezone_trunc_where"
-    def truncWhereMvName = "timestamptz_sync_mv_rewrite_timezone_trunc_where_mv"
-    sql "DROP TABLE IF EXISTS ${tableNameTruncWhere}"
-    sql """
-        CREATE TABLE ${tableNameTruncWhere} (
-            id INT,
-            ts TIMESTAMPTZ(6),
-            v INT
-        )
-        DUPLICATE KEY(id)
-        DISTRIBUTED BY HASH(id) BUCKETS 1
-        PROPERTIES('replication_num' = '1')
-    """
-    create_sync_mv(context.dbName, tableNameTruncWhere, truncWhereMvName, """
-        SELECT id AS mv_id, MIN(ts) AS mv_min
-        FROM ${tableNameTruncWhere}
-        WHERE date_trunc(ts, 'day') = '2024-01-01 00:00:00+00:00'
-        GROUP BY id
-    """)
+    // expression must also be rejected: the WHERE is stored separately (whereClauseItem) and rebuilt for
+    // writes, so it would accept a boundary row in one load session and reject it in another.
+    test {
+        sql "CREATE MATERIALIZED VIEW ${syncMvName} AS " +
+                "SELECT id AS mv_id, MIN(ts) AS mv_min FROM ${tableName} " +
+                "WHERE date_trunc(ts, 'day') = '2024-01-01 00:00:00+00:00' GROUP BY id"
+        exception "time-zone sensitive"
+    }
+
+    // A synchronous MV column that renders the TIMESTAMPTZ instant into a STRING is rejected as well:
+    // the rendering embeds the write-session offset, so the same instant is stored as different strings
+    // by different write sessions.
+    test {
+        sql "CREATE MATERIALIZED VIEW ${syncMvName} AS " +
+                "SELECT id AS mv_id, CAST(ts AS STRING) AS mv_str FROM ${tableName}"
+        exception "time-zone sensitive"
+    }
 
     // A zone-invariant sync MV (MIN over a TIMESTAMPTZ preserves the UTC instant) is allowed.
     create_sync_mv(context.dbName, tableName, syncMvName, """
@@ -212,7 +195,7 @@ suite("test_timestamptz_sync_mv_rewrite_timezone","mtmv") {
     Assert.assertEquals(1, cmpOn.size())
 
     // casting an offset-free string into TIMESTAMPTZ interprets the string in the write session zone; it
-    // is no longer rejected at creation either
+    // is rejected at creation like the reverse rendering
     sql "DROP TABLE IF EXISTS ${tableName3}"
     sql """
         CREATE TABLE ${tableName3} (
@@ -224,9 +207,10 @@ suite("test_timestamptz_sync_mv_rewrite_timezone","mtmv") {
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES('replication_num' = '1')
     """
-    create_sync_mv(context.dbName, tableName3, cmpSyncMvName + "_cast", """
-        SELECT id AS mv_id, MIN(CAST(s AS TIMESTAMPTZ(6))) AS mv_min
-        FROM ${tableName3}
-        GROUP BY id
-    """)
+    test {
+        sql "CREATE MATERIALIZED VIEW ${cmpSyncMvName}_cast AS " +
+                "SELECT id AS mv_id, MIN(CAST(s AS TIMESTAMPTZ(6))) AS mv_min " +
+                "FROM ${tableName3} GROUP BY id"
+        exception "time-zone sensitive"
+    }
 }

@@ -228,9 +228,13 @@ public class VariablePersistTest extends ExpressionRewriteTestHelper {
         Map<String, String> legacyPersist = ImmutableMap.of("sql_mode", "1");
         Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE,
                 SessionVarGuardRewriter.computeGuardMask(currentSame, legacyPersist));
-        // empty persist -> no guard
-        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_NONE,
+        // empty or missing metadata -> the creation zone is unknown, so the time-zone fence applies
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE,
                 SessionVarGuardRewriter.computeGuardMask(currentSame, new HashMap<>()));
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE,
+                SessionVarGuardRewriter.computeGuardMask(currentSame, null));
+        Assertions.assertTrue(SessionVarGuardRewriter.needsSessionVarGuard(currentSame, new HashMap<>()),
+                "unknown creation metadata must enable the time-zone guard fence");
     }
 
     /**
@@ -726,6 +730,90 @@ public class VariablePersistTest extends ExpressionRewriteTestHelper {
         Assertions.assertFalse(rewritten instanceof SessionVarGuardExpr,
                 "date_trunc on DATETIME should not be guarded");
         Assertions.assertEquals(dateTruncOnDt, rewritten);
+    }
+
+    /**
+     * Comparisons and boolean combinations over TIMESTAMPTZ instants are zone invariant: whether two
+     * instants are equal or ordered does not depend on the session time zone, so guarding them would
+     * disable safe cross-zone rewrites (e.g. a sync MV whose WHERE is `ts1 = ts2`). A comparison whose
+     * operand is itself zone dependent (a cast of an offset-free string into TIMESTAMPTZ) is still
+     * guarded: the child visit wraps the operand, so the predicate keeps a guard in its subtree.
+     */
+    @Test
+    public void testZoneInvariantTimestampTzComparisonsNotGuarded() {
+        Map<String, String> persistSessionVars = ImmutableMap.of("time_zone", "+00:00");
+        Map<String, String> currentSessionVars = ImmutableMap.of("time_zone", "+08:00");
+        SessionVarGuardRewriter.AddSessionVarGuardRewriter rewriter =
+                new SessionVarGuardRewriter.AddSessionVarGuardRewriter(persistSessionVars, currentSessionVars);
+        SlotReference ts1 = new SlotReference("ts1", TimeStampTzType.of(6));
+        SlotReference ts2 = new SlotReference("ts2", TimeStampTzType.of(6));
+
+        // equality / ordering / BETWEEN / IN over instants are zone invariant
+        Expression eq = new EqualTo(ts1, ts2);
+        Assertions.assertFalse(eq.accept(rewriter, Boolean.FALSE) instanceof SessionVarGuardExpr,
+                "equality of two TIMESTAMPTZ instants is zone invariant");
+        Expression gt = new GreaterThan(ts1, ts2);
+        Assertions.assertFalse(gt.accept(rewriter, Boolean.FALSE) instanceof SessionVarGuardExpr,
+                "ordering of two TIMESTAMPTZ instants is zone invariant");
+        Expression between = new Between(ts1, ts2, ts2);
+        Assertions.assertFalse(between.accept(rewriter, Boolean.FALSE) instanceof SessionVarGuardExpr,
+                "BETWEEN over TIMESTAMPTZ instants is zone invariant");
+        Expression in = new InPredicate(ts1, ImmutableList.of(ts2, ts1));
+        Assertions.assertFalse(in.accept(rewriter, Boolean.FALSE) instanceof SessionVarGuardExpr,
+                "IN over TIMESTAMPTZ instants is zone invariant");
+
+        // boolean combinations of zone-invariant predicates are zone invariant as well (any zone dependent
+        // operand is guarded on its own by the child visit)
+        Expression conjunction = new And(eq, gt);
+        Assertions.assertFalse(conjunction.accept(rewriter, Boolean.FALSE) instanceof SessionVarGuardExpr,
+                "AND of zone-invariant predicates is zone invariant");
+        Expression negation = new Not(eq);
+        Assertions.assertFalse(negation.accept(rewriter, Boolean.FALSE) instanceof SessionVarGuardExpr,
+                "NOT of a zone-invariant predicate is zone invariant");
+
+        // a cast of an offset-free string into TIMESTAMPTZ is zone dependent, so the operand is guarded
+        // (the comparison itself stays unguarded, but the guard survives in the predicate subtree)
+        Expression castInto = new Cast(new VarcharLiteral("2024-01-01 00:00:00"), TimeStampTzType.of(6));
+        Expression sensitiveComparison = new EqualTo(castInto, ts2);
+        Expression rewritten = sensitiveComparison.accept(rewriter, Boolean.FALSE);
+        Assertions.assertFalse(rewritten instanceof SessionVarGuardExpr,
+                "the comparison operator itself is zone invariant");
+        Assertions.assertTrue(rewritten.anyMatch(SessionVarGuardExpr.class::isInstance),
+                "a zone-dependent operand must stay guarded inside the comparison");
+    }
+
+    /**
+     * Old-metadata compatibility fence: an object created before time_zone was persisted (empty map, or a
+     * map that carries other plan variables but no time_zone key) has an unknown creation zone, so its
+     * time-zone sensitive expressions must always be guarded. Without the fence a new FE would evaluate
+     * the object against the current session zone while the materialized value may have been produced in
+     * a different (unknown) zone. The reverse direction (old FE reading new metadata) cannot be repaired
+     * from the new code and requires rebuilding the object there.
+     */
+    @Test
+    public void testLegacyMetadataFenceGuardsTimeZoneExpressions() {
+        Map<String, String> currentSessionVars = ImmutableMap.of("time_zone", "+08:00", "sql_mode", "0");
+        SlotReference tzSlot = new SlotReference("ts", TimeStampTzType.of(6));
+        Expression dateTruncOnTz = new DateTrunc(tzSlot, new VarcharLiteral("day"));
+
+        // no persisted variables at all (metadata written before session-variable persistence)
+        Assertions.assertTrue(SessionVarGuardRewriter.needsSessionVarGuard(currentSessionVars, new HashMap<>()));
+        SessionVarGuardRewriter.AddSessionVarGuardRewriter emptyMapRewriter =
+                new SessionVarGuardRewriter.AddSessionVarGuardRewriter(new HashMap<>(), currentSessionVars);
+        Assertions.assertTrue(dateTruncOnTz.accept(emptyMapRewriter, Boolean.FALSE) instanceof SessionVarGuardExpr,
+                "unknown creation zone must guard time-zone sensitive expressions");
+
+        // a legacy map that carries other plan variables but no time_zone key
+        Map<String, String> legacyPersist = ImmutableMap.of("sql_mode", "0");
+        Assertions.assertTrue(SessionVarGuardRewriter.needsSessionVarGuard(currentSessionVars, legacyPersist));
+        SessionVarGuardRewriter.AddSessionVarGuardRewriter legacyRewriter =
+                new SessionVarGuardRewriter.AddSessionVarGuardRewriter(legacyPersist, currentSessionVars);
+        Assertions.assertTrue(dateTruncOnTz.accept(legacyRewriter, Boolean.FALSE) instanceof SessionVarGuardExpr,
+                "missing time_zone in legacy metadata must guard time-zone sensitive expressions");
+        // the current metadata with a matching zone never guards
+        SessionVarGuardRewriter.AddSessionVarGuardRewriter currentRewriter =
+                new SessionVarGuardRewriter.AddSessionVarGuardRewriter(currentSessionVars, currentSessionVars);
+        Assertions.assertFalse(dateTruncOnTz.accept(currentRewriter, Boolean.FALSE) instanceof SessionVarGuardExpr);
     }
 
     /**
