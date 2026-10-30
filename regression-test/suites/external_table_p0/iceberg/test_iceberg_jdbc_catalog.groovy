@@ -22,6 +22,9 @@ suite("test_iceberg_jdbc_catalog", "p0,external,iceberg,external_docker,external
         return;
     }
 
+    // Preserve this suite's dynamic overwrite expectations after the default changes to static.
+    sql """ set iceberg_partition_overwrite_mode = 'dynamic' """
+
     String enabledJdbc = context.config.otherConfigs.get("enableJdbcTest")
     if (enabledJdbc == null || !enabledJdbc.equalsIgnoreCase("true")) {
         logger.info("Iceberg JDBC catalog test requires enableJdbcTest, skip this test")

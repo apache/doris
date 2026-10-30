@@ -23,6 +23,9 @@ suite("test_iceberg_write_branch_dml_boundary",
         return
     }
 
+    // Preserve this suite's dynamic overwrite expectations after the default changes to static.
+    sql """ set iceberg_partition_overwrite_mode = 'dynamic' """
+
     String restPort = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")

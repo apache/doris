@@ -22,6 +22,9 @@ suite("test_iceberg_insert_overwrite_with_empty_table", "p0,external,doris,exter
         return
     }
 
+    // Preserve this suite's dynamic overwrite expectations after the default changes to static.
+    sql """ set iceberg_partition_overwrite_mode = 'dynamic' """
+
     String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")

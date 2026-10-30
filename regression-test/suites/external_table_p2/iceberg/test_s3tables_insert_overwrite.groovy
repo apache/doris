@@ -631,6 +631,9 @@ suite("test_s3tables_insert_overwrite", "p0,external,iceberg,external_docker,ext
         return
     }
 
+    // Preserve this suite's dynamic overwrite expectations after the default changes to static.
+    sql """ set iceberg_partition_overwrite_mode = 'dynamic' """
+
     String catalog_name = "test_s3tables_insert_overwrite"
     String props = context.config.otherConfigs.get("icebergS3TablesCatalog")
     sql """drop catalog if exists ${catalog_name};"""
