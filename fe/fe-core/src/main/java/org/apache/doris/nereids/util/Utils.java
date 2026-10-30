@@ -17,14 +17,12 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Not;
@@ -32,10 +30,6 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.plans.commands.info.AliasInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.repository.ResultRow;
-import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -680,34 +674,4 @@ public class Utils {
         return new NereidsParser().parseSingle(sql);
     }
 
-    /**
-     * Execute a logical plan and return the results.
-     *
-     * @param ctx the context in which to execute the plan
-     * @param executor the executor to use to execute the plan
-     * @param plan the plan to execute
-     * @return the results of executing the plan
-     */
-    public static List<List<String>> executePlan(ConnectContext ctx, StmtExecutor executor, LogicalPlan plan) {
-        LogicalPlanAdapter adapter = new LogicalPlanAdapter(plan, ctx.getStatementContext());
-        StatementBase originalStmt = executor.getParsedStmt();
-        // The internal SELECT shares the SHOW connection; preserve its audit identity and flags.
-        TUniqueId originalQueryId = ctx.queryId();
-        String originalSqlHash = ctx.getSqlHash();
-        boolean wasInternal = ctx.getState().isInternal();
-        boolean wasQuery = ctx.getState().isQuery();
-        boolean wasNereids = ctx.getState().isNereids();
-        try {
-            executor.setParsedStmt(adapter);
-            List<ResultRow> resultRows = executor.executeInternalQueryWithoutAudit();
-            return resultRows.stream().map(ResultRow::getValues).collect(Collectors.toList());
-        } finally {
-            executor.setParsedStmt(originalStmt);
-            ctx.setQueryId(originalQueryId);
-            ctx.setSqlHash(originalSqlHash);
-            ctx.getState().setInternal(wasInternal);
-            ctx.getState().setIsQuery(wasQuery);
-            ctx.getState().setNereids(wasNereids);
-        }
-    }
 }

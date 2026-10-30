@@ -167,7 +167,7 @@ public class ShowColumnsCommand extends ShowCommand {
             }
 
             LogicalPlan plan = Utils.buildLogicalPlan(selectList, info, whereCondition);
-            List<List<String>> rows = Utils.executePlan(ctx, executor, plan);
+            List<List<String>> rows = executor.executeEmbeddedQuery(plan);
             for (List<String> row : rows) {
                 String rawType = row.get(1);
                 row.set(1, normalizeSqlColumnType(rawType));

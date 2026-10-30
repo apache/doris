@@ -111,7 +111,7 @@ public class ShowDatabasesCommand extends ShowCommand {
         TableNameInfo fullTblName = new TableNameInfo(catalog, InfoSchemaDb.DATABASE_NAME, "schemata");
 
         LogicalPlan plan = Utils.buildLogicalPlan(selectList, fullTblName, whereClause);
-        List<List<String>> rows = Utils.executePlan(ctx, executor, plan);
+        List<List<String>> rows = executor.executeEmbeddedQuery(plan);
         return new ShowResultSet(getMetaData(), rows);
     }
 

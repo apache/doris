@@ -2299,6 +2299,28 @@ public class StmtExecutor {
         return executeInternalQuery(false);
     }
 
+    /** Execute a SELECT used by a SHOW command without changing the SHOW audit event. */
+    public List<List<String>> executeEmbeddedQuery(LogicalPlan plan) {
+        StatementBase originalStmt = parsedStmt;
+        TUniqueId originalQueryId = context.queryId();
+        String originalSqlHash = context.getSqlHash();
+        boolean wasInternal = context.getState().isInternal();
+        boolean wasQuery = context.getState().isQuery();
+        boolean wasNereids = context.getState().isNereids();
+        try {
+            setParsedStmt(new LogicalPlanAdapter(plan, context.getStatementContext()));
+            return executeInternalQueryWithoutAudit().stream()
+                    .map(ResultRow::getValues).collect(Collectors.toList());
+        } finally {
+            setParsedStmt(originalStmt);
+            context.setQueryId(originalQueryId);
+            context.setSqlHash(originalSqlHash);
+            context.getState().setInternal(wasInternal);
+            context.getState().setIsQuery(wasQuery);
+            context.getState().setNereids(wasNereids);
+        }
+    }
+
     private List<ResultRow> executeInternalQuery(boolean audit) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("INTERNAL QUERY: {}", originStmt.toString());
