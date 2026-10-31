@@ -93,7 +93,9 @@ public class FeServiceClient {
         this.user = user;
         this.password = password;
         this.retryCount = retryCount;
-        this.timeoutMs = (int) TimeUnit.SECONDS.toMillis(timeoutS);
+        // Catalog metadata timeouts are in seconds, the pooled Thrift sockets take int milliseconds: reject a
+        // timeout that does not fit instead of letting it wrap around.
+        this.timeoutMs = Math.toIntExact(TimeUnit.SECONDS.toMillis(timeoutS));
     }
 
     private List<TNetworkAddress> getAddresses() {

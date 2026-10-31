@@ -138,6 +138,26 @@ public class ShowCreateTableCommand extends ShowCommand {
         return ShowResultSetMetaData.builder().build();
     }
 
+    /** Resolve the result header without rendering the table DDL. */
+    public ShowResultSetMetaData getMetaData(ConnectContext ctx) throws AnalysisException {
+        // The table kind determines the header; rendering DDL is unnecessary for schema discovery.
+        validate(ctx);
+        DatabaseIf db = ctx.getEnv().getCatalogMgr().getCatalogOrAnalysisException(tblNameInfo.getCtl())
+                .getDbOrAnalysisException(tblNameInfo.getDb());
+        return metaDataOf(redirectSysTableToSource(resolveShowCreateTarget(db)));
+    }
+
+    // The header doRun returns for a table whose DDL it renders. A plugin-driven table, view or not,
+    // gets META_DATA here as from its own branches in doRun.
+    private static ShowResultSetMetaData metaDataOf(TableIf table) {
+        if (table instanceof View) {
+            return VIEW_META_DATA;
+        } else if (table instanceof BaseTableStream) {
+            return STREAM_META_DATA;
+        }
+        return table.getType() != Table.TableType.MATERIALIZED_VIEW ? META_DATA : MATERIALIZED_VIEW_META_DATA;
+    }
+
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
@@ -182,16 +202,10 @@ public class ShowCreateTableCommand extends ShowCommand {
 
             if (table instanceof View) {
                 rows.add(Lists.newArrayList(table.getName(), createTableStmt.get(0), "utf8mb4", "utf8mb4_0900_bin"));
-                return new ShowResultSet(VIEW_META_DATA, rows);
-            } else if (table instanceof BaseTableStream) {
-                rows.add(Lists.newArrayList(Util.getTempTableDisplayName(table.getName()), createTableStmt.get(0)));
-                return new ShowResultSet(STREAM_META_DATA, rows);
             } else {
                 rows.add(Lists.newArrayList(Util.getTempTableDisplayName(table.getName()), createTableStmt.get(0)));
-                return (table.getType() != Table.TableType.MATERIALIZED_VIEW
-                        ? new ShowResultSet(META_DATA, rows)
-                        : new ShowResultSet(MATERIALIZED_VIEW_META_DATA, rows));
             }
+            return new ShowResultSet(metaDataOf(table), rows);
         } finally {
             table.readUnlock();
         }
