@@ -464,6 +464,21 @@ private:
     void use_cell(const FileBlockCell& cell, FileBlocks* result, bool not_need_move,
                   std::lock_guard<std::mutex>& cache_lock);
 
+    // The LRU entries one reservation may examine under the cache lock, shared by all of its
+    // eviction scans so that their total is bounded, not each scan on its own. For example, with
+    // file_cache_evict_max_scan_entries = 4096, if the time-interval scan of the other queues
+    // examines 4096 in-use entries, the by-size and own-queue scans examine none and the
+    // reservation fails, instead of each scanning up to 4096 more.
+    struct EvictScanBudget {
+        explicit EvictScanBudget(int64_t max_entries)
+                : limit(max_entries > 0 ? static_cast<size_t>(max_entries)
+                                        : std::numeric_limits<size_t>::max()) {}
+        bool exhausted() const { return scanned >= limit; }
+
+        size_t limit;
+        size_t scanned = 0;
+    };
+
     bool try_reserve_for_lru(const UInt128Wrapper& hash, QueryFileCacheContextPtr query_context,
                              const CacheContext& context, size_t offset, size_t size,
                              std::lock_guard<std::mutex>& cache_lock,
@@ -476,7 +491,7 @@ private:
 
     bool try_reserve_from_other_queue(FileCacheType cur_cache_type, size_t offset, int64_t cur_time,
                                       std::lock_guard<std::mutex>& cache_lock,
-                                      bool evict_in_advance = false);
+                                      EvictScanBudget& budget, bool evict_in_advance = false);
 
     size_t get_available_cache_size(FileCacheType cache_type) const;
 
@@ -522,12 +537,13 @@ private:
                                                        std::vector<FileCacheType> other_cache_types,
                                                        size_t size, int64_t cur_time,
                                                        std::lock_guard<std::mutex>& cache_lock,
+                                                       EvictScanBudget& budget,
                                                        bool evict_in_advance);
 
     bool try_reserve_from_other_queue_by_size(FileCacheType cur_type,
                                               std::vector<FileCacheType> other_cache_types,
                                               size_t size, std::lock_guard<std::mutex>& cache_lock,
-                                              bool evict_in_advance);
+                                              EvictScanBudget& budget, bool evict_in_advance);
 
     bool is_overflow(size_t removed_size, size_t need_size, size_t cur_cache_size,
                      bool evict_in_advance) const;
@@ -538,7 +554,14 @@ private:
     void find_evict_candidates(LRUQueue& queue, size_t size, size_t cur_cache_size,
                                size_t& removed_size, std::vector<FileBlockCell*>& to_evict,
                                std::lock_guard<std::mutex>& cache_lock, size_t& cur_removed_size,
-                               bool evict_in_advance);
+                               bool evict_in_advance, EvictScanBudget& budget);
+
+    // Records what one reservation's eviction scans examined, once the reservation is decided.
+    void record_evict_scan(const EvictScanBudget& budget, bool reserved);
+
+    // Moves cells an eviction scan skipped because they were in use to the end of their queue.
+    void rotate_in_use_to_end(LRUQueue& queue, const std::vector<FileBlockCell*>& in_use,
+                              std::lock_guard<std::mutex>& cache_lock);
 
     Status check_ofstream_status(std::ofstream& out, std::string& filename);
     Status dump_one_lru_entry(std::ofstream& out, std::string& filename, const UInt128Wrapper& hash,
@@ -647,6 +670,9 @@ private:
     std::shared_ptr<bvar::Adder<size_t>> _evict_not_downloaded_num_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _gc_evict_bytes_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _gc_evict_count_metrics;
+    std::shared_ptr<bvar::Adder<size_t>> _evict_scanned_entries_metrics;
+    std::shared_ptr<bvar::Adder<size_t>> _evict_rotated_in_use_metrics;
+    std::shared_ptr<bvar::Adder<size_t>> _evict_scan_truncated_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _evict_by_time_metrics_matrix[4][4];
     std::shared_ptr<bvar::Adder<size_t>> _evict_by_size_metrics_matrix[4][4];
     std::shared_ptr<bvar::Adder<size_t>> _evict_by_self_lru_metrics_matrix[4];
@@ -683,6 +709,7 @@ private:
     std::shared_ptr<bvar::LatencyRecorder> _get_or_set_latency_us;
     std::shared_ptr<bvar::LatencyRecorder> _probe_latency_us;
     std::shared_ptr<bvar::LatencyRecorder> _storage_sync_remove_latency_us;
+    std::shared_ptr<bvar::LatencyRecorder> _evict_scan_entries_per_reserve;
     std::shared_ptr<bvar::LatencyRecorder> _storage_retry_sync_remove_latency_us;
     std::shared_ptr<bvar::LatencyRecorder> _storage_async_remove_latency_us;
     std::shared_ptr<bvar::LatencyRecorder> _evict_in_advance_latency_us;
