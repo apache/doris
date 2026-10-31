@@ -1088,9 +1088,7 @@ Status BaseTablet::sort_block(Block& in_block, Block& output_block,
     ScopedMutableBlock scoped_output_block(&output_block);
     auto& mutable_output_block = scoped_output_block.mutable_block();
 
-    std::shared_ptr<RowInBlockComparator> vec_row_comparator =
-            std::make_shared<RowInBlockComparator>(_tablet_meta->tablet_schema());
-    vec_row_comparator->set_block(&mutable_input_block);
+    RowInBlockComparator vec_row_comparator(_tablet_meta->tablet_schema());
 
     std::vector<std::unique_ptr<RowInBlock>> row_in_blocks;
     const auto input_rows = mutable_input_block.rows();
@@ -1102,7 +1100,7 @@ Status BaseTablet::sort_block(Block& in_block, Block& output_block,
     std::sort(row_in_blocks.begin(), row_in_blocks.end(),
               [&](const std::unique_ptr<RowInBlock>& l,
                   const std::unique_ptr<RowInBlock>& r) -> bool {
-                  auto value = (*vec_row_comparator)(l.get(), r.get());
+                  auto value = vec_row_comparator(mutable_input_block, l.get(), r.get());
                   DCHECK(value != 0) << "value equel when sort block, l_pos: " << l->_row_pos
                                      << " r_pos: " << r->_row_pos;
                   return value < 0;

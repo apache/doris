@@ -400,12 +400,6 @@ void FlushToken::_flush_memtable_impl(RowsetWriter* flush_writer, MemTable* memt
 
             // DEFER_RELEASE_RESERVED();
 
-            // auto reserve_size = memtable->get_flush_reserve_memory_size();
-            // if (memtable->resource_ctx()->task_controller()->is_enable_reserve_memory() &&
-            //     reserve_size > 0) {
-            //     RETURN_IF_ERROR(_try_reserve_memory(memtable->resource_ctx(), reserve_size));
-            // }
-
             // Defer defer {[&]() {
             //     ExecEnv::GetInstance()->storage_engine().memtable_flush_executor()->dec_flushing_task();
             // }};
