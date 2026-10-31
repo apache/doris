@@ -1274,6 +1274,63 @@ TEST_F(LoadArrowPipeTest, NumericIntStillRejectsAnOverflowingUInt32) {
     ASSERT_TRUE(reader.close().ok());
 }
 
+TEST_F(LoadArrowPipeTest, ConvertsTheReportedInt32BooleanInput) {
+    set_column_type(make_nullable(std::make_shared<DataTypeUInt8>()));
+    arrow::Int32Builder builder;
+    ASSERT_TRUE(builder.AppendValues({1, 0}).ok());
+    auto values = builder.Finish();
+    ASSERT_TRUE(values.ok());
+    append_batch(arrow::RecordBatch::Make(
+            arrow::schema({arrow::field("raw_value", arrow::int32())}), 2, {*values}));
+    ASSERT_TRUE(_pipe->finish().ok());
+    LoadTableReader reader(source.get(), destination.get());
+    ASSERT_TRUE(prepare(reader, FileFormat::ARROW).ok());
+    Block output(destination->slots(), 0);
+    bool eos = false;
+    const auto status = reader.get_block(&output, &eos);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(output.rows(), 2);
+    const auto& column = assert_cast<const ColumnNullable&>(*output.get_by_position(0).column);
+    EXPECT_EQ(column.get_nested_column().get_int(0), 1);
+    EXPECT_EQ(column.get_nested_column().get_int(1), 0);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(LoadArrowPipeTest, InvalidBooleanInputIncludesTheColumnAndBothTypes) {
+    set_column_type(make_nullable(std::make_shared<DataTypeUInt8>()));
+    append_stream({"not-a-boolean"}, "raw_value");
+    ASSERT_TRUE(_pipe->finish().ok());
+    LoadTableReader reader(source.get(), destination.get());
+    ASSERT_TRUE(prepare(reader, FileFormat::ARROW).ok());
+    Block output(destination->slots(), 0);
+    bool eos = false;
+    const auto status = reader.get_block(&output, &eos);
+    EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT) << status;
+    EXPECT_NE(status.to_string().find("Arrow column 'raw_value' (string -> bool)"),
+              std::string::npos)
+            << status;
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(LoadArrowPipeTest, StructFieldCountErrorIncludesTheColumnAndBothTypes) {
+    set_column_type(make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {make_nullable(std::make_shared<DataTypeUInt8>())}, Strings {"b"})));
+    auto input = arrow::MakeArrayOfNull(arrow::struct_({}), 1);
+    ASSERT_TRUE(input.ok());
+    append_batch(arrow::RecordBatch::Make(
+            arrow::schema({arrow::field("raw_value", (*input)->type())}), 1, {*input}));
+    ASSERT_TRUE(_pipe->finish().ok());
+    LoadTableReader reader(source.get(), destination.get());
+    ASSERT_TRUE(prepare(reader, FileFormat::ARROW).ok());
+    Block output(destination->slots(), 0);
+    bool eos = false;
+    const auto status = reader.get_block(&output, &eos);
+    EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT) << status;
+    EXPECT_NE(status.to_string().find("Arrow column 'raw_value'"), std::string::npos) << status;
+    EXPECT_NE(status.to_string().find("struct<> -> struct<b: bool>"), std::string::npos) << status;
+    ASSERT_TRUE(reader.close().ok());
+}
+
 TEST_F(LoadArrowPipeTest, ReadsCompressedIpcBatches) {
     arrow::StringBuilder builder;
     ASSERT_TRUE(builder.Append("compressed").ok());

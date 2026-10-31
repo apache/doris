@@ -550,7 +550,16 @@ Status DataTypeStructSerDe::read_column_from_arrow(IColumn& column, const arrow:
     }
     auto& struct_column = static_cast<ColumnStruct&>(column);
     const auto* concrete_struct = dynamic_cast<const arrow::StructArray*>(arrow_array);
-    DCHECK_EQ(struct_column.tuple_size(), concrete_struct->num_fields());
+    // Reject non-STRUCT input before reading its fields, even with buffer validation disabled.
+    if (concrete_struct == nullptr) {
+        return Status::InvalidArgument("Expected Arrow StructArray, got {}",
+                                       arrow_array->type()->ToString());
+    }
+    // A shorter input struct would otherwise index past its children; extra fields lose data.
+    if (struct_column.tuple_size() != concrete_struct->num_fields()) {
+        return Status::InvalidArgument("Expected Arrow StructArray with {} fields, got {}",
+                                       struct_column.tuple_size(), concrete_struct->num_fields());
+    }
     for (auto i = 0; i < struct_column.tuple_size(); ++i) {
         RETURN_IF_ERROR(elem_serdes_ptrs[i]->read_column_from_arrow(
                 struct_column.get_column(i), concrete_struct->field(i).get(), start, end, ctz));
