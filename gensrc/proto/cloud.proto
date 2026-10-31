@@ -674,12 +674,21 @@ message RecycleRowsetPB {
         COMPACT = 2;
         DROP = 3;
     }
+    // Release progress of this recycle task's logical rowset reference.
+    enum ReferenceState {
+        REFERENCE_HOLD = 0; // This logical reference is still included in the root reference count.
+        // The last reference was released and the root reference count is zero.
+        // The marker is retained until physical deletion succeeds, so deletion can be retried.
+        // All recycler workers must support this state before writing zero-count deletion tasks.
+        REFERENCE_RELEASED = 1;
+    }
     optional int64 tablet_id = 1; // deprecated
     optional string resource_id = 2; // deprecated
     optional int64 creation_time = 3;
     optional int64 expiration = 4; // expiration timestamp
     optional Type type = 5;
     optional doris.RowsetMetaCloudPB rowset_meta = 6;
+    optional ReferenceState reference_state = 7 [default = REFERENCE_HOLD];
 }
 
 message RecycleStagePB {

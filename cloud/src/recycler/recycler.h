@@ -139,16 +139,15 @@ private:
 enum class RowsetRecyclingState {
     FORMAL_ROWSET,
     TMP_ROWSET,
+    VERSIONED_ROWSET,
 };
 
 // Represents a single rowset deletion task for batch delete
 struct RowsetDeleteTask {
     RowsetMetaCloudPB rowset_meta;
-    std::string recycle_rowset_key;       // Primary key marking "pending recycle"
-    std::string non_versioned_rowset_key; // Legacy non-versioned rowset meta key
-    std::string versioned_rowset_key;     // Versioned meta rowset key
+    std::string recycle_rowset_key;   // Durable reference-release/deletion task
+    std::string versioned_rowset_key; // Source versioned meta rowset key
     Versionstamp versionstamp;
-    std::string rowset_ref_count_key;
 };
 
 class RecyclerMetricsContext {
@@ -582,12 +581,13 @@ private:
 
     // Recycle rowset meta and data, return 0 for success otherwise error
     //
-    // This function will decrease the rowset ref count and remove the rowset meta and data if the ref count is 1.
+    // Commit dereferencing before deleting data; a persisted marker makes retries idempotent.
     int recycle_rowset_meta_and_data(const RowsetDeleteTask& task);
 
-    // Classify rowset task by ref_count, return 0 to add to batch delete, 1 if handled (ref>1), -1 on error
-    int classify_rowset_task_by_ref_count(RowsetDeleteTask& task,
-                                          std::vector<RowsetDeleteTask>& batch_delete_tasks);
+    // Release this instance's reference to the rowset at most once. Return 0 if the last reference
+    // is released and the files may be deleted, 1 if there is nothing left to delete, -1 on error.
+    int dereference_rowset(RowsetDeleteTask& task);
+    int dereference_rowset_once(RowsetDeleteTask& task);
 
     // Cleanup metadata for deleted rowsets, return 0 for success otherwise error
     int cleanup_rowset_metadata(const std::vector<RowsetDeleteTask>& tasks);
