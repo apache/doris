@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.AnnIndexPropertiesChecker;
+import org.apache.doris.analysis.InvertedIndexProperties;
 import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -29,9 +30,12 @@ import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.indexpolicy.IndexPolicy;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
@@ -259,6 +263,7 @@ public class IndexDefinition {
             }
 
             if (indexType == IndexType.INVERTED) {
+                validateVariantValuesIndex(colType, invertedIndexFileStorageFormat);
                 try {
                     InvertedIndexUtil.checkInvertedIndexParser(indexColName,
                             colType.toCatalogDataType().getPrimitiveType(), properties,
@@ -380,6 +385,8 @@ public class IndexDefinition {
             }
 
             if (indexType == IndexType.INVERTED) {
+                validateVariantValuesIndex(DataType.fromCatalogType(column.getType()),
+                        invertedIndexFileStorageFormat);
                 try {
                     InvertedIndexUtil.checkInvertedIndexParser(indexColName, colType, properties,
                             invertedIndexFileStorageFormat);
@@ -470,6 +477,9 @@ public class IndexDefinition {
     }
 
     public Index translateToCatalogStyle() {
+        if (isVariantValuesIndex()) {
+            properties.putIfAbsent(InvertedIndexUtil.INVERTED_INDEX_SUPPORT_PHRASE_KEY, "false");
+        }
         return new Index(Env.getCurrentEnv().getNextId(), name, cols, indexType, properties,
                 comment);
     }
@@ -560,6 +570,66 @@ public class IndexDefinition {
 
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    public boolean isVariantValuesIndex() {
+        return indexType == IndexType.INVERTED && InvertedIndexProperties.isVariantValuesIndex(properties);
+    }
+
+    private void validateVariantValuesIndex(DataType columnType,
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) {
+        String scope = properties.get(InvertedIndexUtil.VARIANT_INDEX_SCOPE_KEY);
+        if (scope == null) {
+            return;
+        }
+        if (!isVariantValuesIndex()) {
+            throw new AnalysisException("variant_index_scope must be values, found: " + scope);
+        }
+        if (!columnType.isVariantType()) {
+            throw new AnalysisException(
+                    "variant_index_scope=values can only be used on VARIANT columns");
+        }
+        // Declared Decimal256 can be stored, but full-root assembly cannot decode it.
+        // Reject this combination before accepting a table whose legal inserts would fail.
+        VariantType variantType = (VariantType) columnType;
+        if (variantType.getEnableNestedGroup()) {
+            throw new AnalysisException("VARIANT values index does not support NestedGroup");
+        }
+        if (variantType.getPredefinedFields().stream()
+                .anyMatch(field -> containsDecimal256(field.getDataType()))) {
+            throw new AnalysisException("VARIANT values index does not support declared Decimal256 paths");
+        }
+        if (invertedIndexFileStorageFormat != TInvertedIndexFileStorageFormat.SNII) {
+            throw new AnalysisException(
+                    "VARIANT values index requires inverted_index_storage_format=SNII");
+        }
+        if ("true".equals(properties.get(InvertedIndexUtil.INVERTED_INDEX_SUPPORT_PHRASE_KEY))) {
+            throw new AnalysisException("VARIANT values index does not support support_phrase=true");
+        }
+        String analyzer = properties.getOrDefault(InvertedIndexUtil.INVERTED_INDEX_ANALYZER_NAME_KEY, "").trim();
+        if (InvertedIndexProperties.INVERTED_INDEX_PARSER_NONE.equalsIgnoreCase(
+                InvertedIndexProperties.getInvertedIndexParser(properties))
+                && (analyzer.isEmpty()
+                    || InvertedIndexProperties.INVERTED_INDEX_PARSER_NONE.equalsIgnoreCase(analyzer))) {
+            throw new AnalysisException("VARIANT values index requires a parser or analyzer with tokenization");
+        }
+        if (!analyzer.isEmpty()
+                && !IndexPolicy.BUILTIN_ANALYZERS.contains(InvertedIndexUtil.resolveAnalyzerName(analyzer))) {
+            throw new AnalysisException("VARIANT values index supports only built-in parsers and analyzers");
+        }
+        if (properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_FIELD_PATTERN_KEY)) {
+            throw new AnalysisException("VARIANT values index does not support field_pattern");
+        }
+    }
+
+    private static boolean containsDecimal256(DataType type) {
+        if (type instanceof DecimalV3Type) {
+            return ((DecimalV3Type) type).getPrecision() > 38;
+        }
+        if (type instanceof ArrayType) {
+            return containsDecimal256(((ArrayType) type).getItemType());
+        }
+        return false;
     }
 
     private void validateBloomFilterProperties() {

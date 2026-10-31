@@ -80,6 +80,9 @@ public class CreateIndexOp extends AlterTableOp {
         }
 
         indexDef.validate();
+        if (indexDef.isVariantValuesIndex()) {
+            throw new AnalysisException("VARIANT values index can only be declared in CREATE TABLE");
+        }
         if (indexDef.getIndexType() == IndexType.INVERTED) {
             // Resolve names before duplicate checks and before the catalog index copies the properties.
             InvertedIndexUtil.resolvePolicyNames(indexDef.getProperties());
