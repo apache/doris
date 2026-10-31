@@ -119,6 +119,18 @@ std::optional<int64_t> parse_int64(std::string_view value) {
     return parsed;
 }
 
+// The pinned Lance SQL parser reads `-N` as the negation of the integer N and parses N as i64
+// first. INT64_MIN is the one i64 whose magnitude does not fit: N becomes Float64, which the
+// planner can coerce to neither Int64 nor Decimal, so a pushed filter that mentions it fails
+// planning.
+std::optional<int64_t> parse_lance_int64_literal(std::string_view value) {
+    const auto parsed = parse_int64(value);
+    if (!parsed.has_value() || *parsed == std::numeric_limits<int64_t>::min()) {
+        return std::nullopt;
+    }
+    return parsed;
+}
+
 bool integer_literal_fits_decimal_precision(std::string_view value, int32_t precision) {
     if (!value.empty() && (value.front() == '-' || value.front() == '+')) {
         value.remove_prefix(1);
@@ -136,7 +148,7 @@ bool integer_literal_fits_decimal_precision(std::string_view value, int32_t prec
 // narrower physical type.
 bool integer_literal_fits_physical_type(std::string_view value,
                                         const arrow::DataType& physical_type) {
-    const auto parsed = parse_int64(value);
+    const auto parsed = parse_lance_int64_literal(value);
     if (!parsed.has_value()) {
         return false;
     }
@@ -196,8 +208,8 @@ bool physical_type_supports_literal(PrimitiveType logical_type, std::string_view
         }
         const auto& decimal = static_cast<const arrow::DecimalType&>(physical_type);
         // A scale-bearing bare SQL token is parsed as Float64, which the pinned planner cannot
-        // coerce to Decimal. Scale-zero values are safe only while they parse exactly as i64.
-        return decimal.scale() == 0 && parse_int64(value).has_value() &&
+        // coerce to Decimal. Scale-zero values are safe only while Lance parses them as i64.
+        return decimal.scale() == 0 && parse_lance_int64_literal(value).has_value() &&
                integer_literal_fits_decimal_precision(value, decimal.precision());
     }
     case TYPE_CHAR:
