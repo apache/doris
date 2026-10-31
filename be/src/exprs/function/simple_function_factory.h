@@ -125,6 +125,7 @@ void register_function_binary(SimpleFunctionFactory& factory);
 void register_function_levenshtein(SimpleFunctionFactory& factory);
 void register_function_hamming_distance(SimpleFunctionFactory& factory);
 void register_function_soundex(SimpleFunctionFactory& factory);
+void register_function_human_readable_seconds(SimpleFunctionFactory& factory);
 void register_function_character_encoding(SimpleFunctionFactory& factory);
 
 #if defined(BE_TEST) && !defined(BE_BENCHMARK)
@@ -371,6 +372,7 @@ public:
             register_function_levenshtein(instance);
             register_function_hamming_distance(instance);
             register_function_soundex(instance);
+            register_function_human_readable_seconds(instance);
             register_function_character_encoding(instance);
             register_function_json_transform(instance);
             register_function_json_hash(instance);
