@@ -601,8 +601,13 @@ bool VariantColumnReader::_has_prefix_path_unlocked(const PathInData& relative_p
     return false;
 }
 
-bool VariantColumnReader::_need_read_flat_leaves(const StorageReadOptions* opts) {
+bool VariantColumnReader::_need_read_flat_leaves(const StorageReadOptions* opts,
+                                                 const TabletColumn& target_col) {
+    const int32_t uid = target_col.is_extracted_column() ? target_col.parent_unique_id()
+                                                         : target_col.unique_id();
     return opts != nullptr && opts->tablet_has_extracted_variant_columns &&
+           (opts->variant_compaction_paths == nullptr ||
+            opts->variant_compaction_paths->contains(uid)) &&
            is_compaction_or_checksum_reader(opts);
 }
 
@@ -789,7 +794,7 @@ bool VariantColumnReader::_try_build_nested_group_plan(ReadPlan* plan,
         return false;
     }
 
-    if (_need_read_flat_leaves(opt)) {
+    if (_need_read_flat_leaves(opt, target_col)) {
         return false;
     }
     return _try_fill_nested_group_plan(plan, target_col, opt, col_uid, relative_path);
@@ -859,7 +864,7 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
     // get the correct data if has extracted columns.
     // Flat-leaf compaction/checksum mode: delegate to dedicated planner which handles locking
     // and external meta loading internally.
-    if (_need_read_flat_leaves(opt)) {
+    if (_need_read_flat_leaves(opt, target_col)) {
         return _build_read_plan_flat_leaves(plan, target_col, opt, column_reader_cache,
                                             binary_column_cache_ptr);
     }

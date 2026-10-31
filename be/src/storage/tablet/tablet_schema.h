@@ -371,6 +371,8 @@ public:
 
     bool is_inverted_index() const { return _index_type == IndexType::INVERTED; }
 
+    bool is_variant_values_index() const;
+
     bool is_ann_index() const { return _index_type == IndexType::ANN; }
 
     void remove_parser_and_analyzer() {
