@@ -1374,13 +1374,16 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         try {
             executeAuthenticated(() -> {
-                if (containsFormatProperty(properties)) {
-                    Table table = catalogOps.loadTable(iceHandle.getDbName(), iceHandle.getTableName());
-                    if (IcebergSpatialSchemaValidator.containsSpatial(table.schema())) {
-                        IcebergSpatialSchemaValidator.validateTable(
-                                getEffectiveFormatVersion(table, properties),
-                                getEffectiveFileFormat(table, properties));
-                    }
+                if (IcebergSpatialSchemaValidator.containsFormatProperty(properties)) {
+                    // The preflight owns its load even when spatial format validation rejects it.
+                    catalogOps.withTable(iceHandle.getDbName(), iceHandle.getTableName(), table -> {
+                        if (IcebergSpatialSchemaValidator.containsSpatial(table.schema())) {
+                            IcebergSpatialSchemaValidator.validateTable(
+                                    getEffectiveFormatVersion(table, properties),
+                                    getEffectiveFileFormat(table, properties));
+                        }
+                        return null;
+                    });
                 }
                 catalogOps.setTableProperties(iceHandle.getDbName(), iceHandle.getTableName(), properties);
                 return null;
@@ -1390,12 +1393,6 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                     + iceHandle.getDbName() + "." + iceHandle.getTableName()
                     + ": " + ExceptionUtils.getRootCauseMessage(e), e);
         }
-    }
-
-    private static boolean containsFormatProperty(Map<String, String> properties) {
-        return properties.containsKey("write-format")
-                || properties.containsKey(TableProperties.DEFAULT_FILE_FORMAT)
-                || properties.containsKey(TableProperties.FORMAT_VERSION);
     }
 
     private static int getEffectiveFormatVersion(Table table, Map<String, String> properties) {
@@ -1945,9 +1942,11 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             spatial |= IcebergSpatialSchemaValidator.containsSpatial(change.getType());
         }
         if (spatial) {
-            Table table = catalogOps.loadTable(handle.getDbName(), handle.getTableName());
-            IcebergSpatialSchemaValidator.validateTable(getFormatVersion(table),
-                    IcebergWriterHelper.getFileFormat(table).name());
+            catalogOps.withTable(handle.getDbName(), handle.getTableName(), table -> {
+                IcebergSpatialSchemaValidator.validateTable(getFormatVersion(table),
+                        IcebergWriterHelper.getFileFormat(table).name());
+                return null;
+            });
         }
     }
 
