@@ -24,12 +24,16 @@ namespace {
 
 bool can_score_match(const TabletIndex* index_meta) {
     const auto& properties = index_meta->properties();
-    // parser=none can inherit support_phrase=true from FE defaults. MATCH statistics skip
-    // these keyword indexes, so their filters must not request a scoring context either.
-    return inverted_index::InvertedIndexAnalyzer::should_analyzer(properties) &&
-           (get_parser_phrase_support_string_from_properties(properties) ==
-                    INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES ||
-            IndexReaderHelper::is_normalizer_only(properties));
+    // A keyword index keeps each value as one term, without positions or norms, and its postings
+    // score with unit frequency and length whatever support_phrase says, as an Elasticsearch
+    // keyword field does: over tags (x, x, y, z), tag MATCH 'x' scores idf(x) = ln(2) for both
+    // matching rows, the same as SEARCH('tag:x'). MATCH statistics collect these terms too.
+    if (!inverted_index::InvertedIndexAnalyzer::should_analyzer(properties)) {
+        return true;
+    }
+    return get_parser_phrase_support_string_from_properties(properties) ==
+                   INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES ||
+           IndexReaderHelper::is_normalizer_only(properties);
 }
 
 } // namespace
