@@ -21,8 +21,14 @@
 #include <gtest/gtest-test-part.h>
 #include <netdb.h>
 
+#include <atomic>
+#include <future>
+#include <thread>
+#include <vector>
+
 #include "common/config.h"
 #include "gtest/gtest_pred_impl.h"
+#include "util/countdown_latch.h"
 
 namespace doris {
 
@@ -814,6 +820,296 @@ TEST_F(DNSCacheTest, refresh_stops_early_when_stopping) {
     EXPECT_EQ(calls_before, resolver_calls)
             << "a refresh cycle must not start resolving once the stop flag is set";
     EXPECT_EQ(1u, cache.size_for_test()) << "bailing out must leave the cache untouched";
+}
+
+TEST_F(DNSCacheTest, concurrent_cold_misses_reuse_completed_lookup) {
+    config::dns_cache_negative_ttl_seconds = 3600;
+    for (bool should_fail : {false, true}) {
+        SCOPED_TRACE(should_fail ? "negative cache" : "positive cache");
+        std::atomic<int> resolver_calls {0};
+        DNSCache cache([&](const std::string&, std::string& ip, bool, int* error) {
+            ++resolver_calls;
+            *error = should_fail ? EAI_AGAIN : 0;
+            ip = should_fail ? "" : "10.0.0.1";
+            return should_fail ? Status::InternalError<false>("resolver timed out") : Status::OK();
+        });
+        auto hostname_lock = std::make_shared<std::mutex>();
+        cache._refresh_locks.emplace("cold.test", hostname_lock);
+        std::unique_lock blocked(*hostname_lock);
+        constexpr int callers = 3;
+        std::vector<std::thread> workers;
+        for (int i = 0; i < callers; ++i) {
+            workers.emplace_back([&] {
+                std::string ip;
+                auto status = cache.get("cold.test", &ip);
+                EXPECT_EQ(status.ok(), !should_fail);
+                if (!should_fail) {
+                    EXPECT_EQ(ip, "10.0.0.1");
+                }
+            });
+        }
+        // Each _update retains one lock reference after passing get()'s cache checks.
+        // Hold DNS until every cold miss is queued, without timing resolver sleeps.
+        bool all_queued = false;
+        auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (hostname_lock.use_count() == callers + 2) {
+                all_queued = true;
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        blocked.unlock();
+        for (auto& worker : workers) {
+            worker.join();
+        }
+        EXPECT_TRUE(all_queued);
+        EXPECT_EQ(resolver_calls.load(), 1);
+        EXPECT_EQ(cache.negative_cache_size_for_test(), should_fail ? 1u : 0u);
+    }
+}
+
+TEST_F(DNSCacheTest, invalidation_resolves_replaced_pod_and_clears_negative_cache) {
+    config::dns_cache_max_consecutive_failures = 1;
+    config::dns_cache_negative_ttl_seconds = 3600;
+    bool fail = false;
+    std::string current_ip = "10.0.0.1";
+    DNSCache cache([&](const std::string&, std::string& ip, bool, int* error) {
+        *error = fail ? EAI_NONAME : 0;
+        if (fail) {
+            return Status::InternalError("pod DNS removed");
+        }
+        ip = current_ip;
+        return Status::OK();
+    });
+    std::string ip;
+    ASSERT_TRUE(cache.get("be.test", &ip).ok());
+    EXPECT_EQ(ip, "10.0.0.1");
+    current_ip = "10.0.0.2";
+    cache.invalidate("be.test");
+    EXPECT_EQ(1u, cache.size_for_test());
+    ASSERT_TRUE(cache.get("be.test", &ip).ok());
+    EXPECT_EQ(ip, "10.0.0.2");
+    fail = true;
+    cache.refresh_for_test();
+    EXPECT_FALSE(cache.get("be.test", &ip).ok());
+    fail = false;
+    current_ip = "10.0.0.3";
+    cache.invalidate("be.test");
+    ASSERT_TRUE(cache.get("be.test", &ip).ok());
+    EXPECT_EQ(ip, "10.0.0.3");
+}
+
+TEST_F(DNSCacheTest, newer_invalidation_survives_authoritative_background_failure) {
+    config::dns_cache_max_consecutive_failures = 1;
+    config::dns_cache_negative_ttl_seconds = 3600;
+    std::atomic<int> calls {0};
+    CountDownLatch resolving(1);
+    CountDownLatch finish_lookup(1);
+    DNSCache cache([&](const std::string&, std::string& ip, bool, int* error) {
+        int call = calls.fetch_add(1);
+        if (call == 1) {
+            resolving.count_down();
+            finish_lookup.wait();
+            *error = EAI_NONAME;
+            return Status::InternalError<false>("older NXDOMAIN result");
+        }
+        *error = 0;
+        ip = call == 0 ? "10.0.0.1" : "10.0.0.2";
+        return Status::OK();
+    });
+    std::string ip;
+    ASSERT_TRUE(cache.get("be.test", &ip).ok());
+    std::thread background([&] { cache.refresh_for_test(); });
+    resolving.wait();
+    cache.invalidate("be.test");
+    finish_lookup.count_down();
+    background.join();
+
+    EXPECT_EQ(cache.negative_cache_size_for_test(), 0u);
+    ASSERT_TRUE(cache.get("be.test", &ip).ok());
+    EXPECT_EQ(ip, "10.0.0.2");
+    EXPECT_EQ(calls.load(), 3);
+}
+
+TEST_F(DNSCacheTest, newer_invalidation_survives_failed_cold_retry) {
+    config::dns_cache_max_consecutive_failures = 1;
+    config::dns_cache_negative_ttl_seconds = 3600;
+    std::atomic<int> calls {0};
+    CountDownLatch resolving(1);
+    CountDownLatch finish_lookup(1);
+    DNSCache cache([&](const std::string&, std::string& ip, bool, int* error) {
+        int call = calls.fetch_add(1);
+        if (call == 2) {
+            resolving.count_down();
+            finish_lookup.wait();
+        }
+        if (call == 1 || call == 2) {
+            *error = EAI_NONAME;
+            return Status::InternalError<false>("older NXDOMAIN result");
+        }
+        *error = 0;
+        ip = call == 0 ? "10.0.0.1" : "10.0.0.2";
+        return Status::OK();
+    });
+    std::string ip;
+    ASSERT_TRUE(cache.get("be.test", &ip).ok());
+    cache.refresh_for_test();
+    ASSERT_EQ(cache.size_for_test(), 0u);
+    ASSERT_EQ(cache.negative_cache_size_for_test(), 1u);
+    cache._expire_negative_cache_for_test();
+
+    Status retry_status;
+    std::thread retry([&] { retry_status = cache.get("be.test", &ip); });
+    resolving.wait();
+    // The evicted pod's retained stub reports a fault after the cold retry started.
+    cache.invalidate("be.test");
+    finish_lookup.count_down();
+    retry.join();
+
+    EXPECT_FALSE(retry_status.ok());
+    EXPECT_EQ(cache.negative_cache_size_for_test(), 0u);
+    // No additional TTL expiry is needed to resolve the replacement pod.
+    ASSERT_TRUE(cache.get("be.test", &ip).ok());
+    EXPECT_EQ(ip, "10.0.0.2");
+    EXPECT_EQ(calls.load(), 4);
+}
+
+TEST_F(DNSCacheTest, warm_reader_waits_for_forced_refresh) {
+    for (bool fail_refresh : {false, true}) {
+        SCOPED_TRACE(fail_refresh ? "fallback after failure" : "replacement IP");
+        std::atomic<int> calls {0};
+        CountDownLatch resolving(1);
+        CountDownLatch finish_lookup(1);
+        DNSCache cache([&](const std::string&, std::string& ip, bool, int* error) {
+            int call = calls.fetch_add(1);
+            if (call != 0) {
+                resolving.count_down();
+                finish_lookup.wait();
+                if (fail_refresh) {
+                    *error = EAI_AGAIN;
+                    return Status::InternalError<false>("temporary resolver failure");
+                }
+            }
+            *error = 0;
+            ip = call == 0 ? "10.0.0.1" : "10.0.0.2";
+            return Status::OK();
+        });
+        std::string first_ip;
+        ASSERT_TRUE(cache.get("be.test", &first_ip).ok());
+        cache.invalidate("be.test");
+        Status first_status;
+        std::thread first([&] { first_status = cache.get("be.test", &first_ip); });
+        resolving.wait();
+        CountDownLatch second_started(1);
+        std::string second_ip;
+        std::promise<Status> second_status;
+        auto result = second_status.get_future();
+        std::thread second([&] {
+            second_started.count_down();
+            second_status.set_value(cache.get("be.test", &second_ip));
+        });
+        second_started.wait();
+        auto before_release = result.wait_for(std::chrono::milliseconds(100));
+        finish_lookup.count_down();
+        first.join();
+        second.join();
+
+        EXPECT_EQ(before_release, std::future_status::timeout);
+        EXPECT_TRUE(first_status.ok());
+        EXPECT_TRUE(result.get().ok());
+        EXPECT_EQ(first_ip, fail_refresh ? "10.0.0.1" : "10.0.0.2");
+        EXPECT_EQ(second_ip, first_ip);
+        EXPECT_EQ(calls.load(), 2);
+    }
+}
+
+TEST_F(DNSCacheTest, invalidation_preserves_fallback_during_transient_dns_failure) {
+    config::dns_cache_max_consecutive_failures = 1;
+    config::dns_cache_negative_ttl_seconds = 3600;
+    bool fail = false;
+    int resolver_calls = 0;
+    std::string current_ip = "10.0.0.1";
+    DNSCache cache([&](const std::string&, std::string& ip, bool, int* error) {
+        ++resolver_calls;
+        *error = fail ? EAI_AGAIN : 0;
+        if (fail) {
+            return Status::InternalError("temporary resolver outage");
+        }
+        ip = current_ip;
+        return Status::OK();
+    });
+    std::string ip;
+    ASSERT_TRUE(cache.get("be.test", &ip).ok());
+    fail = true;
+    for (int i = 0; i < 3; ++i) {
+        cache.invalidate("be.test");
+        ASSERT_TRUE(cache.get("be.test", &ip).ok());
+        EXPECT_EQ(ip, "10.0.0.1");
+        EXPECT_EQ(0u, cache.negative_cache_size_for_test());
+    }
+    EXPECT_EQ(resolver_calls, 4);
+    EXPECT_EQ(cache.failure_count_for_test("be.test"), 3u);
+    cache.refresh_for_test();
+    EXPECT_EQ(1u, cache.size_for_test());
+
+    // A new connection after DNS recovers must not wait for the negative TTL,
+    // whether the peer kept its address or moved to a new pod.
+    fail = false;
+    cache.invalidate("be.test");
+    ASSERT_TRUE(cache.get("be.test", &ip).ok());
+    EXPECT_EQ(ip, "10.0.0.1");
+    current_ip = "10.0.0.2";
+    cache.invalidate("be.test");
+    ASSERT_TRUE(cache.get("be.test", &ip).ok());
+    EXPECT_EQ(ip, "10.0.0.2");
+    EXPECT_EQ(0u, cache.failure_count_for_test("be.test"));
+}
+
+TEST_F(DNSCacheTest, background_failure_cannot_overwrite_forced_refresh) {
+    config::dns_cache_max_consecutive_failures = 1;
+    std::atomic<int> calls {0};
+    CountDownLatch background_started(1);
+    CountDownLatch release_background(1);
+    DNSCache cache([&](const std::string&, std::string& ip, bool, int* error) {
+        int call = calls.fetch_add(1);
+        if (call == 1) {
+            background_started.count_down();
+            release_background.wait();
+            *error = EAI_AGAIN;
+            return Status::InternalError<false>("older background lookup failed");
+        }
+        *error = 0;
+        ip = call == 0 ? "10.0.0.1" : "10.0.0.2";
+        return Status::OK();
+    });
+    std::string ip;
+    ASSERT_TRUE(cache.get("be.test", &ip).ok());
+    std::thread background([&] { cache.refresh_for_test(); });
+    background_started.wait();
+    cache.invalidate("be.test");
+    CountDownLatch forced_started(1);
+    std::promise<Status> forced_result;
+    auto result = forced_result.get_future();
+    std::string forced_ip;
+    std::thread forced([&] {
+        forced_started.count_down();
+        forced_result.set_value(cache.get("be.test", &forced_ip));
+    });
+    forced_started.wait();
+    const auto before_release = result.wait_for(std::chrono::milliseconds(100));
+    release_background.count_down();
+    background.join();
+    forced.join();
+
+    EXPECT_EQ(before_release, std::future_status::timeout);
+    EXPECT_TRUE(result.get().ok());
+    EXPECT_EQ(forced_ip, "10.0.0.2");
+    ASSERT_TRUE(cache.get("be.test", &ip).ok());
+    EXPECT_EQ(ip, "10.0.0.2");
+    EXPECT_EQ(calls.load(), 3);
+    EXPECT_EQ(cache.negative_cache_size_for_test(), 0u);
+    EXPECT_TRUE(cache._refresh_locks.empty());
 }
 
 } // end of namespace doris

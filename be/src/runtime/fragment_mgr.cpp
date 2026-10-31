@@ -71,6 +71,7 @@
 #include "load/stream_load/new_load_stream_mgr.h"
 #include "load/stream_load/stream_load_context.h"
 #include "load/stream_load/stream_load_executor.h"
+#include "runtime/cluster_info.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/frontend_info.h"
@@ -918,6 +919,13 @@ void FragmentMgr::_collect_invalid_queries(
                     }
                 }
 
+                // Stream-load coordinators live on BE and can finish their transaction
+                // against a new FE master. Losing the originating FE during a planned
+                // restart must not cancel that load. Timeout/leak checks above still run.
+                if (q_ctx->get_query_source() == QuerySource::STREAM_LOAD &&
+                    _exec_env->cluster_info()->in_graceful_shutdown()) {
+                    continue;
+                }
                 auto itr = running_fes.find(q_ctx->coord_addr);
                 if (itr != running_fes.end()) {
                     if (fe_process_uuid == itr->second.info.process_uuid ||

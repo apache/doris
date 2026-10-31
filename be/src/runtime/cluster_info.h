@@ -29,6 +29,14 @@ namespace doris {
 // These info are usually in heartbeat from Master FE.
 class ClusterInfo {
 public:
+    bool in_graceful_shutdown() const {
+        return _in_graceful_shutdown.load(std::memory_order_relaxed);
+    }
+
+    void set_in_graceful_shutdown(bool enabled) {
+        _in_graceful_shutdown.store(enabled, std::memory_order_relaxed);
+    }
+
     int64_t changelog_ttl_reference_tso() const {
         return _changelog_ttl_reference_tso.load(std::memory_order_acquire);
     }
@@ -59,6 +67,7 @@ public:
     std::string last_auth_token = "";
 
 private:
+    std::atomic<bool> _in_graceful_shutdown {false};
     std::atomic<int64_t> _changelog_ttl_reference_tso {0};
 };
 

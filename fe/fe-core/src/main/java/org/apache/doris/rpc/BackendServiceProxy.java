@@ -91,6 +91,21 @@ public class BackendServiceProxy {
         return Holder.get();
     }
 
+    public static void invalidateForAll(TNetworkAddress address) {
+        for (BackendServiceProxy proxy : Holder.proxies) {
+            BackendServiceClientExtIp removed;
+            proxy.lock.lock();
+            try {
+                removed = proxy.serviceMap.remove(address);
+            } finally {
+                proxy.lock.unlock();
+            }
+            if (removed != null) {
+                removed.client.shutdownGracefully();
+            }
+        }
+    }
+
     private class BackendServiceClientExtIp {
         private String realIp;
         private BackendServiceClient client;
@@ -113,7 +128,7 @@ public class BackendServiceProxy {
         }
 
         if (serviceClientExtIp != null) {
-            serviceClientExtIp.client.shutdown();
+            serviceClientExtIp.client.shutdownGracefully();
         }
     }
 
@@ -162,7 +177,8 @@ public class BackendServiceProxy {
         } finally {
             lock.unlock();
             if (removedClient != null) {
-                removedClient.shutdown();
+                // Replacement must not force-close another query's outstanding RPC.
+                removedClient.shutdownGracefully();
             }
         }
     }

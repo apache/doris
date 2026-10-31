@@ -17,11 +17,16 @@
 
 #include "util/brpc_client_cache.h"
 
+#include <brpc/closure_guard.h>
+#include <brpc/server.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <atomic>
+
 #include "gtest/gtest_pred_impl.h"
+#include "util/debug/leakcheck_disabler.h"
 
 namespace doris {
 
@@ -100,6 +105,89 @@ TEST_F(BrpcClientCacheTest, failure) {
     EXPECT_FALSE(static_cast<FailureDetectChannel*>(stub4->channel())->channel_status()->ok());
 
     // Check map size is 1
+    EXPECT_EQ(1, cache.size());
+}
+
+class BrpcRecoveryHandshakeTest : public testing::Test {
+protected:
+    class HandshakeService : public PBackendService {
+    public:
+        std::atomic<int> attempts {0};
+        std::atomic<int> failures {0};
+
+        void hand_shake(google::protobuf::RpcController*, const PHandShakeRequest* request,
+                        PHandShakeResponse* response, google::protobuf::Closure* done) override {
+            brpc::ClosureGuard guard(done);
+            if (attempts.fetch_add(1) < failures.load()) {
+                Status::InternalError("peer is still recovering")
+                        .to_protobuf(response->mutable_status());
+                return;
+            }
+            Status::OK().to_protobuf(response->mutable_status());
+            response->set_hello(request->hello());
+        }
+    };
+
+    void SetUp() override {
+        ASSERT_EQ(0, _server.AddService(&_service, brpc::SERVER_DOESNT_OWN_SERVICE));
+        // brpc's built-in services live until process exit.
+        debug::ScopedLeakCheckDisabler disable_lsan;
+        ASSERT_EQ(0, _server.Start("127.0.0.1:0", nullptr));
+    }
+
+    void TearDown() override {
+        _server.Stop(0);
+        _server.Join();
+    }
+
+    HandshakeService _service;
+    brpc::Server _server;
+};
+
+TEST_F(BrpcRecoveryHandshakeTest, ProbesNewAndRebuiltChannelsButNotCacheHits) {
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* previous = exec_env->cluster_info();
+    ClusterInfo cluster_info;
+    cluster_info.set_in_graceful_shutdown(true);
+    exec_env->set_cluster_info(&cluster_info);
+    Defer restore([&] { exec_env->set_cluster_info(previous); });
+
+    BrpcClientCache<PBackendService_Stub> cache;
+    _service.failures = 1;
+    auto stub = cache.get_client("127.0.0.1", _server.listen_address().port);
+    ASSERT_NE(nullptr, stub);
+    EXPECT_EQ(2, _service.attempts.load());
+    EXPECT_EQ(stub, cache.get_client("127.0.0.1", _server.listen_address().port));
+    EXPECT_EQ(2, _service.attempts.load());
+
+    static_cast<FailureDetectChannel*>(stub->channel())
+            ->channel_status()
+            ->update(Status::NetworkError("old pod connection closed"));
+    auto rebuilt = cache.get_client("127.0.0.1", _server.listen_address().port);
+    ASSERT_NE(nullptr, rebuilt);
+    EXPECT_NE(stub, rebuilt);
+    EXPECT_EQ(3, _service.attempts.load());
+    EXPECT_EQ(1, cache.size());
+}
+
+TEST_F(BrpcRecoveryHandshakeTest, DisabledModeDoesNotProbe) {
+    BrpcClientCache<PBackendService_Stub> cache;
+    _service.failures = 5;
+    EXPECT_NE(nullptr, cache.get_client("127.0.0.1", _server.listen_address().port, false));
+    EXPECT_EQ(0, _service.attempts.load());
+    EXPECT_NE(nullptr, cache.get_client("127.0.0.1", _server.listen_address().port, true));
+    EXPECT_EQ(0, _service.attempts.load());
+}
+
+TEST_F(BrpcRecoveryHandshakeTest, ExhaustedProbesDoNotPublishFailedChannel) {
+    BrpcClientCache<PBackendService_Stub> cache;
+    _service.failures = 5;
+    EXPECT_EQ(nullptr, cache.get_client("127.0.0.1", _server.listen_address().port, true));
+    EXPECT_EQ(5, _service.attempts.load());
+    EXPECT_EQ(0, cache.size());
+    _service.failures = 0;
+    EXPECT_NE(nullptr, cache.get_client("127.0.0.1", _server.listen_address().port, true));
+    EXPECT_EQ(6, _service.attempts.load());
     EXPECT_EQ(1, cache.size());
 }
 

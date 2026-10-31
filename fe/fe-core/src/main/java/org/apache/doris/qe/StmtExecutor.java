@@ -1378,6 +1378,10 @@ public class StmtExecutor {
                         } catch (InterruptedException e) {
                             LOG.info("stmt executor sleep wait InterruptedException: ", e);
                         }
+                    } else if (VariableMgr.getDefaultSessionVariable().enableGracefulShutdown) {
+                        // A heartbeat can precede network convergence after a pod restart.
+                        // Preserve the existing safe-to-retry checks and result-sent guard below.
+                        Thread.sleep(Math.min(1000L * i, 3000L));
                     }
                 }
                 if (i > 0) {
