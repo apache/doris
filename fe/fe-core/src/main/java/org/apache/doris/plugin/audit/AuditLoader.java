@@ -36,7 +36,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.TimeUnit;
 
 /*
  * This plugin will load audit log to specified doris table at specified interval
@@ -46,6 +45,11 @@ public class AuditLoader extends Plugin implements AuditPlugin {
 
     public static final String AUDIT_LOG_TABLE = "audit_log";
 
+    /**
+     * How long the load worker sleeps between queue polls (millis).
+     */
+    public static final long QUEUE_POLL_INTERVAL_MILLIS = 5_000L;
+
     // the "0x1F" and "0x1E" are used to separate columns and lines in audit log data
     public static final char AUDIT_TABLE_COL_SEPARATOR = 0x1F;
     public static final char AUDIT_TABLE_LINE_DELIMITER = 0x1E;
@@ -54,9 +58,11 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     public static final String AUDIT_TABLE_COL_SEPARATOR_STR = "\\x1F";
     public static final String AUDIT_TABLE_LINE_DELIMITER_STR = "\\x1E";
 
+
     private StringBuilder auditLogBuffer = new StringBuilder();
     private int auditLogNum = 0;
     private long lastLoadTimeAuditLog = 0;
+
     // sometimes the audit log may fail to load to doris, count it to observe.
     private long discardLogNum = 0;
 
@@ -145,12 +151,16 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         ++auditLogNum;
     }
 
+    /**
+     * Appends one event's row to the batch buffer.
+     */
     private void fillLogBuffer(AuditEvent event, StringBuilder logBuffer) {
         // should be same order as InternalSchema.AUDIT_SCHEMA
 
         // uuid and time
         appendField(logBuffer, event.queryId);
-        logBuffer.append(TimeUtils.longToTimeStringWithms(event.timestamp)).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(TimeUtils.longToTimeStringWithms(event.timestamp))
+                .append(AUDIT_TABLE_COL_SEPARATOR);
 
         // cs info
         appendField(logBuffer, event.clientIp);
@@ -233,7 +243,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
      * column separator. The value is sanitized first so that user-controlled text (SQL statement,
      * identifiers, session-variable values, error messages, ...) cannot embed the column separator
      * (0x1F) or row delimiter (0x1E) and thereby forge, truncate, or misattribute audit rows in the
-     * internal {@code audit_log} table (O07 / CWE-117 log injection). Numeric and boolean columns
+     * internal audit_log table (O07 / CWE-117 log injection). Numeric and boolean columns
      * are appended directly since they can never contain these bytes.
      */
     private static void appendField(StringBuilder logBuffer, String value) {
@@ -241,9 +251,9 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     }
 
     /**
-     * Append the final string column of a row: sanitize the value (same reason as {@link
-     * #appendField}) and terminate the row with the line delimiter. Every string column is written
-     * through {@code appendField}/{@code appendLastField} so none can bypass the sanitizer.
+     * Append the final string column of a row: sanitize the value (same reason as
+     * appendField) and terminate the row with the line delimiter. Every string column is written
+     * through appendField/appendLastField so none can bypass the sanitizer.
      */
     private static void appendLastField(StringBuilder logBuffer, String value) {
         logBuffer.append(sanitizeField(value)).append(AUDIT_TABLE_LINE_DELIMITER);
@@ -302,9 +312,11 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     }
 
     private void resetBatch(long currentTime) {
-        this.auditLogBuffer = new StringBuilder();
-        this.lastLoadTimeAuditLog = currentTime;
-        this.auditLogNum = 0;
+        synchronized (this) {
+            this.auditLogBuffer = new StringBuilder();
+            this.lastLoadTimeAuditLog = currentTime;
+            this.auditLogNum = 0;
+        }
     }
 
     private class LoadWorker implements Runnable {
@@ -315,9 +327,14 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         public void run() {
             while (!isClosed) {
                 try {
-                    AuditEvent event = auditEventQueue.poll(5, TimeUnit.SECONDS);
-                    if (event != null) {
-                        assembleAudit(event);
+                    // the poll and the assembly are ONE atomic step (see
+                    // transferNextEvent): a reader of the audit batch state must never
+                    // see the event in neither the queue nor the batch
+                    AuditEvent event = transferNextEvent();
+                    if (event == null) {
+                        // idle: wait OUTSIDE the monitor so another transfer is never
+                        // blocked by an empty queue
+                        Thread.sleep(QUEUE_POLL_INTERVAL_MILLIS);
                     }
                     // process all audit logs
                     loadIfNecessary(false);
@@ -329,6 +346,24 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                     LOG.error("run audit logger error:", e);
                 }
             }
+        }
+    }
+
+    /**
+     * Moves ONE queued event into the current batch, ATOMICALLY with the batch state
+     * read: the poll and the assembly happen under the loader monitor, so an accepted
+     * event is always visible - in the queue before the poll, in the batch after the
+     * assembly, never in neither.
+     *
+     * @return the transferred event, or null when the queue is empty
+     */
+    private AuditEvent transferNextEvent() throws InterruptedException {
+        synchronized (this) {
+            AuditEvent event = auditEventQueue.poll();
+            if (event != null) {
+                assembleAudit(event);
+            }
+            return event;
         }
     }
 }

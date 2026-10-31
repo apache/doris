@@ -79,4 +79,27 @@ suite("load") {
     sql new File("""${context.file.parent}/ddl/${table}_delete.sql""").text
     sql new File("""${context.file.parent}/ddl/${table}.sql""").text
     sql """ sync """
+
+    // The SPM suites freeze the plan_sql of a captured baseline and compare it against
+    // the .out goldens, so the whole run must plan against ONE statistics snapshot:
+    // analyze every table ONCE here, after the reload above (the suites never re-analyze
+    // or change data). Re-collecting statistics inside every suite while suites ran in
+    // parallel kept invalidating the FE statistics caches and made the captured plan of
+    // a few semi-join queries flip between runs. Wait for the row count report first
+    // (like the tpcds load), so ANALYZE never runs while the FE row counts still catch
+    // up with the load. The wait must comfortably exceed the asynchronous post-load
+    // settle (row count/size reports, compaction) of ALL tables: capture before the
+    // settle completes lets a borderline cost estimate land on either side of a tie,
+    // which is what made a few SPM plan_sql goldens flip between parallel runs.
+    Thread.sleep(240000)
+    for (def tbl : ["customer",
+            "lineitem",
+            "nation",
+            "orders",
+            "part",
+            "partsupp",
+            "region",
+            "supplier"]) {
+        sql "analyze table regression_test_tpch_sf0_1_p1.${tbl} with sync"
+    }
 }

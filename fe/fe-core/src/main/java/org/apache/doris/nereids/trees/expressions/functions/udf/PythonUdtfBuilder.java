@@ -22,6 +22,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.ReflectionUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
@@ -56,6 +57,11 @@ public class PythonUdtfBuilder extends UdfBuilder {
     @Override
     public List<FunctionSignature> getSignatures() {
         return udtf.getSignatures();
+    }
+
+    @Override
+    public Udf getUdf() {
+        return udtf;
     }
 
     @Override

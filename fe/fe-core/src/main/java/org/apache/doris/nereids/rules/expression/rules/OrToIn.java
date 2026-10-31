@@ -266,7 +266,7 @@ public class OrToIn {
                 if (compareExpr != null) {
                     Set<Literal> literals = candidates.get(compareExpr);
                     if (literals == null) {
-                        literals = Sets.newHashSet();
+                        literals = Sets.newLinkedHashSet();
                         literals.add(literal);
                         candidates.put(compareExpr, literals);
                     } else {

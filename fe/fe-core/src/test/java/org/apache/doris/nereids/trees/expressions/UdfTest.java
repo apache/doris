@@ -52,6 +52,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.util.List;
+import java.util.Map;
 
 public class UdfTest extends TestWithFeService implements PlanPatternMatchSupported {
     @Override
@@ -154,27 +155,35 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
 
         String sql = "select f7('2023-05-20 12:23:45', 3)";
 
+        // The alias-UDF expansion retains the session-variable guards as the UDF
+        // DEPENDENCY MARKER (see AliasUdfBuilder): the body evaluates under the
+        // definition's saved variables, so every guarded arithmetic node of the
+        // expansion stays wrapped even though the creator's variables currently
+        // match the saved ones - a frozen SPM plan must be able to see the marker.
+        Map<String, String> savedVariables =
+                connectContext.getSessionVariable().getAffectQueryResultInPlanVariables();
+        Expression guardedInnerDivide = new SessionVarGuardExpr(new Divide(
+                new Cast(new TinyIntLiteral(((byte) 24)), DoubleType.INSTANCE),
+                new Cast(new IntegerLiteral(((byte) 3)), DoubleType.INSTANCE)
+        ), savedVariables);
+        Expression hourDivide = new Divide(
+                new Cast(
+                        new Hour(new Cast(new VarcharLiteral("2023-05-20 12:23:45"), DateTimeV2Type.SYSTEM_DEFAULT)),
+                        DoubleType.INSTANCE
+                ),
+                guardedInnerDivide);
         Expression expected = new DateFormat(
                 new HoursAdd(
                         new DateTrunc(
                                 new Cast(new VarcharLiteral("2023-05-20 12:23:45"), DateTimeV2Type.SYSTEM_DEFAULT),
                                 new VarcharLiteral("day")),
-                        new Cast(new Add(
-                                new Multiply(
-                                        new Floor(new Divide(
-                                                new Cast(
-                                                        new Hour(new Cast(new VarcharLiteral("2023-05-20 12:23:45"), DateTimeV2Type.SYSTEM_DEFAULT)),
-                                                        DoubleType.INSTANCE
-                                                ),
-                                                new Divide(
-                                                        new Cast(new TinyIntLiteral(((byte) 24)), DoubleType.INSTANCE),
-                                                        new Cast(new IntegerLiteral(((byte) 3)), DoubleType.INSTANCE)
-                                                ))
-                                        ),
+                        new Cast(new SessionVarGuardExpr(new Add(
+                                new SessionVarGuardExpr(new Multiply(
+                                        new Floor(new SessionVarGuardExpr(hourDivide, savedVariables)),
                                         new Cast(new TinyIntLiteral(((byte) 1)), DoubleType.INSTANCE)
-                                ),
+                                ), savedVariables),
                                 new Cast(new TinyIntLiteral(((byte) 1)), DoubleType.INSTANCE)
-                        ), IntegerType.INSTANCE)
+                        ), savedVariables), IntegerType.INSTANCE)
                 ),
                 new VarcharLiteral("%Y%m%d:%H")
         );
