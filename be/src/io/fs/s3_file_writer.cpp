@@ -17,7 +17,6 @@
 
 #include "io/fs/s3_file_writer.h"
 
-#include <aws/s3/model/CompletedPart.h>
 #include <bvar/recorder.h>
 #include <bvar/reducer.h>
 #include <bvar/window.h>
@@ -68,7 +67,6 @@ S3FileWriter::S3FileWriter(std::shared_ptr<ObjClientHolder> client, std::string 
           _obj_client(std::move(client)) {
     s3_file_writer_total << 1;
     s3_file_being_written << 1;
-    Aws::Http::SetCompliantRfc3986Encoding(true);
 
     init_cache_builder(opts, _obj_storage_path_opts.path);
 }

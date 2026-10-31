@@ -23,8 +23,8 @@
 
 #include "common/config.h"
 #include "gtest/gtest_pred_impl.h"
+#include "io/obj_storage/obj_storage_uri.h"
 #include "util/s3_rate_limiter_manager.h"
-#include "util/s3_uri.h"
 
 namespace doris {
 

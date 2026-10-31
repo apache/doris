@@ -66,6 +66,7 @@
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_system.h"
+#include "io/obj_storage/obj_storage_config_resolver.h"
 #include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -1741,8 +1742,9 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
 
     if (!existed_fs) {
         // No such FS instance on BE
-        auto res = io::S3FileSystem::create(S3Conf::get_s3_conf(param.s3_storage_param),
-                                            std::to_string(param.id));
+        auto res = io::S3FileSystem::create(
+                io::ObjStorageConfigResolver::from_storage_param(param.s3_storage_param),
+                std::to_string(param.id));
         if (!res.has_value()) {
             st = std::move(res).error();
         } else {
@@ -1751,9 +1753,8 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
     } else {
         DCHECK_EQ(existed_fs->type(), io::FileSystemType::S3) << param.id << ' ' << param.name;
         auto client = static_cast<io::S3FileSystem*>(existed_fs.get())->client_holder();
-        auto new_s3_conf = S3Conf::get_s3_conf(param.s3_storage_param);
-        S3ClientConf conf = std::move(new_s3_conf.client_conf);
-        st = client->reset(conf);
+        auto config = io::ObjStorageConfigResolver::from_storage_param(param.s3_storage_param);
+        st = client->reset(config.client);
         fs = std::move(existed_fs);
     }
 

@@ -47,6 +47,7 @@
 #include "storage/rowset/rowset_meta.h"
 #include "storage/storage_policy.h"
 #include "storage/tablet/tablet_meta.h"
+#include "testutil/obj_storage_test_util.h"
 #include "util/defer_op.h"
 #include "util/s3_util.h"
 #include "util/threadpool.h"
@@ -1230,18 +1231,8 @@ TEST_F(CloudCompactionTest, parallel_pick_does_not_advance_from_high_range_delet
 }
 
 TEST_F(CloudCompactionTest, test_set_storage_resource_from_input_rowsets) {
-    S3Conf s3_conf {.bucket = "bucket",
-                    .prefix = "prefix",
-                    .client_conf = {
-                            .endpoint = "endpoint",
-                            .region = "region",
-                            .ak = "ak",
-                            .sk = "sk",
-                            .token = "",
-                            .bucket = "",
-                            .role_arn = "",
-                            .external_id = "",
-                    }};
+    io::ObjStorageConfig s3_conf =
+            io::make_test_s3_storage_config("bucket", "prefix", "endpoint", "region", "ak", "sk");
     std::string resource_id = "10000";
     auto res = io::S3FileSystem::create(std::move(s3_conf), resource_id);
     ASSERT_TRUE(res.has_value()) << res.error();
