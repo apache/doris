@@ -814,8 +814,7 @@ public:
 };
 
 // The projection belongs to this operator and transforms its original output into the final
-// output consumed by downstream operators. Most operators execute it after get_block(), while
-// Scan executes it in Scanner before the block enters ScannerContext's queue.
+// output consumed by downstream operators. It executes after get_block() on the pipeline thread.
 struct OperatorProjection {
     OperatorProjection(const DescriptorTbl& descs, TTupleId output_tuple_id)
             : output_row_descriptor(descs, std::vector {output_tuple_id}) {}
@@ -941,9 +940,7 @@ public:
     [[nodiscard]] OperatorPtr get_child() { return _child; }
 
     [[nodiscard]] VExprContextSPtrs& conjuncts() { return _conjuncts; }
-    // Describes the operator's original output before its optional projection. For most operators
-    // this is the block returned by get_block(); Scan uses it to describe Scanner's unprojected
-    // block because Scan executes the projection before ScanOperatorX::get_block_impl().
+    // Describes the block returned by get_block(), before this operator's optional projection.
     [[nodiscard]] const RowDescriptor& operator_row_desc_before_projection() const {
         return _row_descriptor;
     }

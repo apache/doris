@@ -269,7 +269,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                         break;
                     }
                     // We got a new created block or a reused block.
-                    status = scanner->get_block_after_projects(state, free_block.get(), &eos);
+                    status = scanner->get_block_for_queue(state, free_block.get(), &eos);
                     first_read = false;
                     if (!status.ok()) {
                         LOG(WARNING) << "Scan thread read Scanner failed: " << status.to_string();
@@ -279,7 +279,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     // Or it may cause a crash when the block is not normal.
                     _make_sure_virtual_col_is_materialized(scanner, free_block.get());
 
-                    // Projection will truncate useless columns, makes block size change.
+                    // Account for the raw block queued for consumer-side projection.
                     auto free_block_bytes = free_block->allocated_bytes();
                     ctx->reestimated_block_mem_bytes(cast_set<int64_t>(free_block_bytes));
                     DCHECK(scan_task->cached_block == nullptr);
