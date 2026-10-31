@@ -16,7 +16,7 @@
 // under the License.
 
 
-// Doris no longer reads standalone Avro files: #69601 removed the BE reader, and FE rejects
+// Doris no longer reads standalone Avro files: #61141 removed the BE reader, and FE rejects
 // format=avro while it analyzes a table function's properties, before it validates the storage
 // properties or lists a file. These calls therefore fail with that message although the bucket, the
 // credentials and the HDFS address are made up. Before #69601 FE accepted the format and the query
