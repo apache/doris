@@ -53,6 +53,7 @@ public class TaskProcessor {
             return true;
         } catch (RejectedExecutionException e) {
             log.warn("Failed to add task to executor, task id: {}", task.getTaskId(), e);
+            task.onRejected();
             return false;
         }
     }
