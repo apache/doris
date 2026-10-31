@@ -91,8 +91,11 @@ public class ExpressionAnalyzerTest {
         }
         for (Expression input : ImmutableList.of(noValues, root.withSubPath(ImmutableList.of("obj")),
                 new ElementAt(root, new StringLiteral("obj")),
+                new Alias(new ElementAt(root, new StringLiteral("obj")), "o").toSlot(),
+                new Alias(root.withSubPath(ImmutableList.of("obj")), "pruned_o").toSlot(),
                 new SlotReference("union_output", VariantType.INSTANCE),
                 new Cast(root, VariantType.INSTANCE, true))) {
+            Assertions.assertFalse(ExpressionAnalyzer.isVariantRootSlot(input));
             Expression left = analyzer.visitMatch(new MatchAny(input, query), null).child(0);
             Assertions.assertInstanceOf(Cast.class, left);
             Assertions.assertTrue(left.getDataType().isStringType());

@@ -99,6 +99,28 @@ suite("test_variant_values_index_compaction", "p0,nonConcurrent") {
                 }
                 trigger_and_wait_compaction("vvi_compaction", "full", 1800)
                 assertEquals(baseline, check("after", before))
+                sql "DROP TABLE IF EXISTS vvi_compaction_paths"
+                sql """CREATE TABLE vvi_compaction_paths (id INT,v VARIANT,
+                    INDEX values_idx(v) USING INVERTED PROPERTIES("variant_index_scope"="values","parser"="english"),
+                    INDEX path_idx(v) USING INVERTED PROPERTIES("parser"="english"))
+                    DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
+                    PROPERTIES("replication_num"="1","disable_auto_compaction"="true",
+                               "inverted_index_storage_format"="SNII")"""
+                sql """INSERT INTO vvi_compaction_paths VALUES (1,parse_to_variant('{"s":"hello"}'))"""
+                sql """INSERT INTO vvi_compaction_paths VALUES (2,parse_to_variant('{"s":"other"}'))"""
+                sql """INSERT INTO vvi_compaction_paths VALUES (3,parse_to_variant('{"s":"hello world"}'))"""
+                // A missing path index must fail instead of using residual MATCH.
+                sql "SET enable_match_without_inverted_index=false"
+                try {
+                    for (boolean compacted : [false, true]) {
+                        if (compacted) {
+                            trigger_and_wait_compaction("vvi_compaction_paths", "full", 1800)
+                        }
+                        assertEquals([[1], [3]], sql("SELECT id FROM vvi_compaction_paths WHERE v['s'] MATCH_ANY 'hello' ORDER BY id"))
+                    }
+                } finally {
+                    sql "SET enable_match_without_inverted_index=true"
+                }
             }
         }
     }

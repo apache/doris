@@ -104,6 +104,16 @@ suite("test_variant_values_index_query", "p0,nonConcurrent") {
             ]
             boolean first = !doc && limit == 0
             queries.each { tag, query -> compare(tag, query, baseline, first) }
+            // WHERE exercises index filtering; hidden ancestors must also stay hidden under NOT.
+            ["v MATCH_ANY 'hidden'": [], "v MATCH_ANY 'visible'": [[10]],
+             "NOT(v MATCH_ANY 'hidden')": [[10]]].each { predicate, expected ->
+                def query = "SELECT id FROM vvi_query WHERE id=10 AND ${predicate} ORDER BY id"
+                for (boolean indexed : [true, false]) {
+                    sql "SET enable_inverted_index_query=${indexed}"
+                    assertEquals(expected, sql(query))
+                }
+            }
+            sql "SET enable_inverted_index_query=true"
             // Only these two declared types differ in DOC mode; still compare both limits per mode.
             compare("typed_doc_${doc}",
                     "SELECT id,v MATCH_ALL '19.9',v MATCH_ANY '2026' FROM vvi_query WHERE id=9",
@@ -184,5 +194,22 @@ suite("test_variant_values_index_query", "p0,nonConcurrent") {
     test {
         sql "SELECT id FROM vvi_query_no_values WHERE v MATCH_ANY 'hello'"
         exception "VARIANT root column does not support MATCH predicates."
+    }
+    sql "DROP TABLE IF EXISTS vvi_query_subpath_alias"
+    sql """CREATE TABLE vvi_query_subpath_alias (id INT,v VARIANT,
+        INDEX values_idx(v) USING INVERTED PROPERTIES("variant_index_scope"="values","parser"="english"),
+        INDEX path_idx(v) USING INVERTED PROPERTIES("parser"="none"))
+        DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_num"="1","inverted_index_storage_format"="SNII")"""
+    sql """INSERT INTO vvi_query_subpath_alias VALUES
+        (1,parse_to_variant('{"obj":{"s":"hello"}}')),(2,parse_to_variant('{"obj":"hello"}'))"""
+    for (boolean prune : [false, true]) {
+        sql "SET enable_prune_nested_column=${prune}"
+        for (boolean indexed : [true, false]) {
+            sql "SET enable_inverted_index_query=${indexed}"
+            def direct = sql "SELECT id FROM vvi_query_subpath_alias WHERE v['obj'] MATCH_ANY 'hello' ORDER BY id"
+            assertEquals([[2]], direct)
+            assertEquals(direct, sql("SELECT id FROM (SELECT id,v['obj'] AS o FROM vvi_query_subpath_alias) s WHERE o MATCH_ANY 'hello' ORDER BY id"))
+        }
     }
 }
