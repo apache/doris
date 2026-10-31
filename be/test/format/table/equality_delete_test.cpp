@@ -24,7 +24,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_varbinary.h"
@@ -174,14 +173,15 @@ TEST(EqualityDeleteTest, CompositeStringDeleteMatchesVarbinaryData) {
                                     {{7, "binary_key"}, {8, "version"}}));
 }
 
-TEST(EqualityDeleteTest, CompositeConstNullStringKeyMatchesNullDeleteKey) {
+TEST(EqualityDeleteTest, CompositeNullStringKeyMatchesNullDeleteKey) {
     Block delete_block;
     delete_block.insert(nullable_string_column("string_key", {std::nullopt, std::string()}));
     delete_block.insert(int_column("version", {2, 3}));
-    // A key column that the data file lacks can arrive as one const NULL for all rows.
-    auto const_null = nullable_string_column("string_key", {std::nullopt});
+    // A key column that the data file lacks reads as NULL in every row. Its rows hold the bytes of
+    // an empty string under the null map, and must match the NULL delete key, not the empty one.
     Block data_block;
-    data_block.insert({ColumnConst::create(const_null.column, 3), const_null.type, "string_key"});
+    data_block.insert(
+            nullable_string_column("string_key", {std::nullopt, std::nullopt, std::nullopt}));
     data_block.insert(int_column("version", {1, 2, 3}));
 
     EXPECT_EQ((std::vector<UInt8> {1, 0, 1}),

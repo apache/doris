@@ -20,7 +20,6 @@
 #include <gen_cpp/ExternalTableSchema_types.h>
 
 #include "core/assert_cast.h"
-#include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "exprs/create_predicate_function.h"
@@ -93,32 +92,26 @@ Status widen_equality_delete_key(ColumnPtr column, const DataTypePtr& column_typ
 
 namespace {
 
-// The rows of a byte-key column. A const column repeats its single value, which can be NULL: when the FE does
-// not send Iceberg scan semantics v2, a key column that the data file lacks is filled from
-// Const(Nullable(String) NULL), and its rows must match a NULL delete key rather than an empty string.
+// The rows of a byte-key column. A key that the data file lacks arrives as a full column of NULLs
+// (IcebergReaderMixin::_create_missing_equality_delete_value); a Const(Nullable(String)) would skip
+// the ColumnNullable unwrapping below and read its NULL as an empty string.
 class ByteKeyColumn {
 public:
     explicit ByteKeyColumn(const IColumn& column) : _values(&column) {
-        if (const auto* const_column = check_and_get_column<ColumnConst>(_values)) {
-            _values = &const_column->get_data_column();
-            _is_const = true;
-        }
+        DORIS_CHECK(!is_column_const(column));
         if (const auto* nullable = check_and_get_column<ColumnNullable>(_values)) {
             _null_map = &nullable->get_null_map_data();
             _values = &nullable->get_nested_column();
         }
     }
 
-    bool is_null(size_t row) const {
-        return _null_map != nullptr && (*_null_map)[_is_const ? 0 : row] != 0;
-    }
+    bool is_null(size_t row) const { return _null_map != nullptr && (*_null_map)[row] != 0; }
 
-    StringRef value(size_t row) const { return _values->get_data_at(_is_const ? 0 : row); }
+    StringRef value(size_t row) const { return _values->get_data_at(row); }
 
 private:
     const IColumn* _values;
     const NullMap* _null_map = nullptr;
-    bool _is_const = false;
 };
 
 void insert_byte_values(const IColumn& column, HybridSetBase* byte_set) {

@@ -477,9 +477,13 @@ inline Status create_initial_default_column(const schema::external::TField& fiel
     return Status::OK();
 }
 
+// Repeats a one-row column such as the one create_initial_default_column builds. The input must not
+// be a ColumnConst: the result would then be a ColumnConst as well, and the equality-delete code
+// reads the repeated column row by row.
 inline ColumnPtr repeat_initial_default_column(const ColumnPtr& default_column, size_t rows) {
     DORIS_CHECK(default_column);
     DORIS_CHECK_EQ(default_column->size(), 1);
+    DORIS_CHECK(!is_column_const(*default_column));
 
     auto repeated_column = default_column->clone_empty();
     repeated_column->insert_many_from(*default_column, 0, rows);
