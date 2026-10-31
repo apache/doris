@@ -70,9 +70,12 @@ public:
         return nullptr;
     }
 
-    void remove(const UniqueId& id) {
+    void remove(const UniqueId& id, const StreamLoadContext* expected = nullptr) {
         std::lock_guard<std::mutex> l(_lock);
-        if (auto iter = _stream_map.find(id); iter != _stream_map.end()) {
+        // Failed setup cleanup must not remove a retry that reused the load ID
+        // after the previous attempt's completion callback had already unregistered it.
+        if (auto iter = _stream_map.find(id);
+            iter != _stream_map.end() && (expected == nullptr || iter->second.get() == expected)) {
             _stream_map.erase(iter);
             VLOG_NOTICE << "remove stream load pipe: " << id;
         }

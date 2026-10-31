@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <condition_variable>
 #include <memory>
 #include <mutex>
@@ -53,8 +54,9 @@ public:
         return result;
     }
 
-    // only used by ut
-    size_t get_load_stream_num() { return _load_streams_map.size(); }
+    // Shutdown polling must not take _lock: an abnormal stream close can hold it
+    // while destruction waits for unfinished file writes.
+    size_t get_load_stream_num() const { return _num_load_streams.load(); }
 
     FifoThreadPool* heavy_work_pool() { return _heavy_work_pool; }
 
@@ -63,6 +65,8 @@ public:
 private:
     std::mutex _lock;
     std::unordered_map<UniqueId, LoadStreamPtr> _load_streams_map;
+    // Includes streams being destroyed, until their flush tasks have finished.
+    std::atomic<size_t> _num_load_streams {0};
     std::unique_ptr<ThreadPool> _file_writer_thread_pool;
 
     FifoThreadPool* _heavy_work_pool = nullptr;
