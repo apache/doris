@@ -480,6 +480,12 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW " ]]; then
             patch -p1 <"${TP_PATCH_DIR}/apache-arrow-24.0.0-lzo.patch"
             touch "${PATCHED_MARK}"
         fi
+        # Arrow also verifies the overridden Brotli archive against its own SHA256.
+        # A separate marker updates sources that already have the other Arrow patches.
+        if [[ ! -f "${PATCHED_MARK}_brotli_1_0_10" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-24.0.0-brotli-1.0.10.patch"
+            touch "${PATCHED_MARK}_brotli_1_0_10"
+        fi
         cd -
     fi
     echo "Finished patching ${ARROW_SOURCE}"
