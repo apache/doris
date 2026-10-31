@@ -155,7 +155,8 @@ std::string temp_parquet_path(const std::string& filename) {
 
 void write_position_delete_parquet(const std::string& path,
                                    const std::vector<std::optional<std::string>>& file_paths,
-                                   const std::vector<std::optional<int64_t>>& positions) {
+                                   const std::vector<std::optional<int64_t>>& positions,
+                                   int64_t row_group_size = 1024) {
     ASSERT_EQ(file_paths.size(), positions.size());
 
     arrow::StringBuilder path_builder;
@@ -184,8 +185,8 @@ void write_position_delete_parquet(const std::string& path,
 
     std::shared_ptr<arrow::io::FileOutputStream> output;
     ASSERT_TRUE(arrow::io::FileOutputStream::Open(path).Value(&output).ok());
-    PARQUET_THROW_NOT_OK(
-            ::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), output, 1024));
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), output,
+                                                      row_group_size));
 }
 
 IcebergDeleteFileReaderOptions make_delete_file_reader_options(
@@ -681,6 +682,37 @@ TEST(IcebergDeleteFileReaderHelperTest, ReadOptionalParquetPositionDeleteColumns
     ASSERT_TRUE(st.ok()) << st;
     ASSERT_EQ(visitor.total_rows, 3);
     EXPECT_EQ(visitor.delete_rows[kTargetDataFilePath], std::vector<int64_t>({3, 9}));
+}
+
+TEST(IcebergDeleteFileReaderHelperTest, ReadsLargePositionDeleteRowGroupWithProductionBatchSize) {
+    doris::test::ScopedTempDirectory temp("iceberg_large_position_deletes");
+    const auto path = (temp.path() / "deletes.parquet").string();
+    constexpr int64_t row_count = 102401;
+    std::vector<std::optional<std::string>> files(row_count, kTargetDataFilePath);
+    std::vector<std::optional<int64_t>> positions;
+    positions.reserve(row_count);
+    for (int64_t row = 0; row < row_count; ++row) {
+        positions.emplace_back(row);
+    }
+    write_position_delete_parquet(path, files, positions, row_count);
+    RuntimeProfile profile("large_position_deletes");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    IcebergDeleteFileIOContext io_context(&state);
+    TFileScanRangeParams params;
+    params.file_type = TFileType::FILE_LOCAL;
+    TIcebergDeleteFileDesc file;
+    file.path = path;
+    file.__set_file_format(TFileFormatType::FORMAT_PARQUET);
+    auto options = make_delete_file_reader_options(&state, &profile, &params, &io_context.io_ctx);
+    options.batch_size = 102400;
+    CollectPositionDeleteVisitor visitor;
+    ASSERT_TRUE(read_iceberg_position_delete_file(file, options, &visitor).ok());
+    ASSERT_EQ(visitor.total_rows, row_count);
+    const auto& actual = visitor.delete_rows.at(kTargetDataFilePath);
+    ASSERT_EQ(actual.size(), row_count);
+    for (int64_t row = 0; row < row_count; ++row) {
+        ASSERT_EQ(actual[row], row);
+    }
 }
 
 TEST(IcebergDeleteFileReaderHelperTest, RejectParquetPositionDeleteColumnsWithActualNulls) {

@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <string_view>
+
 #include "io/file_factory.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "util/obj_lru_cache.h"
@@ -40,6 +42,11 @@ public:
 
     static std::string get_key(io::FileReaderSPtr file_reader,
                                const io::FileDescription& _file_description);
+
+    static std::string get_stable_key(std::string_view fs_name, std::string_view path,
+                                      int64_t description_mtime, int64_t reader_mtime,
+                                      int64_t description_file_size, int64_t reader_file_size,
+                                      bool is_immutable);
 
     bool lookup(const std::string& key, ObjLRUCache::CacheHandle* handle) {
         return _cache.lookup({key}, handle);

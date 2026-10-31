@@ -1152,6 +1152,9 @@ TEST_F(LoadArrowPipeTest, Date64RetainsDorisRangeValidation) {
     bool eos = false;
     const auto status = reader.get_block(&output, &eos);
     EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Arrow column 'raw_value' (date64[ms] ->"), std::string::npos)
+            << status;
+    EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
     EXPECT_NE(status.to_string().find("Doris DATE range"), std::string::npos) << status;
     ASSERT_TRUE(reader.close().ok());
 }

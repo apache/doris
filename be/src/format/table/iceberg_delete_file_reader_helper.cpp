@@ -19,7 +19,9 @@
 
 #include <fmt/format.h>
 
+#include <algorithm>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <unordered_map>
@@ -261,7 +263,10 @@ Status read_iceberg_position_delete_file(const TIcebergDeleteFileDesc& delete_fi
                                  .io_ctx = std::move(io_ctx),
                                  .runtime_state = options.state,
                                  .scanner_profile = options.profile}));
-    reader.set_batch_size(options.batch_size);
+    // Rewrites request 102400 rows, but native Parquet selections use 16-bit row counts.
+    // Split large delete-file row groups rather than overflowing the physical batch contract.
+    reader.set_batch_size(
+            std::min<size_t>(options.batch_size, std::numeric_limits<uint16_t>::max()));
     format::SplitReadOptions split;
     split.current_range = std::move(delete_range);
     split.current_split_format = physical_format;

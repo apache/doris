@@ -64,6 +64,7 @@
 #include "core/data_type/primitive_type.h"
 #include "core/data_type_serde/orc_timestamp_decode_context.h"
 #include "core/value/timestamptz_value.h"
+#include "cpp/sync_point.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/runtime_filter_expr.h"
 #include "exprs/vdirect_in_predicate.h"
@@ -80,12 +81,15 @@
 #include "format_v2/schema_reader.h"
 #include "gen_cpp/Types_types.h"
 #include "io/fs/buffered_reader.h"
+#include "io/fs/file_meta_cache.h"
 #include "io/io_common.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/segment/condition_cache.h"
 #include "storage/utils.h"
 #include "util/debug_points.h"
+#include "util/defer_op.h"
 #include "util/timezone_utils.h"
 
 namespace doris {
@@ -1680,11 +1684,13 @@ private:
 class NullableStringEqualsExpr final : public VExpr {
 public:
     NullableStringEqualsExpr(int column_id, DataTypePtr source_type, std::string value,
-                             std::string column_name, bool null_literal = false)
+                             std::string column_name, bool null_literal = false,
+                             size_t* materialized_bytes = nullptr)
             : VExpr(std::make_shared<DataTypeUInt8>(), false),
               _column_id(column_id),
               _value(std::move(value)),
-              _null_literal(null_literal) {
+              _null_literal(null_literal),
+              _materialized_bytes(materialized_bytes) {
         _node_type = TExprNodeType::BINARY_PRED;
         _opcode = null_literal ? TExprOpcode::EQ_FOR_NULL : TExprOpcode::EQ;
         const auto string_type = std::make_shared<DataTypeString>();
@@ -1702,6 +1708,9 @@ public:
         const auto& nullable_column =
                 assert_cast<const ColumnNullable&>(*block->get_by_position(_column_id).column);
         const auto& input = assert_cast<const ColumnString&>(nullable_column.get_nested_column());
+        if (_materialized_bytes != nullptr) {
+            *_materialized_bytes = std::max(*_materialized_bytes, input.get_chars().size());
+        }
         auto result = ColumnUInt8::create();
         auto& result_data = result->get_data();
         result_data.resize(count);
@@ -1723,6 +1732,7 @@ private:
     const int _column_id;
     const std::string _value;
     const bool _null_literal;
+    size_t* _materialized_bytes;
     const std::string _expr_name = "NullableStringEqualsExpr";
 };
 
@@ -8015,6 +8025,135 @@ TEST_F(NewOrcReaderTest, SargVarcharCastToStringConjunctPrunesStripes) {
     EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 1);
     EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 1);
     EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 200);
+}
+
+TEST_F(NewOrcReaderTest, FooterCacheAvoidsWarmReadsAndSeparatesFileVersions) {
+    FileMetaCache cache(1024);
+    auto* env = ExecEnv::GetInstance();
+    auto* previous = env->_file_meta_cache;
+    env->_file_meta_cache = &cache;
+    Defer restore([&] { env->_file_meta_cache = previous; });
+    auto* sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    Defer stop_sync([&] { sp->disable_processing(); });
+    size_t reads = 0;
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "LocalFileReader::pread", [&](auto&&) { ++reads; }, &guard);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    const auto open = [&](int64_t version, const std::string& fs_name, bool immutable = false) {
+        reads = 0;
+        RuntimeProfile profile("footer-cache");
+        auto reader = create_reader(&profile);
+        reader->_file_description->mtime = version;
+        reader->_file_description->fs_name = fs_name;
+        reader->_file_description->is_immutable = immutable;
+        auto status = reader->init(&state);
+        EXPECT_TRUE(status.ok()) << status;
+        EXPECT_EQ(reader->get_total_rows(), ROW_COUNT);
+        EXPECT_TRUE(reader->close().ok());
+        const auto read_calls = profile.get_counter("FileFooterReadCalls")->value();
+        const auto cache_hits = profile.get_counter("FileFooterHitCache")->value();
+        EXPECT_TRUE(reader->close().ok());
+        EXPECT_EQ(profile.get_counter("FileFooterReadCalls")->value(), read_calls);
+        EXPECT_EQ(profile.get_counter("FileFooterHitCache")->value(), cache_hits);
+        return reads;
+    };
+    EXPECT_GT(open(1, "fs-one"), 0);
+    EXPECT_EQ(open(1, "fs-one"), 0);
+    EXPECT_GT(open(2, "fs-one"), 0);
+    EXPECT_EQ(open(2, "fs-one"), 0);
+    EXPECT_GT(open(2, "fs-two"), 0);
+    EXPECT_EQ(open(2, "fs-two"), 0);
+    EXPECT_GT(open(0, "mutable"), 0);
+    EXPECT_GT(open(0, "mutable"), 0);
+    EXPECT_GT(open(0, "immutable", true), 0);
+    EXPECT_EQ(open(0, "immutable", true), 0);
+    FileMetaCache disabled(0);
+    env->_file_meta_cache = &disabled;
+    EXPECT_GT(open(1, "fs-one"), 0);
+    EXPECT_GT(open(1, "fs-one"), 0);
+}
+
+TEST_F(NewOrcReaderTest, DictionaryFiltersEncodedRowsBeforeExpandingLongStrings) {
+    const auto path = (_test_dir / "selective_dictionary.orc").string();
+    auto type = ::orc::Type::buildTypeFromString("struct<value:string,payload:bigint>");
+    MemoryOutputStream stream(1024 * 1024);
+    ::orc::WriterOptions writer_options;
+    writer_options.setDictionaryKeySizeThreshold(1.0);
+    writer_options.setRowIndexStride(1000);
+    auto writer = ::orc::createWriter(*type, &stream, writer_options);
+    constexpr size_t row_count = 4096;
+    auto batch = writer->createRowBatch(row_count);
+    auto& root = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+    auto& values = dynamic_cast<::orc::StringVectorBatch&>(*root.fields[0]);
+    auto& payloads = dynamic_cast<::orc::LongVectorBatch&>(*root.fields[1]);
+    const std::string hit = "hit";
+    const std::string miss(64 * 1024, 'z');
+    for (size_t row = 0; row < row_count; ++row) {
+        const auto& value = row % 1000 == 0 ? hit : miss;
+        values.data[row] = const_cast<char*>(value.data());
+        values.length[row] = value.size();
+        payloads.data[row] = row;
+    }
+    root.numElements = values.numElements = payloads.numElements = row_count;
+    writer->add(*batch);
+    writer->close();
+    {
+        std::ofstream out(path, std::ios::binary);
+        out.write(stream.getData(), static_cast<std::streamsize>(stream.getLength()));
+    }
+    for (int mode = 0; mode < 3; ++mode) {
+        SCOPED_TRACE(mode);
+        auto reader = create_reader_for_path(path);
+        TQueryOptions options;
+        options.__set_batch_size(row_count);
+        options.__set_enable_orc_lazy_mat(mode == 0);
+        RuntimeState state {options, TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(reader->get_schema(&schema).ok());
+        size_t materialized_bytes = 0;
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->predicate_columns = {field_projection(0)};
+        if (mode != 2) {
+            request->non_predicate_columns = {field_projection(1)};
+        }
+        request->conjuncts.push_back(VExprContext::create_shared(
+                std::make_shared<NullableStringEqualsExpr>(0, remove_nullable(schema[0].type), hit,
+                                                           "value", false, &materialized_bytes)));
+        ASSERT_TRUE(reader->open(request).ok());
+        if (mode == 2) {
+            schema.resize(1);
+        }
+        auto cache_context = std::make_shared<ConditionCacheContext>();
+        cache_context->is_hit = false;
+        cache_context->filter_result = std::make_shared<std::vector<bool>>(3, false);
+        reader->set_condition_cache_context(cache_context);
+        bool eof = false;
+        std::vector<int64_t> actual;
+        while (!eof) {
+            Block block = build_file_block(schema);
+            size_t rows = 0;
+            ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+            for (size_t row = 0; row < rows; ++row) {
+                EXPECT_EQ(block.get_by_position(0).column->get_data_at(row).to_string(), hit);
+                if (mode != 2) {
+                    actual.push_back(
+                            assert_cast<const ColumnNullable&>(*block.get_by_position(1).column)
+                                    .get_nested_column()
+                                    .get_int(row));
+                } else {
+                    actual.push_back(0);
+                }
+            }
+        }
+        EXPECT_EQ(actual, mode == 2 ? std::vector<int64_t>(5, 0)
+                                    : std::vector<int64_t>({0, 1000, 2000, 3000, 4000}));
+        // Evaluating two dictionary values is bounded; expanding 4091 rejected strings is not.
+        EXPECT_LE(materialized_bytes, miss.size() + 1024);
+        EXPECT_EQ(*cache_context->filter_result, (std::vector<bool> {true, true, false}));
+    }
 }
 
 TEST_F(NewOrcReaderTest, DictionaryRejectsAbsentValuesWithoutRowDecoding) {

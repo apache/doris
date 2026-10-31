@@ -77,6 +77,8 @@ private:
         RuntimeProfile::Counter* row_readers_created = nullptr;
         RuntimeProfile::Counter* dictionary_stripes_filtered = nullptr;
         RuntimeProfile::Counter* dictionary_values_evaluated = nullptr;
+        RuntimeProfile::Counter* file_footer_read_calls = nullptr;
+        RuntimeProfile::Counter* file_footer_cache_hits = nullptr;
         RuntimeProfile::Counter* total_time = nullptr;
         RuntimeProfile::Counter* reader_call = nullptr;                 // ReaderCall
         RuntimeProfile::Counter* reader_inclusive_latency_us = nullptr; // ReaderInclusiveLatencyUs
@@ -144,6 +146,11 @@ private:
     Status _init_lazy_predicate_block();
     Status _filter_orc_batch(::orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size,
                              void* arg);
+
+    Status _materialize_dictionary_selection(const ::orc::StructVectorBatch& batch,
+                                             size_t physical_rows,
+                                             const std::vector<size_t>& candidates, Block* block,
+                                             size_t* rows);
 
     Status _decode_column(const ::orc::Type& file_type, const ::orc::Type& selected_type,
                           const ::orc::ColumnVectorBatch& batch, MutableColumnPtr& column,

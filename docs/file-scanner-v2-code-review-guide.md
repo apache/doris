@@ -309,6 +309,12 @@ format-specific checklist when reviewing Parquet or ORC.
 - Keep SDK filtering and Doris lazy materialization aligned: include the correct filter columns,
   preserve selected-row indexes, and decode non-predicate columns only for survivors without
   desynchronizing nested vectors or later batches.
+- Check dictionary-ID selection separately from whole-Stripe rejection. Matching dictionaries
+  should filter encoded rows before expanding rejected strings, including with lazy materialization
+  disabled. Reset match bits on every Stripe, preserve NULL semantics and pruning fences, and keep
+  physical row positions distinct from compact predicate-column positions.
+- Verify warm ORC opens reuse serialized tails only for stable file identities. Filesystem identity,
+  version and size must participate in the key; mutable files without a version bypass the cache.
 - Review SARG cost for large IN lists, deep trees, many Runtime Filters, repeated literal conversion,
   Stripe-statistics reads, and SDK index initialization. Build once per reader/Split setup and keep
   expensive work out of batch loops.
