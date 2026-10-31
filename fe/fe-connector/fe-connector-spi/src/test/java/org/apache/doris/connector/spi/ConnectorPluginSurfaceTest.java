@@ -88,8 +88,14 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 26 adds scan cancellation notifications and task removal to the scheduler surface.
-        Assertions.assertEquals("26.0", version.getProperty("api.version"));
+        // Major 20 adds deleteUsingMetadata to the connector write surface; major 21 adds
+        // typed filesystem credential descriptions and statement-scoped metadata.
+        // Major 22 adds the metadata-only DDL handle path; major 23 adds the provider's
+        // ConnectorSecuritySurface declaration; major 24 adds the scan task scheduler;
+        // major 25 adds connector-sized partition batches.
+        // Major 26 adds scan cancellation notifications and task removal to the scheduler surface;
+        // major 27 adds the connector partition pruning capability.
+        Assertions.assertEquals("27.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */

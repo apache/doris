@@ -785,6 +785,9 @@ public class StmtExecutor {
                 // Replanning reuses StatementContext, but the failed attempt's cleanup closes its connector
                 // scope. Old producers retain that scope until termination; new sessions need a fresh one.
                 statementContext.resetConnectorStatementScope();
+                // The failed attempt's partition-policy proofs stay revoked, but this is a real replan: start
+                // the new attempt from fresh planning state instead of failing every later planning step.
+                statementContext.beginPartitionPolicyReplan();
                 profile.clearPlan();
             } catch (Exception e) {
                 profile.getSummaryProfile().recordFailedAttempt(context.queryId());
@@ -1788,6 +1791,7 @@ public class StmtExecutor {
 
     // Process a select statement.
     private void handleQueryStmt() throws Exception {
+        statementContext.validateOrRevalidatePartitionPoliciesForExecution(planner);
         if (LOG.isDebugEnabled()) {
             LOG.debug("Handling query {} with query id {}",
                     originStmt.originStmt, DebugUtil.printId(context.queryId));

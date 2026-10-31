@@ -23,6 +23,7 @@ import org.apache.doris.authorization.AccessContext;
 import org.apache.doris.authorization.AccessDeniedException;
 import org.apache.doris.authorization.AccessRequirement;
 import org.apache.doris.authorization.AuthorizedResource;
+import org.apache.doris.authorization.AuthorizedSubject;
 import org.apache.doris.authorization.DataMaskSpec;
 import org.apache.doris.authorization.ResourceKind;
 import org.apache.doris.authorization.RowFilterSpec;
@@ -46,6 +47,7 @@ import org.apache.doris.extension.loader.LoadFailure;
 import org.apache.doris.extension.loader.LoadReport;
 import org.apache.doris.extension.loader.PluginHandle;
 import org.apache.doris.extension.loader.PluginRegistry;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.plugin.PropertiesUtils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -68,6 +70,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.ServiceConfigurationError;
 import java.util.ServiceLoader;
 import java.util.Set;
@@ -1348,6 +1351,90 @@ public class AccessControllerManager {
                             AccessTranslation.subjectOf(currentUser), table, context)));
         } finally {
             leaveCheck(outer);
+        }
+    }
+
+    public DataPolicyContext captureDataPolicyContext(UserIdentity user, String ctl, String db,
+            String tbl, Set<String> cols, StatementContext statement) {
+        Set<String> columns = new LinkedHashSet<>();
+        for (String column : cols) {
+            columns.add(column.toLowerCase(Locale.ROOT));
+        }
+        AuthorizedResource.Table table = AuthorizedResource.table(ctl, db, tbl);
+        return new DataPolicyContext(controllerOf(table), AccessTranslation.subjectOf(user), table,
+                columns, ConnectionAccessContext.of(statement.getConnectContext()));
+    }
+
+    public Map<String, DataMaskSpec> evalDataMaskPolicies(DataPolicyContext policy, StatementContext statement) {
+        return statement.getOrEvaluateDataMasks(policy, () -> evalDataMaskPolicies(policy));
+    }
+
+    public Map<String, DataMaskSpec> evalDataMaskPolicies(DataPolicyContext policy) {
+        AccessContext outer = enterCheck(policy.context);
+        try {
+            return ImmutableMap.copyOf(answered(policy.controller, "the data masks of " + policy.table,
+                    inClassLoaderOf(policy.controller, () -> policy.controller.getDataMasks(
+                            policy.subject, policy.table, policy.columns, policy.context))));
+        } finally {
+            leaveCheck(outer);
+        }
+    }
+
+    public List<RowFilterSpec> evalRowFilterPolicies(DataPolicyContext policy) {
+        AccessContext outer = enterCheck(policy.context);
+        try {
+            return List.copyOf(answered(policy.controller, "the row filters of " + policy.table,
+                    inClassLoaderOf(policy.controller, () -> policy.controller.getRowFilters(
+                            policy.subject, policy.table, policy.context))));
+        } finally {
+            leaveCheck(outer);
+        }
+    }
+
+    public static final class DataPolicyContext {
+        private final AuthorizationPlugin controller;
+        private final AuthorizedSubject subject;
+        private final AuthorizedResource.Table table;
+        private final Set<String> columns;
+        private final AccessContext context;
+
+        private DataPolicyContext(AuthorizationPlugin controller, AuthorizedSubject subject,
+                AuthorizedResource.Table table, Set<String> columns, AccessContext context) {
+            this.controller = controller;
+            this.subject = subject;
+            this.table = table;
+            this.columns = Set.copyOf(columns);
+            Optional<String> clientIp = context.getClientIp();
+            Optional<String> queryId = context.getQueryId();
+            this.context = new AccessContext() {
+                @Override
+                public Optional<String> getClientIp() {
+                    return clientIp;
+                }
+
+                @Override
+                public Optional<String> getQueryId() {
+                    return queryId;
+                }
+            };
+        }
+
+        public boolean samePolicyScope(DataPolicyContext other) {
+            return controller == other.controller && subject.equals(other.subject)
+                    && table.equals(other.table) && columns.equals(other.columns)
+                    && context.getClientIp().equals(other.context.getClientIp());
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof DataPolicyContext && samePolicyScope((DataPolicyContext) other)
+                    && context.getQueryId().equals(((DataPolicyContext) other).context.getQueryId());
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(System.identityHashCode(controller), subject, table, columns,
+                    context.getClientIp(), context.getQueryId());
         }
     }
 
