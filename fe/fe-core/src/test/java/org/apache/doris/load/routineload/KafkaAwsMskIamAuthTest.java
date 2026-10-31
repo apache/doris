@@ -255,9 +255,9 @@ public class KafkaAwsMskIamAuthTest {
     public void testSslConfigWithoutSasl() throws UserException {
         // Test SSL configuration without SASL
         dataSourceProperties.put("property.security.protocol", "SSL");
-        dataSourceProperties.put("property.ssl.ca.location", "/path/to/ca-cert");
-        dataSourceProperties.put("property.ssl.certificate.location", "/path/to/client-cert");
-        dataSourceProperties.put("property.ssl.key.location", "/path/to/client-key");
+        dataSourceProperties.put("property.ssl.ca.location", "FILE:ca-cert");
+        dataSourceProperties.put("property.ssl.certificate.location", "FILE:client-cert");
+        dataSourceProperties.put("property.ssl.key.location", "FILE:client-key");
 
         KafkaDataSourceProperties props = new KafkaDataSourceProperties(dataSourceProperties);
         props.setTimezone("UTC");
