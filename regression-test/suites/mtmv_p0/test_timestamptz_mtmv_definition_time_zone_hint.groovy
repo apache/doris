@@ -93,4 +93,42 @@ suite("test_timestamptz_mtmv_definition_time_zone_hint","mtmv") {
             direct[0][1].toString(), guarded[0][1].toString())
     Assert.assertTrue("expected the UTC day boundary 2024-01-01T00:00Z, got " + guarded[0][1],
             guarded[0][1].toString().contains("2024-01-01 00:00:00"));
+
+    // Every hint scope is applied to the shared statement session while that scope is analyzed, so two
+    // scopes pinning different zones would materialize different branches in different zones while the
+    // definition can only persist one. Such a definition is rejected.
+    def conflictingMvName = "timestamptz_mtmv_definition_time_zone_hint_conflict_mv"
+    sql "DROP MATERIALIZED VIEW IF EXISTS ${conflictingMvName}"
+    test {
+        sql """
+            CREATE MATERIALIZED VIEW ${conflictingMvName}
+            BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+            DISTRIBUTED BY RANDOM BUCKETS 1
+            PROPERTIES('replication_num' = '1')
+            AS
+            SELECT /*+ SET_VAR(time_zone='${hintedTz}') */ id, d
+            FROM (
+                SELECT /*+ SET_VAR(time_zone='${creationTz}') */ id, date_trunc(ts, 'day') AS d
+                FROM ${tableName}
+            ) t
+        """
+        exception "conflicting time zones"
+    }
+
+    // The same zone pinned by both scopes is consistent and stays allowed.
+    def nestedMvName = "timestamptz_mtmv_definition_time_zone_hint_nested_mv"
+    sql "DROP MATERIALIZED VIEW IF EXISTS ${nestedMvName}"
+    sql """
+        CREATE MATERIALIZED VIEW ${nestedMvName}
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 1
+        PROPERTIES('replication_num' = '1')
+        AS
+        SELECT /*+ SET_VAR(time_zone='${hintedTz}') */ id, d
+        FROM (
+            SELECT /*+ SET_VAR(time_zone='${hintedTz}') */ id, date_trunc(ts, 'day') AS d
+            FROM ${tableName}
+        ) t
+    """
+    waitingMTMVTaskFinishedByMvName(nestedMvName, dbName)
 }

@@ -33,6 +33,7 @@ import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.RefreshMode;
@@ -50,6 +51,7 @@ import org.mockito.Mockito;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -353,8 +355,11 @@ public class RefreshMTMVInfoTest {
             AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
 
             // distinct descriptors so each one yields its own generated name; iteration order is preserved
-            // so the names below are deterministic
-            Map<PartitionKeyDesc, Map<String, String>> relatedPartitions = new LinkedHashMap<>();
+            // so the names below are deterministic. The nested type is the one
+            // generateRelatedPartitionDescs actually returns, so the stubbed value type-checks against the
+            // production signature instead of relying on inference from this local declaration.
+            Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> relatedPartitions =
+                    new LinkedHashMap<>();
             List<String> expectedNames = Lists.newArrayList();
             for (int i = 0; i < descriptorCount; i++) {
                 PartitionKeyDesc desc = PartitionKeyDesc.createFixed(

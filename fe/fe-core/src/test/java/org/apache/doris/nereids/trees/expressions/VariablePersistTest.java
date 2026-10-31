@@ -1141,6 +1141,44 @@ public class VariablePersistTest extends ExpressionRewriteTestHelper {
     }
 
     /**
+     * The read side of the metadata fence. An object stamped by a newer FE may depend on a session variable,
+     * a guard family or a TIMESTAMPTZ-sensitive function this FE does not know, so rebinding it here (a
+     * view, generated column, synchronous materialized view column or alias function) cannot reproduce its
+     * semantics and must fail closed instead of silently dropping the dependency. A rewrite cache does not
+     * reject the query: {@link SessionVarGuardRewriter#computeGuardMask} selects both guard families, so the
+     * cache can never match an unguarded query and the materialized value is simply not used.
+     */
+    @Test
+    public void testNewerPlanSessionVarFenceRejectsRebinding() {
+        Map<String, String> currentSessionVars = ImmutableMap.of(SessionVariable.TIME_ZONE, "+00:00");
+        Map<String, String> newerFence = ImmutableMap.of(
+                SessionVariable.TIME_ZONE, "+00:00",
+                SessionVariable.PLAN_SESSION_VAR_FENCE_VERSION,
+                String.valueOf(SessionVariable.CURRENT_PLAN_SESSION_VAR_FENCE_VERSION + 1));
+        AnalysisException newerException = Assertions.assertThrows(AnalysisException.class,
+                () -> SessionVarGuardRewriter.checkPlanSessionVarFenceReadable("view 'db.v'", newerFence));
+        Assertions.assertTrue(newerException.getMessage().contains("newer"), newerException.getMessage());
+        // an unparsable stamp is reported as newer than anything known, so it fails closed as well
+        Map<String, String> unparsableFence = ImmutableMap.of(
+                SessionVariable.TIME_ZONE, "+00:00",
+                SessionVariable.PLAN_SESSION_VAR_FENCE_VERSION, "fence-v2");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> SessionVarGuardRewriter.checkPlanSessionVarFenceReadable("view 'db.v'", unparsableFence));
+        // metadata written by this FE, and legacy metadata without the stamp, stays readable
+        Map<String, String> ownFence = ImmutableMap.of(
+                SessionVariable.TIME_ZONE, "+00:00",
+                SessionVariable.PLAN_SESSION_VAR_FENCE_VERSION,
+                String.valueOf(SessionVariable.CURRENT_PLAN_SESSION_VAR_FENCE_VERSION));
+        Assertions.assertDoesNotThrow(
+                () -> SessionVarGuardRewriter.checkPlanSessionVarFenceReadable("view 'db.v'", ownFence));
+        Assertions.assertDoesNotThrow(
+                () -> SessionVarGuardRewriter.checkPlanSessionVarFenceReadable("view 'db.v'", new HashMap<>()));
+        Assertions.assertEquals(
+                SessionVarGuardRewriter.GUARD_TIME_ZONE | SessionVarGuardRewriter.GUARD_OTHER,
+                SessionVarGuardRewriter.computeGuardMask(currentSessionVars, newerFence));
+    }
+
+    /**
      * The persisted plan-variable maps carry a fence version stamp, which is what makes the version fence a
      * read fence instead of an incidental map difference: metadata stamped by a newer FE (the downgrade
      * direction) cannot be interpreted by this FE, so it is never reused for rewrite; a map without the

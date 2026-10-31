@@ -580,6 +580,8 @@ public class BindSink implements AnalysisRuleFactory {
                     ctx.connectContext.getSessionVariable().getAffectQueryResultInPlanVariables();
             try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(ctx.connectContext,
                     column.getSessionVariables())) {
+                SessionVarGuardRewriter.checkPlanSessionVarFenceReadable(
+                        "generated column '" + column.getName() + "'", column.getSessionVariables());
                 GeneratedColumnInfo info = column.getGeneratedColumnInfo();
                 Expression parsedExpression = new NereidsParser().parseExpression(
                         info.getExpr().accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
@@ -611,6 +613,8 @@ public class BindSink implements AnalysisRuleFactory {
                     ctx.connectContext.getSessionVariable().getAffectQueryResultInPlanVariables();
             try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(ctx.connectContext,
                     column.getSessionVariables())) {
+                SessionVarGuardRewriter.checkPlanSessionVarFenceReadable(
+                        "materialized view column '" + column.getName() + "'", column.getSessionVariables());
                 Expression parsedExpression = expressionParser.parseExpression(
                         column.getDefineExpr().accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
                 // the boundSlotExpression is an expression whose slots are bound but function
@@ -1397,6 +1401,9 @@ public class BindSink implements AnalysisRuleFactory {
                     if (entry.getKey() == baseIndexId || entry.getValue().getWhereClause() == null) {
                         continue;
                     }
+                    SessionVarGuardRewriter.checkPlanSessionVarFenceReadable(
+                            "materialized view where clause of index " + entry.getKey(),
+                            entry.getValue().getSessionVariables());
                     Expression predicate = analyze(entry.getValue().getWhereClause().accept(
                             ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
                     predicate = predicate.accept(new AddSessionVarGuardRewriter(

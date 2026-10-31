@@ -492,20 +492,38 @@ public class CreateMTMVInfo extends CreateTableInfo {
         }
     }
 
-    /** The time_zone pinned by a SET_VAR hint inside the definition, null when it does not pin one. */
+    /**
+     * The time_zone pinned by SET_VAR hints inside the definition, null when it pins none.
+     *
+     * <p>Every hint nested anywhere in the definition is applied to the shared statement session while that
+     * part of the query is analyzed, so a definition may pin the zone more than once. Only a single zone is
+     * persisted for the whole definition, so hints that disagree cannot be represented: analysis order would
+     * decide which branch is materialized in which zone and the stored map would claim one zone for content
+     * produced in another. Such a definition is rejected instead.
+     */
     private String hintedTimeZone() {
+        String pinned = null;
         for (Plan node : logicalQuery.<Plan>collectToList(p -> p instanceof LogicalSelectHint)) {
             for (SelectHint hint : ((LogicalSelectHint<?>) node).getHints()) {
                 if (!(hint instanceof SelectHintSetVar)) {
                     continue;
                 }
                 Optional<String> value = ((SelectHintSetVar) hint).getParameters().get(SessionVariable.TIME_ZONE);
-                if (value != null && value.isPresent()) {
-                    return value.get();
+                if (value == null || !value.isPresent()) {
+                    continue;
+                }
+                String hinted = value.get();
+                if (pinned == null) {
+                    pinned = hinted;
+                } else if (!SessionVarGuardRewriter.timeZonesEquivalent(pinned, hinted)) {
+                    throw new AnalysisException("The materialized view definition pins conflicting time zones"
+                            + " with SET_VAR hints ('" + pinned + "' and '" + hinted + "'), but its content is"
+                            + " materialized in a single time zone. Use the same time zone everywhere in the"
+                            + " definition.");
                 }
             }
         }
-        return null;
+        return pinned;
     }
 
     private DataType calculateSequenceDataType(Plan normalizedPlan) {

@@ -121,6 +121,8 @@ public class AliasUdfBuilder extends UdfBuilder {
                 }
             };
             analyzedExpression = udfAnalyzer.analyze(aliasUdf.getUnboundFunction());
+            SessionVarGuardRewriter.checkPlanSessionVarFenceReadable(
+                    "alias function '" + name + "'", sessionVariables);
             if (SessionVarGuardRewriter.needsSessionVarGuard(currentSessionVars, sessionVariables)) {
                 analyzedExpression = analyzedExpression.accept(
                         new AddSessionVarGuardRewriter(sessionVariables, currentSessionVars), Boolean.FALSE);

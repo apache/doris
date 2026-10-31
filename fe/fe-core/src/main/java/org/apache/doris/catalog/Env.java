@@ -172,6 +172,7 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.jobs.load.LabelProcessor;
 import org.apache.doris.nereids.lineage.LineageEventProcessor;
+import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetFrontendConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetPartitionVersionCommand;
@@ -6732,6 +6733,10 @@ public class Env {
         } else {
             List<Column> columns = createViewInfo.getColumns();
 
+            // The view definition is persisted with the plan variables that produced it, including the
+            // session time zone; a still-alive older FE would rebuild it without the time-zone guard, so
+            // creating such metadata requires every frontend to be able to interpret it.
+            SessionVarGuardRewriter.checkClusterSupportsPlanTimeZoneFence();
             long tableId = Env.getCurrentEnv().getNextId();
             View newView = new View(tableId, tableName, columns);
             newView.setComment(createViewInfo.getComment());
