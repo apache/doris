@@ -28,6 +28,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -126,7 +127,7 @@ public class ShowConfigCommand extends Command implements NoForward {
             Backend backend = systemInfoService.getBackend(beId);
             String host = backend.getHost();
             int httpPort = backend.getHttpPort();
-            String urlString = String.format("http://%s:%d/api/show_config", host, httpPort);
+            String urlString = buildBackendConfigUrl(host, httpPort);
             try {
                 URL url = new URL(urlString);
                 URLConnection urlConnection = url.openConnection();
@@ -159,6 +160,10 @@ public class ShowConfigCommand extends Command implements NoForward {
             }
         }
         return new ShowResultSet(getMetaData(BE_TITLE_NAMES), results);
+    }
+
+    static String buildBackendConfigUrl(String host, int httpPort) {
+        return "http://" + NetUtils.getHostPortInAccessibleFormat(host, httpPort) + "/api/show_config";
     }
 
     @Override
