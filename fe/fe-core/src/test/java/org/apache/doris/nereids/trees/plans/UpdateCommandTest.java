@@ -17,16 +17,33 @@
 
 package org.apache.doris.nereids.trees.plans;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanPatternMatchSupported;
+import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ForwardingMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.AbstractCollection;
+import java.util.Collection;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class UpdateCommandTest extends TestWithFeService implements PlanPatternMatchSupported {
     @Override
@@ -100,6 +117,104 @@ public class UpdateCommandTest extends TestWithFeService implements PlanPatternM
                                 )
                         )
                 );
+    }
+
+    @Test
+    public void testUpdatePlanWithConcurrentSchemaRebuild() throws Exception {
+        OlapTable table = (OlapTable) RelationUtil.getTable(
+                RelationUtil.getQualifierName(connectContext, List.of("t1")),
+                connectContext.getEnv(), Optional.empty());
+        Assertions.assertTrue(table.getEnableUniqueKeyMergeOnWrite());
+        Map<String, Column> columns = Deencapsulation.getField(table, "nameToColumn");
+        ExecutorService schemaChange = Executors.newSingleThreadExecutor();
+        AtomicBoolean schemaRebuiltDuringCopy = new AtomicBoolean();
+        AtomicBoolean copyStarted = new AtomicBoolean();
+        // Keep the real TreeMap iterator, but try a schema rebuild after its first entry is read.
+        // Without the UPDATE read lock, clear/put in rebuildFullSchema invalidates this iterator.
+        Map<String, Column> instrumentedColumns = new ForwardingMap<String, Column>() {
+            @Override
+            protected Map<String, Column> delegate() {
+                return columns;
+            }
+
+            @Override
+            public Collection<Column> values() {
+                Collection<Column> values = columns.values();
+                return new AbstractCollection<Column>() {
+                    @Override
+                    public int size() {
+                        return values.size();
+                    }
+
+                    @Override
+                    public Iterator<Column> iterator() {
+                        Iterator<Column> iterator = values.iterator();
+                        return new Iterator<Column>() {
+                            @Override
+                            public boolean hasNext() {
+                                return iterator.hasNext();
+                            }
+
+                            @Override
+                            public Column next() {
+                                Column column = iterator.next();
+                                if (copyStarted.compareAndSet(false, true)) {
+                                    schemaRebuiltDuringCopy.set(Assertions.assertDoesNotThrow(() ->
+                                            schemaChange.submit(() -> tryRebuildSchema(table))
+                                                    .get(10, TimeUnit.SECONDS)));
+                                }
+                                return column;
+                            }
+                        };
+                    }
+                };
+            }
+        };
+        Deencapsulation.setField(table, "nameToColumn", instrumentedColumns);
+        try {
+            UpdateCommand command = (UpdateCommand) new NereidsParser()
+                    .parseSingle("update t1 set v1 = v1 + 1 where k1 = 1");
+            LogicalPlan plan = command.completeQueryPlan(connectContext, command.getLogicalQuery());
+            Assertions.assertTrue(((UnboundTableSink<?>) plan).isPartialUpdate());
+            Assertions.assertTrue(copyStarted.get(), "The test must reach the column-map copy");
+            Assertions.assertFalse(schemaRebuiltDuringCopy.get(), "Schema changes must wait for UPDATE planning");
+            Assertions.assertTrue(schemaChange.submit(() -> tryRebuildSchema(table)).get(10, TimeUnit.SECONDS),
+                    "UPDATE planning must release its read lock before returning");
+            PlanChecker.from(connectContext, plan).analyze(plan).rewrite();
+        } finally {
+            schemaChange.shutdownNow();
+            Deencapsulation.setField(table, "nameToColumn", columns);
+        }
+    }
+
+    @Test
+    public void testUpdatePlanReleasesReadLockOnAnalysisFailure() throws Exception {
+        OlapTable table = (OlapTable) RelationUtil.getTable(
+                RelationUtil.getQualifierName(connectContext, List.of("t1")),
+                connectContext.getEnv(), Optional.empty());
+        ExecutorService schemaChange = Executors.newSingleThreadExecutor();
+        try {
+            UpdateCommand command = (UpdateCommand) new NereidsParser()
+                    .parseSingle("update t1 set k1 = 2 where k1 = 1");
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> command.completeQueryPlan(connectContext, command.getLogicalQuery()));
+            Assertions.assertTrue(schemaChange.submit(() -> tryRebuildSchema(table)).get(10, TimeUnit.SECONDS),
+                    "Failed UPDATE planning must release its read lock");
+        } finally {
+            schemaChange.shutdownNow();
+        }
+    }
+
+    private static boolean tryRebuildSchema(OlapTable table) {
+        if (!table.tryWriteLock(0, TimeUnit.SECONDS)) {
+            return false;
+        }
+        try {
+            table.rebuildFullSchema();
+            return true;
+        } finally {
+            table.writeUnlock();
+        }
     }
 
     @Test
