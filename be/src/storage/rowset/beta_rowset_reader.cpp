@@ -20,6 +20,8 @@
 #include <stddef.h>
 
 #include <algorithm>
+#include <exception>
+#include <functional>
 #include <memory>
 #include <ostream>
 #include <roaring/roaring.hh>
@@ -27,6 +29,7 @@
 #include <string>
 #include <utility>
 
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/block/block.h"
@@ -48,6 +51,7 @@
 #include "storage/segment/segment.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
+#include "util/debug_points.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -325,10 +329,22 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context, const RowSetSpl
 }
 
 Status BetaRowsetReader::_init_iterator_once() {
-    return _init_iter_once.call([this] { return _init_iterator(); });
+    // DorisCallOnce caches and rethrows exceptions from the initializer. Convert both the initial
+    // exception and subsequent cached rethrows to Status before they reach the scanner thread.
+    try {
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+                _init_iter_once.call([this] { return _init_iterator(); }));
+    } catch (const std::exception& e) {
+        return Status::InternalError(
+                "Failed to initialize rowset reader iterator, tablet_id={}, rowset_id={}, error={}",
+                _rowset->rowset_meta()->tablet_id(), _rowset->rowset_id().to_string(), e.what());
+    }
+    return Status::OK();
 }
 
 Status BetaRowsetReader::_init_iterator() {
+    DBUG_EXECUTE_IF("fault_inject::BetaRowsetReader::_init_iterator.throw_std_exception",
+                    { throw std::bad_function_call(); });
     std::vector<RowwiseIteratorUPtr> iterators;
     RETURN_IF_ERROR(get_segment_iterators(_read_context, &iterators));
 
