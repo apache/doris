@@ -29,6 +29,7 @@
 
 #include "common/exception.h"
 #include "common/status.h"
+#include "core/arena.h"
 #include "core/assert_cast.h"
 #include "core/column/column_complex.h"
 #include "core/column/column_fixed_length_object.h"
@@ -236,6 +237,15 @@ public:
       */
     virtual void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
                            const IColumn** columns, Arena&, bool agg_many = false) const = 0;
+
+    // Read original input rows without gathering columns into a temporary Block.
+    virtual void add_batch_indexed(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
+                                   const IColumn** columns, const uint32_t* rows,
+                                   Arena& arena) const {
+        for (size_t i = 0; i < batch_size; ++i) {
+            add(places[i] + place_offset, columns, rows[i], arena);
+        }
+    }
 
     // same as add_batch, but only call "add" function when place is not nullptr
     virtual void add_batch_selected(size_t batch_size, AggregateDataPtr* places,
@@ -478,6 +488,19 @@ public:
 
         for (size_t i = 0; i < batch_size; ++i) {
             derived->add(places[i] + place_offset, columns, i, arena);
+        }
+    }
+
+    void add_batch_indexed(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
+                           const IColumn** columns, const uint32_t* rows,
+                           Arena& arena) const override {
+        const Derived* derived = assert_cast<const Derived*>(this);
+        constexpr size_t prefetch_distance = 16;
+        for (size_t i = 0; i < batch_size; ++i) {
+            if (i + prefetch_distance < batch_size) {
+                __builtin_prefetch(places[i + prefetch_distance] + place_offset, 1, 3);
+            }
+            derived->add(places[i] + place_offset, columns, rows[i], arena);
         }
     }
 

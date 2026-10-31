@@ -20,6 +20,7 @@ package org.apache.doris.nereids.processor.post;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.processor.post.materialize.LazyMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.util.GroupJoinFusionUtils;
 import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TRuntimeFilterMode;
@@ -88,6 +89,22 @@ public class PlanPostProcessors {
         }
         builder.add(new TopNScanOpt());
         builder.add(new FragmentProcessor());
+        // Align the equi-join conjunct order of group-join-fusable aggregates with their GROUP BY
+        // key order. Registered only when GroupJoin fusion is enabled: it must run before runtime
+        // filters are generated (and the plan is translated) - runtime-filter expr_order indexes
+        // the join's conjunct list, so it must observe the final order, and the GroupJoin fusion
+        // gate relies on the alignment as well. When the switch is off the plan must stay
+        // untouched, so the processor is not even added. Fusion also requires the Nereids
+        // distribute planner (see maybeTranslateToGroupJoin) and a cluster that can execute
+        // GROUP_JOIN_NODE, so those modes keep the plan untouched as well.
+        boolean groupJoinFusionEnabled = cascadesContext.getConnectContext().getSessionVariable()
+                .isEnableGroupJoinFusion()
+                && cascadesContext.getConnectContext().getSessionVariable()
+                        .isEnableNereidsDistributePlanner()
+                && GroupJoinFusionUtils.isSupportedByCluster(cascadesContext.getConnectContext());
+        if (groupJoinFusionEnabled) {
+            builder.add(new AlignGroupJoinConjunctOrder());
+        }
         if (!cascadesContext.getConnectContext().getSessionVariable().getRuntimeFilterMode()
                         .toUpperCase().equals(TRuntimeFilterMode.OFF.name())) {
             builder.add(new RegisterParent());

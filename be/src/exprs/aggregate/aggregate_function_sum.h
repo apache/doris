@@ -81,6 +81,8 @@ class AggregateFunctionSum<T, TResult, Data> final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionSum<T, TResult, Data>>,
           UnaryExpression,
           NullableAggregateFunction {
+    using Base = IAggregateFunctionDataHelper<Data, AggregateFunctionSum<T, TResult, Data>>;
+
 public:
     using ResultDataType = typename PrimitiveTypeTraits<TResult>::DataType;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
@@ -113,6 +115,50 @@ public:
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         this->data(place).add(
                 typename PrimitiveTypeTraits<TResult>::CppType(column.get_data()[row_num]));
+    }
+
+    void add_batch_indexed(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
+                           const IColumn** columns, const uint32_t* rows, Arena&) const override {
+        if (batch_size == 0) {
+            return;
+        }
+        const auto& values =
+                assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]).get_data();
+        constexpr size_t prefetch_distance = 16;
+        for (size_t i = 0; i < batch_size; ++i) {
+            if (i + prefetch_distance < batch_size) {
+                __builtin_prefetch(places[i + prefetch_distance] + place_offset, 1, 3);
+                __builtin_prefetch(values.data() + rows[i + prefetch_distance], 0, 3);
+            }
+            this->data(places[i] + place_offset)
+                    .add(typename PrimitiveTypeTraits<TResult>::CppType(values[rows[i]]));
+        }
+    }
+
+    // Nullable wrappers supply metadata updates without reading NULL payloads.
+    template <typename NullHandler>
+    void add_batch_indexed_with_nulls(size_t batch_size, AggregateDataPtr* places,
+                                      size_t place_offset, const IColumn** columns,
+                                      const uint32_t* rows, const uint8_t* null_map,
+                                      const NullHandler& handle_null, Arena&) const {
+        if (batch_size == 0) {
+            return;
+        }
+        const auto& values =
+                assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]).get_data();
+        constexpr size_t prefetch_distance = 16;
+        for (size_t i = 0; i < batch_size; ++i) {
+            if (i + prefetch_distance < batch_size && !null_map[rows[i + prefetch_distance]]) {
+                __builtin_prefetch(places[i + prefetch_distance] + place_offset, 1, 3);
+                __builtin_prefetch(values.data() + rows[i + prefetch_distance], 0, 3);
+            }
+            const bool is_null = null_map[rows[i]] != 0;
+            handle_null(places[i], is_null);
+            if (!is_null) {
+                this->data(places[i] + place_offset)
+                        .add(typename PrimitiveTypeTraits<TResult>::CppType(values[rows[i]]));
+            }
+        }
     }
 
     void reset(AggregateDataPtr place) const override { this->data(place).sum = {}; }

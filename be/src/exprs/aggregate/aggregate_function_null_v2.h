@@ -455,6 +455,38 @@ public:
         }
     }
 
+    void add_batch_indexed(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
+                           const IColumn** columns, const uint32_t* rows,
+                           Arena& arena) const override {
+        if (batch_size == 0) {
+            return;
+        }
+        auto handle_null = [this, place_offset](AggregateDataPtr place, bool is_null) {
+            if (is_null) {
+                this->update_null_count(place + place_offset, true, this->is_window_function);
+            } else {
+                this->set_flag(place + place_offset);
+            }
+        };
+        if constexpr (requires {
+                          this->nested_function->add_batch_indexed_with_nulls(
+                                  batch_size, places, place_offset, columns, rows, nullptr,
+                                  handle_null, arena);
+                      }) {
+            const auto* column =
+                    assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0]);
+            const IColumn* nested_column = &column->get_nested_column();
+            this->nested_function->add_batch_indexed_with_nulls(
+                    batch_size, places, place_offset + this->prefix_size, &nested_column, rows,
+                    column->get_null_map_data().data(), handle_null, arena);
+        } else {
+            AggregateFunctionNullBaseInlineV2<
+                    NestFuction, result_is_nullable,
+                    AggregateFunctionNullUnaryInlineV2<NestFuction, result_is_nullable>>::
+                    add_batch_indexed(batch_size, places, place_offset, columns, rows, arena);
+        }
+    }
+
     void check_input_columns_type(const IColumn** columns) const override {
         IAggregateFunction::check_input_columns_type(columns);
         const auto* column = check_and_get_column<ColumnNullable>(*columns[0]);
