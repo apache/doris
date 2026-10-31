@@ -216,6 +216,7 @@ org.apache.doris.connector.spi.scan.ConnectorScanRange#getFileSize():long
 org.apache.doris.connector.spi.scan.ConnectorScanRange#getHosts():java.util.List
 org.apache.doris.connector.spi.scan.ConnectorScanRange#getLength():long
 org.apache.doris.connector.spi.scan.ConnectorScanRange#getModificationTime():long
+org.apache.doris.connector.spi.scan.ConnectorScanRange#getPartitionEnforcedConjuncts(java.util.Map):java.util.Set
 org.apache.doris.connector.spi.scan.ConnectorScanRange#getPartitionValues():java.util.Map
 org.apache.doris.connector.spi.scan.ConnectorScanRange#getPath():java.util.Optional
 org.apache.doris.connector.spi.scan.ConnectorScanRange#getProperties():java.util.Map

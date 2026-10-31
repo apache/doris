@@ -441,6 +441,7 @@ Status VExpr::deep_clone(VExprSPtr* cloned_expr,
         cloned_children.push_back(std::move(cloned_child));
     }
     cloned->set_children(std::move(cloned_children));
+    cloned->_file_scan_conjunct_id = _file_scan_conjunct_id;
     cloned->reset_prepare_state();
     *cloned_expr = std::move(cloned);
     return Status::OK();
@@ -698,6 +699,9 @@ Status VExpr::create_expr_tree(const TExpr& texpr, VExprContextSPtr& ctx) {
     int node_idx = 0;
     VExprSPtr e;
     Status status = create_tree_from_thrift(texpr.nodes, &node_idx, e, ctx);
+    if (status.ok() && texpr.__isset.file_scan_conjunct_id) {
+        e->_file_scan_conjunct_id = texpr.file_scan_conjunct_id;
+    }
     if (status.ok() && node_idx + 1 != texpr.nodes.size()) {
         status = Status::InternalError(
                 "Expression tree only partially reconstructed. Not all thrift nodes were "

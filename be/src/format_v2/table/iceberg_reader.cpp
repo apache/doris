@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <deque>
 #include <memory>
+#include <set>
 #include <sstream>
 #include <string_view>
 #include <utility>
@@ -1402,6 +1403,36 @@ Status IcebergTableReader::PositionDeleteRowsCollector::collect(const Block& blo
         (*_rows_by_data_file)[file_path].push_back(pos_column.get_element(row));
     }
     return Status::OK();
+}
+
+void IcebergTableReader::configure_mapper_options(format::TableColumnMapperOptions* options) const {
+    options->enable_row_lineage_virtual_columns = true;
+    options->enable_iceberg_metadata_virtual_columns = true;
+    options->reject_missing_required_field = supports_iceberg_scan_semantics_v2(_scan_params);
+    options->allow_idless_complex_wrapper_projection =
+            supports_iceberg_scan_semantics_v1(_scan_params) && _format == FileFormat::PARQUET;
+    options->unused_columns.clear();
+    // A pending RF can still need a filter-only column after this reader opens. Equality deletes
+    // can also consume a key absent from the residual SQL filters; keep the physical projection
+    // in both cases. Aggregate argument/null-count semantics use their existing projection path.
+    // A row-id fetch may output a column that phase one only filtered on, so its phase-one
+    // filter-only marker cannot authorize a placeholder in phase two.
+    if (!_all_runtime_filters_applied_for_split || !_equality_delete_filters.empty() ||
+        _row_ids.has_value() || _push_down_agg_type != TPushAggOp::NONE ||
+        !_current_file_range_desc.__isset.partition_enforced_conjunct_ids ||
+        _current_file_range_desc.partition_enforced_conjunct_ids.empty()) {
+        return;
+    }
+    std::set<int> referenced_columns;
+    for (const auto& conjunct : _conjuncts) {
+        conjunct->root()->collect_slot_column_ids(referenced_columns);
+    }
+    for (size_t index = 0; index < _projected_columns.size(); ++index) {
+        if (_projected_columns[index].is_filter_only &&
+            !referenced_columns.contains(cast_set<int>(index))) {
+            options->unused_columns.emplace_back(index);
+        }
+    }
 }
 
 Status IcebergTableReader::prepare_split(const format::SplitReadOptions& options) {

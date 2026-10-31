@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.spi.scan;
 
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
@@ -26,6 +27,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Represents a unit of work (a split/range) for scanning a connector table.
@@ -40,6 +42,17 @@ import java.util.Optional;
  * and the engine converts them to {@code TScanRangeLocations} for dispatch.</p>
  */
 public interface ConnectorScanRange extends Serializable {
+
+    /**
+     * Static conjunct ids guaranteed TRUE for every row of this range by its partition metadata.
+     * Keys are opaque scan-local identities, not positions in a backend predicate vector. A proof
+     * must cover the entire expression, including NULL and type-conversion semantics; inclusive
+     * file pruning alone is insufficient. Unsupported expressions must remain in the backend.
+     * The engine supplies an immutable candidate snapshot shared by the scan's ranges.
+     */
+    default Set<Integer> getPartitionEnforcedConjuncts(Map<Integer, ConnectorExpression> conjuncts) {
+        return Collections.emptySet();
+    }
 
     /** Returns the file path, if applicable. */
     default Optional<String> getPath() {

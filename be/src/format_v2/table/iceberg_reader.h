@@ -112,13 +112,7 @@ protected:
                format::TableReader::_should_enable_condition_cache(file_request);
     }
 
-    void configure_mapper_options(format::TableColumnMapperOptions* options) const override {
-        options->enable_row_lineage_virtual_columns = true;
-        options->enable_iceberg_metadata_virtual_columns = true;
-        options->reject_missing_required_field = supports_iceberg_scan_semantics_v2(_scan_params);
-        options->allow_idless_complex_wrapper_projection =
-                supports_iceberg_scan_semantics_v1(_scan_params) && _format == FileFormat::PARQUET;
-    }
+    void configure_mapper_options(format::TableColumnMapperOptions* options) const override;
 
     Status materialize_virtual_columns(Block* table_block) override;
 

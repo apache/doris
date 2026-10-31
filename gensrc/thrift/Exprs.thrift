@@ -348,6 +348,9 @@ struct TExprNode {
 // traversal.
 struct TExpr {
   1: required list<TExprNode> nodes
+  // Scan-local identity of an original static file-scan conjunct. Unlike its position in a BE
+  // vector, this survives predicate reordering and cannot identify a late runtime filter.
+  2: optional i32 file_scan_conjunct_id
 }
 
 struct TExprList {
