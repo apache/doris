@@ -17,8 +17,11 @@
 
 import argparse
 import base64
+import builtins
 import gc
 import importlib
+import importlib.abc
+import importlib.machinery
 import inspect
 import ipaddress
 import json
@@ -31,16 +34,21 @@ import threading
 import pickle
 import uuid
 from abc import ABC, abstractmethod
-from contextlib import contextmanager
 from typing import Any, Callable, Optional, Tuple, get_origin, Dict
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
+from types import ModuleType
 
 import pandas as pd
 import pyarrow as pa
 from pyarrow import flight
+
+# Top-level names of the modules loaded by the server imports above, including indirect ones
+# such as types. Taken once, so every worker of a runtime makes the same choice in
+# UDFModuleFinder and pickles a UDAF state class under the same module name.
+SERVER_TOP_LEVEL_MODULE_NAMES = frozenset(name.partition(".")[0] for name in sys.modules)
 
 
 class ServerState:
@@ -166,30 +174,6 @@ class ServerState:
 ServerState.setup_logging()
 monitor_thread = threading.Thread(target=ServerState.monitor_parent_exit, daemon=True)
 monitor_thread.start()
-
-
-@contextmanager
-def temporary_sys_path(path: str):
-    """
-    Context manager to temporarily add a path to sys.path.
-    Ensures the path is removed after use to avoid pollution.
-
-    Args:
-        path: Directory path to add to sys.path
-
-    Yields:
-        None
-    """
-    path_added = False
-    if path not in sys.path:
-        sys.path.insert(0, path)
-        path_added = True
-
-    try:
-        yield
-    finally:
-        if path_added and path in sys.path:
-            sys.path.remove(path)
 
 
 def int32_to_uint32(value: int) -> int:
@@ -958,62 +942,104 @@ class InlineUDFLoader(UDFLoader):
         return AdaptivePythonUDF(self.python_udf_meta, func)
 
 
+class UDFModuleFinder(importlib.abc.MetaPathFinder):
+    """
+    Imports user modules by their own names from the UDF directory on sys.path, except a
+    top-level name the server has already imported (SERVER_TOP_LEVEL_MODULE_NAMES). Such a
+    module, e.g. the user's types.py, is imported as "__doris_pyudf_<function_id>.types"
+    under a root package whose __path__ is the UDF directory, so the server keeps its own
+    types module.
+
+    Other modules keep their names, so a UDAF state class from state_helper.py is still
+    pickled as "state_helper.State" and stays readable by workers of older versions.
+
+    Absolute imports in user code use the same rule, e.g. "from json import helper" in a
+    UDF directory containing json/ loads "__doris_pyudf_<function_id>.json.helper".
+    """
+
+    def __init__(self, function_id: int, location: str):
+        self.root_package = self.root_package_name(function_id)
+        self.root_package_prefix = self.root_package + "."
+        # Match absolute module __file__ paths even when user_function_dir is relative.
+        self.location = os.path.abspath(location)
+        self.udf_file_prefix = os.path.join(self.location, "")
+        self.original_import = builtins.__import__
+        # Server top-level name -> whether the UDF directory also provides it.
+        self.shadowed_server_module_cache: Dict[str, bool] = {}
+        # importlib.import_module bypasses builtins.__import__, so user code gets
+        # an importlib whose import_module adds the prefix.
+        self.udf_importlib = ModuleType("importlib")
+        self.udf_importlib.__dict__.update(vars(importlib))
+        self.udf_importlib.import_module = self.import_module_for_udf_code
+        self.udf_importlib.__getattr__ = lambda name: getattr(importlib, name)
+
+    @staticmethod
+    def root_package_name(function_id: int) -> str:
+        return f"__doris_pyudf_{function_id}"
+
+    def install(self) -> None:
+        sys.path.insert(0, self.location)
+        sys.meta_path.insert(0, self)
+        builtins.__import__ = self.import_for_udf_code
+
+    def find_spec(self, fullname, path=None, target=None):
+        # Only creates the root package; PathFinder loads every user module with its own
+        # loader, through sys.path or the root package __path__.
+        if fullname != self.root_package:
+            return None
+        spec = importlib.machinery.ModuleSpec(fullname, None, is_package=True)
+        spec.submodule_search_locations = [self.location]
+        return spec
+
+    def is_shadowed_server_module(self, top_level_name: str) -> bool:
+        if top_level_name not in SERVER_TOP_LEVEL_MODULE_NAMES:
+            return False
+        shadowed = self.shadowed_server_module_cache.get(top_level_name)
+        if shadowed is None:
+            shadowed = (
+                importlib.machinery.PathFinder.find_spec(top_level_name, [self.location])
+                is not None
+            )
+            self.shadowed_server_module_cache[top_level_name] = shadowed
+        return shadowed
+
+    def add_root_package_prefix(self, name: str) -> str:
+        if self.is_shadowed_server_module(name.partition(".")[0]):
+            return self.root_package_prefix + name
+        return name
+
+    def import_for_udf_code(self, name, globals=None, locals=None, fromlist=(), level=0):
+        """builtins.__import__ that adds the prefix to absolute imports in user code."""
+        if (
+            level != 0
+            or globals is None
+            or not (globals.get("__file__") or "").startswith(self.udf_file_prefix)
+        ):
+            return self.original_import(name, globals, locals, fromlist, level)
+
+        udf_module_name = self.add_root_package_prefix(name)
+        module = self.original_import(udf_module_name, globals, locals, fromlist, level)
+        if udf_module_name != name and not fromlist:
+            # "import pkg.child" binds pkg, not the root package.
+            return sys.modules[self.root_package_prefix + name.partition(".")[0]]
+        if module is importlib:
+            return self.udf_importlib
+        return module
+
+    def import_module_for_udf_code(self, name: str, package: Optional[str] = None) -> ModuleType:
+        if name.startswith("."):
+            if package is not None:
+                package = self.add_root_package_prefix(package)
+            module = importlib.import_module(name, package)
+        else:
+            module = importlib.import_module(self.add_root_package_prefix(name))
+        if module is importlib:
+            return self.udf_importlib
+        return module
+
+
 class ModuleUDFLoader(UDFLoader):
     """Loads a UDF from a Python module file (.py)."""
-
-    # Module names that are forbidden for UDFs because they conflict with
-    # modules already imported by the server process. Loading a user module
-    # with one of these names would overwrite the entry in sys.modules and
-    # could break the server itself.
-    _FORBIDDEN_MODULE_NAMES: frozenset = frozenset({
-        "argparse", "base64", "gc", "importlib", "inspect", "ipaddress",
-        "json", "sys", "os", "traceback", "logging", "time", "threading",
-        "pickle", "uuid", "abc", "contextlib", "typing", "datetime", "enum",
-        "pathlib", "pandas", "pd", "pyarrow", "pa", "flight",
-        "logging.handlers",
-    })
-
-    # Class-level lock dictionary for thread-safe module imports
-    # Using RLock allows the same thread to acquire the lock multiple times
-
-    # Key for _import_locks: module_name only (not location)
-    # sys.modules is a global dict keyed by module name.
-    # we need to ensure that imports with the same module name
-    # do not interfere with each other across different threads,
-    # even if they come from different file paths.
-    _import_locks: Dict[str, threading.Lock] = {}
-    _import_locks_lock = threading.Lock()
-
-    # Key for _module_cache: location only
-    # since location already contains a unique function_id
-    _module_cache: Dict[str, Any] = {}
-    _module_cache_lock = threading.Lock()
-
-    @classmethod
-    def _get_import_lock(cls, module_name: str) -> threading.Lock:
-        """
-        Get or create an import lock for the given module namespace.
-
-        Uses double-checked locking pattern for optimal performance:
-        - Fast path: return existing lock without acquiring global lock
-        - Slow path: create new lock under global lock protection
-        """
-        # Lock by top-level package to avoid concurrent imports mutating shared
-        # parent entries in sys.modules. If we lock by full module name instead,
-        # pkg.mod.func1 and pkg.mod.func2 can import in parallel and race while
-        # initializing pkg/pkg.mod, causing flaky import failures (for example KeyError).
-        cache_key = module_name.split(".", 1)[0]
-
-        # Fast path: check without lock (read-only, safe for most cases)
-        if cache_key in cls._import_locks:
-            return cls._import_locks[cache_key]
-
-        # Slow path: create lock under protection
-        with cls._import_locks_lock:
-            # Double-check: another thread might have created it while we waited
-            if cache_key not in cls._import_locks:
-                cls._import_locks[cache_key] = threading.Lock()
-            return cls._import_locks[cache_key]
 
     def load(self) -> AdaptivePythonUDF:
         """
@@ -1080,72 +1106,14 @@ class ModuleUDFLoader(UDFLoader):
 
         return package_name, module_name, func_name
 
-    @staticmethod
-    def _clear_modules_from_sys(full_module_name: str) -> None:
-        """Remove a module and all its ancestor packages from sys.modules.
-
-        To prevent the same module from being polluted by old caches
-        when loaded from different paths.
-        e.g., the pkg under path_a affecting the pkg.mdu_a under path_b,
-        the ancestor chain is cleared after each import.
-
-        This ensures that subsequent imports always start from a fresh state.
-        """
-        parts = full_module_name.split(".")
-        for i in range(len(parts)):
-            ancestor = ".".join(parts[: i + 1])
-            sys.modules.pop(ancestor, None)
-
-    def _get_or_import_module(self, location: str, full_module_name: str) -> Any:
-        """
-        Get module from cache or import it (thread-safe).
-
-        The cache is keyed by location alone, which already contains a unique
-        function_id assigned by the FE catalog.
-        """
-        # Reject module names that would shadow server-critical modules
-        top_level_name = full_module_name.split(".")[0]
-        if top_level_name in ModuleUDFLoader._FORBIDDEN_MODULE_NAMES:
-            raise ImportError(
-                f"Module name '{full_module_name}' is not allowed for UDFs "
-                f"because it conflicts with a module used by the server. "
-                f"Please rename your module to avoid shadowing built-in or "
-                f"server-critical modules."
-            )
-
-        cache_key = location
-
-        # Use a per-module lock to prevent race conditions during import
-        import_lock = ModuleUDFLoader._get_import_lock(full_module_name)
-
-        with import_lock:
-            # Fast path: check cache first
-            if cache_key in ModuleUDFLoader._module_cache:
-                cached_module = ModuleUDFLoader._module_cache[cache_key]
-                if cached_module is not None and (
-                    hasattr(cached_module, "__file__")
-                    or hasattr(cached_module, "__path__")
-                ):
-                    return cached_module
-                else:
-                    del ModuleUDFLoader._module_cache[cache_key]
-
-            self._clear_modules_from_sys(full_module_name)
-
-            with temporary_sys_path(location):
-                try:
-                    module = importlib.import_module(full_module_name)
-                    ModuleUDFLoader._module_cache[cache_key] = module
-                    # Evict from sys.modules so future imports from a
-                    # different location are not poisoned by this one.
-                    self._clear_modules_from_sys(full_module_name)
-                    return module
-                except Exception:
-                    # Clean up any partially-imported modules
-                    self._clear_modules_from_sys(full_module_name)
-                    if cache_key in ModuleUDFLoader._module_cache:
-                        del ModuleUDFLoader._module_cache[cache_key]
-                    raise
+    def _get_or_import_module(self, full_module_name: str) -> Any:
+        """Import the entry module by the naming rule of UDFModuleFinder."""
+        # The entry module always exists in the UDF directory, so only the server name check
+        # of UDFModuleFinder.is_shadowed_server_module applies.
+        if full_module_name.partition(".")[0] in SERVER_TOP_LEVEL_MODULE_NAMES:
+            root_package = UDFModuleFinder.root_package_name(self.python_udf_meta.id)
+            full_module_name = f"{root_package}.{full_module_name}"
+        return importlib.import_module(full_module_name)
 
     def _extract_function(
         self, module: Any, func_name: str, module_name: str
@@ -1196,7 +1164,7 @@ class ModuleUDFLoader(UDFLoader):
             raise ImportError(f"Python file not found: {py_file}")
 
         try:
-            udf_module = self._get_or_import_module(location, module_name)
+            udf_module = self._get_or_import_module(module_name)
             return self._extract_function(udf_module, func_name, module_name)
         except (ImportError, AttributeError, TypeError) as e:
             raise ImportError(
@@ -1244,7 +1212,7 @@ class ModuleUDFLoader(UDFLoader):
 
         try:
             full_module_name = self._build_full_module_name(package_name, module_name)
-            udf_module = self._get_or_import_module(location, full_module_name)
+            udf_module = self._get_or_import_module(full_module_name)
             return self._extract_function(udf_module, func_name, full_module_name)
         except (ImportError, AttributeError, TypeError) as e:
             raise ImportError(
@@ -1737,6 +1705,9 @@ class FlightServer(flight.FlightServerBase):
         # cannot reuse a class loaded from old inline code.
         self.udaf_state_managers: Dict[str, UDAFStateManager] = {}
         self.udaf_managers_lock = threading.Lock()
+        self._binding_lock = threading.Lock()
+        self._bound_runtime_version: Optional[str] = None
+        self._bound_function_id: Optional[int] = None
 
     def _get_udaf_state_manager(
         self, python_udaf_meta: PythonUDFMeta
@@ -1854,6 +1825,29 @@ class FlightServer(flight.FlightServerBase):
         )
 
         return python_udf_meta
+
+    def _validate_process_binding(self, python_udf_meta: PythonUDFMeta) -> None:
+        """Bind once and reject requests for a different function id."""
+        with self._binding_lock:
+            if self._bound_function_id is None:
+                # One function owns this process. The finder stays installed for
+                # imports during evaluate and for pickle's module lookups.
+                if python_udf_meta.udf_load_type == 1:
+                    UDFModuleFinder(python_udf_meta.id, python_udf_meta.location).install()
+                self._bound_runtime_version = python_udf_meta.runtime_version
+                self._bound_function_id = python_udf_meta.id
+                return
+
+            if self._bound_runtime_version != python_udf_meta.runtime_version:
+                raise ValueError(
+                    "Python process runtime mismatch: "
+                    f"bound={self._bound_runtime_version}, requested={python_udf_meta.runtime_version}"
+                )
+            if self._bound_function_id != python_udf_meta.id:
+                raise ValueError(
+                    "Python process function id mismatch: "
+                    f"bound={self._bound_function_id}, requested={python_udf_meta.id}"
+                )
 
     @staticmethod
     def check_schema(
@@ -2694,6 +2688,8 @@ class FlightServer(flight.FlightServerBase):
         if not python_udf_meta:
             raise ValueError("Invalid or missing metadata in descriptor")
 
+        self._validate_process_binding(python_udf_meta)
+
         if python_udf_meta.is_udf():
             self._handle_exchange_udf(python_udf_meta, reader, writer)
         elif python_udf_meta.is_udaf():
@@ -2712,16 +2708,12 @@ class FlightServer(flight.FlightServerBase):
         Handle Flight actions for cache management.
 
         Supported actions:
-        - "clear_module_cache": Clear Python module cache for a specific location
-          Body: JSON with "location" field (the UDF cache directory path)
         - "clear_udaf_state_cache": Clear UDAF runtime state for a dropped function id
           Body: JSON with "function_id" field
         """
         action_type = action.type
 
-        if action_type == "clear_module_cache":
-            yield from self._handle_clear_module_cache(action.body.to_pybytes())
-        elif action_type == "clear_udaf_state_cache":
+        if action_type == "clear_udaf_state_cache":
             yield from self._handle_clear_udaf_state_cache(action.body.to_pybytes())
         else:
             raise flight.FlightUnavailableError(f"Unknown action: {action_type}")
@@ -2749,87 +2741,6 @@ class FlightServer(flight.FlightServerBase):
                 "success": False,
                 "error": str(e)
             }).encode("utf-8"))
-
-    def _handle_clear_module_cache(self, body: bytes):
-        """
-        Clear Python module cache for a specific UDF location.
-
-        This removes modules from sys.modules that were loaded from the specified
-        location, allowing fresh imports when a new UDF with the same module name
-        is created.
-        """
-        try:
-            params = json.loads(body.decode("utf-8"))
-            location = params.get("location", "")
-
-            if not location:
-                yield flight.Result(b'{"success": false, "error": "empty location"}')
-                return
-
-            cleared_modules = self._clear_modules_from_location(location)
-
-            result = {
-                "success": True,
-                "cleared_modules": cleared_modules,
-                "location": location,
-            }
-            yield flight.Result(json.dumps(result).encode("utf-8"))
-
-        except Exception as e:
-            logging.error("clear_module_cache failed: %s", e)
-            yield flight.Result(json.dumps({
-                "success": False,
-                "error": str(e)
-            }).encode("utf-8"))
-
-    def _clear_modules_from_location(self, location: str) -> list:
-        """
-        Clear module cache for the given location.
-
-        Acquires per-module import locks to ensure no concurrent import is
-        in progress for the modules being cleared, preventing race conditions
-        where sys.modules entries are removed mid-import.
-
-        Returns list of cleared module names.
-        """
-        cleared = []
-
-        with ModuleUDFLoader._module_cache_lock:
-            keys_to_remove = [
-                key for key in ModuleUDFLoader._module_cache
-                if key[0] == location
-            ]
-
-        # For each module, acquire its import lock before clearing.
-        # This ensures no concurrent _get_or_import_module is in progress
-        # for this (location, module_name) pair.
-        for key in keys_to_remove:
-            _, module_name = key
-            import_lock = ModuleUDFLoader._get_import_lock(module_name)
-
-            with import_lock:
-                with ModuleUDFLoader._module_cache_lock:
-                    if key in ModuleUDFLoader._module_cache:
-                        del ModuleUDFLoader._module_cache[key]
-
-                modules_to_remove = [
-                    name for name, mod in sys.modules.items()
-                    if name == module_name or name.startswith(module_name + ".")
-                    or (
-                        hasattr(mod, "__file__") and mod.__file__ is not None
-                        and mod.__file__.startswith(location)
-                    )
-                ]
-                for mod_name in modules_to_remove:
-                    del sys.modules[mod_name]
-                    if mod_name not in cleared:
-                        cleared.append(mod_name)
-
-                if module_name not in cleared:
-                    cleared.append(module_name)
-
-        return cleared
-
 
 class UDAFOperationType(Enum):
     """Enum representing UDAF operation types."""

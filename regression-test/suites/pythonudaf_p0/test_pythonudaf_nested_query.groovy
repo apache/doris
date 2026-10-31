@@ -86,6 +86,8 @@ suite("test_pythonudaf_nested_query") {
         RETURNS DOUBLE
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "TotalRevenueUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -117,6 +119,8 @@ class TotalRevenueUDAF:
         RETURNS BIGINT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "OrderCountUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -148,6 +152,8 @@ class OrderCountUDAF:
         RETURNS DOUBLE
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "AvgOrderValueUDAF",
             "runtime_version" = "${runtime_version}"
         )

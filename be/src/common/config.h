@@ -1271,8 +1271,6 @@ DECLARE_String(python_conda_root_path);
 DECLARE_String(python_venv_root_path);
 // python interpreter paths used by venv, e.g. /usr/bin/python3.7:/usr/bin/python3.6
 DECLARE_String(python_venv_interpreter_paths);
-// max python processes in global shared pool, each version can have up to this many processes
-DECLARE_mInt32(max_python_process_num);
 // Memory limit in bytes for all Python UDF processes; warning is logged when exceeded
 DECLARE_mInt64(python_udf_processes_memory_limit_bytes);
 

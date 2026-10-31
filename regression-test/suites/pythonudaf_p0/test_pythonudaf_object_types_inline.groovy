@@ -24,6 +24,8 @@ suite("test_pythonudaf_object_types_inline") {
         RETURNS BIGINT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "Agg",
             "runtime_version" = "${runtime_version}"
         )
@@ -51,6 +53,8 @@ class Agg:
         RETURNS HLL
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "Agg",
             "runtime_version" = "${runtime_version}"
         )
@@ -79,6 +83,8 @@ class Agg:
         INTERMEDIATE BIGINT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "Agg",
             "runtime_version" = "${runtime_version}"
         )
@@ -107,6 +113,8 @@ class Agg:
         INTERMEDIATE BITMAP
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "Agg",
             "runtime_version" = "${runtime_version}"
         )
@@ -134,6 +142,8 @@ class Agg:
         RETURNS ARRAY<BITMAP>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "Agg",
             "runtime_version" = "${runtime_version}"
         )
@@ -161,6 +171,8 @@ class Agg:
         RETURNS STRUCT<plain:INT, nested:MAP<INT, ARRAY<HLL>>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "Agg",
             "runtime_version" = "${runtime_version}"
         )

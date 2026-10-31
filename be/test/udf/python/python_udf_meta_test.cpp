@@ -59,6 +59,12 @@ protected:
     DataTypePtr nullable_double_;
 };
 
+TEST_F(PythonUDFMetaTest, DefaultResourceProperties) {
+    PythonUDFMeta meta;
+    EXPECT_EQ(3, meta.pool_size);
+    EXPECT_EQ(14400, meta.auto_suspend);
+}
+
 // ============================================================================
 // PythonUDFMeta check() tests
 // ============================================================================

@@ -81,6 +81,8 @@ suite("test_pythonudaf_complex_state_objects_module") {
             "file" = "file://${pyPath}",
             "symbol" = "complex_state_udaf.UserProfileUDAF",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         );
@@ -97,6 +99,8 @@ suite("test_pythonudaf_complex_state_objects_module") {
             "file" = "file://${pyPath}",
             "symbol" = "complex_state_udaf.ProductStatsUDAF",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         );
@@ -113,6 +117,8 @@ suite("test_pythonudaf_complex_state_objects_module") {
             "file" = "file://${pyPath}",
             "symbol" = "complex_state_udaf.TransactionTimelineUDAF",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         );
@@ -129,6 +135,8 @@ suite("test_pythonudaf_complex_state_objects_module") {
             "file" = "file://${pyPath}",
             "symbol" = "complex_state_udaf.UniqueTrackerUDAF",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         );
@@ -145,6 +153,8 @@ suite("test_pythonudaf_complex_state_objects_module") {
             "file" = "file://${pyPath}",
             "symbol" = "complex_state_udaf.CategorySummaryUDAF",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         );
@@ -161,6 +171,8 @@ suite("test_pythonudaf_complex_state_objects_module") {
             "file" = "file://${pyPath}",
             "symbol" = "complex_state_udaf.HierarchicalAggUDAF",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         );
@@ -326,6 +338,8 @@ suite("test_pythonudaf_complex_state_objects_module") {
             "file" = "file://${pyPath}",
             "symbol" = "complex_state_udaf.UserProfileUDAF",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         );
@@ -347,6 +361,8 @@ suite("test_pythonudaf_complex_state_objects_module") {
             "file" = "file://${pyPath}",
             "symbol" = "complex_state_udaf.UserProfileUDAF",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         );

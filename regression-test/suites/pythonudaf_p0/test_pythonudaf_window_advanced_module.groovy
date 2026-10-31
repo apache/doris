@@ -73,6 +73,8 @@ suite("test_pythonudaf_window_advanced_module") {
             "file" = "file://${pyPath}",
             "symbol" = "window_udaf.MovingAvgUDAF",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         );
@@ -89,6 +91,8 @@ suite("test_pythonudaf_window_advanced_module") {
             "file" = "file://${pyPath}",
             "symbol" = "window_udaf.WindowStdDevUDAF",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         );
@@ -105,6 +109,8 @@ suite("test_pythonudaf_window_advanced_module") {
             "file" = "file://${pyPath}",
             "symbol" = "window_udaf.LastValueUDAF",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         );
@@ -121,6 +127,8 @@ suite("test_pythonudaf_window_advanced_module") {
             "file" = "file://${pyPath}",
             "symbol" = "window_udaf.WindowMinUDAF",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         );
@@ -134,6 +142,8 @@ suite("test_pythonudaf_window_advanced_module") {
             "file" = "file://${pyPath}",
             "symbol" = "window_udaf.WindowMaxUDAF",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         );
@@ -333,6 +343,8 @@ suite("test_pythonudaf_window_advanced_module") {
             "file" = "file://${pyPath}",
             "symbol" = "window_udaf.Percentile50UDAF",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         );
@@ -385,6 +397,8 @@ suite("test_pythonudaf_window_advanced_module") {
             "file" = "file://${pyPath}",
             "symbol" = "window_udaf.MovingAvgUDAF",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         );

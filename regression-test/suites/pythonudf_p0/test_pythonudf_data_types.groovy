@@ -27,6 +27,8 @@ suite("test_pythonudf_data_types") {
         RETURNS TINYINT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}"
         )
@@ -47,6 +49,8 @@ def evaluate(x):
         RETURNS SMALLINT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}"
         )
@@ -67,6 +71,8 @@ def evaluate(x):
         RETURNS BIGINT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}"
         )
@@ -87,6 +93,8 @@ def evaluate(x):
         RETURNS DECIMAL(10,2) 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}"
         )
@@ -108,6 +116,8 @@ def evaluate(x):
         RETURNS STRING 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}"
         )
@@ -128,6 +138,8 @@ def evaluate(d):
         RETURNS STRING 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}"
         )

@@ -412,7 +412,9 @@ Status PythonUDAFClient::destroy(int64_t place_id) {
 }
 
 Status PythonUDAFClient::close() {
-    if (!_inited || !_writer) return Status::OK();
+    if (!_inited || !_writer) {
+        return PythonClient::close();
+    }
 
     // Destroy the place if it exists (cleanup on client destruction)
     if (_created_place_id.has_value()) {

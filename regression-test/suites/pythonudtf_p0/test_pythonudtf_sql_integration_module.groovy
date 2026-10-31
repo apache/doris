@@ -39,6 +39,8 @@ suite("test_pythonudtf_sql_integration_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.sql_integration_udtf.split_with_position",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -52,6 +54,8 @@ suite("test_pythonudtf_sql_integration_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.sql_integration_udtf.generate_range",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -65,6 +69,8 @@ suite("test_pythonudtf_sql_integration_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.sql_integration_udtf.explode_with_index",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """

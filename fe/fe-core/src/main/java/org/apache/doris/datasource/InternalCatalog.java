@@ -479,6 +479,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     public void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
         LOG.info("begin drop database[{}], is force : {}", dbName, force);
 
+        Map<Long, String> functionSignatures = new HashMap<>();
         // 1. check if database exists
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire catalog lock. Try again");
@@ -538,6 +539,11 @@ public class InternalCatalog implements CatalogIf<Database> {
 
                 Env.getCurrentRecycleBin().recycleDatabase(db, tableNames, tableIds, false, force, 0);
                 recycleTime = Env.getCurrentRecycleBin().getRecycleTimeById(db.getId());
+                if (force) {
+                    functionSignatures = db.getFunctions().stream()
+                            .filter(function -> function.getBinaryType() == Function.BinaryType.PYTHON_UDF)
+                            .collect(Collectors.toMap(Function::getId, Function::signatureString));
+                }
             } finally {
                 db.writeUnlock();
             }
@@ -554,6 +560,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             unlock();
         }
 
+        // Recoverable databases retain their function generations until the recycle bin erases them.
+        FunctionUtil.cleanUdfCache(functionSignatures);
         LOG.info("finish drop database[{}], is force : {}", dbName, force);
     }
 

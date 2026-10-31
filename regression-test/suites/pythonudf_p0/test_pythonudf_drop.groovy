@@ -55,6 +55,8 @@ suite("test_pythonudf_drop", "nonConcurrent") {
         sql """
             CREATE FUNCTION py_drop_once(INT) RETURNS INT PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
+                "pool_size" = "1",
                 "file" = "file://${zipA}",
                 "symbol" = "drop_udf.evaluate",
                 "runtime_version" = "${runtime_version}"
@@ -74,6 +76,8 @@ suite("test_pythonudf_drop", "nonConcurrent") {
         sql """
             CREATE FUNCTION py_drop_a(INT) RETURNS INT PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
+                "pool_size" = "1",
                 "file" = "file://${zipA}",
                 "symbol" = "drop_udf.evaluate",
                 "runtime_version" = "${runtime_version}"
@@ -82,6 +86,8 @@ suite("test_pythonudf_drop", "nonConcurrent") {
         sql """
             CREATE FUNCTION py_drop_b(INT) RETURNS INT PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
+                "pool_size" = "1",
                 "file" = "file://${zipB}",
                 "symbol" = "drop_udf.evaluate",
                 "runtime_version" = "${runtime_version}"
@@ -109,6 +115,8 @@ suite("test_pythonudf_drop", "nonConcurrent") {
         sql """
             CREATE FUNCTION py_drop_reconnect(INT) RETURNS INT PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
+                "pool_size" = "1",
                 "file" = "file://${zipA}",
                 "symbol" = "drop_udf.evaluate",
                 "runtime_version" = "${runtime_version}"
@@ -134,6 +142,8 @@ suite("test_pythonudf_drop", "nonConcurrent") {
             RETURNS INT
             PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
+                "pool_size" = "1",
                 "symbol" = "evaluate",
                 "runtime_version" = "${runtime_version}",
                 "always_nullable" = "true"
@@ -154,6 +164,8 @@ def evaluate(x):
             RETURNS INT
             PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
+                "pool_size" = "1",
                 "symbol" = "evaluate",
                 "runtime_version" = "${runtime_version}",
                 "always_nullable" = "true"
@@ -184,6 +196,8 @@ def evaluate(x):
                 RETURNS INT
                 PROPERTIES (
                     "type" = "PYTHON_UDF",
+                    "auto_suspend" = "0",
+                    "pool_size" = "1",
                     "symbol" = "evaluate",
                     "runtime_version" = "${runtime_version}",
                     "always_nullable" = "true"
@@ -213,6 +227,8 @@ def evaluate(x):
                 RETURNS INT
                 PROPERTIES (
                     "type" = "PYTHON_UDF",
+                    "auto_suspend" = "0",
+                    "pool_size" = "1",
                     "symbol" = "evaluate",
                     "runtime_version" = "${runtime_version}",
                     "always_nullable" = "true"
