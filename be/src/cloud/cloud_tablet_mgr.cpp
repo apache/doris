@@ -361,7 +361,9 @@ void CloudTabletMgr::vacuum_stale_rowsets(const CountDownLatch& stop_latch) {
             int64_t max_useless_rowset_version_count = 0;
             int64_t tablet_id_with_max_useless_rowset_version_count = 0;
             OlapStopWatch watch;
-            _tablet_map->traverse([&](auto&& tablet) {
+            // Reuse the snapshot outside TabletMap's mutex: a check waiting on one tablet's
+            // header lock must not block loading or enumerating unrelated tablets.
+            for (const auto& tablet : tablets_to_remove_unused_rowsets) {
                 int64_t useless_rowset_count = 0;
                 int64_t useless_rowset_version_count = 0;
                 tablet->check_agg_delete_bitmap_for_stale_rowsets(useless_rowset_count,
@@ -374,7 +376,7 @@ void CloudTabletMgr::vacuum_stale_rowsets(const CountDownLatch& stop_latch) {
                     max_useless_rowset_version_count = useless_rowset_version_count;
                     tablet_id_with_max_useless_rowset_version_count = tablet->tablet_id();
                 }
-            });
+            }
             g_max_rowsets_with_useless_delete_bitmap.set_value(max_useless_rowset_count);
             g_max_rowsets_with_useless_delete_bitmap_version.set_value(
                     max_useless_rowset_version_count);
