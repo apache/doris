@@ -1314,9 +1314,10 @@ static Status geography_point_relation(std::string_view name, const GeoShape& lh
     return Status::OK();
 }
 
-// Keep operation-specific raw/S2 admission together so uncertain rounded boundaries are checked
-// before accepting a Boolean, while independent raw contact or interior witnesses stay valid.
-// NOLINTNEXTLINE(readability-function-size,readability-function-cognitive-complexity)
+static Status geography_relation_impl(std::string_view name, const GeoShape& lhs,
+                                      const GeoShape& rhs, const GeographyEdgeNodes& nodes,
+                                      bool* result);
+
 Status geography_relation(std::string_view name, const GeoShape& lhs, const GeoShape& rhs,
                           StringRef left_wkb, StringRef right_wkb, bool* result) {
     const auto& container = name == "st_within" ? rhs : lhs;
@@ -1337,15 +1338,26 @@ Status geography_relation(std::string_view name, const GeoShape& lhs, const GeoS
         *result = false;
         return Status::OK();
     }
+    const GeographyEdgeNodes nodes(left_wkb, right_wkb);
+    return geography_relation_impl(name, lhs, rhs, nodes, result);
+}
+
+// Keep operation-specific raw/S2 admission together so uncertain rounded boundaries are checked
+// before accepting a Boolean, while independent raw contact or interior witnesses stay valid.
+// NOLINTNEXTLINE(readability-function-size,readability-function-cognitive-complexity)
+static Status geography_relation_impl(std::string_view name, const GeoShape& lhs,
+                                      const GeoShape& rhs, const GeographyEdgeNodes& nodes,
+                                      bool* result) {
+    const auto& container = name == "st_within" ? rhs : lhs;
+    const auto& value = name == "st_within" ? lhs : rhs;
+    const bool containment = name == "st_contains" || name == "st_within";
     if (lhs.type() == GeoShapeType::GEO_SHAPE_POINT ||
         rhs.type() == GeoShapeType::GEO_SHAPE_POINT) {
         // Point equality has the same canonical position test as point containment.
-        const GeographyEdgeNodes nodes(left_wkb, right_wkb);
         return geography_point_relation(name, lhs, rhs, nodes, result);
     }
     MutableS2ShapeIndex left;
     MutableS2ShapeIndex right;
-    const GeographyEdgeNodes nodes(left_wkb, right_wkb);
     GeographyEdgeNodes::RawEdges left_edges;
     GeographyEdgeNodes::RawEdges right_edges;
     const bool raw_polygon_coverage = lhs.type() == GeoShapeType::GEO_SHAPE_POLYGON &&
@@ -1661,17 +1673,17 @@ double geography_distance(const GeoShape& left_shape, const GeoShape& right_shap
     S2ClosestEdgeQuery query(&left);
     S2ClosestEdgeQuery::ShapeIndexTarget target(&right);
     const double distance = S2Earth::ToMeters(query.GetDistance(&target).ToAngle());
-    // POINT(58+ulp 0) can round onto a line endpoint at (58,0) despite a raw gap.
-    // Confirm zero using raw contact and the existing Polygon interior/side admission.
-    if (distance == 0 && (left_shape.type() == GeoShapeType::GEO_SHAPE_POINT ||
-                          right_shape.type() == GeoShapeType::GEO_SHAPE_POINT)) {
+    // LINESTRING(57 0,58 0) and (58+ulp 0,59 0) share only a rounded endpoint.
+    // Require the existing Intersects certificate before accepting a zero as raw contact.
+    // Coordinate indices are shared, while shape emission for the certificate can repeat.
+    if (distance == 0) {
         bool intersects = false;
-        THROW_IF_ERROR(geography_point_relation("st_intersects", left_shape, right_shape, nodes,
-                                                &intersects));
+        THROW_IF_ERROR(geography_relation_impl("st_intersects", left_shape, right_shape, nodes,
+                                               &intersects));
         if (!intersects) {
-            throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                            "Geography distance does not support ambiguous spherical Point/shape "
-                            "zero distance");
+            throw Exception(
+                    ErrorCode::NOT_IMPLEMENTED_ERROR,
+                    "Geography distance does not support ambiguous spherical zero distance");
         }
     }
     return distance;

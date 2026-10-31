@@ -1477,8 +1477,7 @@ TEST(VGeoFunctionsTest, GeographyRawEndpointsSurviveRoundedPointCollisions) {
                  geography_test_hex(reverse ? point : line)},
                 make_nullable(std::make_shared<DataTypeFloat64>()), &distance);
         EXPECT_EQ(status.code(), ErrorCode::NOT_IMPLEMENTED_ERROR);
-        EXPECT_NE(status.to_string().find("ambiguous spherical Point/shape zero distance"),
-                  std::string::npos)
+        EXPECT_NE(status.to_string().find("ambiguous spherical zero distance"), std::string::npos)
                 << status;
         expect_geography_relation("st_intersects", reverse ? line : point, reverse ? point : line,
                                   false);
@@ -2096,18 +2095,17 @@ static void expect_dwithin_zero(const std::string& left, const std::string& righ
     EXPECT_EQ((*block.get_by_position(3).column)[0].get<TYPE_BOOLEAN>(), expected);
 }
 
-static void expect_rounded_point_shape_distance_error(const std::string& left,
-                                                      const std::string& right) {
+static void expect_rounded_zero_distance_error(const std::string& left, const std::string& right) {
     SCOPED_TRACE(left + " versus " + right);
     Block distance;
     const auto status = execute_geography_test(
             "st_distance", {geography_test_hex(left), geography_test_hex(right)},
             make_nullable(std::make_shared<DataTypeFloat64>()), &distance);
-    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(status.code(), ErrorCode::NOT_IMPLEMENTED_ERROR);
     EXPECT_NE(status.to_string().find("ambiguous spherical"), std::string::npos) << status;
     Block within;
     const auto within_status = execute_dwithin_zero_test(left, right, &within);
-    EXPECT_FALSE(within_status.ok());
+    EXPECT_EQ(within_status.code(), ErrorCode::NOT_IMPLEMENTED_ERROR);
     EXPECT_NE(within_status.to_string().find("ambiguous spherical"), std::string::npos)
             << within_status;
 }
@@ -2122,12 +2120,12 @@ TEST(VGeoFunctionsTest, GeographyPointShapeDistanceRejectsRoundedOnlyZero) {
     // S2 reports zero for an endpoint gap or a raw exterior point rounded onto/inside a polygon.
     // Both distance APIs must reject that unsupported zero rather than turn it into contact.
     for (const auto& [point, shape] : cases) {
-        expect_rounded_point_shape_distance_error(point, shape);
-        expect_rounded_point_shape_distance_error(shape, point);
+        expect_rounded_zero_distance_error(point, shape);
+        expect_rounded_zero_distance_error(shape, point);
     }
 }
 
-static void expect_point_shape_zero_distance(const std::string& left, const std::string& right) {
+static void expect_geography_zero_distance(const std::string& left, const std::string& right) {
     SCOPED_TRACE(left + " versus " + right);
     double distance = -1;
     geography_measurement("st_distance", {left, right}, &distance);
@@ -2149,13 +2147,12 @@ TEST(VGeoFunctionsTest, GeographyPointShapeZeroDistanceKeepsRawContactAndInterio
             {"POINT (-180 0)", "LINESTRING (180 0,179 0)"},
             {"POINT (123 90)", "LINESTRING (0 89,0 90)"}};
     for (const auto& [point, shape] : cases) {
-        expect_point_shape_zero_distance(point, shape);
-        expect_point_shape_zero_distance(shape, point);
+        expect_geography_zero_distance(point, shape);
+        expect_geography_zero_distance(shape, point);
     }
 }
 
-static void expect_point_shape_positive_distance(const std::string& left,
-                                                 const std::string& right) {
+static void expect_geography_positive_distance(const std::string& left, const std::string& right) {
     SCOPED_TRACE(left + " versus " + right);
     double distance = -1;
     geography_measurement("st_distance", {left, right}, &distance);
@@ -2169,8 +2166,48 @@ TEST(VGeoFunctionsTest, GeographyPointShapePositiveDistanceKeepsSeparatedPointsA
             {"POINT (58.1 0)", "POLYGON ((58 0,57 -1,58 -1,58 0))"},
             {"POINT (2 2)", "POLYGON ((0 0,4 0,4 4,0 4,0 0),(1 1,3 1,3 3,1 3,1 1))"}};
     for (const auto& [point, shape] : cases) {
-        expect_point_shape_positive_distance(point, shape);
-        expect_point_shape_positive_distance(shape, point);
+        expect_geography_positive_distance(point, shape);
+        expect_geography_positive_distance(shape, point);
+    }
+}
+
+TEST(VGeoFunctionsTest, GeographyNonpointDistanceRejectsRoundedOnlyZero) {
+    const std::string southwest = "POLYGON ((58 0,57 -1,58 -1,58 0))";
+    const std::vector<std::pair<std::string, std::string>> cases {
+            {"LINESTRING (57 0,58 0)", "LINESTRING (58.00000000000001 0,59 0)"},
+            {southwest, "LINESTRING (58.00000000000001 0,59 1)"},
+            {southwest, "POLYGON ((58.00000000000001 0,59 0,59 1,58.00000000000001 0))"}};
+    // The first pair has an equatorial gap. Southwest is south of the equator except at
+    // longitude 58; both northern shapes start strictly east of that sole boundary point.
+    for (const auto& [left, right] : cases) {
+        expect_rounded_zero_distance_error(left, right);
+        expect_rounded_zero_distance_error(right, left);
+    }
+}
+
+TEST(VGeoFunctionsTest, GeographyNonpointDistanceKeepsCertifiedContactsAndSeparation) {
+    const std::string polygon = "POLYGON ((0 0,4 0,4 4,0 4,0 0))";
+    const std::string hole = "POLYGON ((0 0,6 0,6 6,0 6,0 0),(2 2,4 2,4 4,2 4,2 2))";
+    const std::vector<std::pair<std::string, std::string>> contacts {
+            {"LINESTRING (-1 0,1 0)", "LINESTRING (0 -1,0 1)"},
+            {"LINESTRING (0 0,3 0)", "LINESTRING (1 0,2 0)"},
+            {polygon, "LINESTRING (1 0,3 0)"},
+            {"POLYGON ((0 0,2 0,2 2,0 2,0 0))", "POLYGON ((2 0,4 0,4 2,2 2,2 0))"},
+            {polygon, "LINESTRING (1 1,3 1)"},
+            {polygon, "POLYGON ((1 1,2 1,1 2,1 1))"},
+            {hole, "LINESTRING (0.5 1,1.5 1)"},
+            {hole, "LINESTRING (2 2,2 4)"}};
+    for (const auto& [left, right] : contacts) {
+        expect_geography_zero_distance(left, right);
+        expect_geography_zero_distance(right, left);
+    }
+    const std::vector<std::pair<std::string, std::string>> separated {
+            {"LINESTRING (0 0,1 0)", "LINESTRING (2 0,3 0)"},
+            {hole, "LINESTRING (2.5 2.5,3.5 2.5)"},
+            {hole, "POLYGON ((2.5 2.5,3.5 2.5,3 3.5,2.5 2.5))"}};
+    for (const auto& [left, right] : separated) {
+        expect_geography_positive_distance(left, right);
+        expect_geography_positive_distance(right, left);
     }
 }
 
