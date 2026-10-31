@@ -69,7 +69,7 @@ ScanTask::~ScanTask() {
 
 // ==================== ScannerContext ====================
 ScannerContext::ScannerContext(RuntimeState* state, ScanLocalStateBase* local_state,
-                               const TupleDescriptor* output_tuple_desc, bool has_projection,
+                               const TupleDescriptor* output_tuple_desc,
                                const std::list<std::shared_ptr<ScannerDelegate>>& scanners,
                                int64_t limit_, std::shared_ptr<Dependency> dependency,
                                std::atomic<int64_t>* shared_scan_limit,
@@ -106,11 +106,6 @@ ScannerContext::ScannerContext(RuntimeState* state, ScanLocalStateBase* local_st
           _ins_idx(ins_idx),
           _enable_adaptive_scanners(enable_adaptive_scan) {
     DCHECK(_state != nullptr);
-    if (has_projection) {
-        const auto& output_row_desc = local_state->_parent->operator_row_desc_after_projection();
-        DCHECK_EQ(output_row_desc.tuple_descriptors().size(), 1);
-        _output_tuple_desc = output_row_desc.tuple_descriptors().front();
-    }
     _query_id = _state->get_query_ctx()->query_id();
     _resource_ctx = _state->get_query_ctx()->resource_ctx();
     ctx_id = UniqueId::gen_uid().to_string();
@@ -490,13 +485,11 @@ void ScannerContext::stop_scanners(RuntimeState* state) {
         std::stringstream scanner_statistics;
         std::stringstream scanner_rows_read;
         std::stringstream scanner_wait_worker_time;
-        std::stringstream scanner_projection;
         std::stringstream scanner_prepare_time;
         std::stringstream scanner_open_time;
         scanner_statistics << "[";
         scanner_rows_read << "[";
         scanner_wait_worker_time << "[";
-        scanner_projection << "[";
         scanner_prepare_time << "[";
         scanner_open_time << "[";
         // Scanners can in 3 state
@@ -510,9 +503,6 @@ void ScannerContext::stop_scanners(RuntimeState* state) {
             }
             // Add per scanner running time before close them
             scanner_statistics << PrettyPrinter::print(scanner->_scanner->get_time_cost_ns(),
-                                                       TUnit::TIME_NS)
-                               << ", ";
-            scanner_projection << PrettyPrinter::print(scanner->_scanner->projection_time(),
                                                        TUnit::TIME_NS)
                                << ", ";
             scanner_rows_read << PrettyPrinter::print(scanner->_scanner->get_rows_read(),
@@ -535,13 +525,11 @@ void ScannerContext::stop_scanners(RuntimeState* state) {
         scanner_statistics << "]";
         scanner_rows_read << "]";
         scanner_wait_worker_time << "]";
-        scanner_projection << "]";
         scanner_prepare_time << "]";
         scanner_open_time << "]";
         _scanner_profile->add_info_string("PerScannerRunningTime", scanner_statistics.str());
         _scanner_profile->add_info_string("PerScannerRowsRead", scanner_rows_read.str());
         _scanner_profile->add_info_string("PerScannerWaitTime", scanner_wait_worker_time.str());
-        _scanner_profile->add_info_string("PerScannerProjectionTime", scanner_projection.str());
         _scanner_profile->add_info_string("PerScannerPrepareTime", scanner_prepare_time.str());
         _scanner_profile->add_info_string("PerScannerOpenTime", scanner_open_time.str());
     }

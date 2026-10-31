@@ -22,7 +22,6 @@
 #include <algorithm>
 #include <atomic>
 #include <functional>
-#include <optional>
 #include <vector>
 
 #include "common/status.h"
@@ -66,7 +65,6 @@ public:
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_state->query_mem_tracker());
         _input_block.clear();
         _conjuncts.clear();
-        _projections.clear();
         _origin_block.clear();
         _common_expr_ctxs_push_down.clear();
         DorisMetrics::instance()->scanner_cnt->increment(-1);
@@ -86,7 +84,8 @@ public:
     }
 
     Status get_block(RuntimeState* state, Block* block, bool* eos);
-    Status get_block_after_projects(RuntimeState* state, Block* block, bool* eos);
+    // Returns filtered, optionally padded raw rows for consumer-side projection.
+    Status get_block_for_queue(RuntimeState* state, Block* block, bool* eos);
 
     virtual Status close(RuntimeState* state);
 
@@ -167,8 +166,6 @@ protected:
     // Filter the output block finally.
     virtual Status _filter_output_block(Block* block);
 
-    Status _do_projections(Block* origin_block, Block* output_block);
-
 private:
     void _start_scan_cpu_timer() {
         _cpu_watch.reset();
@@ -198,7 +195,6 @@ public:
     int64_t get_prepare_time_cost_ns() const { return _per_scanner_prepare_timer; }
     int64_t get_open_time_cost_ns() const { return _per_scanner_open_timer; }
 
-    int64_t projection_time() const { return _projection_timer; }
     int64_t get_rows_read() const { return _num_rows_read; }
 
     bool has_prepared() const { return _has_prepared; }
@@ -261,8 +257,8 @@ protected:
     RuntimeProfile* _profile = nullptr;
 
     const TupleDescriptor* _output_tuple_desc = nullptr;
-    std::optional<std::reference_wrapper<const RowDescriptor>> _projection_output_row_descriptor;
-    bool _has_projection = false;
+    // Preserve the existing small-block padding policy for scans with an output projection.
+    bool _enable_block_padding = false;
 
     // If _input_tuple_desc is set, the scanner will read data into
     // this _input_block first, then convert to the output block.
@@ -280,9 +276,6 @@ protected:
     // Cloned from _conjuncts of scan node.
     // It includes predicate in SQL and runtime filters.
     VExprContextSPtrs _conjuncts;
-    VExprContextSPtrs _projections;
-    // Used in common subexpression elimination to compute intermediate results.
-    std::vector<VExprContextSPtrs> _intermediate_projections;
     Block _origin_block;
     Block _padding_block;
 
@@ -316,7 +309,6 @@ protected:
     int64_t _per_scanner_timer = 0;
     int64_t _per_scanner_prepare_timer = 0;
     int64_t _per_scanner_open_timer = 0;
-    int64_t _projection_timer = 0;
 
     std::atomic_bool _should_stop = false;
 
