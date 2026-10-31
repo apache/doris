@@ -110,14 +110,17 @@ public class MovesCacheMap {
         }
     }
 
-    // For given tablet ctx, find it in cacheMap
+    // Repair tasks do not have a tag, so search all tags for the tablet's move.
     public Pair<PartitionRebalancer.TabletMove, Long> getTabletMove(TabletSchedCtx tabletCtx) {
         for (Map<TStorageMedium, MovesCache> mediumMap : cacheMap.values()) {
             MovesCache cache = mediumMap.get(tabletCtx.getStorageMedium());
             if (cache == null) {
                 continue;
             }
-            return cache.get().getIfPresent(tabletCtx.getTabletId());
+            Pair<PartitionRebalancer.TabletMove, Long> move = cache.get().getIfPresent(tabletCtx.getTabletId());
+            if (move != null && move.second != -1) {
+                return move;
+            }
         }
         return null;
     }
