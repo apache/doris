@@ -1234,6 +1234,71 @@ DEFINE_Validator(lance_batch_readahead, [](int32_t value) { return value > 0; })
 DEFINE_mInt32(lance_fragment_readahead, "5");
 DEFINE_Validator(lance_fragment_readahead, [](int32_t value) { return value > 0; });
 
+// Lance index worker isolation boundary: the cgroup-isolated one-shot worker
+// process (see be/src/lance/index/lance_index_supervisor.h). Runtime changes to
+// the per-invocation limits apply to the next invocation; the structural knobs
+// (preflight/cgroup_parent) are read once at preflight. The worker-concurrency
+// and bounded-queue keys are deliberately NOT here: they belong to the worker
+// service (lance_index_mutation_worker_*), which owns the executor pool.
+DEFINE_mInt64(lance_index_worker_memory_limit_bytes, "4294967296"); // 4 GiB cgroup memory.max
+DEFINE_Validator(lance_index_worker_memory_limit_bytes, [](int64_t value) { return value > 0; });
+DEFINE_mInt64(lance_index_worker_pids_max, "512"); // cgroup pids.max
+DEFINE_Validator(lance_index_worker_pids_max, [](int64_t value) { return value > 0; });
+DEFINE_mInt64(lance_index_worker_wallclock_limit_seconds, "3600"); // supervisor wall-clock cap
+DEFINE_Validator(lance_index_worker_wallclock_limit_seconds, [](int64_t value) {
+    return value > 0;
+});
+// RLIMIT_AS fuse (NOT a memory boundary; must stay well above the per-core
+// elastic VA floor of the Rust runtime, measured ~8.5 GiB at 128 cores — the
+// real memory boundary is the cgroup memory.max above).
+DEFINE_mInt64(lance_index_worker_as_limit_bytes, "34359738368"); // 32 GiB
+DEFINE_Validator(lance_index_worker_as_limit_bytes, [](int64_t value) { return value > 0; });
+// RLIMIT_CPU = multiplier x the invocation's wall-clock budget.
+DEFINE_mInt32(lance_index_worker_cpu_limit_multiplier, "4");
+DEFINE_Validator(lance_index_worker_cpu_limit_multiplier,
+                 [](int32_t value) { return value >= 1 && value <= 64; });
+// SIGTERM grace before SIGKILL. The default equals kTermGraceMs of the D3
+// unified budget formula (be/src/lance/index/lance_index_supervisor.h): the
+// service reserves exactly kSkewMarginMs + kTermGraceMs + kReapBoundMs of the
+// request deadline so the kill ladder always converges (and the reply leaves)
+// before the FE socket timeout. Raising this above 10s breaks that
+// reservation assumption and can push replies past the socket timeout.
+DEFINE_mInt64(lance_index_worker_term_grace_seconds, "10");
+DEFINE_Validator(lance_index_worker_term_grace_seconds,
+                 [](int64_t value) { return value >= 1 && value <= 600; });
+// Startup probe switch. false only skips the probe: isolation stays unverified
+// and every invocation is still rejected. Minimum kernel: 5.9 (pidfd_open since
+// 5.3 plus waitid(P_PIDFD) since 5.9; the preflight probes both and fails
+// closed on older kernels).
+DEFINE_Bool(lance_index_isolation_preflight, "true");
+// Absolute path of the delegated parent cgroup for worker invocation groups.
+// Empty = auto-detect by walking /proc/self/cgroup upward for the first
+// ancestor whose cgroup.subtree_control accepts +memory +pids.
+DEFINE_String(lance_index_worker_cgroup_parent, "");
+
+// Lance index worker service: the synchronous component behind
+// lance_index_mutate (be/src/lance/index/lance_index_worker_service.h). Names
+// mirror the FE admission side (FE Config.lance_index_mutation_max_concurrency
+// / lance_index_mutation_max_queued). Structural knobs: sampled once at
+// service start (executor thread count = the two-state slot count, queue
+// capacity = max_queued), so runtime changes apply only after a BE restart.
+DEFINE_Int32(lance_index_mutation_worker_max_concurrency, "2");
+DEFINE_Validator(lance_index_mutation_worker_max_concurrency,
+                 [](int32_t value) { return value >= 1 && value <= 64; });
+DEFINE_Int32(lance_index_mutation_worker_max_queued, "16");
+DEFINE_Validator(lance_index_mutation_worker_max_queued,
+                 [](int32_t value) { return value >= 1 && value <= 1024; });
+// Admitted-bounds snapshot injected into the worker dispatch frame (fields
+// 16/17); the worker subprocess reads no BE config, so it can replay the
+// bounds checks only against this frame-carried value. Defaults mirror the FE
+// admission bounds (FE Config.lance_index_max_num_partitions /
+// lance_index_max_num_sub_vectors); per-invocation (read at dispatch-build
+// time), so runtime changes apply to the next invocation.
+DEFINE_mInt32(lance_index_max_num_partitions, "4096");
+DEFINE_Validator(lance_index_max_num_partitions, [](int32_t value) { return value > 0; });
+DEFINE_mInt32(lance_index_max_num_sub_vectors, "256");
+DEFINE_Validator(lance_index_max_num_sub_vectors, [](int32_t value) { return value > 0; });
+
 // block file cache
 DEFINE_Bool(enable_file_cache, "true");
 // ATTENTION: For test only. Keep this enabled in production.
