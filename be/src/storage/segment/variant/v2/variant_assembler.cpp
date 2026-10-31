@@ -19,6 +19,8 @@
 
 #include <algorithm>
 #include <cstring>
+#include <limits>
+#include <numeric>
 #include <utility>
 #include <vector>
 
@@ -34,6 +36,7 @@
 #include "exprs/function/parse/variant_jsonb_parse.h"
 #include "storage/segment/variant/v2/variant_assembler_internal.h"
 #include "storage/segment/variant/v2/variant_storage_cell.h"
+#include "util/simd/bits.h"
 
 namespace doris::segment_v2::variant_v2 {
 namespace {
@@ -296,22 +299,17 @@ struct PreparedHierarchicalBatch {
     const ColumnString* root_values = nullptr;
     const uint8_t* root_nulls = nullptr;
     DorisVector<variant_assembler_detail::PreparedMaterializedColumn> materialized;
-};
+    DorisVector<size_t> candidate_offsets;
+    DorisVector<uint32_t> candidate_slots;
 
-bool has_materialized_value(
-        std::span<const variant_assembler_detail::PreparedMaterializedColumn> materialized,
-        std::span<const MaterializedSlot> materialized_slots, size_t row,
-        bool reads_whole_variant) {
-    DORIS_CHECK_EQ(materialized.size(), materialized_slots.size());
-    for (size_t index = 0; index < materialized.size(); ++index) {
-        if (variant_assembler_detail::is_materialized_value_visible(
-                    materialized[index], row,
-                    reads_whole_variant && materialized_slots[index].relative_path.empty())) {
-            return true;
-        }
+    std::span<const uint32_t> candidate_materialized_slots(size_t row) const {
+        const std::span<const uint32_t> slots(candidate_slots);
+        return candidate_offsets.empty()
+                       ? slots
+                       : slots.subspan(candidate_offsets[row],
+                                       candidate_offsets[row + 1] - candidate_offsets[row]);
     }
-    return false;
-}
+};
 
 PreparedHierarchicalBatch prepare_hierarchical_batch(
         StorageMapKind storage_map_kind, bool has_root,
@@ -336,9 +334,49 @@ PreparedHierarchicalBatch prepare_hierarchical_batch(
     }
 
     output.materialized.reserve(materialized_slots.size());
+    size_t candidate_count = 0;
     for (const MaterializedSlot& slot : materialized_slots) {
-        output.materialized.push_back(variant_assembler_detail::prepare_materialized_column(
-                slot.type, batch.materialized_columns[slot.batch_index], batch.num_rows));
+        auto column = variant_assembler_detail::prepare_materialized_column(
+                slot.type, batch.materialized_columns[slot.batch_index], batch.num_rows);
+        candidate_count +=
+                column.nulls == nullptr
+                        ? batch.num_rows
+                        : simd::count_zero_num(reinterpret_cast<const int8_t*>(column.nulls),
+                                               batch.num_rows);
+        output.materialized.push_back(std::move(column));
+    }
+    DORIS_CHECK_LE(materialized_slots.size(), std::numeric_limits<uint32_t>::max());
+    // At 37.5% candidates, CSR was about 5% faster than identity in the 4096-row benchmark.
+    if (candidate_count >= batch.num_rows * materialized_slots.size() / 2) {
+        output.candidate_slots.resize(materialized_slots.size());
+        std::iota(output.candidate_slots.begin(), output.candidate_slots.end(), uint32_t {0});
+    } else {
+        auto for_each_candidate = [&](auto&& visit) {
+            for (size_t index = 0; index < output.materialized.size(); ++index) {
+                const auto* nulls = output.materialized[index].nulls;
+                for (size_t row = 0; row < batch.num_rows; ++row) {
+                    if (nulls != nullptr) {
+                        row = simd::find_byte<uint8_t>(nulls, row, batch.num_rows, 0);
+                        if (row == batch.num_rows) {
+                            break;
+                        }
+                    }
+                    visit(row, static_cast<uint32_t>(index));
+                }
+            }
+        };
+        output.candidate_offsets.resize(batch.num_rows + 1, 0);
+        for_each_candidate([&](size_t row, uint32_t) { ++output.candidate_offsets[row + 1]; });
+        for (size_t row = 0; row < batch.num_rows; ++row) {
+            output.candidate_offsets[row + 1] += output.candidate_offsets[row];
+        }
+        output.candidate_slots.resize(candidate_count);
+        DorisVector<size_t> write_positions(output.candidate_offsets.begin(),
+                                            output.candidate_offsets.end() - 1);
+        // Filling in sorted slot order keeps each row ordered, e.g. [a, a-, a.b].
+        for_each_candidate([&](size_t row, uint32_t index) {
+            output.candidate_slots[write_positions[row]++] = index;
+        });
     }
     if (storage_map_kind != StorageMapKind::NONE) {
         map_cursor->bind(batch.storage_map, batch.num_rows);
@@ -446,25 +484,30 @@ Status emit_doc_row(size_t row, StringRef requested_raw, bool reads_whole_varian
 
 Status emit_merged_row(
         std::span<const variant_assembler_detail::PreparedMaterializedColumn> materialized,
-        bool has_sparse, std::span<const MaterializedSlot> materialized_slots, size_t row,
-        StringRef requested_raw, bool reads_whole_variant, StorageMapRowCursor* sparse_cursor,
+        bool has_sparse, std::span<const MaterializedSlot> materialized_slots,
+        std::span<const uint32_t> candidate_slots, size_t row, StringRef requested_raw,
+        bool reads_whole_variant, StorageMapRowCursor* sparse_cursor,
         DorisVector<MergeValue>* pending, ObjectEmitter* emitter) {
     if (has_sparse) {
         RETURN_IF_ERROR(sparse_cursor->start_row(row, requested_raw, reads_whole_variant));
     }
     pending->clear();
+    size_t candidate_index = 0;
     size_t materialized_index = 0;
-    while (true) {
-        while (materialized_index < materialized.size()) {
+    auto advance_materialized = [&] {
+        while (candidate_index < candidate_slots.size()) {
+            materialized_index = candidate_slots[candidate_index++];
             if (variant_assembler_detail::is_materialized_value_visible(
                         materialized[materialized_index], row,
                         reads_whole_variant &&
                                 materialized_slots[materialized_index].relative_path.empty())) {
-                break;
+                return true;
             }
-            ++materialized_index;
         }
-        const bool materialized_available = materialized_index < materialized_slots.size();
+        return false;
+    };
+    bool materialized_available = advance_materialized();
+    while (true) {
         StringRef materialized_raw_path;
         if (materialized_available) {
             const std::string& path =
@@ -490,7 +533,7 @@ Status emit_merged_row(
         if (!use_sparse) {
             current.set_materialized(materialized_slots[materialized_index].relative_path,
                                      materialized_raw_path, &materialized[materialized_index]);
-            ++materialized_index;
+            materialized_available = advance_materialized();
         } else {
             current.set_cell(sparse_cursor->sort_key, sparse_cursor->cell,
                              sparse_cursor->is_direct_subtree_value, sparse_cursor->depth);
@@ -513,6 +556,7 @@ Status assemble_hierarchical_row(StorageMapKind storage_map_kind, bool has_root,
             batch.root_values->get_data_at(row_index).size != 0;
     const bool has_doc_row = has_doc && !map_cursor->row_empty(row_index);
     const bool reads_whole_variant = requested.empty();
+    const auto candidate_slots = batch.candidate_materialized_slots(row_index);
 
     // Physical row precedence:
     // 1. A non-empty doc row exclusively defines the row.
@@ -521,10 +565,13 @@ Status assemble_hierarchical_row(StorageMapKind storage_map_kind, bool has_root,
     // 4. An empty whole-Variant row is {}; an absent subtree is SQL NULL.
     if (has_root_sidecar_value && !has_doc_row &&
         (!has_sparse || map_cursor->row_empty(row_index))) {
-        // Only the root fast-path candidate needs this O(materialized-paths) scan. Ordinary object
-        // and doc rows are scanned once later by emit_merged_row()/emit_doc_row().
-        if (!has_materialized_value(batch.materialized, materialized_slots, row_index,
-                                    reads_whole_variant)) {
+        const bool has_materialized_value =
+                std::ranges::any_of(candidate_slots, [&](uint32_t index) {
+                    return variant_assembler_detail::is_materialized_value_visible(
+                            batch.materialized[index], row_index,
+                            reads_whole_variant && materialized_slots[index].relative_path.empty());
+                });
+        if (!has_materialized_value) {
             jsonb_to_variant(batch.root_values->get_data_at(row_index), *row, 0, nullptr);
             return Status::OK();
         }
@@ -538,8 +585,8 @@ Status assemble_hierarchical_row(StorageMapKind storage_map_kind, bool has_root,
                                      pending, emitter));
     } else {
         RETURN_IF_ERROR(emit_merged_row(batch.materialized, has_sparse, materialized_slots,
-                                        row_index, requested_raw, reads_whole_variant, map_cursor,
-                                        pending, emitter));
+                                        candidate_slots, row_index, requested_raw,
+                                        reads_whole_variant, map_cursor, pending, emitter));
     }
     if (!emitter->emitted) {
         if (reads_whole_variant && has_root && storage_map_kind == StorageMapKind::NONE &&
