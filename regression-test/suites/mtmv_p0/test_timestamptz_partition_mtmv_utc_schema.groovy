@@ -136,4 +136,13 @@ suite("test_timestamptz_partition_mtmv_utc_schema","mtmv") {
         GROUP BY date_trunc(ts, 'day')
     """
     waitingMTMVTaskFinishedByMvName(hintedMvName, dbName)
+
+    // The allowed MV materializes the UTC day, so an unguarded UTC query may rewrite onto it while a query
+    // in the creation zone may not: the cached definition carries the UTC semantics the query would not.
+    def hintedQuery = "SELECT date_trunc(ts, 'day') AS day_ts, SUM(id) AS total" +
+            " FROM ${tableName} GROUP BY date_trunc(ts, 'day')"
+    sql "SET time_zone = '+00:00'"
+    mv_rewrite_success(hintedQuery, hintedMvName)
+    sql "SET time_zone = '${creationTz}'"
+    mv_rewrite_fail(hintedQuery, hintedMvName)
 }

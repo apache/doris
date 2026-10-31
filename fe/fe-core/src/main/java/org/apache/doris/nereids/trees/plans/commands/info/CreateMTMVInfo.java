@@ -174,6 +174,11 @@ public class CreateMTMVInfo extends CreateTableInfo {
             throw new AnalysisException(message);
         }
         analyzeProperties();
+        // The analysis below is not repeatable in place: it consumes the parsed definition (a plain-column
+        // partition is upgraded to an EXPR partition once the related table's date_trunc is found) and
+        // replaces the derived state. Keep the pre-analysis inputs so the definition can be re-analyzed in
+        // another session time zone without replaying a half-consumed state.
+        AnalyzeQueryState creationState = AnalyzeQueryState.capture(this);
         if (isAutoRefresh()) {
             // AUTO probes IVM as an optimization. If IVM analysis cannot support
             // the query, creation may still succeed as a regular MTMV.
@@ -198,7 +203,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
         // falls into no MV partition (or into the preceding UTC one). The detection must use the analyzed
         // base partition column, not the MTMV output columns: an aliased definition projects only
         // date_trunc(ts, 'day') AS day_ts, so neither the source column name nor its type is visible there.
-        preparePlanSessionVariables(ctx);
+        preparePlanSessionVariables(ctx, creationState);
         validateRefreshStrategyForCreate();
         validateIvmOnlyProperties();
         // An omitted DISTRIBUTED BY is resolved below: an IVM (INCREMENTAL) MV auto-generates a HASH
@@ -422,26 +427,43 @@ public class CreateMTMVInfo extends CreateTableInfo {
      * constants - and hence nullability - under the creation session, while the refresh and the rewrite cache
      * reparse the SQL in UTC. Any other definition that depends on the session time zone is only persisted
      * after the cluster fence check, because an older FE cannot interpret the time_zone plan variable at all.
+     * A definition that pins its own zone with a SET_VAR hint is persisted with that zone, since every later
+     * parse re-applies the hint whatever session the refresh or the cache is built in.
+     *
+     * @param creationState the inputs the first analysis consumed, restored before the re-derivation
      */
-    private void preparePlanSessionVariables(ConnectContext ctx) throws UserException {
+    private void preparePlanSessionVariables(ConnectContext ctx, AnalyzeQueryState creationState)
+            throws UserException {
         String utcTimeZone = TimeUtils.getUTCTimeZone().getID();
+        // A time_zone pinned by a SET_VAR hint inside the definition is applied while the definition is
+        // analyzed and re-applied on every later parse (refresh command and rewrite cache), so it - not the
+        // creating session - decides the zone the content is materialized in.
+        String hintedTimeZone = hintedTimeZone();
         if (MTMVPlanUtil.usesUtcTimeStampTzPartition(mvPartitionInfo)) {
             // Persisting UTC only works if every FE can interpret it: an older FE does not know time_zone as
             // a plan variable and would refresh this MV in its own default zone.
             SessionVarGuardRewriter.checkClusterSupportsPlanTimeZoneFence();
-            // A time_zone pinned by a SET_VAR hint inside the definition is re-applied whenever that SQL is
-            // parsed (refresh command and rewrite cache), which would silently override the UTC session the
-            // partition boundaries are derived in, so a conflicting value cannot be honoured.
-            String hintedTimeZone = hintedTimeZone();
+            // A conflicting hint would silently override the UTC session the partition boundaries are
+            // derived in whenever the SQL is parsed again, so it cannot be honoured.
             if (hintedTimeZone != null
                     && !SessionVarGuardRewriter.timeZonesEquivalent(hintedTimeZone, utcTimeZone)) {
                 throw new AnalysisException("The materialized view definition pins time_zone='" + hintedTimeZone
                         + "' with a SET_VAR hint, but a time-zone dependent TIMESTAMPTZ partition key is"
                         + " materialized in UTC. Remove the hint or pin a UTC value.");
             }
-            // Derive the stored schema in the effective (UTC) session, then restore the caller's zone.
+            // Derive the stored schema in the effective (UTC) session, then restore the caller's zone. The
+            // inputs are rewound first: the stored schema is whatever the definition yields in UTC, so the
+            // re-analysis has to start from the parsed definition rather than from the state the previous
+            // analysis left behind, and it needs a fresh parse because analysis binds the tree in place.
             String previousTimeZone = ctx.getSessionVariable().getTimeZone();
+            // enableIvm is an input of the analysis rather than one of its outputs: the AUTO arm settles it
+            // before the analysis runs, so it must survive the rewind.
+            boolean effectiveIvm = isEnableIvm();
             try {
+                creationState.restore(this);
+                this.enableIvm = effectiveIvm;
+                this.logicalQuery = parseFreshLogicalQuery();
+                resetStatementContext(ctx);
                 ctx.getSessionVariable().setTimeZone(utcTimeZone);
                 analyzeQuery(ctx);
             } finally {
@@ -451,6 +473,18 @@ public class CreateMTMVInfo extends CreateTableInfo {
             effectiveSessionVariables.put(SessionVariable.TIME_ZONE, utcTimeZone);
             this.sessionVariables = effectiveSessionVariables;
             return;
+        }
+        if (hintedTimeZone != null
+                && !SessionVarGuardRewriter.timeZonesEquivalent(hintedTimeZone,
+                        sessionVariables.get(SessionVariable.TIME_ZONE))) {
+            // The definition pins a zone of its own, so the content is materialized in that zone even though
+            // the creating session ran in another one. Persist the zone the content actually corresponds to:
+            // otherwise a query in the creating zone matches the persisted map, takes the unguarded cache
+            // and reads values truncated in the hinted zone.
+            SessionVarGuardRewriter.checkClusterSupportsPlanTimeZoneFence();
+            Map<String, String> effectiveSessionVariables = Maps.newHashMap(sessionVariables);
+            effectiveSessionVariables.put(SessionVariable.TIME_ZONE, hintedTimeZone);
+            this.sessionVariables = effectiveSessionVariables;
         }
         if (SessionVarGuardRewriter.containsTimeZoneSensitiveExpression(analyzedPlan)) {
             // The rewrite cache of such an MV carries time-zone guards, which only a fenced FE can interpret.
