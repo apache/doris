@@ -19,6 +19,7 @@
 
 #include <stdint.h>
 
+#include <set>
 #include <string>
 
 #include "common/status.h"
@@ -61,6 +62,8 @@ private:
 
     TupleId _tuple_id;
     TUserIdentity _user_identity;
+    // SU narrowing: the session's active role subset (TMetaScanNode.current_roles). Empty = none.
+    std::set<std::string> _current_roles;
 };
 
 /// Instantiated once in scan_operator.cpp; suppresses per-TU implicit instantiation.

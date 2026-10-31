@@ -539,6 +539,9 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             ctx.getState().setError(ErrorCode.ERR_ACCESS_DENIED_ERROR, "Authentication failed.");
             return;
         }
+        // A failed change keeps the current identity, so it must also keep its narrowed roles.
+        // Clear SU state only after the incoming credentials establish a new identity.
+        ctx.clearSessionNarrowing();
         ctx.setCurrentUserIdentity(currentUserIdentity.get(0));
 
         // Change default db if set.
