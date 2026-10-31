@@ -17,6 +17,7 @@
 
 import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.CallOption
 import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.CallOptions
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.CloseSessionRequest
 import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.FlightClient
 import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.Location
 import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.sql.FlightSqlClient
@@ -104,32 +105,37 @@ suite("test_table_types_over_arrow_flight", "arrow_flight_sql") {
                     config.get("extArrowFlightSqlPassword")).get()
             CallOption[] options = [token, CallOptions.timeout(30, TimeUnit.SECONDS)]
             def client = new FlightSqlClient(flight)
-            3.times {
-                def info = client.getTableTypes(options)
-                assertEquals(["table_type"], info.getSchema().getFields()*.getName())
-                assertEquals(new ArrowType.Utf8(), info.getSchema().getFields()[0].getType())
-                assertFalse(info.getSchema().getFields()[0].isNullable())
-                assertEquals(1, info.getEndpoints().size())
-                def types = []
-                flight.getStream(info.getEndpoints()[0].getTicket(), options).withCloseable { stream ->
-                    assertEquals(info.getSchema(), stream.getSchema())
-                    while (stream.next()) {
-                        def root = stream.getRoot()
-                        for (int row = 0; row < root.getRowCount(); ++row) {
-                            types.add(root.getVector("table_type").getObject(row).toString())
+            try {
+                3.times {
+                    def info = client.getTableTypes(options)
+                    assertEquals(["table_type"], info.getSchema().getFields()*.getName())
+                    assertEquals(new ArrowType.Utf8(), info.getSchema().getFields()[0].getType())
+                    assertFalse(info.getSchema().getFields()[0].isNullable())
+                    assertEquals(1, info.getEndpoints().size())
+                    def types = []
+                    flight.getStream(info.getEndpoints()[0].getTicket(), options).withCloseable { stream ->
+                        assertEquals(info.getSchema(), stream.getSchema())
+                        while (stream.next()) {
+                            def root = stream.getRoot()
+                            for (int row = 0; row < root.getRowCount(); ++row) {
+                                types.add(root.getVector("table_type").getObject(row).toString())
+                            }
                         }
                     }
+                    assertEquals(["BASE TABLE", "SYSTEM VIEW", "VIEW"], types)
                 }
-                assertEquals(["BASE TABLE", "SYSTEM VIEW", "VIEW"], types)
-            }
-            def info = client.execute("SHOW VARIABLES LIKE 'query_timeout'", options)
-            int rows = 0
-            flight.getStream(info.getEndpoints()[0].getTicket(), options).withCloseable { stream ->
-                while (stream.next()) {
-                    rows += stream.getRoot().getRowCount()
+                def info = client.execute("SHOW VARIABLES LIKE 'query_timeout'", options)
+                int rows = 0
+                flight.getStream(info.getEndpoints()[0].getTicket(), options).withCloseable { stream ->
+                    while (stream.next()) {
+                        rows += stream.getRoot().getRowCount()
+                    }
                 }
+                assertEquals(1, rows)
+            } finally {
+                // End the session the way the drivers do rather than leaving it to wait_timeout.
+                flight.closeSession(new CloseSessionRequest(), token)
             }
-            assertEquals(1, rows)
         }
     }
 }
