@@ -132,6 +132,12 @@ true
 -- !ordinary_min_max --
 0	2	3
 
+-- !geography_interior_zero_distance --
+0	true	true	true	true
+1	true	true	true	true
+2	true	true	true	true
+3	false	false	false	false
+
 -- !geography_complete_contains --
 true	true	false	true
 

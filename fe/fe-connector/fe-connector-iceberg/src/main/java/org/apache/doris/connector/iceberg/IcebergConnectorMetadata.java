@@ -1411,9 +1411,11 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     }
 
     private static String getEffectiveFileFormat(Table table, Map<String, String> properties) {
-        String format = properties.get("write-format");
+        Map<String, String> effective = new HashMap<>(table.properties());
+        effective.putAll(properties);
+        String format = effective.get("write-format");
         if (format == null) {
-            format = properties.get(TableProperties.DEFAULT_FILE_FORMAT);
+            format = effective.get(TableProperties.DEFAULT_FILE_FORMAT);
         }
         return format == null ? IcebergWriterHelper.getFileFormat(table).name() : format;
     }

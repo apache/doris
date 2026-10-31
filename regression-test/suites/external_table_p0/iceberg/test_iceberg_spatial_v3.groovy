@@ -211,6 +211,7 @@ public class CreateIcebergSpatialV3Table {
             Map<String, String> properties) {
         Map<String, String> orcProperties = new HashMap<>(properties);
         orcProperties.put("write.format.default", "orc");
+        orcProperties.put("write-format", "orc");
         for (boolean geography : new boolean[] {false, true}) {
             for (boolean nested : new boolean[] {false, true}) {
                 TableIdentifier name = TableIdentifier.of(namespace, "spatial_existing_orc_"
@@ -921,6 +922,23 @@ public class CreateIcebergSpatialV3Table {
                 sql """insert into spatial_existing_orc_${suffix}${nesting} (id) values (1)"""
                 exception "Iceberg spatial columns require Parquet"
             }
+            test {
+                sql """alter table spatial_existing_orc_${suffix}${nesting}
+                    set ('write.format.default' = 'parquet')"""
+                exception "Iceberg spatial columns require Parquet"
+            }
+            // Repair the winning nickname, then keep it authoritative over the standard key.
+            sql """alter table spatial_existing_orc_${suffix}${nesting}
+                set ('write-format' = 'parquet')"""
+            sql """alter table spatial_existing_orc_${suffix}${nesting}
+                set ('write.format.default' = 'orc')"""
+            String shape = (kind == "geometry" ? "ST_GeometryFromWKBTyped" : "ST_GeogFromWKB") +
+                    "('0101000000000000000000F03F0000000000000040')"
+            sql """insert into spatial_existing_orc_${suffix}${nesting}
+                values (1, ${nesting ? "array(${shape})" : shape})"""
+            "order_qt_spatial_format_alias_${suffix}${nesting}"("""select id,
+                ST_AsText(${nesting ? 'shape[1]' : 'shape'})
+                from spatial_existing_orc_${suffix}${nesting} order by id""")
         }
     }
     test {

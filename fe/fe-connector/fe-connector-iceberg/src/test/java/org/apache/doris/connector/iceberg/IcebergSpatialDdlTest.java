@@ -83,6 +83,10 @@ public class IcebergSpatialDdlTest {
     }
 
     private static RecordingIcebergCatalogOps existingSpatialTable(int version, String fileFormat) {
+        return existingSpatialTable(version, fileFormat, Types.GeometryType.crs84());
+    }
+
+    private static RecordingIcebergCatalogOps existingSpatialTable(int version, String fileFormat, Type type) {
         InMemoryCatalog catalog = new InMemoryCatalog();
         catalog.initialize("spatial", Collections.emptyMap());
         catalog.createNamespace(Namespace.of("db1"));
@@ -91,7 +95,7 @@ public class IcebergSpatialDdlTest {
         properties.put(TableProperties.DEFAULT_FILE_FORMAT, fileFormat);
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.table = catalog.createTable(TableIdentifier.of("db1", "t1"),
-                new Schema(Types.NestedField.optional(1, "shape", Types.GeometryType.crs84())),
+                new Schema(Types.NestedField.optional(1, "shape", type)),
                 org.apache.iceberg.PartitionSpec.unpartitioned(), properties);
         return ops;
     }
@@ -272,6 +276,38 @@ public class IcebergSpatialDdlTest {
         metadata(accepted, Collections.emptyMap()).setTableProperties(null, HANDLE,
                 Collections.singletonMap(TableProperties.DEFAULT_FILE_FORMAT, "parquet"));
         Assertions.assertTrue(accepted.log.stream().anyMatch(op -> op.startsWith("setTableProperties:")));
+    }
+
+    @Test
+    public void testSetPropertiesKeepsExistingWriteFormatPrecedence() {
+        for (Type type : Arrays.asList(Types.GeometryType.crs84(), Types.GeographyType.crs84())) {
+            RecordingIcebergCatalogOps rejected = existingSpatialTable(3, "parquet", type);
+            rejected.table.updateProperties().set("write-format", "orc").commit();
+            Map<String, String> original = new HashMap<>(rejected.table.properties());
+            DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> metadata(rejected, Collections.emptyMap()).setTableProperties(null, HANDLE,
+                            Map.of(TableProperties.DEFAULT_FILE_FORMAT, "parquet")));
+            Assertions.assertTrue(error.getMessage().contains("require Parquet"), error.getMessage());
+            Assertions.assertNull(rejected.lastSetProperties);
+            Assertions.assertEquals(original, rejected.table.properties());
+
+            Map<String, String> repair = Map.of("write-format", "parquet");
+            metadata(rejected, Collections.emptyMap()).setTableProperties(null, HANDLE, repair);
+            Assertions.assertEquals(repair, rejected.lastSetProperties);
+        }
+    }
+
+    @Test
+    public void testSetPropertiesAllowsExistingParquetWriteFormat() {
+        for (Type type : Arrays.asList(Types.GeometryType.crs84(), Types.GeographyType.crs84())) {
+            RecordingIcebergCatalogOps accepted = existingSpatialTable(3, "orc", type);
+            accepted.table.updateProperties().set("write-format", "parquet").commit();
+            Map<String, String> update = Map.of(TableProperties.DEFAULT_FILE_FORMAT, "orc");
+            metadata(accepted, Collections.emptyMap()).setTableProperties(null, HANDLE, update);
+            Assertions.assertEquals(update, accepted.lastSetProperties);
+            Assertions.assertEquals(org.apache.iceberg.FileFormat.PARQUET,
+                    IcebergWriterHelper.getFileFormat(accepted.table));
+        }
     }
 
 }

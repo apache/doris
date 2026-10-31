@@ -265,6 +265,18 @@ payload	struct<stamp:datetime(6),shape:array<GEOMETRY('custom\\\\crs')>>	Yes	tru
 3	POINT (3 4)	\N
 4	\N	POINT (3 4)
 
+-- !spatial_format_alias_geom --
+1	POINT (1 2)
+
+-- !spatial_format_alias_geom_nested --
+1	POINT (1 2)
+
+-- !spatial_format_alias_geog --
+1	POINT (1 2)
+
+-- !spatial_format_alias_geog_nested --
+1	POINT (1 2)
+
 -- !spatial_dml_values --
 1	POINT (1 2)	0101000000000000000000F03F0000000000000040	\N
 11	POINT (1 2)	0101000000000000000000F03F0000000000000040	POINT (1 2)
