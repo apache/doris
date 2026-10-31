@@ -379,6 +379,31 @@ public class MetricsTest {
     }
 
     @Test
+    public void testPrometheusVisitorWritesNullLabelValue() {
+        // A table warm-up job has no source cluster, so the series of its start and finish times carry a null
+        // src_cluster_name; it is written as null, as before label values were escaped.
+        GaugeMetricImpl<Long> gauge = new GaugeMetricImpl<>("null_label_test", MetricUnit.NOUNIT, "null label test",
+                1L);
+        gauge.addLabel(new MetricLabel("src_cluster_name", null)).addLabel(new MetricLabel("dst_cluster_name", "cg1"));
+        MetricVisitor visitor = new PrometheusMetricVisitor();
+        visitor.visit(MetricVisitor.FE_PREFIX, gauge);
+        Assertions.assertEquals("# HELP doris_fe_null_label_test null label test\n"
+                + "# TYPE doris_fe_null_label_test gauge\n"
+                + "doris_fe_null_label_test{src_cluster_name=\"null\", dst_cluster_name=\"cg1\"} 1\n",
+                visitor.finish());
+
+        HistogramMetric histogram = new HistogramMetric("null_label.latency.ms",
+                Lists.newArrayList(new MetricLabel("src_cluster_name", null)));
+        histogram.update(10L);
+        visitor = new PrometheusMetricVisitor();
+        visitor.visitHistogram(MetricVisitor.FE_PREFIX, histogram.getName(), histogram.getHistogram(),
+                histogram.getLabels());
+        String result = visitor.finish();
+        Assertions.assertTrue(result.contains("doris_fe_null_label_latency_ms_count{src_cluster_name=\"null\"} 1\n"),
+                result);
+    }
+
+    @Test
     public void testCloudTableStatsEscapeTableName() {
         String originCloudUniqueId = Config.cloud_unique_id;
         Env env = Env.getCurrentEnv();

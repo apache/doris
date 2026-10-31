@@ -367,8 +367,9 @@ public class PrometheusMetricVisitor extends MetricVisitor {
     }
 
     // The text format requires a backslash, a double quote and a line feed in a label value to be escaped,
-    // and names such as a table name may contain any of them.
+    // and names such as a table name may contain any of them. A label value may be null (a table warm-up job
+    // has no source cluster), which is written as null, as the concatenation without escaping wrote it.
     private static String escapeLabelValue(String value) {
-        return value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n");
+        return String.valueOf(value).replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n");
     }
 }
