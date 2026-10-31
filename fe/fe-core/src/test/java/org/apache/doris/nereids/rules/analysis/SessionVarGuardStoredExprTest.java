@@ -1,0 +1,261 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.rules.analysis;
+
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.CaseExpr;
+import org.apache.doris.analysis.CaseWhenClause;
+import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.IsNullPredicate;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.Type;
+
+import com.google.common.collect.Lists;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+/**
+ * Unit tests for {@link SessionVarGuardRewriter#isTimeZoneSensitiveStoredExpr} over the legacy expression
+ * tree of a stored (generated column / synchronous materialized view) expression. The classifier must look
+ * at the operation plus source and result types, not only at child types: casts into TIMESTAMPTZ are
+ * zone-sensitive even though their only child is VARCHAR, while comparing two TIMESTAMPTZ instants is
+ * zone-invariant even though both children are TIMESTAMPTZ.
+ *
+ * <p>Any rendering of an instant into another representation is sensitive, including STRING: the string
+ * embeds the write-session offset, so the same instant is stored as different strings by different write
+ * sessions. BE evaluates the stored expression in the write/load session zone and the FE-side guard cannot
+ * survive execution, so such expressions are rejected at creation.
+ */
+public class SessionVarGuardStoredExprTest {
+
+    private SlotRef tzSlot(String name) {
+        SlotRef slot = new SlotRef(null, name);
+        slot.setType(ScalarType.createTimeStampTzType(6));
+        return slot;
+    }
+
+    @Test
+    public void testBareTimestampTzSlotIsZoneInvariant() {
+        Assertions.assertFalse(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(tzSlot("ts")));
+    }
+
+    /**
+     * CAST(varchar_col AS TIMESTAMPTZ) has a VARCHAR-only child but interprets the offset-free string in
+     * the write/load session zone, so it must be classified as zone-sensitive.
+     */
+    @Test
+    public void testCastIntoTimestampTzIsSensitive() {
+        SlotRef varcharSlot = new SlotRef(null, "vc");
+        varcharSlot.setType(ScalarType.createVarcharType(20));
+        CastExpr castIntoTz = new CastExpr(ScalarType.createTimeStampTzType(6), varcharSlot, true);
+        Assertions.assertTrue(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(castIntoTz));
+    }
+
+    /**
+     * CAST(ts AS STRING) renders the instant with the write-session offset, so two sessions storing the
+     * same instant produce different strings and later grouping/comparison observes that difference. It is
+     * rejected like any other rendering of an instant into a non-TIMESTAMPTZ representation.
+     */
+    @Test
+    public void testCastFromTimestampTzToStringIsSensitive() {
+        CastExpr castToString = new CastExpr(ScalarType.createVarcharType(100), tzSlot("ts"), true);
+        Assertions.assertTrue(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(castToString));
+    }
+
+    /**
+     * CAST(ts AS DATETIME) renders the instant into a zone-free DATETIME with no offset, so the stored
+     * value is ambiguous across write sessions and must stay rejected.
+     */
+    @Test
+    public void testCastFromTimestampTzToDatetimeIsSensitive() {
+        CastExpr castToDatetime = new CastExpr(ScalarType.createDatetimeV2Type(6), tzSlot("ts"), true);
+        Assertions.assertTrue(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(castToDatetime));
+    }
+
+    /**
+     * CAST(ts AS TIMESTAMPTZ(0)) only changes the scale of the stored instant and is zone-invariant.
+     */
+    @Test
+    public void testCastBetweenTimestampTzIsZoneInvariant() {
+        CastExpr scaleDown = new CastExpr(ScalarType.createTimeStampTzType(0), tzSlot("ts"), true);
+        Assertions.assertFalse(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(scaleDown));
+    }
+
+    /**
+     * ts1 = ts2 compares two instants and does not depend on the session zone, for equality and ordering
+     * alike.
+     */
+    @Test
+    public void testComparisonOfTwoTimestampTzIsZoneInvariant() {
+        BinaryPredicate eq = new BinaryPredicate(BinaryPredicate.Operator.EQ, tzSlot("ts1"), tzSlot("ts2"));
+        Assertions.assertFalse(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(eq));
+        BinaryPredicate lt = new BinaryPredicate(BinaryPredicate.Operator.LT, tzSlot("ts1"), tzSlot("ts2"));
+        Assertions.assertFalse(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(lt));
+    }
+
+    /**
+     * ts = '2024-01-01 00:00:00' interprets the offset-free literal in the session zone, so it is
+     * zone-sensitive even though one operand is a TIMESTAMPTZ slot.
+     */
+    @Test
+    public void testComparisonWithOffsetFreeLiteralIsSensitive() {
+        BinaryPredicate eq = new BinaryPredicate(BinaryPredicate.Operator.EQ, tzSlot("ts"),
+                new StringLiteral("2024-01-01 00:00:00"));
+        Assertions.assertTrue(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(eq));
+    }
+
+    /**
+     * A comparison with two TIMESTAMPTZ-typed operands is still zone-sensitive when one operand is itself a
+     * zone-sensitive expression (a cast into TIMESTAMPTZ here): the exemption for direct instant
+     * comparisons must not mask a sensitive operand, so the operands are still recursed into.
+     */
+    @Test
+    public void testComparisonOfZoneSensitiveOperandIsSensitive() {
+        SlotRef varcharSlot = new SlotRef(null, "vc");
+        varcharSlot.setType(ScalarType.createVarcharType(20));
+        CastExpr castIntoTz = new CastExpr(ScalarType.createTimeStampTzType(6), varcharSlot, true);
+        BinaryPredicate eq = new BinaryPredicate(BinaryPredicate.Operator.EQ, castIntoTz, tzSlot("ts2"));
+        Assertions.assertTrue(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(eq));
+    }
+
+    /**
+     * A TIMESTAMPTZ slot coerced by the declared column type is exactly the failing shape of the DDL
+     * validation: the user expression is a safe slot reference, and only the implicit cast to the declared
+     * target type makes the stored value zone dependent. The validation applies that cast before
+     * classifying, so both directions are rejected.
+     */
+    @Test
+    public void testImplicitDeclaredTypeCastIsSensitive() {
+        // STRING GENERATED ALWAYS AS (ts): implicit TIMESTAMPTZ -> STRING rendering
+        CastExpr stringTarget = new CastExpr(ScalarType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH),
+                tzSlot("ts"), true);
+        Assertions.assertTrue(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(stringTarget));
+        // TIMESTAMPTZ GENERATED ALWAYS AS (s): implicit offset-free STRING -> TIMESTAMPTZ interpretation
+        SlotRef varcharSlot = new SlotRef(null, "s");
+        varcharSlot.setType(ScalarType.createVarcharType(20));
+        CastExpr tzTarget = new CastExpr(ScalarType.createTimeStampTzType(6), varcharSlot, true);
+        Assertions.assertTrue(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(tzTarget));
+        // TIMESTAMPTZ GENERATED ALWAYS AS (ts): instant preserving, remains allowed
+        CastExpr sameTarget = new CastExpr(ScalarType.createTimeStampTzType(6), tzSlot("ts"), true);
+        Assertions.assertFalse(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(sameTarget));
+    }
+
+    /**
+     * IS (NOT) NULL only reads the null-ness of its operand, so the operand decides whether the stored
+     * boolean is zone dependent. A nullable CASE whose condition is built from a zone-sensitive expression
+     * (here a TIMESTAMPTZ rendering into DATETIME, the same shape as date_trunc(ts, 'day') = ts2) stores
+     * true in one write session and false in another for the same instants, so it must be rejected.
+     */
+    @Test
+    public void testIsNullOverZoneSensitiveOperandIsSensitive() {
+        CastExpr sensitiveCondition = new CastExpr(ScalarType.createDatetimeV2Type(6), tzSlot("ts"), true);
+        BinaryPredicate condition = new BinaryPredicate(BinaryPredicate.Operator.EQ, sensitiveCondition,
+                tzSlot("ts2"));
+        SlotRef nullSlot = new SlotRef(null, "null_value");
+        nullSlot.setType(Type.INT);
+        SlotRef oneSlot = new SlotRef(null, "one_value");
+        oneSlot.setType(Type.INT);
+        CaseExpr caseExpr = new CaseExpr(
+                Lists.newArrayList(new CaseWhenClause(condition, nullSlot)), oneSlot, true);
+        IsNullPredicate isNull = new IsNullPredicate(caseExpr, false);
+        Assertions.assertTrue(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(isNull));
+        IsNullPredicate isNotNull = new IsNullPredicate(caseExpr, true);
+        Assertions.assertTrue(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(isNotNull));
+    }
+
+    /**
+     * IS (NOT) NULL over a zone-invariant operand (a TIMESTAMPTZ slot holds the UTC instant) stays allowed.
+     */
+    @Test
+    public void testIsNullOverTimestampTzSlotIsZoneInvariant() {
+        Assertions.assertFalse(
+                SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(new IsNullPredicate(tzSlot("ts"), false)));
+        Assertions.assertFalse(
+                SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(new IsNullPredicate(tzSlot("ts"), true)));
+    }
+
+    /**
+     * A struct cast must be compared leaf by leaf. CAST(STRUCT&lt;a:TIMESTAMPTZ, b:TIMESTAMPTZ&gt; AS
+     * STRUCT&lt;a:TIMESTAMPTZ, b:STRING&gt;) keeps a TIMESTAMPTZ field on both sides, so a presence-only check
+     * accepts it, while the b leaf is rendered in the write session zone and the same instant is stored with
+     * different strings by different write sessions.
+     */
+    @Test
+    public void testMixedFieldStructCastIsSensitive() {
+        SlotRef structSlot = new SlotRef(null, "s");
+        structSlot.setType(new StructType(
+                new StructField("a", ScalarType.createTimeStampTzType(6)),
+                new StructField("b", ScalarType.createTimeStampTzType(6))));
+        CastExpr mixedTarget = new CastExpr(new StructType(
+                new StructField("a", ScalarType.createTimeStampTzType(6)),
+                new StructField("b", ScalarType.createVarcharType(100))), structSlot, true);
+        Assertions.assertTrue(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(mixedTarget));
+    }
+
+    /**
+     * The same struct cast with every field preserved is instant preserving and stays allowed.
+     */
+    @Test
+    public void testStructCastWithMatchingFieldsIsZoneInvariant() {
+        SlotRef structSlot = new SlotRef(null, "s");
+        structSlot.setType(new StructType(
+                new StructField("a", ScalarType.createTimeStampTzType(6)),
+                new StructField("b", ScalarType.createTimeStampTzType(6))));
+        CastExpr sameTarget = new CastExpr(new StructType(
+                new StructField("a", ScalarType.createTimeStampTzType(6)),
+                new StructField("b", ScalarType.createTimeStampTzType(6))), structSlot, true);
+        Assertions.assertFalse(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(sameTarget));
+    }
+
+    /**
+     * Equal-arity struct casts are positional and may rename the fields, so a rename that keeps every leaf
+     * type is instant preserving and must stay allowed.
+     */
+    @Test
+    public void testRenamedStructCastIsZoneInvariant() {
+        SlotRef structSlot = new SlotRef(null, "s");
+        structSlot.setType(new StructType(new StructField("a", ScalarType.createTimeStampTzType(6))));
+        CastExpr renamed = new CastExpr(
+                new StructType(new StructField("b", ScalarType.createTimeStampTzType(6))), structSlot, true);
+        Assertions.assertFalse(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(renamed));
+        // ... while a renamed field that is rendered into a zone-free representation stays sensitive
+        CastExpr renamedRendered = new CastExpr(
+                new StructType(new StructField("b", ScalarType.createVarcharType(100))), structSlot, true);
+        Assertions.assertTrue(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(renamedRendered));
+    }
+
+    /**
+     * Array and map casts are compared leaf by leaf as well: ARRAY&lt;TIMESTAMPTZ&gt; -&gt; ARRAY&lt;STRING&gt;
+     * renders every element in the write session zone, while ARRAY&lt;TIMESTAMPTZ&gt; -&gt;
+     * ARRAY&lt;TIMESTAMPTZ&gt; is instant preserving.
+     */
+    @Test
+    public void testArrayCastRenderingTimestampTzIsSensitive() {
+        SlotRef arraySlot = new SlotRef(null, "arr");
+        arraySlot.setType(ArrayType.create(ScalarType.createTimeStampTzType(6)));
+        CastExpr rendered = new CastExpr(ArrayType.create(ScalarType.createVarcharType(100)), arraySlot, true);
+        Assertions.assertTrue(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(rendered));
+        CastExpr preserved = new CastExpr(ArrayType.create(ScalarType.createTimeStampTzType(6)), arraySlot, true);
+        Assertions.assertFalse(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(preserved));
+    }
+}

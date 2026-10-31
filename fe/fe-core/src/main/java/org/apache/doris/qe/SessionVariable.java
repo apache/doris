@@ -1405,8 +1405,47 @@ public class SessionVariable implements Serializable, Writable {
     public int netReadTimeout = 600;
 
     // The current time zone
-    @VarAttrDef.VarAttr(name = TIME_ZONE, needForward = true, affectQueryResultInExecution = true)
+    // affectQueryResultInPlan is required: TIMESTAMPTZ expressions (date_trunc/cast/floor on timestamptz)
+    // are evaluated in the session time zone, so the time zone must be captured when persisting session
+    // variables for views / materialized views / generated columns, and must be compared when deciding
+    // whether a materialized view can be used for rewrite. Otherwise a MV built in one time zone may be
+    // rewritten in a session with a different time zone and return stale materialized values.
+    // Stored expressions (generated columns, synchronous MV columns and WHERE) whose value depends on the
+    // time zone are rejected at creation instead, because BE evaluates them in the write/load session zone
+    // and the captured zone cannot survive execution. Objects created before this key was persisted have
+    // no time_zone entry; SessionVarGuardRewriter treats that as an unknown creation zone and always
+    // guards their time-zone sensitive expressions (metadata compatibility fence), so they never match a
+    // query session unconditionally and must be recreated to be rewritten across zones. The reverse
+    // upgrade direction is covered by {@link #PLAN_SESSION_VAR_FENCE_VERSION} below.
+    @VarAttrDef.VarAttr(name = TIME_ZONE, needForward = true, affectQueryResultInPlan = true,
+            affectQueryResultInExecution = true)
     public String timeZone = TimeUtils.getSystemTimeZone().getID();
+
+    /**
+     * Reserved key of the version stamp that every persisted plan-variable map carries.
+     *
+     * <p>{@link #getAffectQueryResultInPlanVariables()} stamps it into the map that views, materialized
+     * views and generated columns persist, and {@code SessionVarGuardRewriter} validates it when such a map
+     * is read back, which makes the upgrade/downgrade fence explicit instead of an incidental difference:
+     *
+     * <ul>
+     *   <li>old metadata (no stamp): the creation semantics are unknown, so the object's time-zone sensitive
+     *       expressions are guarded permanently and it must be recreated to be rewritten across zones;</li>
+     *   <li>a stamp newer than {@link #CURRENT_PLAN_SESSION_VAR_FENCE_VERSION}: the metadata was written by a
+     *       newer FE (a downgrade). This FE cannot interpret that plan-variable set, so it must not rewrite
+     *       from the object at all and both guard families are selected (fail closed).</li>
+     * </ul>
+     *
+     * <p>The opposite direction - a new-metadata object read by an <em>old</em> FE - cannot be repaired from
+     * this code: an old FE registers neither this key nor time_zone, so it does see a nominal mismatch, but
+     * it classifies no TIMESTAMPTZ expression and therefore builds its cache without the zone guard. That
+     * remains an explicit migration requirement: while a cluster is mixed-version, an object created with a
+     * stamped map must be rebuilt/recreated (or kept out of the old FE's read path) until every FE is
+     * upgraded.
+     */
+    public static final String PLAN_SESSION_VAR_FENCE_VERSION = "plan_session_var_fence_version";
+    /** Version of the persisted plan-variable set understood by this FE, see above. */
+    public static final int CURRENT_PLAN_SESSION_VAR_FENCE_VERSION = 1;
 
     @VarAttrDef.VarAttr(name = LC_TIME_NAMES, needForward = true, affectQueryResultInExecution = true,
             setter = "setLcTimeNames")
@@ -6985,6 +7024,10 @@ public class SessionVariable implements Serializable, Writable {
         } catch (IllegalAccessException e) {
             LOG.error("failed to get affect query result variables", e);
         }
+        // Stamp every map this FE produces - the ones persisted with views / materialized views /
+        // generated columns and the ones used as the "current session" side of a comparison - so reading a
+        // map back tells which plan-variable set it was written with (see PLAN_SESSION_VAR_FENCE_VERSION).
+        builder.put(PLAN_SESSION_VAR_FENCE_VERSION, String.valueOf(CURRENT_PLAN_SESSION_VAR_FENCE_VERSION));
         return builder.build();
     }
 

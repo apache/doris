@@ -17,29 +17,52 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
 import org.apache.doris.nereids.rules.expression.MergeGuardExpr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AvgMap;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SumMap;
+import org.apache.doris.nereids.trees.expressions.functions.generator.Explode;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
+import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeStampTzType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.system.Frontend;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -54,25 +77,266 @@ public class VariablePersistTest extends ExpressionRewriteTestHelper {
         context = new ExpressionRewriteContext(cascadesContext);
     }
 
-    // Test point 2: When persisted sessionVars in view differ from current sessionVar,
-    // GuardExpr should be added for protection
+    // Test point 2: When persisted sessionVars in view differ from current sessionVar, only the expressions
+    // whose value depends on the changed variable family are guarded (per-variable dependency scoping): a
+    // time-zone sensitive expression is guarded when the creation time zone differs, a NeedSessionVarGuard
+    // expression is guarded when another affectQueryResult variable differs, and an expression with no
+    // dependency on the changed variables is left untouched.
     @Test
     public void testAddGuardWhenSessionVarsDifferent() {
-        Map<String, String> persistSessionVars = ImmutableMap.of("enable_decimal256", "true");
-        Map<String, String> currentSessionVars = ImmutableMap.of("enable_decimal256", "false");
+        Map<String, String> persistSessionVars = ImmutableMap.of(
+                "time_zone", "+00:00", "enable_decimal256", "true");
+        Map<String, String> currentSessionVars = ImmutableMap.of(
+                "time_zone", "+08:00", "enable_decimal256", "false");
         boolean matches = SessionVarGuardRewriter.checkSessionVariablesMatch(
                 currentSessionVars, persistSessionVars);
         Assertions.assertFalse(matches, "Should return false when sessionVars differ");
         SessionVarGuardRewriter.AddSessionVarGuardRewriter rewriter =
-                new SessionVarGuardRewriter.AddSessionVarGuardRewriter(persistSessionVars);
-        Expression expr = PARSER.parseExpression("a * b");
-        expr = ExpressionRewriteTestHelper.replaceUnboundSlot(expr, new HashMap<>());
-        expr = ExpressionRewriteTestHelper.typeCoercion(expr);
-        Expression rewritten = expr.accept(rewriter, Boolean.FALSE);
-        Assertions.assertTrue(rewritten instanceof SessionVarGuardExpr,
-                "Should add GuardExpr when sessionVars differ");
-        SessionVarGuardExpr guardExpr = (SessionVarGuardExpr) rewritten;
-        Assertions.assertEquals(persistSessionVars, guardExpr.getSessionVars());
+                new SessionVarGuardRewriter.AddSessionVarGuardRewriter(persistSessionVars, currentSessionVars);
+
+        // a time-zone sensitive expression is guarded because the creation time zone differs
+        SlotReference tzSlot = new SlotReference("ts", TimeStampTzType.of(6));
+        Expression dateTruncOnTz = new DateTrunc(tzSlot, new VarcharLiteral("day"));
+        Expression rewrittenTz = dateTruncOnTz.accept(rewriter, Boolean.FALSE);
+        Assertions.assertTrue(rewrittenTz instanceof SessionVarGuardExpr,
+                "time-zone sensitive expression should be guarded when time_zone differs");
+        Assertions.assertEquals(dateTruncOnTz, ((SessionVarGuardExpr) rewrittenTz).child());
+
+        // a NeedSessionVarGuard expression is guarded because enable_decimal256 differs
+        Expression ifExpr = new If(new SlotReference("cond", BooleanType.INSTANCE),
+                new SlotReference("a", BooleanType.INSTANCE), new SlotReference("b", BooleanType.INSTANCE));
+        Expression rewrittenIf = ifExpr.accept(rewriter, Boolean.FALSE);
+        Assertions.assertTrue(rewrittenIf instanceof SessionVarGuardExpr,
+                "NeedSessionVarGuard expression should be guarded when a non-time_zone variable differs");
+
+        // an expression with no dependency on the changed variables must NOT be guarded:
+        // a boolean conjunction has no decimal256 / time-zone dependency
+        Expression andExpr = new And(new SlotReference("a", BooleanType.INSTANCE),
+                new SlotReference("b", BooleanType.INSTANCE));
+        Expression rewritten = andExpr.accept(rewriter, Boolean.FALSE);
+        Assertions.assertFalse(rewritten instanceof SessionVarGuardExpr,
+                "expression with no dependency on the changed variables should not be guarded");
+    }
+
+    /**
+     * A lambda is a structural root as well: array_map and the other higher-order functions require their
+     * lambda argument to stay a Lambda (ArrayMap.withChildren asserts it), so replacing the lambda with a
+     * guard would make the stored expression un-analyzable. The lambda body is still zone dependent and is
+     * guarded on its own, and the enclosing call carries the guard for the value it produces.
+     */
+    @Test
+    public void testLambdaIsNeverWrappedByGuard() {
+        Map<String, String> persistSessionVars = ImmutableMap.of("time_zone", "+00:00");
+        Map<String, String> currentSessionVars = ImmutableMap.of("time_zone", "+08:00");
+        SessionVarGuardRewriter.AddSessionVarGuardRewriter rewriter =
+                new SessionVarGuardRewriter.AddSessionVarGuardRewriter(persistSessionVars, currentSessionVars);
+
+        Lambda lambda = new Lambda(ImmutableList.of("x"),
+                new DateTrunc(new SlotReference("x", TimeStampTzType.of(6)), new VarcharLiteral("day")));
+        // the lambda keeps its shape, only its body is guarded
+        Expression rewrittenLambda = lambda.accept(rewriter, Boolean.FALSE);
+        Assertions.assertTrue(rewrittenLambda instanceof Lambda, "lambda must not be replaced by a guard");
+        Assertions.assertTrue(((Lambda) rewrittenLambda).getLambdaFunction() instanceof SessionVarGuardExpr,
+                "the lambda body must still be guarded");
+
+        // array_map(x -> date_trunc(x, 'day'), arr): the call is guarded, its lambda child stays a lambda
+        Expression rewrittenArrayMap = new ArrayMap(lambda).accept(rewriter, Boolean.FALSE);
+        Assertions.assertTrue(rewrittenArrayMap instanceof SessionVarGuardExpr,
+                "the array_map result is zone sensitive and must be guarded");
+        Expression call = ((SessionVarGuardExpr) rewrittenArrayMap).child();
+        Assertions.assertTrue(call instanceof ArrayMap);
+        Assertions.assertTrue(call.child(0) instanceof Lambda,
+                "array_map requires its first child to stay a lambda");
+    }
+
+    /**
+     * A cache-building rewriter (the one MTMVCache.from uses for a nonzero guard mask) must retain a
+     * cache-mismatch marker around an existing non-cache guard: an MTMV over a view carries the view's
+     * query-side guard (cacheGuard=false) in its definition plan, and without re-marking it the guarded
+     * cache for a cross-zone query would have no cache guard, so the isCacheGuard() rejection in
+     * AbstractMaterializedViewRule never fires and a value materialized in the MV's refresh session could
+     * be substituted into a query evaluated in a different zone. The marker must be structurally distinct
+     * from the query-side guard (same shape but cacheGuard=true).
+     */
+    @Test
+    public void testCacheGuardPreservedAroundExistingViewGuard() {
+        Map<String, String> viewVars = ImmutableMap.of("time_zone", "+08:00");
+        Map<String, String> mvVars = ImmutableMap.of("time_zone", "+00:00");
+        // the view expansion already wraps the zone-sensitive expression in a query-side (non-cache) guard
+        SlotReference tzSlot = new SlotReference("ts", TimeStampTzType.of(6));
+        Expression dateTruncOnTz = new DateTrunc(tzSlot, new VarcharLiteral("day"));
+        SessionVarGuardExpr viewGuard = new SessionVarGuardExpr(dateTruncOnTz, viewVars);
+        Assertions.assertFalse(viewGuard.isCacheGuard());
+
+        // the query-side rewriter leaves the existing view guard untouched
+        SessionVarGuardRewriter.AddSessionVarGuardRewriter querySideRewriter =
+                new SessionVarGuardRewriter.AddSessionVarGuardRewriter(mvVars, viewVars);
+        Expression querySide = viewGuard.accept(querySideRewriter, Boolean.FALSE);
+        Assertions.assertSame(viewGuard, querySide);
+
+        // the cache-building rewriter wraps the existing view guard in a cache-mismatch marker
+        SessionVarGuardRewriter.AddSessionVarGuardRewriter cacheRewriter =
+                new SessionVarGuardRewriter.AddSessionVarGuardRewriter(mvVars,
+                        SessionVarGuardRewriter.GUARD_TIME_ZONE);
+        Expression cacheSide = viewGuard.accept(cacheRewriter, Boolean.FALSE);
+        Assertions.assertTrue(cacheSide instanceof SessionVarGuardExpr);
+        SessionVarGuardExpr cacheGuard = (SessionVarGuardExpr) cacheSide;
+        Assertions.assertTrue(cacheGuard.isCacheGuard());
+        // the marker wraps the existing view guard (keeping its own session vars inside)
+        Assertions.assertEquals(viewGuard, cacheGuard.child());
+        // the cache guard must stay structurally distinct from the query-side guard
+        Assertions.assertNotEquals(querySide, cacheSide);
+    }
+
+    /**
+     * The cache-mismatch marker around an existing non-cache guard is scoped to the guard family the cache
+     * is built for (computeGuardMask separates time-zone and other-variable dependencies): a time-zone-only
+     * cache must NOT wrap an existing "other"-family guard (e.g. a decimal multiply guarded by
+     * enable_decimal256), and an other-family-only cache must NOT wrap an existing time-zone guard -
+     * otherwise a safe cross-zone nested-view rewrite whose semantics agree through the view guard would be
+     * rejected by the isCacheGuard() gates. The outer marker is added only when the existing guard's family
+     * intersects the cache mask.
+     */
+    @Test
+    public void testCacheGuardPreservedOnlyForIntersectingFamily() {
+        Map<String, String> viewVars = ImmutableMap.of("time_zone", "+08:00", "enable_decimal256", "true");
+        Map<String, String> mvVars = ImmutableMap.of("time_zone", "+00:00", "enable_decimal256", "false");
+
+        // an "other"-family view guard: decimal multiplication depends on enable_decimal256
+        SlotReference a = new SlotReference("a", DecimalV3Type.createDecimalV3Type(27, 9));
+        SlotReference b = new SlotReference("b", DecimalV3Type.createDecimalV3Type(27, 9));
+        SessionVarGuardExpr otherViewGuard = new SessionVarGuardExpr(new Multiply(a, b), viewVars);
+
+        // a time-zone view guard: date_trunc on a TIMESTAMPTZ
+        SlotReference tzSlot = new SlotReference("ts", TimeStampTzType.of(6));
+        SessionVarGuardExpr tzViewGuard =
+                new SessionVarGuardExpr(new DateTrunc(tzSlot, new VarcharLiteral("day")), viewVars);
+
+        // a time-zone-only cache mask wraps the time-zone guard but leaves the "other"-family guard as-is
+        SessionVarGuardRewriter.AddSessionVarGuardRewriter tzCache = new SessionVarGuardRewriter
+                .AddSessionVarGuardRewriter(mvVars, SessionVarGuardRewriter.GUARD_TIME_ZONE);
+        Expression tzWrapped = tzViewGuard.accept(tzCache, Boolean.FALSE);
+        Assertions.assertTrue(tzWrapped instanceof SessionVarGuardExpr
+                && ((SessionVarGuardExpr) tzWrapped).isCacheGuard(),
+                "time-zone guard must get the marker under a time-zone cache mask");
+        Expression otherKept = otherViewGuard.accept(tzCache, Boolean.FALSE);
+        Assertions.assertSame(otherViewGuard, otherKept,
+                "other-family guard must not get the marker under a time-zone-only cache mask");
+
+        // an other-family-only cache mask wraps the other-family guard but leaves the time-zone guard as-is
+        SessionVarGuardRewriter.AddSessionVarGuardRewriter otherCache = new SessionVarGuardRewriter
+                .AddSessionVarGuardRewriter(mvVars, SessionVarGuardRewriter.GUARD_OTHER);
+        Expression otherWrapped = otherViewGuard.accept(otherCache, Boolean.FALSE);
+        Assertions.assertTrue(otherWrapped instanceof SessionVarGuardExpr
+                && ((SessionVarGuardExpr) otherWrapped).isCacheGuard(),
+                "other-family guard must get the marker under an other-family cache mask");
+        Expression tzKept = tzViewGuard.accept(otherCache, Boolean.FALSE);
+        Assertions.assertSame(tzViewGuard, tzKept,
+                "time-zone guard must not get the marker under an other-family-only cache mask");
+    }
+
+    /**
+     * The guard family mask computed from the actual session difference: a time-zone-only difference must
+     * not activate the "other" family (so integer SUM keeps rewriting across zones) and vice versa.
+     */
+    @Test
+    public void testComputeGuardMask() {
+        Map<String, String> persist = ImmutableMap.of("time_zone", "+00:00", "sql_mode", "1");
+        // matching session -> no guard
+        Map<String, String> currentSame = ImmutableMap.of("time_zone", "+00:00", "sql_mode", "1");
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_NONE,
+                SessionVarGuardRewriter.computeGuardMask(currentSame, persist));
+        // time zone differs only -> time-zone guard only
+        Map<String, String> currentTzDiff = ImmutableMap.of("time_zone", "+08:00", "sql_mode", "1");
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE,
+                SessionVarGuardRewriter.computeGuardMask(currentTzDiff, persist));
+        // other variable differs only -> other guard only
+        Map<String, String> currentOtherDiff = ImmutableMap.of("time_zone", "+00:00", "sql_mode", "2");
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_OTHER,
+                SessionVarGuardRewriter.computeGuardMask(currentOtherDiff, persist));
+        // both differ -> both guards
+        Map<String, String> currentBothDiff = ImmutableMap.of("time_zone", "+08:00", "sql_mode", "2");
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE | SessionVarGuardRewriter.GUARD_OTHER,
+                SessionVarGuardRewriter.computeGuardMask(currentBothDiff, persist));
+        // equivalent time-zone spellings do not count as a difference
+        Map<String, String> currentTzEquivalent = ImmutableMap.of("time_zone", "UTC", "sql_mode", "1");
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_NONE,
+                SessionVarGuardRewriter.computeGuardMask(currentTzEquivalent, persist));
+        // pre-time_zone metadata (no time_zone key) -> time-zone guard fence
+        Map<String, String> legacyPersist = ImmutableMap.of("sql_mode", "1");
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE,
+                SessionVarGuardRewriter.computeGuardMask(currentSame, legacyPersist));
+        // empty or missing metadata -> the creation zone is unknown, so the time-zone fence applies
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE,
+                SessionVarGuardRewriter.computeGuardMask(currentSame, new HashMap<>()));
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE,
+                SessionVarGuardRewriter.computeGuardMask(currentSame, null));
+        Assertions.assertTrue(SessionVarGuardRewriter.needsSessionVarGuard(currentSame, new HashMap<>()),
+                "unknown creation metadata must enable the time-zone guard fence");
+    }
+
+    /**
+     * GUARD_OTHER must be derived from the union of both key sets. A variable that exists only in the
+     * current session (e.g. enable_decimal256 was added to the persisted plan-variable set after this
+     * view/MV was created) means the object was materialized with the other (default) value, so the
+     * current setting must not be eligible for rewrite; the old whole-map comparison caught this
+     * one-sided key set, the persist-only loop did not.
+     */
+    @Test
+    public void testComputeGuardMaskCurrentOnlyVariable() {
+        // the creation map predates enable_decimal256 being part of the plan-variable set
+        Map<String, String> persist = ImmutableMap.of("time_zone", "+00:00", "sql_mode", "1");
+        // current session enables the newer variable -> must get GUARD_OTHER
+        Map<String, String> currentNewVarOn = ImmutableMap.of("time_zone", "+00:00", "sql_mode", "1",
+                "enable_decimal256", "true");
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_OTHER,
+                SessionVarGuardRewriter.computeGuardMask(currentNewVarOn, persist));
+        // even the default value of the newer variable is a mismatch (conservative compatibility fence:
+        // the object was materialized before the variable existed, so its materialized semantics are unknown)
+        Map<String, String> currentNewVarDefault = ImmutableMap.of("time_zone", "+00:00", "sql_mode", "1",
+                "enable_decimal256", "false");
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_OTHER,
+                SessionVarGuardRewriter.computeGuardMask(currentNewVarDefault, persist));
+        // a persist-only key missing from the current map is a mismatch too
+        Map<String, String> currentMissingPersisted = ImmutableMap.of("time_zone", "+00:00");
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_OTHER,
+                SessionVarGuardRewriter.computeGuardMask(currentMissingPersisted, persist));
+        // a full match still yields no guard
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_NONE,
+                SessionVarGuardRewriter.computeGuardMask(persist, persist));
+    }
+
+    /**
+     * The mask-driven rewriter (used for the shared MTMV rewrite caches) guards the selected families
+     * unconditionally, independent of the session it is constructed in.
+     */
+    @Test
+    public void testMaskDrivenRewriterGuardsSelectedFamilies() {
+        Map<String, String> persist = ImmutableMap.of("time_zone", "+00:00", "enable_decimal256", "true");
+        SessionVarGuardRewriter.AddSessionVarGuardRewriter timeZoneOnly =
+                new SessionVarGuardRewriter.AddSessionVarGuardRewriter(persist,
+                        SessionVarGuardRewriter.GUARD_TIME_ZONE);
+        SessionVarGuardRewriter.AddSessionVarGuardRewriter otherOnly =
+                new SessionVarGuardRewriter.AddSessionVarGuardRewriter(persist,
+                        SessionVarGuardRewriter.GUARD_OTHER);
+        SessionVarGuardRewriter.AddSessionVarGuardRewriter both =
+                new SessionVarGuardRewriter.AddSessionVarGuardRewriter(persist,
+                        SessionVarGuardRewriter.GUARD_TIME_ZONE | SessionVarGuardRewriter.GUARD_OTHER);
+
+        SlotReference tzSlot = new SlotReference("ts", TimeStampTzType.of(6));
+        Expression dateTruncOnTz = new DateTrunc(tzSlot, new VarcharLiteral("day"));
+        Expression ifExpr = new If(new SlotReference("cond", BooleanType.INSTANCE),
+                new SlotReference("a", BooleanType.INSTANCE), new SlotReference("b", BooleanType.INSTANCE));
+
+        // time-zone mask guards the time-zone sensitive expression only
+        Assertions.assertTrue(dateTruncOnTz.accept(timeZoneOnly, Boolean.FALSE) instanceof SessionVarGuardExpr);
+        Assertions.assertFalse(ifExpr.accept(timeZoneOnly, Boolean.FALSE) instanceof SessionVarGuardExpr);
+        // other mask guards the NeedSessionVarGuard expression only
+        Assertions.assertFalse(dateTruncOnTz.accept(otherOnly, Boolean.FALSE) instanceof SessionVarGuardExpr);
+        Assertions.assertTrue(ifExpr.accept(otherOnly, Boolean.FALSE) instanceof SessionVarGuardExpr);
+        // both masks guard both families
+        Assertions.assertTrue(dateTruncOnTz.accept(both, Boolean.FALSE) instanceof SessionVarGuardExpr);
+        Assertions.assertTrue(ifExpr.accept(both, Boolean.FALSE) instanceof SessionVarGuardExpr);
     }
 
     @Test
@@ -440,5 +704,528 @@ public class VariablePersistTest extends ExpressionRewriteTestHelper {
         Assertions.assertTrue(
                 SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(
                 baseSqlModeOnly, bothStrictSqlModeOnly));
+    }
+
+    /**
+     * A time-zone sensitive expression (an expression that operates on a TIMESTAMPTZ value, such as
+     * date_trunc on a timestamptz column) must be guarded when the persisted session variables differ
+     * from the current session. Otherwise a materialized view built in one time zone could be rewritten
+     * in a session with a different time zone and return stale materialized values.
+     */
+    @Test
+    public void testTimeZoneSensitiveExprGetsGuard() {
+        Map<String, String> persistSessionVars = ImmutableMap.of("time_zone", "+00:00");
+        Map<String, String> currentSessionVars = ImmutableMap.of("time_zone", "+08:00");
+        SessionVarGuardRewriter.AddSessionVarGuardRewriter rewriter =
+                new SessionVarGuardRewriter.AddSessionVarGuardRewriter(persistSessionVars, currentSessionVars);
+        SlotReference tzSlot = new SlotReference("ts", TimeStampTzType.of(6));
+        Expression dateTruncOnTz = new DateTrunc(tzSlot, new VarcharLiteral("day"));
+        Expression rewritten = dateTruncOnTz.accept(rewriter, Boolean.FALSE);
+        Assertions.assertTrue(rewritten instanceof SessionVarGuardExpr,
+                "date_trunc on TIMESTAMPTZ should be guarded when session vars differ");
+        Assertions.assertEquals(dateTruncOnTz, ((SessionVarGuardExpr) rewritten).child());
+
+        // cast of a timestamptz value is also time-zone sensitive
+        Expression castOnTz = new Cast(tzSlot, VarcharType.SYSTEM_DEFAULT);
+        Expression rewrittenCast = castOnTz.accept(rewriter, Boolean.FALSE);
+        Assertions.assertTrue(rewrittenCast instanceof SessionVarGuardExpr,
+                "cast of TIMESTAMPTZ should be guarded when session vars differ");
+    }
+
+    /**
+     * Equivalent time-zone spellings (UTC / Etc/UTC / GMT / +00:00) denote the same instant zone and must
+     * not disable a rewrite: the time-zone sensitive expression below must NOT be guarded when the creation
+     * zone and the current zone are merely spelled differently.
+     */
+    @Test
+    public void testEquivalentTimeZoneSpellingsNotGuarded() {
+        Map<String, String> persistSessionVars = ImmutableMap.of("time_zone", "+00:00");
+        Map<String, String> currentSessionVars = ImmutableMap.of("time_zone", "UTC");
+        SessionVarGuardRewriter.AddSessionVarGuardRewriter rewriter =
+                new SessionVarGuardRewriter.AddSessionVarGuardRewriter(persistSessionVars, currentSessionVars);
+        SlotReference tzSlot = new SlotReference("ts", TimeStampTzType.of(6));
+        Expression dateTruncOnTz = new DateTrunc(tzSlot, new VarcharLiteral("day"));
+        Expression rewritten = dateTruncOnTz.accept(rewriter, Boolean.FALSE);
+        Assertions.assertFalse(rewritten instanceof SessionVarGuardExpr,
+                "equivalent time-zone spellings should not cause a guard");
+        Assertions.assertEquals(dateTruncOnTz, rewritten);
+    }
+
+    /**
+     * The same function applied to a plain DATETIME/DATE column is NOT time-zone sensitive, so it must not
+     * be guarded even when the creation time zone differs; guarding it would unnecessarily disable
+     * materialized view rewrite for a value that does not depend on the session time zone.
+     */
+    @Test
+    public void testDateTimeExprNotGuarded() {
+        Map<String, String> persistSessionVars = ImmutableMap.of("time_zone", "+00:00");
+        Map<String, String> currentSessionVars = ImmutableMap.of("time_zone", "+08:00");
+        SessionVarGuardRewriter.AddSessionVarGuardRewriter rewriter =
+                new SessionVarGuardRewriter.AddSessionVarGuardRewriter(persistSessionVars, currentSessionVars);
+        SlotReference dtSlot = new SlotReference("dt", DateTimeV2Type.SYSTEM_DEFAULT);
+        Expression dateTruncOnDt = new DateTrunc(dtSlot, new VarcharLiteral("day"));
+        Expression rewritten = dateTruncOnDt.accept(rewriter, Boolean.FALSE);
+        Assertions.assertFalse(rewritten instanceof SessionVarGuardExpr,
+                "date_trunc on DATETIME should not be guarded");
+        Assertions.assertEquals(dateTruncOnDt, rewritten);
+    }
+
+    /**
+     * Comparisons and boolean combinations over TIMESTAMPTZ instants are zone invariant: whether two
+     * instants are equal or ordered does not depend on the session time zone, so guarding them would
+     * disable safe cross-zone rewrites (e.g. a sync MV whose WHERE is `ts1 = ts2`). A comparison whose
+     * operand is itself zone dependent (a cast of an offset-free string into TIMESTAMPTZ) is still
+     * guarded: the child visit wraps the operand, so the predicate keeps a guard in its subtree.
+     */
+    @Test
+    public void testZoneInvariantTimestampTzComparisonsNotGuarded() {
+        Map<String, String> persistSessionVars = ImmutableMap.of("time_zone", "+00:00");
+        Map<String, String> currentSessionVars = ImmutableMap.of("time_zone", "+08:00");
+        SessionVarGuardRewriter.AddSessionVarGuardRewriter rewriter =
+                new SessionVarGuardRewriter.AddSessionVarGuardRewriter(persistSessionVars, currentSessionVars);
+        SlotReference ts1 = new SlotReference("ts1", TimeStampTzType.of(6));
+        SlotReference ts2 = new SlotReference("ts2", TimeStampTzType.of(6));
+
+        // equality / ordering / BETWEEN / IN over instants are zone invariant
+        Expression eq = new EqualTo(ts1, ts2);
+        Assertions.assertFalse(eq.accept(rewriter, Boolean.FALSE) instanceof SessionVarGuardExpr,
+                "equality of two TIMESTAMPTZ instants is zone invariant");
+        Expression gt = new GreaterThan(ts1, ts2);
+        Assertions.assertFalse(gt.accept(rewriter, Boolean.FALSE) instanceof SessionVarGuardExpr,
+                "ordering of two TIMESTAMPTZ instants is zone invariant");
+        Expression between = new Between(ts1, ts2, ts2);
+        Assertions.assertFalse(between.accept(rewriter, Boolean.FALSE) instanceof SessionVarGuardExpr,
+                "BETWEEN over TIMESTAMPTZ instants is zone invariant");
+        Expression in = new InPredicate(ts1, ImmutableList.of(ts2, ts1));
+        Assertions.assertFalse(in.accept(rewriter, Boolean.FALSE) instanceof SessionVarGuardExpr,
+                "IN over TIMESTAMPTZ instants is zone invariant");
+
+        // boolean combinations of zone-invariant predicates are zone invariant as well (any zone dependent
+        // operand is guarded on its own by the child visit)
+        Expression conjunction = new And(eq, gt);
+        Assertions.assertFalse(conjunction.accept(rewriter, Boolean.FALSE) instanceof SessionVarGuardExpr,
+                "AND of zone-invariant predicates is zone invariant");
+        Expression negation = new Not(eq);
+        Assertions.assertFalse(negation.accept(rewriter, Boolean.FALSE) instanceof SessionVarGuardExpr,
+                "NOT of a zone-invariant predicate is zone invariant");
+
+        // a cast of an offset-free string into TIMESTAMPTZ is zone dependent, so the operand is guarded
+        // (the comparison itself stays unguarded, but the guard survives in the predicate subtree)
+        Expression castInto = new Cast(new VarcharLiteral("2024-01-01 00:00:00"), TimeStampTzType.of(6));
+        Expression sensitiveComparison = new EqualTo(castInto, ts2);
+        Expression rewritten = sensitiveComparison.accept(rewriter, Boolean.FALSE);
+        Assertions.assertFalse(rewritten instanceof SessionVarGuardExpr,
+                "the comparison operator itself is zone invariant");
+        Assertions.assertTrue(rewritten.anyMatch(SessionVarGuardExpr.class::isInstance),
+                "a zone-dependent operand must stay guarded inside the comparison");
+    }
+
+    /**
+     * Old-metadata compatibility fence: an object created before time_zone was persisted (empty map, or a
+     * map that carries other plan variables but no time_zone key) has an unknown creation zone, so its
+     * time-zone sensitive expressions must always be guarded. Without the fence a new FE would evaluate
+     * the object against the current session zone while the materialized value may have been produced in
+     * a different (unknown) zone. The reverse direction (old FE reading new metadata) cannot be repaired
+     * from the new code and requires rebuilding the object there.
+     */
+    @Test
+    public void testLegacyMetadataFenceGuardsTimeZoneExpressions() {
+        Map<String, String> currentSessionVars = ImmutableMap.of("time_zone", "+08:00", "sql_mode", "0");
+        SlotReference tzSlot = new SlotReference("ts", TimeStampTzType.of(6));
+        Expression dateTruncOnTz = new DateTrunc(tzSlot, new VarcharLiteral("day"));
+
+        // no persisted variables at all (metadata written before session-variable persistence)
+        Assertions.assertTrue(SessionVarGuardRewriter.needsSessionVarGuard(currentSessionVars, new HashMap<>()));
+        SessionVarGuardRewriter.AddSessionVarGuardRewriter emptyMapRewriter =
+                new SessionVarGuardRewriter.AddSessionVarGuardRewriter(new HashMap<>(), currentSessionVars);
+        Assertions.assertTrue(dateTruncOnTz.accept(emptyMapRewriter, Boolean.FALSE) instanceof SessionVarGuardExpr,
+                "unknown creation zone must guard time-zone sensitive expressions");
+
+        // a legacy map that carries other plan variables but no time_zone key
+        Map<String, String> legacyPersist = ImmutableMap.of("sql_mode", "0");
+        Assertions.assertTrue(SessionVarGuardRewriter.needsSessionVarGuard(currentSessionVars, legacyPersist));
+        SessionVarGuardRewriter.AddSessionVarGuardRewriter legacyRewriter =
+                new SessionVarGuardRewriter.AddSessionVarGuardRewriter(legacyPersist, currentSessionVars);
+        Assertions.assertTrue(dateTruncOnTz.accept(legacyRewriter, Boolean.FALSE) instanceof SessionVarGuardExpr,
+                "missing time_zone in legacy metadata must guard time-zone sensitive expressions");
+        // the current metadata with a matching zone never guards
+        SessionVarGuardRewriter.AddSessionVarGuardRewriter currentRewriter =
+                new SessionVarGuardRewriter.AddSessionVarGuardRewriter(currentSessionVars, currentSessionVars);
+        Assertions.assertFalse(dateTruncOnTz.accept(currentRewriter, Boolean.FALSE) instanceof SessionVarGuardExpr);
+    }
+
+    /**
+     * D2: a whole-plan rewrite must not replace subtype-constrained structural expressions with a guard.
+     * row_number() OVER (ORDER BY ts) where ts is a TIMESTAMPTZ must not wrap the OrderExpression (its
+     * owner WindowExpression.withChildren casts order keys back to OrderExpression and would throw a
+     * ClassCastException). The structural root is preserved; only genuinely value-producing children are
+     * guarded.
+     */
+    @Test
+    public void testWindowOrderByTimestamptzNotReplaced() {
+        Map<String, String> var = ImmutableMap.of("time_zone", "+00:00");
+        LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t", 0);
+        SlotReference ts = new SlotReference("ts", TimeStampTzType.of(6));
+        WindowExpression windowExpr = new WindowExpression(new RowNumber(), ImmutableList.of(),
+                ImmutableList.of(new OrderExpression(new OrderKey(ts, true, true))));
+        LogicalWindow<LogicalPlan> window = new LogicalWindow<>(
+                ImmutableList.of(new Alias(windowExpr, "rn")), scan);
+        SessionVarGuardRewriter rewriter = new SessionVarGuardRewriter(var,
+                SessionVarGuardRewriter.GUARD_TIME_ZONE, cascadesContext);
+        // must not throw ClassCastException
+        Plan rewritten = SessionVarGuardRewriter.rewritePlanTree(rewriter, window);
+        Assertions.assertNotNull(rewritten);
+        Assertions.assertTrue(rewritten instanceof LogicalWindow);
+        // row_number() OVER (ORDER BY ts) is zone invariant: the structural OrderExpression must survive
+        // and nothing must be wrapped in a guard
+        LogicalWindow<?> rewrittenWindow = (LogicalWindow<?>) rewritten;
+        Assertions.assertTrue(rewrittenWindow.getWindowExpressions().stream()
+                        .noneMatch(expr -> expr.containsType(SessionVarGuardExpr.class)),
+                "zone-invariant window expression must not be guarded");
+    }
+
+    /**
+     * D2: a whole-plan rewrite must not replace a table-generating function root with a guard.
+     * explode(ARRAY&lt;TIMESTAMPTZ&gt;) must not wrap the Explode root (GenerateExpressionRewrite casts the
+     * generator back to Function and would throw a ClassCastException). The generator root is preserved.
+     */
+    @Test
+    public void testGenerateExplodeTimestamptzNotReplaced() {
+        Map<String, String> var = ImmutableMap.of("time_zone", "+00:00");
+        LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t", 0);
+        SlotReference arr = new SlotReference("arr", ArrayType.of(TimeStampTzType.of(6)));
+        Explode explode = new Explode(arr);
+        LogicalGenerate<LogicalPlan> generate = new LogicalGenerate<>(
+                ImmutableList.of(explode),
+                ImmutableList.of(new SlotReference("e", TimeStampTzType.of(6))), scan);
+        SessionVarGuardRewriter rewriter = new SessionVarGuardRewriter(var,
+                SessionVarGuardRewriter.GUARD_TIME_ZONE, cascadesContext);
+        // must not throw ClassCastException
+        Plan rewritten = SessionVarGuardRewriter.rewritePlanTree(rewriter, generate);
+        Assertions.assertNotNull(rewritten);
+        Assertions.assertTrue(rewritten instanceof LogicalGenerate);
+        LogicalGenerate<?> rewrittenGenerate = (LogicalGenerate<?>) rewritten;
+        Assertions.assertEquals(1, rewrittenGenerate.getGenerators().size());
+        Assertions.assertTrue(rewrittenGenerate.getGenerators().get(0) instanceof Explode);
+    }
+
+    /**
+     * D5: the single-argument rewriter guards BOTH dependency families unconditionally, independent of the
+     * current thread-local session. Its only production caller builds it inside an AutoCloseSessionVariable
+     * scope (where the current session already equals var), while the wrapped expression is translated /
+     * executed later in a different (load) session.
+     */
+    @Test
+    public void testSingleArgRewriterGuardsUnconditionally() {
+        Map<String, String> persist = ImmutableMap.of("time_zone", "+00:00", "enable_decimal256", "true");
+        SessionVarGuardRewriter.AddSessionVarGuardRewriter rewriter =
+                new SessionVarGuardRewriter.AddSessionVarGuardRewriter(persist);
+        // time-zone sensitive expression is guarded
+        SlotReference tzSlot = new SlotReference("ts", TimeStampTzType.of(6));
+        Expression dateTruncOnTz = new DateTrunc(tzSlot, new VarcharLiteral("day"));
+        Assertions.assertTrue(dateTruncOnTz.accept(rewriter, Boolean.FALSE) instanceof SessionVarGuardExpr,
+                "single-arg rewriter must guard time-zone sensitive expressions unconditionally");
+        // NeedSessionVarGuard expression is guarded
+        Expression ifExpr = new If(new SlotReference("cond", BooleanType.INSTANCE),
+                new SlotReference("a", BooleanType.INSTANCE), new SlotReference("b", BooleanType.INSTANCE));
+        Assertions.assertTrue(ifExpr.accept(rewriter, Boolean.FALSE) instanceof SessionVarGuardExpr,
+                "single-arg rewriter must guard NeedSessionVarGuard expressions unconditionally");
+        // a zone-invariant boolean conjunction is not guarded
+        Expression andExpr = new And(new SlotReference("a", BooleanType.INSTANCE),
+                new SlotReference("b", BooleanType.INSTANCE));
+        Assertions.assertFalse(andExpr.accept(rewriter, Boolean.FALSE) instanceof SessionVarGuardExpr,
+                "unrelated expressions must not be guarded");
+    }
+
+    /**
+     * The cache-mismatch guard added to an MTMV rewrite cache must stay structurally distinct from the
+     * nested persisted-object guard BindRelation adds while expanding a view into the query, even when both
+     * wrap the same child with the same session variables. Materialized view matching compares expressions
+     * by equals, so without this distinction a FORCE_IN_RBO pre-rewrite could substitute an MTMV
+     * materialized in another zone for a query that would evaluate the expression in its own zone after
+     * dropping the guard.
+     */
+    @Test
+    public void testCacheGuardStructurallyDistinctFromNestedObjectGuard() {
+        Map<String, String> sessionVars = ImmutableMap.of("time_zone", "+00:00");
+        Expression child = PARSER.parseExpression("date_trunc(ts, 'day')");
+        child = ExpressionRewriteTestHelper.replaceUnboundSlot(child, new HashMap<>());
+        child = ExpressionRewriteTestHelper.typeCoercion(child);
+
+        // the same child and the same session vars: only the cache-guard distinction may tell them apart
+        SessionVarGuardExpr nestedObjectGuard = new SessionVarGuardExpr(child, sessionVars);
+        SessionVarGuardExpr cacheGuard = new SessionVarGuardExpr(child, sessionVars, true);
+
+        Assertions.assertFalse(nestedObjectGuard.isCacheGuard());
+        Assertions.assertTrue(cacheGuard.isCacheGuard());
+        Assertions.assertNotEquals(nestedObjectGuard, cacheGuard,
+                "a query-side nested-object guard must never equal a cache-mismatch guard");
+        Assertions.assertNotEquals(nestedObjectGuard.hashCode(), cacheGuard.hashCode());
+        // rebuilding must preserve the kind, otherwise downstream rewrites could erase the distinction
+        Assertions.assertTrue(((SessionVarGuardExpr) cacheGuard.withChildren(ImmutableList.of(child)))
+                .isCacheGuard());
+    }
+
+    /**
+     * Only a persisted map that carries time_zone identifies the creation zone. Everything else is the
+     * old-metadata upgrade direction and must stay behind the metadata compatibility fence: it is never an
+     * unconditional match, so it cannot be rewritten across zones until it is recreated.
+     */
+    @Test
+    public void testCreationSessionKnown() {
+        Assertions.assertFalse(SessionVarGuardRewriter.isCreationSessionKnown(null));
+        Assertions.assertFalse(SessionVarGuardRewriter.isCreationSessionKnown(new HashMap<>()));
+        Assertions.assertFalse(SessionVarGuardRewriter.isCreationSessionKnown(
+                ImmutableMap.of(SessionVariable.SQL_MODE, "0")));
+        Assertions.assertTrue(SessionVarGuardRewriter.isCreationSessionKnown(
+                ImmutableMap.of(SessionVariable.TIME_ZONE, "+00:00")));
+        Assertions.assertTrue(SessionVarGuardRewriter.isCreationSessionKnown(
+                ImmutableMap.of(SessionVariable.TIME_ZONE, "+00:00", SessionVariable.SQL_MODE, "0")));
+    }
+
+    /**
+     * The synchronous MV cache must not treat a legacy (empty or time_zone-less) persisted map as a match.
+     * The narrow strict-table sql_mode exception is still honored, but only for the other guard family.
+     */
+    @Test
+    public void testSyncMvGuardMaskFencesUnknownCreationZone() {
+        long baseMode = SqlModeHelper.MODE_ONLY_FULL_GROUP_BY;
+        long strictMode = baseMode
+                | SqlModeHelper.MODE_STRICT_TRANS_TABLES
+                | SqlModeHelper.MODE_STRICT_ALL_TABLES;
+        Map<String, String> current = ImmutableMap.of(
+                SessionVariable.TIME_ZONE, "+08:00",
+                SessionVariable.SQL_MODE, Long.toString(strictMode));
+        Map<String, String> persisted = ImmutableMap.of(
+                SessionVariable.TIME_ZONE, "+08:00",
+                SessionVariable.SQL_MODE, Long.toString(baseMode));
+
+        // matching creation session -> no guard
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_NONE,
+                SessionVarGuardRewriter.computeSyncMvGuardMask(current, current));
+        // strict-table sql_mode-only difference keeps the historical exemption
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_NONE,
+                SessionVarGuardRewriter.computeSyncMvGuardMask(current, persisted));
+        // an empty or time_zone-less map is an unknown creation zone, never an unconditional match
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE,
+                SessionVarGuardRewriter.computeSyncMvGuardMask(current, new HashMap<>()));
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE,
+                SessionVarGuardRewriter.computeSyncMvGuardMask(current, null));
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE,
+                SessionVarGuardRewriter.computeSyncMvGuardMask(current,
+                        ImmutableMap.of(SessionVariable.SQL_MODE, Long.toString(strictMode))));
+        // the strict-table exemption must not rescue an unknown creation zone: the zone family is still
+        // guarded, and the legacy sql_mode difference only adds the (otherwise exempted) other family
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE | SessionVarGuardRewriter.GUARD_OTHER,
+                SessionVarGuardRewriter.computeSyncMvGuardMask(current,
+                        ImmutableMap.of(SessionVariable.SQL_MODE, Long.toString(baseMode))));
+        // a zone difference is a mismatch even without any other difference
+        Map<String, String> otherZone = ImmutableMap.of(
+                SessionVariable.TIME_ZONE, "+00:00",
+                SessionVariable.SQL_MODE, Long.toString(strictMode));
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE,
+                SessionVarGuardRewriter.computeSyncMvGuardMask(current, otherZone));
+        // the sql_mode exemption must not hide a non-sql_mode variable difference
+        Map<String, String> otherVarDiff = ImmutableMap.of(
+                SessionVariable.TIME_ZONE, "+08:00",
+                SessionVariable.SQL_MODE, Long.toString(baseMode),
+                "enable_decimal256", "true");
+        Map<String, String> currentNoDecimal = ImmutableMap.of(
+                SessionVariable.TIME_ZONE, "+08:00",
+                SessionVariable.SQL_MODE, Long.toString(strictMode));
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_OTHER,
+                SessionVarGuardRewriter.computeSyncMvGuardMask(currentNoDecimal, otherVarDiff));
+    }
+
+    /**
+     * New-metadata -> old-FE direction of the compatibility fence. The new FE persists time_zone, which an
+     * old FE does not register: its whole-map comparison still sees a mismatch (so it never uses the
+     * unconditional-match cache), but its guarded cache does not classify TIMESTAMPTZ expressions, so the
+     * object must be rebuilt/recreated before an old read-serving FE is used. The creation side of that
+     * requirement is enforced by {@code checkClusterSupportsPlanTimeZoneFence}; this test pins the other
+     * observable part: the persisted map is a whole-map mismatch for a session that does not know the key,
+     * and the same map reports a known creation session on the new FE.
+     */
+    @Test
+    public void testNewMetadataMismatchesWholeMapComparison() {
+        Map<String, String> newMetadata = ImmutableMap.of(
+                SessionVariable.TIME_ZONE, "+00:00",
+                SessionVariable.SQL_MODE, "0");
+        Map<String, String> oldFeSession = ImmutableMap.of(SessionVariable.SQL_MODE, "0");
+
+        Assertions.assertNotEquals(oldFeSession, newMetadata,
+                "an old FE's whole-map comparison must not treat new metadata as identical");
+        Assertions.assertTrue(SessionVarGuardRewriter.isCreationSessionKnown(newMetadata));
+        // the old FE's own (time_zone-less) map stays fenced on the new FE
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE,
+                SessionVarGuardRewriter.computeGuardMask(newMetadata, oldFeSession));
+    }
+
+    /**
+     * A persisted map that predates a plan variable must not be exempted by the strict-table sql_mode
+     * shortcut: the current-only variable (e.g. enable_decimal256, which selects the decimal width and
+     * overflow semantics) means the expressions may have been materialized with another value, so the
+     * rewrite has to stay guarded even when the only visible difference is a strict-table bit.
+     */
+    @Test
+    public void testSyncMvCurrentOnlyVariableIsNotExempted() {
+        long baseMode = SqlModeHelper.MODE_ONLY_FULL_GROUP_BY;
+        Map<String, String> persisted = ImmutableMap.of(
+                SessionVariable.TIME_ZONE, "+08:00",
+                SessionVariable.SQL_MODE, Long.toString(baseMode));
+        Map<String, String> current = ImmutableMap.of(
+                SessionVariable.TIME_ZONE, "+08:00",
+                SessionVariable.SQL_MODE,
+                Long.toString(baseMode | SqlModeHelper.MODE_STRICT_TRANS_TABLES),
+                "enable_decimal256", "true");
+
+        Assertions.assertFalse(
+                SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(current, persisted),
+                "a current-only plan variable must not be exempted by the sql_mode shortcut");
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_OTHER,
+                SessionVarGuardRewriter.computeSyncMvGuardMask(current, persisted));
+        // the same holds for the opposite direction: a variable that only the persisted map has
+        Assertions.assertFalse(
+                SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(persisted, current));
+        // and the fence version stamp alone never denies the exemption
+        Map<String, String> stamped = new HashMap<>(persisted);
+        stamped.put(SessionVariable.PLAN_SESSION_VAR_FENCE_VERSION,
+                String.valueOf(SessionVariable.CURRENT_PLAN_SESSION_VAR_FENCE_VERSION));
+        Assertions.assertTrue(SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(current, current));
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_NONE,
+                SessionVarGuardRewriter.computeSyncMvGuardMask(stamped, stamped));
+    }
+
+    /**
+     * The cluster fence for new-metadata objects: creating one is only safe while every alive frontend can
+     * interpret the persisted plan variables, because an older frontend neither registers time_zone nor
+     * classifies TIMESTAMPTZ expressions and would refresh/rewrite the object without the time-zone guard.
+     */
+    @Test
+    public void testClusterPlanTimeZoneFence() {
+        Env env = Mockito.mock(Env.class);
+        HostInfo selfNode = new HostInfo("fe-self", 9030);
+        Mockito.when(env.getSelfNode()).thenReturn(selfNode);
+        Frontend self = mockFrontend("fe-self", "doris-4.1.4-rc01-abc", true);
+        Frontend olderAlive = mockFrontend("fe-old", "doris-4.1.3-release-abc", true);
+        Frontend olderDead = mockFrontend("fe-dead", "doris-4.1.3-release-abc", false);
+        Frontend newerAlive = mockFrontend("fe-new", "doris-4.1.5-rc01-abc", true);
+        Frontend selfDev = mockFrontend("fe-self", "doris-0.0.0-abcdef", true);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            // same or newer frontends are fine
+            Mockito.when(env.getFrontends(null)).thenReturn(ImmutableList.of(self, newerAlive));
+            Assertions.assertDoesNotThrow(SessionVarGuardRewriter::checkClusterSupportsPlanTimeZoneFence);
+            // an older frontend that is dead cannot serve reads, so it does not block
+            Mockito.when(env.getFrontends(null)).thenReturn(ImmutableList.of(self, olderDead));
+            Assertions.assertDoesNotThrow(SessionVarGuardRewriter::checkClusterSupportsPlanTimeZoneFence);
+            // an older live frontend must block creating new-metadata objects
+            Mockito.when(env.getFrontends(null)).thenReturn(ImmutableList.of(self, olderAlive));
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    SessionVarGuardRewriter::checkClusterSupportsPlanTimeZoneFence);
+            Assertions.assertTrue(exception.getMessage().contains("Upgrade all frontends first"),
+                    exception.getMessage());
+            // a development build (0.0.0) carries no release ordering, so there is nothing to compare
+            Mockito.when(env.getFrontends(null)).thenReturn(ImmutableList.of(selfDev, olderAlive));
+            Assertions.assertDoesNotThrow(SessionVarGuardRewriter::checkClusterSupportsPlanTimeZoneFence);
+        }
+    }
+
+    private static Frontend mockFrontend(String host, String version, boolean alive) {
+        Frontend frontend = Mockito.mock(Frontend.class);
+        Mockito.when(frontend.getHost()).thenReturn(host);
+        Mockito.when(frontend.getVersion()).thenReturn(version);
+        Mockito.when(frontend.isAlive()).thenReturn(alive);
+        return frontend;
+    }
+
+    /**
+     * The read side of the metadata fence. An object stamped by a newer FE may depend on a session variable,
+     * a guard family or a TIMESTAMPTZ-sensitive function this FE does not know, so rebinding it here (a
+     * view, generated column, synchronous materialized view column or alias function) cannot reproduce its
+     * semantics and must fail closed instead of silently dropping the dependency. A rewrite cache does not
+     * reject the query: {@link SessionVarGuardRewriter#computeGuardMask} selects both guard families, so the
+     * cache can never match an unguarded query and the materialized value is simply not used.
+     */
+    @Test
+    public void testNewerPlanSessionVarFenceRejectsRebinding() {
+        Map<String, String> currentSessionVars = ImmutableMap.of(SessionVariable.TIME_ZONE, "+00:00");
+        Map<String, String> newerFence = ImmutableMap.of(
+                SessionVariable.TIME_ZONE, "+00:00",
+                SessionVariable.PLAN_SESSION_VAR_FENCE_VERSION,
+                String.valueOf(SessionVariable.CURRENT_PLAN_SESSION_VAR_FENCE_VERSION + 1));
+        AnalysisException newerException = Assertions.assertThrows(AnalysisException.class,
+                () -> SessionVarGuardRewriter.checkPlanSessionVarFenceReadable("view 'db.v'", newerFence));
+        Assertions.assertTrue(newerException.getMessage().contains("newer"), newerException.getMessage());
+        // an unparsable stamp is reported as newer than anything known, so it fails closed as well
+        Map<String, String> unparsableFence = ImmutableMap.of(
+                SessionVariable.TIME_ZONE, "+00:00",
+                SessionVariable.PLAN_SESSION_VAR_FENCE_VERSION, "fence-v2");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> SessionVarGuardRewriter.checkPlanSessionVarFenceReadable("view 'db.v'", unparsableFence));
+        // metadata written by this FE, and legacy metadata without the stamp, stays readable
+        Map<String, String> ownFence = ImmutableMap.of(
+                SessionVariable.TIME_ZONE, "+00:00",
+                SessionVariable.PLAN_SESSION_VAR_FENCE_VERSION,
+                String.valueOf(SessionVariable.CURRENT_PLAN_SESSION_VAR_FENCE_VERSION));
+        Assertions.assertDoesNotThrow(
+                () -> SessionVarGuardRewriter.checkPlanSessionVarFenceReadable("view 'db.v'", ownFence));
+        Assertions.assertDoesNotThrow(
+                () -> SessionVarGuardRewriter.checkPlanSessionVarFenceReadable("view 'db.v'", new HashMap<>()));
+        Assertions.assertEquals(
+                SessionVarGuardRewriter.GUARD_TIME_ZONE | SessionVarGuardRewriter.GUARD_OTHER,
+                SessionVarGuardRewriter.computeGuardMask(currentSessionVars, newerFence));
+    }
+
+    /**
+     * The persisted plan-variable maps carry a fence version stamp, which is what makes the version fence a
+     * read fence instead of an incidental map difference: metadata stamped by a newer FE (the downgrade
+     * direction) cannot be interpreted by this FE, so it is never reused for rewrite; a map without the
+     * stamp predates the fence and keeps its time-zone guard; and the stamp itself never counts as a
+     * session-variable difference between two maps produced by this FE.
+     */
+    @Test
+    public void testPlanSessionVarFenceVersion() {
+        Assertions.assertEquals(0, SessionVarGuardRewriter.planSessionVarFenceVersion(null));
+        Assertions.assertEquals(0, SessionVarGuardRewriter.planSessionVarFenceVersion(new HashMap<>()));
+        Assertions.assertEquals(0, SessionVarGuardRewriter.planSessionVarFenceVersion(
+                ImmutableMap.of(SessionVariable.TIME_ZONE, "+00:00")));
+
+        // every map this FE produces is stamped with the current version
+        SessionVariable sessionVariable = new SessionVariable();
+        Map<String, String> stamped = sessionVariable.getAffectQueryResultInPlanVariables();
+        Assertions.assertEquals(String.valueOf(SessionVariable.CURRENT_PLAN_SESSION_VAR_FENCE_VERSION),
+                stamped.get(SessionVariable.PLAN_SESSION_VAR_FENCE_VERSION));
+        Assertions.assertEquals(SessionVariable.CURRENT_PLAN_SESSION_VAR_FENCE_VERSION,
+                SessionVarGuardRewriter.planSessionVarFenceVersion(stamped));
+        // ... and rewriting is not disabled by the stamp itself
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_NONE,
+                SessionVarGuardRewriter.computeGuardMask(stamped, stamped));
+        // a map written before the stamp existed (same plan variables, no stamp) is not a difference either
+        Map<String, String> beforeStamp = new HashMap<>(stamped);
+        beforeStamp.remove(SessionVariable.PLAN_SESSION_VAR_FENCE_VERSION);
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_NONE,
+                SessionVarGuardRewriter.computeGuardMask(stamped, beforeStamp));
+
+        // metadata written by a newer FE must not be reused: both guard families are selected (read fence)
+        Map<String, String> newerStamp = ImmutableMap.of(
+                SessionVariable.TIME_ZONE, sessionVariable.getTimeZone(),
+                SessionVariable.PLAN_SESSION_VAR_FENCE_VERSION,
+                String.valueOf(SessionVariable.CURRENT_PLAN_SESSION_VAR_FENCE_VERSION + 1));
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE | SessionVarGuardRewriter.GUARD_OTHER,
+                SessionVarGuardRewriter.computeGuardMask(stamped, newerStamp));
+        // an unparsable stamp fails closed as well
+        Map<String, String> malformedStamp = ImmutableMap.of(
+                SessionVariable.TIME_ZONE, sessionVariable.getTimeZone(),
+                SessionVariable.PLAN_SESSION_VAR_FENCE_VERSION, "not-a-version");
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE | SessionVarGuardRewriter.GUARD_OTHER,
+                SessionVarGuardRewriter.computeGuardMask(stamped, malformedStamp));
+        // pre-fence metadata (no stamp at all, written before time_zone was persisted either) keeps the
+        // time-zone guard
+        int preFenceMask = SessionVarGuardRewriter.computeGuardMask(stamped,
+                ImmutableMap.of(SessionVariable.SQL_MODE, "0"));
+        Assertions.assertTrue((preFenceMask & SessionVarGuardRewriter.GUARD_TIME_ZONE) != 0,
+                "pre-fence metadata must stay behind the time-zone guard, got " + preFenceMask);
     }
 }

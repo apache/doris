@@ -1086,6 +1086,34 @@ public class MTMVTaskTest {
     }
 
     @Test
+    public void testPlanPartitionRefreshFailsWhenManualPartitionMissing() throws Exception {
+        // An explicit manual refresh target that has no physical partition after alignment must fail the
+        // task instead of silently completing as NOT_REFRESH without refreshing anything.
+        MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL,
+                Lists.newArrayList("p_missing"), RefreshMode.PARTITIONS, false, null));
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+
+        AnalysisException failure = Assertions.assertThrows(AnalysisException.class,
+                () -> Deencapsulation.invoke(task, "planPartitionRefresh",
+                        Mockito.mock(MTMVRefreshContext.class), request));
+
+        Assertions.assertTrue(failure.getMessage().contains("partition not exist"), failure.getMessage());
+    }
+
+    @Test
+    public void testPlanPartitionRefreshSystemWithoutUnsyncedPartitions() throws Exception {
+        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.AUTO);
+        MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.forMvDefault(MTMVTaskTriggerMode.SYSTEM));
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+
+        Object plan = Deencapsulation.invoke(task, "planPartitionRefresh",
+                Mockito.mock(MTMVRefreshContext.class), request);
+
+        Assertions.assertTrue((Boolean) Deencapsulation.getField(plan, "canRefreshByPartitions"));
+        Assertions.assertTrue(CollectionUtils.isEmpty(Deencapsulation.getField(plan, "partitions")));
+    }
+
+    @Test
     public void testPlanPartitionRefreshSelfManageWhenSync() throws Exception {
         Mockito.when(mtmvPartitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.SELF_MANAGE);
         MTMVTask task = new MTMVTask(mtmv, relation,

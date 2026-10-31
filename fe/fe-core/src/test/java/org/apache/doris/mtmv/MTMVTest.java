@@ -75,6 +75,11 @@ import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class MTMVTest {
+    // Persisted creation session variables of the mocked MTMVs, equal to the mocked query session so the
+    // cache guard mask is GUARD_NONE (a modern MTMV always carries a non-empty persisted map).
+    private static final Map<String, String> SESSION_VARS =
+            Map.of(SessionVariable.TIME_ZONE, "+00:00", SessionVariable.SQL_MODE, "0");
+
     @Test
     public void testToInfoString() {
         String expect
@@ -523,8 +528,10 @@ public class MTMVTest {
 
         long generationAfter = Deencapsulation.getField(mtmv, "rewriteCacheGeneration");
         Assertions.assertEquals(generationBefore + 1, generationAfter);
-        Assertions.assertSame(refreshedGuarded, manager.getIfPresent(mtmv.getId(), true));
-        Assertions.assertSame(refreshedUnguarded, manager.getIfPresent(mtmv.getId(), false));
+        // Only the unguarded cache is pre-generated and published by a refresh; the guarded caches are
+        // built lazily by the first query whose guard mask needs them.
+        Assertions.assertSame(refreshedUnguarded, manager.getIfPresent(mtmv.getId(), 0));
+        Assertions.assertNull(manager.getIfPresent(mtmv.getId(), 1));
     }
 
     @Test
@@ -548,8 +555,8 @@ public class MTMVTest {
             long generationAfter = Deencapsulation.getField(mtmv, "rewriteCacheGeneration");
             Assertions.assertEquals(generationBefore + 1, generationAfter);
             Assertions.assertEquals(0, mtmv.refreshBuildCount);
-            Assertions.assertNull(manager.getIfPresent(mtmv.getId(), true));
-            Assertions.assertNull(manager.getIfPresent(mtmv.getId(), false));
+            Assertions.assertNull(manager.getIfPresent(mtmv.getId(), 0));
+            Assertions.assertNull(manager.getIfPresent(mtmv.getId(), 1));
         } finally {
             Config.mtmv_cache_manage_num = originalMaxSize;
         }
@@ -591,7 +598,7 @@ public class MTMVTest {
             }
 
             Assertions.assertEquals(2, mtmv.lazyBuildCount);
-            Assertions.assertNull(manager.getIfPresent(mtmv.getId(), false));
+            Assertions.assertNull(manager.getIfPresent(mtmv.getId(), 0));
         } finally {
             Config.mtmv_cache_manage_num = originalMaxSize;
         }
@@ -616,14 +623,14 @@ public class MTMVTest {
             // publishes its pair and the fresh entry is then evicted before the builder resumes.
             mtmv.duringLazyBuild = () -> {
                 Assertions.assertTrue(mtmv.addTaskResult(buildSuccessTaskResult(mtmv), false));
-                Assertions.assertSame(refreshedUnguarded, manager.getIfPresent(mtmv.getId(), false));
+                Assertions.assertSame(refreshedUnguarded, manager.getIfPresent(mtmv.getId(), 0));
                 manager.invalidate(mtmv.getId());
             };
             MTMVCache published = mtmv.getOrGenerateCache(mockConnectContext());
 
             Assertions.assertSame(rebuiltPlan, published);
-            Assertions.assertSame(rebuiltPlan, manager.getIfPresent(mtmv.getId(), false));
-            Assertions.assertNotSame(prePublishPlan, manager.getIfPresent(mtmv.getId(), false));
+            Assertions.assertSame(rebuiltPlan, manager.getIfPresent(mtmv.getId(), 0));
+            Assertions.assertNotSame(prePublishPlan, manager.getIfPresent(mtmv.getId(), 0));
         }
     }
 
@@ -637,14 +644,14 @@ public class MTMVTest {
         Env env = mockEnv(manager);
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-            manager.put(mtmv.getId(), true, Mockito.mock(MTMVCache.class));
+            manager.put(mtmv.getId(), 1, Mockito.mock(MTMVCache.class));
             // The task builds its caches outside the MV lock; the drop lands in that window.
             mtmv.duringRefreshBuild = mtmv::markDropped;
             Assertions.assertTrue(mtmv.addTaskResult(buildSuccessTaskResult(mtmv), false));
 
             Assertions.assertTrue(mtmv.isDropped);
-            Assertions.assertNull(manager.getIfPresent(mtmv.getId(), true));
-            Assertions.assertNull(manager.getIfPresent(mtmv.getId(), false));
+            Assertions.assertNull(manager.getIfPresent(mtmv.getId(), 0));
+            Assertions.assertNull(manager.getIfPresent(mtmv.getId(), 1));
         }
     }
 
@@ -658,13 +665,13 @@ public class MTMVTest {
         Env env = mockEnv(manager);
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-            manager.put(mtmv.getId(), true, Mockito.mock(MTMVCache.class));
+            manager.put(mtmv.getId(), 1, Mockito.mock(MTMVCache.class));
             mtmv.duringLazyBuild = mtmv::markDropped;
             MTMVCache generated = mtmv.getOrGenerateCache(mockConnectContext());
 
             Assertions.assertSame(builtPlan, generated);
-            Assertions.assertNull(manager.getIfPresent(mtmv.getId(), true));
-            Assertions.assertNull(manager.getIfPresent(mtmv.getId(), false));
+            Assertions.assertNull(manager.getIfPresent(mtmv.getId(), 0));
+            Assertions.assertNull(manager.getIfPresent(mtmv.getId(), 1));
         }
     }
 
@@ -689,7 +696,7 @@ public class MTMVTest {
         ConnectContext context = Mockito.mock(ConnectContext.class);
         SessionVariable sessionVariable = Mockito.mock(SessionVariable.class);
         Mockito.when(context.getSessionVariable()).thenReturn(sessionVariable);
-        Mockito.when(sessionVariable.getAffectQueryResultInPlanVariables()).thenReturn(Map.of());
+        Mockito.when(sessionVariable.getAffectQueryResultInPlanVariables()).thenReturn(SESSION_VARS);
         return context;
     }
 
@@ -718,8 +725,7 @@ public class MTMVTest {
         private int refreshBuildCount;
 
         @Override
-        protected MTMVCache createRewriteCache(ConnectContext currentContext, boolean needLock,
-                boolean addSessionVarGuard) {
+        protected MTMVCache createRewriteCache(ConnectContext currentContext, boolean needLock, int guardMask) {
             // needLock is true only on the refresh path, false on the lazy query path.
             Runnable hook = needLock ? duringRefreshBuild : duringLazyBuild;
             if (needLock) {
@@ -732,7 +738,7 @@ public class MTMVTest {
             }
             if (needLock) {
                 refreshBuildCount++;
-                return addSessionVarGuard ? refreshGuardedCache : refreshUnguardedCache;
+                return guardMask == 0 ? refreshUnguardedCache : refreshGuardedCache;
             }
             return lazyCaches.get(Math.min(lazyBuildCount++, lazyCaches.size() - 1));
         }
@@ -767,6 +773,9 @@ public class MTMVTest {
         mtmv.setQualifiedDbName("db1");
         mtmv.setRefreshInfo(buildMTMVRefreshInfo(mtmv));
         mtmv.setQuerySql("select k1 from t1");
+        // A modern MTMV always persists its creation session variables. They match the mocked query
+        // session so the cache guard mask is GUARD_NONE and these tests stay focused on cache generation.
+        Deencapsulation.setField(mtmv, "sessionVariables", SESSION_VARS);
         mtmv.setStatus(new MTMVStatus(MTMVRefreshState.SUCCESS));
         mtmv.getStatus().setState(MTMVState.NORMAL);
         mtmv.setJobInfo(new MTMVJobInfo("job1"));

@@ -212,8 +212,7 @@ class MTMVOutputPredicatesTest {
         }
 
         @Override
-        protected MTMVCache createRewriteCache(ConnectContext currentContext, boolean needLock,
-                boolean addSessionVarGuard) {
+        protected MTMVCache createRewriteCache(ConnectContext currentContext, boolean needLock, int guardMask) {
             buildCount.incrementAndGet();
             return new MTMVCache(Pair.of(plan, null), plan, null, List.of(), Set.of(predicate));
         }
@@ -224,9 +223,8 @@ class MTMVOutputPredicatesTest {
         private final CountDownLatch releaseFirstBuild = new CountDownLatch(1);
 
         @Override
-        protected MTMVCache createRewriteCache(ConnectContext currentContext, boolean needLock,
-                boolean addSessionVarGuard) {
-            MTMVCache cache = super.createRewriteCache(currentContext, needLock, addSessionVarGuard);
+        protected MTMVCache createRewriteCache(ConnectContext currentContext, boolean needLock, int guardMask) {
+            MTMVCache cache = super.createRewriteCache(currentContext, needLock, guardMask);
             if (buildCount.get() == 1) {
                 firstBuildStarted.countDown();
                 try {

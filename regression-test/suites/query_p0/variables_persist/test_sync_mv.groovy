@@ -109,6 +109,9 @@ suite("test_sync_mv") {
         sql "select f1, f2, f1*f2 multi_col from test_decimal_mul_overflow_for_sync_mv;"
         contains "mv_var_sync_1 chose"
     }
+    // In 256 mode the MV (materialized with decimal128 semantics) must not surface its materialized
+    // multi_col: the query-side expression is recomputed from the MV's raw f1/f2 columns in the current
+    // session instead, so the rewrite matches the direct query and the CBO decides on cost.
     sql "set enable_decimal256=true;"
     explain {
         sql "select f1, f2, f1*f2 multi_col from test_decimal_mul_overflow_for_sync_mv;"

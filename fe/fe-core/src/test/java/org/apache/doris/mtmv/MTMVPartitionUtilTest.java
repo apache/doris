@@ -226,6 +226,61 @@ public class MTMVPartitionUtilTest {
         Assertions.assertEquals("p_1_2", rangeName);
     }
 
+    /**
+     * TIMESTAMPTZ(6) bounded range boundaries produce a cleaned name longer than 50 chars, which goes
+     * through the truncate+hash branch of {@link MTMVPartitionUtil#generatePartitionName}. The generated
+     * name must be deterministic: the same desc must always yield the same name, otherwise the name
+     * generated when creating the MTMV differs from the one generated when validating a partition refresh,
+     * causing "partition not exist" for a partition returned by SHOW PARTITIONS.
+     */
+    @Test
+    public void testGeneratePartitionNameLongTimestamptzDeterministic() {
+        PartitionKeyDesc tzDesc = PartitionKeyDesc.createFixed(
+                Lists.newArrayList(new PartitionValue("2024-01-01 00:00:00.000000+00:00")),
+                Lists.newArrayList(new PartitionValue("2024-01-02 00:00:00.000000+00:00"))
+        );
+        // ensure the desc really goes through the long-name branch (> 50 chars)
+        String name = MTMVPartitionUtil.generatePartitionName(tzDesc);
+        Assertions.assertTrue(name.length() < tzDesc.toSql().length());
+        Assertions.assertTrue(name.length() <= 50);
+        // repeated generation must produce the identical name (no time-based suffix)
+        for (int i = 0; i < 10; i++) {
+            Assertions.assertEquals(name, MTMVPartitionUtil.generatePartitionName(tzDesc),
+                    "partition name must be deterministic");
+        }
+        // two different descs must not collide
+        PartitionKeyDesc tzDesc2 = PartitionKeyDesc.createFixed(
+                Lists.newArrayList(new PartitionValue("2024-01-02 00:00:00.000000+00:00")),
+                Lists.newArrayList(new PartitionValue("2024-01-03 00:00:00.000000+00:00"))
+        );
+        String name2 = MTMVPartitionUtil.generatePartitionName(tzDesc2);
+        Assertions.assertNotEquals(name, name2);
+    }
+
+    /**
+     * The long-name digest must distinguish descriptors that differ only in punctuation: the sanitized name
+     * strips every punctuation character, so digesting that name made two such descriptors collide and the
+     * second partition could never be created or added.
+     */
+    @Test
+    public void testGeneratePartitionNameLongDistinguishesPunctuation() {
+        PartitionKeyDesc dashDesc = PartitionKeyDesc.createFixed(
+                Lists.newArrayList(new PartitionValue("2024-01-01 00:00:00.000000000+00:00")),
+                Lists.newArrayList(new PartitionValue("2024-01-02 00:00:00.000000000+00:00")));
+        PartitionKeyDesc slashDesc = PartitionKeyDesc.createFixed(
+                Lists.newArrayList(new PartitionValue("2024/01/01 00:00:00.000000000+00:00")),
+                Lists.newArrayList(new PartitionValue("2024/01/02 00:00:00.000000000+00:00")));
+        String dashName = MTMVPartitionUtil.generatePartitionName(dashDesc);
+        String slashName = MTMVPartitionUtil.generatePartitionName(slashDesc);
+        // the long-name branch must be used for both, so only the digest can keep them apart
+        Assertions.assertTrue(dashName.length() <= 50);
+        Assertions.assertTrue(slashName.length() <= 50);
+        Assertions.assertNotEquals(dashName, slashName,
+                "punctuation-distinct descriptors must not collapse to the same partition name");
+        // and each of them stays deterministic
+        Assertions.assertEquals(dashName, MTMVPartitionUtil.generatePartitionName(dashDesc));
+    }
+
     @Test
     public void testGeneratePartitionNameFromDateTimeV2Range() throws AnalysisException {
         List<Column> columns = Lists.newArrayList(
