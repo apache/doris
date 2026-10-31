@@ -930,10 +930,28 @@ TEST(VariantPathBuilderTest, SelectsMaterializedAndSparsePathsInStableOrder) {
         SCOPED_TRACE(testing::Message()
                      << "typed_paths_to_sparse=" << test_case.typed_paths_to_sparse);
         const auto selection =
-                segment_v2::select_variant_paths(candidates, 2, test_case.typed_paths_to_sparse);
+                segment_v2::select_variant_paths(candidates, 2, test_case.typed_paths_to_sparse,
+                                                 VariantSerializeTypePB::VARIANT_SERIALIZE_V1);
         EXPECT_EQ(selected_paths(selection.materialized), test_case.materialized);
         EXPECT_EQ(selected_paths(selection.sparse), test_case.sparse);
     }
+    // A count of 0 materializes every dynamic path under V1 and none under V2; typed paths stay.
+    const auto v1_zero = segment_v2::select_variant_paths(
+            candidates, 0, false, VariantSerializeTypePB::VARIANT_SERIALIZE_V1);
+    EXPECT_EQ(selected_paths(v1_zero.materialized),
+              (std::vector<std::string> {"a", "a.c", "b.c", "typed", "z"}));
+    EXPECT_TRUE(v1_zero.sparse.empty());
+    const auto v2_zero = segment_v2::select_variant_paths(
+            candidates, 0, false, VariantSerializeTypePB::VARIANT_SERIALIZE_V2);
+    EXPECT_EQ(selected_paths(v2_zero.materialized), (std::vector<std::string> {"typed"}));
+    EXPECT_EQ(selected_paths(v2_zero.sparse), (std::vector<std::string> {"a", "a.c", "b.c", "z"}));
+    // with typed_paths_to_sparse the typed path is not materialized either; this one has no row, so
+    // it is not stored at all
+    const auto v2_zero_typed_to_sparse = segment_v2::select_variant_paths(
+            candidates, 0, true, VariantSerializeTypePB::VARIANT_SERIALIZE_V2);
+    EXPECT_TRUE(v2_zero_typed_to_sparse.materialized.empty());
+    EXPECT_EQ(selected_paths(v2_zero_typed_to_sparse.sparse),
+              (std::vector<std::string> {"a", "a.c", "b.c", "z"}));
 }
 
 TEST(VariantPathBuilderTest, ShredderReusesCanonicalPathsAcrossAppends) {
@@ -3189,6 +3207,183 @@ TEST_F(VariantColumnWriterReaderTest,
                               "{}",
                               "NULL",
                       }));
+}
+
+// variant_max_subcolumns_count == 0 materializes every dynamic path under V1 and none under V2;
+// the predefined typed path is materialized under both. The reader rebuilds the same value from
+// either layout.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) -- GTest macros inflate the matrix.
+TEST_F(VariantColumnWriterReaderTest, serialize_type_decides_what_count_zero_materializes) {
+    struct LayoutCase {
+        VariantSerializeTypePB serialize_type;
+        int64_t tablet_id;
+        std::string_view rowset_id;
+        bool expect_materialized;
+    };
+    const std::vector<LayoutCase> cases {
+            {.serialize_type = VariantSerializeTypePB::VARIANT_SERIALIZE_V1,
+             .tablet_id = 11201,
+             .rowset_id = "v1_count_zero_materializes_every_path",
+             .expect_materialized = true},
+            {.serialize_type = VariantSerializeTypePB::VARIANT_SERIALIZE_V2,
+             .tablet_id = 11202,
+             .rowset_id = "v2_count_zero_dynamic_paths_sparse",
+             .expect_materialized = false},
+    };
+    const std::vector<std::string> jsons {
+            R"({"hot":"h0","nested":{"a":1,"b":[1,2]},"typed":1})",
+            R"({"nested":{"c":{"deep":true}},"typed":2})",
+            R"({"hot":"h2","z":[3,4]})",
+    };
+    const std::vector<std::string_view> paths {"typed",    "hot",           "nested.a",
+                                               "nested.b", "nested.c.deep", "z"};
+    for (const auto& test_case : cases) {
+        SCOPED_TRACE(test_case.rowset_id);
+        TabletSchemaPB schema_pb;
+        schema_pb.set_keys_type(KeysType::DUP_KEYS);
+        construct_column(schema_pb.add_column(), 1, "VARIANT", "v",
+                         /*variant_max_subcolumns_count=*/0);
+        schema_pb.mutable_column(0)->set_variant_serialize_type(test_case.serialize_type);
+        _tablet_schema = std::make_shared<TabletSchema>();
+        _tablet_schema->init_from_pb(schema_pb);
+        auto typed = make_int_typed_path_template("typed");
+        _tablet_schema->mutable_column_by_uid(1).add_sub_column(typed);
+        init_tablet_from_current_schema(test_case.tablet_id);
+
+        ColumnPtr source;
+        DataTypePtr source_type;
+        ASSERT_TRUE(create_variant_writer_source(VariantWriterInput::V2, jsons, 0, false, {},
+                                                 &source, &source_type)
+                            .ok());
+        SegmentFooterPB footer;
+        std::string file_path;
+        ASSERT_TRUE(
+                write_variant_segment(source, source_type, test_case.rowset_id, &footer, &file_path)
+                        .ok());
+
+        // every path is either its own footer column or only in the sparse column's stats
+        const auto* sparse_meta =
+                find_footer_column_meta_by_relative_path(footer, SPARSE_COLUMN_PATH);
+        ASSERT_NE(sparse_meta, nullptr);
+        const auto& sparse_stats = sparse_meta->variant_statistics().sparse_column_non_null_size();
+        for (std::string_view path : paths) {
+            const bool materialized = path == "typed" || test_case.expect_materialized;
+            EXPECT_EQ(find_footer_column_meta_by_relative_path(footer, path) != nullptr,
+                      materialized)
+                    << path;
+            EXPECT_EQ(sparse_stats.count(std::string(path)) > 0, !materialized) << path;
+        }
+
+        std::vector<std::optional<std::string>> actual;
+        ASSERT_TRUE(read_variant_root_rows(footer, file_path, &actual).ok());
+        ASSERT_EQ(actual.size(), jsons.size());
+        for (size_t row = 0; row < jsons.size(); ++row) {
+            ASSERT_TRUE(actual[row].has_value()) << row;
+            EXPECT_EQ(*actual[row], jsons[row]) << row;
+        }
+    }
+}
+
+// V2 with count 0 and typed_paths_to_sparse writes no subcolumn: every path, the typed one too, is
+// only in the sparse column. The typed path is cast to its declared INT before it is stored, so "1"
+// reads back as 1, and "x", which cannot be cast, is dropped.
+TEST_F(VariantColumnWriterReaderTest, v2_count_zero_typed_paths_to_sparse_keeps_every_path_sparse) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    construct_column(schema_pb.add_column(), 1, "VARIANT", "v",
+                     /*variant_max_subcolumns_count=*/0);
+    schema_pb.mutable_column(0)->set_variant_serialize_type(
+            VariantSerializeTypePB::VARIANT_SERIALIZE_V2);
+    schema_pb.mutable_column(0)->set_variant_enable_typed_paths_to_sparse(true);
+    _tablet_schema = std::make_shared<TabletSchema>();
+    _tablet_schema->init_from_pb(schema_pb);
+    auto typed = make_int_typed_path_template("typed");
+    _tablet_schema->mutable_column_by_uid(1).add_sub_column(typed);
+    init_tablet_from_current_schema(11203);
+
+    const std::vector<std::string> jsons {
+            R"({"hot":"h0","nested":{"a":1},"typed":"1"})",
+            R"({"nested":{"b":[1,2]},"typed":"2"})",
+            R"({"hot":"h2","typed":"x"})",
+    };
+    ColumnPtr source;
+    DataTypePtr source_type;
+    ASSERT_TRUE(create_variant_writer_source(VariantWriterInput::V2, jsons, 0, false, {}, &source,
+                                             &source_type)
+                        .ok());
+    SegmentFooterPB footer;
+    std::string file_path;
+    ASSERT_TRUE(write_variant_segment(source, source_type, "v2_count_zero_typed_to_sparse", &footer,
+                                      &file_path)
+                        .ok());
+
+    // no subcolumn at all: every path is only in the sparse column
+    const auto* sparse_meta = find_footer_column_meta_by_relative_path(footer, SPARSE_COLUMN_PATH);
+    ASSERT_NE(sparse_meta, nullptr);
+    const auto& sparse_stats = sparse_meta->variant_statistics().sparse_column_non_null_size();
+    for (std::string_view path : {"typed", "hot", "nested.a", "nested.b"}) {
+        EXPECT_EQ(find_footer_column_meta_by_relative_path(footer, path), nullptr) << path;
+        EXPECT_TRUE(sparse_stats.count(std::string(path)) > 0) << path;
+    }
+    // "x" cannot be cast to INT, so only two rows keep the typed path
+    EXPECT_EQ(sparse_stats.at("typed"), 2);
+
+    std::vector<std::optional<std::string>> actual;
+    ASSERT_TRUE(read_variant_root_rows(footer, file_path, &actual).ok());
+    const std::vector<std::string> expected {
+            R"({"hot":"h0","nested":{"a":1},"typed":1})",
+            R"({"nested":{"b":[1,2]},"typed":2})",
+            R"({"hot":"h2"})",
+    };
+    ASSERT_EQ(actual.size(), expected.size());
+    for (size_t row = 0; row < expected.size(); ++row) {
+        ASSERT_TRUE(actual[row].has_value()) << row;
+        EXPECT_EQ(*actual[row], expected[row]) << row;
+    }
+}
+
+// A V2 column with count 0 materializes no dynamic path, so the column reader stops at a segment
+// of such a column that holds one: here a segment written as V1, where count 0 materializes `a`, is
+// opened with the column declared V2.
+TEST_F(VariantColumnWriterReaderTest, reader_rejects_dynamic_subcolumn_of_v2_count_zero_column) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    construct_column(schema_pb.add_column(), 1, "VARIANT", "v",
+                     /*variant_max_subcolumns_count=*/0);
+    schema_pb.mutable_column(0)->set_variant_serialize_type(
+            VariantSerializeTypePB::VARIANT_SERIALIZE_V1);
+    _tablet_schema = std::make_shared<TabletSchema>();
+    _tablet_schema->init_from_pb(schema_pb);
+    init_tablet_from_current_schema(11204);
+
+    ColumnPtr source;
+    DataTypePtr source_type;
+    ASSERT_TRUE(create_variant_writer_source(VariantWriterInput::V2, {R"({"a":1})", R"({"a":2})"},
+                                             0, false, {}, &source, &source_type)
+                        .ok());
+    SegmentFooterPB footer;
+    std::string file_path;
+    ASSERT_TRUE(write_variant_segment(source, source_type, "v1_count_zero_read_as_v2", &footer,
+                                      &file_path)
+                        .ok());
+    ASSERT_NE(find_footer_column_meta_by_relative_path(footer, "a"), nullptr);
+
+    schema_pb.mutable_column(0)->set_variant_serialize_type(
+            VariantSerializeTypePB::VARIANT_SERIALIZE_V2);
+    auto v2_schema = std::make_shared<TabletSchema>();
+    v2_schema->init_from_pb(schema_pb);
+    io::FileReaderSPtr file_reader;
+    ASSERT_TRUE(io::global_local_filesystem()->open_file(file_path, &file_reader).ok());
+    std::shared_ptr<ColumnReader> column_reader;
+#ifndef NDEBUG
+    EXPECT_DEATH(static_cast<void>(create_variant_root_reader(footer, file_reader, v2_schema,
+                                                              &column_reader)),
+                 "materializes path a");
+#else
+    EXPECT_THROW(static_cast<void>(create_variant_root_reader(footer, file_reader, v2_schema,
+                                                              &column_reader)),
+                 doris::Exception);
+#endif
 }
 
 TEST_F(VariantColumnWriterReaderTest, v2_root_only_preserves_layout_validation) {

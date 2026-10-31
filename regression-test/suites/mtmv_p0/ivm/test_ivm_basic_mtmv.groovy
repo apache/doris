@@ -27,7 +27,8 @@ suite("test_ivm_basic_mtmv") {
         CREATE TABLE t_ivm_basic_base (
             k1 INT,
             v1 INT,
-            v2 VARCHAR(50)
+            v2 VARCHAR(50),
+            jv VARIANT NULL
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
@@ -41,9 +42,9 @@ suite("test_ivm_basic_mtmv") {
     // 2. Insert initial rows
     sql """
         INSERT INTO t_ivm_basic_base VALUES
-            (1, 10, 'aaa'),
-            (2, 20, 'bbb'),
-            (3, 30, 'ccc');
+            (1, 10, 'aaa', parse_to_variant('{"k": 1, "d": {"row": "1 10 aaa"}}')),
+            (2, 20, 'bbb', parse_to_variant('{"k": 2, "d": {"row": "2 20 bbb"}}')),
+            (3, 30, 'ccc', parse_to_variant('{"k": 3, "d": {"row": "3 30 ccc"}}'));
     """
 
     // 3. Create IVM materialized view (BUILD DEFERRED, REFRESH INCREMENTAL, ON MANUAL)
@@ -78,13 +79,13 @@ suite("test_ivm_basic_mtmv") {
     waitingMTMVTaskFinishedByMvName("mv_ivm_basic")
 
     // 8. Verify data after first refresh (exclude __IVM_ROW_ID__ column)
-    order_qt_after_first_refresh """SELECT k1, v1, v2 FROM mv_ivm_basic"""
+    order_qt_after_first_refresh """SELECT k1, v1, v2, jv, jv['d']['row'] FROM mv_ivm_basic"""
 
     // 9. Insert more rows into base table
     sql """
         INSERT INTO t_ivm_basic_base VALUES
-            (4, 40, 'ddd'),
-            (5, 50, 'eee');
+            (4, 40, 'ddd', parse_to_variant('{"k": 4, "d": {"row": "4 40 ddd"}}')),
+            (5, 50, 'eee', parse_to_variant('{"k": 5, "d": {"row": "5 50 eee"}}'));
     """
 
     // 10. Second refresh via IVM incremental path.
@@ -92,26 +93,26 @@ suite("test_ivm_basic_mtmv") {
     sql """REFRESH MATERIALIZED VIEW mv_ivm_basic INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("mv_ivm_basic")
 
-    order_qt_after_second_refresh """SELECT k1, v1, v2 FROM mv_ivm_basic"""
+    order_qt_after_second_refresh """SELECT k1, v1, v2, jv, jv['d']['row'] FROM mv_ivm_basic"""
 
     // 11. Update existing rows in base table
     sql """
         INSERT INTO t_ivm_basic_base VALUES
-            (2, 22, 'bbb_updated'),
-            (3, 33, 'ccc_updated');
+            (2, 22, 'bbb_updated', parse_to_variant('{"k": 2, "d": {"row": "2 22 bbb_updated"}}')),
+            (3, 33, 'ccc_updated', parse_to_variant('{"k": 3, "d": {"row": "3 33 ccc_updated"}}'));
     """
 
     // 12. Third refresh via IVM incremental — should reflect updated rows
     sql """REFRESH MATERIALIZED VIEW mv_ivm_basic INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("mv_ivm_basic")
 
-    order_qt_after_third_refresh """SELECT k1, v1, v2 FROM mv_ivm_basic"""
+    order_qt_after_third_refresh """SELECT k1, v1, v2, jv, jv['d']['row'] FROM mv_ivm_basic"""
 
     // 12. Complete refresh after incremental — should produce same result (full overwrite)
     sql """REFRESH MATERIALIZED VIEW mv_ivm_basic COMPLETE"""
     waitingMTMVTaskFinishedByMvName("mv_ivm_basic")
 
-    order_qt_after_complete_refresh """SELECT k1, v1, v2 FROM mv_ivm_basic"""
+    order_qt_after_complete_refresh """SELECT k1, v1, v2, jv, jv['d']['row'] FROM mv_ivm_basic"""
 
     // =========================================================
     // Part 2: Simple scan MV with changelog_op column (dml_factor from changelog_op)
@@ -135,7 +136,8 @@ suite("test_ivm_basic_mtmv") {
         CREATE TABLE t_ivm_basic_op_base (
             k1 INT,
             v1 INT,
-            v2 VARCHAR(50)
+            v2 VARCHAR(50),
+            jv VARIANT NULL
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
@@ -149,8 +151,8 @@ suite("test_ivm_basic_mtmv") {
     // Insert rows: changelog_op=0 means insert, =1 means delete
     sql """
         INSERT INTO t_ivm_basic_op_base VALUES
-            (1, 10, 'aaa'),
-            (2, 20, 'bbb');
+            (1, 10, 'aaa', parse_to_variant('{"k": 1, "d": {"row": "1 10 aaa"}}')),
+            (2, 20, 'bbb', parse_to_variant('{"k": 2, "d": {"row": "2 20 bbb"}}'));
     """
     sql """DELETE FROM t_ivm_basic_op_base WHERE k1 = 3;"""
 
@@ -174,7 +176,7 @@ suite("test_ivm_basic_mtmv") {
     sql """REFRESH MATERIALIZED VIEW mv_ivm_basic_op COMPLETE"""
     waitingMTMVTaskFinishedByMvName("mv_ivm_basic_op")
 
-    order_qt_op_after_complete """SELECT k1, v1, v2 FROM mv_ivm_basic_op"""
+    order_qt_op_after_complete """SELECT k1, v1, v2, jv, jv['d']['row'] FROM mv_ivm_basic_op"""
 
     // Step 2: Insert a new row (changelog_op=0) to dirty the partition, then INCREMENTAL refresh.
     // The incremental input at this step exercises the dml_factor logic:
@@ -182,29 +184,29 @@ suite("test_ivm_basic_mtmv") {
     //   k1=2 (changelog_op=0): dml_factor=1  → delete_sign=0 → kept
     //   k1=3 (changelog_op=1): dml_factor=-1 → delete_sign=1 → deleted (hidden)
     //   k1=4 (changelog_op=0): dml_factor=1  → delete_sign=0 → kept
-    sql """INSERT INTO t_ivm_basic_op_base VALUES (4, 40, 'ddd');"""
+    sql """INSERT INTO t_ivm_basic_op_base VALUES (4, 40, 'ddd', parse_to_variant('{"k": 4, "d": {"row": "4 40 ddd"}}'));"""
 
     sql """REFRESH MATERIALIZED VIEW mv_ivm_basic_op INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("mv_ivm_basic_op")
 
     // Only changelog_op=0 rows survive: k1=1, k1=2, k1=4 (k1=3 is deleted)
-    order_qt_op_after_incremental """SELECT k1, v1, v2 FROM mv_ivm_basic_op"""
+    order_qt_op_after_incremental """SELECT k1, v1, v2, jv, jv['d']['row'] FROM mv_ivm_basic_op"""
 
     // Step 3: COMPLETE refresh sees the current base-table snapshot again.
     // k1=3 still does not exist physically, so the result remains k1=1,2,4.
     sql """REFRESH MATERIALIZED VIEW mv_ivm_basic_op COMPLETE"""
     waitingMTMVTaskFinishedByMvName("mv_ivm_basic_op")
 
-    order_qt_op_after_restore """SELECT k1, v1, v2 FROM mv_ivm_basic_op"""
+    order_qt_op_after_restore """SELECT k1, v1, v2, jv, jv['d']['row'] FROM mv_ivm_basic_op"""
 
     // Step 4: Upsert k1=3 to changelog_op=0 (was 1), then INCREMENTAL refresh.
     // Now all rows have changelog_op=0, so all survive.
-    sql """INSERT INTO t_ivm_basic_op_base VALUES (3, 30, 'ccc');"""
+    sql """INSERT INTO t_ivm_basic_op_base VALUES (3, 30, 'ccc', parse_to_variant('{"k": 3, "d": {"row": "3 30 ccc"}}'));"""
 
     sql """REFRESH MATERIALIZED VIEW mv_ivm_basic_op INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("mv_ivm_basic_op")
 
-    order_qt_op_after_upsert_incremental """SELECT k1, v1, v2 FROM mv_ivm_basic_op"""
+    order_qt_op_after_upsert_incremental """SELECT k1, v1, v2, jv, jv['d']['row'] FROM mv_ivm_basic_op"""
 
     // =========================================================
     // Part 3: Simple MV with Project -> Filter -> Scan + changelog_op (delete rows filtered)
@@ -220,7 +222,8 @@ suite("test_ivm_basic_mtmv") {
     sql """
         CREATE TABLE t_ivm_basic_filter_base (
             k1 INT,
-            v1 INT
+            v1 INT,
+            jv VARIANT NULL
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
@@ -237,9 +240,9 @@ suite("test_ivm_basic_mtmv") {
     //              k1=4(v1=40, op=0) passes filter
     sql """
         INSERT INTO t_ivm_basic_filter_base VALUES
-            (1, 10),
-            (2, 20),
-            (4, 40);
+            (1, 10, parse_to_variant('{"k": 1, "d": {"row": "1 10"}}')),
+            (2, 20, parse_to_variant('{"k": 2, "d": {"row": "2 20"}}')),
+            (4, 40, parse_to_variant('{"k": 4, "d": {"row": "4 40"}}'));
     """
     sql """DELETE FROM t_ivm_basic_filter_base WHERE k1 = 3;"""
 
@@ -269,7 +272,7 @@ suite("test_ivm_basic_mtmv") {
     //   k1=3(op=1, dml_factor=-1) → delete_sign=1 → deleted
     //   k1=4(op=0, dml_factor=1)  → kept
     //   k1=5(op=0, dml_factor=1)  → kept (new row)
-    sql """INSERT INTO t_ivm_basic_filter_base VALUES (5, 50);"""
+    sql """INSERT INTO t_ivm_basic_filter_base VALUES (5, 50, parse_to_variant('{"k": 5, "d": {"row": "5 50"}}'));"""
 
     sql """REFRESH MATERIALIZED VIEW mv_ivm_basic_filter INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("mv_ivm_basic_filter")
@@ -285,7 +288,7 @@ suite("test_ivm_basic_mtmv") {
     order_qt_filter_after_restore """SELECT k1, v1 FROM mv_ivm_basic_filter"""
 
     // Step 4: Upsert k1=3 to changelog_op=0, then INCREMENTAL — all filter-passing rows survive
-    sql """INSERT INTO t_ivm_basic_filter_base VALUES (3, 30);"""
+    sql """INSERT INTO t_ivm_basic_filter_base VALUES (3, 30, parse_to_variant('{"k": 3, "d": {"row": "3 30"}}'));"""
 
     sql """REFRESH MATERIALIZED VIEW mv_ivm_basic_filter INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("mv_ivm_basic_filter")

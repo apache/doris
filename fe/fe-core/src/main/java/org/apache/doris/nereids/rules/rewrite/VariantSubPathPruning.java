@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.OlapChangelogTableWrapper;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.functions.table.Changelog;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
@@ -48,6 +50,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
@@ -91,6 +94,17 @@ public class VariantSubPathPruning implements CustomRewriter {
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+        // A changelog stores its Variant columns with every path in the sparse column and maps a BEFORE image onto
+        // its AFTER column by whole column, so a changelog scan reads Variant columns whole and sub-paths are taken
+        // above it. Its plan may union the changelog scan with a base table scan, whose union pushdown needs every
+        // child to supply the same sub-path slots, so the whole statement keeps whole-column reads. changelog() is
+        // still a TVF relation here: it only gets its changelog scan during physical translation.
+        if (plan.anyMatch(node -> (node instanceof LogicalOlapScan
+                && ((LogicalOlapScan) node).getTable() instanceof OlapChangelogTableWrapper)
+                || (node instanceof LogicalTVFRelation
+                && ((LogicalTVFRelation) node).getFunction() instanceof Changelog))) {
+            return plan;
+        }
         Context context = new Context();
         plan.accept(VariantSubPathCollector.INSTANCE, context);
         if (context.elementAtToSubPathMap.isEmpty()) {

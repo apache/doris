@@ -90,7 +90,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
         sql """
             CREATE TABLE ${ukBase} (
                 id BIGINT,
-                v1 INT
+                v1 INT,
+                jv VARIANT NULL
             ) ENGINE=OLAP
             UNIQUE KEY(id)
             DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -101,7 +102,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
                 "changelog.need_historical_value" = "true"
             )
         """
-        sql "INSERT INTO ${ukBase} VALUES (1, 10)"
+        sql "INSERT INTO ${ukBase} VALUES (1, 10, parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 10\"}}'))"
         sql """
             CREATE STREAM ${ukStream}
             ON TABLE ${ukBase}
@@ -111,7 +112,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
             )
         """
         sql "sync"
-        sql "INSERT INTO ${ukBase} VALUES (1, 11)"
+        sql "INSERT INTO ${ukBase} VALUES (1, 11, parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 11\"}}'))"
         sql "sync"
         sleep(1200)
 
@@ -146,9 +147,9 @@ suite("test_min_delta_stream", "nonConcurrent") {
             ORDER BY id, v1
         """
         assertEquals(2, ukAllRows.size())
-        // Base table has 2 visible columns; hidden columns and __DORIS_CHANGELOG_BEFORE_v1__ must not be included by default.
-        assertEquals(2, ukAllRows[0].size())
-        assertEquals(2, ukAllRows[1].size())
+        // Base table has 3 visible columns; hidden columns and the __DORIS_CHANGELOG_BEFORE_ columns must not be included by default.
+        assertEquals(3, ukAllRows[0].size())
+        assertEquals(3, ukAllRows[1].size())
 
         sql "SET show_hidden_columns=true"
         def ukDescRows = sql "DESC ${ukStream}"
@@ -164,7 +165,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
         sql """
             CREATE TABLE ${ukSkipBase} (
                 id BIGINT,
-                v1 INT
+                v1 INT,
+                jv VARIANT NULL
             ) ENGINE=OLAP
             UNIQUE KEY(id)
             DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -183,7 +185,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
                 "show_initial_rows" = "false"
             )
         """
-        sql "INSERT INTO ${ukSkipBase} VALUES (2, 20)"
+        sql "INSERT INTO ${ukSkipBase} VALUES (2, 20, parse_to_variant('{\"k\": 2, \"d\": {\"row\": \"2 20\"}}'))"
         sql "DELETE FROM ${ukSkipBase} WHERE id = 2"
         sql "sync"
         sleep(1200)
@@ -195,7 +197,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
         sql """
             CREATE TABLE ${ukReinsertBase} (
                 id BIGINT,
-                v1 INT
+                v1 INT,
+                jv VARIANT NULL
             ) ENGINE=OLAP
             UNIQUE KEY(id)
             DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -223,13 +226,13 @@ suite("test_min_delta_stream", "nonConcurrent") {
             DISTRIBUTED BY HASH(id) BUCKETS 1
             PROPERTIES ("replication_num" = "1")
         """
-        sql "INSERT INTO ${ukReinsertBase} VALUES (20, 200)"
+        sql "INSERT INTO ${ukReinsertBase} VALUES (20, 200, parse_to_variant('{\"k\": 20, \"d\": {\"row\": \"20 200\"}}'))"
         sql "DELETE FROM ${ukReinsertBase} WHERE id = 20"
         sql "sync"
         sql "INSERT INTO ${ukReinsertTarget} SELECT id, v1 FROM ${ukReinsertStream}"
         assertEquals(0, sql("SELECT id, v1 FROM ${ukReinsertStream}").size())
 
-        sql "INSERT INTO ${ukReinsertBase} VALUES (20, 201)"
+        sql "INSERT INTO ${ukReinsertBase} VALUES (20, 201, parse_to_variant('{\"k\": 20, \"d\": {\"row\": \"20 201\"}}'))"
         sql "sync"
 
         def ukReinsertRows = sql """
@@ -246,7 +249,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
         sql """
             CREATE TABLE ${ukMultiBase} (
                 id BIGINT,
-                v1 INT
+                v1 INT,
+                jv VARIANT NULL
             ) ENGINE=OLAP
             UNIQUE KEY(id)
             DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -257,7 +261,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
                 "changelog.need_historical_value" = "true"
             )
         """
-        sql "INSERT INTO ${ukMultiBase} VALUES (3, 30)"
+        sql "INSERT INTO ${ukMultiBase} VALUES (3, 30, parse_to_variant('{\"k\": 3, \"d\": {\"row\": \"3 30\"}}'))"
         sql """
             CREATE STREAM ${ukMultiStream}
             ON TABLE ${ukMultiBase}
@@ -266,8 +270,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
                 "show_initial_rows" = "false"
             )
         """
-        sql "INSERT INTO ${ukMultiBase} VALUES (3, 31)"
-        sql "INSERT INTO ${ukMultiBase} VALUES (3, 32)"
+        sql "INSERT INTO ${ukMultiBase} VALUES (3, 31, parse_to_variant('{\"k\": 3, \"d\": {\"row\": \"3 31\"}}'))"
+        sql "INSERT INTO ${ukMultiBase} VALUES (3, 32, parse_to_variant('{\"k\": 3, \"d\": {\"row\": \"3 32\"}}'))"
         sql "sync"
         sleep(1200)
 
@@ -288,7 +292,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
         sql """
             CREATE TABLE ${ukDeleteBase} (
                 id BIGINT,
-                v1 INT
+                v1 INT,
+                jv VARIANT NULL
             ) ENGINE=OLAP
             UNIQUE KEY(id)
             DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -299,7 +304,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
                 "changelog.need_historical_value" = "true"
             )
         """
-        sql "INSERT INTO ${ukDeleteBase} VALUES (4, 40)"
+        sql "INSERT INTO ${ukDeleteBase} VALUES (4, 40, parse_to_variant('{\"k\": 4, \"d\": {\"row\": \"4 40\"}}'))"
         sql """
             CREATE STREAM ${ukDeleteStream}
             ON TABLE ${ukDeleteBase}
@@ -328,7 +333,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
         sql """
             CREATE TABLE ${ukCrossRowsetBase} (
                 id BIGINT,
-                v1 INT
+                v1 INT,
+                jv VARIANT NULL
             ) ENGINE=OLAP
             UNIQUE KEY(id)
             DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -340,7 +346,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
             )
         """
         // Seed old value for key=1 before stream starts.
-        sql "INSERT INTO ${ukCrossRowsetBase} VALUES (1, 10)"
+        sql "INSERT INTO ${ukCrossRowsetBase} VALUES (1, 10, parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 10\"}}'))"
         sql """
             CREATE STREAM ${ukCrossRowsetStream}
             ON TABLE ${ukCrossRowsetBase}
@@ -350,9 +356,9 @@ suite("test_min_delta_stream", "nonConcurrent") {
             )
         """
         // rowset-1
-        sql "INSERT INTO ${ukCrossRowsetBase} VALUES (1, 11), (2, 30)"
+        sql "INSERT INTO ${ukCrossRowsetBase} VALUES (1, 11, parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 11\"}}')), (2, 30, parse_to_variant('{\"k\": 2, \"d\": {\"row\": \"2 30\"}}'))"
         // rowset-2
-        sql "INSERT INTO ${ukCrossRowsetBase} VALUES (1, 12)"
+        sql "INSERT INTO ${ukCrossRowsetBase} VALUES (1, 12, parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 12\"}}'))"
         sql "sync"
         sleep(1200)
 
@@ -398,7 +404,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
         sql """
             CREATE TABLE ${ukCrossBlockBase} (
                 id BIGINT,
-                v1 INT
+                v1 INT,
+                jv VARIANT NULL
             ) ENGINE=OLAP
             UNIQUE KEY(id)
             DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -409,7 +416,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
                 "changelog.need_historical_value" = "true"
             )
         """
-        sql "INSERT INTO ${ukCrossBlockBase} VALUES (7, 70)"
+        sql "INSERT INTO ${ukCrossBlockBase} VALUES (7, 70, parse_to_variant('{\"k\": 7, \"d\": {\"row\": \"7 70\"}}'))"
         sql """
             CREATE STREAM ${ukCrossBlockStream}
             ON TABLE ${ukCrossBlockBase}
@@ -418,9 +425,9 @@ suite("test_min_delta_stream", "nonConcurrent") {
                 "show_initial_rows" = "false"
             )
         """
-        sql "INSERT INTO ${ukCrossBlockBase} VALUES (7, 71)"
-        sql "INSERT INTO ${ukCrossBlockBase} VALUES (7, 72)"
-        sql "INSERT INTO ${ukCrossBlockBase} VALUES (7, 73)"
+        sql "INSERT INTO ${ukCrossBlockBase} VALUES (7, 71, parse_to_variant('{\"k\": 7, \"d\": {\"row\": \"7 71\"}}'))"
+        sql "INSERT INTO ${ukCrossBlockBase} VALUES (7, 72, parse_to_variant('{\"k\": 7, \"d\": {\"row\": \"7 72\"}}'))"
+        sql "INSERT INTO ${ukCrossBlockBase} VALUES (7, 73, parse_to_variant('{\"k\": 7, \"d\": {\"row\": \"7 73\"}}'))"
         sql "sync"
         sleep(1200)
 
@@ -442,7 +449,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
         sql """
             CREATE TABLE ${ukPendingBase} (
                 id BIGINT,
-                v1 INT
+                v1 INT,
+                jv VARIANT NULL
             ) ENGINE=OLAP
             UNIQUE KEY(id)
             DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -453,7 +461,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
                 "changelog.need_historical_value" = "true"
             )
         """
-        sql "INSERT INTO ${ukPendingBase} VALUES (8, 80), (9, 90)"
+        sql "INSERT INTO ${ukPendingBase} VALUES (8, 80, parse_to_variant('{\"k\": 8, \"d\": {\"row\": \"8 80\"}}')), (9, 90, parse_to_variant('{\"k\": 9, \"d\": {\"row\": \"9 90\"}}'))"
         sql """
             CREATE STREAM ${ukPendingStream}
             ON TABLE ${ukPendingBase}
@@ -462,8 +470,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
                 "show_initial_rows" = "false"
             )
         """
-        sql "INSERT INTO ${ukPendingBase} VALUES (8, 81)"
-        sql "INSERT INTO ${ukPendingBase} VALUES (9, 91)"
+        sql "INSERT INTO ${ukPendingBase} VALUES (8, 81, parse_to_variant('{\"k\": 8, \"d\": {\"row\": \"8 81\"}}'))"
+        sql "INSERT INTO ${ukPendingBase} VALUES (9, 91, parse_to_variant('{\"k\": 9, \"d\": {\"row\": \"9 91\"}}'))"
         sql "sync"
         sleep(1200)
 
@@ -490,7 +498,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
         sql """
             CREATE TABLE ${ukDeleteBeforeBase} (
                 id BIGINT,
-                v1 INT
+                v1 INT,
+                jv VARIANT NULL
             ) ENGINE=OLAP
             UNIQUE KEY(id)
             DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -501,7 +510,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
                 "changelog.need_historical_value" = "true"
             )
         """
-        sql "INSERT INTO ${ukDeleteBeforeBase} VALUES (10, 100)"
+        sql "INSERT INTO ${ukDeleteBeforeBase} VALUES (10, 100, parse_to_variant('{\"k\": 10, \"d\": {\"row\": \"10 100\"}}'))"
         sql """
             CREATE STREAM ${ukDeleteBeforeStream}
             ON TABLE ${ukDeleteBeforeBase}
@@ -510,7 +519,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
                 "show_initial_rows" = "false"
             )
         """
-        sql "INSERT INTO ${ukDeleteBeforeBase} VALUES (10, 101)"
+        sql "INSERT INTO ${ukDeleteBeforeBase} VALUES (10, 101, parse_to_variant('{\"k\": 10, \"d\": {\"row\": \"10 101\"}}'))"
         sql "DELETE FROM ${ukDeleteBeforeBase} WHERE id = 10"
         sql "sync"
         sleep(1200)
@@ -532,7 +541,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
             CREATE TABLE ${ukShowInitialBase} (
                 id BIGINT,
                 v1 INT,
-                v2 VARCHAR(16)
+                v2 VARCHAR(16),
+                jv VARIANT NULL
             ) ENGINE=OLAP
             UNIQUE KEY(id)
             DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -547,7 +557,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
             CREATE TABLE ${ukShowInitialTarget} (
                 id BIGINT,
                 v1 INT,
-                v2 VARCHAR(16)
+                v2 VARCHAR(16),
+                jv VARIANT NULL
             ) ENGINE=OLAP
             DUPLICATE KEY(id)
             DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -555,7 +566,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
                 "replication_num" = "1"
             )
         """
-        sql "INSERT INTO ${ukShowInitialBase} VALUES (1, 11, 'a2'), (2, 11, 'a2'), (3, 11, 'a2')"
+        sql "INSERT INTO ${ukShowInitialBase} VALUES (1, 11, 'a2', parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 11 a2\"}}')), (2, 11, 'a2', parse_to_variant('{\"k\": 2, \"d\": {\"row\": \"2 11 a2\"}}')), (3, 11, 'a2', parse_to_variant('{\"k\": 3, \"d\": {\"row\": \"3 11 a2\"}}'))"
         sql """
             CREATE STREAM ${ukShowInitialStream}
             ON TABLE ${ukShowInitialBase}
@@ -564,7 +575,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
                 "show_initial_rows" = "true"
             )
         """
-        sql "INSERT INTO ${ukShowInitialBase} VALUES (4, 11, 'a2')"
+        sql "INSERT INTO ${ukShowInitialBase} VALUES (4, 11, 'a2', parse_to_variant('{\"k\": 4, \"d\": {\"row\": \"4 11 a2\"}}'))"
         sql "DELETE FROM ${ukShowInitialBase} WHERE id = 2"
         sql "sync"
         sleep(1200)
@@ -611,7 +622,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
         sql """
             CREATE TABLE ${paperBase} (
                 id BIGINT,
-                name VARCHAR(32)
+                name VARCHAR(32),
+                jv VARIANT NULL
             ) ENGINE=OLAP
             UNIQUE KEY(id)
             DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -622,7 +634,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
                 "changelog.need_historical_value" = "true"
             )
         """
-        sql "INSERT INTO ${paperBase} VALUES (1, 'Jeff'), (2, 'Donny')"
+        sql "INSERT INTO ${paperBase} VALUES (1, 'Jeff', parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 Jeff\"}}')), (2, 'Donny', parse_to_variant('{\"k\": 2, \"d\": {\"row\": \"2 Donny\"}}'))"
         sql """
             CREATE STREAM ${paperStream}
             ON TABLE ${paperBase}
@@ -632,12 +644,12 @@ suite("test_min_delta_stream", "nonConcurrent") {
             )
         """
 
-        sql "INSERT INTO ${paperBase} VALUES (3, 'Walter')"
-        sql "INSERT INTO ${paperBase} VALUES (1, 'Jeffrey')"
-        sql "INSERT INTO ${paperBase} VALUES (4, 'Maud')"
-        sql "INSERT INTO ${paperBase} VALUES (4, 'Maude')"
+        sql "INSERT INTO ${paperBase} VALUES (3, 'Walter', parse_to_variant('{\"k\": 3, \"d\": {\"row\": \"3 Walter\"}}'))"
+        sql "INSERT INTO ${paperBase} VALUES (1, 'Jeffrey', parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 Jeffrey\"}}'))"
+        sql "INSERT INTO ${paperBase} VALUES (4, 'Maud', parse_to_variant('{\"k\": 4, \"d\": {\"row\": \"4 Maud\"}}'))"
+        sql "INSERT INTO ${paperBase} VALUES (4, 'Maude', parse_to_variant('{\"k\": 4, \"d\": {\"row\": \"4 Maude\"}}'))"
         sql "DELETE FROM ${paperBase} WHERE id = 2"
-        sql "INSERT INTO ${paperBase} VALUES (5, 'Uli')"
+        sql "INSERT INTO ${paperBase} VALUES (5, 'Uli', parse_to_variant('{\"k\": 5, \"d\": {\"row\": \"5 Uli\"}}'))"
         sql "DELETE FROM ${paperBase} WHERE id = 5"
         sql "sync"
 
@@ -675,7 +687,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
         sql """
             CREATE TABLE ${cteReuseBase} (
                 id BIGINT,
-                v1 INT
+                v1 INT,
+                jv VARIANT NULL
             ) ENGINE=OLAP
             UNIQUE KEY(id)
             DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -686,7 +699,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
                 "changelog.need_historical_value" = "true"
             )
         """
-        sql "INSERT INTO ${cteReuseBase} VALUES (1, 10), (2, 20)"
+        sql "INSERT INTO ${cteReuseBase} VALUES (1, 10, parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 10\"}}')), (2, 20, parse_to_variant('{\"k\": 2, \"d\": {\"row\": \"2 20\"}}'))"
         sql """
             CREATE STREAM ${cteReuseStream}
             ON TABLE ${cteReuseBase}
@@ -695,9 +708,9 @@ suite("test_min_delta_stream", "nonConcurrent") {
                 "show_initial_rows" = "false"
             )
         """
-        sql "INSERT INTO ${cteReuseBase} VALUES (1, 11)"
+        sql "INSERT INTO ${cteReuseBase} VALUES (1, 11, parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 11\"}}'))"
         sql "DELETE FROM ${cteReuseBase} WHERE id = 2"
-        sql "INSERT INTO ${cteReuseBase} VALUES (3, 30)"
+        sql "INSERT INTO ${cteReuseBase} VALUES (3, 30, parse_to_variant('{\"k\": 3, \"d\": {\"row\": \"3 30\"}}'))"
         sql "sync"
         sleep(1200)
 
@@ -726,7 +739,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
         sql """
             CREATE TABLE ${incrBase} (
                 id BIGINT,
-                v1 INT
+                v1 INT,
+                jv VARIANT NULL
             ) ENGINE=OLAP
             UNIQUE KEY(id)
             DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -737,7 +751,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
                 "changelog.need_historical_value" = "true"
             )
         """
-        sql "INSERT INTO ${incrBase} VALUES (1, 10), (3, 30)"
+        sql "INSERT INTO ${incrBase} VALUES (1, 10, parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 10\"}}')), (3, 30, parse_to_variant('{\"k\": 3, \"d\": {\"row\": \"3 30\"}}'))"
         sql "sync"
 
         sleep(1200)
@@ -745,9 +759,9 @@ suite("test_min_delta_stream", "nonConcurrent") {
         def startTimestamp = incrTimeFormat.format(new Date())
         sleep(1200)
 
-        sql "INSERT INTO ${incrBase} VALUES (2, 20)"
-        sql "INSERT INTO ${incrBase} VALUES (1, 11)"
-        sql "INSERT INTO ${incrBase} VALUES (1, 12)"
+        sql "INSERT INTO ${incrBase} VALUES (2, 20, parse_to_variant('{\"k\": 2, \"d\": {\"row\": \"2 20\"}}'))"
+        sql "INSERT INTO ${incrBase} VALUES (1, 11, parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 11\"}}'))"
+        sql "INSERT INTO ${incrBase} VALUES (1, 12, parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 12\"}}'))"
         sql "DELETE FROM ${incrBase} WHERE id = 3"
         sql "sync"
 
@@ -847,7 +861,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
         sql """
             CREATE TABLE ${incrDupBase} (
                 id BIGINT,
-                v1 INT
+                v1 INT,
+                jv VARIANT NULL
             ) ENGINE=OLAP
             DUPLICATE KEY(id)
             DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -856,12 +871,12 @@ suite("test_min_delta_stream", "nonConcurrent") {
                 "changelog.enable" = "true"
             )
         """
-        sql "INSERT INTO ${incrDupBase} VALUES (1, 10), (2, 20)"
+        sql "INSERT INTO ${incrDupBase} VALUES (1, 10, parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 10\"}}')), (2, 20, parse_to_variant('{\"k\": 2, \"d\": {\"row\": \"2 20\"}}'))"
         sql "sync"
         sleep(1200)
         def dupStartTimestamp = incrTimeFormat.format(new Date())
         sleep(1200)
-        sql "INSERT INTO ${incrDupBase} VALUES (3, 30)"
+        sql "INSERT INTO ${incrDupBase} VALUES (3, 30, parse_to_variant('{\"k\": 3, \"d\": {\"row\": \"3 30\"}}'))"
         sql "sync"
         sleep(1200)
 
@@ -889,7 +904,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
         sql """
             CREATE TABLE ${incrMowNoHistoryBase} (
                 id BIGINT,
-                v1 INT
+                v1 INT,
+                jv VARIANT NULL
             ) ENGINE=OLAP
             UNIQUE KEY(id)
             DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -900,12 +916,12 @@ suite("test_min_delta_stream", "nonConcurrent") {
                 "changelog.need_historical_value" = "false"
             )
         """
-        sql "INSERT INTO ${incrMowNoHistoryBase} VALUES (1, 10)"
+        sql "INSERT INTO ${incrMowNoHistoryBase} VALUES (1, 10, parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 10\"}}'))"
         sql "sync"
         sleep(1200)
         def mowNoHistoryStartTimestamp = incrTimeFormat.format(new Date())
         sleep(1200)
-        sql "INSERT INTO ${incrMowNoHistoryBase} VALUES (1, 11)"
+        sql "INSERT INTO ${incrMowNoHistoryBase} VALUES (1, 11, parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 11\"}}'))"
         sql "sync"
         sleep(1200)
 

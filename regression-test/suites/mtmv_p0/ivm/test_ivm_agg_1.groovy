@@ -31,7 +31,8 @@ suite("test_ivm_agg_1") {
     sql """
         CREATE TABLE test_ivm_agg_mtmv_base (
             k1 INT,
-            v1 INT
+            v1 INT,
+            jv VARIANT NULL
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
@@ -45,9 +46,9 @@ suite("test_ivm_agg_1") {
     // 2. Insert initial rows: groups k1=1,2,3
     sql """
         INSERT INTO test_ivm_agg_mtmv_base VALUES
-            (1, 10),
-            (2, 20),
-            (3, 30);
+            (1, 10, parse_to_variant('{"k": 1, "d": {"row": "1 10"}}')),
+            (2, 20, parse_to_variant('{"k": 2, "d": {"row": "2 20"}}')),
+            (3, 30, parse_to_variant('{"k": 3, "d": {"row": "3 30"}}'));
     """
 
     // 3. Create IVM MV with grouped aggregate (COUNT(*) + SUM)
@@ -79,8 +80,8 @@ suite("test_ivm_agg_1") {
     // 7. Insert new rows: new group k1=4 and update existing k1=1 (MOW upsert replaces v1)
     sql """
         INSERT INTO test_ivm_agg_mtmv_base VALUES
-            (4, 40),
-            (1, 15);
+            (4, 40, parse_to_variant('{"k": 4, "d": {"row": "4 40"}}')),
+            (1, 15, parse_to_variant('{"k": 1, "d": {"row": "1 15"}}'));
     """
 
     // 8. INCREMENTAL refresh consumes only the changelog records written after the initial refresh.
@@ -92,7 +93,7 @@ suite("test_ivm_agg_1") {
     // 9. Update another row: k1=2 gets new value
     sql """
         INSERT INTO test_ivm_agg_mtmv_base VALUES
-            (2, 25);
+            (2, 25, parse_to_variant('{"k": 2, "d": {"row": "2 25"}}'));
     """
 
     // 10. Second INCREMENTAL refresh — also assert no error and check output
@@ -117,7 +118,8 @@ suite("test_ivm_agg_1") {
     sql """
         CREATE TABLE test_ivm_agg_mtmv_scalar_base (
             k1 INT,
-            v1 INT
+            v1 INT,
+            jv VARIANT NULL
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
@@ -130,9 +132,9 @@ suite("test_ivm_agg_1") {
 
     sql """
         INSERT INTO test_ivm_agg_mtmv_scalar_base VALUES
-            (1, 10),
-            (2, 20),
-            (3, 30);
+            (1, 10, parse_to_variant('{"k": 1, "d": {"row": "1 10"}}')),
+            (2, 20, parse_to_variant('{"k": 2, "d": {"row": "2 20"}}')),
+            (3, 30, parse_to_variant('{"k": 3, "d": {"row": "3 30"}}'));
     """
 
     // Scalar agg MV: COUNT(*), SUM, AVG, COUNT(expr) over the whole table
@@ -162,7 +164,7 @@ suite("test_ivm_agg_1") {
     """
 
     // Upsert k1=1 (v1: 10 → 15)
-    sql """INSERT INTO test_ivm_agg_mtmv_scalar_base VALUES (1, 15);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_scalar_base VALUES (1, 15, parse_to_variant('{"k": 1, "d": {"row": "1 15"}}'));"""
 
     // INCREMENTAL refresh consumes the update after the initial stream offset.
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_scalar_mv INCREMENTAL"""
@@ -173,7 +175,7 @@ suite("test_ivm_agg_1") {
     """
 
     // Insert new row k1=4
-    sql """INSERT INTO test_ivm_agg_mtmv_scalar_base VALUES (4, 40);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_scalar_base VALUES (4, 40, parse_to_variant('{"k": 4, "d": {"row": "4 40"}}'));"""
 
     // Second INCREMENTAL refresh — also assert no error
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_scalar_mv INCREMENTAL"""
@@ -203,7 +205,8 @@ suite("test_ivm_agg_1") {
         CREATE TABLE test_ivm_agg_mtmv_minmax_base (
             k1 INT,
             grp INT,
-            v1 INT
+            v1 INT,
+            jv VARIANT NULL
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
@@ -218,12 +221,12 @@ suite("test_ivm_agg_1") {
     // Group grp=2: three rows (k1=20→v1=50,  k1=21→v1=80,  k1=22→v1=70)  → MIN=50,  MAX=80
     sql """
         INSERT INTO test_ivm_agg_mtmv_minmax_base VALUES
-            (10, 1, 100),
-            (11, 1, 200),
-            (12, 1, 150),
-            (20, 2, 50),
-            (21, 2, 80),
-            (22, 2, 70);
+            (10, 1, 100, parse_to_variant('{"k": 10, "d": {"row": "10 1 100"}}')),
+            (11, 1, 200, parse_to_variant('{"k": 11, "d": {"row": "11 1 200"}}')),
+            (12, 1, 150, parse_to_variant('{"k": 12, "d": {"row": "12 1 150"}}')),
+            (20, 2, 50, parse_to_variant('{"k": 20, "d": {"row": "20 2 50"}}')),
+            (21, 2, 80, parse_to_variant('{"k": 21, "d": {"row": "21 2 80"}}')),
+            (22, 2, 70, parse_to_variant('{"k": 22, "d": {"row": "22 2 70"}}'));
     """
 
     // MV: GROUP BY grp, MIN(v1), MAX(v1)
@@ -258,13 +261,13 @@ suite("test_ivm_agg_1") {
     //   Group grp=1 has other rows (200, 150), so MAX=200 is safe.
     //   MIN guard: old_min=100, deltaDel=100, deltaInsert=90.
     //   delete 命中旧 MIN (100), but insert 提供更优值 90 ≤ 100 → guard passes ✓
-    sql """INSERT INTO test_ivm_agg_mtmv_minmax_base VALUES (10, 1, 90);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_minmax_base VALUES (10, 1, 90, parse_to_variant('{"k": 10, "d": {"row": "10 1 90"}}'));"""
 
     // Test 2: Update k1=21 (grp=2) from v1=80 to v1=90 → new MAX should be 90.
     //   Group grp=2 has other rows (50, 70), so MIN=50 is safe.
     //   MAX guard: old_max=80, deltaDel=80, deltaInsert=90.
     //   delete 命中旧 MAX (80), but insert 提供更优值 90 ≥ 80 → guard passes ✓
-    sql """INSERT INTO test_ivm_agg_mtmv_minmax_base VALUES (21, 2, 90);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_minmax_base VALUES (21, 2, 90, parse_to_variant('{"k": 21, "d": {"row": "21 2 90"}}'));"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_minmax_mv")
@@ -299,7 +302,8 @@ suite("test_ivm_agg_1") {
     sql """
         CREATE TABLE test_ivm_agg_mmop_base (
             k1 INT,
-            v1 INT
+            v1 INT,
+            jv VARIANT NULL
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
@@ -314,9 +318,9 @@ suite("test_ivm_agg_1") {
     // k1=1 (v1=10, op=0), k1=2 (v1=20, op=0), k1=3 (v1=30, op=0)
     sql """
         INSERT INTO test_ivm_agg_mmop_base VALUES
-            (1, 10),
-            (2, 20),
-            (3, 30);
+            (1, 10, parse_to_variant('{"k": 1, "d": {"row": "1 10"}}')),
+            (2, 20, parse_to_variant('{"k": 2, "d": {"row": "2 20"}}')),
+            (3, 30, parse_to_variant('{"k": 3, "d": {"row": "3 30"}}'));
     """
 
     // Scalar agg MV with MIN/MAX (no GROUP BY) — the single group makes boundary detection simple
@@ -344,7 +348,7 @@ suite("test_ivm_agg_1") {
 
     // Step 2: Safe INCREMENTAL — insert a new row (op=0) that does NOT touch MIN boundary
     // This writes one new insert after the initial stream offset.
-    sql """INSERT INTO test_ivm_agg_mmop_base VALUES (4, 25);"""
+    sql """INSERT INTO test_ivm_agg_mmop_base VALUES (4, 25, parse_to_variant('{"k": 4, "d": {"row": "4 25"}}'));"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_op_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_minmax_op_mv")
@@ -354,7 +358,7 @@ suite("test_ivm_agg_1") {
     sql """DELETE FROM test_ivm_agg_mmop_base WHERE k1 = 1;"""
 
     // Dirty the partition to ensure INCREMENTAL actually runs
-    sql """INSERT INTO test_ivm_agg_mmop_base VALUES (5, 35);"""
+    sql """INSERT INTO test_ivm_agg_mmop_base VALUES (5, 35, parse_to_variant('{"k": 5, "d": {"row": "5 35"}}'));"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_op_mv INCREMENTAL"""
 
@@ -392,7 +396,7 @@ suite("test_ivm_agg_1") {
     """
 
     // Step 5: Fix the data — upsert k1=1 back to op=0, then safe INCREMENTAL should succeed
-    sql """INSERT INTO test_ivm_agg_mmop_base VALUES (1, 10);"""
+    sql """INSERT INTO test_ivm_agg_mmop_base VALUES (1, 10, parse_to_variant('{"k": 1, "d": {"row": "1 10"}}'));"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_op_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_minmax_op_mv")
@@ -414,7 +418,8 @@ suite("test_ivm_agg_1") {
         CREATE TABLE test_ivm_agg_mtmv_null_base (
             k1 INT,
             grp INT,
-            v1 INT
+            v1 INT,
+            jv VARIANT NULL
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
@@ -431,11 +436,11 @@ suite("test_ivm_agg_1") {
     // grp=3: one row, all NULL (v1=NULL)
     sql """
         INSERT INTO test_ivm_agg_mtmv_null_base VALUES
-            (1, 1, 10),
-            (2, 1, 20),
-            (3, 2, NULL),
-            (4, 2, 30),
-            (5, 3, NULL);
+            (1, 1, 10, parse_to_variant('{"k": 1, "d": {"row": "1 1 10"}}')),
+            (2, 1, 20, parse_to_variant('{"k": 2, "d": {"row": "2 1 20"}}')),
+            (3, 2, NULL, parse_to_variant('{"k": 3, "d": {"row": "3 2 NULL"}}')),
+            (4, 2, 30, parse_to_variant('{"k": 4, "d": {"row": "4 2 30"}}')),
+            (5, 3, NULL, parse_to_variant('{"k": 5, "d": {"row": "5 3 NULL"}}'));
     """
 
     sql """
@@ -470,8 +475,8 @@ suite("test_ivm_agg_1") {
 
     // Step 2: INCREMENTAL — insert a NULL value into grp=1 and a non-NULL into grp=3
     // The incremental input here contains only new inserts (all op=0), so INCREMENTAL should succeed.
-    sql """INSERT INTO test_ivm_agg_mtmv_null_base VALUES (6, 1, NULL);"""
-    sql """INSERT INTO test_ivm_agg_mtmv_null_base VALUES (7, 3, 50);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_null_base VALUES (6, 1, NULL, parse_to_variant('{"k": 6, "d": {"row": "6 1 NULL"}}'));"""
+    sql """INSERT INTO test_ivm_agg_mtmv_null_base VALUES (7, 3, 50, parse_to_variant('{"k": 7, "d": {"row": "7 3 50"}}'));"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_null_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_null_mv")
@@ -498,7 +503,7 @@ suite("test_ivm_agg_1") {
     // Mark k1=6 (grp=1, v1=NULL) as deleted
     sql """DELETE FROM test_ivm_agg_mtmv_null_base WHERE k1 = 6;"""
     // Dirty partition for INCREMENTAL
-    sql """INSERT INTO test_ivm_agg_mtmv_null_base VALUES (8, 2, 40);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_null_base VALUES (8, 2, 40, parse_to_variant('{"k": 8, "d": {"row": "8 2 40"}}'));"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_null_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_null_mv")
@@ -532,7 +537,8 @@ suite("test_ivm_agg_1") {
         CREATE TABLE test_ivm_agg_mtmv_decimal_base (
             k1 INT,
             grp INT,
-            v1 DECIMAL(18, 4)
+            v1 DECIMAL(18, 4),
+            jv VARIANT NULL
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
@@ -545,9 +551,9 @@ suite("test_ivm_agg_1") {
 
     sql """
         INSERT INTO test_ivm_agg_mtmv_decimal_base VALUES
-            (1, 1, 1.2500),
-            (2, 1, 1.7500),
-            (3, 2, NULL);
+            (1, 1, 1.2500, parse_to_variant('{"k": 1, "d": {"row": "1 1 1.2500"}}')),
+            (2, 1, 1.7500, parse_to_variant('{"k": 2, "d": {"row": "2 1 1.7500"}}')),
+            (3, 2, NULL, parse_to_variant('{"k": 3, "d": {"row": "3 2 NULL"}}'));
     """
 
     sql """
@@ -569,7 +575,7 @@ suite("test_ivm_agg_1") {
         SELECT grp, avg_v1 FROM test_ivm_agg_mtmv_decimal_mv ORDER BY grp
     """
 
-    sql """INSERT INTO test_ivm_agg_mtmv_decimal_base VALUES (4, 2, 2.5000);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_decimal_base VALUES (4, 2, 2.5000, parse_to_variant('{"k": 4, "d": {"row": "4 2 2.5000"}}'));"""
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_decimal_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_decimal_mv")
 

@@ -3105,8 +3105,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 for (Column column : baseSchema) {
                     if (column.isAutoInc()) {
                         throw new AnalysisException("auto-inc column can't be created on table with changelog");
-                    } else if (column.getDataType().isVariantType()) {
-                        throw new AnalysisException("variant column can't be created on table with changelog");
+                    } else if (column.getType().isVariantType() && column.getVariantEnableNestedGroup()) {
+                        throw new AnalysisException(
+                                "variant column with nested group can't be created on table with changelog");
                     }
                 }
                 olapTable.setChangelogConfig(changelogConfig);

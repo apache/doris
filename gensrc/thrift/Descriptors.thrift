@@ -110,6 +110,8 @@ struct TColumn {
   // Dynamic default expression retained separately when default_value is a schema-change
   // backfill literal. New writes must evaluate this expression at write time.
   30: optional string default_value_expr
+  // What TColumnType.variant_max_subcolumns_count == 0 means for this VARIANT column.
+  31: optional Types.TVariantSerializeType variant_serialize_type = Types.TVariantSerializeType.V1
 }
 
 struct TSlotDescriptor {

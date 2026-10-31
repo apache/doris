@@ -30,7 +30,8 @@ suite("test_ivm_inner_join_1") {
     sql """
         CREATE TABLE ivm_ij1_basic_t1 (
             k1 INT,
-            v1 INT
+            v1 INT,
+            jv VARIANT NULL
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
@@ -44,7 +45,8 @@ suite("test_ivm_inner_join_1") {
     sql """
         CREATE TABLE ivm_ij1_basic_t2 (
             k1 INT,
-            v2 INT
+            v2 INT,
+            jv VARIANT NULL
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
@@ -57,13 +59,13 @@ suite("test_ivm_inner_join_1") {
 
     sql """
         INSERT INTO ivm_ij1_basic_t1 VALUES
-            (1, 10),
-            (2, 20);
+            (1, 10, parse_to_variant('{"k": 1, "d": {"row": "1 10"}}')),
+            (2, 20, parse_to_variant('{"k": 2, "d": {"row": "2 20"}}'));
     """
     sql """
         INSERT INTO ivm_ij1_basic_t2 VALUES
-            (1, 100),
-            (3, 300);
+            (1, 100, parse_to_variant('{"k": 1, "d": {"row": "1 100"}}')),
+            (3, 300, parse_to_variant('{"k": 3, "d": {"row": "3 300"}}'));
     """
 
     sql """
@@ -87,7 +89,7 @@ suite("test_ivm_inner_join_1") {
         SELECT k1, left_v1, right_v2 FROM ivm_ij1_basic_mv
     """
 
-    sql """INSERT INTO ivm_ij1_basic_t1 VALUES (3, 30);"""
+    sql """INSERT INTO ivm_ij1_basic_t1 VALUES (3, 30, parse_to_variant('{"k": 3, "d": {"row": "3 30"}}'));"""
     sql """REFRESH MATERIALIZED VIEW ivm_ij1_basic_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("ivm_ij1_basic_mv")
     order_qt_inner_basic_after_first_incremental """
@@ -96,8 +98,8 @@ suite("test_ivm_inner_join_1") {
 
     sql """
         INSERT INTO ivm_ij1_basic_t2 VALUES
-            (1, 111),
-            (2, 220);
+            (1, 111, parse_to_variant('{"k": 1, "d": {"row": "1 111"}}')),
+            (2, 220, parse_to_variant('{"k": 2, "d": {"row": "2 220"}}'));
     """
     sql """REFRESH MATERIALIZED VIEW ivm_ij1_basic_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("ivm_ij1_basic_mv")
@@ -120,7 +122,8 @@ suite("test_ivm_inner_join_1") {
 
     sql """
         CREATE TABLE ivm_ij1_cross_t1 (
-            k1 INT
+            k1 INT,
+            jv VARIANT NULL
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
@@ -133,7 +136,8 @@ suite("test_ivm_inner_join_1") {
 
     sql """
         CREATE TABLE ivm_ij1_cross_t2 (
-            k1 INT
+            k1 INT,
+            jv VARIANT NULL
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
@@ -144,8 +148,8 @@ suite("test_ivm_inner_join_1") {
         );
     """
 
-    sql """INSERT INTO ivm_ij1_cross_t1 VALUES (1), (2);"""
-    sql """INSERT INTO ivm_ij1_cross_t2 VALUES (10), (20);"""
+    sql """INSERT INTO ivm_ij1_cross_t1 VALUES (1, parse_to_variant('{"k": 1, "d": {"row": "1"}}')), (2, parse_to_variant('{"k": 2, "d": {"row": "2"}}'));"""
+    sql """INSERT INTO ivm_ij1_cross_t2 VALUES (10, parse_to_variant('{"k": 10, "d": {"row": "10"}}')), (20, parse_to_variant('{"k": 20, "d": {"row": "20"}}'));"""
 
     sql """
         CREATE MATERIALIZED VIEW ivm_ij1_cross_mv
@@ -166,7 +170,7 @@ suite("test_ivm_inner_join_1") {
         SELECT left_k1, right_k1 FROM ivm_ij1_cross_mv
     """
 
-    sql """INSERT INTO ivm_ij1_cross_t1 VALUES (3);"""
+    sql """INSERT INTO ivm_ij1_cross_t1 VALUES (3, parse_to_variant('{"k": 3, "d": {"row": "3"}}'));"""
     sql """REFRESH MATERIALIZED VIEW ivm_ij1_cross_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("ivm_ij1_cross_mv")
     order_qt_cross_after_incremental """
@@ -189,7 +193,8 @@ suite("test_ivm_inner_join_1") {
     sql """
         CREATE TABLE ivm_ij1_unmatched_t1 (
             k1 INT,
-            v1 INT
+            v1 INT,
+            jv VARIANT NULL
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
@@ -203,7 +208,8 @@ suite("test_ivm_inner_join_1") {
     sql """
         CREATE TABLE ivm_ij1_unmatched_t2 (
             k1 INT,
-            v2 INT
+            v2 INT,
+            jv VARIANT NULL
         )
         DUPLICATE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
@@ -215,14 +221,14 @@ suite("test_ivm_inner_join_1") {
 
     sql """
         INSERT INTO ivm_ij1_unmatched_t1 VALUES
-            (1, 10),
-            (2, 20);
+            (1, 10, parse_to_variant('{"k": 1, "d": {"row": "1 10"}}')),
+            (2, 20, parse_to_variant('{"k": 2, "d": {"row": "2 20"}}'));
     """
     sql """
         INSERT INTO ivm_ij1_unmatched_t2 VALUES
-            (1, 100),
-            (2, 200),
-            (3, 300);
+            (1, 100, parse_to_variant('{"k": 1, "d": {"row": "1 100"}}')),
+            (2, 200, parse_to_variant('{"k": 2, "d": {"row": "2 200"}}')),
+            (3, 300, parse_to_variant('{"k": 3, "d": {"row": "3 300"}}'));
     """
 
     sql """
@@ -248,7 +254,7 @@ suite("test_ivm_inner_join_1") {
 
     sql """
         INSERT INTO ivm_ij1_unmatched_t1 VALUES
-            (3, 30);
+            (3, 30, parse_to_variant('{"k": 3, "d": {"row": "3 30"}}'));
     """
     sql """DELETE FROM ivm_ij1_unmatched_t1 WHERE k1 = 9;"""
     sql """REFRESH MATERIALIZED VIEW ivm_ij1_unmatched_mv INCREMENTAL"""
@@ -286,7 +292,8 @@ suite("test_ivm_inner_join_1") {
     sql """
         CREATE TABLE ivm_ij1_matched_t1 (
             k1 INT,
-            v1 INT
+            v1 INT,
+            jv VARIANT NULL
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
@@ -300,7 +307,8 @@ suite("test_ivm_inner_join_1") {
     sql """
         CREATE TABLE ivm_ij1_matched_t2 (
             k1 INT,
-            v2 INT
+            v2 INT,
+            jv VARIANT NULL
         )
         DUPLICATE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
@@ -312,13 +320,13 @@ suite("test_ivm_inner_join_1") {
 
     sql """
         INSERT INTO ivm_ij1_matched_t1 VALUES
-            (1, 10),
-            (2, 20);
+            (1, 10, parse_to_variant('{"k": 1, "d": {"row": "1 10"}}')),
+            (2, 20, parse_to_variant('{"k": 2, "d": {"row": "2 20"}}'));
     """
     sql """
         INSERT INTO ivm_ij1_matched_t2 VALUES
-            (1, 100),
-            (2, 200);
+            (1, 100, parse_to_variant('{"k": 1, "d": {"row": "1 100"}}')),
+            (2, 200, parse_to_variant('{"k": 2, "d": {"row": "2 200"}}'));
     """
 
     sql """
@@ -384,7 +392,8 @@ suite("test_ivm_inner_join_1") {
     sql """
         CREATE TABLE ivm_ij1_nested_t1 (
             k1 INT,
-            v1 INT
+            v1 INT,
+            jv VARIANT NULL
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
@@ -398,7 +407,8 @@ suite("test_ivm_inner_join_1") {
     sql """
         CREATE TABLE ivm_ij1_nested_t2 (
             k1 INT,
-            v2 INT
+            v2 INT,
+            jv VARIANT NULL
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
@@ -412,7 +422,8 @@ suite("test_ivm_inner_join_1") {
     sql """
         CREATE TABLE ivm_ij1_nested_t3 (
             k1 INT,
-            v3 INT
+            v3 INT,
+            jv VARIANT NULL
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
@@ -423,9 +434,9 @@ suite("test_ivm_inner_join_1") {
         );
     """
 
-    sql """INSERT INTO ivm_ij1_nested_t1 VALUES (1, 10), (2, 20);"""
-    sql """INSERT INTO ivm_ij1_nested_t2 VALUES (1, 100), (2, 200);"""
-    sql """INSERT INTO ivm_ij1_nested_t3 VALUES (1, 1000);"""
+    sql """INSERT INTO ivm_ij1_nested_t1 VALUES (1, 10, parse_to_variant('{"k": 1, "d": {"row": "1 10"}}')), (2, 20, parse_to_variant('{"k": 2, "d": {"row": "2 20"}}'));"""
+    sql """INSERT INTO ivm_ij1_nested_t2 VALUES (1, 100, parse_to_variant('{"k": 1, "d": {"row": "1 100"}}')), (2, 200, parse_to_variant('{"k": 2, "d": {"row": "2 200"}}'));"""
+    sql """INSERT INTO ivm_ij1_nested_t3 VALUES (1, 1000, parse_to_variant('{"k": 1, "d": {"row": "1 1000"}}'));"""
 
     sql """
         CREATE MATERIALIZED VIEW ivm_ij1_nested_mv
@@ -451,7 +462,7 @@ suite("test_ivm_inner_join_1") {
         SELECT k1, left_v1, mid_v2, right_v3 FROM ivm_ij1_nested_mv
     """
 
-    sql """INSERT INTO ivm_ij1_nested_t3 VALUES (2, 2000);"""
+    sql """INSERT INTO ivm_ij1_nested_t3 VALUES (2, 2000, parse_to_variant('{"k": 2, "d": {"row": "2 2000"}}'));"""
     sql """REFRESH MATERIALIZED VIEW ivm_ij1_nested_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("ivm_ij1_nested_mv")
     order_qt_nested_join_after_incremental """

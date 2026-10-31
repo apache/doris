@@ -182,7 +182,8 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
 class VariantCompactionUtil {
 public:
     // get the subpaths and sparse paths for the variant column
-    static void get_subpaths(int32_t max_subcolumns_count, const PathToNoneNullValues& path_stats,
+    static void get_subpaths(int32_t max_subcolumns_count, VariantSerializeTypePB serialize_type,
+                             const PathToNoneNullValues& path_stats,
                              VariantCompactionPaths& paths_set_info);
 
     // collect extended info from the variant column

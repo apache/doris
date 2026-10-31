@@ -410,6 +410,17 @@ enum PatternTypePB {
     MATCH_NAME_GLOB = 2;
 }
 
+// How a VARIANT column shreds its paths into subcolumns and the sparse column. The value only
+// changes what variant_max_subcolumns_count == 0 means; every other count keeps one meaning.
+enum VariantSerializeTypePB {
+    // Columns created before the field existed: count 0 materializes every dynamic path as a
+    // subcolumn.
+    VARIANT_SERIALIZE_V1 = 0;
+    // Count 0 materializes no dynamic path: they all go to the sparse column. Predefined typed
+    // paths are materialized as for any count, unless variant_enable_typed_paths_to_sparse.
+    VARIANT_SERIALIZE_V2 = 1;
+}
+
 message ColumnPB {
     required int32 unique_id = 1; // ColumnMessage.unique_id
     optional string name = 2; // ColumnMessage.name
@@ -455,6 +466,7 @@ message ColumnPB {
     optional bool variant_enable_nested_group = 34 [default = false];
     // Dynamic default expression retained separately from the historical backfill literal.
     optional bytes default_value_expr = 35;
+    optional VariantSerializeTypePB variant_serialize_type = 36 [default = VARIANT_SERIALIZE_V1];
 }
 
 // Dictionary of Schema info, to reduce TabletSchemaCloudPB fdb kv size

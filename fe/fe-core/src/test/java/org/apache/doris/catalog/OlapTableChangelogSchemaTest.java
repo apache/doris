@@ -19,11 +19,13 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.binlog.BinlogTestUtils;
 import org.apache.doris.thrift.TStorageType;
+import org.apache.doris.thrift.TVariantSerializeType;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -164,5 +166,41 @@ public class OlapTableChangelogSchemaTest {
         Assertions.assertFalse(columnNames.contains("__DORIS_TEST_HIDDEN_VALUE__"));
         Assertions.assertEquals(2, columnNames.indexOf(Column.CHANGELOG_TSO_COL));
         Assertions.assertEquals(3, columnNames.indexOf(Column.CHANGELOG_LSN_COL));
+    }
+
+    @Test
+    public void testChangelogVariantColumnsKeepEveryPathInSparse() {
+        Column key = new Column("k1", PrimitiveType.INT);
+        key.setIsKey(true);
+        ArrayList<VariantField> fields = new ArrayList<>();
+        fields.add(new VariantField("a", Type.INT, ""));
+        VariantType shredded = new VariantType(fields, 2048, false, 10000, 4, false, 0L, 0, false,
+                TVariantSerializeType.V2);
+        VariantType docMode = new VariantType(new ArrayList<>(), 0, false, 0, 0, true, 10L, 64, false,
+                TVariantSerializeType.V2);
+        OlapTable table = newTestTable(BinlogTestUtils.newTestChangelogConfig(true, true),
+                Lists.newArrayList(key, new Column("v", shredded, true), new Column("d", docMode, true)));
+
+        // the source columns keep their layout
+        Assertions.assertSame(shredded, table.getBaseSchema(true).get(1).getType());
+        Assertions.assertSame(docMode, table.getBaseSchema(true).get(2).getType());
+
+        List<Column> changelogSchema = table.getChangelogIndexMeta().getSchema(true);
+        for (String name : new String[] {"v", Column.generateBeforeColName("v"), "d",
+                Column.generateBeforeColName("d")}) {
+            VariantType type = (VariantType) changelogSchema.stream().filter(c -> c.getName().equals(name))
+                    .findFirst().orElseThrow().getType();
+            // both images keep every path in the sparse column, whatever the source layout
+            Assertions.assertEquals(TVariantSerializeType.V2, type.getVariantSerializeType(), name);
+            Assertions.assertEquals(0, type.getVariantMaxSubcolumnsCount(), name);
+            Assertions.assertFalse(type.getEnableVariantDocMode(), name);
+            Assertions.assertFalse(type.getEnableNestedGroup(), name);
+            Assertions.assertTrue(type.getEnableTypedPathsToSparse(), name);
+            // doc mode leaves no sparse statistics size, which the sparse column needs
+            Assertions.assertTrue(type.getVariantMaxSparseColumnStatisticsSize() > 0, name);
+        }
+        // typed paths keep their declared types
+        Assertions.assertEquals(fields, ((VariantType) changelogSchema.stream().filter(c -> c.getName().equals("v"))
+                .findFirst().orElseThrow().getType()).getPredefinedFields());
     }
 }

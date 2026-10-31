@@ -32,7 +32,8 @@ suite("test_cloud_changelog_compaction", "nonConcurrent") {
             CREATE TABLE test_cloud_changelog_compaction_dup (
                 k1 INT,
                 v1 INT,
-                v2 STRING
+                v2 STRING,
+                jv VARIANT NULL
             )
             DUPLICATE KEY(k1)
             DISTRIBUTED BY HASH(k1) BUCKETS 1
@@ -45,13 +46,13 @@ suite("test_cloud_changelog_compaction", "nonConcurrent") {
 
         sql """
             INSERT INTO test_cloud_changelog_compaction_dup VALUES
-                (1, 10, 'a'),
-                (2, 20, 'b')
+                (1, 10, 'a', parse_to_variant('{"k": 1, "d": {"row": "1 10 a"}}')),
+                (2, 20, 'b', parse_to_variant('{"k": 2, "d": {"row": "2 20 b"}}'))
         """
         sql """
             INSERT INTO test_cloud_changelog_compaction_dup VALUES
-                (1, 11, 'a1'),
-                (3, 30, 'c')
+                (1, 11, 'a1', parse_to_variant('{"k": 1, "d": {"row": "1 11 a1"}}')),
+                (3, 30, 'c', parse_to_variant('{"k": 3, "d": {"row": "3 30 c"}}'))
         """
 
         // Round 1: Level0 [2-2], [3-3] -> Level1 [2-3].
@@ -61,7 +62,9 @@ suite("test_cloud_changelog_compaction", "nonConcurrent") {
             SELECT __DORIS_CHANGELOG_OP__ AS op,
                    k1,
                    v1,
-                   v2
+                   v2,
+                   jv,
+                   jv['d']['row']
             FROM changelog("table" = "test_cloud_changelog_compaction_dup")
         """
 
@@ -71,7 +74,8 @@ suite("test_cloud_changelog_compaction", "nonConcurrent") {
             CREATE TABLE test_cloud_changelog_compaction_mow_historical (
                 k1 INT,
                 v1 INT,
-                v2 STRING
+                v2 STRING,
+                jv VARIANT NULL
             )
             UNIQUE KEY(k1)
             DISTRIBUTED BY HASH(k1) BUCKETS 1
@@ -87,23 +91,23 @@ suite("test_cloud_changelog_compaction", "nonConcurrent") {
 
         sql """
             INSERT INTO test_cloud_changelog_compaction_mow_historical VALUES
-                (1, 10, 'a'),
-                (2, 20, 'b')
+                (1, 10, 'a', parse_to_variant('{"k": 1, "d": {"row": "1 10 a"}}')),
+                (2, 20, 'b', parse_to_variant('{"k": 2, "d": {"row": "2 20 b"}}'))
         """
         sql """
             INSERT INTO test_cloud_changelog_compaction_mow_historical VALUES
-                (1, 11, 'a1')
+                (1, 11, 'a1', parse_to_variant('{"k": 1, "d": {"row": "1 11 a1"}}'))
         """
         // Round 1: Level0 [2-2], [3-3] -> Level1 [2-3].
         trigger_and_wait_compaction("test_cloud_changelog_compaction_mow_historical", "cumulative")
 
         sql """
             INSERT INTO test_cloud_changelog_compaction_mow_historical VALUES
-                (2, 21, 'b1')
+                (2, 21, 'b1', parse_to_variant('{"k": 2, "d": {"row": "2 21 b1"}}'))
         """
         sql """
             INSERT INTO test_cloud_changelog_compaction_mow_historical VALUES
-                (3, 30, 'c')
+                (3, 30, 'c', parse_to_variant('{"k": 3, "d": {"row": "3 30 c"}}'))
         """
         // Round 2: Level0 [4-4], [5-5] -> Level1 [4-5].
         trigger_and_wait_compaction("test_cloud_changelog_compaction_mow_historical", "cumulative")
@@ -112,18 +116,18 @@ suite("test_cloud_changelog_compaction", "nonConcurrent") {
 
         sql """
             INSERT INTO test_cloud_changelog_compaction_mow_historical VALUES
-                (1, 12, 'a2')
+                (1, 12, 'a2', parse_to_variant('{"k": 1, "d": {"row": "1 12 a2"}}'))
         """
         sql """
             INSERT INTO test_cloud_changelog_compaction_mow_historical VALUES
-                (1, 13, 'a3')
+                (1, 13, 'a3', parse_to_variant('{"k": 1, "d": {"row": "1 13 a3"}}'))
         """
         // Round 4: Level0 [6-6], [7-7] -> Level1 [6-7].
         trigger_and_wait_compaction("test_cloud_changelog_compaction_mow_historical", "cumulative")
 
         sql """
             INSERT INTO test_cloud_changelog_compaction_mow_historical VALUES
-                (2, 22, 'b2')
+                (2, 22, 'b2', parse_to_variant('{"k": 2, "d": {"row": "2 22 b2"}}'))
         """
         sql "DELETE FROM test_cloud_changelog_compaction_mow_historical WHERE k1 = 3"
         // Round 5: Level0 [8-8], [9-9] -> Level1 [8-9].
@@ -137,7 +141,10 @@ suite("test_cloud_changelog_compaction", "nonConcurrent") {
                    v1,
                    v2,
                    __DORIS_CHANGELOG_BEFORE_v1__,
-                   __DORIS_CHANGELOG_BEFORE_v2__
+                   __DORIS_CHANGELOG_BEFORE_v2__,
+                   jv,
+                   __DORIS_CHANGELOG_BEFORE_jv__,
+                   jv['d']['row']
             FROM changelog("table" = "test_cloud_changelog_compaction_mow_historical")
         """
 
@@ -147,7 +154,8 @@ suite("test_cloud_changelog_compaction", "nonConcurrent") {
             CREATE TABLE test_cloud_changelog_compaction_mow_seq_historical (
                 k1 INT,
                 v1 INT,
-                v2 STRING
+                v2 STRING,
+                jv VARIANT NULL
             )
             UNIQUE KEY(k1)
             DISTRIBUTED BY HASH(k1) BUCKETS 1
@@ -166,24 +174,24 @@ suite("test_cloud_changelog_compaction", "nonConcurrent") {
                  WITH PROPERTIES ("function_column.sequence_type" = "int")"""
 
         sql """
-            INSERT INTO test_cloud_changelog_compaction_mow_seq_historical(k1, v1, v2, __DORIS_SEQUENCE_COL__)
+            INSERT INTO test_cloud_changelog_compaction_mow_seq_historical(k1, v1, v2, __DORIS_SEQUENCE_COL__, jv)
             VALUES
-                (1, 100, 'a1', 2),
-                (2, 200, 'b1', 1)
+                (1, 100, 'a1', 2, parse_to_variant('{"k": 1, "d": {"row": "1 100 a1 2"}}')),
+                (2, 200, 'b1', 1, parse_to_variant('{"k": 2, "d": {"row": "2 200 b1 1"}}'))
         """
         sql """
-            INSERT INTO test_cloud_changelog_compaction_mow_seq_historical(k1, v1, v2, __DORIS_SEQUENCE_COL__)
+            INSERT INTO test_cloud_changelog_compaction_mow_seq_historical(k1, v1, v2, __DORIS_SEQUENCE_COL__, jv)
             VALUES
-                (1, 90, 'a0', 1)
+                (1, 90, 'a0', 1, parse_to_variant('{"k": 1, "d": {"row": "1 90 a0 1"}}'))
         """
         // Round 1: Level0 [2-2], [3-3] -> Level1 [2-3].
         trigger_and_wait_compaction("test_cloud_changelog_compaction_mow_seq_historical",
                                     "cumulative")
 
         sql """
-            INSERT INTO test_cloud_changelog_compaction_mow_seq_historical(k1, v1, v2, __DORIS_SEQUENCE_COL__)
+            INSERT INTO test_cloud_changelog_compaction_mow_seq_historical(k1, v1, v2, __DORIS_SEQUENCE_COL__, jv)
             VALUES
-                (1, 300, 'a3', 3)
+                (1, 300, 'a3', 3, parse_to_variant('{"k": 1, "d": {"row": "1 300 a3 3"}}'))
         """
         sql "DELETE FROM test_cloud_changelog_compaction_mow_seq_historical WHERE k1 = 2"
         // Round 2: Level0 [4-4], [5-5] -> Level1 [4-5].
@@ -200,7 +208,10 @@ suite("test_cloud_changelog_compaction", "nonConcurrent") {
                    v1,
                    v2,
                    __DORIS_CHANGELOG_BEFORE_v1__,
-                   __DORIS_CHANGELOG_BEFORE_v2__
+                   __DORIS_CHANGELOG_BEFORE_v2__,
+                   jv,
+                   __DORIS_CHANGELOG_BEFORE_jv__,
+                   jv['d']['row']
             FROM changelog("table" = "test_cloud_changelog_compaction_mow_seq_historical")
         """
 
@@ -211,7 +222,10 @@ suite("test_cloud_changelog_compaction", "nonConcurrent") {
                    v1,
                    v2,
                    __DORIS_CHANGELOG_BEFORE_v1__,
-                   __DORIS_CHANGELOG_BEFORE_v2__
+                   __DORIS_CHANGELOG_BEFORE_v2__,
+                   jv,
+                   __DORIS_CHANGELOG_BEFORE_jv__,
+                   jv['d']['row']
             FROM changelog("table" = "test_cloud_changelog_compaction_mow_seq_historical")
         """
         sql "SET skip_delete_bitmap = false"
@@ -222,7 +236,8 @@ suite("test_cloud_changelog_compaction", "nonConcurrent") {
             CREATE TABLE test_cloud_changelog_compaction_mow_historical_long_chain (
                 k1 INT,
                 v1 INT,
-                v2 STRING
+                v2 STRING,
+                jv VARIANT NULL
             )
             UNIQUE KEY(k1)
             DISTRIBUTED BY HASH(k1) BUCKETS 1
@@ -238,16 +253,16 @@ suite("test_cloud_changelog_compaction", "nonConcurrent") {
 
         sql """
             INSERT INTO test_cloud_changelog_compaction_mow_historical_long_chain VALUES
-                (1, 100, 'a0'),
-                (2, 200, 'b0')
+                (1, 100, 'a0', parse_to_variant('{"k": 1, "d": {"row": "1 100 a0"}}')),
+                (2, 200, 'b0', parse_to_variant('{"k": 2, "d": {"row": "2 200 b0"}}'))
         """
         sql """
             INSERT INTO test_cloud_changelog_compaction_mow_historical_long_chain VALUES
-                (1, 110, 'a1')
+                (1, 110, 'a1', parse_to_variant('{"k": 1, "d": {"row": "1 110 a1"}}'))
         """
         sql """
             INSERT INTO test_cloud_changelog_compaction_mow_historical_long_chain VALUES
-                (1, 120, 'a2')
+                (1, 120, 'a2', parse_to_variant('{"k": 1, "d": {"row": "1 120 a2"}}'))
         """
         // Round 1: Level0 [2-2], [3-3], [4-4] -> Level1 [2-4].
         trigger_and_wait_compaction("test_cloud_changelog_compaction_mow_historical_long_chain",
@@ -255,11 +270,11 @@ suite("test_cloud_changelog_compaction", "nonConcurrent") {
 
         sql """
             INSERT INTO test_cloud_changelog_compaction_mow_historical_long_chain VALUES
-                (1, 130, 'a3')
+                (1, 130, 'a3', parse_to_variant('{"k": 1, "d": {"row": "1 130 a3"}}'))
         """
         sql """
             INSERT INTO test_cloud_changelog_compaction_mow_historical_long_chain VALUES
-                (1, 140, 'a4')
+                (1, 140, 'a4', parse_to_variant('{"k": 1, "d": {"row": "1 140 a4"}}'))
         """
         sql "DELETE FROM test_cloud_changelog_compaction_mow_historical_long_chain WHERE k1 = 2"
         // Round 2: Level0 [5-5], [6-6], [7-7] -> Level1 [5-7].
@@ -275,7 +290,10 @@ suite("test_cloud_changelog_compaction", "nonConcurrent") {
                    v1,
                    v2,
                    __DORIS_CHANGELOG_BEFORE_v1__,
-                   __DORIS_CHANGELOG_BEFORE_v2__
+                   __DORIS_CHANGELOG_BEFORE_v2__,
+                   jv,
+                   __DORIS_CHANGELOG_BEFORE_jv__,
+                   jv['d']['row']
             FROM changelog("table" = "test_cloud_changelog_compaction_mow_historical_long_chain")
         """
     }

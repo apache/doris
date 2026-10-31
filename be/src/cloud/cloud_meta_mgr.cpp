@@ -1694,8 +1694,6 @@ Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta, int64_t table_
                << ", rowset_id: " << rs_meta.rowset_id()
                << ", attach_changelog_tablet_id: " << attach_changelog->tablet_id()
                << ", attach_changelog_rowset_id: " << attach_changelog->rowset_id();
-    DCHECK_EQ(rs_meta.tablet_schema()->num_variant_columns(),
-              attach_changelog->tablet_schema()->num_variant_columns());
     RETURN_IF_ERROR(do_update_tmp_rowset(*attach_changelog, table_id));
     return do_update_tmp_rowset(rs_meta, table_id);
 }

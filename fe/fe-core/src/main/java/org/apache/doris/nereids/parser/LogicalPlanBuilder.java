@@ -1113,6 +1113,7 @@ import org.apache.doris.resource.workloadschedpolicy.WorkloadActionMeta;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadConditionMeta;
 import org.apache.doris.statistics.analysis.AnalysisInfo;
 import org.apache.doris.system.NodeType;
+import org.apache.doris.thrift.TVariantSerializeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -5529,7 +5530,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new VariantType(fields, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
                     variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
                     enableVariantDocMode, variantDocMaterializationMinRows, variantDocHashShardCount,
-                    enableNestedGroup);
+                    // internal, not a property: a declared column is always new, and only old metadata is V1
+                    enableNestedGroup, TVariantSerializeType.V2);
     }
 
     private static boolean isSupportedVariantDocModeType(DataType type) {

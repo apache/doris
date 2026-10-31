@@ -24,7 +24,8 @@ suite("test_time_travel_mow", "nonConcurrent") {
     sql """
         CREATE TABLE test_time_travel_mow (
             k INT,
-            v INT
+            v INT,
+            jv VARIANT NULL
         )
         UNIQUE KEY(k)
         DISTRIBUTED BY HASH(k) BUCKETS 1
@@ -38,14 +39,14 @@ suite("test_time_travel_mow", "nonConcurrent") {
 
     sql "SET show_hidden_columns = true"
     // t1: initial state of three keys (k1, k2, k3 exist; k4 not yet)
-    sql "INSERT INTO test_time_travel_mow VALUES (1, 10), (2, 20), (3, 30)"
+    sql "INSERT INTO test_time_travel_mow VALUES (1, 10, parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 10\"}}')), (2, 20, parse_to_variant('{\"k\": 2, \"d\": {\"row\": \"2 20\"}}')), (3, 30, parse_to_variant('{\"k\": 3, \"d\": {\"row\": \"3 30\"}}'))"
     def t1 = sql("SELECT MAX(__DORIS_COMMIT_TSO_COL__) FROM test_time_travel_mow")[0][0] as Long
     sql "SET show_hidden_columns = false"
 
     // changes after t1: k2 update, k3 delete, k4 insert
-    sql "INSERT INTO test_time_travel_mow VALUES (2, 200)"
+    sql "INSERT INTO test_time_travel_mow VALUES (2, 200, parse_to_variant('{\"k\": 2, \"d\": {\"row\": \"2 200\"}}'))"
     sql "DELETE FROM test_time_travel_mow WHERE k = 3"
-    sql "INSERT INTO test_time_travel_mow VALUES (4, 40)"
+    sql "INSERT INTO test_time_travel_mow VALUES (4, 40, parse_to_variant('{\"k\": 4, \"d\": {\"row\": \"4 40\"}}'))"
 
     // latest: k1=10, k2=200, k4=40 (k3 deleted)
     order_qt_latest "SELECT k, v FROM test_time_travel_mow ORDER BY k"
@@ -68,7 +69,11 @@ suite("test_time_travel_mow", "nonConcurrent") {
 
     def snapStar = sql("""SELECT test_time_travel_mow.*
             FROM test_time_travel_mow FOR VERSION AS OF ${t1} ORDER BY k""")
-    assertEquals([[1, 10], [2, 20], [3, 30]], snapStar)
+    assertEquals([[1, 10], [2, 20], [3, 30]], snapStar.collect { it[0..1] })
+
+    // the variant column of the latest rows and of the t1 snapshot, where k2 and k3 have their old value
+    order_qt_latest_variant "SELECT k, jv, jv['d']['row'] FROM test_time_travel_mow ORDER BY k"
+    order_qt_snapshot_variant "SELECT k, jv, jv['d']['row'] FROM test_time_travel_mow FOR VERSION AS OF ${t1} ORDER BY k"
 
     // ---- error path: mow but need_historical_value=false ----
     sql "DROP TABLE IF EXISTS test_time_travel_mow_nohist FORCE"

@@ -87,6 +87,7 @@ public class ColumnToThrift {
         }
         tColumn.setClusterKeyId(column.getClusterKeyId());
         tColumn.setVariantEnableTypedPathsToSparse(column.getVariantEnableTypedPathsToSparse());
+        tColumn.setVariantSerializeType(column.getVariantSerializeType());
         tColumn.setVariantMaxSparseColumnStatisticsSize(column.getVariantMaxSparseColumnStatisticsSize());
         tColumn.setVariantSparseHashShardCount(column.getVariantSparseHashShardCount());
         tColumn.setVariantEnableDocMode(column.getVariantEnableDocMode());

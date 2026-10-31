@@ -585,8 +585,9 @@ struct VariantShredder::Impl {
         DorisVector<size_t> all(candidate_builders.size());
         std::iota(all.begin(), all.end(), 0);
         RETURN_IF_ERROR(convert_typed_candidates(all, candidate_builders, storage_types));
-        const VariantPathSelection selection = select_variant_paths(
-                candidates, options.max_subcolumns_count, options.typed_paths_to_sparse);
+        const VariantPathSelection selection =
+                select_variant_paths(candidates, options.max_subcolumns_count,
+                                     options.typed_paths_to_sparse, options.serialize_type);
         publish_root(result);
         RETURN_IF_ERROR(publish_materialized(selection, candidate_builders, result));
         RETURN_IF_ERROR(publish_sparse(selection, candidate_builders, result));

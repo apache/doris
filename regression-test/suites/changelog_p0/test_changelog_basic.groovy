@@ -30,7 +30,8 @@ suite("test_changelog_basic", "nonConcurrent") {
             k2 INT,
             k3 INT,
             v1 INT,
-            v2 STRING
+            v2 STRING,
+            jv VARIANT NULL
         )
         DUPLICATE KEY(k1, k2, k3)
         DISTRIBUTED BY HASH(k1) BUCKETS 1
@@ -46,7 +47,8 @@ suite("test_changelog_basic", "nonConcurrent") {
             k2 INT,
             k3 INT,
             v1 INT,
-            v2 STRING
+            v2 STRING,
+            jv VARIANT NULL
         )
         UNIQUE KEY(k1, k2, k3)
         DISTRIBUTED BY HASH(k1) BUCKETS 1
@@ -64,7 +66,8 @@ suite("test_changelog_basic", "nonConcurrent") {
             k2 INT,
             k3 INT,
             v1 INT,
-            v2 STRING
+            v2 STRING,
+            jv VARIANT NULL
         )
         UNIQUE KEY(k1, k2, k3)
         DISTRIBUTED BY HASH(k1) BUCKETS 1
@@ -113,7 +116,8 @@ suite("test_changelog_basic", "nonConcurrent") {
             k2 INT,
             k3 INT,
             v1 INT,
-            v2 STRING
+            v2 STRING,
+            jv VARIANT NULL
         )
         UNIQUE KEY(k1, k2, k3)
         DISTRIBUTED BY HASH(k1) BUCKETS 1
@@ -168,17 +172,17 @@ suite("test_changelog_basic", "nonConcurrent") {
 
     sql """
         INSERT INTO test_dup_with_changelog VALUES
-            (1, 1, 1, 10, '10'),
-            (2, 2, 2, 20, '20')
+            (1, 1, 1, 10, '10', parse_to_variant('{"k": 1, "d": {"row": "1 1 1 10 10"}}')),
+            (2, 2, 2, 20, '20', parse_to_variant('{"k": 2, "d": {"row": "2 2 2 20 20"}}'))
     """
     sql """
         INSERT INTO test_dup_with_changelog VALUES
-            (1, 1, 1, 11, '11'),
-            (3, 3, 3, 30, '30')
+            (1, 1, 1, 11, '11', parse_to_variant('{"k": 1, "d": {"row": "1 1 1 11 11"}}')),
+            (3, 3, 3, 30, '30', parse_to_variant('{"k": 3, "d": {"row": "3 3 3 30 30"}}'))
     """
 
     order_qt_dup_raw """
-        SELECT k1, k2, k3, v1, v2
+        SELECT k1, k2, k3, v1, v2, jv, jv['d']['row']
         FROM test_dup_with_changelog
     """
 
@@ -188,7 +192,9 @@ suite("test_changelog_basic", "nonConcurrent") {
                k2,
                k3,
                v1,
-               v2
+               v2,
+               jv,
+               jv['d']['row']
         FROM changelog("table" = "test_dup_with_changelog")
         ORDER BY __DORIS_CHANGELOG_TSO__, __DORIS_CHANGELOG_LSN__
     """
@@ -214,8 +220,8 @@ suite("test_changelog_basic", "nonConcurrent") {
 
     sql """
         INSERT INTO test_mow_with_changelog VALUES
-            (1, 1, 1, 10, '10'),
-            (2, 2, 2, 20, '20')
+            (1, 1, 1, 10, '10', parse_to_variant('{"k": 1, "d": {"row": "1 1 1 10 10"}}')),
+            (2, 2, 2, 20, '20', parse_to_variant('{"k": 2, "d": {"row": "2 2 2 20 20"}}'))
     """
     sql "SET enable_unique_key_partial_update = true"
     sql "INSERT INTO test_mow_with_changelog(k1, k2, k3, v2) VALUES (2, 2, 2, '200')"
@@ -225,7 +231,7 @@ suite("test_changelog_basic", "nonConcurrent") {
     sql "DELETE FROM test_mow_with_changelog WHERE k1 = 1 AND k2 = 1 AND k3 = 1"
 
     order_qt_mow_raw """
-        SELECT k1, k2, k3, v1, v2
+        SELECT k1, k2, k3, v1, v2, jv, jv['d']['row']
         FROM test_mow_with_changelog
     """
 
@@ -235,7 +241,9 @@ suite("test_changelog_basic", "nonConcurrent") {
                k2,
                k3,
                v1,
-               v2
+               v2,
+               jv,
+               jv['d']['row']
         FROM changelog("table" = "test_mow_with_changelog")
         ORDER BY __DORIS_CHANGELOG_TSO__, __DORIS_CHANGELOG_LSN__
     """
@@ -250,8 +258,8 @@ suite("test_changelog_basic", "nonConcurrent") {
 
     sql """
         INSERT INTO test_mow_with_before_changelog VALUES
-            (1, 1, 1, 10, '10'),
-            (2, 2, 2, 20, '20')
+            (1, 1, 1, 10, '10', parse_to_variant('{"k": 1, "d": {"row": "1 1 1 10 10"}}')),
+            (2, 2, 2, 20, '20', parse_to_variant('{"k": 2, "d": {"row": "2 2 2 20 20"}}'))
     """
     sql "SET enable_unique_key_partial_update = true"
     sql "INSERT INTO test_mow_with_before_changelog(k1, k2, k3, v2) VALUES (2, 2, 2, '200')"
@@ -261,7 +269,7 @@ suite("test_changelog_basic", "nonConcurrent") {
     sql "DELETE FROM test_mow_with_before_changelog WHERE k1 = 1 AND k2 = 1 AND k3 = 1"
 
     order_qt_mow_before_raw """
-        SELECT k1, k2, k3, v1, v2
+        SELECT k1, k2, k3, v1, v2, jv, jv['d']['row']
         FROM test_mow_with_before_changelog
     """
 
@@ -273,7 +281,11 @@ suite("test_changelog_basic", "nonConcurrent") {
                v1,
                v2,
                __DORIS_CHANGELOG_BEFORE_v1__,
-               __DORIS_CHANGELOG_BEFORE_v2__
+               __DORIS_CHANGELOG_BEFORE_v2__,
+               jv,
+               __DORIS_CHANGELOG_BEFORE_jv__,
+               jv['d']['row'],
+               __DORIS_CHANGELOG_BEFORE_jv__['d']['row']
         FROM changelog("table" = "test_mow_with_before_changelog")
         ORDER BY __DORIS_CHANGELOG_TSO__, __DORIS_CHANGELOG_LSN__
     """
@@ -307,16 +319,16 @@ suite("test_changelog_basic", "nonConcurrent") {
     """
 
     sql """
-        INSERT INTO test_mow_seq_with_changelog(k1, k2, k3, v1, v2, __DORIS_SEQUENCE_COL__)
-        VALUES (1, 1, 1, 100, '100', 2)
+        INSERT INTO test_mow_seq_with_changelog(k1, k2, k3, v1, v2, __DORIS_SEQUENCE_COL__, jv)
+        VALUES (1, 1, 1, 100, '100', 2, parse_to_variant('{"k": 1, "d": {"row": "1 1 1 100 100 2"}}'))
     """
     sql """
-        INSERT INTO test_mow_seq_with_changelog(k1, k2, k3, v1, v2, __DORIS_SEQUENCE_COL__)
-        VALUES (1, 1, 1, 200, '200', 1)
+        INSERT INTO test_mow_seq_with_changelog(k1, k2, k3, v1, v2, __DORIS_SEQUENCE_COL__, jv)
+        VALUES (1, 1, 1, 200, '200', 1, parse_to_variant('{"k": 1, "d": {"row": "1 1 1 200 200 1"}}'))
     """
     sql """
-        INSERT INTO test_mow_seq_with_changelog(k1, k2, k3, v1, v2, __DORIS_SEQUENCE_COL__)
-        VALUES (1, 1, 1, 300, '300', 3)
+        INSERT INTO test_mow_seq_with_changelog(k1, k2, k3, v1, v2, __DORIS_SEQUENCE_COL__, jv)
+        VALUES (1, 1, 1, 300, '300', 3, parse_to_variant('{"k": 1, "d": {"row": "1 1 1 300 300 3"}}'))
     """
     sql "SET require_sequence_in_insert = false"
     sql "SET enable_unique_key_partial_update = true"
@@ -338,7 +350,7 @@ suite("test_changelog_basic", "nonConcurrent") {
     sql "DELETE FROM test_mow_seq_with_changelog WHERE k1 = 1 AND k2 = 1 AND k3 = 1"
 
     order_qt_mow_seq_raw """
-        SELECT k1, k2, k3, v1, v2
+        SELECT k1, k2, k3, v1, v2, jv, jv['d']['row']
         FROM test_mow_seq_with_changelog
     """
 
@@ -352,7 +364,11 @@ suite("test_changelog_basic", "nonConcurrent") {
                v1,
                v2,
                __DORIS_CHANGELOG_BEFORE_v1__,
-               __DORIS_CHANGELOG_BEFORE_v2__
+               __DORIS_CHANGELOG_BEFORE_v2__,
+               jv,
+               __DORIS_CHANGELOG_BEFORE_jv__,
+               jv['d']['row'],
+               __DORIS_CHANGELOG_BEFORE_jv__['d']['row']
         FROM changelog("table" = "test_mow_seq_with_changelog")
         ORDER BY __DORIS_CHANGELOG_TSO__, __DORIS_CHANGELOG_LSN__
     """
@@ -367,7 +383,11 @@ suite("test_changelog_basic", "nonConcurrent") {
                v1,
                v2,
                __DORIS_CHANGELOG_BEFORE_v1__,
-               __DORIS_CHANGELOG_BEFORE_v2__
+               __DORIS_CHANGELOG_BEFORE_v2__,
+               jv,
+               __DORIS_CHANGELOG_BEFORE_jv__,
+               jv['d']['row'],
+               __DORIS_CHANGELOG_BEFORE_jv__['d']['row']
         FROM changelog("table" = "test_mow_seq_with_changelog")
         ORDER BY __DORIS_CHANGELOG_TSO__, __DORIS_CHANGELOG_LSN__
     """

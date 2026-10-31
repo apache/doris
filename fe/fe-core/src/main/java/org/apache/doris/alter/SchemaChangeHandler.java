@@ -59,6 +59,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletBinlogConfig;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.VariantType;
 import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.cloud.qe.ComputeGroupException;
@@ -211,10 +212,6 @@ public class SchemaChangeHandler extends AlterHandler {
         // add column to changelog schema
         long changelogIndexId = olapTable.getBaseIndexMeta().getChangelogIndexId();
         if (changelogIndexId > 0) {
-            if (column.getType().isVariantType()) {
-                throw new DdlException(
-                        "table with changelog does not support VARIANT column: " + column.getName());
-            }
             if (!lightSchemaChange) {
                 throw new DdlException("table with changelog only support light schema change," + "add column: "
                         + column);
@@ -305,10 +302,6 @@ public class SchemaChangeHandler extends AlterHandler {
 
             // add column to changelog schema
             if (changelogIndexId > 0) {
-                if (column.getType().isVariantType()) {
-                    throw new DdlException(
-                            "table with changelog does not support VARIANT column: " + column.getName());
-                }
                 if (!lightSchemaChange) {
                     throw new DdlException("table with changelog only support light schema change," + "add column: "
                             + column);
@@ -332,9 +325,13 @@ public class SchemaChangeHandler extends AlterHandler {
             return;
         }
 
-        if (newColumn.isAutoInc() || newColumn.getDataType().isVariantType()) {
-            throw new DdlException("can't add AutoInc/Variant column " + " on table with changelog, column: "
+        if (newColumn.isAutoInc()) {
+            throw new DdlException("can't add AutoInc column on table with changelog, column: "
                     + newColumn.getDataType());
+        }
+        if (newColumn.getType().isVariantType() && newColumn.getVariantEnableNestedGroup()) {
+            throw new DdlException("can't add variant column with nested group on table with changelog, column: "
+                    + newColumn.getName());
         }
 
         if (newColumn.isKey()) {
@@ -1008,6 +1005,11 @@ public class SchemaChangeHandler extends AlterHandler {
             if (col.getName().equalsIgnoreCase(newColName)) {
                 modColIndex = i;
                 found = true;
+                // A restated definition parses as V2, but the column keeps the layout its data is stored with.
+                if (col.getType().isVariantType() && modColumn.getType().isVariantType()) {
+                    modColumn.setType(((VariantType) modColumn.getType())
+                            .withSerializeType(col.getVariantSerializeType()));
+                }
                 if (!col.equals(modColumn)) {
                     typeChanged = true;
                     // TODO:the case where columnPos is not empty has not been considered

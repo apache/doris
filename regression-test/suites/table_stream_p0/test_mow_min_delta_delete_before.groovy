@@ -36,7 +36,8 @@ suite("test_mow_min_delta_delete_before", "nonConcurrent") {
         sql """
             CREATE TABLE mow_min_delta_bug (
                 id BIGINT,
-                v1 INT
+                v1 INT,
+                jv VARIANT NULL
             ) ENGINE=OLAP
             UNIQUE KEY(id)
             DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -49,7 +50,7 @@ suite("test_mow_min_delta_delete_before", "nonConcurrent") {
         """
         // Seed old value before the stream starts so the in-window change is an
         // UPDATE (not a fresh APPEND).
-        sql "INSERT INTO mow_min_delta_bug VALUES (1, 10)"
+        sql "INSERT INTO mow_min_delta_bug VALUES (1, 10, parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 10\"}}'))"
         sql """
             CREATE STREAM mow_min_delta_bug_stream
             ON TABLE mow_min_delta_bug
@@ -59,14 +60,16 @@ suite("test_mow_min_delta_delete_before", "nonConcurrent") {
             )
         """
         sql "sync"
-        sql "INSERT INTO mow_min_delta_bug VALUES (1, 11)"
+        sql "INSERT INTO mow_min_delta_bug VALUES (1, 11, parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 11\"}}'))"
         sql "DELETE FROM mow_min_delta_bug WHERE id = 1"
         sql "sync"
         sleep(1200)
 
         // Expect a single DELETE row keeping the old value 10.
         order_qt_mow_min_delta_delete_before """
-            SELECT id, v1, __DORIS_STREAM_CHANGE_TYPE_COL__
+            SELECT id, v1, __DORIS_STREAM_CHANGE_TYPE_COL__,
+                   jv,
+                   jv['d']['row']
             FROM mow_min_delta_bug_stream
             ORDER BY id, v1, __DORIS_STREAM_CHANGE_TYPE_COL__
         """
@@ -82,7 +85,8 @@ suite("test_mow_min_delta_delete_before", "nonConcurrent") {
         sql """
             CREATE TABLE mow_min_delta_del_ins_del (
                 id BIGINT,
-                v1 INT
+                v1 INT,
+                jv VARIANT NULL
             ) ENGINE=OLAP
             UNIQUE KEY(id)
             DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -95,7 +99,7 @@ suite("test_mow_min_delta_delete_before", "nonConcurrent") {
         """
         // Seed old value before the stream starts so the first in-window DELETE
         // refers to a pre-existing row.
-        sql "INSERT INTO mow_min_delta_del_ins_del VALUES (2, 20)"
+        sql "INSERT INTO mow_min_delta_del_ins_del VALUES (2, 20, parse_to_variant('{\"k\": 2, \"d\": {\"row\": \"2 20\"}}'))"
         sql """
             CREATE STREAM mow_min_delta_del_ins_del_stream
             ON TABLE mow_min_delta_del_ins_del
@@ -106,14 +110,16 @@ suite("test_mow_min_delta_delete_before", "nonConcurrent") {
         """
         sql "sync"
         sql "DELETE FROM mow_min_delta_del_ins_del WHERE id = 2"
-        sql "INSERT INTO mow_min_delta_del_ins_del VALUES (2, 21)"
+        sql "INSERT INTO mow_min_delta_del_ins_del VALUES (2, 21, parse_to_variant('{\"k\": 2, \"d\": {\"row\": \"2 21\"}}'))"
         sql "DELETE FROM mow_min_delta_del_ins_del WHERE id = 2"
         sql "sync"
         sleep(1200)
 
         // Expect a single DELETE row keeping the old value 20.
         order_qt_mow_min_delta_del_ins_del """
-            SELECT id, v1, __DORIS_STREAM_CHANGE_TYPE_COL__
+            SELECT id, v1, __DORIS_STREAM_CHANGE_TYPE_COL__,
+                   jv,
+                   jv['d']['row']
             FROM mow_min_delta_del_ins_del_stream
             ORDER BY id, v1, __DORIS_STREAM_CHANGE_TYPE_COL__
         """

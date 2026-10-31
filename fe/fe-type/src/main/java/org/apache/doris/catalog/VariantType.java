@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
+import org.apache.doris.thrift.TVariantSerializeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -65,6 +66,11 @@ public class VariantType extends ScalarType {
     @SerializedName(value = "enableNestedGroup")
     private final boolean enableNestedGroup;
 
+    // Absent from images written before the field existed; Gson reads them through the no-arg constructor,
+    // whose V1 default therefore keeps every existing column on its old layout.
+    @SerializedName(value = "variantSerializeType")
+    private final TVariantSerializeType variantSerializeType;
+
     private Map<String, String> properties = Maps.newHashMap();
 
     public VariantType() {
@@ -78,6 +84,7 @@ public class VariantType extends ScalarType {
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
         this.enableNestedGroup = false;
+        this.variantSerializeType = TVariantSerializeType.V1;
     }
 
     public VariantType(ArrayList<VariantField> fields) {
@@ -95,6 +102,7 @@ public class VariantType extends ScalarType {
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
         this.enableNestedGroup = false;
+        this.variantSerializeType = TVariantSerializeType.V1;
     }
 
     public VariantType(Map<String, String> properties) {
@@ -109,6 +117,7 @@ public class VariantType extends ScalarType {
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
         this.enableNestedGroup = false;
+        this.variantSerializeType = TVariantSerializeType.V1;
     }
 
     public VariantType(ArrayList<VariantField> fields, Map<String, String> properties) {
@@ -127,6 +136,7 @@ public class VariantType extends ScalarType {
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
         this.enableNestedGroup = false;
+        this.variantSerializeType = TVariantSerializeType.V1;
     }
 
     public VariantType(ArrayList<VariantField> fields, int variantMaxSubcolumnsCount,
@@ -136,7 +146,8 @@ public class VariantType extends ScalarType {
                                                         boolean enableVariantDocMode,
                                                         long variantDocMaterializationMinRows,
                                                         int variantDocShardCount,
-                                                        boolean enableNestedGroup) {
+                                                        boolean enableNestedGroup,
+                                                        TVariantSerializeType variantSerializeType) {
         super(PrimitiveType.VARIANT);
         Preconditions.checkNotNull(fields);
         this.predefinedFields = fields;
@@ -151,6 +162,38 @@ public class VariantType extends ScalarType {
         this.variantDocMaterializationMinRows = variantDocMaterializationMinRows;
         this.variantDocShardCount = variantDocShardCount;
         this.enableNestedGroup = enableNestedGroup;
+        this.variantSerializeType = variantSerializeType;
+    }
+
+    /** This type with the given serialize type, as a new instance. */
+    public VariantType withSerializeType(TVariantSerializeType serializeType) {
+        return new VariantType(predefinedFields, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
+                variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount, enableVariantDocMode,
+                variantDocMaterializationMinRows, variantDocShardCount, enableNestedGroup, serializeType);
+    }
+
+    /**
+     * The layout a changelog stores this column with, as a new instance; this one is untouched. Both images of a
+     * changelog row are only read whole, so every path goes to the sparse column (V2 with no dynamic subcolumn and
+     * typed paths sent to the sparse column) whatever this column's layout is. The predefined fields stay, so typed
+     * paths keep their types.
+     */
+    public VariantType forChangelog() {
+        Preconditions.checkState(getClass() == VariantType.class,
+                "forChangelog copies a plain VariantType, not %s", getClass().getName());
+        // doc mode and nested group clear the sparse statistics size, so use its default
+        int sparseColumnStatisticsSize = variantMaxSparseColumnStatisticsSize > 0
+                ? variantMaxSparseColumnStatisticsSize : 10000;
+        return new VariantType(predefinedFields,
+                /*variantMaxSubcolumnsCount*/ 0,
+                /*enableTypedPathsToSparse*/ true,
+                /*variantMaxSparseColumnStatisticsSize*/ sparseColumnStatisticsSize,
+                /*variantSparseHashShardCount*/ variantSparseHashShardCount,
+                /*variantEnableDocMode*/ false,
+                /*variantDocMaterializationMinRows*/ 0L,
+                /*variantDocShardCount*/ 0,
+                /*enableNestedGroup*/ false,
+                /*variantSerializeType*/ TVariantSerializeType.V2);
     }
 
     @Override
@@ -237,7 +280,10 @@ public class VariantType extends ScalarType {
                 && enableTypedPathsToSparse == otherVariantType.enableTypedPathsToSparse
                 && enableVariantDocMode == otherVariantType.enableVariantDocMode
                 && variantDocMaterializationMinRows == otherVariantType.variantDocMaterializationMinRows
-                && enableNestedGroup == otherVariantType.enableNestedGroup;
+                && enableNestedGroup == otherVariantType.enableNestedGroup
+                // the serialize type only changes what a max subcolumns count of 0 means
+                && (variantMaxSubcolumnsCount != 0 || enableVariantDocMode || enableNestedGroup
+                        || variantSerializeType == otherVariantType.variantSerializeType);
     }
 
     @Override
@@ -279,6 +325,10 @@ public class VariantType extends ScalarType {
 
     public boolean getEnableNestedGroup() {
         return enableNestedGroup;
+    }
+
+    public TVariantSerializeType getVariantSerializeType() {
+        return variantSerializeType;
     }
 
 }

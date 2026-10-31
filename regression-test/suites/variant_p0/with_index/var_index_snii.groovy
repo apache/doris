@@ -95,7 +95,7 @@ suite("regression_test_variant_var_index_snii", "p0, nonConcurrent"){
     sql """
         CREATE TABLE IF NOT EXISTS ${dynamic_table} (
             k bigint,
-            v variant,
+            v variant<PROPERTIES("variant_max_subcolumns_count" = "2048")>,
             INDEX idx_var(v) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
         )
         DUPLICATE KEY(`k`)
