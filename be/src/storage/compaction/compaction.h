@@ -156,6 +156,12 @@ protected:
                                     const std::function<void(int64_t, int64_t)>& error_handler);
 
     void construct_index_compaction_columns(RowsetWriterContext& ctx);
+    bool _should_compact_indexes() const {
+        return _changelog_ttl_filtered_rows == 0 && _enable_inverted_index_compaction &&
+               ((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+                 _tablet->enable_unique_key_merge_on_write()) ||
+                _tablet->keys_type() == KeysType::DUP_KEYS);
+    }
 
     virtual Status construct_output_rowset_writer(RowsetWriterContext& ctx) = 0;
 

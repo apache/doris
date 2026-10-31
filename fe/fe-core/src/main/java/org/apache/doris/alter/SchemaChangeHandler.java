@@ -2638,6 +2638,10 @@ public class SchemaChangeHandler extends AlterHandler {
                             }
                             throw new DdlException("index " + dropIndexOp.getIndexName() + " does not exist");
                         }
+                        if (found.isVariantValuesIndex()) {
+                            throw new DdlException(
+                                    "DROP INDEX is not supported for a VARIANT values index");
+                        }
                         if (found.getIndexType() != IndexType.INVERTED) {
                             throw new DdlException(
                                     "Only inverted index supports DROP INDEX ON PARTITION");
@@ -3399,7 +3403,9 @@ public class SchemaChangeHandler extends AlterHandler {
             }
             Set<String> existedIdxColSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
             existedIdxColSet.addAll(index.getColumns());
-            if (index.getIndexType() == indexDef.getIndexType() && newColset.equals(existedIdxColSet)) {
+            // Values indexes and path indexes have disjoint scopes.
+            if (index.getIndexType() == indexDef.getIndexType() && newColset.equals(existedIdxColSet)
+                    && !index.isVariantValuesIndex()) {
                 if (newColset.size() == 1
                         && olapTable.getInvertedIndexFileStorageFormat()
                         .compareTo(TInvertedIndexFileStorageFormat.V2) >= 0) {
@@ -3469,6 +3475,10 @@ public class SchemaChangeHandler extends AlterHandler {
                 return true;
             }
             throw new DdlException("index " + indexName + " does not exist");
+        }
+
+        if (found.isVariantValuesIndex()) {
+            throw new DdlException("DROP INDEX is not supported for a VARIANT values index");
         }
 
         if (!InvertedIndexUtil.getInvertedIndexFieldPattern(found.getProperties()).isEmpty()) {

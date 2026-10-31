@@ -17,9 +17,12 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.analysis.MatchPredicate.Operator;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
@@ -1025,9 +1028,29 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         }
 
         if (left.getDataType().isVariantType()) {
-            left = new Cast(left, right.getDataType());
+            if (isVariantRootSlot(left)) {
+                if (match.op() != Operator.MATCH_ANY && match.op() != Operator.MATCH_ALL) {
+                    throw new AnalysisException("VARIANT root column supports only MATCH, MATCH_ANY, and MATCH_ALL. "
+                            + "Please query a subcolumn for " + match);
+                }
+            } else {
+                left = new Cast(left, right.getDataType());
+            }
         }
+
         return match.withChildren(left, right);
+    }
+
+    /** Identifies a base-table root slot with a values index. */
+    public static boolean isVariantRootSlot(Expression expression) {
+        if (!(expression instanceof SlotReference)) {
+            return false;
+        }
+        SlotReference slot = (SlotReference) expression;
+        TableIf table = slot.getOriginalTable().orElse(null);
+        return !slot.hasSubColPath() && slot.getOriginalColumn().isPresent()
+                && table instanceof OlapTable
+                && ((OlapTable) table).hasVariantValuesIndex(slot.getOriginalColumn().get());
     }
 
     @Override

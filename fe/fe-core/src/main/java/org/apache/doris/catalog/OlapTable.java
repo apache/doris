@@ -4169,19 +4169,30 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return getInvertedIndex(column, subPath, null);
     }
 
+    public boolean hasVariantValuesIndex(Column column) {
+        return indexes != null && getInvertedIndexes(column).stream().anyMatch(Index::isVariantValuesIndex);
+    }
+
+    /**
+     * The VARIANT values index that serves whole-document MATCH for the given analyzer.
+     */
+    public Index getVariantValuesIndex(Column column, String analyzer) {
+        if (indexes == null) {
+            return null;
+        }
+        List<Index> candidates = filterIndexesByAnalyzer(getInvertedIndexes(column).stream()
+                .filter(Index::isVariantValuesIndex).collect(Collectors.toList()), analyzer);
+        return candidates.size() == 1 ? candidates.get(0) : null;
+    }
+
     public Index getInvertedIndex(Column column, List<String> subPath, String analyzer) {
         if (indexes == null) {
             return null;
         }
-        List<Index> invertedIndexes = new ArrayList<>();
-        for (Index index : indexes.getIndexes()) {
-            if (index.getIndexType() == IndexType.INVERTED) {
-                List<String> columns = index.getColumns();
-                if (columns != null && !columns.isEmpty() && column.getName().equals(columns.get(0))) {
-                    invertedIndexes.add(index);
-                }
-            }
-        }
+        // Generic index lookup serves paths and SEARCH. Only root MATCH uses the explicit
+        // getVariantValuesIndex entry point.
+        List<Index> invertedIndexes = getInvertedIndexes(column).stream()
+                .filter(index -> !index.isVariantValuesIndex()).collect(Collectors.toList());
 
         List<Index> filteredInvertedIndexes = filterIndexesByAnalyzer(invertedIndexes, analyzer);
 
@@ -4220,13 +4231,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         }
 
         List<Index> invertedIndexesWithFieldPattern = new ArrayList<>();
-        for (Index index : indexes.getIndexes()) {
-            if (index.getIndexType() == IndexType.INVERTED) {
-                List<String> columns = index.getColumns();
-                if (columns != null && !columns.isEmpty() && column.getName().equals(columns.get(0))
-                                        && fieldPattern.equals(index.getInvertedIndexFieldPattern())) {
-                    invertedIndexesWithFieldPattern.add(index);
-                }
+        // Reuse the same root-excluded candidates for the field-pattern path.
+        for (Index index : invertedIndexes) {
+            if (fieldPattern.equals(index.getInvertedIndexFieldPattern())) {
+                invertedIndexesWithFieldPattern.add(index);
             }
         }
         List<Index> filteredFieldPatternIndexes = filterIndexesByAnalyzer(invertedIndexesWithFieldPattern, analyzer);
@@ -4238,6 +4246,19 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                                         : filteredFieldPatternIndexes.stream()
                                         .filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
         }
+    }
+
+    private List<Index> getInvertedIndexes(Column column) {
+        List<Index> invertedIndexes = new ArrayList<>();
+        for (Index index : indexes.getIndexes()) {
+            if (index.getIndexType() == IndexType.INVERTED) {
+                List<String> columns = index.getColumns();
+                if (columns != null && !columns.isEmpty() && column.getName().equals(columns.get(0))) {
+                    invertedIndexes.add(index);
+                }
+            }
+        }
+        return invertedIndexes;
     }
 
     /**

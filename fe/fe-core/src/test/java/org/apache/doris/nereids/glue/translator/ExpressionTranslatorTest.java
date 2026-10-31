@@ -25,9 +25,13 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.indexpolicy.IndexPolicy;
 import org.apache.doris.indexpolicy.IndexPolicyMgr;
 import org.apache.doris.indexpolicy.IndexPolicyTypeEnum;
@@ -36,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.BitNot;
 import org.apache.doris.nereids.trees.expressions.MatchAny;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -70,6 +75,38 @@ public class ExpressionTranslatorTest {
         MatchAny matchAny = new MatchAny(new VarcharLiteral("collections"), new NullLiteral());
         ExpressionTranslator translator = ExpressionTranslator.INSTANCE;
         Assertions.assertThrows(AnalysisException.class, () -> translator.visitMatch(matchAny, null));
+    }
+
+    @Test
+    public void testVariantRootMatchBindsOnlyValuesIndex() {
+        OlapTable table = new OlapTable();
+        Column column = new Column("v", Type.VARIANT);
+        SlotReference root = SlotReference.fromColumn(
+                StatementScopeIdGenerator.newExprId(),
+                table, column, ImmutableList.of());
+        Index path = new Index(1, "path", ImmutableList.of("v"),
+                IndexType.INVERTED, Map.of("parser", "english"), "");
+        Index values = new Index(2, "values", ImmutableList.of("v"),
+                IndexType.INVERTED,
+                Map.of("parser", "unicode", "variant_index_scope", "values", "support_phrase", "false"), "");
+        PlanTranslatorContext context = new PlanTranslatorContext();
+        context.addExprIdSlotRefPair(root.getExprId(), new SlotRef(Type.VARIANT, true));
+        table.setIndexes(ImmutableList.of(path, values));
+        for (String analyzer : new String[] {null, "unicode"}) {
+            MatchPredicate translated = Assertions.assertInstanceOf(MatchPredicate.class,
+                    ExpressionTranslator.INSTANCE.visitMatch(
+                            new MatchAny(root, new VarcharLiteral("hello"), analyzer), context));
+            Assertions.assertEquals("unicode", translated.getInvertedIndexParser());
+        }
+        AnalysisException mismatch = Assertions.assertThrows(AnalysisException.class,
+                () -> ExpressionTranslator.INSTANCE.visitMatch(
+                        new MatchAny(root, new VarcharLiteral("hello"), "english"), context));
+        Assertions.assertTrue(mismatch.getMessage().contains("values index matching its analyzer"));
+        table.setIndexes(ImmutableList.of(path));
+        AnalysisException missing = Assertions.assertThrows(AnalysisException.class,
+                () -> ExpressionTranslator.INSTANCE.visitMatch(
+                        new MatchAny(root, new VarcharLiteral("hello")), context));
+        Assertions.assertTrue(missing.getMessage().contains("values index"));
     }
 
     @Test

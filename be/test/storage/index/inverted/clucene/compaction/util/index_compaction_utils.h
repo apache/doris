@@ -445,6 +445,9 @@ class IndexCompactionUtils {
         ctx.max_rows_per_segment = max_rows_per_segment;
         // Empty for a local output rowset, which is what is_local_rowset() keys off.
         ctx.storage_resource = output_storage_resource;
+        if (compaction._should_compact_indexes()) {
+            compaction.construct_index_compaction_columns(ctx);
+        }
         RETURN_IF_ERROR(compaction.construct_output_rowset_writer(ctx));
         if (output_segment_start_id != 0) {
             compaction._output_rs_writer->set_segment_start_id(output_segment_start_id);

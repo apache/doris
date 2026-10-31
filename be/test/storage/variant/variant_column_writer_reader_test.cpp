@@ -6913,6 +6913,46 @@ TEST_F(VariantColumnWriterReaderTest, test_find_subcolumn_tablet_indexes_branch_
         EXPECT_EQ(nested[0]->get_index_suffix(), "v%2Earr%2Einner%2Ez");
         EXPECT_NE(nested[0]->get_index_suffix(), "arr%2Einner%2Ez");
     }
+
+    TabletIndexPB values_index_pb;
+    construct_tablet_index(&values_index_pb, 10005, "idx_v_values", root_column.unique_id());
+    (*values_index_pb.mutable_properties())["variant_index_scope"] = "values";
+    (*values_index_pb.mutable_properties())["parser"] = "english";
+    TabletIndex values_index;
+    values_index.init_from_pb(values_index_pb);
+    _tablet_schema->append_index(std::move(values_index));
+
+    std::shared_ptr<segment_v2::ColumnReader> values_index_column_reader;
+    st = create_variant_root_reader(footer, file_reader, _tablet_schema,
+                                    &values_index_column_reader);
+    ASSERT_TRUE(st.ok()) << st.msg();
+    auto* values_index_variant_reader =
+            assert_cast<segment_v2::VariantColumnReader*>(values_index_column_reader.get());
+    ASSERT_NE(values_index_variant_reader, nullptr);
+    {
+        auto sparse_logical_path = values_index_variant_reader->find_subcolumn_tablet_indexes(
+                make_subcolumn("v.sparse", FieldType::OLAP_FIELD_TYPE_VARIANT, "v.sparse",
+                               root_unique_id),
+                std::make_shared<DataTypeVariant>(10, false));
+        EXPECT_TRUE(sparse_logical_path.empty());
+    }
+
+    {
+        auto hierarchical_logical_path = values_index_variant_reader->find_subcolumn_tablet_indexes(
+                make_subcolumn("v.object", FieldType::OLAP_FIELD_TYPE_VARIANT, "v.object",
+                               root_unique_id),
+                std::make_shared<DataTypeVariant>(10, false));
+        EXPECT_TRUE(hierarchical_logical_path.empty());
+    }
+
+    {
+        auto physical_sparse_map = values_index_variant_reader->find_subcolumn_tablet_indexes(
+                make_subcolumn("v.__sparse", FieldType::OLAP_FIELD_TYPE_MAP, "v.__sparse",
+                               root_unique_id),
+                std::make_shared<DataTypeMap>(std::make_shared<DataTypeString>(),
+                                              std::make_shared<DataTypeString>()));
+        EXPECT_TRUE(physical_sparse_map.empty());
+    }
 }
 
 TEST_F(VariantColumnWriterReaderTest, test_write_data_nullable) {

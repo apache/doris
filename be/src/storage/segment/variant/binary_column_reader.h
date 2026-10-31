@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -36,6 +37,10 @@ enum class BinaryColumnType {
     MULTIPLE_DOC_VALUE = 2,
     DUMMY = 3,
 };
+
+// Shares the read-side row/key ordering with writers indexing finalized storage.
+void combine_variant_binary_buckets(std::span<const IColumn* const> buckets, size_t begin,
+                                    size_t num_rows, IColumn& destination);
 
 // Combine multiple bucket binary iterators into one logical iterator.
 class CombineMultipleBinaryColumnIterator;

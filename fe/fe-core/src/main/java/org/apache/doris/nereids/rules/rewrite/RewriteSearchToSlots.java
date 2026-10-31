@@ -189,7 +189,7 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
      * @param columnName    column name (parent column name when isVariantParent)
      * @param dsl           original DSL, used in the error message
      * @param isVariantParent true when {@code columnName} is the parent of a variant subcolumn
-     *                        access (e.g. {@code msg.body}); for that case any INVERTED index on
+     *                        access (e.g. {@code msg.body}); for that case a path-compatible INVERTED index on
      *                        the parent column is accepted because the concrete subcolumn binding
      *                        is resolved per-segment in BE.
      */
@@ -206,7 +206,7 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
 
         if (isVariantParent) {
             for (Index index : table.getIndexes()) {
-                if (index.getIndexType() != IndexType.INVERTED) {
+                if (index.getIndexType() != IndexType.INVERTED || index.isVariantValuesIndex()) {
                     continue;
                 }
                 List<String> columns = index.getColumns();

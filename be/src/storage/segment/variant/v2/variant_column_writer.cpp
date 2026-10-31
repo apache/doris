@@ -24,13 +24,18 @@
 #include "common/cast_set.h"
 #include "common/exception.h"
 #include "core/assert_cast.h"
+#include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/column/variant_v2/column_variant_v2.h"
+#include "exec/common/variant_util.h"
 #include "exprs/function/parse/variant_jsonb_parse.h"
 #include "storage/rowset/rowset_writer_context.h"
+#include "storage/segment/variant/binary_column_reader.h"
+#include "storage/segment/variant/v2/variant_assembler.h"
 #include "storage/segment/variant/v2/variant_shredder.h"
+#include "storage/segment/variant/v2/variant_values_index_writer.h"
 #include "storage/segment/variant/variant_column_writer_impl.h"
 #include "storage/segment/variant/variant_writer_helpers.h"
 #include "util/jsonb_writer.h"
@@ -108,7 +113,19 @@ Status VariantV2ColumnWriter::init() {
             *_opts.rowset_ctx->tablet_schema, *_tablet_column));
     _root_only = variant_writer_helpers::has_extracted_variant_columns(
             *_opts.rowset_ctx->tablet_schema, _tablet_column->unique_id());
+    // The segment writer selected root values indexes and excluded indexes being merged natively.
+    for (const TabletIndex* index : _opts.inverted_indexes) {
+        auto writer = std::make_unique<VariantValuesIndexWriter>(_opts.index_file_writer, index,
+                                                                 _opts.is_direct_load);
+        RETURN_IF_ERROR(writer->init());
+        _values_index_writers.push_back(std::move(writer));
+    }
     if (_root_only) {
+        // An extracted-root batch holds only the sidecar. A rebuilding values index needs the
+        // complete root; compaction must keep that root out of the extracted-column schema.
+        if (!_values_index_writers.empty()) {
+            return Status::InternalError("VARIANT root-only writer cannot rebuild a values index");
+        }
         // Stream the root column instead of buffering a whole segment: the JSONB ColumnString
         // would otherwise have to hold every row of the segment and could exceed the
         // ColumnStr<uint32_t> 4 GiB limit before finalize.
@@ -184,8 +201,11 @@ Status VariantV2ColumnWriter::_write_root(const IColumn* root_jsonb, int& column
                                        root_jsonb ? root_jsonb->size() : 0, _num_rows);
     }
     DORIS_CHECK_EQ(_outer_nulls->size(), _num_rows);
+    ColumnWriterOptions root_options = _opts;
+    root_options.inverted_indexes.clear();
+    root_options.need_inverted_index = false;
     _root_writer = std::make_unique<ScalarColumnWriter>(
-            _opts, std::make_shared<TabletColumn>(*_tablet_column), _opts.file_writer);
+            root_options, std::make_shared<TabletColumn>(*_tablet_column), _opts.file_writer);
     RETURN_IF_ERROR(_root_writer->init());
 
     if (_num_rows > 0) {
@@ -234,10 +254,16 @@ Status VariantV2ColumnWriter::_write_materialized(const VariantShreddedColumns& 
 
 Status VariantV2ColumnWriter::_write_binary(const VariantShreddedColumns& shredded,
                                             int& column_id) {
+    // Sparse/DOC buckets are physical Map<String,String> storage, not SQL index targets.
+    // Inheriting a parent values/path index flag makes MapColumnWriter finish a null builder.
+    ColumnWriterOptions binary_options = _opts;
+    binary_options.need_inverted_index = false;
+    binary_options.inverted_indexes.clear();
     if (_tablet_column->variant_enable_doc_mode()) {
         auto writer = std::make_unique<VariantDocWriter>();
         const int bucket_count = std::max(1, _tablet_column->variant_doc_hash_shard_count());
-        RETURN_IF_ERROR(writer->init(_tablet_column, bucket_count, column_id, _opts, _opts.footer));
+        RETURN_IF_ERROR(writer->init(_tablet_column, bucket_count, column_id, binary_options,
+                                     _opts.footer));
         RETURN_IF_ERROR(writer->append_shredded(shredded, _num_rows));
         _binary_writer = std::move(writer);
         return Status::OK();
@@ -245,9 +271,80 @@ Status VariantV2ColumnWriter::_write_binary(const VariantShreddedColumns& shredd
 
     auto writer = std::make_unique<UnifiedSparseColumnWriter>();
     const int bucket_count = std::max(1, _tablet_column->variant_sparse_hash_shard_count());
-    RETURN_IF_ERROR(writer->init(_tablet_column, bucket_count, column_id, _opts, _opts.footer));
+    RETURN_IF_ERROR(
+            writer->init(_tablet_column, bucket_count, column_id, binary_options, _opts.footer));
     RETURN_IF_ERROR(writer->append_shredded(shredded, _num_rows));
     _binary_writer = std::move(writer);
+    return Status::OK();
+}
+
+Status VariantV2ColumnWriter::_write_values_indexes(const VariantShreddedColumns& shredded) {
+    if (_values_index_writers.empty()) {
+        return Status::OK();
+    }
+    constexpr size_t kBatchRows = 4096;
+    const bool doc = _tablet_column->variant_enable_doc_mode();
+    variant_v2::VariantAssemblerOptions options;
+    options.has_root = true;
+    options.storage_map_kind =
+            doc ? variant_v2::StorageMapKind::DOC : variant_v2::StorageMapKind::SPARSE;
+    if (!doc) {
+        for (const auto& path : shredded.materialized) {
+            options.materialized_paths.push_back({.path = path.path, .type = path.type});
+        }
+    }
+    auto assembler = DORIS_TRY(variant_v2::VariantAssembler::create(std::move(options)));
+    std::vector<const IColumn*> buckets;
+    for (const auto& bucket : shredded.binary_buckets) {
+        buckets.push_back(bucket.column.get());
+    }
+    std::vector<size_t> positions(shredded.materialized.size(), 0);
+    for (size_t begin = 0; begin < _num_rows; begin += kBatchRows) {
+        const size_t n = std::min(kBatchRows, _num_rows - begin);
+        auto nulls = _outer_nulls->cut(begin, n);
+        auto root = ColumnNullable::create(shredded.root_jsonb->cut(begin, n), nulls);
+        std::vector<MutableColumnPtr> owners;
+        std::vector<const IColumn*> materialized;
+        if (!doc) {
+            for (size_t i = 0; i < shredded.materialized.size(); ++i) {
+                const auto& path = shredded.materialized[i];
+                auto column = path.column->clone_empty();
+                size_t next_row = begin;
+                size_t& pos = positions[i];
+                while (pos < path.rowids.size() && path.rowids[pos] < begin + n) {
+                    const size_t row = path.rowids[pos];
+                    column->insert_many_defaults(row - next_row);
+                    column->insert_from(*path.column, pos++);
+                    next_row = row + 1;
+                }
+                column->insert_many_defaults(begin + n - next_row);
+                materialized.push_back(column.get());
+                owners.push_back(std::move(column));
+            }
+        }
+        // A single bucket must keep exactly the reader's stored order, even for dotted keys.
+        // Multiple buckets use the same row-wise ordering function as the read iterator.
+        MutableColumnPtr map;
+        if (buckets.size() == 1) {
+            map = IColumn::mutate(buckets.front()->cut(begin, n));
+        } else {
+            map = variant_util::create_variant_binary_column();
+            combine_variant_binary_buckets(buckets, begin, n, *map);
+        }
+        variant_v2::VariantAssemblerBatchView batch;
+        batch.num_rows = n;
+        batch.root_jsonb = root.get();
+        batch.materialized_columns = materialized;
+        batch.storage_map = assert_cast<const ColumnMap*>(map.get());
+        ColumnNullable::MutablePtr assembled;
+        RETURN_IF_ERROR(assembler->assemble(batch, &assembled));
+        const auto& values = assert_cast<const ColumnVariantV2&>(assembled->get_nested_column());
+        for (auto& writer : _values_index_writers) {
+            RETURN_IF_ERROR(writer->append(
+                    values.read_view(), 0, n,
+                    std::span<const uint8_t>(assembled->get_null_map_data().data(), n)));
+        }
+    }
     return Status::OK();
 }
 
@@ -268,6 +365,8 @@ Status VariantV2ColumnWriter::finalize() {
     RETURN_IF_ERROR(_shredder->finish(&shredded));
     DORIS_CHECK_EQ(shredded.num_rows, _num_rows);
     _shredder.reset();
+
+    RETURN_IF_ERROR(_write_values_indexes(shredded));
 
     int column_id = 0;
     RETURN_IF_ERROR(_write_root(shredded.root_jsonb.get(), column_id));
@@ -338,6 +437,9 @@ Status VariantV2ColumnWriter::write_zone_map() {
 
 Status VariantV2ColumnWriter::write_inverted_index() {
     DORIS_CHECK(_is_finalized);
+    for (auto& writer : _values_index_writers) {
+        RETURN_IF_ERROR(writer->finish());
+    }
     for (size_t index = 0; index < _subcolumn_writers.size(); ++index) {
         if (_subcolumn_opts[index].need_inverted_index) {
             RETURN_IF_ERROR(_subcolumn_writers[index]->write_inverted_index());

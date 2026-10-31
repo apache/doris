@@ -266,7 +266,15 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         }
         Column column = slot.getOriginalColumn().orElse(null);
         OlapTable olapTbl = getOlapTableDirectly(slot);
-        if (column != null && olapTbl != null) {
+        if (match.left() instanceof SlotReference && match.left().getDataType().isVariantType()
+                && !slot.hasSubColPath()) {
+            invertedIndex = column != null && olapTbl != null
+                    ? olapTbl.getVariantValuesIndex(column, analyzer) : null;
+            if (invertedIndex == null) {
+                throw new AnalysisException("VARIANT root MATCH requires a values index matching its analyzer"
+                        + (analyzer == null ? "" : " '" + analyzer + "'"));
+            }
+        } else if (column != null && olapTbl != null) {
             invertedIndex = olapTbl.getInvertedIndex(column, slot.getSubPath(), analyzer);
             if (analyzer != null && invertedIndex == null) {
                 throw new AnalysisException("No inverted index found for analyzer '" + analyzer

@@ -20,12 +20,17 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.MatchAny;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RowTtlIsVisible;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.thrift.TPlanNode;
@@ -78,6 +83,33 @@ class BindScoreToOlapScanTest extends TestWithFeService {
                     + keyType + " KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
                     + "PROPERTIES ('replication_num' = '1', 'function_column.enable_row_ttl' = 'true')");
         }
+    }
+
+    @Test
+    void testValuesMatchRejectsScore() throws Exception {
+        createTable("CREATE TABLE values_match (id INT, v VARIANT, "
+                + "INDEX values_idx(v) USING INVERTED PROPERTIES "
+                + "('variant_index_scope'='values','parser'='unicode'), "
+                + "INDEX path_idx(v) USING INVERTED PROPERTIES ('parser'='english')) "
+                + "DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
+                + "PROPERTIES('replication_num'='1','inverted_index_storage_format'='SNII')");
+        assertScoreUsageError("SELECT id, score() FROM values_match WHERE v MATCH 'hello' "
+                + "ORDER BY score() DESC LIMIT 2", "score() is not supported");
+        assertFullScoring("SELECT id, score() FROM values_match WHERE v['obj'] MATCH 'hello'", 2);
+        // A pruned object path can reach this rule as a VARIANT slot instead of a STRING cast.
+        LogicalOlapScan scan = (LogicalOlapScan) PlanChecker.from(connectContext)
+                .analyze("SELECT v FROM values_match").getCascadesContext().getRewritePlan()
+                .collectFirst(plan -> plan instanceof LogicalOlapScan).get();
+        SlotReference path = ((SlotReference) scan.getOutput().stream()
+                .filter(slot -> slot.getName().equals("v")).findFirst().get()).withSubPath(List.of("obj"));
+        Assertions.assertTrue(path.getDataType().isVariantType());
+        Plan plan = new LogicalProject<>(List.of(new Alias(new Score(), "s")),
+                new LogicalFilter<>(Set.of(new MatchAny(path, new StringLiteral("hello"))),
+                        scan.withCachedOutput(List.of(path))));
+        Plan scored = new BindScoreToOlapScan().rewriteRoot(plan, null);
+        LogicalOlapScan scoredScan = (LogicalOlapScan) scored
+                .collectFirst(node -> node instanceof LogicalOlapScan).get();
+        Assertions.assertTrue(BindScoreToOlapScan.findScoreSlot(scoredScan).isPresent());
     }
 
     static Stream<Arguments> scoringPredicates() {
