@@ -460,7 +460,14 @@ Status decode_leaf_block(Slice block, uint32_t bytes_per_dim, uint32_t expected_
 
 Status decode_leaf_doc_ids(Slice block, uint32_t bytes_per_dim, uint32_t expected_point_count,
                            std::vector<uint32_t>* doc_ids) {
+    std::vector<LeafValueRun> runs;
+    return decode_leaf_doc_ids(block, bytes_per_dim, expected_point_count, doc_ids, &runs);
+}
+
+Status decode_leaf_doc_ids(Slice block, uint32_t bytes_per_dim, uint32_t expected_point_count,
+                           std::vector<uint32_t>* doc_ids, std::vector<LeafValueRun>* runs) {
     DORIS_CHECK(doc_ids != nullptr);
+    DORIS_CHECK(runs != nullptr);
     DORIS_CHECK_GT(bytes_per_dim, 0U);
 
     ByteSource src(block);
@@ -471,13 +478,13 @@ Status decode_leaf_doc_ids(Slice block, uint32_t bytes_per_dim, uint32_t expecte
     size_t docid_block_end = 0;
     RETURN_IF_ERROR(decode_leaf_tail(block, &docid_block_offset, &docid_block_end));
 
-    std::vector<LeafValueRun> runs;
-    RETURN_IF_ERROR(skip_value_area(&src, head, &runs));
+    runs->clear();
+    RETURN_IF_ERROR(skip_value_area(&src, head, runs));
     if (src.position() != docid_block_offset) {
         return leaf_codec_corrupted("docid_block_offset disagrees with the end of the value area");
     }
     return decode_doc_id_block(
-            block.subslice(docid_block_offset, docid_block_end - docid_block_offset), head, runs,
+            block.subslice(docid_block_offset, docid_block_end - docid_block_offset), head, *runs,
             doc_ids);
 }
 

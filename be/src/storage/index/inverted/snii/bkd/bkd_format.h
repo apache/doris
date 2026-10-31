@@ -100,7 +100,7 @@ inline constexpr uint32_t kBuiltWithSpill = 1U << 0;
 // Two files, not the old implementation's three: bkd_meta is folded into the
 // bkd_index header, where it gains a magic, a version and a framer checksum.
 // bkd_index is HOT (read in full at open and kept resident); bkd_data is COLD
-// (one positioned read per touched leaf).
+// (positioned reads of the touched leaves, a run of whole-leaf hits in one read).
 inline constexpr std::string_view kBkdIndexFileName = "bkd_index";
 inline constexpr std::string_view kBkdDataFileName = "bkd_data";
 

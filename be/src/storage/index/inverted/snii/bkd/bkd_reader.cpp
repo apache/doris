@@ -18,9 +18,13 @@
 #include "storage/index/inverted/snii/bkd/bkd_reader.h"
 
 #include <algorithm>
+#include <bit>
+#include <cstdint>
 #include <cstring>
+#include <span>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #include "common/check.h"
 #include "roaring/roaring.hh"
@@ -73,6 +77,110 @@ void radix_sort_u32(std::vector<uint32_t>* values, std::vector<uint32_t>* scratc
     if (src != values->data()) {
         std::memcpy(values->data(), src, n * sizeof(uint32_t));
     }
+}
+
+// Whole-leaf hits lie next to each other in bkd_data, so one read takes many of them: far fewer
+// calls when they are cached, and one sequential read when they are not.
+constexpr uint64_t kMaxLeavesReadBytes = 1U << 20;
+
+uint32_t leaves_in_one_read(const BkdIndexBlockReader& block, uint32_t first, uint32_t end) {
+    const uint64_t begin = block.leaf(first).offset;
+    uint32_t next = first + 1;
+    while (next < end && block.leaf(next).offset - begin < kMaxLeavesReadBytes) {
+        ++next;
+    }
+    return next;
+}
+
+// A flat bitmap needs no sort, but a pass over all its words however few bits are set, which pays
+// from about one point per this many documents.
+constexpr uint64_t kDocsPerPointForDocBits = 256;
+// A doc id from here up goes through the sort instead, which holds the bitmap to 32 MiB whatever a
+// damaged leaf says.
+constexpr uint32_t kMaxDocBitsDocId = 1U << 28;
+constexpr size_t kWordsPerContainer = 1024;
+
+// Sets the doc ids in `bits`, which grows by whole containers. Returns false, leaving `bits` as it
+// was, when one of them is too large for it.
+bool set_doc_bits(std::span<const uint32_t> doc_ids, std::vector<uint64_t>* bits) {
+    uint32_t largest = 0;
+    for (const uint32_t doc_id : doc_ids) {
+        largest = std::max(largest, doc_id);
+    }
+    if (largest >= kMaxDocBitsDocId) {
+        return false;
+    }
+    const size_t words = (static_cast<size_t>(largest >> 16) + 1) * kWordsPerContainer;
+    if (bits->size() < words) {
+        bits->resize(words);
+    }
+    uint64_t* const data = bits->data();
+    for (const uint32_t doc_id : doc_ids) {
+        data[doc_id >> 6] |= uint64_t {1} << (doc_id & 63);
+    }
+    return true;
+}
+
+// CRoaring 2.1.2 has no call that takes a bitset, so the bits go through Roaring's published
+// portable format: a cookie, the number of containers, a key and cardinality - 1 per container, an
+// offset per container, then the containers, up to 4096 doc ids as sorted 16-bit values and more as
+// their 1024 words.
+roaring::Roaring load_doc_bits(std::span<const uint64_t> bits, std::vector<char>* image) {
+    constexpr uint32_t kPortableCookieNoRuns = 12346;
+    constexpr uint32_t kMaxArrayContainerDocs = 4096;
+    constexpr uint32_t kBitsetContainerBytes = kWordsPerContainer * sizeof(uint64_t);
+    struct Container {
+        uint32_t key;
+        uint32_t cardinality;
+        uint32_t bytes() const {
+            return cardinality > kMaxArrayContainerDocs
+                           ? kBitsetContainerBytes
+                           : cardinality * static_cast<uint32_t>(sizeof(uint16_t));
+        }
+    };
+    std::vector<Container> containers;
+    size_t image_bytes = sizeof(uint32_t) * 2;
+    for (size_t key = 0; key * kWordsPerContainer < bits.size(); ++key) {
+        uint32_t cardinality = 0;
+        for (const uint64_t word : bits.subspan(key * kWordsPerContainer, kWordsPerContainer)) {
+            cardinality += std::popcount(word);
+        }
+        if (cardinality != 0) {
+            containers.push_back({static_cast<uint32_t>(key), cardinality});
+            image_bytes += sizeof(uint32_t) * 2 + containers.back().bytes();
+        }
+    }
+    image->resize(image_bytes);
+    char* out = image->data();
+    const auto put = [&out](auto value) {
+        std::memcpy(out, &value, sizeof(value));
+        out += sizeof(value);
+    };
+    put(kPortableCookieNoRuns);
+    put(static_cast<uint32_t>(containers.size()));
+    for (const Container& container : containers) {
+        put(static_cast<uint16_t>(container.key));
+        put(static_cast<uint16_t>(container.cardinality - 1));
+    }
+    auto offset = static_cast<uint32_t>(sizeof(uint32_t) * (2 + containers.size() * 2));
+    for (const Container& container : containers) {
+        put(offset);
+        offset += container.bytes();
+    }
+    for (const Container& container : containers) {
+        const uint64_t* const words = bits.data() + container.key * kWordsPerContainer;
+        if (container.cardinality > kMaxArrayContainerDocs) {
+            std::memcpy(out, words, kBitsetContainerBytes);
+            out += kBitsetContainerBytes;
+            continue;
+        }
+        for (size_t word = 0; word < kWordsPerContainer; ++word) {
+            for (uint64_t rest = words[word]; rest != 0; rest &= rest - 1) {
+                put(static_cast<uint16_t>(word * 64 + std::countr_zero(rest)));
+            }
+        }
+    }
+    return roaring::Roaring::readSafe(image->data(), image->size());
 }
 
 // Validate section extents from the container before allocating read buffers.
@@ -304,14 +412,25 @@ Status BkdReader::range(Slice lower, bool lower_inclusive, Slice upper, bool upp
     // bound on its own side.
     RETURN_IF_ERROR(
             scan_boundary_leaf(first, lower, lower_inclusive, Slice(), true, hits, scratch));
-    // Gather doc IDs from fully covered leaves, sort them, and insert them in bounded chunks. Leaf order follows values rather than doc IDs, and bounded chunks limit memory for large ranges.
+    RETURN_IF_ERROR(add_whole_leaves(first + 1, last, hits, scratch));
+    return scan_boundary_leaf(last, Slice(), true, upper, upper_inclusive, hits, scratch);
+}
+
+Status BkdReader::add_whole_leaves(uint32_t first, uint32_t end, roaring::Roaring* hits,
+                                   BkdQueryScratch* scratch) const {
+    // Leaf order follows values rather than doc IDs. A narrow range gathers doc IDs, sorts them and
+    // inserts them in bounded chunks, which limit memory.
     constexpr size_t kMaxGatheredDocIds = 1U << 20;
+    const bool use_doc_bits =
+            static_cast<uint64_t>(end - first) * block_.header().points_per_leaf >=
+            block_.header().doc_count / kDocsPerPointForDocBits;
     // The boundary-leaf decode holds Slices INTO scratch->leaf_bytes, which the
     // interior loop is about to overwrite and may reallocate. Cleared so nothing
     // can later read a struct that still looks populated but points at freed
     // bytes.
     scratch->decoded.clear();
     scratch->gathered.clear();
+    scratch->doc_bits.clear();
     const auto flush = [&] {
         if (scratch->gathered.empty()) {
             return;
@@ -320,19 +439,35 @@ Status BkdReader::range(Slice lower, bool lower_inclusive, Slice upper, bool upp
         hits->addMany(scratch->gathered.size(), scratch->gathered.data());
         scratch->gathered.clear();
     };
-    for (uint32_t leaf = first + 1; leaf < last; ++leaf) {
-        RETURN_IF_ERROR(read_leaf(leaf, &scratch->leaf_bytes));
-        RETURN_IF_ERROR(decode_leaf_doc_ids(Slice(scratch->leaf_bytes),
-                                            block_.header().bytes_per_dim, block_.leaf(leaf).count,
-                                            &scratch->doc_ids));
-        scratch->gathered.insert(scratch->gathered.end(), scratch->doc_ids.begin(),
-                                 scratch->doc_ids.end());
-        if (scratch->gathered.size() >= kMaxGatheredDocIds) {
-            flush();
+    for (uint32_t leaf = first; leaf < end;) {
+        const uint32_t read_end = leaves_in_one_read(block_, leaf, end);
+        RETURN_IF_ERROR(read_leaves(leaf, read_end, &scratch->leaf_bytes));
+        const Slice leaves(scratch->leaf_bytes);
+        const uint64_t read_begin = block_.leaf(leaf).offset;
+        for (; leaf < read_end; ++leaf) {
+            const size_t begin = static_cast<size_t>(block_.leaf(leaf).offset - read_begin);
+            const size_t stop =
+                    leaf + 1 < read_end
+                            ? static_cast<size_t>(block_.leaf(leaf + 1).offset - read_begin)
+                            : leaves.size();
+            RETURN_IF_ERROR(decode_leaf_doc_ids(
+                    leaves.subslice(begin, stop - begin), block_.header().bytes_per_dim,
+                    block_.leaf(leaf).count, &scratch->doc_ids, &scratch->runs));
+            if (use_doc_bits && set_doc_bits(scratch->doc_ids, &scratch->doc_bits)) {
+                continue;
+            }
+            scratch->gathered.insert(scratch->gathered.end(), scratch->doc_ids.begin(),
+                                     scratch->doc_ids.end());
+            if (scratch->gathered.size() >= kMaxGatheredDocIds) {
+                flush();
+            }
         }
     }
     flush();
-    return scan_boundary_leaf(last, Slice(), true, upper, upper_inclusive, hits, scratch);
+    if (!scratch->doc_bits.empty()) {
+        *hits |= load_doc_bits(scratch->doc_bits, &scratch->bitmap_image);
+    }
+    return Status::OK();
 }
 
 Status BkdReader::lookup_many(const std::vector<Slice>& values, roaring::Roaring* hits) const {
@@ -400,7 +535,7 @@ Status BkdReader::lookup_many(const std::vector<Slice>& values, roaring::Roaring
 
     std::vector<uint8_t> value_buffer(width);
     for (const uint32_t leaf_index : leaves) {
-        RETURN_IF_ERROR(read_leaf(leaf_index, &scratch->leaf_bytes));
+        RETURN_IF_ERROR(read_leaves(leaf_index, leaf_index + 1, &scratch->leaf_bytes));
         RETURN_IF_ERROR(decode_leaf_block(Slice(scratch->leaf_bytes), width,
                                           block_.leaf(leaf_index).count, &scratch->decoded));
         const DecodedLeafBlock& leaf = scratch->decoded;
@@ -498,21 +633,21 @@ Status BkdReader::estimate_cardinality(Slice lower, bool lower_inclusive, Slice 
     return Status::OK();
 }
 
-Status BkdReader::read_leaf(uint32_t index, std::vector<uint8_t>* buffer) const {
-    const LeafRef leaf = block_.leaf(index);
+Status BkdReader::read_leaves(uint32_t first, uint32_t end, std::vector<uint8_t>* buffer) const {
+    const uint64_t begin = block_.leaf(first).offset;
     // Open-time validation bounds each leaf extent. The leaf decoder rejects an empty last block.
-    const uint64_t end = (index + 1 < block_.leaf_count()) ? block_.leaf(index + 1).offset
-                                                           : sections_.data_length;
-    const size_t length = static_cast<size_t>(end - leaf.offset);
+    const uint64_t stop =
+            end < block_.leaf_count() ? block_.leaf(end).offset : sections_.data_length;
+    const auto length = static_cast<size_t>(stop - begin);
     buffer->resize(length);
     // Use a positioned read so concurrent queries need no shared cursor.
-    return file_->read_into(sections_.data_offset + leaf.offset, buffer->data(), length);
+    return file_->read_into(sections_.data_offset + begin, buffer->data(), length);
 }
 
 Status BkdReader::scan_boundary_leaf(uint32_t index, Slice lower, bool lower_inclusive, Slice upper,
                                      bool upper_inclusive, roaring::Roaring* hits,
                                      BkdQueryScratch* scratch) const {
-    RETURN_IF_ERROR(read_leaf(index, &scratch->leaf_bytes));
+    RETURN_IF_ERROR(read_leaves(index, index + 1, &scratch->leaf_bytes));
     RETURN_IF_ERROR(decode_leaf_block(Slice(scratch->leaf_bytes), block_.header().bytes_per_dim,
                                       block_.leaf(index).count, &scratch->decoded));
     const DecodedLeafBlock& leaf = scratch->decoded;
