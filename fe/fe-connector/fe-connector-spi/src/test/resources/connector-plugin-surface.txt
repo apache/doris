@@ -35,6 +35,7 @@ org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_SYS_TABLE_NESTE
 org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_TOPN_LAZY_MATERIALIZE
 org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_USER_SESSION
 org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_VIEW
+org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_WRITE_ONLY_DEFAULTS
 org.apache.doris.connector.spi.ConnectorColumn#equals(java.lang.Object):boolean
 org.apache.doris.connector.spi.ConnectorColumn#getComment():java.lang.String
 org.apache.doris.connector.spi.ConnectorColumn#getDefaultValue():java.lang.String

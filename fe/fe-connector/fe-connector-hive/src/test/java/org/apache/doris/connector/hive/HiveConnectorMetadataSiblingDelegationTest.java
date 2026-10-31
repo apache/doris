@@ -525,7 +525,8 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE,
                 ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE,
                 ConnectorCapability.SUPPORTS_FIELD_ID_ACCESS_PATH,
-                ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING);
+                ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING,
+                ConnectorCapability.SUPPORTS_WRITE_ONLY_DEFAULTS);
         HiveConnectorMetadata md = new HiveConnectorMetadata(null, HiveTestProperties.minimal(), new FakeConnectorContext(),
                 SUPPLIER_MUST_NOT_BE_USED, SUPPLIER_MUST_NOT_BE_USED,
                 handle -> new SiblingOwner(new CapabilityDeclaringSiblingConnector(siblingCaps),
@@ -533,6 +534,9 @@ public class HiveConnectorMetadataSiblingDelegationTest {
 
         ConnectorTableSchema schema = md.getTableSchema(session, foreignHandle);
         Set<ConnectorCapability> reflected = schema.getTableCapabilities();
+        Assertions.assertTrue(reflected.contains(ConnectorCapability.SUPPORTS_WRITE_ONLY_DEFAULTS),
+                "an iceberg-on-HMS table must inherit write-only defaults, or DEFAULT(column) on it answers "
+                        + "NULL from the read schema");
         Assertions.assertTrue(reflected.contains(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE),
                 "auto-analyze must survive the delegation as a per-table capability");
         Assertions.assertTrue(reflected.contains(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE),

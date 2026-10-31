@@ -473,6 +473,17 @@ public class PluginDrivenExternalTable extends ExternalTable {
     }
 
     /**
+     * Returns whether THIS table's column defaults apply to writes only, i.e. only the request-scoped writer
+     * schema ({@link #resolveWriteColumns}) carries them. {@code InsertUtils} and {@code RewriteDefaultExpression}
+     * then resolve {@code DEFAULT(column)} against the writer schema a write statement pinned, and reject it
+     * anywhere else instead of answering NULL from the read schema. Resolved per-table via {@link #hasCapability}
+     * so an iceberg-on-HMS table inherits it, mirroring {@link #supportsNestedColumnSchemaChange}.
+     */
+    public boolean hasWriteOnlyDefaults() {
+        return hasCapability(ConnectorCapability.SUPPORTS_WRITE_ONLY_DEFAULTS);
+    }
+
+    /**
      * Whether this table supports a table-scoped capability, resolved connector-wide OR per-table. A
      * uniform-format connector (iceberg — every table orc/parquet) declares the capability for all its tables
      * via {@link Connector#getCapabilities()}; a heterogeneous connector (hive) whose eligibility is per-table
