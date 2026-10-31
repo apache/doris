@@ -57,7 +57,10 @@ private:
 
 class MockAccessor final : public StorageVaultAccessor {
 public:
-    explicit MockAccessor();
+    // `uri` is also the location, accessors with the same uri model one storage location. The root
+    // defaults to the container `uri` with an empty prefix, so distinct mocks are disjoint.
+    explicit MockAccessor(std::string uri = "mock");
+    MockAccessor(std::string uri, StorageRoot root);
 
     ~MockAccessor() override;
 
@@ -90,8 +93,14 @@ private:
     std::set<std::string> objects_;
 };
 
-inline MockAccessor::MockAccessor() : StorageVaultAccessor(AccessorType::MOCK) {
-    uri_ = "mock";
+inline MockAccessor::MockAccessor(std::string uri)
+        : StorageVaultAccessor(AccessorType::MOCK, uri, StorageRoot {.container = uri}) {
+    uri_ = std::move(uri);
+}
+
+inline MockAccessor::MockAccessor(std::string uri, StorageRoot root)
+        : StorageVaultAccessor(AccessorType::MOCK, uri, std::move(root)) {
+    uri_ = std::move(uri);
 }
 
 inline MockAccessor::~MockAccessor() = default;
@@ -195,6 +204,7 @@ inline int MockAccessor::list_directory(const std::string& dir_path,
         return -1;
     }
 
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("MockAccessor::list_directory", (int)0, this);
     std::vector<std::string> entries;
 
     {
