@@ -58,6 +58,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -92,6 +93,9 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     private FeMetaCacheEntry<String, NameCacheValue> tableNames;
     private FeMetaCacheEntry<String, T> tables;
     private transient IdNameIndex tableIdNameIndex = new IdNameIndex("external table");
+    // Guarded by extCatalog. Lookup refresh can replace table objects before invalidation completes.
+    private transient long tableLookupRefreshGeneration;
+    private transient int activeTableLookupRefreshes;
 
     private volatile boolean isInitializing = false;
 
@@ -350,6 +354,21 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         return Optional.ofNullable(tables.getIfPresent(tableName));
     }
 
+    /** Fence all observations, including those on objects published during lookup invalidation. */
+    public void beginTableLookupRefresh() {
+        synchronized (extCatalog) {
+            activeTableLookupRefreshes++;
+            tableLookupRefreshGeneration++;
+        }
+    }
+
+    public void endTableLookupRefresh() {
+        synchronized (extCatalog) {
+            activeTableLookupRefreshes--;
+            tableLookupRefreshGeneration++;
+        }
+    }
+
     /**
      * Captures only a shared base table with a matching retained names snapshot. Guard order is catalog DB,
      * table names, then table object, matching incremental name/object publication. No remote load is performed.
@@ -359,10 +378,35 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             return Optional.empty();
         }
         NameCacheValue names = getTableNamesValue(false);
-        if (names == null || !table.getRemoteName().equals(names.remoteNameOfLocalName(table.getName()))) {
+        if (names == null) {
             return Optional.empty();
         }
-        long metadataRefreshGeneration = table.getMetadataRefreshGeneration();
+        String currentRemote = names.remoteNameOfLocalName(table.getName());
+        if (currentRemote != null && !table.getRemoteName().equals(currentRemote)) {
+            return Optional.empty();
+        }
+        if (currentRemote == null && (isStoredTableNamesLowerCase() || isTableNamesCaseInsensitive())) {
+            String foldedName = table.getName().toLowerCase(Locale.ROOT);
+            // A refreshed list can omit an old hot object. Permit its cleanup unless a current alias
+            // owns the same logical name; the names/object observations below fence later publication.
+            if (names.localNames().stream().anyMatch(
+                            local -> local.toLowerCase(Locale.ROOT).equals(foldedName))) {
+                return Optional.empty();
+            }
+        }
+        long lookupGeneration;
+        OptionalLong metadataGeneration;
+        synchronized (extCatalog) {
+            if (activeTableLookupRefreshes != 0) {
+                return Optional.empty();
+            }
+            lookupGeneration = tableLookupRefreshGeneration;
+            metadataGeneration = table.observeMetadataRefreshGeneration();
+        }
+        if (!metadataGeneration.isPresent()) {
+            return Optional.empty();
+        }
+        long metadataRefreshGeneration = metadataGeneration.getAsLong();
         return extCatalog.observeDatabase(this).flatMap(database ->
                 tableNames.observe("", names).flatMap(membership ->
                         tables.observe(table.getName(), table).map(object -> () -> MetaCacheCleanup.runDeferred(() -> {
@@ -370,6 +414,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                             // runs here; remote reads happened before entering this guarded commit.
                             synchronized (extCatalog) {
                                 if (!initialized || !extCatalog.isInitialized()
+                                        || tableLookupRefreshGeneration != lookupGeneration
                                         || table.getMetadataRefreshGeneration() != metadataRefreshGeneration
                                         || Env.getCurrentEnv().getCatalogMgr().getCatalog(extCatalog.getId())
                                                 != extCatalog) {
@@ -384,7 +429,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                                             // Retire names before fencing object loads: a numeric reader may have
                                             // captured its name already and begun loading through the old snapshot.
                                             if (isStoredTableNamesLowerCase() || isTableNamesCaseInsensitive()) {
-                                                tables.invalidateAllAndRun(tableIdNameIndex::clear);
+                                                tables.invalidateAllAndRun(() ->
+                                                        tableIdNameIndex.removeNamesMatching(table.getName(), true));
                                             } else {
                                                 tables.invalidateKeyAndRun(table.getName(),
                                                         () -> tableIdNameIndex.removeName(table.getName()));
@@ -802,7 +848,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         // Folding or comparing local names without case can hide another retained remote spelling.
         // Fence every object/ID load in this database when refreshing that lookup identity.
         if (isStoredTableNamesLowerCase() || isTableNamesCaseInsensitive()) {
-            invalidateAllTableCache();
+            tableNames.invalidateAll();
+            tables.invalidateAllAndRun(() -> tableIdNameIndex.removeNamesMatching(tableName, true));
             return;
         }
         String localTableName = resolveTableNameForInvalidation(tableName);

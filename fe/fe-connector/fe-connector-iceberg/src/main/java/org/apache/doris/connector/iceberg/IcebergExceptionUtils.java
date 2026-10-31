@@ -17,9 +17,11 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.spi.ConnectorTableNotFoundException;
 import org.apache.doris.connector.spi.DorisConnectorException;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.exceptions.NotFoundException;
 
 import java.io.FileNotFoundException;
@@ -31,10 +33,23 @@ final class IcebergExceptionUtils {
 
     static RuntimeException wrapTableLoadFailure(
             IcebergTableHandle handle, Exception failure, String fallbackPrefix) {
+        if (isTableAbsent(failure)) {
+            return new ConnectorTableNotFoundException(handle.getDbName(), handle.getTableName(), failure);
+        }
         if (isMetadataNotFound(failure)) {
             return metadataNotFound(handle, failure);
         }
         return new RuntimeException(fallbackPrefix + failure.getMessage(), failure);
+    }
+
+    /** System-table readers retain their existing non-absence error contract. */
+    static RuntimeException wrapTableAbsenceFailure(IcebergTableHandle handle, RuntimeException failure) {
+        return isTableAbsent(failure)
+                ? new ConnectorTableNotFoundException(handle.getDbName(), handle.getTableName(), failure) : failure;
+    }
+
+    private static boolean isTableAbsent(Throwable failure) {
+        return ExceptionUtils.getThrowableList(failure).stream().anyMatch(NoSuchTableException.class::isInstance);
     }
 
     static RuntimeException wrapMetadataReadFailure(

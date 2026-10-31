@@ -67,6 +67,7 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
     boolean viewExists;
     /** Canned SDK view returned by {@link #loadView(String, String)}. */
     View view;
+    RuntimeException loadViewFailure;
     /** The (dbName, viewName) the metadata layer passed to the most recent {@link #loadView}. */
     String lastLoadViewDb;
     String lastLoadViewName;
@@ -196,6 +197,9 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
 
     @Override
     public View loadView(String dbName, String viewName) {
+        if (loadViewFailure != null) {
+            throw loadViewFailure;
+        }
         log.add("loadView:" + dbName + "." + viewName);
         lastLoadViewDb = dbName;
         lastLoadViewName = viewName;

@@ -27,6 +27,7 @@ import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
+import org.apache.doris.connector.spi.ConnectorTableNotFoundException;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorTableStatistics;
 import org.apache.doris.connector.spi.ConnectorType;
@@ -89,6 +90,7 @@ import org.apache.iceberg.Transaction;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
+import org.apache.iceberg.exceptions.NoSuchViewException;
 import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.expressions.Evaluator;
 import org.apache.iceberg.expressions.Expression;
@@ -420,6 +422,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                 return new ConnectorViewDefinition(sqlViewRepresentation.sql(), dialect, columns);
             });
         } catch (Exception e) {
+            if (ExceptionUtils.getThrowableList(e).stream().anyMatch(NoSuchViewException.class::isInstance)) {
+                throw new ConnectorTableNotFoundException(dbName, viewName, e);
+            }
             throw new RuntimeException("Failed to load view definition, error message is: " + e.getMessage(), e);
         }
     }

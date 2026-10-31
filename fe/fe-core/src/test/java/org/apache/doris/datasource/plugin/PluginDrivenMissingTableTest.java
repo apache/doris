@@ -17,6 +17,10 @@
 
 package org.apache.doris.datasource.plugin;
 
+import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TableSnapshot;
+import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.RefreshManager;
@@ -27,9 +31,13 @@ import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorTableNotFoundException;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.scan.ScanNodePropertiesResult;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
@@ -42,6 +50,14 @@ import org.apache.doris.datasource.metacache.ExternalMetaCache;
 import org.apache.doris.datasource.metacache.FeMetaCacheEntry;
 import org.apache.doris.datasource.metacache.IdNameIndex;
 import org.apache.doris.datasource.metacache.NameCacheValue;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
+import org.apache.doris.datasource.mvcc.PluginDrivenMvccSnapshot;
+import org.apache.doris.datasource.scan.PluginDrivenScanNode;
+import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.AfterEach;
@@ -82,6 +98,7 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
     private CountDownLatch missingStarted;
     private CountDownLatch releaseMissing;
     private AtomicBoolean blockMissing;
+    private boolean mvccTables;
     private boolean failLookup;
     private boolean failInvalidation;
 
@@ -93,6 +110,7 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
 
     @BeforeEach
     void setup() {
+        mvccTables = false;
         failLookup = false;
         failInvalidation = false;
         remoteTables.put("a", "old_column");
@@ -193,6 +211,654 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
         // Keep membership/object entries hot while forcing the next schema read to consult the source.
         schemas().invalidateKey(new SchemaCacheKey(table.getOrBuildNameMapping()));
         return table;
+    }
+
+    @Test
+    void showCreateFailureAfterHandleResolutionRepairsLookup() {
+        PluginDrivenExternalTable old = warmTarget();
+        Mockito.when(metadata.renderShowCreateTableDdl(Mockito.any(), Mockito.any())).thenAnswer(call -> {
+            remoteTables.remove("a");
+            throw new ConnectorTableNotFoundException("db", "a", null);
+        });
+        Assertions.assertThrows(ConnectorTableNotFoundException.class, old::getShowCreateTableDdl);
+        Assertions.assertNull(database.getTableNullable(old.getId()));
+        Assertions.assertEquals(Set.of("b"), database.getTableNamesWithLock());
+        Assertions.assertNull(remoteCache.get("a"));
+    }
+
+    @Test
+    void commentFailureRepairsLookupAndKeepsEmptyDisplayValue() {
+        PluginDrivenExternalTable old = warmTarget();
+        remoteTables.remove("a");
+        Mockito.when(metadata.getTableComment(Mockito.any(), Mockito.anyString(), Mockito.anyString()))
+                .thenThrow(new ConnectorTableNotFoundException("db", "a", null));
+        Assertions.assertEquals("", old.getComment());
+        Assertions.assertNull(database.getTableNullable(old.getId()));
+        Assertions.assertEquals(Set.of("b"), database.getTableNamesWithLock());
+    }
+
+    @Test
+    void wideMissingRepairRetainsSiblingNumericRoute() {
+        catalog.lowerCaseMode = 2;
+        PluginDrivenExternalTable old = warmTarget();
+        PluginDrivenExternalTable sibling = database.getTableNullable("b");
+        remoteTables.remove("a");
+        readMissingHandle(old);
+        PluginDrivenExternalTable reloaded = database.getTableNullable(sibling.getId());
+        Assertions.assertNotNull(reloaded);
+        Assertions.assertNotSame(sibling, reloaded);
+        Assertions.assertEquals("sibling_column", reloaded.getFullSchema().get(0).getName());
+        Assertions.assertNull(database.getTableNullable(old.getId()));
+    }
+
+    @Test
+    void delayedCommentMissCannotClearSameNameReplacement() throws Exception {
+        PluginDrivenExternalTable old = warmTarget();
+        Mockito.when(metadata.getTableComment(Mockito.any(), Mockito.anyString(), Mockito.anyString()))
+                .thenAnswer(call -> {
+                    missingStarted.countDown();
+                    Assertions.assertTrue(releaseMissing.await(10, TimeUnit.SECONDS));
+                    throw new ConnectorTableNotFoundException("db", "a", null);
+                });
+        Future<String> result = worker.submit(() -> old.getComment());
+        Assertions.assertTrue(missingStarted.await(10, TimeUnit.SECONDS));
+        remoteTables.put("a", "replacement_column");
+        new RefreshManager().handleRefreshTable(catalog.getName(), "db", "a");
+        PluginDrivenExternalTable replacement = database.getTableNullable("a");
+        List<Column> schema = replacement.getFullSchema();
+        remoteCache.put("a", "replacement");
+        int loads = catalog.nameLoads.get();
+        releaseMissing.countDown();
+        Assertions.assertEquals("", result.get(10, TimeUnit.SECONDS));
+        Assertions.assertSame(replacement, database.getTableNullable(replacement.getId()));
+        Assertions.assertSame(schema, replacement.getFullSchema());
+        Assertions.assertEquals("replacement", remoteCache.get("a"));
+        Assertions.assertEquals(loads, catalog.nameLoads.get());
+    }
+
+    @Test
+    void liveViewAndOtherResourceFailuresDoNotRepairLookup() {
+        PluginDrivenExternalTable old = warmTarget();
+        Mockito.doThrow(new ConnectorTableNotFoundException("db", "other", null)).when(metadata)
+                .getTableComment(Mockito.any(), Mockito.anyString(), Mockito.anyString());
+        Assertions.assertEquals("", old.getComment());
+        Assertions.assertSame(old, database.getTableNullable(old.getId()));
+        Mockito.doThrow(new IllegalStateException("permission denied or missing metadata file")).when(metadata)
+                .getTableComment(Mockito.any(), Mockito.anyString(), Mockito.anyString());
+        Assertions.assertEquals("", old.getComment());
+        Assertions.assertSame(old, database.getTableNullable(old.getId()));
+        remoteViews.add("a");
+        Mockito.doThrow(new ConnectorTableNotFoundException("db", "a", null)).when(metadata)
+                .getTableComment(Mockito.any(), Mockito.anyString(), Mockito.anyString());
+        Assertions.assertEquals("", old.getComment());
+        Assertions.assertSame(old, database.getTableNullable(old.getId()));
+        Assertions.assertEquals("old", remoteCache.get("a"));
+        Assertions.assertEquals(1, catalog.nameLoads.get());
+    }
+
+    @Test
+    void failedViewCheckDoesNotAuthorizeCleanupOrReplaceOriginalFailure() {
+        PluginDrivenExternalTable old = warmTarget();
+        ConnectorTableNotFoundException failure = new ConnectorTableNotFoundException("db", "a", null);
+        Mockito.when(metadata.renderShowCreateTableDdl(Mockito.any(), Mockito.any())).thenThrow(failure);
+        Mockito.when(metadata.viewExists(Mockito.any(), Mockito.anyString(), Mockito.anyString()))
+                .thenThrow(new IllegalStateException("metastore timeout"));
+        Assertions.assertSame(failure, Assertions.assertThrows(
+                ConnectorTableNotFoundException.class, old::getShowCreateTableDdl));
+        Assertions.assertEquals(1, failure.getSuppressed().length);
+        Assertions.assertSame(old, database.getTableNullable(old.getId()));
+    }
+
+    @Test
+    void wideRefreshProtectsReplacementPublishedBeforeItCompletes() throws Exception {
+        verifyLookupRefreshProtectsReplacement(false);
+    }
+
+    @Test
+    void coldTableRefreshProtectsReplacementPublishedBeforeItCompletes() throws Exception {
+        verifyLookupRefreshProtectsReplacement(true);
+    }
+
+    private void verifyLookupRefreshProtectsReplacement(boolean coldTable) throws Exception {
+        catalog.lowerCaseMode = 2;
+        PluginDrivenExternalTable old = warmTarget();
+        if (coldTable) {
+            database.evictTableObjectForTest("a");
+        }
+        database.lookupRefreshPaused = new CountDownLatch(1);
+        database.finishLookupRefresh = new CountDownLatch(1);
+        Mockito.when(metadata.renderShowCreateTableDdl(Mockito.any(), Mockito.any())).thenAnswer(call -> {
+            remoteTables.remove("a");
+            missingStarted.countDown();
+            Assertions.assertTrue(releaseMissing.await(10, TimeUnit.SECONDS));
+            throw new ConnectorTableNotFoundException("db", "a", null);
+        });
+        Future<?> refresh = worker.submit(() -> {
+            new RefreshManager().handleRefreshTable(catalog.getName(), "db", "a");
+            return null;
+        });
+        try {
+            Assertions.assertTrue(database.lookupRefreshPaused.await(10, TimeUnit.SECONDS));
+            PluginDrivenExternalTable replacement = database.getTableNullable("a");
+            Assertions.assertNotSame(old, replacement);
+            Future<?> missing = worker.submit(() -> Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                    replacement::getShowCreateTableDdl));
+            Assertions.assertTrue(missingStarted.await(10, TimeUnit.SECONDS));
+            remoteTables.put("a", "recreated_column");
+            database.finishLookupRefresh.countDown();
+            refresh.get(10, TimeUnit.SECONDS);
+            List<Column> freshSchema = replacement.getFullSchema();
+            Assertions.assertEquals("recreated_column", freshSchema.get(0).getName());
+            remoteCache.put("a", "recreated metadata");
+            int loads = catalog.nameLoads.get();
+            releaseMissing.countDown();
+            missing.get(10, TimeUnit.SECONDS);
+            Assertions.assertSame(replacement, database.getTableNullable(replacement.getId()));
+            Assertions.assertSame(freshSchema, replacement.getFullSchema());
+            Assertions.assertEquals("recreated metadata", remoteCache.get("a"));
+            Assertions.assertEquals(loads, catalog.nameLoads.get());
+        } finally {
+            database.finishLookupRefresh.countDown();
+            releaseMissing.countDown();
+        }
+    }
+
+    @Test
+    void overlappingLookupRefreshesKeepReplacementUnobservable() {
+        PluginDrivenExternalTable table = warmTarget();
+        database.beginTableLookupRefresh();
+        database.beginTableLookupRefresh();
+        Assertions.assertFalse(database.observeTableLookup(table, () -> { }).isPresent());
+        database.endTableLookupRefresh();
+        Assertions.assertFalse(database.observeTableLookup(table, () -> { }).isPresent());
+        database.endTableLookupRefresh();
+        Assertions.assertTrue(database.observeTableLookup(table, () -> { }).isPresent());
+    }
+
+    @Test
+    void failedLookupRefreshReleasesTheDatabaseFence() {
+        warmTarget();
+        failInvalidation = true;
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> new RefreshManager().handleRefreshTable(catalog.getName(), "db", "a"));
+        failInvalidation = false;
+        PluginDrivenExternalTable replacement = database.getTableNullable("a");
+        database.getTableNamesWithLock();
+        Assertions.assertTrue(database.observeTableLookup(replacement, () -> { }).isPresent());
+        remoteTables.remove("a");
+        readMissingHandle(replacement);
+        Assertions.assertNull(database.getTableNullable(replacement.getId()));
+    }
+
+    @Test
+    void pinnedSysSchemaMissingRepairsSourceAndHonorsSessionLifecycle() throws Exception {
+        verifyPinnedSysSchemaMissing(false);
+    }
+
+    @Test
+    void delayedPinnedSysSchemaMissingPreservesRecreatedSource() throws Exception {
+        verifyPinnedSysSchemaMissing(true);
+    }
+
+    private void verifyPinnedSysSchemaMissing(boolean recreate) throws Exception {
+        PluginDrivenExternalTable old = warmTarget();
+        ConnectorMvccSnapshot snapshot = ConnectorMvccSnapshot.builder().snapshotId(1L).build();
+        PluginDrivenMvccSnapshot pin = new PluginDrivenMvccSnapshot(snapshot,
+                Collections.emptyMap(), Collections.emptyMap());
+        AtomicInteger schemaSessionFinished = new AtomicInteger();
+        PluginDrivenSysExternalTable sys = new PluginDrivenSysExternalTable(old, "snapshots") {
+            @Override
+            public Optional<MvccSnapshot> resolveScanPin(Optional<TableSnapshot> tableSnapshot,
+                    Optional<TableScanParams> scanParams) {
+                return Optional.of(pin);
+            }
+
+            @Override
+            protected void closeSchemaSession(ConnectorSession session) {
+                schemaSessionFinished.incrementAndGet();
+                super.closeSchemaSession(session);
+            }
+        };
+        Mockito.when(metadata.getSysTableHandle(Mockito.any(), Mockito.any(), Mockito.anyString()))
+                .thenReturn(Optional.of(new Handle("a$snapshots", "snapshot_id")));
+        Mockito.when(metadata.getTableSchema(Mockito.any(), Mockito.any(), Mockito.eq(snapshot))).thenAnswer(call -> {
+            remoteTables.remove("a");
+            missingStarted.countDown();
+            Assertions.assertTrue(releaseMissing.await(10, TimeUnit.SECONDS));
+            throw new ConnectorTableNotFoundException("db", "a", null);
+        });
+        Future<?> missing = worker.submit(() -> Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                () -> sys.getFullSchemaAt(Optional.empty(), Optional.empty())));
+        try {
+            Assertions.assertTrue(missingStarted.await(10, TimeUnit.SECONDS));
+            PluginDrivenExternalTable replacement = null;
+            List<Column> freshSchema = null;
+            if (recreate) {
+                remoteTables.put("a", "recreated_column");
+                new RefreshManager().handleRefreshTable(catalog.getName(), "db", "a");
+                replacement = database.getTableNullable("a");
+                freshSchema = replacement.getFullSchema();
+                remoteCache.put("a", "recreated metadata");
+            }
+            releaseMissing.countDown();
+            missing.get(10, TimeUnit.SECONDS);
+            Assertions.assertEquals(1, schemaSessionFinished.get());
+            if (recreate) {
+                Assertions.assertSame(replacement, database.getTableNullable(replacement.getId()));
+                Assertions.assertSame(freshSchema, replacement.getFullSchema());
+                Assertions.assertEquals("recreated metadata", remoteCache.get("a"));
+            } else {
+                Assertions.assertNull(database.getTableNullable(old.getId()));
+                Assertions.assertNull(remoteCache.get("a"));
+                Assertions.assertEquals(Set.of("b"), database.getTableNamesWithLock());
+            }
+        } finally {
+            releaseMissing.countDown();
+        }
+    }
+
+    @Test
+    void droppedMappedRemoteDoesNotHideBehindDistinctFoldedRemote() {
+        catalog.lowerCaseMode = 1;
+        Mockito.when(metadata.fromRemoteTableName(Mockito.any(), Mockito.anyString(), Mockito.anyString()))
+                .thenAnswer(call -> {
+                    String name = call.getArgument(2);
+                    return "Foo".equals(name) ? "foo_old" : "FOO".equals(name) ? "foo_new" : name;
+                });
+        remoteTables.remove("a");
+        remoteTables.put("Foo", "old_column");
+        remoteTables.put("FOO", "new_column");
+        Assertions.assertEquals(Set.of("foo_old", "foo_new", "b"), database.getTableNamesWithLock());
+        PluginDrivenExternalTable old = database.getTableNullable("foo_old");
+        PluginDrivenExternalTable sibling = database.getTableNullable("foo_new");
+        remoteTables.remove("Foo");
+        FeMetaCacheEntry<String, NameCacheValue> names = Deencapsulation.getField(database, "tableNames");
+        names.invalidateKey("");
+        Assertions.assertEquals(Set.of("foo_new", "b"), database.getTableNamesWithLock());
+        readMissingHandle(old);
+        Assertions.assertNull(database.getTableNullable(old.getId()));
+        Assertions.assertNotNull(database.getTableNullable(sibling.getId()));
+        Assertions.assertEquals("FOO", database.getTableNullable("foo_new").getRemoteName());
+    }
+
+    @Test
+    void sysSplitPlanningMissingRepairsSource() throws Exception {
+        verifySysPlanningReadMissing(false, false);
+    }
+
+    @Test
+    void delayedSysSplitPlanningMissingPreservesRecreatedSource() throws Exception {
+        verifySysPlanningReadMissing(true, false);
+    }
+
+    @Test
+    void sysPropertiesBeforeSplitPlanningRepairDroppedSource() throws Exception {
+        verifySysPlanningReadMissing(false, true);
+    }
+
+    @Test
+    void delayedSysPropertiesMissingPreservesRecreatedSource() throws Exception {
+        verifySysPlanningReadMissing(true, true);
+    }
+
+    @Test
+    void successfulScanPropertiesRemainMemoizedWithoutNameReload() {
+        PluginDrivenExternalTable table = warmTarget();
+        ConnectorScanPlanProvider provider = Mockito.mock(ConnectorScanPlanProvider.class);
+        Mockito.when(provider.getScanNodePropertiesResult(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(ScanNodePropertiesResult.of(Collections.emptyMap()));
+        PluginDrivenScanNode scan = scanForProperties(table, provider);
+        int loads = catalog.nameLoads.get();
+        scan.getNodeExplainString("", TExplainLevel.NORMAL);
+        scan.getNodeExplainString("", TExplainLevel.NORMAL);
+        Mockito.verify(provider).getScanNodePropertiesResult(
+                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
+        Assertions.assertSame(table, database.getTableNullable(table.getId()));
+        Assertions.assertEquals(loads, catalog.nameLoads.get());
+    }
+
+    @Test
+    void otherScanPropertyFailureDoesNotRetireTheSource() {
+        PluginDrivenExternalTable table = warmTarget();
+        ConnectorScanPlanProvider provider = Mockito.mock(ConnectorScanPlanProvider.class);
+        IllegalStateException denied = new IllegalStateException("permission denied");
+        Mockito.when(provider.getScanNodePropertiesResult(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenThrow(denied);
+        PluginDrivenScanNode scan = scanForProperties(table, provider);
+        Assertions.assertSame(denied, Assertions.assertThrows(IllegalStateException.class,
+                () -> scan.getNodeExplainString("", TExplainLevel.NORMAL)));
+        Assertions.assertSame(table, database.getTableNullable(table.getId()));
+        Assertions.assertEquals("old", remoteCache.get("a"));
+    }
+
+    private PluginDrivenScanNode scanForProperties(PluginDrivenExternalTable table,
+            ConnectorScanPlanProvider provider) {
+        TupleDescriptor tuple = new TupleDescriptor(new TupleId(0));
+        tuple.setTable(table);
+        Mockito.when(connector.getScanPlanProvider(Mockito.any())).thenReturn(provider);
+        return PluginDrivenScanNode.create(new PlanNodeId(0), tuple, false,
+                new SessionVariable(), ScanContext.EMPTY, catalog, table);
+    }
+
+    private void verifySysPlanningReadMissing(boolean recreate, boolean properties) throws Exception {
+        PluginDrivenExternalTable old = warmTarget();
+        PluginDrivenSysExternalTable sys = new PluginDrivenSysExternalTable(old, "labels");
+        Mockito.when(metadata.getSysTableHandle(Mockito.any(), Mockito.any(), Mockito.anyString()))
+                .thenReturn(Optional.of(new Handle("a$labels", "label")));
+        TupleDescriptor tuple = new TupleDescriptor(new TupleId(0));
+        tuple.setTable(sys);
+        ConnectorScanPlanProvider provider = Mockito.mock(ConnectorScanPlanProvider.class);
+        Mockito.when(connector.getScanPlanProvider(Mockito.any())).thenReturn(provider);
+        PluginDrivenScanNode scan = PluginDrivenScanNode.create(new PlanNodeId(0), tuple, false,
+                new SessionVariable(), ScanContext.EMPTY, catalog, sys);
+        org.mockito.stubbing.Answer<?> missingRead = call -> {
+            remoteTables.remove("a");
+            missingStarted.countDown();
+            Assertions.assertTrue(releaseMissing.await(10, TimeUnit.SECONDS));
+            throw new ConnectorTableNotFoundException("db", "a", null);
+        };
+        if (properties) {
+            Mockito.when(provider.getScanNodePropertiesResult(Mockito.any(), Mockito.any(), Mockito.any(),
+                    Mockito.any())).thenAnswer(missingRead);
+        } else {
+            Mockito.when(provider.planScan(Mockito.any(), Mockito.any())).thenAnswer(missingRead);
+        }
+        Future<?> missing = worker.submit(() -> Assertions.assertThrows(ConnectorTableNotFoundException.class, () -> {
+            if (properties) {
+                scan.getNodeExplainString("", TExplainLevel.NORMAL);
+            } else {
+                scan.getSplits(1);
+            }
+        }));
+        try {
+            Assertions.assertTrue(missingStarted.await(10, TimeUnit.SECONDS));
+            PluginDrivenExternalTable replacement = null;
+            if (recreate) {
+                remoteTables.put("a", "recreated_column");
+                new RefreshManager().handleRefreshTable(catalog.getName(), "db", "a");
+                replacement = database.getTableNullable("a");
+                replacement.getFullSchema();
+                remoteCache.put("a", "recreated metadata");
+            }
+            releaseMissing.countDown();
+            missing.get(10, TimeUnit.SECONDS);
+            if (recreate) {
+                Assertions.assertSame(replacement, database.getTableNullable(replacement.getId()));
+                Assertions.assertEquals("recreated metadata", remoteCache.get("a"));
+            } else {
+                Assertions.assertNull(database.getTableNullable(old.getId()));
+                Assertions.assertNull(remoteCache.get("a"));
+            }
+        } finally {
+            releaseMissing.countDown();
+        }
+    }
+
+    @Test
+    void explicitWideRefreshRetainsSiblingNumericRoute() throws Exception {
+        catalog.lowerCaseMode = 2;
+        PluginDrivenExternalTable old = warmTarget();
+        PluginDrivenExternalTable sibling = database.getTableNullable("b");
+        new RefreshManager().handleRefreshTable(catalog.getName(), "db", "a");
+        Assertions.assertNotNull(database.getTableNullable(sibling.getId()));
+        Assertions.assertNotSame(old, database.getTableNullable("a"));
+    }
+
+    @Test
+    void retainedObjectOmittedByNamesRefreshCanStillRepair() {
+        PluginDrivenExternalTable old = warmTarget();
+        remoteTables.remove("a");
+        FeMetaCacheEntry<String, NameCacheValue> names = Deencapsulation.getField(database, "tableNames");
+        names.invalidateKey("");
+        Assertions.assertEquals(Set.of("b"), database.getTableNamesWithLock());
+        readMissingHandle(old);
+        Assertions.assertNull(database.getTableNullable(old.getId()));
+        Assertions.assertNull(remoteCache.get("a"));
+    }
+
+    @Test
+    void omittedOldObjectCannotClearCurrentFoldedAlias() {
+        catalog.lowerCaseMode = 2;
+        remoteTables.put("Foo", "old_column");
+        PluginDrivenExternalTable old = database.getTableNullable("foo");
+        old.getFullSchema();
+        remoteTables.remove("Foo");
+        remoteTables.put("FOO", "replacement_column");
+        FeMetaCacheEntry<String, NameCacheValue> names = Deencapsulation.getField(database, "tableNames");
+        names.invalidateKey("");
+        PluginDrivenExternalTable replacement = database.getTableNullable("foo");
+        List<Column> schema = replacement.getFullSchema();
+        remoteCache.put("FOO", "replacement");
+        readMissingHandle(old);
+        Assertions.assertSame(replacement, database.getTableNullable(replacement.getId()));
+        Assertions.assertSame(schema, replacement.getFullSchema());
+        Assertions.assertEquals("replacement", remoteCache.get("FOO"));
+    }
+
+    @Test
+    void missingViewTextRepairsItsLookupIdentity() {
+        warmTarget();
+        remoteViews.add("v");
+        FeMetaCacheEntry<String, NameCacheValue> names = Deencapsulation.getField(database, "tableNames");
+        names.invalidateKey("");
+        Assertions.assertTrue(database.getTableNamesWithLock().contains("v"));
+        PluginDrivenExternalTable view = database.getTableNullable("v");
+        remoteCache.put("v", "view metadata");
+        remoteViews.remove("v");
+        Mockito.when(metadata.getViewDefinition(Mockito.any(), Mockito.anyString(), Mockito.anyString()))
+                .thenThrow(new ConnectorTableNotFoundException("db", "v", null));
+        Assertions.assertThrows(ConnectorTableNotFoundException.class, view::getViewText);
+        Assertions.assertNull(database.getTableNullable(view.getId()));
+        Assertions.assertNull(remoteCache.get("v"));
+        Assertions.assertEquals(Set.of("a", "b"), database.getTableNamesWithLock());
+    }
+
+    @Test
+    void sysTableResolutionRepairsDroppedSource() {
+        PluginDrivenExternalTable old = warmTarget();
+        PluginDrivenSysExternalTable sys = new PluginDrivenSysExternalTable(old, "snapshots");
+        remoteTables.remove("a");
+        Assertions.assertFalse(sys.resolveConnectorTableHandle(catalog.buildConnectorSession(), metadata).isPresent());
+        Assertions.assertNull(database.getTableNullable(old.getId()));
+        Assertions.assertNull(remoteCache.get("a"));
+    }
+
+    @Test
+    void sysHandleReadAfterBaseHandleRepairsSourceIdentity() {
+        PluginDrivenExternalTable old = warmTarget();
+        PluginDrivenSysExternalTable sys = new PluginDrivenSysExternalTable(old, "snapshots");
+        Mockito.when(metadata.getSysTableHandle(Mockito.any(), Mockito.any(), Mockito.anyString()))
+                .thenAnswer(call -> {
+                    remoteTables.remove("a");
+                    throw new ConnectorTableNotFoundException("db", "a", null);
+                });
+        Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                () -> sys.resolveConnectorTableHandle(catalog.buildConnectorSession(), metadata));
+        Assertions.assertNull(database.getTableNullable(old.getId()));
+    }
+
+    @Test
+    void mvccSnapshotReadAfterHandleRepairsDroppedSource() {
+        mvccTables = true;
+        PluginDrivenMvccExternalTable old = (PluginDrivenMvccExternalTable) warmTarget();
+        Mockito.when(metadata.beginQuerySnapshot(Mockito.any(), Mockito.any())).thenAnswer(call -> {
+            remoteTables.remove("a");
+            throw new ConnectorTableNotFoundException("db", "a", null);
+        });
+        Assertions.assertThrows(ConnectorTableNotFoundException.class, old::loadLatestSnapshotFence);
+        Assertions.assertNull(database.getTableNullable(old.getId()));
+        Assertions.assertNull(remoteCache.get("a"));
+    }
+
+    @Test
+    void scanColumnsAfterHandleRepairDroppedSource() throws Exception {
+        PluginDrivenExternalTable old = warmTarget();
+        TupleDescriptor tuple = new TupleDescriptor(new TupleId(0));
+        tuple.setTable(old);
+        PluginDrivenScanNode scan = PluginDrivenScanNode.create(new PlanNodeId(0), tuple, false,
+                new SessionVariable(), ScanContext.EMPTY, catalog, old);
+        Mockito.when(metadata.getColumnHandles(Mockito.any(), Mockito.any())).thenAnswer(call -> {
+            remoteTables.remove("a");
+            throw new ConnectorTableNotFoundException("db", "a", null);
+        });
+        Assertions.assertThrows(RuntimeException.class, () -> Deencapsulation.invoke(scan, "buildColumnHandles"));
+        Assertions.assertNull(database.getTableNullable(old.getId()));
+        Assertions.assertNull(remoteCache.get("a"));
+    }
+
+    @Test
+    void delayedMvccMissCannotRetireSameNameReplacement() throws Exception {
+        mvccTables = true;
+        PluginDrivenMvccExternalTable old = (PluginDrivenMvccExternalTable) warmTarget();
+        Mockito.when(metadata.beginQuerySnapshot(Mockito.any(), Mockito.any())).thenAnswer(call -> {
+            missingStarted.countDown();
+            Assertions.assertTrue(releaseMissing.await(10, TimeUnit.SECONDS));
+            throw new ConnectorTableNotFoundException("db", "a", null);
+        });
+        Future<?> failure = worker.submit(() -> Assertions.assertThrows(
+                ConnectorTableNotFoundException.class, old::loadLatestSnapshotFence));
+        Assertions.assertTrue(missingStarted.await(10, TimeUnit.SECONDS));
+        new RefreshManager().handleRefreshTable(catalog.getName(), "db", "a");
+        PluginDrivenExternalTable replacement = database.getTableNullable("a");
+        remoteCache.put("a", "replacement");
+        releaseMissing.countDown();
+        failure.get(10, TimeUnit.SECONDS);
+        Assertions.assertSame(replacement, database.getTableNullable(replacement.getId()));
+        Assertions.assertEquals("replacement", remoteCache.get("a"));
+    }
+
+    @Test
+    void metadataRefreshBetweenHandleAndSnapshotReadIsProtected() {
+        mvccTables = true;
+        PluginDrivenMvccExternalTable old = (PluginDrivenMvccExternalTable) warmTarget();
+        Mockito.when(metadata.getTableHandle(Mockito.any(), Mockito.anyString(), Mockito.eq("a")))
+                .thenAnswer(call -> {
+                    new RefreshManager().refreshTableInternal(database, old, 123L);
+                    remoteCache.put("a", "refreshed metadata");
+                    return Optional.of(new Handle("a", "old_column"));
+                });
+        Mockito.when(metadata.beginQuerySnapshot(Mockito.any(), Mockito.any()))
+                .thenThrow(new ConnectorTableNotFoundException("db", "a", null));
+        Assertions.assertThrows(ConnectorTableNotFoundException.class, old::loadLatestSnapshotFence);
+        Assertions.assertSame(old, database.getTableNullable(old.getId()));
+        Assertions.assertEquals("refreshed metadata", remoteCache.get("a"));
+    }
+
+    @Test
+    void metadataRefreshAfterScanHandleProtectsTheNewState() throws Exception {
+        PluginDrivenExternalTable old = warmTarget();
+        TupleDescriptor tuple = new TupleDescriptor(new TupleId(0));
+        tuple.setTable(old);
+        PluginDrivenScanNode scan = PluginDrivenScanNode.create(new PlanNodeId(0), tuple, false,
+                new SessionVariable(), ScanContext.EMPTY, catalog, old);
+        new RefreshManager().refreshTableInternal(database, old, 123L);
+        remoteCache.put("a", "refreshed metadata");
+        Mockito.when(metadata.getColumnHandles(Mockito.any(), Mockito.any()))
+                .thenThrow(new ConnectorTableNotFoundException("db", "a", null));
+        Assertions.assertThrows(RuntimeException.class, () -> Deencapsulation.invoke(scan, "buildColumnHandles"));
+        Assertions.assertSame(old, database.getTableNullable(old.getId()));
+        Assertions.assertEquals("refreshed metadata", remoteCache.get("a"));
+    }
+
+    @Test
+    void sysSchemaFailureRepairsTheSourceInsteadOfTheSyntheticName() {
+        PluginDrivenExternalTable old = warmTarget();
+        PluginDrivenSysExternalTable sys = new PluginDrivenSysExternalTable(old, "snapshots");
+        Mockito.when(metadata.getSysTableHandle(Mockito.any(), Mockito.any(), Mockito.anyString()))
+                .thenReturn(Optional.of(new Handle("a$snapshots", "metadata")));
+        Mockito.doAnswer(call -> {
+            remoteTables.remove("a");
+            throw new ConnectorTableNotFoundException("db", "a", null);
+        }).when(metadata).getTableSchema(Mockito.any(), Mockito.any());
+        Assertions.assertThrows(ConnectorTableNotFoundException.class, sys::initSchema);
+        Assertions.assertNull(database.getTableNullable(old.getId()));
+        Assertions.assertNull(remoteCache.get("a"));
+    }
+
+    @Test
+    void showCreateStartingDuringRefreshCannotClearTheCompletedRefresh() throws Exception {
+        PluginDrivenExternalTable table = warmTarget();
+        CountDownLatch refreshStarted = new CountDownLatch(1);
+        CountDownLatch finishRefresh = new CountDownLatch(1);
+        Mockito.doAnswer(call -> {
+            refreshStarted.countDown();
+            Assertions.assertTrue(finishRefresh.await(10, TimeUnit.SECONDS));
+            remoteCache.remove("a");
+            return null;
+        }).when(connector).invalidateTable(Mockito.anyString(), Mockito.anyString());
+        Mockito.when(metadata.renderShowCreateTableDdl(Mockito.any(), Mockito.any())).thenAnswer(call -> {
+            remoteTables.remove("a");
+            missingStarted.countDown();
+            Assertions.assertTrue(releaseMissing.await(10, TimeUnit.SECONDS));
+            throw new ConnectorTableNotFoundException("db", "a", null);
+        });
+        Future<?> refresh = worker.submit(() -> new RefreshManager().refreshTableInternal(database, table, 123L));
+        try {
+            Assertions.assertTrue(refreshStarted.await(10, TimeUnit.SECONDS));
+            Future<?> missing = worker.submit(() -> Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                    table::getShowCreateTableDdl));
+            Assertions.assertTrue(missingStarted.await(10, TimeUnit.SECONDS));
+            remoteTables.put("a", "recreated_column");
+            finishRefresh.countDown();
+            refresh.get(10, TimeUnit.SECONDS);
+            List<Column> freshSchema = table.getFullSchema();
+            remoteCache.put("a", "recreated metadata");
+            int loads = catalog.nameLoads.get();
+            releaseMissing.countDown();
+            missing.get(10, TimeUnit.SECONDS);
+            Assertions.assertSame(table, database.getTableNullable(table.getId()));
+            Assertions.assertSame(freshSchema, table.getFullSchema());
+            Assertions.assertEquals("recreated metadata", remoteCache.get("a"));
+            Assertions.assertEquals(loads, catalog.nameLoads.get());
+        } finally {
+            finishRefresh.countDown();
+            releaseMissing.countDown();
+        }
+    }
+
+    @Test
+    void overlappingRefreshesRemainUnobservableUntilBothFinish() throws Exception {
+        PluginDrivenExternalTable table = warmTarget();
+        CountDownLatch firstStarted = new CountDownLatch(1);
+        CountDownLatch secondStarted = new CountDownLatch(1);
+        CountDownLatch firstFinish = new CountDownLatch(1);
+        CountDownLatch secondFinish = new CountDownLatch(1);
+        AtomicInteger calls = new AtomicInteger();
+        Mockito.doAnswer(call -> {
+            boolean first = calls.getAndIncrement() == 0;
+            (first ? firstStarted : secondStarted).countDown();
+            Assertions.assertTrue((first ? firstFinish : secondFinish).await(10, TimeUnit.SECONDS));
+            return null;
+        }).when(connector).invalidateTable(Mockito.anyString(), Mockito.anyString());
+        Future<?> first = worker.submit(() -> new RefreshManager().refreshTableInternal(database, table, 123L));
+        try {
+            Assertions.assertTrue(firstStarted.await(10, TimeUnit.SECONDS));
+            Future<?> second = worker.submit(() -> new RefreshManager().refreshTableInternal(database, table, 124L));
+            Assertions.assertTrue(secondStarted.await(10, TimeUnit.SECONDS));
+            Assertions.assertFalse(database.observeTableLookup(table, () -> { }).isPresent());
+            firstFinish.countDown();
+            first.get(10, TimeUnit.SECONDS);
+            Assertions.assertFalse(database.observeTableLookup(table, () -> { }).isPresent());
+            secondFinish.countDown();
+            second.get(10, TimeUnit.SECONDS);
+            Assertions.assertTrue(database.observeTableLookup(table, () -> { }).isPresent());
+        } finally {
+            firstFinish.countDown();
+            secondFinish.countDown();
+        }
+    }
+
+    @Test
+    void failedRefreshReleasesTheObservationFence() {
+        PluginDrivenExternalTable table = warmTarget();
+        failInvalidation = true;
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> new RefreshManager().refreshTableInternal(database, table, 123L));
+        Assertions.assertTrue(database.observeTableLookup(table, () -> { }).isPresent());
+        failInvalidation = false;
+        remoteTables.remove("a");
+        readMissingHandle(table);
+        Assertions.assertNull(database.getTableNullable(table.getId()));
     }
 
     @Test
@@ -688,6 +1354,22 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
     }
 
     private class TestDatabase extends ExternalDatabase<PluginDrivenExternalTable> {
+        private CountDownLatch lookupRefreshPaused;
+        private CountDownLatch finishLookupRefresh;
+
+        @Override
+        public void invalidateTableLookup(String tableName) {
+            super.invalidateTableLookup(tableName);
+            if (lookupRefreshPaused != null) {
+                lookupRefreshPaused.countDown();
+                try {
+                    Assertions.assertTrue(finishLookupRefresh.await(10, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    throw new AssertionError(e);
+                }
+            }
+        }
+
         private CountDownLatch numericBuildProgress;
         private CountDownLatch finishNumericBuild;
 
@@ -705,6 +1387,14 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
                 } catch (InterruptedException e) {
                     throw new AssertionError(e);
                 }
+            }
+            if (mvccTables) {
+                return new PluginDrivenMvccExternalTable(id, localName, remoteName, owner, db) {
+                    @Override
+                    protected synchronized void makeSureInitialized() {
+                        objectCreated = true;
+                    }
+                };
             }
             return new PluginDrivenExternalTable(id, localName, remoteName, owner, db) {
                 @Override

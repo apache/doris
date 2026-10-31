@@ -88,7 +88,8 @@ public interface HmsClient extends Closeable {
      * @param dbName    database name
      * @param tableName table name
      * @return table info with SPI-typed columns
-     * @throws HmsClientException if the table is not found or operation fails
+     * @throws HmsClientException if the operation fails; confirmed table absence retains a
+     *         {@link org.apache.doris.connector.spi.ConnectorTableNotFoundException} cause
      */
     HmsTableInfo getTable(String dbName, String tableName);
 
@@ -105,7 +106,8 @@ public interface HmsClient extends Closeable {
      * @param dbName    database name
      * @param tableName table name
      * @return table info with SPI-typed columns, read fresh from the metastore
-     * @throws HmsClientException if the table is not found or operation fails
+     * @throws HmsClientException if the operation fails; confirmed table absence retains a
+     *         {@link org.apache.doris.connector.spi.ConnectorTableNotFoundException} cause
      */
     default HmsTableInfo getTableFresh(String dbName, String tableName) {
         return getTable(dbName, tableName);
