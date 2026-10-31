@@ -17,10 +17,19 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mtmv.ivm.IvmIncrRefreshManager;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -29,13 +38,19 @@ import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.Refres
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.system.SystemInfoService;
 
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
 import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -44,7 +59,32 @@ import java.util.Set;
  */
 public class RefreshMTMVCommandTest {
 
+    private static final String DECLARED_CG = "cg_declared";
+
     private final NereidsParser parser = new NereidsParser();
+
+    private String originalDeployMode;
+    private String originalCloudUniqueId;
+    private SystemInfoService originalSystemInfo;
+    private AccessControllerManager originalAccessManager;
+
+    @BeforeEach
+    public void setUp() {
+        originalDeployMode = Config.deploy_mode;
+        originalCloudUniqueId = Config.cloud_unique_id;
+        originalSystemInfo = Env.getCurrentSystemInfo();
+        originalAccessManager = Env.getCurrentEnv().getAccessManager();
+    }
+
+    @AfterEach
+    public void tearDown() {
+        Config.deploy_mode = originalDeployMode;
+        Config.cloud_unique_id = originalCloudUniqueId;
+        Deencapsulation.setField(Env.getCurrentEnv(), "systemInfo", originalSystemInfo);
+        Deencapsulation.setField(Env.getCurrentEnv(), "accessManager", originalAccessManager);
+        // the dry run and EXPLAIN contexts install themselves as the thread-local context
+        ConnectContext.remove();
+    }
 
     private RefreshMTMVInfo extractRefreshInfo(String sql) throws Exception {
         StatementBase statementBase = parser.parseSQL(sql).get(0);
@@ -209,6 +249,83 @@ public class RefreshMTMVCommandTest {
         command.createRefreshCommand(mtmv, stmtCtx);
 
         Assertions.assertEquals(excluded, stmtCtx.getExcludedTriggerTables());
+    }
+
+    // ---- the compute group the dry run and EXPLAIN REFRESH contexts run in ----
+
+    // Cloud mode with these compute groups, on all of which admin, the identity of both contexts,
+    // holds USAGE.
+    private void enterCloudMode(List<String> existingComputeGroups) {
+        Config.deploy_mode = "cloud";
+        Config.cloud_unique_id = "";
+        CloudSystemInfoService systemInfo = Mockito.mock(CloudSystemInfoService.class);
+        Mockito.when(systemInfo.getCloudClusterNames()).thenReturn(existingComputeGroups);
+        Deencapsulation.setField(Env.getCurrentEnv(), "systemInfo", systemInfo);
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        Mockito.when(accessManager.checkCloudPriv(Mockito.any(UserIdentity.class), Mockito.anyString(),
+                Mockito.any(PrivPredicate.class), Mockito.any(ResourceTypeEnum.class))).thenReturn(true);
+        Deencapsulation.setField(Env.getCurrentEnv(), "accessManager", accessManager);
+    }
+
+    private MTMV newMtmvDeclaring(String declaredComputeGroup) {
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        Mockito.when(mtmv.getComputeGroup()).thenReturn(Optional.ofNullable(declaredComputeGroup));
+        return mtmv;
+    }
+
+    private TestRefreshMTMVCommand newIncrementalCommand(boolean dryRun) throws Exception {
+        return new TestRefreshMTMVCommand(extractRefreshInfo("REFRESH MATERIALIZED VIEW db1.mv1 INCREMENTAL"), dryRun);
+    }
+
+    // The dry run plans and executes its delta query, and NereidsCoordinator looks the MV's workload
+    // group up, in the compute group of this context. It must be the group the MV declares, where
+    // every refresh of the MV runs, not the one admin resolves to.
+    @Test
+    public void testDryRunContextBindsDeclaredComputeGroup() throws Exception {
+        enterCloudMode(Lists.newArrayList("cg_of_admin", DECLARED_CG));
+
+        ConnectContext internalCtx = newIncrementalCommand(true).createDryRunConnectContext(
+                newMtmvDeclaring(DECLARED_CG));
+
+        Assertions.assertEquals(DECLARED_CG, internalCtx.getSessionVariable().getCloudCluster());
+    }
+
+    // The declared group can be dropped while the MV exists. Like a real refresh, the dry run then
+    // fails with that reason instead of running the delta in another group.
+    @Test
+    public void testDryRunRejectsDroppedDeclaredComputeGroup() throws Exception {
+        enterCloudMode(Lists.newArrayList("cg_of_admin"));
+        TestRefreshMTMVCommand command = newIncrementalCommand(true);
+
+        UserException e = Assertions.assertThrows(UserException.class,
+                () -> command.createDryRunConnectContext(newMtmvDeclaring(DECLARED_CG)));
+
+        Assertions.assertTrue(e.getMessage().contains("Compute group '" + DECLARED_CG + "' not found."),
+                e.getMessage());
+    }
+
+    // EXPLAIN REFRESH only plans, but planning assigns backends, so it plans in the declared group too.
+    @Test
+    public void testExplainContextBindsDeclaredComputeGroup() throws Exception {
+        enterCloudMode(Lists.newArrayList("cg_of_admin", DECLARED_CG));
+
+        ConnectContext explainCtx = newIncrementalCommand(false).createExplainConnectContext(
+                newMtmvDeclaring(DECLARED_CG));
+
+        Assertions.assertEquals(DECLARED_CG, explainCtx.getSessionVariable().getCloudCluster());
+    }
+
+    // An MV that declares nothing keeps the existing resolution: neither context names a group, and
+    // the dry run has nothing to re-check, even with no compute group left at all.
+    @Test
+    public void testContextsWithoutDeclarationKeepImplicitComputeGroup() throws Exception {
+        enterCloudMode(Lists.newArrayList());
+        MTMV mtmv = newMtmvDeclaring(null);
+
+        Assertions.assertTrue(Strings.isNullOrEmpty(newIncrementalCommand(true)
+                .createDryRunConnectContext(mtmv).getSessionVariable().getCloudCluster()));
+        Assertions.assertTrue(Strings.isNullOrEmpty(newIncrementalCommand(false)
+                .createExplainConnectContext(mtmv).getSessionVariable().getCloudCluster()));
     }
 
     private static class TestRefreshMTMVCommand extends RefreshMTMVCommand {

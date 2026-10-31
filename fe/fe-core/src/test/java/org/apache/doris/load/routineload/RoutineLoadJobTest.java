@@ -33,6 +33,7 @@ import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.kafka.KafkaTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
+import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.qe.OriginStatement;
@@ -377,6 +378,50 @@ public class RoutineLoadJobTest {
                 + ");";
         System.out.println(showCreateInfo);
         Assertions.assertEquals(expect, showCreateInfo);
+    }
+
+    // The statement carries the compute group the job declares, as the last ALTER left it, so a job
+    // recreated from it stays pinned instead of running in the recreating session's group.
+    @Test
+    public void testGetShowCreateInfoCarriesDeclaredComputeGroup() throws UserException {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(111L, "test_load", 1,
+                11, "localhost:9092", "test_topic", UserIdentity.ADMIN);
+        Deencapsulation.setField(routineLoadJob, "maxErrorNum", 10);
+        Deencapsulation.setField(routineLoadJob, "maxBatchRows", 10);
+        // what CREATE ROUTINE LOAD ... PROPERTIES("compute_group" = "cg_a") stores
+        Map<String, String> jobProperties = Deencapsulation.getField(routineLoadJob, "jobProperties");
+        jobProperties.put(RoutineLoadJob.COMPUTE_GROUP, "cg_a");
+        // ALTER ROUTINE LOAD ... PROPERTIES("compute_group" = "cg_b"); modifyProperties and its replay
+        // install the new properties through the same code, the replay only writes no edit log
+        Map<String, String> alteredProperties = Maps.newHashMap();
+        alteredProperties.put(CreateRoutineLoadInfo.COMPUTE_GROUP, "cg_b");
+        routineLoadJob.replayModifyProperties(new AlterRoutineLoadJobOperationLog(111L, alteredProperties, null));
+
+        String expect = "CREATE ROUTINE LOAD test_load ON 11\n"
+                + "WITH APPEND\n"
+                + "PROPERTIES\n"
+                + "(\n"
+                + "\"desired_concurrent_number\" = \"0\",\n"
+                + "\"max_error_number\" = \"10\",\n"
+                + "\"max_filter_ratio\" = \"1.0\",\n"
+                + "\"max_batch_interval\" = \"60\",\n"
+                + "\"max_batch_rows\" = \"10\",\n"
+                + "\"max_batch_size\" = \"1073741824\",\n"
+                + "\"format\" = \"csv\",\n"
+                + "\"strip_outer_array\" = \"false\",\n"
+                + "\"num_as_string\" = \"false\",\n"
+                + "\"fuzzy_parse\" = \"false\",\n"
+                + "\"strict_mode\" = \"false\",\n"
+                + "\"timezone\" = \"Asia/Shanghai\",\n"
+                + "\"compute_group\" = \"cg_b\",\n"
+                + "\"exec_mem_limit\" = \"2147483648\"\n"
+                + ")\n"
+                + "FROM KAFKA\n"
+                + "(\n"
+                + "\"kafka_broker_list\" = \"localhost:9092\",\n"
+                + "\"kafka_topic\" = \"test_topic\"\n"
+                + ");";
+        Assertions.assertEquals(expect, routineLoadJob.getShowCreateInfo());
     }
 
     @Test
