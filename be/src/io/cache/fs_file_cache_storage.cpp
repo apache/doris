@@ -77,6 +77,19 @@ void FSFileCacheStorage::set_inode_estimation_test_hooks(
 }
 #endif
 
+namespace {
+// rmdir only succeeds on an empty directory, which makes it the check and the removal in one
+// call instead of listing the directory first. A directory that still holds blocks (another
+// offset, or a writer's tmp file) or is already gone is left as is.
+void remove_directory_if_empty(const std::shared_ptr<LocalFileSystem>& fs, const std::string& dir) {
+    auto st = fs->delete_empty_directory(dir);
+    if (!st.ok() && !st.is<ErrorCode::DIRECTORY_NOT_EMPTY>() &&
+        !st.is<ErrorCode::ALREADY_EXIST>()) {
+        LOG_WARNING("failed to remove cache directory {}", dir).error(st);
+    }
+}
+} // namespace
+
 struct BatchLoadArgs {
     UInt128Wrapper hash;
     CacheContext ctx;
@@ -211,14 +224,26 @@ Status FSFileCacheStorage::get_or_create_file_writer(const FileCacheKey& key, Fi
     }
 
     std::string dir = get_path_in_local_cache_v3(key.hash);
-    auto st = fs->create_directory(dir, false);
-    if (!st.ok() && !st.is<ErrorCode::ALREADY_EXIST>()) {
-        return st;
-    }
     std::string tmp_file = get_path_in_local_cache_v3(dir, key.offset, true);
     FileWriterPtr file_writer;
     FileWriterOptions opts {.sync_file_data = false};
-    RETURN_IF_ERROR(fs->create_file(tmp_file, &file_writer, &opts));
+    // The removal of the last block of another offset under this hash may rmdir the directory
+    // between create_directory and create_file. Removals run concurrently, outside the cache
+    // lock, so two of them can do that in a row; recreate the directory a few times.
+    constexpr int kMaxAttempts = 4;
+    for (int attempt = 1;; ++attempt) {
+        auto st = fs->create_directory(dir, false);
+        if (!st.ok() && !st.is<ErrorCode::ALREADY_EXIST>()) {
+            return st;
+        }
+        st = fs->create_file(tmp_file, &file_writer, &opts);
+        if (st.ok()) {
+            break;
+        }
+        if (attempt == kMaxAttempts || !st.is<ErrorCode::NOT_FOUND>()) {
+            return st;
+        }
+    }
     *writer = file_writer.get();
     shard.map.emplace(file_writer_map_key, std::move(file_writer));
     return Status::OK();
@@ -413,35 +438,21 @@ Status FSFileCacheStorage::remove(const FileCacheKey& key) {
     const std::string v3_file = get_path_in_local_cache_v3(v3_dir, key.offset);
     FDCache::instance()->remove_file_reader(std::make_pair(key.hash, key.offset));
     RETURN_IF_ERROR(fs->delete_file(v3_file));
-    // return OK not means the file is deleted, it may be not exist
 
-    std::string v2_dir;
-    { // try to detect the file with old v2 format
-        v2_dir = get_path_in_local_cache_v2(key.hash, key.meta.expiration_time);
-        const std::string v2_file = get_path_in_local_cache_v2(v2_dir, key.offset, key.meta.type);
+    // A block written in the old v2 layout lives in a directory named after its expiration time.
+    // With expiration time 0 both layouts resolve to the same directory.
+    const std::string v2_dir = get_path_in_local_cache_v2(key.hash, key.meta.expiration_time);
+    const std::string v2_file = get_path_in_local_cache_v2(v2_dir, key.offset, key.meta.type);
+    if (v2_file != v3_file) {
         RETURN_IF_ERROR(fs->delete_file(v2_file));
     }
 
     BlockMetaKey mkey(key.meta.tablet_id, UInt128Wrapper(key.hash), key.offset);
     _meta_store->delete_key(mkey);
-    std::vector<FileInfo> files;
-    bool exists {false};
-    RETURN_IF_ERROR(fs->list(v2_dir, true, &files, &exists));
-    if (exists && files.empty()) {
-        auto st = fs->delete_empty_directory(v2_dir);
-        if (!st.ok()) {
-            LOG_WARNING("failed to remove cache directory {}", v2_dir).error(st);
-        }
-    }
 
-    files.clear();
-    exists = false;
-    RETURN_IF_ERROR(fs->list(v3_dir, true, &files, &exists));
-    if (exists && files.empty()) {
-        auto st = fs->delete_empty_directory(v3_dir);
-        if (!st.ok()) {
-            LOG_WARNING("failed to remove cache directory {}", v3_dir).error(st);
-        }
+    remove_directory_if_empty(fs, v3_dir);
+    if (v2_dir != v3_dir) {
+        remove_directory_if_empty(fs, v2_dir);
     }
     return Status::OK();
 }

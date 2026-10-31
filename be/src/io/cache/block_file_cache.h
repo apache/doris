@@ -65,10 +65,36 @@ private:
     std::chrono::time_point<std::chrono::steady_clock> start_;
 };
 
+class BlockFileCache;
+
+// Storage removals requested by BlockFileCache::remove() while the cache lock is held are parked
+// here and run by the destructor. SCOPED_CACHE_LOCK declares the scope before the lock_guard,
+// so the destructor runs after the cache lock is released, on the thread that evicted.
+class DeferredStorageRemoveScope {
+public:
+    explicit DeferredStorageRemoveScope(const BlockFileCache* cache);
+    ~DeferredStorageRemoveScope();
+
+    DeferredStorageRemoveScope(const DeferredStorageRemoveScope&) = delete;
+    DeferredStorageRemoveScope& operator=(const DeferredStorageRemoveScope&) = delete;
+
+    // The innermost scope opened on this thread, or nullptr.
+    static DeferredStorageRemoveScope* current();
+
+    bool owned_by(const BlockFileCache* cache) const { return _cache == cache; }
+    void add(const FileCacheKey& key) { _keys.push_back(key); }
+
+private:
+    const BlockFileCache* _cache;
+    DeferredStorageRemoveScope* _prev;
+    std::vector<FileCacheKey> _keys;
+};
+
 // Note: the cache_lock is scoped, so do not add do...while(0) here.
 #define SCOPED_CACHE_LOCK(MUTEX, cache)                                                           \
     std::chrono::time_point<std::chrono::steady_clock> start_time =                               \
             std::chrono::steady_clock::now();                                                     \
+    DeferredStorageRemoveScope deferred_storage_remove_scope(cache);                              \
     std::lock_guard cache_lock(MUTEX);                                                            \
     std::chrono::time_point<std::chrono::steady_clock> acq_time =                                 \
             std::chrono::steady_clock::now();                                                     \
@@ -142,6 +168,49 @@ private:
     std::atomic<size_t> _size {0};
 };
 
+// Block files whose cache metadata is gone but whose storage removal has not finished, keyed by
+// (hash, offset). An entry means the file stored at that position is garbage. A removal is run
+// only by the thread that claims the entry, and the downloader of a new block at the same
+// position drains the entry before writing, so a removal issued for an evicted block can never
+// delete the block that replaced it.
+class PendingStorageRemoves {
+public:
+    // Records that the stored block at (key.hash, key.offset) must be removed.
+    void mark(const FileCacheKey& key);
+
+    // Claims the pending removal at (hash, offset). Returns false when nothing is pending or the
+    // removal is already running. On success *key is the key to remove and the caller must call
+    // finish() after the storage removal returns.
+    bool claim(const UInt128Wrapper& hash, size_t offset, FileCacheKey* key);
+
+    // Like claim(), but first waits for a running removal at (hash, offset) to finish.
+    bool wait_and_claim(const UInt128Wrapper& hash, size_t offset, FileCacheKey* key);
+
+    // Ends a claimed removal. Returns true when the position was marked again while the removal
+    // ran; the entry is then pending again and the caller must claim and run it once more.
+    bool finish(const UInt128Wrapper& hash, size_t offset);
+
+    bool contains(const UInt128Wrapper& hash, size_t offset) const;
+    size_t size() const;
+
+private:
+    struct Entry {
+        FileCacheKey key;
+        bool running {false};
+        bool marked_while_running {false};
+    };
+    struct Shard {
+        std::mutex mtx;
+        std::condition_variable cv;
+        std::unordered_map<FileWriterMapKey, Entry, FileWriterMapKeyHash> entries;
+    };
+    static constexpr size_t kShardCount = 64;
+
+    Shard& shard_of(const FileWriterMapKey& key) const;
+
+    mutable std::array<Shard, kShardCount> _shards;
+};
+
 // The BlockFileCache is responsible for the management of the blocks
 // The current strategies are lru and ttl.
 
@@ -191,6 +260,7 @@ class BlockFileCache {
     friend class LRUQueueRecorder;
     friend struct FileBlockCell;
     friend class BlockFileCacheTest;
+    friend class DeferredStorageRemoveScope;
 
 public:
     // hash the file_name to uint128
@@ -446,6 +516,16 @@ private:
         requires IsXLock<T> && IsXLock<U>
     void remove(FileBlockSPtr file_block, T& cache_lock, U& segment_lock, bool sync = true);
 
+    // Runs the pending storage removal at (hash, offset) if this thread can claim it. Called after
+    // the cache lock is released; remove() calls it under the lock only when no lock scope of this
+    // cache is open on the thread.
+    void run_storage_remove(const UInt128Wrapper& hash, size_t offset,
+                            bvar::LatencyRecorder* latency_us) const;
+
+    // Called by the downloader of a new block before it writes: runs or waits out any pending
+    // removal of an evicted block stored at the same position.
+    void drain_pending_storage_remove(const UInt128Wrapper& hash, size_t offset) const;
+
     FileBlocks get_impl(const UInt128Wrapper& hash, const CacheContext& context,
                         const FileBlock::Range& range, std::lock_guard<std::mutex>& cache_lock);
 
@@ -607,6 +687,7 @@ private:
 
     // keys for async remove
     RecycleFileCacheKeys _recycle_keys;
+    mutable PendingStorageRemoves _pending_storage_removes;
 
     // Blocks that were busy when something asked to delete them. They keep sitting in _files
     // until their last reference goes away. Only FileBlocksHolder and FileBlocksProbeResult
