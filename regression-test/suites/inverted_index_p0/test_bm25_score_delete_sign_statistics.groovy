@@ -17,15 +17,16 @@
 
 // BM25 statistics of a merge-on-write table count the rows the scan returns. A query filters out
 // the rows written with the delete sign, unless it sets skip_delete_sign or show_hidden_columns:
-// then it returns and scores them, and the statistics must count them too. Each case compares the
-// scores with those of a duplicate-key table loaded with the rows the query returns, on every
+// then it returns and scores them, and the statistics must count them too. A predicate of the
+// query on the delete sign, as on any column, leaves the statistics as they are. Each case compares
+// the scores with those of a duplicate-key table loaded with the rows the query returns, on every
 // index storage format.
 suite("test_bm25_score_delete_sign_statistics", "p0") {
-    def scores = { String table, String vars ->
+    def scores = { String table, String vars, String predicate = "true" ->
         def rows = sql """
             SELECT /*+ SET_VAR(${vars}) */ id, score()
             FROM ${table}
-            WHERE SEARCH('content:jobs OR content:try')
+            WHERE SEARCH('content:jobs OR content:try') AND ${predicate}
             ORDER BY score() DESC
             LIMIT 100000
         """
@@ -111,6 +112,10 @@ suite("test_bm25_score_delete_sign_statistics", "p0") {
         sql "SET show_hidden_columns = true"
         assertSameScores(expectedReturned, scores(mow, "use_fix_replica = -1"),
                 "${format}, show_hidden_columns, compared with the returned rows")
+        // Only the delete-sign rows, scored as they are without the predicate.
+        def deleteSignRows = scores(mow, "use_fix_replica = -1", "__DORIS_DELETE_SIGN__ = 1")
+        assertSameScores(expectedReturned.subMap(deleteSignRows.keySet()), deleteSignRows,
+                "${format}, show_hidden_columns and __DORIS_DELETE_SIGN__ = 1, compared with the returned rows")
         sql "SET show_hidden_columns = false"
         assertSameScores(scores(visible, "use_fix_replica = -1"), scores(mow, "use_fix_replica = -1"),
                 "${format}, default, compared with the visible rows")
@@ -135,6 +140,12 @@ suite("test_bm25_score_delete_sign_statistics", "p0") {
     order_qt_show_hidden_columns_filtered """
         SELECT id, score() FROM test_bm25_score_delete_sign_statistics_mow_v3
         WHERE SEARCH('content:jobs') AND id < 60 AND __DORIS_DELETE_SIGN__ = 0
+        ORDER BY score() DESC LIMIT 100
+    """
+    // A query that keeps only the delete-sign rows scores them on the statistics of every row.
+    order_qt_show_hidden_columns_delete_sign_rows """
+        SELECT id, score() FROM test_bm25_score_delete_sign_statistics_mow_v3
+        WHERE SEARCH('content:jobs') AND id < 60 AND __DORIS_DELETE_SIGN__ = 1
         ORDER BY score() DESC LIMIT 100
     """
     sql "SET show_hidden_columns = false"

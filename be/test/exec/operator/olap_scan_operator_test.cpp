@@ -398,12 +398,17 @@ protected:
         _local_state = OlapScanLocalState::create_shared(_state.get(), _parent.get());
     }
 
-    // `slot` = 0, the conjunct the FE adds for the delete sign.
+    // `slot` `fn_name` `value`, as `slot` = 0, the conjunct the FE adds for the delete sign.
+    static VExprContextSPtr compare(const SlotDescriptor* slot, const std::string& fn_name,
+                                    int8_t value) {
+        auto fn = MockFnCall::create(fn_name);
+        fn->add_child(std::make_shared<VSlotRef>(slot));
+        fn->add_child(MockLiteral::create<DataTypeInt8>(value)->root());
+        return VExprContext::create_shared(fn);
+    }
+
     static VExprContextSPtr equals_zero(const SlotDescriptor* slot) {
-        auto eq = MockFnCall::create("eq");
-        eq->add_child(std::make_shared<VSlotRef>(slot));
-        eq->add_child(MockLiteral::create<DataTypeInt8>(0)->root());
-        return VExprContext::create_shared(eq);
+        return compare(slot, "eq", 0);
     }
 
     ObjectPool _pool;
@@ -416,34 +421,48 @@ protected:
 
 TEST_F(OlapScanOperatorDeleteSignTest, ConjunctOnDeleteSignFiltersIt) {
     build(true);
-    EXPECT_FALSE(_local_state->_conjuncts_read_delete_sign());
+    EXPECT_FALSE(_local_state->_conjuncts_filter_delete_sign());
 
     // A conjunct on another column, as when skip_delete_sign leaves out the FE's.
     _local_state->_conjuncts.push_back(equals_zero(_slots[1]));
-    EXPECT_FALSE(_local_state->_conjuncts_read_delete_sign());
+    EXPECT_FALSE(_local_state->_conjuncts_filter_delete_sign());
 
     _local_state->_conjuncts.push_back(equals_zero(_slots[2]));
-    EXPECT_TRUE(_local_state->_conjuncts_read_delete_sign());
+    EXPECT_TRUE(_local_state->_conjuncts_filter_delete_sign());
 }
 
 // A conjunct already pushed down as a storage expression still reads the column.
 TEST_F(OlapScanOperatorDeleteSignTest, PushedDownConjunctOnDeleteSignFiltersIt) {
     build(true);
     _local_state->_common_expr_ctxs_push_down.push_back(equals_zero(_slots[2]));
-    EXPECT_TRUE(_local_state->_conjuncts_read_delete_sign());
+    EXPECT_TRUE(_local_state->_conjuncts_filter_delete_sign());
 }
 
 // show_hidden_columns outputs the column but filters nothing by it.
 TEST_F(OlapScanOperatorDeleteSignTest, OutputDeleteSignWithoutConjunctDoesNotFilterIt) {
     build(true);
     _local_state->_conjuncts.push_back(equals_zero(_slots[0]));
-    EXPECT_FALSE(_local_state->_conjuncts_read_delete_sign());
+    EXPECT_FALSE(_local_state->_conjuncts_filter_delete_sign());
+}
+
+// With show_hidden_columns, a predicate of the query on the column returns rows written with the
+// delete sign: `= 1` returns only them.
+TEST_F(OlapScanOperatorDeleteSignTest, OtherPredicateOnDeleteSignDoesNotFilterIt) {
+    build(true);
+    _local_state->_conjuncts.push_back(compare(_slots[2], "eq", 1));
+    _local_state->_conjuncts.push_back(compare(_slots[2], "ne", 0));
+    _local_state->_common_expr_ctxs_push_down.push_back(compare(_slots[2], "ge", 0));
+    EXPECT_FALSE(_local_state->_conjuncts_filter_delete_sign());
+
+    // The query's own `= 0` keeps only the rows the FE's conjunct keeps.
+    _local_state->_conjuncts.push_back(equals_zero(_slots[2]));
+    EXPECT_TRUE(_local_state->_conjuncts_filter_delete_sign());
 }
 
 TEST_F(OlapScanOperatorDeleteSignTest, ScanWithoutDeleteSignDoesNotFilterIt) {
     build(false);
     _local_state->_conjuncts.push_back(equals_zero(_slots[1]));
-    EXPECT_FALSE(_local_state->_conjuncts_read_delete_sign());
+    EXPECT_FALSE(_local_state->_conjuncts_filter_delete_sign());
 }
 
 } // namespace doris

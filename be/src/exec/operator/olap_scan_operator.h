@@ -79,11 +79,12 @@ private:
                          const std::vector<TScanRangeParams>& scan_ranges) override;
     Status _init_profile() override;
     Status _process_conjuncts(RuntimeState* state) override;
-    // Whether a conjunct of the scan reads __DORIS_DELETE_SIGN__. The FE filters rows written
-    // with the delete sign by adding `__DORIS_DELETE_SIGN__ = 0` to the scan of a table that has
-    // one, unless the query sets skip_delete_sign or show_hidden_columns, which reach the BE only
-    // as the conjunct's absence.
-    bool _conjuncts_read_delete_sign() const;
+    // Whether a conjunct of the scan is `__DORIS_DELETE_SIGN__ = 0`. The FE filters rows written
+    // with the delete sign by adding it to the scan of a table that has one, unless the query sets
+    // skip_delete_sign or show_hidden_columns, which reach the BE only as the conjunct's absence.
+    // Any other predicate on the column, such as `__DORIS_DELETE_SIGN__ = 1` with
+    // show_hidden_columns, is a predicate of the query and returns rows written with the sign.
+    bool _conjuncts_filter_delete_sign() const;
     Status _on_runtime_filter_update(const VExprContextSPtrs& new_conjuncts) override;
     bool _is_key_column(const std::string& col_name) override;
 
@@ -164,7 +165,7 @@ private:
     OlapScanKeys _scan_keys;
     // If column id in this set, indicate that we need to read data after index filtering
     std::set<int32_t> _output_column_ids;
-    // _conjuncts_read_delete_sign() before the conjuncts are normalized.
+    // _conjuncts_filter_delete_sign() before the conjuncts are normalized.
     bool _filters_delete_sign = false;
 
     std::unique_ptr<RuntimeProfile> _segment_profile;
