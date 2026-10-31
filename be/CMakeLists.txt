@@ -892,8 +892,16 @@ if (GLIBC_COMPATIBILITY)
 endif()
 
 if (NOT OS_MACOSX)
-    set(CMAKE_CXX_STANDARD_LIBRARIES "-lrt -l:libbfd.a -liberty -lc -lm -ldl -pthread")
-    set(CMAKE_C_STANDARD_LIBRARIES "-lrt -l:libbfd.a -liberty -lc -lm -ldl -pthread")
+    # binutils >= 2.40 moves sframe support out of libbfd into a separate libsframe,
+    # so linking libbfd.a on newer distros (e.g. RHEL 10 / Fedora 40+) also requires
+    # -lsframe; older toolchains do not ship libsframe at all, hence the probe.
+    find_library(SFRAME_LIBRARY NAMES sframe)
+    set(DORIS_SFRAME_LINK "")
+    if (SFRAME_LIBRARY)
+        set(DORIS_SFRAME_LINK "-lsframe")
+    endif()
+    set(CMAKE_CXX_STANDARD_LIBRARIES "-lrt -l:libbfd.a -liberty ${DORIS_SFRAME_LINK} -lc -lm -ldl -pthread")
+    set(CMAKE_C_STANDARD_LIBRARIES "-lrt -l:libbfd.a -liberty ${DORIS_SFRAME_LINK} -lc -lm -ldl -pthread")
 else()
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
         "-framework CoreFoundation"
