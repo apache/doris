@@ -114,10 +114,15 @@ Status ArrowStreamReader::_do_get_next_block(Block* block, size_t* read_rows, bo
                                                  column_name_in_block, column_name);
                 }
 
-                RETURN_IF_ERROR(
-                        columns_guard.get_datatype_by_position(c)
-                                ->get_serde()
-                                ->read_column_from_arrow(*columns[c], column, 0, num_rows, _ctzz));
+                const auto& data_type = columns_guard.get_datatype_by_position(c);
+                auto status = data_type->get_serde()->read_column_from_arrow(*columns[c], column, 0,
+                                                                             num_rows, _ctzz);
+                // Type mismatches are load errors; retain their code and identify the input column.
+                if (!status.ok()) {
+                    return status.prepend("Arrow column '" + column_name + "' (" +
+                                          column->type()->ToString() + " -> " +
+                                          data_type->get_name() + "): ");
+                }
             } catch (Exception& e) {
                 return Status::InternalError("Failed to convert from arrow to block: {}", e.what());
             }
