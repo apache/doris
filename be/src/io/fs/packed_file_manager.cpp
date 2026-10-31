@@ -557,6 +557,19 @@ void PackedFileManager::stop_background_manager() {
     _background_thread.reset();
 }
 
+void PackedFileManager::release_resources() {
+    DORIS_CHECK(_background_thread == nullptr);
+    // ExecEnv drains all users before this call. No manager lock is needed, and
+    // SDK client/writer destruction must not run under one. For example, an S3
+    // vault added after startup can be owned only by these maps at shutdown.
+    _current_packed_files.clear();
+    _uploading_packed_files.clear();
+    _uploaded_packed_files.clear();
+    _global_slice_locations.clear();
+    _file_systems.clear();
+    _default_file_system.reset();
+}
+
 Status PackedFileManager::mark_current_packed_file_for_upload_locked(
         const std::string& resource_id) {
     auto it = _current_packed_files.find(resource_id);

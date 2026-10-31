@@ -56,6 +56,7 @@ namespace doris {
 std::string hide_access_key(const std::string& ak);
 
 class S3URI;
+class S3ClientRegistry;
 struct S3ClientConf {
     std::string endpoint;
     std::string region;
@@ -87,14 +88,17 @@ struct S3ClientConf {
     // configuration equality.
     bool operator==(const S3ClientConf&) const = default;
 
-    uint64_t get_hash() const {
-        uint64_t hash_code = 0;
-        // Use crc32_hash(ak + sk) hash to prevent swapped AK/SK order from producing same result.
-        hash_code ^= crc32_hash(ak + sk);
-        hash_code ^= crc32_hash(token);
-        hash_code ^= crc32_hash(endpoint);
-        hash_code ^= crc32_hash(region);
-        hash_code ^= crc32_hash(bucket);
+    uint64_t get_hash() const noexcept {
+        // Weak-index cleanup and pending-task removal must not allocate.
+        // Combine AK/SK in order without concatenation, and avoid the by-value
+        // crc32_hash(string) overload for every other string field.
+        size_t credentials_hash = crc32_hash(ak.data(), ak.size());
+        HashUtil::hash_combine(credentials_hash, sk);
+        uint64_t hash_code = credentials_hash;
+        hash_code ^= crc32_hash(token.data(), token.size());
+        hash_code ^= crc32_hash(endpoint.data(), endpoint.size());
+        hash_code ^= crc32_hash(region.data(), region.size());
+        hash_code ^= crc32_hash(bucket.data(), bucket.size());
         hash_code ^= max_connections;
         hash_code ^= request_timeout_ms;
         hash_code ^= connect_timeout_ms;
@@ -102,8 +106,8 @@ struct S3ClientConf {
         hash_code ^= static_cast<int>(provider);
 
         hash_code ^= static_cast<int>(cred_provider_type);
-        hash_code ^= crc32_hash(role_arn);
-        hash_code ^= crc32_hash(external_id);
+        hash_code ^= crc32_hash(role_arn.data(), role_arn.size());
+        hash_code ^= crc32_hash(external_id.data(), external_id.size());
         hash_combine_credential(&hash_code, credential);
         hash_code ^= is_internal_bucket;
         return hash_code;
@@ -123,7 +127,7 @@ struct S3ClientConf {
 };
 
 struct S3ClientConfHash {
-    size_t operator()(const S3ClientConf& conf) const {
+    size_t operator()(const S3ClientConf& conf) const noexcept {
         return static_cast<size_t>(conf.get_hash());
     }
 };
@@ -184,12 +188,11 @@ private:
     S3ClientFactory();
 
     Aws::SDKOptions _aws_options;
-    std::mutex _lock;
-    std::unordered_map<S3ClientConf, std::shared_ptr<io::ObjStorageClient>, S3ClientConfHash>
-            _cache;
+    std::unique_ptr<S3ClientRegistry> _registry;
     std::mutex _ca_cert_lock;
     std::string _ca_cert_file_path;
 #ifdef BE_TEST
+    std::mutex _lock;
     std::function<std::shared_ptr<io::ObjStorageClient>(const S3ClientConf&)> _test_client_creator;
 #endif
 };

@@ -74,8 +74,11 @@
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
 #include "io/fs/err_utils.h"
+#include "io/fs/s3_file_reader.h"
 #include "io/fs/s3_file_system.h"
+#include "runtime/exec_env.h"
 #include "testutil/container_credentials_endpoint.h"
+#include "util/defer_op.h"
 #include "util/s3_rate_limiter_manager.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
@@ -267,6 +270,111 @@ TEST_F(S3ClientFactoryTest, ObjClientHolderResetDistinguishesHashCollisions) {
     EXPECT_EQ(create_count, 2);
     EXPECT_EQ(holder.get(), internal_client);
     EXPECT_EQ(holder.s3_client_conf(), internal_conf);
+}
+
+namespace {
+
+void check_holder_client_release(bool request_holds_client) {
+    auto original = make_factory_conf("holder-lifetime.example.com", false);
+    original.token = "old";
+    auto rotated = original;
+    rotated.token = "new";
+    std::unique_ptr<io::ObjClientHolder> holder;
+    int destroyed = 0;
+    auto release_old_client = [&](ObjStorageClient* p) {
+        // Re-enter get/reset to verify neither publication nor
+        // update serialization locks cover the final release.
+        EXPECT_NE(holder->get().get(), p);
+        EXPECT_TRUE(holder->reset(rotated).ok());
+        ++destroyed;
+        delete p;
+    };
+    S3ClientFactory::instance().set_client_creator_for_test(
+            [&](const S3ClientConf& conf) -> std::shared_ptr<io::ObjStorageClient> {
+                if (conf.token == "old") {
+                    return {new S3ObjStorageClient(std::shared_ptr<Aws::S3::S3Client> {}),
+                            release_old_client};
+                }
+                return std::make_shared<S3ObjStorageClient>(std::shared_ptr<Aws::S3::S3Client> {});
+            });
+    holder = std::make_unique<io::ObjClientHolder>(original);
+    ASSERT_TRUE(holder->init().ok());
+    std::shared_ptr<ObjStorageClient> request;
+    if (request_holds_client) {
+        request = holder->get();
+    }
+    ASSERT_TRUE(holder->reset(rotated).ok());
+    EXPECT_EQ(destroyed, request_holds_client ? 0 : 1);
+    EXPECT_EQ(holder->s3_client_conf(), rotated);
+    request.reset();
+    EXPECT_EQ(destroyed, 1);
+    S3ClientFactory::instance().clear_client_creator_for_test();
+}
+
+} // namespace
+
+TEST_F(S3ClientFactoryTest, HolderReleasesOldClientOutsideBothLocks) {
+    check_holder_client_release(false);
+    check_holder_client_release(true);
+}
+
+TEST_F(S3ClientFactoryTest, FailedHolderUpdatePreservesClientAndConfiguration) {
+    auto original = make_factory_conf("holder-failed-update.example.com", false);
+    auto client = std::make_shared<S3ObjStorageClient>(std::shared_ptr<Aws::S3::S3Client> {});
+    S3ClientFactory::instance().set_client_creator_for_test(
+            [&](const S3ClientConf&) -> std::shared_ptr<io::ObjStorageClient> { return client; });
+    io::ObjClientHolder holder(original);
+    ASSERT_TRUE(holder.init().ok());
+    auto invalid = original;
+    invalid.ak = "access-key-without-secret";
+    EXPECT_FALSE(holder.reset(invalid).ok());
+    EXPECT_EQ(holder.get(), client);
+    EXPECT_EQ(holder.s3_client_conf(), original);
+}
+
+TEST_F(S3ClientFactoryTest, ReaderDestructionReleasesRealSdkClient) {
+    CloudModeConfigGuard cloud_mode(true);
+    auto conf = make_factory_conf("sdk-lifetime.example.com", false);
+    auto holder = std::make_shared<io::ObjClientHolder>(conf);
+    ASSERT_TRUE(holder->init().ok());
+    auto other_holder = std::make_shared<io::ObjClientHolder>(conf);
+    ASSERT_TRUE(other_holder->init().ok());
+    EXPECT_EQ(holder->get(), other_holder->get());
+    other_holder.reset();
+    std::weak_ptr<ObjStorageClient> client = holder->get();
+    std::weak_ptr<Aws::S3::S3Client> sdk =
+            std::static_pointer_cast<S3ObjStorageClient>(holder->get())->_client;
+    auto result = io::S3FileReader::create(holder, "bucket", "file", 0, nullptr);
+    ASSERT_TRUE(result.has_value()) << result.error();
+    auto reader = std::move(result).value();
+    holder.reset();
+    EXPECT_FALSE(client.expired());
+    EXPECT_FALSE(sdk.expired());
+    ASSERT_TRUE(reader->close().ok());
+    // close() is not object destruction. The reader still owns its holder.
+    EXPECT_FALSE(sdk.expired());
+    reader.reset();
+    EXPECT_TRUE(client.expired());
+    EXPECT_TRUE(sdk.expired());
+}
+
+TEST_F(S3ClientFactoryTest, PartialExecEnvTeardownPreservesFactory) {
+    auto& factory = S3ClientFactory::instance();
+    auto conf = make_factory_conf("partial-exec-env.example.com", false);
+    auto before = factory.create(conf);
+    ASSERT_TRUE(before.has_value()) << before.error();
+
+    const bool was_ready = ExecEnv::ready();
+    Defer restore_ready([was_ready] { ExecEnv::_s_ready = was_ready; });
+    ExecEnv partial_env;
+    partial_env.set_ready();
+    // ExternalScanContextMgrTest also tears down a partial environment. It never
+    // owns process-wide SDK shutdown, so later S3 users must still work.
+    partial_env.destroy();
+
+    auto after = factory.create(conf);
+    ASSERT_TRUE(after.has_value()) << after.error();
+    EXPECT_EQ(before.value(), after.value());
 }
 
 TEST_F(S3ClientFactoryTest, SelectsRateLimiterByDeploymentAndBucketType) {
