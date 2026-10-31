@@ -2559,6 +2559,84 @@ TEST(LanceTableReaderFilterTest, SkipsPhysicalNumericTypesUnsupportedByPinnedPla
     EXPECT_TRUE(reader.close().ok());
 }
 
+TEST(LanceTableReaderFilterTest, KeepsInt64MinRuntimeFiltersOutOfLanceScanner) {
+    const auto unique_suffix = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto dataset_uri =
+            std::filesystem::temp_directory_path() /
+            ("doris_lance_int64_min_rf_" + std::to_string(unique_suffix) + ".lance");
+    Defer cleanup {[&] {
+        std::error_code error;
+        std::filesystem::remove_all(dataset_uri, error);
+    }};
+
+    constexpr int64_t min_value = std::numeric_limits<int64_t>::min();
+    arrow::Int64Builder row_id_builder;
+    ASSERT_TRUE(row_id_builder.Append(1).ok());
+    ASSERT_TRUE(row_id_builder.Append(2).ok());
+    std::shared_ptr<arrow::Array> row_ids;
+    ASSERT_TRUE(row_id_builder.Finish(&row_ids).ok());
+    arrow::Int64Builder bigint_builder;
+    ASSERT_TRUE(bigint_builder.Append(min_value).ok());
+    ASSERT_TRUE(bigint_builder.Append(0).ok());
+    std::shared_ptr<arrow::Array> bigints;
+    ASSERT_TRUE(bigint_builder.Finish(&bigints).ok());
+    const auto decimal_type = arrow::decimal128(38, 0);
+    arrow::Decimal128Builder decimal_builder(decimal_type, arrow::default_memory_pool());
+    ASSERT_TRUE(decimal_builder.Append(arrow::Decimal128(min_value)).ok());
+    ASSERT_TRUE(decimal_builder.Append(arrow::Decimal128(0)).ok());
+    std::shared_ptr<arrow::Array> decimals;
+    ASSERT_TRUE(decimal_builder.Finish(&decimals).ok());
+    const auto schema = arrow::schema({
+            arrow::field("row_id", arrow::int64()),
+            arrow::field("bigint_value", arrow::int64()),
+            arrow::field("decimal_value", decimal_type),
+    });
+    ASSERT_TRUE(
+            write_lance_record_batch(
+                    dataset_uri, arrow::RecordBatch::Make(schema, 2, {row_ids, bigints, decimals}))
+                    .ok());
+
+    // Pushed to Lance, `-9223372036854775808` fails planning in the first lance_scanner_next():
+    // its magnitude overflows i64 and becomes a Float64 the planner cannot coerce back.
+    const VExprContextSPtrs runtime_filters {
+            create_int64_runtime_in_conjunct("bigint_value", {min_value}, 53),
+            create_runtime_range_conjunct<TYPE_BIGINT>("bigint_value", TExprOpcode::LE, min_value,
+                                                       std::make_shared<DataTypeInt64>(), 54),
+            create_typed_runtime_in_conjunct<TYPE_DECIMAL128I>(
+                    "decimal_value", Decimal128V3(static_cast<Int128>(min_value)),
+                    std::make_shared<DataTypeDecimal128>(38, 0), 55),
+    };
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false)};
+    TQueryGlobals query_globals;
+    RuntimeState state(TQueryOptions(), query_globals);
+    RuntimeProfile profile("lance_int64_min_runtime_filter_fixture");
+    TFileScanRangeParams scan_params;
+    LanceTableReader reader;
+    ASSERT_TRUE(
+            init_reader(&reader, columns, &state, &profile, &scan_params, runtime_filters).ok());
+    ASSERT_TRUE(prepare_range(&reader, make_latest_lance_range(dataset_uri)).ok());
+
+    Block block;
+    add_output_columns(&block, columns);
+    std::vector<int64_t> returned_row_ids;
+    bool eos = false;
+    while (!eos) {
+        const auto status = reader.get_block(&block, &eos);
+        ASSERT_TRUE(status.ok()) << status;
+        if (!eos) {
+            const auto& values = assert_cast<const ColumnInt64&>(*block.get_by_position(0).column);
+            returned_row_ids.insert(returned_row_ids.end(), values.get_data().begin(),
+                                    values.get_data().end());
+        }
+    }
+    EXPECT_TRUE(reader.close().ok());
+    const auto* skipped_ids = profile.get_info_string("LanceRuntimeFilterSkippedIds");
+    ASSERT_NE(nullptr, skipped_ids);
+    EXPECT_EQ("53,54,55", *skipped_ids);
+    // Row 1 matches all three filters. Row 2 may come back too: the Doris residual removes it.
+    EXPECT_TRUE(std::ranges::find(returned_row_ids, 1) != returned_row_ids.end());
+}
+
 TEST(LanceTableReaderFilterTest, LeavesResidualPredicatesToScanner) {
     const std::filesystem::path dataset_uri =
             "./be/test/format_v2/table/lance/data/all_types.lance";

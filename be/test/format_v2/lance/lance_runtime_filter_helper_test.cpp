@@ -272,6 +272,46 @@ TEST(LanceRuntimeFilterHelperTest, SkipsPhysicalNumericTypesUnsupportedByPinnedP
     EXPECT_EQ((std::vector<int> {25, 26, 27, 28}), result->skipped_filter_ids);
 }
 
+TEST(LanceRuntimeFilterHelperTest, KeepsInt64MinFiltersResidualOnly) {
+    constexpr int64_t min_value = std::numeric_limits<int64_t>::min();
+    const auto decimal_type = std::make_shared<DataTypeDecimal128>(38, 0);
+    const auto schema = arrow::schema(
+            {arrow::field("id", arrow::int64()), arrow::field("amount", arrow::decimal128(38, 0))});
+
+    // Lance reads `-9223372036854775808` as the negation of a magnitude that overflows i64, and the
+    // Float64 it falls back to coerces to neither Int64 nor Decimal: such a filter fails planning.
+    // An IN set with that member is rejected as a unit.
+    const VExprContextSPtrs min_filters {
+            int64_runtime_in("id", {min_value, 5}, 36),
+            int64_runtime_range("id", TExprOpcode::GE, min_value, 37),
+            int64_runtime_range("id", TExprOpcode::LE, min_value, 38),
+            typed_runtime_in<TYPE_DECIMAL128I>(
+                    "amount", Decimal128V3(static_cast<Int128>(min_value)), decimal_type, 39),
+    };
+    const auto skipped = get_or_create_lance_runtime_filter_sql(min_filters, *schema, nullptr);
+    ASSERT_NE(skipped, nullptr);
+    EXPECT_TRUE(skipped->expression.empty());
+    EXPECT_TRUE(skipped->pushable_filter_ids.empty());
+    EXPECT_EQ((std::vector<int> {36, 37, 38, 39}), skipped->skipped_filter_ids);
+
+    // The next value up parses as i64 and still reaches Lance.
+    const VExprContextSPtrs above_min_filters {
+            int64_runtime_in("id", {min_value + 1}, 40),
+            int64_runtime_range("id", TExprOpcode::GE, min_value + 1, 41),
+            int64_runtime_range("id", TExprOpcode::LE, min_value + 1, 42),
+            typed_runtime_in<TYPE_DECIMAL128I>(
+                    "amount", Decimal128V3(static_cast<Int128>(min_value + 1)), decimal_type, 43),
+    };
+    const auto pushed = get_or_create_lance_runtime_filter_sql(above_min_filters, *schema, nullptr);
+    ASSERT_NE(pushed, nullptr);
+    EXPECT_EQ(
+            "(`id` IN (-9223372036854775807)) AND (`id` >= -9223372036854775807) AND "
+            "(`id` <= -9223372036854775807) AND (`amount` IN (-9223372036854775807))",
+            pushed->expression);
+    EXPECT_EQ((std::vector<int> {40, 41, 42, 43}), pushed->pushable_filter_ids);
+    EXPECT_TRUE(pushed->skipped_filter_ids.empty());
+}
+
 TEST(LanceRuntimeFilterHelperTest, KeepsFloatingMinFiltersResidualOnly) {
     const auto schema = arrow::schema(
             {arrow::field("f32", arrow::float32()), arrow::field("f64", arrow::float64())});
