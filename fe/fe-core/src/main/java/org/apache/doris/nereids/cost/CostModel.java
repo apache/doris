@@ -24,13 +24,13 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.stats.HboPlanStatisticsProvider;
 import org.apache.doris.nereids.stats.HboUtils;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -76,7 +76,6 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
@@ -89,6 +88,10 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
     // so when encountering a scan of an external table, a coefficient should be applied.
     static final double EXTERNAL_TABLE_SCAN_FACTOR = 5;
     static final double BUCKETED_AGG_COST_DISCOUNT = 0.5;
+    // USE_MV is a hard constraint, the relation which is not the hinted materialized view is charged
+    // with this tiny extra cost, so that the hinted materialized view is still the cheapest one when
+    // the statistics are unavailable and every relation is estimated as 0 rows.
+    static final double NON_USE_MV_SCAN_PENALTY = 1.0;
 
     private static final Logger LOG = LogManager.getLogger(CostModel.class);
     private final int beNumber;
@@ -120,36 +123,47 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
         OlapTable table = physicalOlapScan.getTable();
         Statistics statistics = context.getStatisticsWithCheck();
         double rows = statistics.getRowCount();
+        Optional<UseMvHint> useMvHint = getUseMvHint();
+        if (useMvHint.isPresent()) {
+            // USE_MV forces the hinted materialized view, so the hinted materialized view is scanned
+            // with zero cost and the other relations are charged with a tiny extra cost, which makes
+            // the hinted materialized view the cheapest one during the whole optimization.
+            // NereidsPlanner.chooseBestPlanConsideringUseMv() validates the final plan afterwards.
+            if (isHintedMaterialization(useMvHint.get(), physicalOlapScan)) {
+                return Cost.ofCpu(context.getCostWeight(), 0);
+            }
+            return Cost.ofCpu(context.getCostWeight(), rows + NON_USE_MV_SCAN_PENALTY);
+        }
         double aggMvBonus = 0.0;
         if (table.getBaseIndexId() != physicalOlapScan.getSelectedIndexId()) {
-            Optional<UseMvHint> useMvHint = ConnectContext.get().getStatementContext().getUseMvHint("USE_MV");
-            if (useMvHint.isPresent()) {
-                List<String> mvQualifier = new ArrayList<>();
-                for (String qualifier : table.getFullQualifiers()) {
-                    mvQualifier.add(qualifier);
-                }
-                mvQualifier.add(table.getIndexNameById(physicalOlapScan.getSelectedIndexId()));
-                if (useMvHint.get().getUseMvTableColumnMap().containsKey(mvQualifier)) {
-                    useMvHint.get().getUseMvTableColumnMap().put(mvQualifier, true);
-                    useMvHint.get().setStatus(Hint.HintStatus.SUCCESS);
-                    return Cost.ofCpu(context.getCostWeight(), Double.NEGATIVE_INFINITY);
-                }
-            }
             if (table.getIndexMetaByIndexId(physicalOlapScan.getSelectedIndexId())
                     .getKeysType().equals(KeysType.AGG_KEYS)) {
                 aggMvBonus = rows > 1.0 ? 1.0 : rows * 0.5;
             }
         }
-        if (table instanceof MTMV) {
-            Optional<UseMvHint> useMvHint = ConnectContext.get().getStatementContext().getUseMvHint("USE_MV");
-            if (useMvHint.isPresent() && useMvHint.get().getUseMvTableColumnMap()
-                    .containsKey(table.getFullQualifiers())) {
-                useMvHint.get().getUseMvTableColumnMap().put(table.getFullQualifiers(), true);
-                useMvHint.get().setStatus(Hint.HintStatus.SUCCESS);
-                return Cost.ofCpu(context.getCostWeight(), Double.NEGATIVE_INFINITY);
-            }
-        }
         return Cost.ofCpu(context.getCostWeight(), rows - aggMvBonus);
+    }
+
+    private Optional<UseMvHint> getUseMvHint() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null || connectContext.getStatementContext() == null) {
+            return Optional.empty();
+        }
+        return connectContext.getStatementContext().getUseMvHint("USE_MV");
+    }
+
+    private boolean isHintedMaterialization(UseMvHint useMvHint, PhysicalOlapScan physicalOlapScan) {
+        OlapTable table = physicalOlapScan.getTable();
+        List<String> mvIdentifier;
+        if (table instanceof MTMV) {
+            mvIdentifier = table.getFullQualifiers();
+        } else if (table.getBaseIndexId() != physicalOlapScan.getSelectedIndexId()) {
+            mvIdentifier = MaterializationContext.generateMaterializationIdentifierByIndexId(
+                    table, physicalOlapScan.getSelectedIndexId());
+        } else {
+            return false;
+        }
+        return useMvHint.findUseMvParameter(mvIdentifier).isPresent();
     }
 
     private Set<Column> getColumnForRangePredicate(Set<Expression> expressions) {
