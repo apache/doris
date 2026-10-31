@@ -429,10 +429,16 @@ Status ArrowStreamReader::_prepare_arrays() {
         RETURN_IF_ERROR(normalize_arrow_array(_batch->column(_arrow_positions[id.value()]),
                                               _arrow_pool.get(), &array));
         arrow::compute::ExecContext context(_arrow_pool.get());
-        std::shared_ptr<arrow::DataType> binding;
-        RETURN_DORIS_STATUS_IF_RESULT_ERROR(
-                binding, input_binding_type(array->type(), _arrow_types[id.value()],
-                                            _file_slots[id.value()]->type()));
+        auto binding_result = input_binding_type(array->type(), _arrow_types[id.value()],
+                                                 _file_slots[id.value()]->type());
+        // A STRUCT field-count mismatch needs the same column context as a failed value cast.
+        if (!binding_result.ok()) {
+            return Status::InvalidArgument(
+                    "Cannot decode Arrow column '{}' ({} -> {}): {}",
+                    _file_slots[id.value()]->col_name(), array->type()->ToString(),
+                    _arrow_types[id.value()]->ToString(), binding_result.status().ToString());
+        }
+        auto binding = std::move(binding_result).ValueUnsafe();
         // Bind differing numeric widths before concrete SerDe array casts. Timestamp units
         // stay on the wire even inside containers, so Doris retains its own rounding semantics.
         if (!array->type()->Equals(binding)) {
@@ -443,8 +449,9 @@ Status ArrowStreamReader::_prepare_arrays() {
             options.allow_invalid_utf8 = true;
             auto converted = arrow::compute::Cast(array, binding, options, &context);
             if (!converted.ok()) {
-                return Status::InvalidArgument("Cannot decode Arrow column '{}': {}",
+                return Status::InvalidArgument("Cannot decode Arrow column '{}' ({} -> {}): {}",
                                                _file_slots[id.value()]->col_name(),
+                                               array->type()->ToString(), binding->ToString(),
                                                converted.status().ToString());
             }
             array = converted->make_array();
