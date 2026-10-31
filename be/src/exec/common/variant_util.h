@@ -23,9 +23,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <set>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
@@ -181,6 +183,12 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
 
 class VariantCompactionUtil {
 public:
+    static bool has_values_index(const TabletSchema& schema);
+    static Status plan_values_index_compaction(
+            const std::vector<RowsetSharedPtr>& rowsets, bool expand_subcolumns,
+            const std::set<std::pair<int32_t, int64_t>>& native_indexes, TabletSchemaSPtr& schema,
+            VariantCompactionPathsSPtr* paths);
+
     // get the subpaths and sparse paths for the variant column
     static void get_subpaths(int32_t max_subcolumns_count, const PathToNoneNullValues& path_stats,
                              VariantCompactionPaths& paths_set_info);
@@ -199,7 +207,8 @@ public:
     // variant columns. `paths` receives that schema's variant path layout.
     static Status get_extended_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
                                                  TabletSchemaSPtr& target,
-                                                 VariantCompactionPathsMap& paths);
+                                                 VariantCompactionPathsMap& paths,
+                                                 const std::set<int32_t>& skip_roots = {});
 
     // Used to collect all the subcolumns types of variant column from rowsets
     static TabletSchemaSPtr calculate_variant_extended_schema(

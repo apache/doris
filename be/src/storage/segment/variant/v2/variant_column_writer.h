@@ -32,6 +32,7 @@ namespace doris {
 namespace segment_v2 {
 
 class VariantBinaryWriter;
+class VariantValuesIndexWriter;
 class VariantShredder;
 struct VariantShreddedColumns;
 
@@ -61,6 +62,7 @@ public:
     uint64_t get_total_data_pages_bytes(ColumnWriter::DataBytesGetter getter) const;
 
 private:
+    Status _write_values_indexes(const VariantShreddedColumns& shredded);
     Status _write_root(const IColumn* root_jsonb, int& column_id);
     // Streams one batch of the root-only JSONB column into the root column writer.
     Status _append_root_batch(const ColumnString& batch, std::span<const uint8_t> outer_nulls);
@@ -81,6 +83,7 @@ private:
     std::vector<ColumnWriterOptions> _subcolumn_opts;
     std::vector<TabletIndexes> _subcolumn_indexes;
     std::unique_ptr<VariantBinaryWriter> _binary_writer;
+    std::vector<std::unique_ptr<VariantValuesIndexWriter>> _values_index_writers;
 };
 
 } // namespace segment_v2

@@ -188,6 +188,21 @@ Status SniiIndexReader::_admit(const IndexQueryContextPtr& /*context*/,
     admission->plan_before_open = false;
     admission->coalesce = true;
     const InvertedIndexQueryType query_type = request.query_type;
+    if (_index_meta.is_variant_values_index()) {
+        if (request.leaf != nullptr || (query_type != InvertedIndexQueryType::MATCH_ANY_QUERY &&
+                                        query_type != InvertedIndexQueryType::MATCH_ALL_QUERY)) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED, false>(
+                    "VARIANT values index supports only root MATCH_ANY and MATCH_ALL");
+        }
+        // A segment can have an SNII container without this logical values index.
+        admission->open_failed = [](Status status) {
+            if (status.is<ErrorCode::INVERTED_INDEX_SNII_NOT_FOUND>()) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND, false>("{}",
+                                                                                      status.msg());
+            }
+            return status;
+        };
+    }
     if (is_gram_query(query_type)) {
         // Only an index under an analyzer policy can have been written as a gram index.
         if (!gram::may_be_gram_index(_index_meta.properties())) {

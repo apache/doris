@@ -231,29 +231,37 @@ ordinal_t CombineMultipleBinaryColumnIterator::get_current_ordinal() const {
 
 void CombineMultipleBinaryColumnIterator::_collect_sparse_data_from_buckets(
         IColumn& binary_data_column) {
+    std::vector<const IColumn*> buckets;
+    for (const auto& column : _binary_column_data) {
+        buckets.push_back(column.get());
+    }
+    combine_variant_binary_buckets(buckets, 0, buckets.front()->size(), binary_data_column);
+}
+
+void combine_variant_binary_buckets(std::span<const IColumn* const> buckets, size_t begin,
+                                    size_t num_rows, IColumn& binary_data_column) {
     // Get path, value, offset from all buckets.
     auto& column_map = assert_cast<ColumnMap&>(binary_data_column);
     auto& dst_paths = assert_cast<ColumnString&>(column_map.get_keys());
     auto& dst_values = assert_cast<ColumnString&>(column_map.get_values());
     auto& dst_offsets = column_map.get_offsets();
 
-    std::vector<const ColumnString*> src_paths(_binary_column_data.size());
-    std::vector<const ColumnString*> src_values(_binary_column_data.size());
-    std::vector<const ColumnArray::Offsets64*> src_offsets(_binary_column_data.size());
-    for (size_t i = 0; i != _binary_column_data.size(); ++i) {
-        const auto& src_map = assert_cast<const ColumnMap&>(*_binary_column_data[i]);
+    std::vector<const ColumnString*> src_paths(buckets.size());
+    std::vector<const ColumnString*> src_values(buckets.size());
+    std::vector<const ColumnArray::Offsets64*> src_offsets(buckets.size());
+    for (size_t i = 0; i != buckets.size(); ++i) {
+        const auto& src_map = assert_cast<const ColumnMap&>(*buckets[i]);
         src_paths[i] = assert_cast<const ColumnString*>(&src_map.get_keys());
         src_values[i] = assert_cast<const ColumnString*>(&src_map.get_values());
         src_offsets[i] = &src_map.get_offsets();
     }
 
-    size_t num_rows = _binary_column_data[0]->size();
-    for (size_t i = 0; i != num_rows; ++i) {
+    for (size_t i = begin; i != begin + num_rows; ++i) {
         // Sparse data contains paths in sorted order in each row.
         // Collect all paths from all buckets in this row and sort them.
         // Save each path bucket and index to be able find corresponding value later.
         std::vector<std::tuple<std::string_view, size_t, size_t>> all_paths;
-        for (size_t bucket = 0; bucket != _binary_column_data.size(); ++bucket) {
+        for (size_t bucket = 0; bucket != buckets.size(); ++bucket) {
             size_t offset_start = (*src_offsets[bucket])[ssize_t(i) - 1];
             size_t offset_end = (*src_offsets[bucket])[ssize_t(i)];
 

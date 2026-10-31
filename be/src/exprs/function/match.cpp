@@ -21,12 +21,17 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <iterator>
 #include <span>
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 
+#include "common/cast_set.h"
+#include "core/column/column_nullable.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/field.h"
+#include "core/value/variant/variant_leaf_visitor.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/index_reader_helper.h"
@@ -50,6 +55,108 @@ const InvertedIndexAnalyzerCtx* get_match_analyzer_ctx(FunctionContext* context)
                 context->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
     }
     return analyzer_ctx;
+}
+
+// Collects the tokens of every scalar leaf of one Variant document, the scalar mirror of what a
+// VARIANT values index stores. The shared leaf visitor ignores object keys and unsupported
+// primitives; each canonical scalar text is tokenized independently.
+Status append_variant_leaf_tokens(const InvertedIndexAnalyzerCtx* analyzer_ctx,
+                                  const VariantRef& value,
+                                  std::vector<segment_v2::TermInfo>* tokens) {
+    DORIS_CHECK(tokens != nullptr);
+    if (analyzer_ctx == nullptr) {
+        return Status::OK();
+    }
+    const bool requires_analysis =
+            analyzer_ctx->requires_analysis() && analyzer_ctx->analyzer != nullptr;
+    return for_each_variant_leaf_text(value, [&](std::string_view text) {
+        if (!requires_analysis) {
+            tokens->emplace_back(std::string(text));
+            return Status::OK();
+        }
+        auto reader = segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
+                analyzer_ctx->char_filter_map);
+        reader->init(text.data(), cast_set<int>(text.size()), true);
+        auto value_tokens = segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                reader, analyzer_ctx->analyzer.get());
+        tokens->insert(tokens->end(), std::make_move_iterator(value_tokens.begin()),
+                       std::make_move_iterator(value_tokens.end()));
+        return Status::OK();
+    });
+}
+
+Status execute_variant_values_match(const FunctionMatchBase& function, FunctionContext* context,
+                                    const ColumnVariantV2& variant,
+                                    const InvertedIndexAnalyzerCtx* analyzer_ctx,
+                                    const std::string& match_query_str,
+                                    const std::string& column_name, Block& block, uint32_t result,
+                                    size_t input_rows_count) {
+    const InvertedIndexQueryType query_type = function.get_query_type_from_fn_name();
+    if (query_type != InvertedIndexQueryType::MATCH_ANY_QUERY &&
+        query_type != InvertedIndexQueryType::MATCH_ALL_QUERY) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "VARIANT root supports only MATCH, MATCH_ANY, and MATCH_ALL");
+    }
+    RETURN_IF_ERROR(function.check(context, function.get_name()));
+
+    // Only root VARIANT inputs reach this branch; FE casts every other VARIANT input to STRING.
+    if (analyzer_ctx == nullptr ||
+        (analyzer_ctx->requires_analysis() && analyzer_ctx->analyzer == nullptr)) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "VARIANT MATCH requires a bound analyzer");
+    }
+
+    auto result_values = ColumnUInt8::create();
+    ColumnUInt8::Container& result_data = result_values->get_data();
+    result_data.resize_fill(input_rows_count);
+    const auto query_tokens =
+            function.analyse_query_str_token(analyzer_ctx, match_query_str, column_name);
+    if (query_tokens.empty()) {
+        block.replace_by_position(result, std::move(result_values));
+        return Status::OK();
+    }
+
+    Status evaluation_status = Status::OK();
+    try {
+        visit_variant_v2_values(
+                variant, 0, input_rows_count, {}, [](size_t) {},
+                [&](size_t row, const VariantRef& value) {
+                    if (!evaluation_status.ok()) {
+                        return;
+                    }
+                    std::vector<segment_v2::TermInfo> data_tokens;
+                    evaluation_status =
+                            append_variant_leaf_tokens(analyzer_ctx, value, &data_tokens);
+                    if (!evaluation_status.ok()) {
+                        return;
+                    }
+                    std::vector<std::string_view> terms;
+                    terms.reserve(data_tokens.size());
+                    for (const auto& token : data_tokens) {
+                        terms.push_back(token.get_single_term());
+                    }
+                    std::ranges::sort(terms);
+                    size_t matched = 0;
+                    for (const auto& query_token : query_tokens) {
+                        if (std::ranges::binary_search(terms, query_token.get_single_term())) {
+                            ++matched;
+                            if (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY) {
+                                break;
+                            }
+                        } else if (query_type == InvertedIndexQueryType::MATCH_ALL_QUERY) {
+                            break;
+                        }
+                    }
+                    result_data[row] = query_type == InvertedIndexQueryType::MATCH_ANY_QUERY
+                                               ? matched != 0
+                                               : matched == query_tokens.size();
+                });
+    } catch (const Exception& exception) {
+        return exception.to_status();
+    }
+    RETURN_IF_ERROR(evaluation_status);
+    block.replace_by_position(result, std::move(result_values));
+    return Status::OK();
 }
 
 enum class PhraseMode { EXACT, PREFIX, EDGE };
@@ -393,6 +500,12 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
     const auto* analyzer_ctx = get_match_analyzer_ctx(context);
     const ColumnPtr source_col =
             block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+    // Default NULL handling already unwrapped the input column.
+    if (const auto* variant = check_and_get_column<ColumnVariantV2>(source_col.get())) {
+        return execute_variant_values_match(*this, context, *variant, analyzer_ctx, match_query_str,
+                                            column_name, block, result, input_rows_count);
+    }
+
     const auto* values = check_and_get_column<ColumnString>(source_col.get());
     const ColumnArray* array_col = nullptr;
     const ColumnUInt8::Container* array_element_null_map = nullptr;
