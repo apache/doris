@@ -52,7 +52,7 @@ public class IcebergConnectorValidatePropertiesTest {
 
     @Test
     public void restFlavorRulesReachableThroughProvider() {
-        Assertions.assertEquals("Invalid security type: bogus. Supported values are: none, oauth2",
+        Assertions.assertEquals("Invalid security type: bogus. Supported values are: none, oauth2, google",
                 rejectMessage(props("iceberg.catalog.type", "rest", "iceberg.rest.security.type", "bogus")));
         // valid REST (default none security) accepted.
         PROVIDER.validateProperties(props("iceberg.catalog.type", "rest", "iceberg.rest.uri", "http://r"));
