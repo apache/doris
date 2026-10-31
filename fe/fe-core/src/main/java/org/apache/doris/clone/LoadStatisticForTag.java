@@ -68,6 +68,8 @@ public class LoadStatisticForTag {
     private final Map<TStorageMedium, TreeMultimap<Long, Long>> beByTotalReplicaCountMaps = Maps.newHashMap();
     private Map<TStorageMedium, TreeMultimap<Long, TabletInvertedIndex.PartitionBalanceInfo>> skewMaps
             = Maps.newHashMap();
+    // Moves already accounted for in both replica-count maps of this snapshot.
+    private Map<Long, Pair<TabletMove, Long>> movesInProgress = Maps.newHashMap();
 
     public LoadStatisticForTag(Tag tag, SystemInfoService infoService,
             TabletInvertedIndex invertedIndex, Rebalancer rebalancer) {
@@ -182,9 +184,10 @@ public class LoadStatisticForTag {
                         .map(BackendLoadStatistic::getBeId)
                         .collect(Collectors.toList()));
             }
-            Map<Long, Pair<TabletMove, Long>> movesInProgress = rebalancer == null ? Maps.newHashMap()
-                    : ((PartitionRebalancer) rebalancer).getMovesInProgress();
-            skewMaps = invertedIndex.buildPartitionInfoBySkew(availableBeIds, availableBeIdsByMedium, movesInProgress);
+            movesInProgress = rebalancer == null ? Maps.newHashMap()
+                    : ((PartitionRebalancer) rebalancer).getMovesInProgress(tag);
+            skewMaps = invertedIndex.buildPartitionInfoBySkew(
+                    availableBeIds, availableBeIdsByMedium, movesInProgress, beByTotalReplicaCountMaps);
         }
     }
 
@@ -634,6 +637,12 @@ public class LoadStatisticForTag {
 
     public TreeMultimap<Long, Long> getBeByTotalReplicaMap(TStorageMedium medium) {
         return beByTotalReplicaCountMaps.get(medium);
+    }
+
+    boolean isMoveIncluded(TabletMove move) {
+        Pair<TabletMove, Long> included = movesInProgress.get(move.tabletId);
+        return included != null && included.first.fromBe.equals(move.fromBe)
+                && included.first.toBe.equals(move.toBe);
     }
 
     public TreeMultimap<Long, TabletInvertedIndex.PartitionBalanceInfo> getSkewMap(TStorageMedium medium) {

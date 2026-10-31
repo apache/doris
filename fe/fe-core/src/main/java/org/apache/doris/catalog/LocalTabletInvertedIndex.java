@@ -924,12 +924,14 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
         this.partitionCollectInfoMap = partitionCollectInfoMap;
     }
 
-    // Only build from available bes, exclude colocate tables
+    // Build the post-move distribution from one replica snapshot. Colocate/recycled tables
+    // contribute to the backend totals, but not to the partition skew used for balancing.
     @Override
     public Map<TStorageMedium, TreeMultimap<Long, PartitionBalanceInfo>> buildPartitionInfoBySkew(
             List<Long> availableBeIds,
             Map<TStorageMedium, List<Long>> availableBeIdsByMedium,
-            Map<Long, Pair<TabletMove, Long>> movesInProgress) {
+            Map<Long, Pair<TabletMove, Long>> movesInProgress,
+            Map<TStorageMedium, TreeMultimap<Long, Long>> beByTotalReplicaCountMaps) {
         Set<Long> dbIds = Sets.newHashSet();
         Set<Long> tableIds = Sets.newHashSet();
         Set<Long> partitionIds = Sets.newHashSet();
@@ -943,8 +945,11 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
         // for each replica(all tablets):
         //      find beId, then replicaCount++
         Map<TStorageMedium, Table<Long, Long, Map<Long, Long>>> partitionReplicasInfoMaps = Maps.newHashMap();
+        Map<TStorageMedium, Map<Long, Long>> totalReplicaCounts = Maps.newHashMap();
         for (TStorageMedium medium : TStorageMedium.values()) {
             partitionReplicasInfoMaps.put(medium, HashBasedTable.create());
+            totalReplicaCounts.put(medium, availableBeIdsByMedium.getOrDefault(medium, Lists.newArrayList())
+                    .stream().collect(Collectors.toMap(id -> id, id -> 0L)));
         }
         try {
             // Changes to the returned set will update the underlying table
@@ -955,37 +960,32 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
                 Long beId = cell.getColumnKey();
                 Pair<TabletMove, Long> movePair = movesInProgress.get(tabletId);
                 TabletMove move = movePair != null ? movePair.first : null;
-                // there exists move from fromBe to toBe
-                if (move != null && beId == move.fromBe
+                if (move != null && beId.equals(move.fromBe)
                         && availableBeIds.contains(move.toBe)) {
-
-                    // if movePair.second == -1, it means toBe hadn't added this tablet but it will add later;
-                    // otherwise it means toBe had added this tablet
-                    boolean toBeHadReplica = movePair.second != -1L;
-                    if (toBeHadReplica) {
-                        // toBe had add this tablet, fromBe just ignore this tablet
+                    // A registered destination (including CLONE) is counted by its own cell.
+                    // Check the same snapshot as the counts, not the cached source replica ID:
+                    // that ID can be set before the destination replica is actually added.
+                    if (replicaMetaTable.contains(tabletId, move.toBe)) {
                         continue;
                     }
-
-                    // later fromBe will delete this replica
-                    // and toBe will add a replica
-                    // so this replica should belong to toBe
+                    // The destination is not registered yet. Count the source at its future location.
                     beId = move.toBe;
                 }
 
                 try {
                     Preconditions.checkState(availableBeIds.contains(beId), "dead be " + beId);
                     TabletMeta tabletMeta = tabletMetaMap.get(tabletId);
+                    Preconditions.checkNotNull(tabletMeta, "invalid tablet " + tabletId);
+                    TStorageMedium medium = tabletMeta.getStorageMedium();
+                    totalReplicaCounts.get(medium).merge(beId, 1L, Long::sum);
                     if (dbIds.contains(tabletMeta.getDbId()) || tableIds.contains(tabletMeta.getTableId())
                             || partitionIds.contains(tabletMeta.getPartitionId())) {
                         continue;
                     }
-                    Preconditions.checkNotNull(tabletMeta, "invalid tablet " + tabletId);
                     Preconditions.checkState(
                             !Env.getCurrentColocateIndex().isColocateTable(tabletMeta.getTableId()),
                             "table " + tabletMeta.getTableId() + " should not be the colocate table");
 
-                    TStorageMedium medium = tabletMeta.getStorageMedium();
                     Table<Long, Long, Map<Long, Long>> partitionReplicasInfo = partitionReplicasInfoMaps.get(medium);
                     Map<Long, Long> countMap = partitionReplicasInfo.get(
                             tabletMeta.getPartitionId(), tabletMeta.getIndexId());
@@ -1010,6 +1010,14 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
             }
         } finally {
             readUnlock(stamp);
+        }
+
+        for (TStorageMedium medium : TStorageMedium.values()) {
+            TreeMultimap<Long, Long> beByTotalReplicaCount = TreeMultimap.create();
+            for (Long beId : availableBeIdsByMedium.getOrDefault(medium, Lists.newArrayList())) {
+                beByTotalReplicaCount.put(totalReplicaCounts.get(medium).get(beId), beId);
+            }
+            beByTotalReplicaCountMaps.put(medium, beByTotalReplicaCount);
         }
 
         // 2. Populate ClusterBalanceInfo::table_info_by_skew
