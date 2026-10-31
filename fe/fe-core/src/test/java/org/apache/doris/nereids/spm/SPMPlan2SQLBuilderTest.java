@@ -685,8 +685,11 @@ public class SPMPlan2SQLBuilderTest {
         Mockito.when(table.getPartition(7L)).thenReturn(pinned);
         Mockito.when(scan.getManuallySpecifiedPartitions()).thenReturn(List.of(7L));
 
-        java.util.Map<Long, java.util.Map<Long, String>> captured =
-                java.util.Map.of(42L, java.util.Map.of(7L, "p1"));
+        java.util.Map<Long, java.util.Map<Long,
+                org.apache.doris.nereids.spm.SPMPlanTreeSupport.PartitionPin>> captured =
+                java.util.Map.of(42L, java.util.Map.of(7L,
+                        new org.apache.doris.nereids.spm.SPMPlanTreeSupport.PartitionPin(
+                                "p1", false)));
         Assertions.assertEquals("t1 PARTITION(p1)",
                 new SPMPlan2SQLBuilder(captured).visitPhysicalRelation(scan, null).getFrom(),
                 "the admitted name is frozen");
@@ -709,8 +712,11 @@ public class SPMPlan2SQLBuilderTest {
         Mockito.when(table.getPartition(7L)).thenReturn(renamed);
         Mockito.when(scan.getManuallySpecifiedPartitions()).thenReturn(List.of(7L));
 
-        java.util.Map<Long, java.util.Map<Long, String>> captured =
-                java.util.Map.of(42L, java.util.Map.of(7L, "p0"));
+        java.util.Map<Long, java.util.Map<Long,
+                org.apache.doris.nereids.spm.SPMPlanTreeSupport.PartitionPin>> captured =
+                java.util.Map.of(42L, java.util.Map.of(7L,
+                        new org.apache.doris.nereids.spm.SPMPlanTreeSupport.PartitionPin(
+                                "p0", false)));
         Assertions.assertThrows(UnsupportedOperationException.class,
                 () -> new SPMPlan2SQLBuilder(captured).visitPhysicalRelation(scan, null),
                 "a renamed pinned partition must not be frozen under the wrong name");

@@ -799,7 +799,7 @@ public class SPMOptimizer {
          * pinning the old name (on another partition) matched the bind and replayed the renamed
          * one.
          */
-        private final java.util.Map<Long, java.util.Map<Long, String>> partitionNames;
+        private final java.util.Map<Long, java.util.Map<Long, SPMPlanTreeSupport.PartitionPin>> partitionNames;
 
         public OptimizeResult(PhysicalPlan physicalPlan, double cost) {
             this(physicalPlan, cost, java.util.Map.of(), java.util.Map.of(), null, null);
@@ -862,7 +862,7 @@ public class SPMOptimizer {
                 java.util.Map<String, String> tableFingerprints,
                 java.util.Set<String> bindFunctionDependencies,
                 Long functionRegistryVersion,
-                java.util.Map<Long, java.util.Map<Long, String>> partitionNames) {
+                java.util.Map<Long, java.util.Map<Long, SPMPlanTreeSupport.PartitionPin>> partitionNames) {
             this.physicalPlan = physicalPlan;
             this.cost = cost;
             this.tableSnapshot = tableSnapshot == null ? java.util.Map.of() : tableSnapshot;
@@ -878,7 +878,7 @@ public class SPMOptimizer {
         }
 
         /** The under-lock partition-name snapshot (see the field javadoc). */
-        public java.util.Map<Long, java.util.Map<Long, String>> getPartitionNames() {
+        public java.util.Map<Long, java.util.Map<Long, SPMPlanTreeSupport.PartitionPin>> getPartitionNames() {
             return partitionNames;
         }
 
@@ -943,7 +943,7 @@ public class SPMOptimizer {
 
         /** table id -> partition id -> the name the LOCKED bind resolved (see
          * OptimizeResult#getPartitionNames). */
-        private final java.util.Map<Long, java.util.Map<Long, String>> partitionNames =
+        private final java.util.Map<Long, java.util.Map<Long, SPMPlanTreeSupport.PartitionPin>> partitionNames =
                 new java.util.concurrent.ConcurrentHashMap<>();
 
         CaptureStatementContext(ConnectContext ctx, String originSql) {
@@ -992,7 +992,7 @@ public class SPMOptimizer {
             return tableFingerprints;
         }
 
-        java.util.Map<Long, java.util.Map<Long, String>> getPartitionNames() {
+        java.util.Map<Long, java.util.Map<Long, SPMPlanTreeSupport.PartitionPin>> getPartitionNames() {
             return partitionNames;
         }
     }

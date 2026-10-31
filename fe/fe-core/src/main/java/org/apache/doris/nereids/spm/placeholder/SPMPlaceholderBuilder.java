@@ -194,6 +194,13 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     private int containerElementDepth;
 
     /**
+     * Depth of a MAP CONSTRUCTOR (`map(...)`) whose VALUE markers carry the map's value type (see
+     * markerPayload): only the ODD child positions are values - the keys feed the map's KEY type
+     * and keep their own typing, exactly like the map-literal repair does.
+     */
+    private int mapValueElementDepth;
+
+    /**
      * Whether a bare integer GROUP BY ordinal references a SELECT item that carries a
      * placeholder (see SPMPlanTreeSupport#visitLogicalAggregate). The ordinal itself stays
      * CONCRETE, but the analyzer resolves it to that item's (parameterized) expression, and
@@ -541,6 +548,16 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
                 }
             }
             return true;
+        }
+        if (isTypePreservingMapCall(expr)) {
+            // A TYPE-PRESERVING MAP WRAPPER (`map_filter`) forwards its INPUT's MAP value type,
+            // so its result is MAP<..., NULL_TYPE> exactly when the input is (round-91 review):
+            // `element_at(map_filter(map('x', NULL), (m_k, m_v) -> TRUE), 'x')` stayed a NullType
+            // producer, `visitOr` replaced the whole ElementAt operand with a Boolean NULL and
+            // erased its markers, and the `map('x', TRUE)` variant then replayed NULL instead of
+            // TRUE. Recursing through the wrapper keeps the family in ONE classifier.
+            List<Expression> args = expr.children();
+            return !args.isEmpty() && isAllNullMap(args.get(0));
         }
         if (!isMapConstructor(expr)) {
             return false;
@@ -989,7 +1006,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
                 markerPayload(literal, parent, currentProjectItem() >= 0,
                         booleanConditionalDepth > 0 && isConditionalResultPosition(parent),
                         booleanConditionalDepth > 0 && isNullTypeContainerPosition(parent),
-                        containerElementDepth > 0));
+                        isContainerElementPosition(parent)));
         placeholderExprs.add(new PlaceholderExpr(literal, placeholder, parent, childIndex,
                 blockId, projectItem, rootOrdinal, occurrencePath));
         return placeholder;
@@ -1120,6 +1137,22 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             return NullLiteral.BOOLEAN_INSTANCE;
         }
         return literal;
+    }
+
+    /**
+     * Whether the literal currently being captured sits at an ELEMENT position whose marker
+     * decides the enclosing container's type (see markerPayload): an ARRAY constructor's element,
+     * or the VALUE half of a MAP constructor's key/value pairs - a map's keys feed its KEY type
+     * and keep their own typing.
+     *
+     * @param parent the literal's parent expression
+     * @return whether the literal is such an element
+     */
+    private boolean isContainerElementPosition(Expression parent) {
+        if (containerElementDepth > 0) {
+            return true;
+        }
+        return mapValueElementDepth > 0 && isMapConstructor(parent) && currentChildIndex() % 2 == 1;
     }
 
     /**
@@ -1455,12 +1488,17 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         // type).
         boolean containerElementOperand = isAllNullArray(expr) && booleanConditionalDepth > 0
                 && isNullTypeContainerPosition(expr);
+        boolean mapValueElementOperand = isMapConstructor(expr) && isAllNullMap(expr)
+                && booleanConditionalDepth > 0 && isNullTypeContainerPosition(expr);
 
         if (booleanConditionalOperand) {
             booleanConditionalDepth++;
         }
         if (containerElementOperand) {
             containerElementDepth++;
+        }
+        if (mapValueElementOperand) {
+            mapValueElementDepth++;
         }
         try {
             for (int i = 0; i < children.size(); i++) {
@@ -1480,6 +1518,9 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
                 }
             }
         } finally {
+            if (mapValueElementOperand) {
+                mapValueElementDepth--;
+            }
             if (containerElementOperand) {
                 containerElementDepth--;
             }

@@ -292,8 +292,20 @@ public class SPMPlanner {
                 // identity does not already prove, so the replay is kept; any other caller - a
                 // value variant, whose digest matches but whose placement could genuinely differ -
                 // still has to satisfy it (see SPMRound40SafetyTest).
+                // The digest alone is VALUE-FREE (every literal is masked), so it cannot carry
+                // this exception on its own (round-91 review): a caller raising only the outer
+                // LIMIT from 1 to 3 has the SAME digest, yet its query legitimately needs the
+                // optimizer-generated input caps rebuilt - skipping the cap contract there
+                // replayed one pair where the caller returns three. The exception therefore also
+                // requires the caller to carry EXACTLY the row caps the baseline was created
+                // the SAME cap multiset as the replayed tree, modulo the occurrence ordinal the
+                // optimizer's own reordering flips: any LIMIT / OFFSET the caller changed - or an
+                // optimizer-generated input cap the caller's tree has no counterpart for - breaks
+                // the equality and takes the strict path.
                 boolean sameFrozenStatement = candidate.getPlanSqlDigest() != null
-                        && candidate.getPlanSqlDigest().equals(queryDigest);
+                        && candidate.getPlanSqlDigest().equals(queryDigest)
+                        && SPMPlanTreeSupport.rowLimitsEquivalentModuloOccurrence(replay,
+                                matchPlan);
                 if (!SPMPlanTreeSupport.orderContractPreserved(replay, matchPlan)
                         || (!sameFrozenStatement
                                 && !limitContractPreserved(replay, matchPlan, bindTree))) {

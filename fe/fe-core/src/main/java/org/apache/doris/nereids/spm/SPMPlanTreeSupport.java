@@ -338,6 +338,43 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
+     * Whether two trees carry the SAME row caps, ignoring which OCCURRENCE of an identical
+     * relation each cap truncates (see stripOccurrenceOrdinals).
+     *
+     * <p>This is the equality form of the cap contract, used ONLY by the "the caller IS the
+     * statement the frozen plan was built from" exception in SPMPlanner: the strict checks stay
+     * untouched, because a cap moved between two occurrences of one table is exactly the hazard
+     * they exist for. What the equality form tolerates is the OPTIMIZER's own reordering - it may
+     * place a derived table on the other JOIN side, which flips the occurrence ordinal without
+     * moving the cap. Every cap VALUE, its ordered slice and the relation SET still have to
+     * match exactly, in both directions, so a caller that changed a LIMIT / OFFSET (or whose plan
+     * carries extra optimizer-generated input caps) never matches.
+     *
+     * @param left  one tree
+     * @param right the other tree
+     * @return whether both trees expose the same cap multiset modulo occurrence ordinals
+     */
+    public static boolean rowLimitsEquivalentModuloOccurrence(Plan left, Plan right) {
+        if (!Arrays.equals(topLevelLimitOf(left), topLevelLimitOf(right))) {
+            return false;
+        }
+        Map<String, Integer> leftCaps = new HashMap<>();
+        collectRowLimits(left, leftCaps);
+        Map<String, Integer> rightCaps = new HashMap<>();
+        collectRowLimits(right, rightCaps);
+        return ordinalFreeCaps(leftCaps).equals(ordinalFreeCaps(rightCaps));
+    }
+
+    /** The same cap multiset keyed without the per-name occurrence ordinals. */
+    private static Map<String, Integer> ordinalFreeCaps(Map<String, Integer> caps) {
+        Map<String, Integer> stripped = new HashMap<>();
+        for (Map.Entry<String, Integer> entry : caps.entrySet()) {
+            stripped.merge(stripOccurrenceOrdinals(entry.getKey()), entry.getValue(), Integer::sum);
+        }
+        return stripped;
+    }
+
+    /**
      * The REVERSE direction of rowLimitsWithin: every cap the
      * CALLER's tree asks for must survive in the replayed tree with the SAME values,
      * ordered slice and input placement. The one-directional check only rejected caps the
@@ -2174,6 +2211,8 @@ public final class SPMPlanTreeSupport {
                     case "now":
                     case "current_timestamp":
                     case "utc_timestamp":
+                    case "utc_time":
+                    case "utc_date":
                     case "localtime":
                     case "localtimestamp":
                     case "current_date":
@@ -7884,7 +7923,7 @@ public final class SPMPlanTreeSupport {
      *               because only the LOCKED state counts
      * @param tables the statement's resolved tables (may be null)
      */
-    public static void recordPartitionNames(Map<Long, Map<Long, String>> out,
+    public static void recordPartitionNames(Map<Long, Map<Long, PartitionPin>> out,
             java.util.Collection<TableIf> tables) {
         if (out == null || tables == null) {
             return;
@@ -7895,11 +7934,47 @@ public final class SPMPlanTreeSupport {
             }
             org.apache.doris.catalog.OlapTable olapTable =
                     (org.apache.doris.catalog.OlapTable) table;
-            Map<Long, String> names = new java.util.concurrent.ConcurrentHashMap<>();
+            Map<Long, PartitionPin> pins = new java.util.concurrent.ConcurrentHashMap<>();
             for (org.apache.doris.catalog.Partition partition : olapTable.getPartitions()) {
-                names.put(partition.getId(), partition.getName());
+                pins.put(partition.getId(), new PartitionPin(partition.getName(), false));
             }
-            out.put(olapTable.getId(), names);
+            // TEMPORARY partitions are recorded too (round-91 review): a pin admitted as
+            // TEMPORARY PARTITION(tmp) used to have no snapshot, so the decompiler read the
+            // LIVE namespace - an ALTER TABLE ... REPLACE PARTITION / promotion with
+            // use_temp_partition_name=true landing between the unlock and the render turned the
+            // captured temporary pin into a FORMAL one, and an identical replay bound a
+            // different (or no) partition. The snapshot now carries the namespace as well.
+            for (org.apache.doris.catalog.Partition partition : olapTable.getAllTempPartitions()) {
+                pins.put(partition.getId(), new PartitionPin(partition.getName(), true));
+            }
+            out.put(olapTable.getId(), pins);
+        }
+    }
+
+    /**
+     * One partition PIN as the CAPTURE admitted it (see recordPartitionNames): the name the
+     * caller wrote and the NAMESPACE (formal / TEMPORARY) it was written in.
+     *
+     * <p>Both halves are needed: the name survives a RENAME, and the namespace decides whether
+     * the frozen text must say {@code TEMPORARY PARTITION(...)} - two namespaces that may carry
+     * the SAME name. The decompiler declines the freeze when the live state no longer matches the
+     * snapshot, instead of freezing a clause the caller's own text cannot describe.
+     */
+    public static final class PartitionPin {
+        private final String name;
+        private final boolean temporary;
+
+        public PartitionPin(String name, boolean temporary) {
+            this.name = name;
+            this.temporary = temporary;
+        }
+
+        public String getName() {
+            return name;
+        }
+
+        public boolean isTemporary() {
+            return temporary;
         }
     }
 
@@ -9123,12 +9198,50 @@ public final class SPMPlanTreeSupport {
                 && isLiteralOnly(expression)) {
             return true;
         }
+        if (expression instanceof org.apache.doris.nereids.trees.expressions.Cast
+                && isZoneSensitiveCast(
+                        (org.apache.doris.nereids.trees.expressions.Cast) expression)
+                && isLiteralOnly(expression)) {
+            // A CAST CHAIN over literals is the same hazard WITHOUT a named function
+            // (round-91 review): CAST(CAST(CAST('2020-01-01 00:00:00+00:00' AS TIMESTAMPTZ)
+            // AS DATETIME(6)) AS STRING) converts the absolute timestamp into the SESSION
+            // zone twice, the creator-context optimization folds it into that zone's literal,
+            // and an identical caller in +08:00 replays 00:00 where its own query returns
+            // 08:00. The name-based guard cannot see a cast, so the TYPE transition decides.
+            return true;
+        }
         for (Expression child : expression.children()) {
             if (containsFoldedZoneSensitiveCall(child)) {
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * Whether one CAST reads or writes the SESSION time zone (see containsFoldedZoneSensitiveCall).
+     *
+     * <p>A cast is zone-sensitive when it either produces a TIMESTAMPTZ from a zone-less value
+     * (the wall clock of the session zone gives it its instant) or when it RENDERS a TIMESTAMPTZ
+     * as a zone-less value (DATETIME / DATE / STRING - the session zone decides which wall clock
+     * that instant is). Casts between zone-less types and casts that stay inside TIMESTAMPTZ are
+     * absolute and stay freezable.
+     *
+     * @param cast the cast to classify
+     * @return whether its value depends on the session time zone
+     */
+    private static boolean isZoneSensitiveCast(org.apache.doris.nereids.trees.expressions.Cast cast) {
+        org.apache.doris.nereids.types.DataType target = cast.getDataType();
+        boolean targetIsTz = target instanceof org.apache.doris.nereids.types.TimeStampTzType;
+        boolean sourceIsTz = false;
+        if (!cast.children().isEmpty()) {
+            sourceIsTz = cast.child().getDataType()
+                    instanceof org.apache.doris.nereids.types.TimeStampTzType;
+        }
+        if (targetIsTz && !sourceIsTz) {
+            return true;
+        }
+        return sourceIsTz && !targetIsTz;
     }
 
     /**
@@ -9211,6 +9324,8 @@ public final class SPMPlanTreeSupport {
         return "from_unixtime".equalsIgnoreCase(name)
                 || "unix_timestamp".equalsIgnoreCase(name)
                 || "now".equalsIgnoreCase(name)
+                || "utc_time".equalsIgnoreCase(name)
+                || "utc_date".equalsIgnoreCase(name)
                 || "curdate".equalsIgnoreCase(name)
                 || "curtime".equalsIgnoreCase(name)
                 || "current_timestamp".equalsIgnoreCase(name)

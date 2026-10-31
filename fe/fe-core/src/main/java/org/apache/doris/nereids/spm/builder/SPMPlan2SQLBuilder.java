@@ -225,7 +225,8 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * planning locks were held (see SPMOptimizer.OptimizeResult#getPartitionNames). Empty when
      * the caller has none (a direct / test-side decompile).
      */
-    private final Map<Long, Map<Long, String>> capturedPartitionNames;
+    private final Map<Long, Map<Long, org.apache.doris.nereids.spm.SPMPlanTreeSupport.PartitionPin>>
+            capturedPartitionNames;
 
     /** The OUTERMOST projection of the decompiled tree (by identity). It alone prunes its
      * output to the final user-visible columns; every intermediate projection outputs the
@@ -305,9 +306,11 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * Builds a renderer carrying the partition names the CAPTURE resolved while the planning locks
      * were held (see SPMOptimizer.OptimizeResult#getPartitionNames).
      *
-     * @param partitionNames table id to (partition id to the ADMITTED name), or null
+     * @param partitionNames table id to (partition id to the ADMITTED pin), or null
      */
-    public SPMPlan2SQLBuilder(Map<Long, Map<Long, String>> partitionNames) {
+    public SPMPlan2SQLBuilder(
+            Map<Long, Map<Long, org.apache.doris.nereids.spm.SPMPlanTreeSupport.PartitionPin>>
+                    partitionNames) {
         this.capturedPartitionNames = partitionNames == null
                 ? java.util.Map.of() : partitionNames;
     }
@@ -1391,6 +1394,39 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     }
 
     /**
+     * Whether the CAPTURE admitted one pinned partition in the TEMPORARY namespace (see
+     * recordPartitionNames), and whether the live table still agrees.
+     *
+     * <p>A pin without a snapshot (a table the capture never described) keeps the live answer, so
+     * an old baseline is unaffected. A snapshot that DISAGREES with the live namespace declines
+     * the freeze - the pin can no longer be described by the caller's own text.
+     *
+     * @param table  the scanned OLAP table
+     * @param pins   the captured pins of that table, or null
+     * @param partitionId the pinned partition
+     * @return whether the pinned partition is TEMPORARY
+     */
+    private static boolean snapshotTemporary(OlapTable table,
+            Map<Long, org.apache.doris.nereids.spm.SPMPlanTreeSupport.PartitionPin> pins,
+            long partitionId) {
+        boolean live = table.isTemporaryPartition(partitionId);
+        org.apache.doris.nereids.spm.SPMPlanTreeSupport.PartitionPin pin =
+                pins == null ? null : pins.get(partitionId);
+        if (pin == null) {
+            return live;
+        }
+        if (pin.isTemporary() != live) {
+            throw new UnsupportedOperationException(
+                    "SPM decompile: the pinned partition " + partitionId + " of table "
+                            + table.getName() + " moved between the TEMPORARY and the formal"
+                            + " namespace after the capture (the admitted pin was "
+                            + (pin.isTemporary() ? "TEMPORARY" : "formal") + "); keeping the"
+                            + " user planSql so the replay re-resolves the pin");
+        }
+        return pin.isTemporary();
+    }
+
+    /**
      * OLAP partition selection: the ids of a user-written PARTITION(...) /
      * TEMPORARY PARTITION(...) list are frozen as that very clause - including
      * when the pin happens to cover every partition that exists right now (a cardinality
@@ -1410,21 +1446,29 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         OlapTable table = scan.getTable();
         List<Long> sortedIds = new ArrayList<>(pinnedIds);
         Collections.sort(sortedIds);
-        boolean temporary = table.isTemporaryPartition(sortedIds.get(0));
+        Map<Long, org.apache.doris.nereids.spm.SPMPlanTreeSupport.PartitionPin> tablePins =
+                capturedPartitionNames.get(table.getId());
+        // The NAMESPACE comes from the CAPTURE (round-91 review): a temporary pin promoted to a
+        // formal partition (use_temp_partition_name=true) between the unlock and this render made
+        // the live check say "formal", the frozen text said PARTITION(name), and an identical
+        // replay bound the formal partition - or nothing - while the caller's own query reads
+        // the re-created TEMPORARY one.
+        boolean temporary = snapshotTemporary(table, tablePins, sortedIds.get(0));
         StringBuilder partition = new StringBuilder(temporary ? " TEMPORARY PARTITION(" : " PARTITION(");
         for (int i = 0; i < sortedIds.size(); i++) {
             if (i > 0) {
                 partition.append(", ");
             }
-            if (table.isTemporaryPartition(sortedIds.get(i)) != temporary) {
+            if (snapshotTemporary(table, tablePins, sortedIds.get(i)) != temporary) {
                 throw new UnsupportedOperationException(
                         "SPM decompile: a partition pin mixing temporary and formal partitions"
                                 + " has no single-clause rendering");
             }
             long partitionId = sortedIds.get(i);
             Partition partitionMeta = table.getPartition(partitionId);
-            Map<Long, String> capturedNames = capturedPartitionNames.get(table.getId());
-            String capturedName = capturedNames == null ? null : capturedNames.get(partitionId);
+            org.apache.doris.nereids.spm.SPMPlanTreeSupport.PartitionPin pin =
+                    tablePins == null ? null : tablePins.get(partitionId);
+            String capturedName = pin == null ? null : pin.getName();
             if (capturedName != null) {
                 // The ADMITTED name wins (round-86): the applied pin is a SET OF IDS, while the
                 // stored bind text (and every later caller matching it) names the partition it
@@ -1753,7 +1797,14 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         String alias = SQLRelation.newTableAlias();
         cteBodies.put(producer.getCteId(), body);
         cteAliases.put(producer.getCteId(), alias);
-        cteDefinitions.add(alias + " AS (" + body.toSQL() + ")");
+        // A pending ROW ASSERTION must render INSIDE the WITH definition (round-91 review):
+        // visitPhysicalAssertNumRows only sets body.assertRows, which body.toSQL() does not
+        // consume (only toRelationSQL() does), so the definition became a plain filtered SELECT
+        // and the identical replay returned the rows the caller's ASSERT_ROWS rejects.
+        String definition = body.isAssertRows()
+                ? "SELECT * FROM " + body.toRelationSQL()
+                : body.toSQL();
+        cteDefinitions.add(alias + " AS (" + definition + ")");
         return body;
     }
 
