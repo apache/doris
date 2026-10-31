@@ -3187,6 +3187,18 @@ public class Config extends ConfigBase {
             varType = VariableAnnotation.EXPERIMENTAL)
     public static int cloud_table_stream_create_partition_batch_size = 1000;
 
+    @ConfField(mutable = true, masterOnly = true, description = "Whether the Master FE samples the table streams and "
+            + "the IVM materialized views for monitoring. It takes effect with enable_feature_changelog only. When "
+            + "disabled, nothing is sampled, and /metrics exports none of the series of the monitor.",
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public static boolean enable_changelog_ivm_monitor = true;
+
+    @ConfField(mutable = true, masterOnly = true, description = "The interval at which the Master FE samples the "
+            + "table streams and the IVM materialized views for monitoring, in seconds. A change applies within a "
+            + "second.",
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public static int changelog_ivm_monitor_interval_seconds = 15;
+
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================
