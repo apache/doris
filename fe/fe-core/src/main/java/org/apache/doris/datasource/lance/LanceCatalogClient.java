@@ -142,6 +142,15 @@ final class LanceCatalogClient implements AutoCloseable {
         return new Lease(this);
     }
 
+    /** A queued read may extend the lease of a generation already selected by its caller. */
+    private synchronized Lease retainForRead() {
+        if (retired && activeOperations == 0) {
+            throw new IllegalStateException("Lance catalog resources have been closed");
+        }
+        activeOperations++;
+        return new Lease(this);
+    }
+
     /** Retires this generation immediately; its last active operation performs resource cleanup. */
     @Override
     public void close() {
@@ -846,32 +855,34 @@ final class LanceCatalogClient implements AutoCloseable {
     }
 
     private <T> T inspectTableIndexes(String dbName, String tableName, BiFunction<Dataset, String, T> inspection) {
-        LanceTableAccess tableAccess = null;
         try {
-            // The worker owns its Dataset and Session even if the caller releases its lease on timeout.
-            // Index admission must verify the current target even while query access is cached.
-            tableAccess = namespaceClient.resolveTableAccessUncached(dbName, tableName);
-            // Index paths open the dataset by URI at storage-latest. They are only reachable for
-            // filesystem catalogs, whose Directory namespace never manages versions; a managed
-            // table here would bypass the namespace.
-            if (tableAccess.isManagedVersioning()) {
-                throw new IllegalStateException("Lance index inspection does not support namespace-managed tables");
-            }
-            LanceTableAccess access = tableAccess;
             return LanceIndexInspectionExecutor.execute(() -> {
-                // The caller can time out while JNI is running; the worker must own resource cleanup.
-                try (BufferAllocator allocator = new RootAllocator(LanceMetadataLoader.READ_ALLOCATOR_LIMIT);
-                        Dataset dataset = Dataset.open().allocator(allocator).uri(access.getDatasetUri())
-                                .readOptions(LanceReadOptions.forIndependentRead(
-                                        access.getStorageOptions(), OptionalLong.empty()))
-                                .build()) {
-                    return inspection.apply(dataset, access.getDatasetUri());
+                LanceTableAccess access = null;
+                // The read owns a generation lease until all namespace/JNI work returns,
+                // even when its statement has already timed out and released its own lease.
+                try (Lease ignored = retainForRead()) {
+                    access = namespaceClient.resolveTableAccessUncached(dbName, tableName);
+                    if (access.isManagedVersioning()) {
+                        throw new IllegalStateException(
+                                "Lance index inspection does not support namespace-managed tables");
+                    }
+                    try (BufferAllocator allocator = new RootAllocator(LanceMetadataLoader.READ_ALLOCATOR_LIMIT);
+                            Dataset dataset = Dataset.open().allocator(allocator).uri(access.getDatasetUri())
+                                    .readOptions(LanceReadOptions.forIndependentRead(
+                                            access.getStorageOptions(), OptionalLong.empty()))
+                                    .build()) {
+                        return inspection.apply(dataset, access.getDatasetUri());
+                    }
+                } catch (Exception e) {
+                    throw LanceErrorMessages.failure(
+                            "Failed to load Lance index metadata for " + dbName + "." + tableName,
+                            e, access == null ? null : access.getDatasetUri(),
+                            access == null ? namespaceStorageOptions : access.getStorageOptions(), catalogSecrets);
                 }
             });
         } catch (Exception e) {
             throw LanceErrorMessages.failure("Failed to load Lance index metadata for " + dbName + "." + tableName, e,
-                    tableAccess == null ? null : tableAccess.getDatasetUri(),
-                    tableAccess == null ? namespaceStorageOptions : tableAccess.getStorageOptions(), catalogSecrets);
+                    null, namespaceStorageOptions, catalogSecrets);
         }
     }
 
