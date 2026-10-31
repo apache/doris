@@ -33,6 +33,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.catalog.info.IndexType;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
@@ -59,6 +60,7 @@ import org.apache.logging.log4j.Logger;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Method;
@@ -183,6 +185,54 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             Assertions.assertTrue(e.getMessage().contains(expectedErrorMsg),
                     "Actual error: " + e.getMessage() + "\nExpected: " + expectedErrorMsg);
         }
+    }
+
+    @Test
+    public void testAddPathIndexBesideValuesIndex() throws Exception {
+        createTable("CREATE TABLE test.values_add_path (id INT, v VARIANT, "
+                + "INDEX root_idx(v) USING INVERTED PROPERTIES("
+                + "'variant_index_scope'='values','parser'='english')) "
+                + "DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
+                + "PROPERTIES('replication_num'='1','inverted_index_storage_format'='SNII')");
+        alterTable("ALTER TABLE test.values_add_path ADD INDEX path_idx(v) USING INVERTED "
+                + "PROPERTIES('parser'='english')", connectContext);
+        waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+        jobSize++;
+        expectException("ALTER TABLE test.values_add_path ADD INDEX duplicate_path(v) USING INVERTED "
+                + "PROPERTIES('parser'='english')", "same analyzer selector");
+    }
+
+    @Test
+    public void testValuesIndexDdlRestrictions() throws Exception {
+        String ddl = "CREATE TABLE test.values_ddl (id INT, v VARIANT, "
+                + "INDEX values_idx(v) USING INVERTED PROPERTIES "
+                + "('variant_index_scope'='values','parser'='unicode')%s) "
+                + "DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
+                + "PROPERTIES('replication_num'='1','inverted_index_storage_format'='SNII')";
+        createTable(String.format(ddl, ""));
+        for (Map.Entry<String, String> rejected : Map.of(
+                "ALTER TABLE test.values_ddl DROP INDEX values_idx", "DROP INDEX",
+                "ALTER TABLE test.values_ddl ADD INDEX another_values(v) USING INVERTED "
+                        + "PROPERTIES('variant_index_scope'='values','parser'='english')", "CREATE TABLE",
+                "CREATE INDEX added_values ON test.values_ddl(v) USING INVERTED "
+                        + "PROPERTIES('variant_index_scope'='values','parser'='english')", "CREATE TABLE",
+                "BUILD INDEX values_idx ON test.values_ddl", "because it is a variant type column.").entrySet()) {
+            Exception error = Assertions.assertThrows(Exception.class, () -> executeNereidsSql(rejected.getKey()));
+            Assertions.assertTrue(error.getMessage().contains(rejected.getValue()), error.getMessage());
+        }
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS)) {
+            config.when(Config::isCloudMode).thenReturn(true);
+            Exception error = Assertions.assertThrows(Exception.class,
+                    () -> executeNereidsSql("BUILD INDEX ON test.values_ddl"));
+            Assertions.assertTrue(error.getMessage().contains("because it is a variant type column."),
+                    error.getMessage());
+        }
+        Exception duplicate = Assertions.assertThrows(Exception.class,
+                () -> createTable(String.format(ddl.replace("values_ddl", "duplicate_values_ddl"),
+                        ", INDEX duplicate_idx(v) USING INVERTED PROPERTIES "
+                                + "('variant_index_scope'='values','parser'='english')")));
+        Assertions.assertTrue(duplicate.getMessage().contains("VARIANT column supports only one values index"),
+                duplicate.getMessage());
     }
 
     @Test

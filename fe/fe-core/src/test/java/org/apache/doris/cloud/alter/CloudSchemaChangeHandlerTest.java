@@ -21,6 +21,7 @@ import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.ChangelogConfig;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
@@ -28,6 +29,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletBinlogConfig;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
@@ -641,6 +643,49 @@ public class CloudSchemaChangeHandlerTest {
             Mockito.verify(env).modifyTableProperties(database, table, properties);
             Mockito.verify(table, Mockito.never()).getAllPartitions();
             Mockito.verify(table, Mockito.never()).getPartitionInfo();
+        } finally {
+            Config.enable_partition_inverted_index_storage_format_rollout = previousRollout;
+        }
+    }
+
+    @Test
+    public void testValuesIndexRequiresSniiForFuturePartitions() throws Exception {
+        Database database = Mockito.mock(Database.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Env env = Mockito.mock(Env.class);
+        Index index = new Index(72L, "values_idx", List.of("v"), IndexType.INVERTED,
+                Map.of("variant_index_scope", "values", "parser", "english"), "");
+        Mockito.when(database.getTableOrMetaException("tbl", Table.TableType.OLAP)).thenReturn(table);
+        Mockito.when(table.getIndexes()).thenReturn(List.of(index));
+        Mockito.when(table.getPartitionInvertedIndexFileStorageFormat())
+                .thenReturn(TInvertedIndexFileStorageFormat.SNII);
+
+        boolean previousRollout = Config.enable_partition_inverted_index_storage_format_rollout;
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<DynamicPartitionUtil> dynamicPartitionUtil =
+                        Mockito.mockStatic(DynamicPartitionUtil.class)) {
+            Config.enable_partition_inverted_index_storage_format_rollout = true;
+            config.when(Config::isCloudMode).thenReturn(true);
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            CloudSchemaChangeHandler handler = new CloudSchemaChangeHandler();
+            for (String format : List.of("V2", "V3")) {
+                Map<String, String> properties = new HashMap<>();
+                properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, format);
+                UserException error = Assertions.assertThrows(UserException.class,
+                        () -> handler.updateTableProperties(database, "tbl", properties));
+                Assertions.assertTrue(error.getMessage().contains(
+                        "VARIANT values index requires partition.inverted_index_storage_format=SNII"));
+            }
+            Mockito.verify(env, Mockito.never()).modifyTableProperties(
+                    Mockito.any(), Mockito.any(), Mockito.any());
+            // Returning a previously switched table to SNII must remain possible.
+            Mockito.when(table.getPartitionInvertedIndexFileStorageFormat())
+                    .thenReturn(TInvertedIndexFileStorageFormat.V2);
+            Map<String, String> properties = new HashMap<>();
+            properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, "SNII");
+            handler.updateTableProperties(database, "tbl", properties);
+            Mockito.verify(env).modifyTableProperties(database, table, properties);
         } finally {
             Config.enable_partition_inverted_index_storage_format_rollout = previousRollout;
         }

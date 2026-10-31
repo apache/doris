@@ -17,6 +17,11 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
@@ -32,8 +37,12 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsFalse;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.IsTrue;
+import org.apache.doris.nereids.trees.expressions.MatchAll;
+import org.apache.doris.nereids.trees.expressions.MatchAny;
+import org.apache.doris.nereids.trees.expressions.MatchPhrase;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
@@ -42,8 +51,10 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -51,10 +62,45 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
 public class ExpressionAnalyzerTest {
+
+    @Test
+    void testVariantMatchInputBoundary() {
+        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, new Scope(ImmutableList.of()),
+                null, true, true);
+        Column column = new Column("v", Type.VARIANT);
+        OlapTable table = new OlapTable();
+        table.setIndexes(ImmutableList.of(new Index(1, "values_idx", ImmutableList.of("v"), IndexType.INVERTED,
+                Map.of("variant_index_scope", "values", "parser", "english", "support_phrase", "false"), "")));
+        SlotReference root = SlotReference.fromColumn(StatementScopeIdGenerator.newExprId(), table,
+                column, ImmutableList.of());
+        SlotReference noValues = SlotReference.fromColumn(StatementScopeIdGenerator.newExprId(), new OlapTable(),
+                column, ImmutableList.of());
+        SlotReference alias = (SlotReference) new Alias(root, "renamed").toSlot();
+        StringLiteral query = new StringLiteral("hello");
+        for (SlotReference slot : ImmutableList.of(root, alias)) {
+            Assertions.assertSame(slot, analyzer.visitMatch(new MatchAny(slot, query), null).child(0));
+            Assertions.assertSame(slot, analyzer.visitMatch(new MatchAll(slot, query), null).child(0));
+            AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                    () -> analyzer.visitMatch(new MatchPhrase(slot, query), null));
+            Assertions.assertTrue(error.getMessage().contains("supports only MATCH, MATCH_ANY, and MATCH_ALL"));
+        }
+        for (Expression input : ImmutableList.of(noValues, root.withSubPath(ImmutableList.of("obj")),
+                new ElementAt(root, new StringLiteral("obj")),
+                new SlotReference("union_output", VariantType.INSTANCE),
+                new Cast(root, VariantType.INSTANCE, true))) {
+            Expression left = analyzer.visitMatch(new MatchAny(input, query), null).child(0);
+            Assertions.assertInstanceOf(Cast.class, left);
+            Assertions.assertTrue(left.getDataType().isStringType());
+            Assertions.assertEquals(input, left.child(0));
+        }
+        Cast explicit = new Cast(root, StringType.INSTANCE, true);
+        Assertions.assertEquals(explicit, analyzer.visitMatch(new MatchAny(explicit, query), null).child(0));
+    }
 
     @Test
     void testSkipQualifierOccupancyForLocalBindingHit() {

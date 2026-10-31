@@ -832,7 +832,8 @@ bool IndexReadResult::inverted_index_used() const {
 
 TabletSchemaPB build_tablet_schema_pb(const IndexTabletOptions& options) {
     TabletSchemaPB schema_pb;
-    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    schema_pb.set_keys_type(options.enable_unique_key_merge_on_write ? KeysType::UNIQUE_KEYS
+                                                                     : KeysType::DUP_KEYS);
     schema_pb.set_num_short_key_columns(options.include_key_column ? 1 : 0);
     schema_pb.set_num_rows_per_row_block(1024);
     schema_pb.set_compress_kind(COMPRESS_NONE);
@@ -1118,7 +1119,11 @@ Status IndexStorageTestFixture::create_tablet(const IndexTabletOptions& options)
     _tablet_schema = build_tablet_schema(options);
 
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    tablet_meta->set_enable_unique_key_merge_on_write(options.enable_unique_key_merge_on_write);
     tablet_meta->_tablet_id = options.tablet_id;
+    if (options.enable_unique_key_merge_on_write) {
+        tablet_meta->_delete_bitmap = std::make_shared<DeleteBitmap>(options.tablet_id);
+    }
     tablet_meta->set_tablet_uid(TabletUid(options.tablet_id, options.tablet_id + 1));
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     RETURN_IF_ERROR(_tablet->init());
@@ -1155,6 +1160,7 @@ Result<RowsetSharedPtr> IndexStorageTestFixture::write_rowset(const IndexRowsetS
     context.segments_overlap = NONOVERLAPPING;
     context.max_rows_per_segment = spec.max_rows_per_segment;
     context.write_type = spec.write_type;
+    context.enable_unique_key_merge_on_write = _tablet->enable_unique_key_merge_on_write();
 
     auto writer_result = RowsetFactory::create_rowset_writer(*_engine_ref, context, false);
     if (!writer_result.has_value()) {
