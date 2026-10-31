@@ -428,7 +428,7 @@ public class CreateTableInfo {
                 ctlName = InternalCatalog.INTERNAL_CATALOG_NAME;
             }
         }
-        resolveTargetCatalog();
+        CatalogIf<?> targetCatalog = resolveTargetCatalog();
 
         // not allow auto bucket with auto list partition
         if (partitionTableInfo != null
@@ -788,8 +788,13 @@ public class CreateTableInfo {
         orderKeySet.addAll(sortOrderFields.stream().map(SortFieldInfo::getColumnName).collect(Collectors.toSet()));
         // Internal statistics tables need state columns. The internal-query flag can also be set by user SHOWs.
         boolean isSystemGeneratedTable = targetIsInternalCatalog && FeConstants.INTERNAL_DB_NAME.equals(dbName);
+        // Ordinary DDL must not initialize a connector merely to ask about an unused spatial feature.
+        boolean allowNestedSpatialTypes = columns.stream().anyMatch(ColumnDefinition::containsNestedSpatialType)
+                && targetCatalog instanceof PluginDrivenExternalCatalog
+                && ((PluginDrivenExternalCatalog) targetCatalog)
+                        .hasConnectorCapability(ConnectorCapability.SUPPORTS_NESTED_SPATIAL_TYPES);
         columns.forEach(c -> c.validate(targetIsInternalCatalog, keysSet, orderKeySet, finalEnableMergeOnWrite,
-                keysType, isSystemGeneratedTable));
+                keysType, isSystemGeneratedTable, allowNestedSpatialTypes));
 
         try {
             invertedIndexFileStorageFormat =
@@ -876,7 +881,7 @@ public class CreateTableInfo {
      * engine name: nothing past analysis reads one (the connector request is built from columns, partitioning,
      * bucketing and properties), which is why the engine can stop inventing one.</p>
      */
-    private void resolveTargetCatalog() {
+    private CatalogIf<?> resolveTargetCatalog() {
         Preconditions.checkArgument(!Strings.isNullOrEmpty(ctlName));
         CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
         if (catalog == null) {
@@ -911,6 +916,7 @@ public class CreateTableInfo {
         if (isTemp && !rollups.isEmpty()) {
             throw new AnalysisException("Do not support temporary table with rollup ");
         }
+        return catalog;
     }
 
     /**

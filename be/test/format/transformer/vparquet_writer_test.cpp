@@ -23,6 +23,8 @@
 #include <parquet/api/reader.h>
 #include <parquet/arrow/reader.h>
 #include <parquet/schema.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
 
 #include <algorithm>
 #include <optional>
@@ -32,17 +34,24 @@
 #include "core/block/block.h"
 #include "core/column/column_array.h"
 #include "core/column/column_decimal.h"
+#include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_struct.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_spatial.h"
+#include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "exec/sink/writer/iceberg/viceberg_partition_writer.h"
 #include "exec/sink/writer/vhive_partition_writer.h"
+#include "exprs/function/geo/spatial_wkb_validation.h"
 #include "exprs/function/parse/variant_string_parse.h"
 #include "format/table/iceberg/schema_parser.h"
 #include "format/transformer/viceberg_parquet_writer.h"
@@ -127,6 +136,94 @@ protected:
             EXPECT_EQ(expected, stats.upper_bounds.at(precision));
             EXPECT_EQ(2, stats.value_counts.at(precision));
             EXPECT_EQ(1, stats.null_value_counts.at(precision));
+        }
+    }
+
+    static void check_spatial_annotation(const DataTypeSpatial& identity,
+                                         const ::parquet::ColumnDescriptor& field,
+                                         int definition_level = 1) {
+        const bool geography = identity.get_primitive_type() == TYPE_GEOGRAPHY;
+        EXPECT_EQ(field.max_definition_level(), definition_level);
+        const auto& logical = field.logical_type();
+        if (geography) {
+            ASSERT_TRUE(logical->is_geography());
+            const auto& annotation = static_cast<const ::parquet::GeographyLogicalType&>(*logical);
+            EXPECT_EQ(annotation.crs(), identity.crs());
+            EXPECT_EQ(annotation.algorithm_name(), identity.algorithm());
+        } else {
+            ASSERT_TRUE(logical->is_geometry());
+            EXPECT_EQ(static_cast<const ::parquet::GeometryLogicalType&>(*logical).crs(),
+                      identity.crs());
+        }
+    }
+
+    static void check_spatial_values(::parquet::ParquetFileReader& reader, const std::string& wkb) {
+        EXPECT_EQ(reader.metadata()->num_rows(), 2);
+        auto values =
+                std::static_pointer_cast<::parquet::ByteArrayReader>(reader.RowGroup(0)->Column(0));
+        int16_t levels[2];
+        ::parquet::ByteArray binary;
+        int64_t values_read;
+        EXPECT_EQ(values->ReadBatch(2, levels, nullptr, &binary, &values_read), 2);
+        ASSERT_EQ(values_read, 1);
+        EXPECT_EQ(levels[0], 1);
+        EXPECT_EQ(levels[1], 0);
+        EXPECT_EQ(std::string(reinterpret_cast<const char*>(binary.ptr), binary.len), wkb);
+    }
+
+    void check_spatial_file(const DataTypePtr& spatial) {
+        const std::string wkb(
+                "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@",
+                21);
+        const auto type = make_nullable(spatial);
+        auto column = type->create_column();
+        column->insert_data(wkb.data(), wkb.size());
+        column->insert_default();
+        Block block;
+        block.insert({std::move(column), type, "shape"});
+        const auto& identity = assert_cast<const DataTypeSpatial&>(*spatial);
+        const bool geography = identity.get_primitive_type() == TYPE_GEOGRAPHY;
+        const std::string schema_type =
+                geography ? "geography(" + identity.crs() + ", " + identity.algorithm() + ")"
+                          : "geometry(" + identity.crs() + ")";
+        rapidjson::StringBuffer json_type;
+        rapidjson::Writer<rapidjson::StringBuffer> json_writer(json_type);
+        ASSERT_TRUE(json_writer.String(schema_type.data(),
+                                       static_cast<rapidjson::SizeType>(schema_type.size())));
+        const std::string json =
+                "{\"type\":\"struct\",\"fields\":[{\"id\":1,\"name\":\"shape\","
+                "\"required\":false,\"type\":" +
+                std::string(json_type.GetString(), json_type.GetSize()) + "}]}";
+        auto schema = iceberg::SchemaParser::from_json(json);
+        EXPECT_EQ(schema->columns()[0].field_type()->to_string(), schema_type);
+        auto expressions = MockSlotRef::create_mock_contexts(DataTypes {type});
+        io::FileWriterPtr output;
+        ASSERT_TRUE(_fs->create_file(_file_path, &output).ok());
+        RuntimeState state;
+        state.set_timezone("UTC");
+        ParquetFileOptions options {.compression_type = TParquetCompressionType::UNCOMPRESSED,
+                                    .parquet_version = TParquetVersion::PARQUET_2_LATEST};
+        VIcebergParquetWriter writer(&state, output.get(), expressions, {"shape"}, false, options,
+                                     &json, *schema);
+        ASSERT_TRUE(writer.open().ok());
+        ASSERT_TRUE(writer.write(block).ok());
+        ASSERT_TRUE(writer.close().ok());
+        TIcebergColumnStats stats;
+        ASSERT_TRUE(writer.collect_file_statistics_after_close(&stats).ok());
+        EXPECT_EQ(stats.lower_bounds.count(1), 0);
+        EXPECT_EQ(stats.upper_bounds.count(1), 0);
+        auto reader = ::parquet::ParquetFileReader::OpenFile(_file_path);
+        check_spatial_annotation(assert_cast<const DataTypeSpatial&>(*spatial),
+                                 *reader->metadata()->schema()->Column(0));
+        check_spatial_values(*reader, wkb);
+    }
+
+    void check_spatial_crs_files(const std::string& crs) {
+        check_spatial_file(std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY, crs));
+        for (const std::string algorithm :
+             {"spherical", "vincenty", "thomas", "andoyer", "karney"}) {
+            SCOPED_TRACE(algorithm);
+            check_spatial_file(std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, crs, algorithm));
         }
     }
 
@@ -233,6 +330,199 @@ TEST_F(VParquetWriterTest, WritesIcebergPrimitiveAndCollectsMetrics) {
     EXPECT_GT(stats.column_sizes.at(7), 0);
     EXPECT_EQ(std::string("\x01\x00\x00\x00", 4), stats.lower_bounds.at(7));
     EXPECT_EQ(std::string("\x03\x00\x00\x00", 4), stats.upper_bounds.at(7));
+}
+
+TEST_F(VParquetWriterTest, SpatialOptionalFilesPreserveAnnotationsBytesAndNullRows) {
+    const DataTypes types {
+            std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY, "EPSG:3857"),
+            std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "OGC:CRS84", "spherical"),
+            std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "OGC:CRS84", "vincenty"),
+            std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "OGC:CRS84", "thomas"),
+            std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "OGC:CRS84", "andoyer"),
+            std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "OGC:CRS84", "karney")};
+    for (const auto& spatial : types) {
+        check_spatial_file(spatial);
+    }
+}
+
+TEST_F(VParquetWriterTest, SpatialEmbeddedNullCrsSurvivesSchemaJsonAndParquetRoundTrip) {
+    // Java 1.12 reload retains an internal NUL for either kind. Geography also admits custom)\0zone,
+    // which previously became geography(custom) and wrote a different CRS into the footer.
+    for (const auto& crs : {std::string("custom:\0zone", 12), std::string("custom)\0zone", 12)}) {
+        SCOPED_TRACE(crs);
+        check_spatial_crs_files(crs);
+    }
+}
+
+TEST_F(VParquetWriterTest, SpatialSchemaObjectCrsBytesSurviveParquetRoundTrip) {
+    // SDK-created schema objects preserve these identities. Java 1.12 metadata reload may trim
+    // edge whitespace or reject delimiters; this test covers the supplied-schema/BE boundary.
+    for (const std::string crs : {" custom:zone ", "\tcustom:zone\t", " \t",
+                                  "Custom:Zone(Inner(A))", "Custom:Comma,Token"}) {
+        SCOPED_TRACE(crs);
+        check_spatial_crs_files(crs);
+    }
+}
+
+TEST_F(VParquetWriterTest, RejectsReferencedSpatialCrsBeforeOpeningParquet) {
+    for (const std::string crs : {"projjson:my_crs", "PrOjJsOn:my_crs"}) {
+        for (const auto primitive : {TYPE_GEOMETRY, TYPE_GEOGRAPHY}) {
+            auto type = make_nullable(std::make_shared<DataTypeSpatial>(primitive, crs));
+            const std::string schema_type = primitive == TYPE_GEOMETRY
+                                                    ? "geometry(" + crs + ")"
+                                                    : "geography(" + crs + ",spherical)";
+            const std::string json =
+                    "{\"type\":\"struct\",\"fields\":[{\"id\":1,\"name\":\"shape\","
+                    "\"required\":false,\"type\":\"" +
+                    schema_type + "\"}]}";
+            auto schema = iceberg::SchemaParser::from_json(json);
+            auto expressions = MockSlotRef::create_mock_contexts(DataTypes {type});
+            io::FileWriterPtr output;
+            ASSERT_TRUE(_fs->create_file(_file_path, &output).ok());
+            RuntimeState state;
+            state.set_timezone("UTC");
+            ParquetFileOptions options {.compression_type = TParquetCompressionType::UNCOMPRESSED,
+                                        .parquet_version = TParquetVersion::PARQUET_2_LATEST};
+            VIcebergParquetWriter writer(&state, output.get(), expressions, {"shape"}, false,
+                                         options, &json, *schema);
+            const auto status = writer.open();
+            ASSERT_FALSE(status.ok());
+            EXPECT_NE(status.to_string().find("Referenced spatial CRS"), std::string::npos);
+        }
+    }
+}
+
+TEST_F(VParquetWriterTest, NestedSpatialFilesKeepLogicalLeavesAndNullableValues) {
+    const std::string wkb(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
+    for (auto primitive : {TYPE_GEOMETRY, TYPE_GEOGRAPHY}) {
+        auto spatial = std::make_shared<DataTypeSpatial>(primitive);
+        const std::string geo = primitive == TYPE_GEOMETRY ? "geometry" : "geography";
+        for (int layout = 0; layout < 4; ++layout) {
+            DataTypePtr value_type = make_nullable(spatial);
+            auto leaf = value_type->create_column();
+            leaf->insert_data(wkb.data(), wkb.size());
+            leaf->insert_default();
+            // This visible child is hidden by a NULL container in every layout.
+            leaf->insert_data("bad", 3);
+            ColumnPtr values = std::move(leaf);
+            std::string value_json = "\"" + geo + "\"";
+            int leaf_id = layout == 2 ? 3 : layout == 3 ? 5 : 2;
+            if (layout == 1 || layout == 3) {
+                value_type = make_nullable(std::make_shared<DataTypeStruct>(DataTypes {value_type},
+                                                                            Strings {"shape"}));
+                auto nulls = ColumnUInt8::create();
+                nulls->get_data().assign({0, 0, 1});
+                values = ColumnNullable::create(ColumnStruct::create(Columns {values}),
+                                                std::move(nulls));
+                value_json = "{\"type\":\"struct\",\"fields\":[{\"id\":" + std::to_string(leaf_id) +
+                             ",\"name\":\"shape\",\"required\":false,\"type\":" + value_json +
+                             "}]}";
+            }
+            if (layout == 0 || layout == 3) {
+                value_type = make_nullable(std::make_shared<DataTypeArray>(value_type));
+                auto offsets = ColumnArray::ColumnOffsets::create();
+                offsets->get_data().assign({2, 3});
+                auto nulls = ColumnUInt8::create();
+                nulls->get_data().assign({0, 1});
+                values = ColumnNullable::create(ColumnArray::create(values, std::move(offsets)),
+                                                std::move(nulls));
+                value_json =
+                        "{\"type\":\"list\",\"element-id\":" + std::to_string(layout == 0 ? 2 : 4) +
+                        ",\"element-required\":false,\"element\":" + value_json + "}";
+            }
+            if (layout == 2 || layout == 3) {
+                value_type = make_nullable(std::make_shared<DataTypeMap>(
+                        make_nullable(std::make_shared<DataTypeString>()), value_type));
+                auto keys = ColumnString::create();
+                auto offsets = ColumnArray::ColumnOffsets::create();
+                if (layout == 2) {
+                    for (const auto* key : {"a", "b", "c"}) {
+                        keys->insert_data(key, 1);
+                    }
+                    offsets->get_data().assign({2, 3});
+                } else {
+                    keys->insert_data("a", 1);
+                    keys->insert_data("b", 1);
+                    offsets->get_data().assign({1, 2});
+                }
+                auto nulls = ColumnUInt8::create();
+                nulls->get_data().assign({0, 1});
+                values = ColumnNullable::create(ColumnMap::create(make_nullable(std::move(keys)),
+                                                                  values, std::move(offsets)),
+                                                std::move(nulls));
+                value_json =
+                        "{\"type\":\"map\",\"key-id\":2,\"key\":\"string\","
+                        "\"value-id\":3,\"value-required\":false,\"value\":" +
+                        value_json + "}";
+            }
+            const std::string json =
+                    "{\"type\":\"struct\",\"fields\":[{\"id\":1,\"name\":\"payload\","
+                    "\"required\":false,\"type\":" +
+                    value_json + "}]}";
+            auto schema = iceberg::SchemaParser::from_json(json);
+            auto expressions = MockSlotRef::create_mock_contexts(DataTypes {value_type});
+            io::FileWriterPtr file_writer;
+            ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
+            RuntimeState state;
+            state.set_timezone("UTC");
+            ParquetFileOptions options {.compression_type = TParquetCompressionType::UNCOMPRESSED,
+                                        .parquet_version = TParquetVersion::PARQUET_2_LATEST};
+            VIcebergParquetWriter writer(&state, file_writer.get(), expressions, {"payload"}, false,
+                                         options, &json, *schema);
+            ASSERT_TRUE(writer.open().ok());
+            Block block({ColumnWithTypeAndName(values, value_type, "payload")});
+            ASSERT_TRUE(writer.write(block).ok());
+            ASSERT_TRUE(writer.close().ok());
+            auto reader = ::parquet::ParquetFileReader::OpenFile(_file_path);
+            const auto* file_schema = reader->metadata()->schema();
+            int column_index = file_schema->num_columns() - 1;
+            const auto* descriptor = file_schema->Column(column_index);
+            EXPECT_EQ(descriptor->schema_node()->field_id(), leaf_id);
+            const int definition_levels[] = {3, 2, 3, 6};
+            check_spatial_annotation(*spatial, *descriptor, definition_levels[layout]);
+            auto binary_reader = std::static_pointer_cast<::parquet::ByteArrayReader>(
+                    reader->RowGroup(0)->Column(column_index));
+            int16_t definitions[16];
+            int16_t repetitions[16];
+            ::parquet::ByteArray binaries[16];
+            int64_t count = 0;
+            EXPECT_GT(binary_reader->ReadBatch(16, definitions, repetitions, binaries, &count), 0);
+            ASSERT_EQ(count, 1);
+            EXPECT_EQ(std::string(reinterpret_cast<const char*>(binaries[0].ptr), binaries[0].len),
+                      wkb);
+        }
+    }
+}
+
+TEST_F(VParquetWriterTest, NestedSpatialValidationRespectsNullParentsAndConstants) {
+    for (auto primitive : {TYPE_GEOMETRY, TYPE_GEOGRAPHY}) {
+        auto spatial = std::make_shared<DataTypeSpatial>(primitive);
+        auto leaf = spatial->create_column();
+        leaf->insert_data("bad", 3);
+        auto keys = ColumnString::create();
+        keys->insert_data("key", 3);
+        auto offsets = ColumnArray::ColumnOffsets::create();
+        offsets->insert_value(1);
+        DataTypes types {std::make_shared<DataTypeArray>(spatial),
+                         std::make_shared<DataTypeMap>(std::make_shared<DataTypeString>(), spatial),
+                         std::make_shared<DataTypeStruct>(DataTypes {spatial}, Strings {"shape"})};
+        Columns columns {ColumnArray::create(leaf->get_ptr(), offsets->get_ptr()),
+                         ColumnMap::create(std::move(keys), leaf->get_ptr(), offsets->get_ptr()),
+                         ColumnStruct::create(Columns {leaf->get_ptr()})};
+        for (size_t i = 0; i < types.size(); ++i) {
+            Block visible({ColumnWithTypeAndName(columns[i], types[i], "payload")});
+            EXPECT_FALSE(validate_spatial_wkb_inputs(visible, {0}).ok());
+            auto nulls = ColumnUInt8::create(1, 1);
+            ColumnPtr hidden = ColumnNullable::create(columns[i], std::move(nulls));
+            auto type = make_nullable(types[i]);
+            Block absent({ColumnWithTypeAndName(hidden, type, "payload")});
+            EXPECT_TRUE(validate_spatial_wkb_inputs(absent, {0}).ok());
+            Block constant(
+                    {ColumnWithTypeAndName(ColumnConst::create(hidden, 4), type, "payload")});
+            EXPECT_TRUE(validate_spatial_wkb_inputs(constant, {0}).ok());
+        }
+    }
 }
 
 TEST_F(VParquetWriterTest, WritesIcebergVariantAndCollectsLogicalMetrics) {

@@ -135,6 +135,9 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
         return creator_without_type::create_unary_arguments<
                 AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_DECIMAL256>>>>(
                 argument_types, result_is_nullable, attr);
+    // Spatial states must own their WKB after the input block is released.
+    case PrimitiveType::TYPE_GEOMETRY:
+    case PrimitiveType::TYPE_GEOGRAPHY:
     case PrimitiveType::TYPE_ARRAY:
     case PrimitiveType::TYPE_MAP:
     case PrimitiveType::TYPE_STRUCT:

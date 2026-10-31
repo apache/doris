@@ -47,6 +47,8 @@ public:
     Status collect_split_offsets_after_close(std::vector<int64_t>* offsets);
 
 protected:
+    arrow::Status _open_file_writer() override;
+
     std::unique_ptr<ArrowBlockConvertor> _create_arrow_block_convertor(
             DataTypes types, std::vector<std::string> names, const std::string& timezone_name,
             const cctz::time_zone& timezone, bool enable_int96_timestamps) const override;

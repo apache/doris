@@ -319,15 +319,8 @@ public final class IcebergSchemaBuilder {
      */
     public static int getEffectiveFormatVersion(Map<String, String> requestProperties,
             Map<String, String> catalogProperties) {
-        String formatVersion = catalogProperties.get(
-                CatalogProperties.TABLE_OVERRIDE_PREFIX + TableProperties.FORMAT_VERSION);
-        if (formatVersion == null) {
-            formatVersion = requestProperties.get(TableProperties.FORMAT_VERSION);
-            if (formatVersion == null) {
-                formatVersion = catalogProperties.get(
-                        CatalogProperties.TABLE_DEFAULT_PREFIX + TableProperties.FORMAT_VERSION);
-            }
-        }
+        String formatVersion = getEffectiveTableProperty(requestProperties, catalogProperties,
+                TableProperties.FORMAT_VERSION);
         if (formatVersion == null) {
             return 2;
         }
@@ -338,6 +331,19 @@ public final class IcebergSchemaBuilder {
         }
     }
 
+    /** Catalog overrides take precedence over a table request and catalog defaults. */
+    static String getEffectiveTableProperty(Map<String, String> requestProperties,
+            Map<String, String> catalogProperties, String key) {
+        String value = catalogProperties.get(CatalogProperties.TABLE_OVERRIDE_PREFIX + key);
+        if (value == null) {
+            value = requestProperties.get(key);
+        }
+        if (value == null) {
+            value = catalogProperties.get(CatalogProperties.TABLE_DEFAULT_PREFIX + key);
+        }
+        return value;
+    }
+
     /**
      * The effective iceberg data file format for a CREATE TABLE: catalog {@code table-default} properties, then
      * the table request, then catalog {@code table-override} properties, each overriding the former; of the
@@ -346,13 +352,18 @@ public final class IcebergSchemaBuilder {
      */
     public static FileFormat getEffectiveFileFormat(Map<String, String> requestProperties,
             Map<String, String> catalogProperties) {
+        return IcebergWriterHelper.toFileFormat(getEffectiveFileFormatName(requestProperties, catalogProperties));
+    }
+
+    // Keep the raw name for spatial validation: toFileFormat can default an unknown name to Parquet.
+    static String getEffectiveFileFormatName(Map<String, String> requestProperties,
+            Map<String, String> catalogProperties) {
         Map<String, String> effective = new HashMap<>();
         copyFileFormat(effective, catalogProperties, CatalogProperties.TABLE_DEFAULT_PREFIX);
         copyFileFormat(effective, requestProperties, "");
         copyFileFormat(effective, catalogProperties, CatalogProperties.TABLE_OVERRIDE_PREFIX);
-        String fileFormat = effective.containsKey(WRITE_FORMAT) ? effective.get(WRITE_FORMAT)
+        return effective.containsKey(WRITE_FORMAT) ? effective.get(WRITE_FORMAT)
                 : effective.getOrDefault(TableProperties.DEFAULT_FILE_FORMAT, FileFormat.PARQUET.name());
-        return IcebergWriterHelper.toFileFormat(fileFormat);
     }
 
     private static void copyFileFormat(Map<String, String> effective, Map<String, String> properties,

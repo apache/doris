@@ -395,6 +395,12 @@ public class CheckCast implements ExpressionPatternRuleFactory {
      */
     public static boolean check(DataType originalType, DataType targetType,
             boolean isStrictMode, boolean looseAggState) {
+        // Variant V1 has no spatial primitive, including leaves of Array/Map/Struct.
+        // A generic Variant cast must not admit these values and lose their type metadata.
+        if ((targetType.isVariantType() && originalType.toCatalogDataType().typeContainsSpatialType())
+                || (originalType.isVariantType() && targetType.toCatalogDataType().typeContainsSpatialType())) {
+            return false;
+        }
         if (originalType instanceof ConnectorComputeVariantType && targetType.isVariantType()) {
             // The connector marker and ordinary Variant share the V2 runtime carrier. Allow the
             // marker to cross the sink boundary without relaxing casts between stored Variant layouts.

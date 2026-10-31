@@ -518,12 +518,16 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StAswkt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAzimuth;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StCircle;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StContains;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StDWithin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDisjoint;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistanceSphere;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StEquals;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeogFromWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomFromWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometries;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryFromWKB;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryFromWKBTyped;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomfromtext;
@@ -534,6 +538,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StLinefromtex
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLinestringfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StNumGeometries;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StNumPoints;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StOverlaps;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPoint;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolyfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolygon;
@@ -2452,6 +2457,18 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(stDisjoint, context);
     }
 
+    default R visitStDWithin(StDWithin stDWithin, C context) {
+        return visitScalarFunction(stDWithin, context);
+    }
+
+    default R visitStEquals(StEquals stEquals, C context) {
+        return visitScalarFunction(stEquals, context);
+    }
+
+    default R visitStOverlaps(StOverlaps stOverlaps, C context) {
+        return visitScalarFunction(stOverlaps, context);
+    }
+
     default R visitStTouches(StTouches stTouches, C context) {
         return visitScalarFunction(stTouches, context);
     }
@@ -2564,12 +2581,20 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(stY, context);
     }
 
+    default R visitStGeometryFromWKBTyped(StGeometryFromWKBTyped function, C context) {
+        return visitScalarFunction(function, context);
+    }
+
     default R visitStGeometryfromwkb(StGeometryFromWKB stGeometryfromwkb, C context) {
         return visitScalarFunction(stGeometryfromwkb, context);
     }
 
     default R visitStGeomfromwkb(StGeomFromWKB stGeomfromwkb, C context) {
         return visitScalarFunction(stGeomfromwkb, context);
+    }
+
+    default R visitStGeogfromwkb(StGeogFromWKB stGeogfromwkb, C context) {
+        return visitScalarFunction(stGeogfromwkb, context);
     }
 
     default R visitStAsBinary(StAsBinary stAsBinary, C context) {

@@ -51,7 +51,10 @@ const char* SchemaParser::VALUE_REQUIRED = "value-required";
 
 std::unique_ptr<Type> SchemaParser::_type_from_json(const rapidjson::Value& value) {
     if (value.IsString()) {
-        return Types::from_primitive_string(value.GetString());
+        // Opaque CRS text can contain a decoded NUL: geography(custom)\0zone, spherical)
+        // must not become the different, valid geography(custom) before type parsing.
+        return Types::from_primitive_string(
+                std::string(value.GetString(), value.GetStringLength()));
     } else if (value.IsObject()) {
         if (value.HasMember(TYPE)) {
             std::string type = value[TYPE].GetString();

@@ -89,7 +89,9 @@ public class ConnectorPluginSurfaceTest {
             version.load(in);
         }
         // Major 26 adds scan cancellation notifications and task removal to the scheduler surface.
-        Assertions.assertEquals("26.0", version.getProperty("api.version"));
+        // Major 27 adds spatial type metadata and the nested-spatial capability,
+        // which API-26 kernels cannot load.
+        Assertions.assertEquals("27.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
@@ -105,6 +107,7 @@ public class ConnectorPluginSurfaceTest {
             Connector.class,
             ConnectorColumnHandle.class,
             ConnectorColumn.class,
+            ConnectorType.class,
             ConnectorTableSchema.class,
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.class,
             org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion.class,

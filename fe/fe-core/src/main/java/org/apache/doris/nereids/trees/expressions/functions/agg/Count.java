@@ -87,6 +87,11 @@ public class Count extends NotNullableAggregateFunction
         if (arity() > 1 && !distinct) {
             throw new AnalysisException("COUNT must have DISTINCT for multiple arguments: " + this.toSql());
         }
+        if (distinct) {
+            for (Expression argument : getArguments()) {
+                checkSpatialDistinctArgument(argument);
+            }
+        }
     }
 
     @Override
@@ -100,9 +105,16 @@ public class Count extends NotNullableAggregateFunction
     }
 
     static void checkDistinctArgument(Expression argument, Expression function) {
+        checkSpatialDistinctArgument(argument);
         DataType argumentType = argument.getDataType();
         if (isUnsupportedDistinctArgument(argumentType)) {
             throwDistinctArgumentException(function);
+        }
+    }
+
+    private static void checkSpatialDistinctArgument(Expression argument) {
+        if (argument.getDataType().toCatalogDataType().typeContainsSpatialType()) {
+            throw new AnalysisException("COUNT DISTINCT does not support spatial arguments");
         }
     }
 
@@ -205,7 +217,10 @@ public class Count extends NotNullableAggregateFunction
 
     @Override
     public AggregateFunction convertToMultiDistinct() {
-        return new MultiDistinctCount(getArgument(0),
+        MultiDistinctCount function = new MultiDistinctCount(getArgument(0),
                 getArguments().subList(1, arity()).toArray(new Expression[0]));
+        // Physical aggregate strategies can create this function after the analysis checks.
+        function.checkLegalityBeforeTypeCoercion();
+        return function;
     }
 }

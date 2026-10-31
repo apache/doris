@@ -23,8 +23,10 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <tuple>
 #include <vector>
 
+#include "agent/be_exec_version_manager.h"
 #include "core/column/column.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
@@ -34,10 +36,12 @@
 #include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "core/field.h"
+#include "core/string_buffer.hpp"
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
@@ -60,6 +64,70 @@ TEST(BinaryAggregateTest, SingleValueAggregatesAreNotSupported) {
         }
     }
 }
+
+class SpatialSingleValueAggregateTest
+        : public ::testing::TestWithParam<std::tuple<PrimitiveType, bool, const char*>> {};
+
+TEST_P(SpatialSingleValueAggregateTest, OwnsAndMergesSerializedNullableStates) {
+    const auto [primitive, nullable, name] = GetParam();
+    const auto spatial = std::make_shared<DataTypeSpatial>(primitive);
+    const DataTypePtr type = nullable ? make_nullable(spatial) : spatial;
+    AggregateFunctionSimpleFactory factory;
+    register_aggregate_function_minmax(factory);
+    const auto version = BeExecVersionManager::get_newest_version();
+    auto function = factory.get(name, {type}, type, nullable, version);
+    ASSERT_NE(function, nullptr);
+    Arena arena;
+    const auto state = [&]() {
+        auto memory = std::make_unique<char[]>(function->size_of_data());
+        function->create(memory.get());
+        return memory;
+    };
+    auto left = state();
+    auto right = state();
+    auto restored = state();
+    const std::string one(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
+    std::string zero = one;
+    zero[11] = '\0';
+    zero[12] = '\0';
+    auto input = type->create_column();
+    input->insert_data(one.data(), one.size());
+    input->insert_data(zero.data(), zero.size());
+    const IColumn* columns[] = {input.get()};
+    function->add(left.get(), columns, 0, arena);
+    function->add(right.get(), columns, 1, arena);
+    if (nullable) {
+        input->insert_default();
+        function->add(left.get(), columns, 2, arena);
+        function->add(right.get(), columns, 2, arena);
+    }
+    input.reset(); // The aggregate must own its value after the input arena is released.
+    auto buffer = ColumnString::create();
+    BufferWritable writer(*buffer);
+    function->serialize(left.get(), writer);
+    writer.commit();
+    BufferReadable reader(buffer->get_data_at(0));
+    function->deserialize(restored.get(), reader, arena);
+    function->merge(restored.get(), right.get(), arena);
+    function->destroy(left.get());
+    function->destroy(right.get());
+    auto result = type->create_column();
+    function->insert_result_into(restored.get(), *result);
+    EXPECT_EQ(result->size(), 1);
+    EXPECT_FALSE(result->is_null_at(0));
+    EXPECT_EQ(result->get_data_at(0).to_string(), std::string(name) == "min" ? zero : one);
+    function->reset(restored.get());
+    auto empty = type->create_column();
+    function->insert_result_into(restored.get(), *empty);
+    EXPECT_EQ(empty->is_null_at(0), nullable);
+    function->destroy(restored.get());
+}
+
+INSTANTIATE_TEST_SUITE_P(SpatialKinds, SpatialSingleValueAggregateTest,
+                         ::testing::Combine(::testing::Values(TYPE_GEOMETRY, TYPE_GEOGRAPHY),
+                                            ::testing::Bool(),
+                                            ::testing::Values("min", "max", "any_value")));
 
 class AggMinMaxTest : public ::testing::TestWithParam<std::string> {};
 

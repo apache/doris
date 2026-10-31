@@ -1146,6 +1146,15 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         rejectReservedRowLineageColumns(request);
         validateSortOrder(request);
         Schema schema = IcebergSchemaBuilder.buildSchema(request.getColumns());
+        boolean spatial = false;
+        for (Types.NestedField field : schema.columns()) {
+            spatial |= IcebergSpatialSchemaValidator.containsSpatial(field.type());
+        }
+        if (spatial) {
+            IcebergSpatialSchemaValidator.validateTable(
+                    IcebergSchemaBuilder.getEffectiveFormatVersion(request.getProperties(), properties),
+                    IcebergSchemaBuilder.getEffectiveFileFormatName(request.getProperties(), properties));
+        }
         PartitionSpec partitionSpec = IcebergSchemaBuilder.buildPartitionSpec(request.getPartitionSpec(), schema);
         SortOrder sortOrder = IcebergSchemaBuilder.buildSortOrder(request.getSortOrder(), schema);
         // Pass the catalog properties so a catalog-level table-default/override.format-version is respected
@@ -1365,6 +1374,17 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         try {
             executeAuthenticated(() -> {
+                if (IcebergSpatialSchemaValidator.containsFormatProperty(properties)) {
+                    // The preflight owns its load even when spatial format validation rejects it.
+                    catalogOps.withTable(iceHandle.getDbName(), iceHandle.getTableName(), table -> {
+                        if (IcebergSpatialSchemaValidator.containsSpatial(table.schema())) {
+                            IcebergSpatialSchemaValidator.validateTable(
+                                    getEffectiveFormatVersion(table, properties),
+                                    getEffectiveFileFormat(table, properties));
+                        }
+                        return null;
+                    });
+                }
                 catalogOps.setTableProperties(iceHandle.getDbName(), iceHandle.getTableName(), properties);
                 return null;
             });
@@ -1373,6 +1393,28 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                     + iceHandle.getDbName() + "." + iceHandle.getTableName()
                     + ": " + ExceptionUtils.getRootCauseMessage(e), e);
         }
+    }
+
+    private static int getEffectiveFormatVersion(Table table, Map<String, String> properties) {
+        String version = properties.get(TableProperties.FORMAT_VERSION);
+        if (version == null) {
+            return getFormatVersion(table);
+        }
+        try {
+            return Integer.parseInt(version);
+        } catch (NumberFormatException ignored) {
+            return getFormatVersion(table);
+        }
+    }
+
+    private static String getEffectiveFileFormat(Table table, Map<String, String> properties) {
+        Map<String, String> effective = new HashMap<>(table.properties());
+        effective.putAll(properties);
+        String format = effective.get("write-format");
+        if (format == null) {
+            format = effective.get(TableProperties.DEFAULT_FILE_FORMAT);
+        }
+        return format == null ? IcebergWriterHelper.getFileFormat(table).name() : format;
     }
 
     // ========== Column evolution (B2) — mirror legacy IcebergMetadataOps add/drop/rename/modify/reorder ==========
@@ -1391,6 +1433,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         IcebergColumnChange change = toAddColumnChange(column);
         try {
             executeAuthenticated(() -> {
+                validateSpatialColumnChanges(iceHandle, Collections.singletonList(change));
                 catalogOps.addColumn(iceHandle.getDbName(), iceHandle.getTableName(), change, position);
                 return null;
             });
@@ -1412,6 +1455,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         }
         try {
             executeAuthenticated(() -> {
+                validateSpatialColumnChanges(iceHandle, changes);
                 catalogOps.addColumns(iceHandle.getDbName(), iceHandle.getTableName(), changes);
                 return null;
             });
@@ -1492,6 +1536,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         boolean commentSpecified = column.isCommentSpecified();
         try {
             executeAuthenticated(() -> {
+                validateSpatialColumnChanges(iceHandle, Collections.singletonList(change));
                 catalogOps.modifyColumn(iceHandle.getDbName(), iceHandle.getTableName(), change,
                         nullableSpecified, commentSpecified, position);
                 return null;
@@ -1613,6 +1658,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                 column.getComment(), null, column.isNullable());
         try {
             executeAuthenticated(() -> {
+                validateSpatialColumnChanges(iceHandle, Collections.singletonList(change));
                 catalogOps.addNestedColumn(iceHandle.getDbName(), iceHandle.getTableName(), path, change, position);
                 return null;
             });
@@ -1709,6 +1755,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         boolean commentSpecified = column.isCommentSpecified();
         try {
             executeAuthenticated(() -> {
+                validateSpatialColumnChanges(iceHandle, Collections.singletonList(change));
                 catalogOps.modifyNestedColumn(iceHandle.getDbName(), iceHandle.getTableName(), path, change,
                         nullableSpecified, commentSpecified, position);
                 return null;
@@ -1886,6 +1933,21 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         return new IcebergColumnChange(column.getName(), icebergType, column.getComment(),
                 IcebergSchemaBuilder.parseDefaultLiteral(column.getDefaultValue(), icebergType),
                 column.isNullable());
+    }
+
+    /** Runs inside the caller's authentication scope; ordinary columns do not require an extra load. */
+    private void validateSpatialColumnChanges(IcebergTableHandle handle, List<IcebergColumnChange> changes) {
+        boolean spatial = false;
+        for (IcebergColumnChange change : changes) {
+            spatial |= IcebergSpatialSchemaValidator.containsSpatial(change.getType());
+        }
+        if (spatial) {
+            catalogOps.withTable(handle.getDbName(), handle.getTableName(), table -> {
+                IcebergSpatialSchemaValidator.validateTable(getFormatVersion(table),
+                        IcebergWriterHelper.getFileFormat(table).name());
+                return null;
+            });
+        }
     }
 
     /** Rejects aggregated / auto-increment columns on iceberg, mirroring legacy {@code validateCommonColumnInfo}. */

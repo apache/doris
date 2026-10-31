@@ -29,12 +29,72 @@
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_date_time.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "core/type_limit.h"
 
 namespace doris {
+
+static void check_spatial_case_materialization(PrimitiveType primitive, bool nullable,
+                                               bool constant) {
+    const auto spatial = std::make_shared<DataTypeSpatial>(
+            primitive, "OGC:CRS84", primitive == TYPE_GEOGRAPHY ? "spherical" : "");
+    const DataTypePtr result_type = nullable ? make_nullable(spatial) : spatial;
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::CASE_EXPR);
+    node.__set_type(result_type->to_thrift());
+    node.__set_is_nullable(nullable);
+    node.case_expr.__set_has_else_expr(true);
+    VCaseExpr expr(node);
+    const std::array<uint8_t, 6> selected {1, 2, 0, 1, 2, 0};
+    std::vector<ColumnPtr> branches;
+    std::vector<std::string> payloads;
+    const size_t null_row = constant ? 0 : 1;
+    for (size_t branch = 0; branch < 3; ++branch) {
+        std::string wkb(
+                "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@",
+                21);
+        wkb[11] = static_cast<char>(0xf0 - branch * 0x10);
+        payloads.push_back(wkb);
+        const DataTypePtr type = nullable && branch == 2 ? make_nullable(spatial) : spatial;
+        auto column = type->create_column();
+        for (size_t row = 0; row < (constant ? 1 : selected.size()); ++row) {
+            if (nullable && branch == 2 && row == null_row) {
+                column->insert_default();
+            } else {
+                column->insert_data(wkb.data(), wkb.size());
+            }
+        }
+        if (constant) {
+            branches.emplace_back(ColumnConst::create(std::move(column), selected.size()));
+        } else {
+            branches.emplace_back(std::move(column));
+        }
+    }
+    auto result = expr._execute_update_result(selected.data(), branches, selected.size());
+    ASSERT_EQ(result->size(), selected.size());
+    for (size_t row = 0; row < selected.size(); ++row) {
+        const bool is_null = nullable && selected[row] == 2 && (constant || row == 1);
+        EXPECT_EQ(result->is_null_at(row), is_null) << row;
+        if (!is_null) {
+            EXPECT_EQ(result->get_data_at(row).to_string(), payloads[selected[row]]) << row;
+        }
+    }
+}
+
+TEST(VCaseSpatialTest, MaterializesGeometryAndGeographyBranches) {
+    check_spatial_case_materialization(TYPE_GEOMETRY, false, false);
+    check_spatial_case_materialization(TYPE_GEOGRAPHY, false, false);
+}
+
+TEST(VCaseSpatialTest, MaterializesNullableAndConstantBranches) {
+    check_spatial_case_materialization(TYPE_GEOMETRY, true, false);
+    check_spatial_case_materialization(TYPE_GEOGRAPHY, true, false);
+    check_spatial_case_materialization(TYPE_GEOMETRY, true, true);
+    check_spatial_case_materialization(TYPE_GEOGRAPHY, true, true);
+}
 
 template <typename Index, PrimitiveType PT>
 struct CaseSelectionTypes {

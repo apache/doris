@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
@@ -26,10 +27,12 @@ import org.apache.doris.thrift.TTypeNodeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -43,6 +46,9 @@ import java.util.Objects;
  *   indicating that any decimal type is a subtype of the decimal type.
  */
 public class ScalarType extends Type {
+    private static final ImmutableSet<String> SPATIAL_EDGE_ALGORITHMS =
+            ImmutableSet.of("spherical", "vincenty", "thomas", "andoyer", "karney");
+
     // We use a fixed-length decimal type to represent a date time.
     public static final int DATETIME_PRECISION = 18;
 
@@ -117,6 +123,11 @@ public class ScalarType extends Type {
     @SerializedName(value = "scale")
     private int scale;
 
+    @SerializedName(value = "spatialCrs")
+    private String spatialCrs;
+    @SerializedName(value = "spatialAlgorithm")
+    private String spatialAlgorithm;
+
     // Only used for alias function decimal
     @SerializedName(value = "precisionStr")
     private String precisionStr;
@@ -156,6 +167,10 @@ public class ScalarType extends Type {
                 return createTimeStampTzType(scale);
             case VARBINARY:
                 return createVarbinaryType(len);
+            case GEOMETRY:
+                return createGeometryType();
+            case GEOGRAPHY:
+                return createGeographyType();
             default:
                 return createType(type);
         }
@@ -235,6 +250,10 @@ public class ScalarType extends Type {
                 return UUID;
             case VARBINARY:
                 return VARBINARY;
+            case GEOMETRY:
+                return createGeometryType();
+            case GEOGRAPHY:
+                return createGeographyType();
             default:
                 LOG.warn("type={}", type);
                 Preconditions.checkState(false, "type.name()=" + type.name());
@@ -556,6 +575,50 @@ public class ScalarType extends Type {
         return type;
     }
 
+    public static ScalarType createGeometryType() {
+        return createGeometryType("OGC:CRS84");
+    }
+
+    public static ScalarType createGeometryType(String crs) {
+        Preconditions.checkArgument(!Strings.isNullOrEmpty(crs), "Spatial CRS must not be empty");
+        ScalarType result = new ScalarType(PrimitiveType.GEOMETRY);
+        result.spatialCrs = normalizeSpatialCrs(crs);
+        return result;
+    }
+
+    public static ScalarType createGeographyType() {
+        return createGeographyType("OGC:CRS84", "spherical");
+    }
+
+    public static ScalarType createGeographyType(String crs, String algorithm) {
+        Preconditions.checkArgument(!Strings.isNullOrEmpty(crs), "Spatial CRS must not be empty");
+        Preconditions.checkArgument(!Strings.isNullOrEmpty(algorithm), "Geography algorithm must not be empty");
+        String normalizedAlgorithm = algorithm.toLowerCase(Locale.ROOT);
+        Preconditions.checkArgument(SPATIAL_EDGE_ALGORITHMS.contains(normalizedAlgorithm),
+                "Unsupported Geography algorithm: %s", algorithm);
+        ScalarType result = new ScalarType(PrimitiveType.GEOGRAPHY);
+        result.spatialCrs = normalizeSpatialCrs(crs);
+        result.spatialAlgorithm = normalizedAlgorithm;
+        return result;
+    }
+
+    private static String normalizeSpatialCrs(String crs) {
+        // Default CRS case aliases are equivalent; custom CRS/property references keep their spelling.
+        return "OGC:CRS84".equalsIgnoreCase(crs) ? "OGC:CRS84" : crs;
+    }
+
+    public String getSpatialCrs() {
+        return spatialCrs;
+    }
+
+    public String getSpatialAlgorithm() {
+        return spatialAlgorithm;
+    }
+
+    public boolean isSpatialType() {
+        return type == PrimitiveType.GEOMETRY || type == PrimitiveType.GEOGRAPHY;
+    }
+
     public static ScalarType createVarcharType(int len) {
         // length checked in analysis
         ScalarType type = new ScalarType(PrimitiveType.VARCHAR);
@@ -612,6 +675,9 @@ public class ScalarType extends Type {
 
     @Override
     public String toString() {
+        if (isSpatialType()) {
+            return toSql(0);
+        }
         if (type == PrimitiveType.CHAR) {
             if (isWildcardChar()) {
                 return "character(" + MAX_CHAR_LENGTH + ")";
@@ -649,7 +715,23 @@ public class ScalarType extends Type {
     }
 
     @Override
+    public String toSql(int depth, boolean noBackslashEscapes) {
+        // Nonspatial subclasses (notably VariantType) own their SQL representation and properties.
+        if (!isSpatialType()) {
+            return toSql(depth);
+        }
+        // Under NO_BACKSLASH_ESCAPES, doubling a CRS backslash changes its identity on reparse.
+        return type.name() + "(" + SqlUtils.quoteSingleQuotedStringLiteral(spatialCrs, noBackslashEscapes)
+                + (type == PrimitiveType.GEOGRAPHY
+                        ? ", " + SqlUtils.quoteSingleQuotedStringLiteral(spatialAlgorithm, noBackslashEscapes)
+                        : "") + ")";
+    }
+
+    @Override
     public String toSql(int depth) {
+        if (isSpatialType()) {
+            return toSql(depth, false);
+        }
         StringBuilder stringBuilder = new StringBuilder();
         switch (type) {
             case CHAR:
@@ -773,6 +855,12 @@ public class ScalarType extends Type {
         node.setType(TTypeNodeType.SCALAR);
         TScalarType scalarType = new TScalarType();
         scalarType.setType(type.toThrift());
+        if (isSpatialType()) {
+            scalarType.setSpatialCrs(spatialCrs);
+            if (type == PrimitiveType.GEOGRAPHY) {
+                scalarType.setSpatialAlgorithm(spatialAlgorithm);
+            }
+        }
         container.setByteSize(byteSize);
 
         switch (type) {
@@ -990,6 +1078,10 @@ public class ScalarType extends Type {
         if (type != other.type) {
             return false;
         }
+        if (isSpatialType()) {
+            return Objects.equals(spatialCrs, other.spatialCrs)
+                    && Objects.equals(spatialAlgorithm, other.spatialAlgorithm);
+        }
         if (type == PrimitiveType.CHAR) {
             return len == other.len;
         }
@@ -1022,6 +1114,9 @@ public class ScalarType extends Type {
 
     @Override
     public int hashCode() {
+        if (isSpatialType()) {
+            return Objects.hash(type, spatialCrs, spatialAlgorithm);
+        }
         int result = 0;
         result = 31 * result + Objects.hashCode(type);
         result = 31 * result + precision;

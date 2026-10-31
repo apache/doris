@@ -28,6 +28,9 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.connector.spi.ConnectorCapability;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 
@@ -104,10 +107,8 @@ public class ModifyColumnOp extends AlterTableOp {
         KeysType keysType = KeysType.DUP_KEYS;
         Set<String> clusterKeySet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         Column originalColumn = null;
-        TableIf table = Env.getCurrentEnv().getCatalogMgr()
-                .getCatalogOrDdlException(tableName.getCtl())
-                .getDbOrDdlException(tableName.getDb())
-                .getTableOrDdlException(tableName.getTbl());
+        CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogOrDdlException(tableName.getCtl());
+        TableIf table = catalog.getDbOrDdlException(tableName.getDb()).getTableOrDdlException(tableName.getTbl());
         OlapTable olapTable = null;
         List<Column> schemaColumns = null;
         if (table instanceof OlapTable) {
@@ -142,10 +143,16 @@ public class ModifyColumnOp extends AlterTableOp {
                 }
             }
         }
+        boolean allowNestedSpatialTypes = columnDef.containsNestedSpatialType()
+                && catalog instanceof PluginDrivenExternalCatalog
+                && ((PluginDrivenExternalCatalog) catalog)
+                        .hasConnectorCapability(ConnectorCapability.SUPPORTS_NESTED_SPATIAL_TYPES);
         if (columnPath.isNested()) {
-            columnDef.validateNestedColumn(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType);
+            columnDef.validateNestedColumn(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType,
+                    allowNestedSpatialTypes);
         } else {
-            columnDef.validate(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType);
+            columnDef.validate(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, false,
+                    allowNestedSpatialTypes);
         }
         if (colPos != null) {
             colPos.analyze();

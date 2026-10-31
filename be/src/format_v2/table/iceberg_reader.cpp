@@ -1197,6 +1197,17 @@ static Status equality_delete_comparison_type(int field_id, const DataTypePtr& d
     const auto data_value_type = remove_nullable(data_type);
     const auto delete_primitive = delete_value_type->get_primitive_type();
     const auto data_primitive = data_value_type->get_primitive_type();
+    // Older writers leave spatial WKB as unannotated BYTE_ARRAY. Compare an annotated
+    // spatial key and that VARBINARY key in their common raw-byte representation, e.g.
+    // GEOMETRY point1 in data matches the same WKB in an unannotated delete file.
+    // Two annotated keys still require identical kind, CRS and algorithm above.
+    if (((delete_primitive == TYPE_GEOMETRY || delete_primitive == TYPE_GEOGRAPHY) &&
+         data_primitive == TYPE_VARBINARY) ||
+        ((data_primitive == TYPE_GEOMETRY || data_primitive == TYPE_GEOGRAPHY) &&
+         delete_primitive == TYPE_VARBINARY)) {
+        *comparison_type = delete_primitive == TYPE_VARBINARY ? delete_value_type : data_value_type;
+        return Status::OK();
+    }
     // Parquet INT96 carries no instant annotation, so a timestamptz key in a Spark or Hive file
     // that Iceberg imported reads as DATETIMEV2(6), while an adjusted-UTC tombstone of the same
     // field, as a Flink upsert writes it, reads as TIMESTAMPTZ(6). Neither widens to the other.

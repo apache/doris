@@ -103,6 +103,9 @@ public final class ConnectorType {
     // (omitting preserves, explicit empty clears). Unused by CREATE / ADD (a new field has no prior doc), so those
     // unaffected.
     private final List<Boolean> childrenCommentSpecified;
+    // Spatial logical metadata is carried by Iceberg GEOMETRY/GEOGRAPHY types.
+    private final String spatialCrs;
+    private final String spatialAlgorithm;
 
     public ConnectorType(String typeName) {
         this(typeName, -1, -1, Collections.emptyList(),
@@ -145,9 +148,20 @@ public final class ConnectorType {
             List<ConnectorType> children, List<String> fieldNames,
             List<Boolean> childrenNullable, List<String> childrenComments,
             List<Integer> childrenFieldIds, List<Boolean> childrenCommentSpecified) {
+        this(typeName, precision, scale, children, fieldNames, childrenNullable, childrenComments,
+                childrenFieldIds, childrenCommentSpecified, null, null);
+    }
+
+    private ConnectorType(String typeName, int precision, int scale,
+            List<ConnectorType> children, List<String> fieldNames,
+            List<Boolean> childrenNullable, List<String> childrenComments,
+            List<Integer> childrenFieldIds, List<Boolean> childrenCommentSpecified,
+            String spatialCrs, String spatialAlgorithm) {
         this.typeName = Objects.requireNonNull(typeName, "typeName");
         this.precision = precision;
         this.scale = scale;
+        this.spatialCrs = spatialCrs;
+        this.spatialAlgorithm = spatialAlgorithm;
         this.children = children == null
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(children);
@@ -298,7 +312,7 @@ public final class ConnectorType {
      */
     public ConnectorType withChildrenFieldIds(List<Integer> fieldIds) {
         return new ConnectorType(typeName, precision, scale, children, fieldNames,
-                childrenNullable, childrenComments, fieldIds, childrenCommentSpecified);
+                childrenNullable, childrenComments, fieldIds, childrenCommentSpecified, spatialCrs, spatialAlgorithm);
     }
 
     public String getTypeName() {
@@ -358,6 +372,19 @@ public final class ConnectorType {
         return index < childrenComments.size() ? childrenComments.get(index) : null;
     }
 
+    public String getSpatialCrs() {
+        return spatialCrs;
+    }
+
+    public String getSpatialAlgorithm() {
+        return spatialAlgorithm;
+    }
+
+    public ConnectorType withSpatialMetadata(String crs, String algorithm) {
+        return new ConnectorType(typeName, precision, scale, children, fieldNames, childrenNullable,
+                childrenComments, childrenFieldIds, childrenCommentSpecified, crs, algorithm);
+    }
+
     @Override
     public String toString() {
         if (precision < 0) {
@@ -382,12 +409,14 @@ public final class ConnectorType {
                 && scale == that.scale
                 && typeName.equals(that.typeName)
                 && children.equals(that.children)
-                && fieldNames.equals(that.fieldNames);
+                && fieldNames.equals(that.fieldNames)
+                && Objects.equals(spatialCrs, that.spatialCrs)
+                && Objects.equals(spatialAlgorithm, that.spatialAlgorithm);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(typeName, precision, scale,
-                children, fieldNames);
+                children, fieldNames, spatialCrs, spatialAlgorithm);
     }
 }

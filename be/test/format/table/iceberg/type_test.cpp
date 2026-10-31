@@ -157,6 +157,85 @@ TEST(PrimitiveTypesTest, from_primitive_string) {
     EXPECT_EQ(Types::from_primitive_string("decimal(10, 2)")->type_id(), TypeID::DECIMAL);
 }
 
+namespace {
+
+void check_geometry_type_string(const std::string& name, const std::string& crs) {
+    auto type = Types::from_primitive_string(name);
+    ASSERT_EQ(type->type_id(), TypeID::GEOMETRY);
+    EXPECT_EQ(static_cast<const GeometryType&>(*type).crs(), crs);
+    EXPECT_EQ(type->to_string(), "geometry(" + crs + ")");
+}
+
+void check_geography_type_string(const std::string& name, const std::string& crs,
+                                 const std::string& algorithm) {
+    auto type = Types::from_primitive_string(name);
+    ASSERT_EQ(type->type_id(), TypeID::GEOGRAPHY);
+    const auto& geography = static_cast<const GeographyType&>(*type);
+    EXPECT_EQ(geography.crs(), crs);
+    EXPECT_EQ(geography.algorithm(), algorithm);
+    EXPECT_EQ(type->to_string(), "geography(" + crs + ", " + algorithm + ")");
+}
+
+} // namespace
+
+TEST(SpatialTypeTest, ParsesDefaultsAndAlgorithmShorthand) {
+    for (const auto& name : {"geometry", "GeOmEtRy \t"}) {
+        SCOPED_TRACE(name);
+        check_geometry_type_string(name, GeometryType::DEFAULT_CRS);
+    }
+    check_geometry_type_string("Geometry( \tOGC:CRS84 \t)", " \tOGC:CRS84 \t");
+    for (const auto& name : {"geography", "GeOgRaPhY \t", "geography(OGC:CRS84)"}) {
+        SCOPED_TRACE(name);
+        check_geography_type_string(name, GeographyType::DEFAULT_CRS,
+                                    GeographyType::DEFAULT_ALGORITHM);
+    }
+    for (const auto& name :
+         {"Geography( \tOGC:CRS84 \t)", "Geography( \tOGC:CRS84 \t, \tspherical \t)"}) {
+        SCOPED_TRACE(name);
+        check_geography_type_string(name, " \tOGC:CRS84 \t", GeographyType::DEFAULT_ALGORITHM);
+    }
+    check_geography_type_string("GeOgRaPhY( \tCustom:Zone(A) \t, \tKaRnEy \t)",
+                                " \tCustom:Zone(A) \t", "KaRnEy");
+}
+
+TEST(SpatialTypeTest, PreservesCustomCrsCommasAndParentheses) {
+    // Match Iceberg 1.12 GeometryType/GeographyType.toString(), including opaque CRS punctuation.
+    for (const std::string crs :
+         {R"(projjson:{"a":1,"b":2})", R"(projjson:{"name":"Local (A), CRS","axes":[1,2]})",
+          "Custom:Zone(Inner(A))", "Custom:Comma,Token", "Custom:Closing)Only",
+          "Custom:Opening(Only"}) {
+        SCOPED_TRACE(crs);
+        check_geometry_type_string("geometry(" + crs + ")", crs);
+        for (const std::string algorithm :
+             {"spherical", "vincenty", "thomas", "andoyer", "karney"}) {
+            const std::string geography_name = "geography(" + crs + ", " + algorithm + ")";
+            check_geography_type_string(geography_name, crs, algorithm);
+        }
+    }
+}
+
+TEST(SpatialTypeTest, PreservesCanonicalCrsWhitespaceAndEmbeddedNulls) {
+    for (const auto& crs : std::vector<std::string> {" custom:zone ", "\tcustom:zone\t", " \t",
+                                                     std::string("custom:\0zone", 12),
+                                                     std::string("custom)\0zone", 12)}) {
+        SCOPED_TRACE(crs);
+        check_geometry_type_string("geometry(" + crs + ")", crs);
+        check_geography_type_string("geography(" + crs + ", spherical)", crs, "spherical");
+        check_geography_type_string("geography(" + crs + ")", crs, "spherical");
+    }
+}
+
+TEST(SpatialTypeTest, RejectsEmptyParametersAndMalformedTypes) {
+    for (const auto& name :
+         {"geometry()", "geography()", "geography(, spherical)", "geography(OGC:CRS84,)",
+          "geography(OGC:CRS84, \t)", "geography(OGC:CRS84, not-an-algorithm)",
+          "geometry(OGC:CRS84", "geography(OGC:CRS84, spherical", "geometry_extra",
+          "geography_extra"}) {
+        SCOPED_TRACE(name);
+        EXPECT_THROW(Types::from_primitive_string(name), doris::Exception);
+    }
+}
+
 TEST(MapTypeTest, test_basic_functions) {
     auto key_type = std::make_unique<StringType>();
     auto value_type = std::make_unique<IntegerType>();

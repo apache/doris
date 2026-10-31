@@ -102,6 +102,9 @@ constexpr FieldType primitive_type_to_storage_field_type(PrimitiveType type) {
         return FieldType::OLAP_FIELD_TYPE_IPV6;
     case PrimitiveType::TYPE_UUID:
         return FieldType::OLAP_FIELD_TYPE_UUID;
+    case PrimitiveType::TYPE_GEOMETRY:
+    case PrimitiveType::TYPE_GEOGRAPHY:
+        break; // External Iceberg-only types have no Doris segment storage field.
     case PrimitiveType::TYPE_UINT32:
         return FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT;
     case PrimitiveType::TYPE_UINT64:
