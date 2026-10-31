@@ -279,8 +279,15 @@ public:
     Status null_docids_scan_memory(NullDocidsScanMemory* out) const;
     size_t memory_usage() const;
 
+    // Keeps the results of exact lookups in an on-demand dictionary for the queries that share
+    // this reader, so a hot term's next lookup skips the read, zstd and CRC of its DICT block.
+    // The cache is bounded and memory_usage() reserves its whole footprint, so enable it before
+    // the reader is charged and shared. A resident dictionary does not need it.
+    void enable_term_lookup_cache();
+
 private:
     struct NormsCacheState;
+    struct TermLookupCache;
     io::FileReader* reader_ = nullptr;
     format::IndexTier tier_ = format::IndexTier::kT1;
     bool has_positions_ = false;
@@ -320,18 +327,27 @@ private:
                                          const format::DictBlockReader** out) const;
     Status locate_candidate_dict_block(std::string_view term, bool* maybe_present,
                                        uint32_t* ordinal) const;
+    // Groups the candidate terms by DICT block. With `kept_results`, a term whose lookup the term
+    // lookup cache kept is resolved into it and joins no group.
     Status collect_batch_lookup_groups(const std::vector<std::string>& terms,
                                        std::vector<BatchLookupCandidate>* candidates,
-                                       std::vector<BatchLookupGroup>* groups) const;
+                                       std::vector<BatchLookupGroup>* groups,
+                                       std::vector<BatchLookupResult>* kept_results) const;
     static Status resolve_batch_lookup_entries(const std::vector<std::string>& terms,
                                                const std::vector<BatchLookupCandidate>& candidates,
                                                const BatchLookupGroup& group,
                                                const format::DictBlockReader& block_reader,
                                                std::vector<BatchLookupResult>* results);
+    // The term lookup cache: whether `term`'s lookup is kept (copied into *out), and keeping one.
+    bool find_kept_lookup(std::string_view term, BatchLookupResult* out) const;
+    void keep_lookup(std::string_view term, bool found, const format::DictEntry& entry,
+                     uint64_t frq_base, uint64_t prx_base) const;
+    void keep_group_lookups(const BatchLookupState& state, const BatchLookupGroup& group) const;
 
     std::vector<ResidentDictBlock> resident_dict_blocks_;
     std::shared_ptr<NormsCacheState> norms_cache_;
     size_t norms_reserved_charge_ = 0;
+    std::shared_ptr<TermLookupCache> term_lookups_;
 };
 
 } // namespace doris::snii::reader
