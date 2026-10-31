@@ -282,6 +282,7 @@ public:
     }
 
     Status encoded_norms(std::span<const uint32_t> docs, std::vector<uint32_t>* out) override {
+        norm_reads.push_back(docs.size());
         out->clear();
         for (const uint32_t doc : docs) {
             out->push_back(norm_of(doc));
@@ -330,6 +331,8 @@ public:
     Status expand_status = Status::OK();
     // The encoded norm of each document that has one.
     std::map<uint32_t, uint32_t> norms;
+    // How many documents each encoded_norms() call asked for, in order.
+    std::vector<size_t> norm_reads;
     // Every dictionary batch, every term opened (alone or together), every pattern's
     // enumeration prefix, every prefetch by term and the rounds fetched, in order.
     std::vector<std::vector<std::string>> prepared;

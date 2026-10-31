@@ -28,12 +28,14 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "exprs/vexpr_context.h"
+#include "exprs/vslot_ref.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/QueryCache_types.h"
 #include "storage/rowset/beta_rowset.h"
 #include "testutil/column_helper.h"
 #include "testutil/desc_tbl_builder.h"
 #include "testutil/mock/mock_fn_call.h"
+#include "testutil/mock/mock_literal_expr.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
 
@@ -358,6 +360,90 @@ TEST_F(OlapScanOperatorTsoPruningTest, EmptyBootstrapDoesNotStartMinDeltaScanner
     EXPECT_EQ(_local_state->_rowsets_pruned_by_tso_counter->value(), 1);
     EXPECT_EQ(_local_state->_segments_pruned_by_tso_counter->value(), 2);
     EXPECT_EQ(_local_state->_tablets_pruned_by_tso_counter->value(), 1);
+}
+
+// The FE filters the rows written with the delete sign by a scan conjunct on the column, which
+// skip_delete_sign and show_hidden_columns leave out; the BE learns of them only by its absence.
+class OlapScanOperatorDeleteSignTest : public testing::Test {
+protected:
+    void build(bool with_delete_sign) {
+        _state = std::make_shared<MockRuntimeState>();
+        DescriptorTblBuilder desc_builder(&_pool);
+        auto& tuple = desc_builder.declare_tuple()
+                      << TupleDescBuilder::SlotType {std::make_shared<DataTypeInt32>(), "k1"}
+                      << TupleDescBuilder::SlotType {std::make_shared<DataTypeInt32>(), "v1"};
+        if (with_delete_sign) {
+            tuple << TupleDescBuilder::SlotType {std::make_shared<DataTypeInt8>(),
+                                                 "__DORIS_DELETE_SIGN__"};
+        }
+        _descs = desc_builder.build();
+        ASSERT_NE(_descs, nullptr);
+        _slots = _descs->get_tuple_descriptor(0)->slots();
+
+        TOlapScanNode olap_scan_node;
+        olap_scan_node.__set_tuple_id(0);
+        olap_scan_node.__set_keyType(TKeysType::UNIQUE_KEYS);
+        olap_scan_node.__set_key_column_name({"k1"});
+        olap_scan_node.__set_key_column_type({TPrimitiveType::INT});
+        TPlanNode plan_node;
+        plan_node.__set_node_id(0);
+        plan_node.__set_node_type(TPlanNodeType::OLAP_SCAN_NODE);
+        plan_node.__set_num_children(0);
+        plan_node.__set_row_tuples({0});
+        plan_node.__set_olap_scan_node(olap_scan_node);
+        _parent = std::make_shared<OlapScanOperatorX>(&_pool, plan_node, 0, *_descs, 1,
+                                                      TQueryCacheParam {});
+        // As the operator's init() sets it from the scan node's tuple.
+        _parent->_output_tuple_desc = _descs->get_tuple_descriptor(0);
+        _local_state = OlapScanLocalState::create_shared(_state.get(), _parent.get());
+    }
+
+    // `slot` = 0, the conjunct the FE adds for the delete sign.
+    static VExprContextSPtr equals_zero(const SlotDescriptor* slot) {
+        auto eq = MockFnCall::create("eq");
+        eq->add_child(std::make_shared<VSlotRef>(slot));
+        eq->add_child(MockLiteral::create<DataTypeInt8>(0)->root());
+        return VExprContext::create_shared(eq);
+    }
+
+    ObjectPool _pool;
+    DescriptorTbl* _descs = nullptr;
+    std::vector<SlotDescriptor*> _slots;
+    std::shared_ptr<MockRuntimeState> _state;
+    std::shared_ptr<OlapScanOperatorX> _parent;
+    std::shared_ptr<OlapScanLocalState> _local_state;
+};
+
+TEST_F(OlapScanOperatorDeleteSignTest, ConjunctOnDeleteSignFiltersIt) {
+    build(true);
+    EXPECT_FALSE(_local_state->_conjuncts_read_delete_sign());
+
+    // A conjunct on another column, as when skip_delete_sign leaves out the FE's.
+    _local_state->_conjuncts.push_back(equals_zero(_slots[1]));
+    EXPECT_FALSE(_local_state->_conjuncts_read_delete_sign());
+
+    _local_state->_conjuncts.push_back(equals_zero(_slots[2]));
+    EXPECT_TRUE(_local_state->_conjuncts_read_delete_sign());
+}
+
+// A conjunct already pushed down as a storage expression still reads the column.
+TEST_F(OlapScanOperatorDeleteSignTest, PushedDownConjunctOnDeleteSignFiltersIt) {
+    build(true);
+    _local_state->_common_expr_ctxs_push_down.push_back(equals_zero(_slots[2]));
+    EXPECT_TRUE(_local_state->_conjuncts_read_delete_sign());
+}
+
+// show_hidden_columns outputs the column but filters nothing by it.
+TEST_F(OlapScanOperatorDeleteSignTest, OutputDeleteSignWithoutConjunctDoesNotFilterIt) {
+    build(true);
+    _local_state->_conjuncts.push_back(equals_zero(_slots[0]));
+    EXPECT_FALSE(_local_state->_conjuncts_read_delete_sign());
+}
+
+TEST_F(OlapScanOperatorDeleteSignTest, ScanWithoutDeleteSignDoesNotFilterIt) {
+    build(false);
+    _local_state->_conjuncts.push_back(equals_zero(_slots[1]));
+    EXPECT_FALSE(_local_state->_conjuncts_read_delete_sign());
 }
 
 } // namespace doris

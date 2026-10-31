@@ -53,6 +53,7 @@
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/common/inverted_index_cache.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
+#include "storage/index/inverted/common/norm_length_sums.h"
 #include "storage/index/inverted/common/string_helper.h"
 #include "storage/index/inverted/query/spi/fake_index_source.h"
 #include "storage/index/inverted/reader/predicate_collector.h"
@@ -67,6 +68,7 @@
 #include "storage/rowset/rowset_reader.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/utils.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "util/defer_op.h"
 #include "util/slice.h"
@@ -1123,6 +1125,43 @@ TEST_F(CollectionStatisticsTest, NullRowsCountAsDocumentsWithoutTokens) {
     EXPECT_EQ(collect(&null_hidden), std::make_pair(uint64_t {4}, uint64_t {6}));
 }
 
+// With skip_delete_sign or show_hidden_columns the scan returns the rows written with the delete
+// sign, so the statistics count them like any other row: only the rows the delete bitmap marks
+// are left out, and the delete sign column is not read.
+TEST_F(CollectionStatisticsTest, DeleteSignRowsCountWhenTheScanReturnsThem) {
+    auto tablet_schema = create_legacy_v3_schema();
+    TabletColumn delete_sign;
+    delete_sign.set_unique_id(2);
+    delete_sign.set_name(DELETE_SIGN);
+    delete_sign.set_type(FieldType::OLAP_FIELD_TYPE_TINYINT);
+    tablet_schema->append_column(delete_sign);
+    ASSERT_GE(tablet_schema->delete_sign_idx(), 0);
+    const std::string segment_path = test_dir_ + "/delete_sign_returned_0.dat";
+    ASSERT_TRUE(write_legacy_v3_segment(tablet_schema, segment_path, 0,
+                                        {"alpha beta", "alpha", "beta gamma delta"})
+                        .ok());
+
+    auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+    auto rowset = std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
+    rowset->set_num_segments(1);
+    rowset->set_segment_path(0, segment_path);
+    auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
+    std::vector<RowSetSplits> splits {RowSetSplits(reader)};
+
+    constexpr int64_t kVersion = 4;
+    MowHiddenRows hidden {.delete_bitmap = std::make_shared<DeleteBitmap>(9400),
+                          .version = kVersion,
+                          .filters_delete_sign = false};
+    for (const auto seg : rowset->segments()) {
+        hidden.delete_bitmap->add(seg.delete_bitmap_key(kVersion), 1);
+    }
+    const Status status = stats_->collect(runtime_state_.get(), splits, tablet_schema,
+                                          create_match_expr_contexts("alpha"), nullptr, &hidden);
+    ASSERT_TRUE(status.ok()) << status;
+    expect_collected_stats(L"1", 2, 5);
+    expect_collected_term(L"1", L"alpha", 1);
+}
+
 namespace {
 
 // A cursor listing its documents in the given blocks, a pair standing for a dense range.
@@ -1246,6 +1285,22 @@ TEST(CollectionStatisticsHiddenRowsTest, CountListedDocsScansFarDocsWithoutWalki
     EXPECT_EQ(listed, 0);
 }
 
+namespace {
+
+// Reads `nulls` as a segment's NULL rows, counting the reads.
+collection_statistics_detail::ReadNullDocs read_nulls(const roaring::Roaring& nulls,
+                                                      int* reads = nullptr) {
+    return [nulls, reads](std::shared_ptr<const roaring::Roaring>* out) {
+        if (reads != nullptr) {
+            ++*reads;
+        }
+        *out = std::make_shared<roaring::Roaring>(nulls);
+        return Status::OK();
+    };
+}
+
+} // namespace
+
 TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenDocsSumsNormsOfReturnedRows) {
     index_query::testing::FakeIndexSource source;
     source.set_doc_count(4);
@@ -1254,17 +1309,19 @@ TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenDocsSumsNormsOfReturnedRow
     ASSERT_TRUE(sum_non_null_norm_lengths(source, {}, &non_null_length_sum).ok());
     EXPECT_EQ(non_null_length_sum, 17);
     const roaring::Roaring no_nulls;
+    segment_v2::NormLengthSums sums;
     index_query::IndexScoringStats stats {
             .doc_count = 4, .token_count = 1000, .has_positions = true, .has_norms = true};
     const std::vector<uint32_t> hidden {1, 3};
-    ASSERT_TRUE(exclude_hidden_docs(source, hidden, no_nulls, non_null_length_sum, &stats).ok());
+    ASSERT_TRUE(
+            exclude_hidden_docs(source, L"f", hidden, read_nulls(no_nulls), &sums, &stats).ok());
     EXPECT_EQ(stats.doc_count, 2);
     EXPECT_EQ(stats.token_count, 5);
 
     // With nothing hidden the token count still comes from the norms, as on a replica that
     // compacted the hidden rows away.
     stats = {.doc_count = 4, .token_count = 1000, .has_positions = true, .has_norms = true};
-    ASSERT_TRUE(exclude_hidden_docs(source, {}, no_nulls, non_null_length_sum, &stats).ok());
+    ASSERT_TRUE(exclude_hidden_docs(source, L"f", {}, read_nulls(no_nulls), &sums, &stats).ok());
     EXPECT_EQ(stats.doc_count, 4);
     EXPECT_EQ(stats.token_count, 17);
 }
@@ -1277,9 +1334,16 @@ TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenDocsWithoutNormsCountsOneT
     const std::vector<uint32_t> hidden {0, 4};
     roaring::Roaring nulls;
     nulls.add(1);
-    ASSERT_TRUE(exclude_hidden_docs(source, hidden, nulls, 0, &stats).ok());
+    int null_reads = 0;
+    segment_v2::NormLengthSums sums;
+    ASSERT_TRUE(
+            exclude_hidden_docs(source, L"f", hidden, read_nulls(nulls, &null_reads), &sums, &stats)
+                    .ok());
     EXPECT_EQ(stats.doc_count, 3);
     EXPECT_EQ(stats.token_count, 3);
+    // Without norms neither NULL rows nor norms are read.
+    EXPECT_EQ(null_reads, 0);
+    EXPECT_TRUE(source.norm_reads.empty());
 }
 
 TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenDocsRejectsRowBeyondIndex) {
@@ -1289,7 +1353,9 @@ TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenDocsRejectsRowBeyondIndex)
     index_query::IndexScoringStats stats {
             .doc_count = 2, .token_count = 2, .has_positions = true, .has_norms = true};
     const std::vector<uint32_t> hidden {2};
-    Status status = exclude_hidden_docs(source, hidden, roaring::Roaring {}, 2, &stats);
+    segment_v2::NormLengthSums sums;
+    Status status = exclude_hidden_docs(source, L"f", hidden, read_nulls(roaring::Roaring {}),
+                                        &sums, &stats);
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_CORRUPTED) << status;
     const std::vector<uint32_t> nulls {2};
     uint64_t non_null_length_sum = 0;
@@ -1310,17 +1376,83 @@ TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenDocsLeavesOutLengthsOfNull
     roaring::Roaring nulls;
     nulls.addMany(null_doc_ids.size(), null_doc_ids.data());
 
+    segment_v2::NormLengthSums sums;
     index_query::IndexScoringStats stats {
             .doc_count = 5, .token_count = 1000, .has_positions = true, .has_norms = true};
-    ASSERT_TRUE(exclude_hidden_docs(source, {}, nulls, non_null_length_sum, &stats).ok());
+    ASSERT_TRUE(exclude_hidden_docs(source, L"f", {}, read_nulls(nulls), &sums, &stats).ok());
     EXPECT_EQ(stats.doc_count, 5);
     EXPECT_EQ(stats.token_count, 15);
 
     stats = {.doc_count = 5, .token_count = 1000, .has_positions = true, .has_norms = true};
     const std::vector<uint32_t> hidden {1, 2};
-    ASSERT_TRUE(exclude_hidden_docs(source, hidden, nulls, non_null_length_sum, &stats).ok());
+    ASSERT_TRUE(exclude_hidden_docs(source, L"f", hidden, read_nulls(nulls), &sums, &stats).ok());
     EXPECT_EQ(stats.doc_count, 3);
     EXPECT_EQ(stats.token_count, 10);
+}
+
+// The sums are kept with the index: a later query with the same hidden rows reads neither the
+// norms nor the NULL rows, and one with other hidden rows reads the NULL rows once and only the
+// norms of its hidden rows.
+TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenDocsKeepsSumsWithTheIndex) {
+    index_query::testing::FakeIndexSource source;
+    source.set_doc_count(6);
+    source.norms = {{0, 3}, {1, 5}, {2, 1}, {3, 7}, {4, 2}, {5, 4}};
+    roaring::Roaring nulls;
+    nulls.add(2);
+    int null_reads = 0;
+    segment_v2::NormLengthSums sums;
+    auto collect = [&](std::span<const uint32_t> hidden) {
+        index_query::IndexScoringStats stats {
+                .doc_count = 6, .token_count = 1000, .has_positions = true, .has_norms = true};
+        EXPECT_TRUE(exclude_hidden_docs(source, L"f", hidden, read_nulls(nulls, &null_reads), &sums,
+                                        &stats)
+                            .ok());
+        return std::make_pair(stats.doc_count, stats.token_count);
+    };
+
+    // Rows 1 and 2 hidden, 2 NULL: 3 + 7 + 2 + 4 tokens remain.
+    const std::vector<uint32_t> hidden {1, 2};
+    EXPECT_EQ(collect(hidden), std::make_pair(uint64_t {4}, uint64_t {16}));
+    EXPECT_EQ(null_reads, 1);
+    // The whole segment's norms, then those of the hidden non-NULL row 1.
+    EXPECT_EQ(source.norm_reads, (std::vector<size_t> {6, 1, 1}));
+
+    EXPECT_EQ(collect(hidden), std::make_pair(uint64_t {4}, uint64_t {16}));
+    EXPECT_EQ(null_reads, 1);
+    EXPECT_EQ(source.norm_reads.size(), 3);
+
+    const std::vector<uint32_t> other_hidden {0, 5};
+    EXPECT_EQ(collect(other_hidden), std::make_pair(uint64_t {4}, uint64_t {14}));
+    EXPECT_EQ(null_reads, 2);
+    EXPECT_EQ(source.norm_reads, (std::vector<size_t> {6, 1, 1, 2}));
+
+    // Nothing hidden needs only the kept non-NULL sum.
+    EXPECT_EQ(collect({}), std::make_pair(uint64_t {6}, uint64_t {21}));
+    EXPECT_EQ(null_reads, 2);
+    EXPECT_EQ(source.norm_reads.size(), 4);
+}
+
+// Norms of selected rows are decoded a bounded batch at a time, however many rows are selected.
+TEST(CollectionStatisticsHiddenRowsTest, SumNormLengthsOfDecodesBoundedBatches) {
+    index_query::testing::FakeIndexSource source;
+    constexpr uint32_t kDocs = 10000;
+    source.set_doc_count(kDocs);
+    std::vector<uint32_t> docs;
+    uint64_t expected = 0;
+    for (uint32_t doc = 0; doc < kDocs; doc += 1) {
+        source.norms[doc] = 1 + doc % 3;
+        docs.push_back(doc);
+        expected += 1 + doc % 3;
+    }
+    uint64_t sum = 0;
+    ASSERT_TRUE(source.sum_norm_lengths_of(docs, &sum).ok());
+    EXPECT_EQ(sum, expected);
+    EXPECT_EQ(source.norm_reads, (std::vector<size_t> {4096, 4096, 1808}));
+
+    source.norm_reads.clear();
+    ASSERT_TRUE(source.sum_norm_lengths(&sum).ok());
+    EXPECT_EQ(sum, expected);
+    EXPECT_EQ(source.norm_reads, (std::vector<size_t> {4096, 4096, 1808}));
 }
 
 TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenTermDocsTakesHiddenHoldersOnly) {

@@ -40,9 +40,11 @@
 #include "storage/index/inverted/clucene/searcher_cache_value.h"
 #include "storage/index/inverted/clucene/spi/clucene_index_source.h"
 #include "storage/index/inverted/common/inverted_index_cache.h"
+#include "storage/index/inverted/common/norm_length_sums.h"
 #include "storage/index/inverted/common/string_helper.h"
 #include "storage/index/inverted/query/exec/term_pattern.h"
 #include "storage/index/inverted/snii/reader/snii_index_source.h"
+#include "storage/index/inverted/snii/searcher_cache_value.h"
 #include "storage/index/inverted/snii/snii_doris_adapter.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
@@ -87,6 +89,62 @@ Result<std::shared_ptr<lucene::search::IndexSearcher>> open_optional_clucene_sta
     stream->setIoContext(nullptr);
     stream->setIndexFile(false);
     return std::make_shared<lucene::search::IndexSearcher>(reader, true);
+}
+
+Result<std::unique_ptr<::doris::snii::reader::LogicalIndexReader>> open_snii_stats_reader(
+        const segment_v2::IndexFileReader& file_reader, const TabletIndex* index,
+        const io::IOContext* io_ctx) {
+    auto logical_reader = file_reader.open_snii_index(index, io_ctx);
+    if (!logical_reader.has_value()) {
+        auto status = std::move(logical_reader.error());
+        if (status.code() == ErrorCode::INVERTED_INDEX_SNII_NOT_FOUND ||
+            status.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND ||
+            status.code() == ErrorCode::INVERTED_INDEX_BYPASS) {
+            return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                    "SNII scoring requires every logical index in the collection: {}",
+                    status.msg()));
+        }
+        return ResultError(std::move(status));
+    }
+    return std::move(logical_reader.value());
+}
+
+// A segment's SNII logical index as the statistics read it, and the norm length sums kept with it.
+// Outside tests the reader is the one the query path caches in the searcher cache, so the sums
+// live and are evicted with it, and a query whose segments are cached opens no index.
+struct SniiStatsReader {
+#ifdef BE_TEST
+    std::unique_ptr<::doris::snii::reader::LogicalIndexReader> owned_reader;
+    segment_v2::NormLengthSums owned_norm_length_sums;
+#else
+    InvertedIndexCacheHandle cache_handle;
+#endif
+    const ::doris::snii::reader::LogicalIndexReader* reader = nullptr;
+    segment_v2::NormLengthSums* norm_length_sums = nullptr;
+};
+
+Status open_snii_stats_reader(const std::shared_ptr<segment_v2::IndexFileReader>& file_reader,
+                              const TabletIndex* index, const io::IOContext* io_ctx,
+                              SniiStatsReader* out) {
+#ifdef BE_TEST
+    out->owned_reader = DORIS_TRY(open_snii_stats_reader(*file_reader, index, io_ctx));
+    out->reader = out->owned_reader.get();
+    out->norm_length_sums = &out->owned_norm_length_sums;
+#else
+    InvertedIndexSearcherCache::CacheKey cache_key(file_reader->get_index_file_cache_key(index));
+    if (!InvertedIndexSearcherCache::instance()->lookup(cache_key, &out->cache_handle)) {
+        auto opened = DORIS_TRY(open_snii_stats_reader(*file_reader, index, io_ctx));
+        const size_t reader_size = std::max<size_t>(opened->memory_usage(), 1);
+        auto* cache_value = new segment_v2::SniiLogicalReaderCacheValue(
+                std::move(opened), reader_size, UnixMillis(), file_reader);
+        InvertedIndexSearcherCache::instance()->insert(cache_key, cache_value, &out->cache_handle);
+    }
+    auto* cache_value = out->cache_handle.get<segment_v2::SniiLogicalReaderCacheValue>();
+    out->reader = cache_value->reader.get();
+    out->norm_length_sums = &cache_value->norm_length_sums;
+#endif
+    DORIS_CHECK(out->reader != nullptr);
+    return Status::OK();
 }
 
 } // namespace
@@ -194,21 +252,11 @@ Status sum_non_null_norm_lengths(index_query::IndexSource& source,
     return Status::OK();
 }
 
-Status exclude_hidden_docs(index_query::IndexSource& source, std::span<const uint32_t> hidden_docs,
-                           const roaring::Roaring& null_docs, uint64_t non_null_length_sum,
+Status exclude_hidden_docs(index_query::IndexSource& source, const std::wstring& field,
+                           std::span<const uint32_t> hidden_docs,
+                           const ReadNullDocs& read_null_docs, segment_v2::NormLengthSums* sums,
                            index_query::IndexScoringStats* stats) {
-    return exclude_hidden_docs(
-            hidden_docs, null_docs, non_null_length_sum,
-            [&source](std::span<const uint32_t> docs, uint64_t* out) {
-                return source.sum_norm_lengths_of(docs, out);
-            },
-            stats);
-}
-
-Status exclude_hidden_docs(std::span<const uint32_t> hidden_docs, const roaring::Roaring& null_docs,
-                           uint64_t non_null_length_sum,
-                           const SumNormLengthsOf& sum_norm_lengths_of,
-                           index_query::IndexScoringStats* stats) {
+    DORIS_CHECK(sums != nullptr);
     DORIS_CHECK(stats != nullptr);
     if (!hidden_docs.empty() && hidden_docs.back() >= stats->doc_count) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>(
@@ -224,20 +272,49 @@ Status exclude_hidden_docs(std::span<const uint32_t> hidden_docs, const roaring:
     // The exact token count of the hidden rows is not stored anywhere, and norms hold lengths
     // only approximately, so count the lengths the norms of the returned rows stand for. A
     // replica that has compacted the hidden rows away counts the same rows with the same norms.
-    // Most segments have no NULL rows, and then the hidden rows are summed as they are.
-    DorisVector<uint32_t> hidden_non_null_docs;
-    std::span<const uint32_t> summed_docs = hidden_docs;
-    if (!null_docs.isEmpty()) {
-        std::ranges::copy_if(hidden_docs, std::back_inserter(hidden_non_null_docs),
-                             [&null_docs](uint32_t doc) { return !null_docs.contains(doc); });
-        summed_docs = hidden_non_null_docs;
+    // The sums are kept with the index, so a query whose sums are kept reads neither norms nor
+    // NULL rows; the NULL rows are read once at most, when a sum is not kept yet.
+    std::shared_ptr<const roaring::Roaring> null_docs;
+    auto ensure_null_docs = [&]() {
+        if (null_docs == nullptr) {
+            RETURN_IF_ERROR(read_null_docs(&null_docs));
+            DORIS_CHECK(null_docs != nullptr);
+        }
+        return Status::OK();
+    };
+    uint64_t non_null_length_sum = 0;
+    RETURN_IF_ERROR(sums->non_null_norm_length_sum(
+            field,
+            [&](uint64_t* out) {
+                RETURN_IF_ERROR(ensure_null_docs());
+                // Row ID lists are as large as the segment's NULL or hidden rows, so they are
+                // charged to the query's memory.
+                DorisVector<uint32_t> null_doc_ids(null_docs->cardinality());
+                null_docs->toUint32Array(null_doc_ids.data());
+                return sum_non_null_norm_lengths(source, null_doc_ids, out);
+            },
+            &non_null_length_sum));
+    uint64_t hidden_length_sum = 0;
+    if (!hidden_docs.empty()) {
+        RETURN_IF_ERROR(sums->hidden_norm_length_sum(
+                field, hidden_docs,
+                [&](uint64_t* out) {
+                    RETURN_IF_ERROR(ensure_null_docs());
+                    // Most segments have no NULL rows, and then the hidden rows are summed as
+                    // they are.
+                    if (null_docs->isEmpty()) {
+                        return source.sum_norm_lengths_of(hidden_docs, out);
+                    }
+                    DorisVector<uint32_t> hidden_non_null_docs;
+                    std::ranges::copy_if(
+                            hidden_docs, std::back_inserter(hidden_non_null_docs),
+                            [&null_docs](uint32_t doc) { return !null_docs->contains(doc); });
+                    return source.sum_norm_lengths_of(hidden_non_null_docs, out);
+                },
+                &hidden_length_sum));
     }
-    uint64_t hidden_lengths = 0;
-    if (!summed_docs.empty()) {
-        RETURN_IF_ERROR(sum_norm_lengths_of(summed_docs, &hidden_lengths));
-    }
-    DORIS_CHECK(hidden_lengths <= non_null_length_sum);
-    stats->token_count = non_null_length_sum - hidden_lengths;
+    DORIS_CHECK(hidden_length_sum <= non_null_length_sum);
+    stats->token_count = non_null_length_sum - hidden_length_sum;
     return Status::OK();
 }
 
@@ -286,8 +363,9 @@ Status collect_hidden_docs(const RowsetSharedPtr& rowset, const RowsetSegmentVie
             *hidden_rows.delete_bitmap->get_agg(seg.delete_bitmap_key(hidden_rows.version));
 
     // A row written with the delete sign stays readable until base compaction removes it, while
-    // queries filter it out by predicate.
-    if (tablet_schema.delete_sign_idx() >= 0) {
+    // queries filter it out by predicate. A query with skip_delete_sign or show_hidden_columns
+    // returns it, so it is not hidden then.
+    if (hidden_rows.filters_delete_sign && tablet_schema.delete_sign_idx() >= 0) {
         OlapReaderStatistics stats;
         SegmentCacheHandle cache_handle;
         // The delete sign is column data, read as the query reads its columns.
@@ -517,7 +595,7 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
     auto seg_path = DORIS_TRY(seg.path());
     auto rowset_meta = rowset->rowset_meta();
 
-    auto idx_file_reader = std::make_unique<IndexFileReader>(
+    auto idx_file_reader = std::make_shared<IndexFileReader>(
             rowset_meta->fs(),
             std::string {InvertedIndexDescriptor::get_index_file_path_prefix(seg_path)},
             tablet_schema->get_inverted_index_storage_format(), seg.inverted_index_file_info(),
@@ -547,41 +625,32 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
         segment_v2::snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(io_ctx);
         SniiScoringSegmentAccumulator segment_accumulator;
         for (const auto& [ws_field_name, collect_info] : collect_infos) {
-            auto logical_reader_result =
-                    idx_file_reader->open_snii_index(collect_info.index_meta, io_ctx);
-            if (!logical_reader_result.has_value()) {
-                auto status = std::move(logical_reader_result.error());
-                if (status.code() == ErrorCode::INVERTED_INDEX_SNII_NOT_FOUND ||
-                    status.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND ||
-                    status.code() == ErrorCode::INVERTED_INDEX_BYPASS) {
-                    return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
-                            "SNII scoring requires every logical index in the collection: {}",
-                            status.msg());
-                }
-                return status;
-            }
-            auto logical_reader = std::move(logical_reader_result.value());
-            ::doris::snii::reader::SniiIndexSource source(*logical_reader);
+            SniiStatsReader stats_reader;
+            RETURN_IF_ERROR(open_snii_stats_reader(idx_file_reader, collect_info.index_meta, io_ctx,
+                                                   &stats_reader));
+            const auto& logical_reader = *stats_reader.reader;
+            ::doris::snii::reader::SniiIndexSource source(logical_reader);
             index_query::IndexScoringStats scoring_stats;
             RETURN_IF_ERROR(source.scoring_stats(&scoring_stats));
             if (hidden_rows != nullptr) {
-                roaring::Roaring null_docs;
-                uint64_t non_null_length_sum = 0;
-                if (scoring_stats.has_norms) {
+                auto read_null_docs = [&logical_reader](
+                                              std::shared_ptr<const roaring::Roaring>* out) {
                     std::vector<uint32_t> null_doc_ids;
-                    RETURN_IF_ERROR(logical_reader->read_null_docids(&null_doc_ids));
+                    RETURN_IF_ERROR(logical_reader.read_null_docids(&null_doc_ids));
                     // The SNII reader returns a plain vector; charge it while it lives.
                     const auto null_doc_id_bytes =
                             static_cast<int64_t>(null_doc_ids.capacity() * sizeof(uint32_t));
                     CONSUME_THREAD_MEM_TRACKER(null_doc_id_bytes);
                     Defer release_null_doc_ids(
                             [null_doc_id_bytes] { RELEASE_THREAD_MEM_TRACKER(null_doc_id_bytes); });
-                    null_docs.addMany(null_doc_ids.size(), null_doc_ids.data());
-                    RETURN_IF_ERROR(collection_statistics_detail::sum_non_null_norm_lengths(
-                            source, null_doc_ids, &non_null_length_sum));
-                }
+                    auto null_docs = std::make_shared<roaring::Roaring>();
+                    null_docs->addMany(null_doc_ids.size(), null_doc_ids.data());
+                    *out = std::move(null_docs);
+                    return Status::OK();
+                };
                 RETURN_IF_ERROR(collection_statistics_detail::exclude_hidden_docs(
-                        source, hidden_docs, null_docs, non_null_length_sum, &scoring_stats));
+                        source, ws_field_name, hidden_docs, read_null_docs,
+                        stats_reader.norm_length_sums, &scoring_stats));
             }
             const uint64_t segment_doc_count = scoring_stats.doc_count;
             RETURN_IF_ERROR(admit_snii_scoring_segment(
@@ -668,45 +737,25 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
         index_query::IndexScoringStats scoring_stats;
         RETURN_IF_ERROR(source->scoring_stats(&scoring_stats));
         if (hidden_rows != nullptr) {
-            std::shared_ptr<roaring::Roaring> null_docs = std::make_shared<roaring::Roaring>();
-            uint64_t non_null_length_sum = 0;
-            if (scoring_stats.has_norms) {
-                segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+            segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+            auto read_null_docs = [&](std::shared_ptr<const roaring::Roaring>* out) {
                 RETURN_IF_ERROR(segment_v2::read_clucene_null_bitmap(
                         *idx_file_reader, *collect_info.index_meta, io_ctx,
                         &null_bitmap_cache_handle));
-                null_docs = null_bitmap_cache_handle.get_bitmap();
-                DORIS_CHECK(null_docs != nullptr);
-                auto sum_lengths = [&source, &null_docs](uint64_t* out) {
-                    DorisVector<uint32_t> null_doc_ids(null_docs->cardinality());
-                    null_docs->toUint32Array(null_doc_ids.data());
-                    return collection_statistics_detail::sum_non_null_norm_lengths(
-                            *source, null_doc_ids, out);
-                };
-#ifdef BE_TEST
-                RETURN_IF_ERROR(sum_lengths(&non_null_length_sum));
-#else
-                RETURN_IF_ERROR(inverted_index_cache_handle.get<CluceneSearcherCacheValue>()
-                                        ->non_null_norm_length_sum(ws_field_name, sum_lengths,
-                                                                   &non_null_length_sum));
-#endif
-            }
-            // The statistics keep no norms, so the lengths of a segment's hidden rows are summed
-            // once per set of hidden rows and kept with the searcher.
-            auto sum_hidden_lengths = [&](std::span<const uint32_t> docs, uint64_t* out) {
-                auto sum = [&source, docs](uint64_t* lengths) {
-                    return source->sum_norm_lengths_of(docs, lengths);
-                };
-#ifdef BE_TEST
-                return sum(out);
-#else
-                return inverted_index_cache_handle.get<CluceneSearcherCacheValue>()
-                        ->hidden_norm_length_sum(ws_field_name, docs, sum, out);
-#endif
+                *out = null_bitmap_cache_handle.get_bitmap();
+                return Status::OK();
             };
+            // The statistics keep no norms, so the norm length sums of a segment are summed once
+            // and kept with the searcher.
+#ifdef BE_TEST
+            segment_v2::NormLengthSums norm_length_sums;
+            segment_v2::NormLengthSums* sums = &norm_length_sums;
+#else
+            segment_v2::NormLengthSums* sums =
+                    &inverted_index_cache_handle.get<CluceneSearcherCacheValue>()->norm_length_sums;
+#endif
             RETURN_IF_ERROR(collection_statistics_detail::exclude_hidden_docs(
-                    hidden_docs, *null_docs, non_null_length_sum, sum_hidden_lengths,
-                    &scoring_stats));
+                    *source, ws_field_name, hidden_docs, read_null_docs, sums, &scoring_stats));
         }
         total_segment_docs =
                 std::max(total_segment_docs, static_cast<int32_t>(scoring_stats.doc_count));
