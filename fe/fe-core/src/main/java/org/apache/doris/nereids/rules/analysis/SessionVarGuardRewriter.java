@@ -615,6 +615,31 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
         }
     }
 
+    /**
+     * Rejects a persisted object whose plan-variable set was written by a newer FE than this one.
+     *
+     * <p>For a rewrite cache a newer fence is harmless: {@link #computeGuardMask} selects both guard
+     * families, so the cache can never match an unguarded query and the materialized value is simply not
+     * used. Rebinding a stored object is different. A view, generated column, synchronous materialized view
+     * column or alias UDF is re-analyzed with <em>this</em> FE's expressions, and a dependency the newer FE
+     * introduced (a new affectQueryResult variable, a new TIMESTAMPTZ-sensitive function, a new guard
+     * family) has no representation here, so it cannot be guarded at all - the object would be served with
+     * silently different semantics. Such an object is rejected instead, which fails closed.
+     *
+     * @param objectDescription the object being read, used in the error message
+     * @param persistSessionVars the plan-variable map persisted with the object
+     */
+    public static void checkPlanSessionVarFenceReadable(String objectDescription,
+            Map<String, String> persistSessionVars) {
+        int fence = planSessionVarFenceVersion(persistSessionVars);
+        if (fence > SessionVariable.CURRENT_PLAN_SESSION_VAR_FENCE_VERSION) {
+            throw new AnalysisException("Failed to read " + objectDescription + ": it was written by a newer"
+                    + " Doris version (plan session variable fence " + fence + ", this frontend supports "
+                    + SessionVariable.CURRENT_PLAN_SESSION_VAR_FENCE_VERSION + "), so its session semantics"
+                    + " cannot be reproduced here. Upgrade all frontends before reading it.");
+        }
+    }
+
     private static DigitalVersion parseReleaseVersion(String version) {
         if (version == null) {
             return null;

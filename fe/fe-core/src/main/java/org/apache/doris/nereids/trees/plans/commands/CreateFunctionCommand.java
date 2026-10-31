@@ -57,6 +57,7 @@ import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
+import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.BitAnd;
@@ -1195,6 +1196,9 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             }
         }
         Map<String, String> sessionVariables = ConnectContextUtil.getAffectQueryResultInPlanVariables(ctx);
+        // The alias body is persisted with the plan variables that produced it, including the session time
+        // zone; a still-alive older FE would expand it without the time-zone guard.
+        SessionVarGuardRewriter.checkClusterSupportsPlanTimeZoneFence();
         function = AliasFunction.createFunction(functionName, argsDef.getArgTypes(),
                 Type.VARCHAR, false, parameters, translateToLegacyExpr(originFunction, ctx),
                 sessionVariables);

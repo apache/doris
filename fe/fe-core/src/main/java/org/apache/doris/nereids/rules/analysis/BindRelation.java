@@ -1054,6 +1054,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 parentContext.getConnectContext().getSessionVariable().getAffectQueryResultInPlanVariables();
         try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(parentContext.getConnectContext(),
                 viewInfo.second)) {
+            SessionVarGuardRewriter.checkPlanSessionVarFenceReadable("view '" + view.getName() + "'",
+                    viewInfo.second);
             analyzedPlan = parseAndAnalyzeView(view, viewInfo.first, parentContext);
             if (SessionVarGuardRewriter.needsSessionVarGuard(currentSessionVars, viewInfo.second)) {
                 SessionVarGuardRewriter exprRewriter = new SessionVarGuardRewriter(
