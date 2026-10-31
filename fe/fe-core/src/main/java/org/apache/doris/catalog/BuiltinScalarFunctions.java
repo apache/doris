@@ -112,6 +112,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapFromArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapFromBase64;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapFromBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapFromString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapHasAll;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapHasAny;
@@ -127,6 +128,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapSubsetI
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapSubsetLimit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapToArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapToBase64;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapToBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapToString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapXor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapXorCount;
@@ -249,8 +251,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Hex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllCardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllFromBase64;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HllFromBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllHash;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllToBase64;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HllToBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hour;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HourCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HourFloor;
@@ -723,6 +727,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(BitmapEmpty.class, "bitmap_empty"),
             scalar(BitmapFromArray.class, "bitmap_from_array"),
             scalar(BitmapFromBase64.class, "bitmap_from_base64"),
+            scalar(BitmapFromBinary.class, "bitmap_from_binary"),
             scalar(BitmapFromString.class, "bitmap_from_string"),
             scalar(BitmapHasAll.class, "bitmap_has_all"),
             scalar(BitmapHasAny.class, "bitmap_has_any"),
@@ -738,6 +743,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(BitmapSubsetLimit.class, "bitmap_subset_limit"),
             scalar(BitmapToArray.class, "bitmap_to_array"),
             scalar(BitmapToBase64.class, "bitmap_to_base64"),
+            scalar(BitmapToBinary.class, "bitmap_to_binary"),
             scalar(BitmapToString.class, "bitmap_to_string"),
             scalar(BitmapXor.class, "bitmap_xor"),
             scalar(BitmapXorCount.class, "bitmap_xor_count"),
@@ -855,8 +861,10 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(HllCardinality.class, "hll_cardinality"),
             scalar(HllEmpty.class, "hll_empty"),
             scalar(HllFromBase64.class, "hll_from_base64"),
+            scalar(HllFromBinary.class, "hll_from_binary"),
             scalar(HllHash.class, "hll_hash"),
             scalar(HllToBase64.class, "hll_to_base64"),
+            scalar(HllToBinary.class, "hll_to_binary"),
             scalar(Hour.class, "hour"),
             scalar(HourCeil.class, "hour_ceil"),
             scalar(HourFloor.class, "hour_floor"),

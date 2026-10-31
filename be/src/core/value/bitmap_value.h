@@ -34,7 +34,12 @@
 #include <new>
 #include <numeric>
 #include <queue>
+// clang-format off
+// CRoaring's public header defines ROARING_CONTAINER_T; its internal headers undefine it,
+// so the public header must come first (same ordering as storage/index/snii/format/null_bitmap.cpp).
 #include <roaring/roaring.hh>
+#include <roaring/containers/containers.h>
+// clang-format on
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -833,6 +838,217 @@ public:
     }
 
     /**
+     * Read a bitmap from a serialized version, bounded by max_bytes.
+     *
+     * Unlike read(), this never reads past buf + max_bytes. It is meant for user
+     * controlled inputs (e.g. bitmap_from_binary over external catalog bytes), where a
+     * truncated or corrupted value must be rejected instead of reading out of bounds.
+     *
+     * @param is_valid_ptr set to false when the buffer does not hold a complete bitmap,
+     *                    true when the whole payload parsed cleanly.
+     */
+    static Roaring64Map read_safe(const char* buf, size_t max_bytes, bool* is_valid_ptr) {
+        if (max_bytes < 1) {
+            *is_valid_ptr = false;
+            return {};
+        }
+        bool is_v1 = BitmapTypeCode::BITMAP32 == *buf || BitmapTypeCode::BITMAP64 == *buf;
+        bool is_bitmap32 = BitmapTypeCode::BITMAP32 == *buf || BitmapTypeCode::BITMAP32_V2 == *buf;
+        if (is_bitmap32) {
+            return read_bitmap32_safe(buf, max_bytes, is_v1, is_valid_ptr);
+        }
+        DCHECK(BitmapTypeCode::BITMAP64 == *buf || BitmapTypeCode::BITMAP64_V2 == *buf);
+        return read_bitmap64_safe(buf, max_bytes, is_v1, is_valid_ptr);
+    }
+
+private:
+    // BITMAP32/BITMAP32_V2 payload := one Roaring bitmap in portable(V1)/non-portable(V2) form.
+    static Roaring64Map read_bitmap32_safe(const char* buf, size_t max_bytes, bool is_v1,
+                                           bool* is_valid_ptr) {
+        Roaring64Map result;
+        bool valid = false;
+        size_t consumed = 0;
+        roaring::Roaring read =
+                read_single_roaring_safe(buf + 1, max_bytes - 1, is_v1, &valid, &consumed);
+        if (!valid) {
+            *is_valid_ptr = false;
+            return result;
+        }
+        // bitmap32 holds exactly one Roaring, so the payload must be consumed exactly.
+        // Trailing bytes mean the value is corrupted (or a fixed-width column was padded);
+        // accepting them would silently turn damaged input into a valid bitmap.
+        if (consumed + 1 != max_bytes) {
+            *is_valid_ptr = false;
+            return result;
+        }
+        result.emplaceOrInsert(0, std::move(read));
+        *is_valid_ptr = true;
+        return result;
+    }
+
+    // BITMAP64/BITMAP64_V2 payload := NumRoaring(varint64), { MapKey, Roaring }^NumRoaring.
+    static Roaring64Map read_bitmap64_safe(const char* buf, size_t max_bytes, bool is_v1,
+                                           bool* is_valid_ptr) {
+        Roaring64Map result;
+        // consume the type code first; the remaining checks track the payload size only
+        buf++;
+        max_bytes--;
+
+        // get map size (varint64 took 1~10 bytes)
+        uint64_t map_size;
+        const char* next = reinterpret_cast<const char*>(decode_varint64_ptr(
+                reinterpret_cast<const uint8_t*>(buf),
+                reinterpret_cast<const uint8_t*>(buf) + std::min<size_t>(10, max_bytes),
+                &map_size));
+        if (next == nullptr) {
+            *is_valid_ptr = false;
+            return result;
+        }
+        max_bytes -= next - buf;
+        buf = next;
+
+        // each entry needs at least a 4-byte key; reject an impossible count up front so a
+        // corrupted varint cannot drive an (almost) unbounded loop below.
+        if (map_size > max_bytes / sizeof(uint32_t)) {
+            *is_valid_ptr = false;
+            return result;
+        }
+
+        for (uint64_t lcv = 0; lcv < map_size; lcv++) {
+            // get map key
+            if (max_bytes < sizeof(uint32_t)) {
+                *is_valid_ptr = false;
+                return result;
+            }
+            uint32_t key = decode_fixed32_le(reinterpret_cast<const uint8_t*>(buf));
+            buf += sizeof(uint32_t);
+            max_bytes -= sizeof(uint32_t);
+
+            // read map value Roaring
+            bool valid = false;
+            size_t consumed = 0;
+            roaring::Roaring read_var =
+                    read_single_roaring_safe(buf, max_bytes, is_v1, &valid, &consumed);
+            if (!valid) {
+                *is_valid_ptr = false;
+                return result;
+            }
+            // forward buffer past the last Roaring Bitmap, by the bytes the ORIGINAL
+            // encoding actually occupies (see read_single_roaring_safe: the reserialized
+            // size can differ from the input length, e.g. a portable hasrun-cookie
+            // bitmap without run containers re-serializes with the no-run cookie and
+            // 4 extra offset bytes).
+            if (consumed > max_bytes) {
+                *is_valid_ptr = false;
+                return result;
+            }
+            buf += consumed;
+            max_bytes -= consumed;
+            // A map key must appear at most once. emplaceOrInsert would silently keep the
+            // first segment and drop the rest, i.e. return a wrong bitmap for corrupted
+            // input instead of rejecting it.
+            if (!result.tryEmplaceOrInsert(key, std::move(read_var))) {
+                *is_valid_ptr = false;
+                return result;
+            }
+        }
+        // the whole payload parsed cleanly: a bitmap64 map must consume the buffer
+        // exactly, otherwise the segments were misaligned
+        if (max_bytes != 0) {
+            *is_valid_ptr = false;
+            return result;
+        }
+        *is_valid_ptr = true;
+        return result;
+    }
+
+    // Bounded counterpart of roaring::Roaring::read(buf, portable). portable format uses
+    // roaring_bitmap_portable_deserialize_safe; the V1 non-portable format uses
+    // roaring_bitmap_deserialize_safe. Both return NULL on a truncated/invalid buffer.
+    //
+    // The *_deserialize_safe functions only bound the reads: a bitset container keeps
+    // whatever cardinality the payload declared (bitset_container_read never recomputes
+    // it), so a corrupt bitmap can claim cardinality 4097 while its words hold 65536
+    // bits. bitmap_to_array resizes by the declared cardinality but the element writer
+    // iterates the actual bits, i.e. a heap out-of-bounds write. roaring_bitmap_internal_validate
+    // cross-checks the declared and actual cardinalities (plus key order and container
+    // consistency) and rejects such payloads.
+    //
+    // consumed_bytes reports how many bytes the ORIGINAL encoding occupies, which can
+    // differ from the reserialized getSizeInBytes() (a portable hasrun-cookie bitmap
+    // without run containers re-serializes with the no-run cookie plus a 4-byte offset
+    // table; a V2 ARRAY_UINT32 payload with duplicate values shrinks on reserialize).
+    // The caller advances its buffer by consumed_bytes; using the reserialized size
+    // there would mis-parse a bitmap64 map (rejecting valid payloads or reading a
+    // segment at the wrong offset).
+    static roaring::Roaring read_single_roaring_safe(const char* buf, size_t max_bytes,
+                                                     bool portable, bool* is_valid_ptr,
+                                                     size_t* consumed_bytes) {
+        *consumed_bytes = 0;
+        auto* r = portable ? roaring::api::roaring_bitmap_portable_deserialize_safe(buf, max_bytes)
+                           : roaring::api::roaring_bitmap_deserialize_safe(buf, max_bytes);
+        if (r == nullptr) {
+            *is_valid_ptr = false;
+            return {};
+        }
+        const char* reason = nullptr;
+        if (!roaring::api::roaring_bitmap_internal_validate(r, &reason)) {
+            // Reachable from user supplied bytes (bitmap_from_binary), so it must not log at a
+            // level that is on by default: one line per input row lets any user with SELECT
+            // privilege flood be.log. Keep the diagnostic at VLOG_DEBUG.
+            VLOG_DEBUG << "Decode roaring bitmap failed: " << (reason ? reason : "unknown");
+            roaring::api::roaring_bitmap_free(r);
+            *is_valid_ptr = false;
+            return {};
+        }
+        // The CRoaring 2.1.2 bundled with Doris predates upstream PR #560 (2024-01-15,
+        // eleven days after the v2.1.2 tag), so its internal_validate still accepts
+        // empty containers (run container with n_runs == 0 - the only encoding able to
+        // declare one, since a non-run container's cardinality is tmp+1 >= 1). An empty
+        // container breaks the "no empty containers" invariant every container
+        // operation (AND/OR/ANDNOT) relies on: array_run_container_union dereferences
+        // the NULL runs pointer of an empty run container and segfaults the process.
+        // The bundled version cannot tell us this, so check it here.
+        {
+            const auto* ra = &r->high_low_container;
+            for (int32_t i = 0; i < ra->size; ++i) {
+                if (roaring::internal::container_get_cardinality(ra->containers[i],
+                                                                 ra->typecodes[i]) == 0) {
+                    // Reachable from user supplied bytes (bitmap_from_binary), so keep the
+                    // diagnostic off the default log level: one line per input row would let
+                    // any user with SELECT privilege flood be.log.
+                    VLOG_DEBUG << "Decode roaring bitmap failed: empty container at key "
+                               << ra->keys[i];
+                    roaring::api::roaring_bitmap_free(r);
+                    *is_valid_ptr = false;
+                    return {};
+                }
+            }
+        }
+        *is_valid_ptr = true;
+        // the bytes the deserializer actually consumed, computed from the ORIGINAL
+        // encoding (never from the reserialized size)
+        if (portable) {
+            *consumed_bytes =
+                    roaring::api::roaring_bitmap_portable_deserialize_size(buf, max_bytes);
+        } else {
+            // V2 non-portable: 1-byte tag then either uint32 count + count uint32
+            // elements, or a portable bitmap - mirror roaring_bitmap_deserialize_safe.
+            if (static_cast<uint8_t>(buf[0]) == 1) { // CROARING_SERIALIZATION_ARRAY_UINT32
+                uint32_t card = decode_fixed32_le(reinterpret_cast<const uint8_t*>(buf + 1));
+                *consumed_bytes =
+                        1 + sizeof(uint32_t) + static_cast<size_t>(card) * sizeof(uint32_t);
+            } else { // CROARING_SERIALIZATION_CONTAINER
+                *consumed_bytes = 1 + roaring::api::roaring_bitmap_portable_deserialize_size(
+                                              buf + 1, max_bytes - 1);
+            }
+        }
+        DCHECK(*consumed_bytes > 0 && *consumed_bytes <= max_bytes);
+        return roaring::Roaring(r);
+    }
+
+public:
+    /**
      * How many bytes are required to serialize this bitmap
      */
     size_t getSizeInBytes(int serialize_version) const {
@@ -991,6 +1207,14 @@ private:
         // CRoaring's C++ move constructor bit-copies the underlying C struct and
         // is unsafe with phmap::btree_map value relocation after operations such as shrinkToFit().
         roarings.emplace(key, value);
+    }
+
+    // Same as emplaceOrInsert, but reports whether the key was actually inserted. Used by the
+    // bounded reader to reject a payload that repeats a map key instead of silently dropping
+    // the later segment.
+    bool tryEmplaceOrInsert(const uint32_t key, roaring::Roaring&& value) {
+        // Pass `value` as an lvalue for the same relocation reason as emplaceOrInsert above.
+        return roarings.emplace(key, value).second;
     }
 
     roaring::Roaring& lookupOrCreateInner(uint32_t key) {
@@ -2468,6 +2692,133 @@ public:
         }
     }
 
+    // Deserialize a bitmap value from `src`, bounded by max_bytes.
+    // Unlike deserialize(), this validates the buffer length before every access, so it is
+    // safe for user-controlled inputs (external catalog binary columns, UDF output).
+    // Returns false when the buffer is too short, holds an unknown type code, or fails to
+    // decode a complete bitmap payload; on failure the value is left as an empty bitmap.
+    bool valid_and_deserialize(const char* src, size_t max_bytes) {
+        reset();
+        if (max_bytes < 1) {
+            return false;
+        }
+        switch (*src) {
+        case BitmapTypeCode::EMPTY:
+            // An EMPTY payload is exactly one byte. A longer buffer is a corrupted value and
+            // must not be silently accepted as an empty bitmap.
+            if (max_bytes != 1) {
+                return false;
+            }
+            _type = EMPTY;
+            return true;
+        case BitmapTypeCode::SINGLE32:
+            if (max_bytes != 1 + sizeof(uint32_t)) {
+                return false;
+            }
+            _type = SINGLE;
+            _sv = decode_fixed32_le(reinterpret_cast<const uint8_t*>(src + 1));
+            if (config::enable_set_in_bitmap_value) {
+                _type = SET;
+                _set.clear();
+                _set.insert(_sv);
+            }
+            return true;
+        case BitmapTypeCode::SINGLE64:
+            if (max_bytes != 1 + sizeof(uint64_t)) {
+                return false;
+            }
+            _type = SINGLE;
+            _sv = decode_fixed64_le(reinterpret_cast<const uint8_t*>(src + 1));
+            if (config::enable_set_in_bitmap_value) {
+                _type = SET;
+                _set.clear();
+                _set.insert(_sv);
+            }
+            return true;
+        case BitmapTypeCode::BITMAP32:
+        case BitmapTypeCode::BITMAP64:
+        case BitmapTypeCode::BITMAP32_V2:
+        case BitmapTypeCode::BITMAP64_V2: {
+            bool valid = false;
+            detail::Roaring64Map bitmap = detail::Roaring64Map::read_safe(src, max_bytes, &valid);
+            if (!valid) {
+                // This path is reachable from user supplied bytes (bitmap_from_binary), so it
+                // must not log at a level that is on by default: one log line per input row
+                // lets any user with SELECT privilege flood be.log. Keep it at VLOG_DEBUG.
+                VLOG_DEBUG << "Decode roaring bitmap failed: truncated or corrupted payload";
+                return false;
+            }
+            _type = BITMAP;
+            _is_shared = false;
+            _bitmap = std::make_shared<detail::Roaring64Map>(std::move(bitmap));
+            return true;
+        }
+        case BitmapTypeCode::SET:
+            return valid_and_deserialize_set(src, max_bytes);
+        case BitmapTypeCode::SET_V2:
+            return valid_and_deserialize_set_v2(src, max_bytes);
+        default:
+            // Same reasoning as above: user supplied bytes, so no default-visible logging.
+            VLOG_DEBUG << "BitmapTypeCode invalid, should be one of EMPTY(0)/SINGLE32(1)/"
+                          "BITMAP32(2)/SINGLE64(3)/BITMAP64(4)/SET(5)/SET_V2(10)/"
+                          "BITMAP32_V2(12)/BITMAP64_V2(13), actual is "
+                       << static_cast<int>(*src);
+            return false;
+        }
+    }
+
+private:
+    // SET payload := TypeCode::SET(1 byte) | count(1 byte) | uint64 values in little-endian order.
+    bool valid_and_deserialize_set(const char* src, size_t max_bytes) {
+        if (max_bytes < 2) {
+            return false;
+        }
+        uint8_t count = *(src + 1);
+        if (count > SET_TYPE_THRESHOLD) {
+            return false;
+        }
+        if (max_bytes != 2 + sizeof(uint64_t) * count) {
+            return false;
+        }
+        _type = SET;
+        if (!_set.read(src + 2, count)) {
+            // Duplicated values can only come from a corrupted payload; the trusted
+            // deserialize() path throws here, but for user bytes a NULL result is enough.
+            reset();
+            return false;
+        }
+        if (!config::enable_set_in_bitmap_value) {
+            _convert_set_to_bitmap();
+        }
+        return true;
+    }
+
+    // SET_V2 payload := TypeCode::SET_V2(1 byte) | count(uint32 little-endian) | uint64 values.
+    bool valid_and_deserialize_set_v2(const char* src, size_t max_bytes) {
+        if (max_bytes < 1 + sizeof(uint32_t)) {
+            return false;
+        }
+        uint32_t count = decode_fixed32_le(reinterpret_cast<const uint8_t*>(src + 1));
+        if (max_bytes != 1 + sizeof(uint32_t) + sizeof(uint64_t) * count) {
+            return false;
+        }
+        const char* values = src + 1 + sizeof(uint32_t);
+        if (!config::enable_set_in_bitmap_value || count > SET_TYPE_THRESHOLD) {
+            _type = BITMAP;
+            _prepare_bitmap_for_write();
+            if (count > 0) {
+                std::vector<uint64_t> vals(count);
+                decode_fixed64_le_array(vals.data(), values, count);
+                _bitmap->addMany(count, vals.data());
+            }
+        } else {
+            _type = SET;
+            _set.read(values, count, true);
+        }
+        return true;
+    }
+
+public:
     // Deserialize a bitmap value from `src`.
     // Return false if `src` begins with unknown type code, true otherwise.
     bool deserialize(const char* src) {

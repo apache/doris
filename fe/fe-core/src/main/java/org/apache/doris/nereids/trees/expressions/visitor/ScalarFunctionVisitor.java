@@ -122,6 +122,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapFromArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapFromBase64;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapFromBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapFromString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapHasAll;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapHasAny;
@@ -137,6 +138,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapSubsetI
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapSubsetLimit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapToArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapToBase64;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapToBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapToString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapXor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapXorCount;
@@ -262,8 +264,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Hex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllCardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllFromBase64;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HllFromBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllHash;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllToBase64;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HllToBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hour;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HourCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HourFloor;
@@ -994,8 +998,16 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(bitmapFromBase64, context);
     }
 
+    default R visitBitmapFromBinary(BitmapFromBinary bitmapFromBinary, C context) {
+        return visitScalarFunction(bitmapFromBinary, context);
+    }
+
     default R visitBitmapToBase64(BitmapToBase64 bitmapToBase64, C context) {
         return visitScalarFunction(bitmapToBase64, context);
+    }
+
+    default R visitBitmapToBinary(BitmapToBinary bitmapToBinary, C context) {
+        return visitScalarFunction(bitmapToBinary, context);
     }
 
     default R visitBitmapHasAll(BitmapHasAll bitmapHasAll, C context) {
@@ -1624,12 +1636,20 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(hllFromBase64, context);
     }
 
+    default R visitHllFromBinary(HllFromBinary hllFromBinary, C context) {
+        return visitScalarFunction(hllFromBinary, context);
+    }
+
     default R visitHllHash(HllHash hllHash, C context) {
         return visitScalarFunction(hllHash, context);
     }
 
     default R visitHllToBase64(HllToBase64 hllToBase64, C context) {
         return visitScalarFunction(hllToBase64, context);
+    }
+
+    default R visitHllToBinary(HllToBinary hllToBinary, C context) {
+        return visitScalarFunction(hllToBinary, context);
     }
 
     default R visitHour(Hour hour, C context) {

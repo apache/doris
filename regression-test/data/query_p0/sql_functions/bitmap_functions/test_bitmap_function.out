@@ -603,6 +603,51 @@ true
 0,1,2,3,4294967296
 1,9999999
 
+-- !sql_bitmap_binary_nereids0 --
+\N
+
+-- !sql_bitmap_binary_nereids1 --
+
+
+-- !sql_bitmap_binary_nereids2 --
+1
+
+-- !sql_bitmap_binary_nereids3 --
+0,1,2,3
+
+-- !sql_bitmap_binary_nereids4 --
+0,1,2,3,4294967296
+
+-- !sql_bitmap_binary_nereids5 --
+33
+
+-- !sql_bitmap_binary_nereids6 --
+1
+
+-- !sql_bitmap_binary_invalid_empty --
+\N
+
+-- !sql_bitmap_binary_invalid_code --
+\N
+
+-- !sql_bitmap_binary_truncated --
+\N
+
+-- !sql_bitmap_binary_table0 --
+
+0
+0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32
+0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,4294967296
+0,1,2,3,4294967296
+1,9999999
+
+-- !sql_bitmap_binary_table1 --
+0
+0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32
+0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,4294967296
+0,1,2,3,4294967296
+1,9999999
+
 -- !sql_bitmap_remove_nereids0 --
 1,2
 

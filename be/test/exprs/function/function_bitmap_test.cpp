@@ -17,6 +17,7 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <deque>
 #include <limits>
 #include <string>
 #include <vector>
@@ -26,12 +27,15 @@
 #include "core/data_type/data_type_bitmap.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "core/types.h"
 #include "core/value/bitmap_value.h"
 #include "exprs/function/function_test_util.h"
 #include "util/url_coding.h"
 
 namespace doris {
+
+using namespace ut_type;
 
 TEST(function_bitmap_test, function_bitmap_min_test) {
     std::string func_name = "bitmap_min";
@@ -585,6 +589,211 @@ TEST(function_bitmap_test, function_bitmap_from_string_multiple_rows) {
             {{std::string("18,19,20")}, &bitmap6}};
 
     static_cast<void>(check_function<DataTypeBitMap, true>(func_name, input_types, data_set));
+}
+
+namespace {
+// Keep a byte buffer alive and hand back a non-owning VARBINARY view over it.
+// ut_type::VARBINARY is a StringView that does not own its bytes and StringView rejects
+// std::string&&, so dynamic payloads must be parked somewhere stable for the lifetime of
+// the test process; check_function copies the bytes into the input column immediately.
+// deque never relocates its elements (unlike vector), so a view over an SSO string inside it
+// stays valid across later insertions.
+ut_type::VARBINARY keep_alive_binary(std::string bytes) {
+    static std::deque<std::string> keep_alive;
+    keep_alive.push_back(std::move(bytes));
+    return ut_type::VARBINARY(keep_alive.back().data(), keep_alive.back().size());
+}
+
+// Serialize a bitmap to the Doris wire format, used to build bitmap_from_binary inputs and
+// bitmap_to_binary expectations without hard-coding byte strings (which depend on
+// enable_set_in_bitmap_value / bitmap_serialize_version, see function_bitmap_to_base64).
+ut_type::VARBINARY serialize_bitmap_to_binary(const BitmapValue& bitmap) {
+    std::string serialized(bitmap.getSizeInBytes(), '\0');
+    bitmap.write_to(serialized.data());
+    return keep_alive_binary(std::move(serialized));
+}
+} // namespace
+
+TEST(function_bitmap_test, function_bitmap_to_binary) {
+    config::Register::Field field("bool", "enable_set_in_bitmap_value",
+                                  &config::enable_set_in_bitmap_value, "false", false);
+    config::Register::_s_field_map->insert(
+            std::make_pair(std::string("enable_set_in_bitmap_value"), field));
+    config::Register::Field field_ser_ver("int16_t", "bitmap_serialize_version",
+                                          &config::bitmap_serialize_version, "1", false);
+    config::Register::_s_field_map->insert(
+            std::make_pair(std::string("bitmap_serialize_version"), field_ser_ver));
+
+    std::string func_name = "bitmap_to_binary";
+    InputTypeSet input_types = {PrimitiveType::TYPE_BITMAP};
+
+    EXPECT_TRUE(config::set_config("enable_set_in_bitmap_value", "false", false, true).ok());
+    BitmapValue bitmap32_1(1);                         // single
+    BitmapValue bitmap32_2({1, 9999999});              // bitmap
+    BitmapValue bitmap64_1((uint64_t)4294967296);      // single
+    BitmapValue bitmap64_2({1, (uint64_t)4294967296}); // bitmap
+    BitmapValue empty_bitmap;
+
+    {
+        DataSet data_set = {{{&bitmap32_1}, VARBINARY(serialize_bitmap_to_binary(bitmap32_1))},
+                            {{&bitmap32_2}, VARBINARY(serialize_bitmap_to_binary(bitmap32_2))},
+                            {{&bitmap64_1}, VARBINARY(serialize_bitmap_to_binary(bitmap64_1))},
+                            {{&bitmap64_2}, VARBINARY(serialize_bitmap_to_binary(bitmap64_2))},
+                            {{&empty_bitmap}, VARBINARY(serialize_bitmap_to_binary(empty_bitmap))},
+                            {{Null()}, Null()}};
+
+        static_cast<void>(
+                check_function<DataTypeVarbinary, true>(func_name, input_types, data_set));
+    }
+
+    // SET serialization order is not canonical (see function_bitmap_to_base64), so the
+    // expectation is built from the same serialize helper, keeping the round-trip contract.
+    EXPECT_TRUE(config::set_config("enable_set_in_bitmap_value", "true", false, true).ok());
+    BitmapValue set_bitmap({1, 9999999});
+    {
+        EXPECT_EQ(set_bitmap.get_type_code(), BitmapTypeCode::SET);
+        DataSet data_set = {{{&set_bitmap}, VARBINARY(serialize_bitmap_to_binary(set_bitmap))},
+                            {{Null()}, Null()}};
+        static_cast<void>(
+                check_function<DataTypeVarbinary, true>(func_name, input_types, data_set));
+    }
+
+    // serialize version 2 emits BITMAP32_V2 / BITMAP64_V2 type codes; the round trip must hold.
+    // enable_set_in_bitmap_value was flipped to true above, so reset it first: with it on, a
+    // 6-element bitmap serializes as SET and the V2 bitmap-code assertion below would not hold.
+    EXPECT_TRUE(config::set_config("enable_set_in_bitmap_value", "false", false, true).ok());
+    EXPECT_TRUE(config::set_config("bitmap_serialize_version", "2", false, true).ok());
+    BitmapValue bitmap32_3({0, 1, 2, 3, 4, 5});
+    {
+        EXPECT_EQ(bitmap32_3.get_type_code(), BitmapTypeCode::BITMAP32_V2);
+        DataSet data_set = {{{&bitmap32_3}, VARBINARY(serialize_bitmap_to_binary(bitmap32_3))}};
+        static_cast<void>(
+                check_function<DataTypeVarbinary, true>(func_name, input_types, data_set));
+    }
+    EXPECT_TRUE(config::set_config("bitmap_serialize_version", "1", false, true).ok());
+}
+
+TEST(function_bitmap_test, function_bitmap_from_binary) {
+    config::Register::Field field("bool", "enable_set_in_bitmap_value",
+                                  &config::enable_set_in_bitmap_value, "false", false);
+    config::Register::_s_field_map->insert(
+            std::make_pair(std::string("enable_set_in_bitmap_value"), field));
+    config::Register::Field field_ser_ver("int16_t", "bitmap_serialize_version",
+                                          &config::bitmap_serialize_version, "1", false);
+    config::Register::_s_field_map->insert(
+            std::make_pair(std::string("bitmap_serialize_version"), field_ser_ver));
+
+    std::string func_name = "bitmap_from_binary";
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY};
+
+    EXPECT_TRUE(config::set_config("enable_set_in_bitmap_value", "false", false, true).ok());
+    BitmapValue bitmap32_1(1);                         // single
+    BitmapValue bitmap32_2({1, 9999999});              // bitmap
+    BitmapValue bitmap64_1((uint64_t)4294967296);      // single
+    BitmapValue bitmap64_2({1, (uint64_t)4294967296}); // bitmap
+    BitmapValue empty_bitmap;
+
+    {
+        // valid payloads round-trip back to the original bitmaps
+        DataSet data_set = {{{VARBINARY(serialize_bitmap_to_binary(bitmap32_1))}, &bitmap32_1},
+                            {{VARBINARY(serialize_bitmap_to_binary(bitmap32_2))}, &bitmap32_2},
+                            {{VARBINARY(serialize_bitmap_to_binary(bitmap64_1))}, &bitmap64_1},
+                            {{VARBINARY(serialize_bitmap_to_binary(bitmap64_2))}, &bitmap64_2},
+                            {{VARBINARY(serialize_bitmap_to_binary(empty_bitmap))}, &empty_bitmap},
+                            {{Null()}, Null()}};
+
+        static_cast<void>(check_function<DataTypeBitMap, true>(func_name, input_types, data_set));
+    }
+
+    {
+        // invalid / truncated user-controlled bytes must yield NULL, never crash:
+        // - empty payload (no type code at all)
+        // - unknown type code
+        // - SINGLE32 / SINGLE64 / SET payloads cut short
+        // - BITMAP32 roaring payload truncated
+        std::string single32 = serialize_bitmap_to_binary(bitmap32_1);
+        std::string single64 = serialize_bitmap_to_binary(bitmap64_1);
+        std::string set_bytes = [&] {
+            config::enable_set_in_bitmap_value = true;
+            BitmapValue set_bitmap;
+            set_bitmap.add(1);
+            set_bitmap.add(9999999);
+            std::string serialized(set_bitmap.getSizeInBytes(), '\0');
+            set_bitmap.write_to(serialized.data());
+            config::enable_set_in_bitmap_value = false;
+            return serialized;
+        }();
+        std::string bitmap32 = serialize_bitmap_to_binary(bitmap32_2);
+
+        auto truncated = [](std::string s, size_t n) { return keep_alive_binary(s.substr(0, n)); };
+
+        // A run container with zero runs: the CRoaring 2.1.2 bundled with Doris
+        // predates upstream PR #560, so its internal_validate accepts the empty
+        // container while every container operation (AND/OR/ANDNOT) dereferences
+        // its NULL runs pointer and crashes. valid_and_deserialize must reject it
+        // up front (NULL), never load it.
+        auto empty_run = [&] {
+            std::string bytes;
+            bytes += static_cast<char>(BitmapTypeCode::BITMAP32);
+            uint32_t cookie = 12347; // SERIAL_COOKIE (hasrun), size-1 = 0
+            bytes.append(reinterpret_cast<const char*>(&cookie), 4);
+            bytes += '\x01';                      // run bitmap: container 0 IS a run container
+            uint16_t key = 0, card_minus_one = 0; // thiscard = 1 -> run container
+            bytes.append(reinterpret_cast<const char*>(&key), 2);
+            bytes.append(reinterpret_cast<const char*>(&card_minus_one), 2);
+            uint16_t n_runs = 0; // the empty container
+            bytes.append(reinterpret_cast<const char*>(&n_runs), 2);
+            return keep_alive_binary(std::move(bytes));
+        }();
+
+        DataSet data_set = {{{VARBINARY("")}, Null()},
+                            {{keep_alive_binary(std::string("\x7f", 1))}, Null()},
+                            {{truncated(single32, 3)}, Null()},
+                            {{truncated(single64, 5)}, Null()},
+                            {{truncated(set_bytes, 3)}, Null()},
+                            {{truncated(bitmap32, 4)}, Null()},
+                            {{empty_run}, Null()}};
+
+        static_cast<void>(check_function<DataTypeBitMap, true>(func_name, input_types, data_set));
+    }
+
+    // SET payloads (from enable_set_in_bitmap_value=true writers) must decode to the same
+    // bitmap regardless of the reader's enable_set_in_bitmap_value setting.
+    EXPECT_TRUE(config::set_config("enable_set_in_bitmap_value", "true", false, true).ok());
+    ut_type::VARBINARY set_payload;
+    {
+        // build via repeated add(): the vector ctor goes through add_many which always
+        // produces BITMAP, while SET is the <=32-element type formed by add()
+        BitmapValue set_bitmap;
+        set_bitmap.add(1);
+        set_bitmap.add(9999999);
+        EXPECT_EQ(set_bitmap.get_type_code(), BitmapTypeCode::SET);
+        set_payload = serialize_bitmap_to_binary(set_bitmap);
+        BitmapValue set_result({1, 9999999});
+        DataSet data_set = {{{set_payload}, &set_result}};
+        static_cast<void>(check_function<DataTypeBitMap, true>(func_name, input_types, data_set));
+    }
+    EXPECT_TRUE(config::set_config("enable_set_in_bitmap_value", "false", false, true).ok());
+    {
+        // the same SET payload, read with set disabled: converts to BITMAP internally,
+        // contents must stay equal
+        BitmapValue set_result({1, 9999999});
+        DataSet data_set = {{{set_payload}, &set_result}};
+        static_cast<void>(check_function<DataTypeBitMap, true>(func_name, input_types, data_set));
+    }
+
+    // serialize version 2 payloads (BITMAP32_V2 / BITMAP64_V2) round-trip too
+    EXPECT_TRUE(config::set_config("bitmap_serialize_version", "2", false, true).ok());
+    {
+        BitmapValue bitmap32_3({0, 1, 2, 3, 4, 5});
+        BitmapValue bitmap64_3({1, (uint64_t)4294967296});
+        EXPECT_EQ(bitmap32_3.get_type_code(), BitmapTypeCode::BITMAP32_V2);
+        EXPECT_EQ(bitmap64_3.get_type_code(), BitmapTypeCode::BITMAP64_V2);
+        DataSet data_set = {{{VARBINARY(serialize_bitmap_to_binary(bitmap32_3))}, &bitmap32_3},
+                            {{VARBINARY(serialize_bitmap_to_binary(bitmap64_3))}, &bitmap64_3}};
+        static_cast<void>(check_function<DataTypeBitMap, true>(func_name, input_types, data_set));
+    }
+    EXPECT_TRUE(config::set_config("bitmap_serialize_version", "1", false, true).ok());
 }
 
 } // namespace doris

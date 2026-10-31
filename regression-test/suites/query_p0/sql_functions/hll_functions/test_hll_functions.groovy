@@ -80,4 +80,30 @@ suite("test_hll_functions") {
     // oversized vs offsets and tripped sanity_check.
     qt_sparse_roundtrip "select hll_cardinality(hll_from_base64(hll_to_base64(hll_union(hll_hash(number))))) > 400 from numbers(\"number\"=\"500\");"
     qt_sparse_len_positive "select length(hll_to_base64(hll_union(hll_hash(number)))) > 0 from numbers(\"number\"=\"500\");"
+
+    // hll_to_binary / hll_from_binary: byte-level counterparts of hll_to_base64 /
+    // hll_from_base64. The binary form is what an ORC/Parquet hive BINARY column
+    // (mapped to VARBINARY via 'enable.mapping.varbinary') holds.
+    qt_hll_binary_table_roundtrip "select hll_union_agg(hll_from_binary(hll_to_binary(pv))) from test_hll_func;"
+    qt_hll_binary_table_roundtrip2 "select province, hll_union_agg(hll_from_binary(hll_to_binary(pv))) from test_hll_func group by province order by province;"
+    qt_hll_binary_table_card "select hll_cardinality(hll_from_binary(hll_to_binary(pv))) as res from test_hll_func order by res limit 1;"
+
+    qt_hll_binary_const_roundtrip "select hll_cardinality(hll_from_binary(hll_to_binary(hll_hash('abc'))));"
+    qt_hll_binary_const_empty "select hll_cardinality(hll_from_binary(hll_to_binary(hll_empty())));"
+    qt_hll_binary_const_null "select hll_cardinality(hll_from_binary(hll_to_binary(hll_hash(NULL))));"
+    qt_hll_binary_to_null "select hll_to_binary(NULL);"
+
+    // invalid / truncated bytes yield row-level NULL instead of an error, unlike
+    // hll_from_base64 which fails the query. Assert `is null` directly: hll_cardinality
+    // maps a NULL argument to 0, so wrapping the call would also pass if the function
+    // wrongly returned a valid empty HLL instead of NULL.
+    qt_hll_binary_invalid_empty "select hll_from_binary(to_binary('')) is null;"
+    qt_hll_binary_invalid_type "select hll_from_binary(to_binary('7f')) is null;"
+    qt_hll_binary_invalid_truncated "select hll_from_binary(sub_binary(hll_to_binary(hll_hash('abc')), 1, 2)) is null;"
+    // positive control: a valid payload must not be NULL, otherwise the three cases
+    // above would pass for the wrong reason
+    qt_hll_binary_valid_not_null "select hll_from_binary(hll_to_binary(hll_hash('abc'))) is null;"
+
+    // mixed base64/binary byte level consistency
+    qt_hll_binary_equals_base64 "select hll_cardinality(hll_from_binary(hll_to_binary(pv))) = hll_cardinality(hll_from_base64(hll_to_base64(pv))) from test_hll_func order by 1;"
 }
