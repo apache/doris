@@ -56,6 +56,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -120,6 +121,11 @@ public class FlightSqlSchemaHelperTableTypesTest {
                                         Assertions.assertEquals("%", params.getPattern());
                                         Assertions.assertEquals(UserIdentity.ROOT.toThrift(),
                                                 params.getCurrentUserIdent());
+                                        // Names and types only: no table statistics, and no UPDATE_TIME, the one
+                                        // column a cloud follower refreshes partition versions from the meta
+                                        // service for.
+                                        Assertions.assertEquals(Set.of("TABLE_NAME", "TABLE_TYPE"),
+                                                params.getRequiredColumns());
                                         // The service only recognizes VIEW; other types return all authorized tables.
                                         return new TListTableStatusResult().setTables(authorizedTables.stream()
                                                 .filter(table -> !"VIEW".equals(params.getType())

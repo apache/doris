@@ -732,8 +732,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         // the version needs to be updated.
                         // Otherwise, the version will always be the old value
                         // unless there is a query for the table in the follower node.
+                        // UPDATE_TIME is the only status column that reads the partition versions
+                        // (OlapTable.getUpdateTime() takes the partitions' visible version time), so a
+                        // request that does not need it, such as Flight SQL GetTables asking for names
+                        // and types, does not wait on the meta service.
                         if (!Env.getCurrentEnv().isMaster() && Config.isCloudMode()
-                                && table instanceof OlapTable) {
+                                && table instanceof OlapTable
+                                && needTableStatusColumn(requiredColumns, "UPDATE_TIME")) {
                             OlapTable olapTable = (OlapTable) table;
                             List<CloudPartition> partitions = olapTable.getAllPartitions().stream()
                                     .filter(p -> p instanceof CloudPartition)
