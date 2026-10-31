@@ -17,11 +17,14 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <random>
+#include <thread>
 
 #include "core/field.h"
 #include "cpp/sync_point.h"
 #include "io/cache/remote_scan_cache_write_limiter.h"
+#include "runtime/thread_context.h"
 #include "storage/cache/page_cache.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/vertical_segment_writer.h"
@@ -166,13 +169,59 @@ TEST_F(SegmentFooterCacheTest, TestGetSegmentFooter) {
     }
 }
 
+// The segment footer is owned by the index page cache and every access goes through the cache
+// lookup: a miss re-parses the footer and re-inserts it, while other threads keep reading it
+// (variant sub-path readers call _get_segment_footer() once per path). A similar concurrent
+// eviction + access workload exposed a heap-use-after-free in the old weak_ptr implementation
+// (#69811); this test checks that every caller gets a valid, identical footer regardless of
+// concurrent evictions.
+TEST_F(SegmentFooterCacheTest, ConcurrentGetSegmentFooterWithEviction) {
+    auto segment_ptr = _segments.front();
+    auto* segment_footer_cache = ExecEnv::GetInstance()->get_storage_page_cache();
+    ASSERT_NE(segment_footer_cache, nullptr);
+    const auto cache_key = segment_ptr->get_segment_footer_cache_key();
+
+    std::shared_ptr<segment_v2::SegmentFooterPB> baseline;
+    ASSERT_TRUE(segment_ptr->_get_segment_footer(baseline, nullptr).ok());
+    ASSERT_NE(baseline, nullptr);
+    const auto expected_num_rows = baseline->num_rows();
+    const auto expected_size = baseline->ByteSizeLong();
+    baseline.reset();
+
+    constexpr int kThreads = 8;
+    constexpr int kIterations = 2000;
+    std::atomic<int> failures {0};
+    std::vector<std::thread> threads;
+    for (int t = 0; t < kThreads; ++t) {
+        threads.emplace_back([&, t] {
+            // Reading the footer from the file needs the thread context a scanner thread has.
+            SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
+            for (int i = 0; i < kIterations; ++i) {
+                if (t % 2 == 0) {
+                    // simulate the LRU eviction of the footer page
+                    segment_footer_cache->erase(cache_key, segment_v2::PageTypePB::INDEX_PAGE);
+                }
+                std::shared_ptr<segment_v2::SegmentFooterPB> footer;
+                Status st = segment_ptr->_get_segment_footer(footer, nullptr);
+                if (!st.ok() || footer == nullptr || footer->num_rows() != expected_num_rows ||
+                    footer->ByteSizeLong() != expected_size) {
+                    ++failures;
+                }
+            }
+        });
+    }
+    for (auto& th : threads) {
+        th.join();
+    }
+    EXPECT_EQ(failures.load(), 0);
+}
+
 TEST_F(SegmentFooterCacheTest, GetSegmentFooterPropagatesIoContext) {
     auto segment_ptr = _segments.front();
     auto* segment_footer_cache = ExecEnv::GetInstance()->get_storage_page_cache();
     ASSERT_NE(segment_footer_cache, nullptr);
     segment_footer_cache->erase(segment_ptr->get_segment_footer_cache_key(),
                                 segment_v2::PageTypePB::INDEX_PAGE);
-    segment_ptr->_footer_pb.reset();
 
     TUniqueId query_id;
     query_id.hi = 100;
