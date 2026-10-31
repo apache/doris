@@ -101,6 +101,7 @@ struct IndexSpec {
 struct IndexTabletOptions {
     int64_t tablet_id = 100000;
     bool include_key_column = true;
+    bool enable_unique_key_merge_on_write = false;
     bool external_segment_meta = true;
     int64_t storage_page_size = 0;
     InvertedIndexStorageFormatPB index_storage_format = InvertedIndexStorageFormatPB::V2;

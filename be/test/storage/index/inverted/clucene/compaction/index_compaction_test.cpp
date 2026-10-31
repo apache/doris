@@ -1955,4 +1955,5 @@ TEST_F(IndexCompactionTest, snii_native_merge_corruption_arms_raw_rebuild_fallba
         EXPECT_TRUE(rowset->is_skip_index_compaction(1));
     }
 }
+
 } // namespace doris
