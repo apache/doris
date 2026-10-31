@@ -19,6 +19,8 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -146,6 +148,8 @@ TEST_F(RowIdStorageReaderTest, ExternalScannerSelectionKeepsUnsupportedFormatsOn
     params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
     TFileRangeDesc range;
     range.__set_format_type(TFileFormatType::FORMAT_JNI);
+    EXPECT_FALSE(RowIdStorageReader::should_use_file_scanner_v2(options, params, range));
+    range.__set_format_type(TFileFormatType::FORMAT_LANCE);
     EXPECT_FALSE(RowIdStorageReader::should_use_file_scanner_v2(options, params, range));
     range.__set_format_type(TFileFormatType::FORMAT_ORC);
     TTableFormatFileDesc table;
@@ -531,6 +535,86 @@ TEST_F(RowIdStorageReaderTest, RpcHelperReportsThrownExceptionOnThreadPoolPath) 
     EXPECT_NE(response.status().status_code(), 0);
     ASSERT_EQ(response.status().error_msgs_size(), 1);
     EXPECT_NE(response.status().error_msgs(0).find("invalid TTypeNodeType"), std::string::npos);
+}
+
+// Phase-two row fetch decodes a PRequestBlockDesc built by another BE. Each case below is a request
+// that a newer sender (an unknown ROW_VERSION) or a malformed one could send; it must fail before
+// any per-row lookup instead of being read as a FILE_LOCAL_ROW_ID request.
+class RowIdFetchRequestValidationTest : public RowIdStorageReaderTest {
+protected:
+    void SetUp() override {
+        _saved_id_manager = ExecEnv::GetInstance()->get_id_manager();
+        ExecEnv::GetInstance()->set_id_manager(&_id_manager);
+        _request.mutable_query_id()->set_hi(37);
+        _request.mutable_query_id()->set_lo(1);
+        _id_file_map = _id_manager.add_id_file_map(_request.query_id(), 1024);
+        _internal_file_id = _id_file_map->get_file_mapping_id(
+                std::make_shared<FileMapping>(/*tablet_id=*/1, RowsetId(), /*segment_id=*/0));
+        _block_desc = _request.add_request_block_descs();
+        make_slot({}).to_protobuf(_block_desc->add_slots());
+    }
+
+    void TearDown() override { ExecEnv::GetInstance()->set_id_manager(_saved_id_manager); }
+
+    Status fetch() const {
+        PMultiGetResponseV2 response;
+        return RowIdStorageReader::read_by_rowids(_request, &response);
+    }
+
+    IdManager _id_manager;
+    IdManager* _saved_id_manager = nullptr;
+    PMultiGetRequestV2 _request;
+    std::shared_ptr<IdFileMap> _id_file_map;
+    PRequestBlockDesc* _block_desc = nullptr;
+    uint32_t _internal_file_id = 0;
+};
+
+TEST_F(RowIdFetchRequestValidationTest, RejectsMismatchedFileIdAndRowIdCounts) {
+    _block_desc->add_file_id(_internal_file_id);
+    _block_desc->add_row_id(0);
+    _block_desc->add_row_id(1);
+
+    const Status st = fetch();
+    EXPECT_FALSE(st.ok());
+    EXPECT_NE(st.to_string().find("file_ids=1, row_ids=2"), std::string::npos) << st;
+}
+
+TEST_F(RowIdFetchRequestValidationTest, RejectsUnknownRowLocationVersion) {
+    _block_desc->add_file_id(_internal_file_id);
+    _block_desc->add_row_id(0);
+    _block_desc->set_row_location_version(99);
+
+    const Status st = fetch();
+    EXPECT_FALSE(st.ok());
+    EXPECT_NE(st.to_string().find("unsupported row location version in fetch: 99"),
+              std::string::npos)
+            << st;
+}
+
+TEST_F(RowIdFetchRequestValidationTest, RejectsLanceRowIdForInternalMapping) {
+    _block_desc->add_file_id(_internal_file_id);
+    _block_desc->add_row_id(0);
+    _block_desc->set_row_location_version(static_cast<uint32_t>(ROW_VERSION::LANCE_DATASET_ROW_ID));
+
+    const Status st = fetch();
+    EXPECT_FALSE(st.ok());
+    EXPECT_NE(st.to_string().find("Lance dataset row IDs require an external file mapping"),
+              std::string::npos)
+            << st;
+}
+
+TEST_F(RowIdFetchRequestValidationTest, RejectsInternalRowIdBeyondUint32) {
+    // 2^32 is representable on the uint64 wire but is not a segment ordinal. Truncating it would
+    // fetch row 0 of the segment.
+    constexpr uint64_t row_id = static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 1;
+    _block_desc->add_file_id(_internal_file_id);
+    _block_desc->add_row_id(row_id);
+
+    const Status st = fetch();
+    EXPECT_FALSE(st.ok());
+    EXPECT_NE(st.to_string().find("internal row id exceeds uint32 range: 4294967296"),
+              std::string::npos)
+            << st;
 }
 
 } // namespace doris

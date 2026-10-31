@@ -73,6 +73,7 @@
 #include "format/jni/jni_reader.h"
 #include "format_v2/column_data.h"
 #include "format_v2/schema_reader.h"
+#include "format_v2/table/lance_reader.h"
 #include "io/file_factory.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/stream_load_pipe.h"
@@ -882,6 +883,41 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         auto file_reader_stats = std::make_shared<io::FileReaderStats>();
         io_ctx->file_cache_stats = file_cache_statis.get();
         io_ctx->file_reader_stats = file_reader_stats.get();
+        // A Lance dataset is a directory opened by its table reader, not a file that
+        // fetch_file_schema() can open, and it lists columns Doris cannot read as UNSUPPORTED.
+        if (params.format_type == TFileFormatType::FORMAT_LANCE) {
+            std::vector<std::string> lance_col_names;
+            std::vector<DataTypePtr> lance_col_types;
+            auto lance_reader = std::make_unique<format::lance::LanceTableReader>();
+            st = lance_reader->fetch_schema(range, params, &lance_col_names, &lance_col_types);
+            if (!st.ok()) {
+                LOG(WARNING) << "fetch Lance table schema failed, errmsg=" << st;
+                st.to_protobuf(result->mutable_status());
+                return;
+            }
+            DORIS_CHECK_EQ(lance_col_names.size(), lance_col_types.size());
+            result->set_column_nums(lance_col_names.size());
+            for (const auto& col_name : lance_col_names) {
+                result->add_column_names(col_name);
+            }
+            for (const auto& col_type : lance_col_types) {
+                DORIS_CHECK(col_type != nullptr);
+                PTypeDesc* type_desc = result->add_column_types();
+                if (col_type->is_null_literal()) {
+                    PTypeNode* node = type_desc->add_types();
+                    node->set_type(TTypeNodeType::SCALAR);
+                    node->mutable_scalar_type()->set_type(TPrimitiveType::NULL_TYPE);
+                } else if (col_type->get_primitive_type() == INVALID_TYPE) {
+                    PTypeNode* node = type_desc->add_types();
+                    node->set_type(TTypeNodeType::SCALAR);
+                    node->mutable_scalar_type()->set_type(TPrimitiveType::UNSUPPORTED);
+                } else {
+                    col_type->to_protobuf(type_desc);
+                }
+            }
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
         std::vector<format::ColumnDefinition> schema;
         st = format::fetch_file_schema(params, range, io_ctx, profile.get(), &schema);
         if (st.ok()) {

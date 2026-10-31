@@ -493,6 +493,8 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesAndLoads) 
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
     params.__set_format_type(TFileFormatType::FORMAT_JNI);
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    params.__set_format_type(TFileFormatType::FORMAT_LANCE);
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
 
     params.__set_format_type(TFileFormatType::FORMAT_ES_HTTP);
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
@@ -500,13 +502,6 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesAndLoads) 
     query_options.__set_enable_file_scanner_v2(false);
     EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
     query_options.__set_enable_file_scanner_v2(true);
-
-    const std::vector<TFileFormatType::type> unsupported_formats {TFileFormatType::FORMAT_LANCE};
-    for (const auto format : unsupported_formats) {
-        params.__set_format_type(format);
-        EXPECT_FALSE(
-                FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-    }
 
     params.__set_format_type(TFileFormatType::FORMAT_ORC);
     TTableFormatFileDesc table_format_params;
@@ -542,6 +537,22 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesAndLoads) 
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
     params.format_type = TFileFormatType::FORMAT_ORC;
     EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+}
+
+// enable_file_scanner_v2 is fuzzy=true, and Lance has no v1 reader, so a Lance query must reach v2
+// whatever the session says, as ADBC and fluss do. Loads choose by format instead of the flag,
+// and Lance is not a load format, so a Lance load never selects v2.
+TEST(FileScannerV2Test, LanceQueriesAlwaysUseScannerV2) {
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_LANCE);
+
+    TQueryOptions disabled;
+    disabled.__set_enable_file_scanner_v2(false);
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(disabled, false, params));
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(disabled, true, params));
+
+    TQueryOptions absent;
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(absent, false, params));
 }
 
 TEST(FileScannerV2Test, IcebergOrcDefaultCannotHideDeferredParquetRanges) {
@@ -902,6 +913,7 @@ TEST(FileScannerV2Test, FileFormatConversionMatrix) {
             {TFileFormatType::FORMAT_JSON, format::FileFormat::JSON},
             {TFileFormatType::FORMAT_ARROW, format::FileFormat::ARROW},
             {TFileFormatType::FORMAT_WAL, format::FileFormat::WAL},
+            {TFileFormatType::FORMAT_LANCE, format::FileFormat::LANCE},
             {TFileFormatType::FORMAT_ORC, format::FileFormat::ORC},
     };
 

@@ -591,7 +591,13 @@ REVERSE_REACH_BASELINES = {
     # parsed_page.h holds RleDecoder<bool> by value and constructs it in the
     # header, so the whole storage read stack sees the RLE machinery; a live
     # dependency, budgeted as-is (trimming it is a refactor, not a gate).
-    "util/rle_encoding.h": 834,
+    # Rebaselined from 834 at master 339e087b11f plus the Lance reader,
+    # 2026-10-31 (master alone: 917). The reader adds four TUs, two sources
+    # and their tests, and no new edge: they reach it through
+    # exprs/vexpr_context.h -> storage/segment/column_reader.h ->
+    # storage/segment/parsed_page.h, so cutting that edge would bring this
+    # down.
+    "util/rle_encoding.h": 921,
     "gen_cpp/internal_service.pb.h": 741,
     "gen_cpp/FrontendService_types.h": 576,
     "storage/options.h": 464,

@@ -388,6 +388,64 @@ TEST_F(DataTypeDateTimeV2SerDeTest, RejectsInvalidDate64Values) {
     expect_invalid(out_of_range, "outside the Doris DATE range");
 }
 
+TEST_F(DataTypeDateTimeV2SerDeTest, RejectsInvalidDate32Values) {
+    const auto make_date32 = [](int32_t days) {
+        arrow::Date32Builder builder;
+        EXPECT_TRUE(builder.Append(days).ok());
+        std::shared_ptr<arrow::Array> array;
+        EXPECT_TRUE(builder.Finish(&array).ok());
+        return array;
+    };
+    cctz::time_zone tz;
+
+    // 1970-01-01 + 2932896 days is 9999-12-31, the last Doris DATE.
+    auto last_date = ColumnDateV2::create();
+    auto status =
+            serde_date_v2->read_column_from_arrow(*last_date, make_date32(2932896).get(), 0, 1, tz);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_EQ(1, last_date->size());
+    EXPECT_EQ(9999, last_date->get_data()[0].year());
+    EXPECT_EQ(12, last_date->get_data()[0].month());
+    EXPECT_EQ(31, last_date->get_data()[0].day());
+
+    // 10000-01-01, -719529 (the day before 0000-01-01 in Arrow's proleptic Gregorian calendar)
+    // and both int32 extremes used to read as a non-null 0000-00-00; INT32_MAX also overflowed
+    // the 32-bit day number.
+    for (const int32_t days : {2932897, -719529, std::numeric_limits<int32_t>::min(),
+                               std::numeric_limits<int32_t>::max()}) {
+        SCOPED_TRACE(days);
+        auto column = ColumnDateV2::create();
+        status = serde_date_v2->read_column_from_arrow(*column, make_date32(days).get(), 0, 1, tz);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(std::string::npos,
+                  status.to_string().find("Arrow Date32 value is outside the Doris DATE range"))
+                << status.to_string();
+    }
+
+    // A NULL slot keeps whatever payload its writer left; it must not be decoded. Validity
+    // bitmap 0b10 marks row 0 NULL over the out-of-range payload and row 1 valid.
+    arrow::Date32Builder builder;
+    ASSERT_TRUE(builder.AppendValues({2932897, 0}).ok());
+    std::shared_ptr<arrow::Array> payload_array;
+    ASSERT_TRUE(builder.Finish(&payload_array).ok());
+    auto data = payload_array->data()->Copy();
+    data->buffers[0] = arrow::Buffer::FromVector(std::vector<uint8_t> {0x02});
+    data->SetNullCount(1);
+    const auto nullable_array = arrow::MakeArray(data);
+    DataTypeNullableSerDe nullable_serde(serde_date_v2);
+    auto nullable_column = ColumnNullable::create(ColumnDateV2::create(), ColumnUInt8::create());
+    status =
+            nullable_serde.read_column_from_arrow(*nullable_column, nullable_array.get(), 0, 2, tz);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_EQ(2, nullable_column->size());
+    EXPECT_TRUE(nullable_column->is_null_at(0));
+    EXPECT_FALSE(nullable_column->is_null_at(1));
+    const auto& dates = assert_cast<const ColumnDateV2&>(nullable_column->get_nested_column());
+    EXPECT_EQ(1970, dates.get_data()[1].year());
+    EXPECT_EQ(1, dates.get_data()[1].month());
+    EXPECT_EQ(1, dates.get_data()[1].day());
+}
+
 TEST_F(DataTypeDateTimeV2SerDeTest, ArrowTimeToTimeV2) {
     const auto read_time = [](arrow::ArrayBuilder* builder, int scale,
                               const std::vector<double>& expected) {
