@@ -275,6 +275,8 @@ jobs:
             'maven'
             'node'
             'llvm@20'
+            # OpenMP runtime for openblas; Homebrew's LLVM does not ship one.
+            'libomp'
           )
 
           # Install packages except cmake
@@ -372,6 +374,8 @@ jobs:
             'maven'
             'node'
             'llvm@20'
+            # OpenMP runtime for openblas; Homebrew's LLVM does not ship one.
+            'libomp'
           )
 
           # Install packages except cmake
