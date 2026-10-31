@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv.ivm.agg;
 
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
@@ -38,7 +39,8 @@ class IvmAggSumProcessorTest extends IvmAggProcessorTestBase {
         IvmAggSumProcessor processor = new IvmAggSumProcessor();
         Assertions.assertTrue(processor.supportsOriginalFunction(new Sum(value)));
         Assertions.assertEquals(IvmAggFunctionKind.SUM, processor.handledFunctionKind());
-        Assertions.assertEquals(ImmutableList.of(IvmAggStateKey.COUNT), processor.hiddenStateKeys(new Sum(value)));
+        Assertions.assertEquals(ImmutableList.of(IvmAggStateKey.COUNT),
+                processor.hiddenStateKeys(new Sum(value), IvmUtil.DEFAULT_MINMAX_TOP_K));
 
         IvmAggTarget target = target(0, IvmAggFunctionKind.SUM, "sum_v", BigIntType.INSTANCE,
                 ImmutableMap.of(IvmAggStateKey.COUNT, slot("__ivm_count", BigIntType.INSTANCE)), valueArg());

@@ -90,6 +90,11 @@ public class IvmRewriteContext {
     // where its query would qualify for the append-only detail model. Only creation reads it -- afterwards
     // the model is what the MV's own key type says -- and, like useFullKeys, null outside analyzeQuery.
     private Boolean forceMow;
+    // Set by MTMVPlanUtil before normalization: the explicit ivm_minmax_top_k value, null when the
+    // property is absent. Normalize resolves the effective capacity (auto 0 for append-only plans,
+    // otherwise the default) and records it in resolvedMinMaxTopK.
+    private Long minMaxTopK;
+    private Long resolvedMinMaxTopK;
 
     // Whether a read of this statement answered with a base table as of the stream offset, which a snapshot
     // read does for the partitions that hold data the offset has not consumed. Set by the rewrite that binds
@@ -259,5 +264,29 @@ public class IvmRewriteContext {
 
     public void setForceMow(boolean forceMow) {
         this.forceMow = forceMow;
+    }
+
+    /**
+     * MIN/MAX top-K capacity configured on the MV, or null when {@code ivm_minmax_top_k} is absent.
+     *
+     * <p>An explicit 0 is meaningful (extreme-only mode), so the absent case is distinct: normalize
+     * resolves it from the MV's plan shape (append-only changelog and no outer join) and records the
+     * answer in {@link #resolvedMinMaxTopK} so CREATE can persist it.
+     */
+    public Long getMinMaxTopK() {
+        return minMaxTopK;
+    }
+
+    public void setMinMaxTopK(Long minMaxTopK) {
+        this.minMaxTopK = minMaxTopK;
+    }
+
+    /** The capacity normalize actually used for this MV, set once the plan shape is known. */
+    public Long getResolvedMinMaxTopK() {
+        return resolvedMinMaxTopK;
+    }
+
+    public void setResolvedMinMaxTopK(Long resolvedMinMaxTopK) {
+        this.resolvedMinMaxTopK = resolvedMinMaxTopK;
     }
 }

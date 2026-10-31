@@ -24,13 +24,14 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
-import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Cardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -69,6 +71,27 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
 
     private AggRewriteResult rewriteAgg(LogicalAggregate<? extends Plan> agg) {
         PlanBundle bundle = normalizeAggPlan(agg);
+        MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
+        mtmv.getIvmInfo().advanceSequencePrefix();
+        mtmv.getIvmInfo().advanceSequencePrefix();
+        Plan rewritten = new IvmDeltaRewriter().generateIncrRefreshPlan(
+                bundle.normalizedPlan, bundle.rewriteResult,
+                IvmRewriteContext.incremental(mtmv), bundle.connectContext);
+        Assertions.assertNotNull(rewritten);
+        InsertIntoTableCommand command = new IvmIncrRefreshManager()
+                .buildInsertCommand((LogicalPlan) rewritten, mtmv);
+        UnboundTableSink<?> sink = getSink(command);
+        return new AggRewriteResult(bundle, mtmv, sink, (LogicalProject<?>) sink.child());
+    }
+
+    /**
+     * Same as {@link #rewriteAgg}, but pins the MIN/MAX capacity on the statement's rewrite context
+     * so the test does not depend on the fixture scan's key model.
+     */
+    private AggRewriteResult rewriteAggWithTopK(LogicalAggregate<? extends Plan> agg, long topK) {
+        ConnectContext connectContext = newConnectContext();
+        connectContext.getStatementContext().getIvmRewriteContext().get().setMinMaxTopK(topK);
+        PlanBundle bundle = normalizeAggPlan(agg, connectContext);
         MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
         mtmv.getIvmInfo().advanceSequencePrefix();
         mtmv.getIvmInfo().advanceSequencePrefix();
@@ -293,10 +316,15 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
     void testMaxDeltaSubPlanHasDeleteExtremeSlot() {
         AggRewriteResult result = rewriteAgg(buildMaxAgg(buildScan()));
         LogicalAggregate<?> deltaAgg = (LogicalAggregate<?>) getDeltaTopProject(result).child();
-        // Expected: [group_key, delta_group_count, delta_max, delta_del_max, delta_count]
+        // A capacity of at most one emits MAX + COUNT_AT_MAX per side and derives both pair arrays
+        // above the aggregate, so the aggregate carries the extremes and the top project the arrays.
         List<String> outputNames = deltaAgg.getOutput().stream().map(Slot::getName).collect(Collectors.toList());
-        Assertions.assertTrue(outputNames.stream().anyMatch(n -> n.contains("DELMAX") || n.contains("transient")));
-        Assertions.assertTrue(outputNames.stream().anyMatch(n -> n.contains("MAX")));
+        Assertions.assertTrue(outputNames.stream().anyMatch(n -> n.contains("EXTREME_INS_VALUE")));
+        Assertions.assertTrue(outputNames.stream().anyMatch(n -> n.contains("EXTREME_DEL_VALUE")));
+        List<String> topNames = getDeltaTopProject(result).getOutput().stream()
+                .map(Slot::getName).collect(Collectors.toList());
+        Assertions.assertTrue(topNames.stream().anyMatch(n -> n.contains("DELMAX")));
+        Assertions.assertTrue(topNames.stream().anyMatch(n -> n.contains("MAX")));
     }
 
     @Test
@@ -304,8 +332,12 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         AggRewriteResult result = rewriteAgg(buildMinAgg(buildScan()));
         LogicalAggregate<?> deltaAgg = (LogicalAggregate<?>) getDeltaTopProject(result).child();
         List<String> outputNames = deltaAgg.getOutput().stream().map(Slot::getName).collect(Collectors.toList());
-        Assertions.assertTrue(outputNames.stream().anyMatch(n -> n.contains("DELMIN") || n.contains("transient")));
-        Assertions.assertTrue(outputNames.stream().anyMatch(n -> n.contains("MIN")));
+        Assertions.assertTrue(outputNames.stream().anyMatch(n -> n.contains("EXTREME_INS_VALUE")));
+        Assertions.assertTrue(outputNames.stream().anyMatch(n -> n.contains("EXTREME_DEL_VALUE")));
+        List<String> topNames = getDeltaTopProject(result).getOutput().stream()
+                .map(Slot::getName).collect(Collectors.toList());
+        Assertions.assertTrue(topNames.stream().anyMatch(n -> n.contains("DELMIN")));
+        Assertions.assertTrue(topNames.stream().anyMatch(n -> n.contains("MIN")));
     }
 
     @Test
@@ -438,6 +470,8 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         // COUNT(name), SUM(id), AVG(id), MIN(name), MAX(name): AVG reuses visible sum_id as its hidden
         // SUM, AVG's hidden COUNT dedups with SUM's hidden COUNT, and MIN/MAX reuse visible cnt_name as
         // their hidden COUNT, so shared state removes two duplicate COUNT delta outputs.
+        // MIN/MAX run with a capacity of at most one here, so each contributes four aggregates
+        // (value and count per side) instead of two top-K arrays: 10 + 2 * 2.
         List<String> outputNames = deltaAgg.getOutput().stream().map(Slot::getName).collect(Collectors.toList());
         Assertions.assertEquals(14, outputNames.size());
         Assertions.assertTrue(outputNames.contains(Column.IVM_DELTA_GROUP_COUNT_COL));
@@ -450,19 +484,24 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         Assertions.assertFalse(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(2, "SUM")));
         Assertions.assertFalse(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(2, "COUNT")));
         Assertions.assertTrue(outputNames.contains("sum_id"));
-        // ordinal 3: MIN(name) -> MIN + DELMIN + insert/delete extreme counts; COUNT absorbed by visible cnt_name
-        Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(3, "MIN")));
-        Assertions.assertTrue(outputNames.contains(transientDeltaColumnName(3, "DELMIN")));
+        // ordinal 3: MIN(name) -> MIN and COUNT_AT_MIN per side; COUNT absorbed by visible cnt_name
+        Assertions.assertTrue(outputNames.contains(transientDeltaColumnName(3, "EXTREME_INS_VALUE")));
         Assertions.assertTrue(outputNames.contains(transientDeltaColumnName(3, "EXTREME_INS_COUNT")));
+        Assertions.assertTrue(outputNames.contains(transientDeltaColumnName(3, "EXTREME_DEL_VALUE")));
         Assertions.assertTrue(outputNames.contains(transientDeltaColumnName(3, "EXTREME_DEL_COUNT")));
         Assertions.assertFalse(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(3, "COUNT")));
         Assertions.assertTrue(outputNames.contains("cnt_name"));
-        // ordinal 4: MAX(name) -> MAX + DELMAX + insert/delete extreme counts; COUNT absorbed by visible cnt_name
-        Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(4, "MAX")));
-        Assertions.assertTrue(outputNames.contains(transientDeltaColumnName(4, "DELMAX")));
-        Assertions.assertTrue(outputNames.contains(transientDeltaColumnName(4, "EXTREME_INS_COUNT")));
+        // ordinal 4: MAX(name) -> MAX and COUNT_AT_MAX per side; COUNT absorbed by visible cnt_name
+        Assertions.assertTrue(outputNames.contains(transientDeltaColumnName(4, "EXTREME_INS_VALUE")));
         Assertions.assertTrue(outputNames.contains(transientDeltaColumnName(4, "EXTREME_DEL_COUNT")));
         Assertions.assertFalse(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(4, "COUNT")));
+        // The pair arrays themselves are derived above the delta aggregate.
+        List<String> topNames = getDeltaTopProject(result).getOutput().stream()
+                .map(Slot::getName).collect(Collectors.toList());
+        Assertions.assertTrue(topNames.contains(IvmUtil.ivmAggHiddenColumnName(3, "MIN")));
+        Assertions.assertTrue(topNames.contains(transientDeltaColumnName(3, "DELMIN")));
+        Assertions.assertTrue(topNames.contains(IvmUtil.ivmAggHiddenColumnName(4, "MAX")));
+        Assertions.assertTrue(topNames.contains(transientDeltaColumnName(4, "DELMAX")));
     }
 
     @Test
@@ -620,11 +659,11 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
     // ---- B3: Assert_true predicate semantics ----
 
     @Test
-    void testAssertTrueGuardPredicateIsCompoundOrExpression() {
-        AggRewriteResult result = rewriteAgg(buildMinAgg(buildScan()));
+    void testTopKGuardNegatesExhaustedCondition() {
+        AggRewriteResult result = rewriteAggWithTopK(buildMinAgg(buildScan()), 8);
 
-        // Find the boundary guard AssertTrue — the one whose condition is an Or expression.
-        // (assertNonNegative also uses AssertTrue but with GreaterThanEqual; skip those)
+        // The top-K boundary guard is assert_true(NOT(size(values) == 0 AND n' > 0)).
+        // assertNonNegative also uses AssertTrue but with GreaterThanEqual; skip those.
         List<AssertTrue> allAssertTrue = new ArrayList<>();
         for (NamedExpression expr : getApplyProject(result).getProjects()) {
             collectAssertTrue(expr, allAssertTrue);
@@ -633,23 +672,58 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
 
         AssertTrue boundaryGuard = null;
         for (AssertTrue at : allAssertTrue) {
-            if (at.child(0) instanceof Or) {
+            if (at.child(0) instanceof Not) {
                 boundaryGuard = at;
                 break;
             }
         }
         Assertions.assertNotNull(boundaryGuard,
-                "Should find a boundary guard AssertTrue with Or condition. Found "
+                "Should find a boundary guard AssertTrue negating the exhausted condition. Found "
                 + allAssertTrue.size() + " AssertTrue(s) with conditions: "
                 + allAssertTrue.stream().map(at -> at.child(0).getClass().getSimpleName())
                         .collect(Collectors.joining(", "))
                 + ". Projects: " + getApplyProject(result).getProjects().stream()
                         .map(e -> e.getName()).collect(Collectors.joining(", ")));
 
-        // Guard should be: OR(IS_NULL(deltaDel), OR(IS_NULL(old), deltaDel > old))
         Expression guardCondition = boundaryGuard.child(0);
-        Assertions.assertInstanceOf(Or.class, guardCondition,
-                "Guard predicate should be a compound Or expression");
+        Assertions.assertInstanceOf(Not.class, guardCondition,
+                "Guard predicate should negate the exhausted condition");
+        Expression exhausted = ((Not) guardCondition).child();
+        Assertions.assertInstanceOf(And.class, exhausted,
+                "Exhausted should require both an empty values list and surviving rows");
+        Expression emptyValues = exhausted.child(0);
+        Assertions.assertInstanceOf(EqualTo.class, emptyValues,
+                "Exhausted must compare the list size with zero");
+        Assertions.assertInstanceOf(Cardinality.class, emptyValues.child(0),
+                "The list size comes from cardinality(values)");
+        Assertions.assertInstanceOf(GreaterThan.class, exhausted.child(1),
+                "Exhausted must also require n' > 0");
+        assertGuardMessage(boundaryGuard);
+    }
+
+    @Test
+    void testExtremeOnlyGuardRejectsRetractions() {
+        AggRewriteResult result = rewriteAggWithTopK(buildMinAgg(buildScan()), 0);
+
+        // K = 0 relies on the append-only premise: a non-empty delete-side array means a value was
+        // retracted, which the extreme-only merge cannot handle.
+        List<AssertTrue> allAssertTrue = new ArrayList<>();
+        for (NamedExpression expr : getApplyProject(result).getProjects()) {
+            collectAssertTrue(expr, allAssertTrue);
+        }
+        AssertTrue boundaryGuard = allAssertTrue.stream()
+                .filter(at -> at.child(0) instanceof EqualTo
+                        && at.child(0).child(0) instanceof Cardinality)
+                .findFirst()
+                .orElse(null);
+        Assertions.assertNotNull(boundaryGuard,
+                "Extreme-only guard should be assert_true(cardinality(delete-side array) = 0)");
+        Assertions.assertInstanceOf(EqualTo.class, boundaryGuard.child(0));
+        Assertions.assertInstanceOf(Cardinality.class, boundaryGuard.child(0).child(0));
+        assertGuardMessage(boundaryGuard);
+    }
+
+    private void assertGuardMessage(AssertTrue boundaryGuard) {
         // The second child of AssertTrue should be the error message (StringLiteral)
         Assertions.assertInstanceOf(
                 StringLiteral.class,

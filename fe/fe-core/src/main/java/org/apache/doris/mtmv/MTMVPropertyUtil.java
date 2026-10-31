@@ -27,6 +27,7 @@ import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
@@ -64,7 +65,8 @@ public class MTMVPropertyUtil {
             PropertyAnalyzer.PROPERTIES_USE_FOR_REWRITE,
             PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS,
             PropertyAnalyzer.PROPERTIES_IVM_FORCE_MOW,
-            PropertyAnalyzer.PROPERTIES_IVM_PARTITION_WINDOW_LIMIT
+            PropertyAnalyzer.PROPERTIES_IVM_PARTITION_WINDOW_LIMIT,
+            PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK
     );
 
     public static void analyzeProperty(String key, String value) {
@@ -107,6 +109,9 @@ public class MTMVPropertyUtil {
                 break;
             case PropertyAnalyzer.PROPERTIES_IVM_PARTITION_WINDOW_LIMIT:
                 analyzePartitionWindowLimit(value);
+                break;
+            case PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK:
+                analyzeMinMaxTopK(value);
                 break;
             default:
                 throw new AnalysisException("illegal key:" + key);
@@ -390,6 +395,52 @@ public class MTMVPropertyUtil {
         } catch (NumberFormatException e) {
             throw new AnalysisException("valid refresh_partition_num: " + value);
         }
+    }
+
+    private static void analyzeMinMaxTopK(String value) {
+        if (StringUtils.isEmpty(value)) {
+            throw new AnalysisException("valid " + PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK
+                    + ": " + value + ", expected an integer");
+        }
+        long topK;
+        try {
+            topK = Long.parseLong(value.trim());
+        } catch (NumberFormatException e) {
+            throw new AnalysisException("valid " + PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK
+                    + ": " + value + ", expected an integer");
+        }
+        if (topK < 0 || topK > IvmUtil.MAX_IVM_MINMAX_TOP_K) {
+            throw new AnalysisException("valid " + PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK
+                    + ": " + value + ", expected 0 <= K <= " + IvmUtil.MAX_IVM_MINMAX_TOP_K);
+        }
+    }
+
+    /**
+     * The configured MIN/MAX top-K capacity, or empty when the property is not set.
+     *
+     * <p>An explicit 0 is meaningful (extreme-only mode) and is therefore not the same as an
+     * absent property: the caller resolves the absent case from the plan shape at creation time.
+     */
+    public static Optional<Long> getIvmMinMaxTopK(Map<String, String> mvProperties) {
+        if (mvProperties == null) {
+            return Optional.empty();
+        }
+        String value = mvProperties.get(PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK);
+        if (StringUtils.isEmpty(value)) {
+            return Optional.empty();
+        }
+        long topK;
+        try {
+            topK = Long.parseLong(value.trim());
+        } catch (NumberFormatException e) {
+            throw new AnalysisException("valid " + PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK
+                    + ": " + value + ", expected an integer");
+        }
+        if (topK < 0 || topK > IvmUtil.MAX_IVM_MINMAX_TOP_K) {
+            throw new AnalysisException("valid " + PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK
+                    + ": " + value + ", expected 0 <= K <= " + IvmUtil.MAX_IVM_MINMAX_TOP_K);
+        }
+        return Optional.of(topK);
     }
 
     private static void analyzeBooleanProperty(String propertyValue, String propertyName) {

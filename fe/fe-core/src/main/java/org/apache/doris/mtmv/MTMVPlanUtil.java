@@ -592,6 +592,7 @@ public class MTMVPlanUtil {
             ivmRewriteContext.ifPresent(rewriteContext -> {
                 rewriteContext.setUseFullKeys(MTMVPropertyUtil.isIvmUseFullKeys(mvProperties));
                 rewriteContext.setForceMow(MTMVPropertyUtil.isIvmForceMow(mvProperties));
+                rewriteContext.setMinMaxTopK(MTMVPropertyUtil.getIvmMinMaxTopK(mvProperties).orElse(null));
             });
             NereidsPlanner planner = new NereidsPlanner(statementContext);
             // this is for expression column name infer when not use alias
@@ -645,6 +646,16 @@ public class MTMVPlanUtil {
                             : Sets.newHashSet(distribution.getCols()),
                     simpleColumnDefinitions, properties);
             Optional<IvmRewriteResult> ivmRewriteResult = planner.getCascadesContext().getIvmRewriteResult();
+            // CREATE persists the capacity normalize resolved, so a later refresh reads the same
+            // value instead of re-deriving it. NORMALIZE/INCREMENTAL read the MV's own property and
+            // must not mutate it here (the change would bypass journaling).
+            ivmRewriteContext.ifPresent(rewriteContext -> {
+                Long resolved = rewriteContext.getResolvedMinMaxTopK();
+                if (rewriteContext.getMode() == IvmRewriteContext.Mode.CREATE && resolved != null
+                        && !mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK)) {
+                    mvProperties.put(PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK, String.valueOf(resolved));
+                }
+            });
             boolean appendOnlyDup = isAppendOnlyDup(ivmRewriteResult.orElse(null));
             // The table model decides both: only the unique-key model merges on write, and only it has IVM
             // hidden columns to lay out. An append-only detail MV is laid out as a plain DUP table.

@@ -40,6 +40,9 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.TopKFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
@@ -60,6 +63,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.logical.SupportChangelog;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.LargeIntType;
@@ -73,6 +77,7 @@ import com.google.common.collect.ImmutableSet;
 
 import java.math.BigInteger;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -198,6 +203,12 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
     // The IVM rewrite context of this statement; normalize only runs when it is present, so it needs no
     // presence checks of its own.
     private IvmRewriteContext ivmRewriteContext;
+    // The query plan as it entered normalize; the MIN/MAX capacity auto-detection reads its leaves
+    // and joins before any row-id columns are injected.
+    private Plan inputPlan;
+    // MIN/MAX capacity resolved once per statement (explicit property, or auto 0 for an
+    // append-only plan, or the default).
+    private Long resolvedMinMaxTopK;
     private Set<TableNameInfo> excludedTriggerTables = ImmutableSet.of();
     private final IdentityHashMap<Plan, List<Slot>> identityKeysByNode = new IdentityHashMap<>();
     private int sinkKeyCounter;
@@ -227,6 +238,7 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
             return plan;
         }
         this.rewriteResult = rewriteResult;
+        this.inputPlan = plan;
         excludedTriggerTables = statementContext.getExcludedTriggerTables();
         this.useFullKeys = resolveUseFullKeys();
         Plan result = plan.accept(this, NormalizeContext.ROOT);
@@ -257,8 +269,96 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
                 + ", currentSignature=" + currentSignature.getSha256()
                 + ", currentCanonical=" + currentSignature.getCanonicalString()
                 + ", currentPlan=" + currentPlan.treeString()
-                + ". Run a full refresh to rebuild IVM layout baseline.";
+                + ". Run one REFRESH MATERIALIZED VIEW " + mtmv.getName()
+                + " INCREMENTAL FALLBACK to rebuild the IVM layout baseline: that attempt consumes the"
+                + " pending delta and then rebuilds in full, which is what lets the new signature be"
+                + " published. A plain COMPLETE does not read the delta, so it cannot republish it.";
         throw new IvmException(IvmFailureReason.PLAN_SIGNATURE_MISMATCH, detail);
+    }
+
+    /**
+     * The MIN/MAX top-K capacity of this MV, resolved once per statement.
+     *
+     * <p>An explicit {@code ivm_minmax_top_k} always wins, including an explicit 0. Otherwise the
+     * plan shape decides: an append-only changelog whose joins only produce appends can never
+     * retract a non-NULL value, so the extreme alone is enough (0). Any other plan keeps the
+     * default capacity so deleting the current extreme stays derivable.
+     *
+     * <p>The resolved value is recorded on the rewrite context so CREATE can persist it; later
+     * refreshes read the persisted property instead of re-deriving it.
+     */
+    private long resolveMinMaxTopK(List<Alias> aggAliases) {
+        boolean hasExtremal = aggAliases.stream()
+                .anyMatch(alias -> alias.child() instanceof Min || alias.child() instanceof Max);
+        if (!hasExtremal) {
+            return 0;
+        }
+        if (resolvedMinMaxTopK != null) {
+            return resolvedMinMaxTopK;
+        }
+        Long explicit = ivmRewriteContext.getMinMaxTopK();
+        if (explicit == null) {
+            // CREATE has no MV yet, so its capacity can only come from the context. Later
+            // statements (incremental refresh, EXPLAIN) read it from the MV's own properties,
+            // which are what CREATE persisted; otherwise the delta would re-resolve a different K
+            // and fail the layout signature check.
+            MTMV mtmv = ivmRewriteContext.getMtmv();
+            if (mtmv != null) {
+                explicit = MTMVPropertyUtil.getIvmMinMaxTopK(mtmv.getMvProperties()).orElse(null);
+            }
+        }
+        long topK = explicit != null
+                ? explicit
+                : (isAppendOnlyInnerJoinPlan(inputPlan) ? 0 : IvmUtil.DEFAULT_MINMAX_TOP_K);
+        // The bounded top-K state is built on min_topk/max_topk, which accept a fixed set of value
+        // types. A MIN/MAX over anything else keeps the extreme-plus-count state that a capacity of
+        // one describes, so the capacity resolves to 1 the same way an append-only plan resolves to
+        // 0. Like that one, the answer is persisted, so the property and the state agree.
+        if (topK > 1 && !extremalArgumentsSupportTopK(aggAliases)) {
+            topK = 1;
+        }
+        resolvedMinMaxTopK = topK;
+        ivmRewriteContext.setResolvedMinMaxTopK(topK);
+        return topK;
+    }
+
+    /**
+     * Whether every MIN/MAX argument can be maintained by the bounded top-K state.
+     *
+     * <p>A value type the top-K aggregate does not accept (ARRAY, VARBINARY, ...) is still
+     * maintainable by the extreme-plus-count state, which is what a capacity of one means.
+     */
+    private static boolean extremalArgumentsSupportTopK(List<Alias> aggAliases) {
+        for (Alias alias : aggAliases) {
+            Expression function = alias.child();
+            if ((function instanceof Min || function instanceof Max)
+                    && !TopKFunction.isSupportedValueType(
+                            TopKFunction.normalizeValueType(function.child(0).getDataType()))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * True when every leaf scan reads an append-only changelog and every join is INNER/CROSS.
+     *
+     * <p>Both halves are premises, not guarantees: an append-only changelog can still carry a
+     * DELETE (a DUP table with changelog accepts one), which is why the extreme-only mode falls
+     * back when the delete side sees a non-NULL value. The scan half is answered by
+     * {@link SupportChangelog#isChangelogAppendOnly()}, the same contract the append-only detail
+     * model uses in {@link org.apache.doris.nereids.rules.analysis.IvmNormalizeMTMV#judgeKeysType},
+     * so external connectors answer for themselves.
+     */
+    private static boolean isAppendOnlyInnerJoinPlan(Plan plan) {
+        return !plan.anyMatch(node -> {
+            if (node instanceof LogicalJoin) {
+                JoinType joinType = ((LogicalJoin<?, ?>) node).getJoinType();
+                return joinType != JoinType.INNER_JOIN && joinType != JoinType.CROSS_JOIN;
+            }
+            return node instanceof SupportChangelog
+                    && !((SupportChangelog) node).isChangelogAppendOnly();
+        });
     }
 
     private boolean resolveUseFullKeys() {
@@ -763,6 +863,10 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
 
         List<NamedExpression> hiddenAggOutputs = new ArrayList<>();
         hiddenAggOutputs.add(groupCountAlias);
+        // Aggregate outputs that only derive another state column (K <= 1's COUNT_AT_MIN) are kept
+        // apart and appended last: the delta apply rebuilds the aggregate output positionally and
+        // skips them, which only stays aligned when they trail every other column.
+        List<NamedExpression> internalAggOutputs = new ArrayList<>();
 
         // Pass 1: register every visible aggregate output into the unified column pool, so a later
         // target can reuse an existing visible column as its hidden state (e.g. AVG(x) reuses the
@@ -778,14 +882,18 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
         }
 
         // Pass 2: build targets, reusing pooled columns where the hidden state expression matches.
+        long minMaxTopK = resolveMinMaxTopK(aggAliases);
         List<IvmAggTarget> aggTargets = new ArrayList<>();
+        List<IvmAggTargetSpec> aggTargetSpecs = new ArrayList<>();
         for (int i = 0; i < aggAliases.size(); i++) {
             Alias origAlias = aggAliases.get(i);
             AggregateFunction aggFunc = (AggregateFunction) origAlias.child();
             // The registry chooses the aggregate processor. The processor owns the hidden state set for its
             // function, so adding a new aggregate function should only require a new processor registration.
             IvmAggTargetSpec aggTargetSpec = aggFunctionRegistry.buildTargetSpec(
-                    i, aggFunc, origAlias, aggColumnPool, hiddenAggOutputs);
+                    i, aggFunc, origAlias, aggColumnPool, hiddenAggOutputs, internalAggOutputs,
+                    minMaxTopK);
+            aggTargetSpecs.add(aggTargetSpec);
             aggTargets.add(aggTargetSpec.toPlaceholderTarget());
         }
 
@@ -793,6 +901,7 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
         ImmutableList.Builder<NamedExpression> newAggOutputs = ImmutableList.builder();
         newAggOutputs.addAll(origOutputs);
         newAggOutputs.addAll(hiddenAggOutputs);
+        newAggOutputs.addAll(internalAggOutputs);
         LogicalAggregate<Plan> newAgg = agg.withAggOutputChild(newAggOutputs.build(), newChild);
         if (agg.getSourceRepeat().isPresent()) {
             Optional<LogicalRepeat<?>> sourceRepeat = newChild.collectFirst(LogicalRepeat.class::isInstance);
@@ -812,15 +921,36 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
         // Add agg-level row-id to IvmRewriteResult (child entries are kept for strategy lookup)
         rewriteResult.addRowId(rowIdAlias.toSlot(), !scalarAgg);
 
-        // Project output: row_id first, then all Aggregate output slots (original + hidden)
+        // Derived hidden state is computed here, above the aggregate, because it is a projection of
+        // another state column rather than an aggregate of its own (MIN/MAX's bound column).
+        List<NamedExpression> derivedHiddenOutputs = new ArrayList<>();
+        for (IvmAggTargetSpec spec : aggTargetSpecs) {
+            derivedHiddenOutputs.addAll(spec.getDerivedStateOutputs());
+        }
+
+        // Aggregate outputs computed only to derive another state column (K <= 1's COUNT_AT_MIN/MAX)
+        // stay in the aggregate but are not projected, so they never become MV columns.
+        Set<String> internalAggOutputNames = new HashSet<>();
+        for (IvmAggTargetSpec spec : aggTargetSpecs) {
+            internalAggOutputNames.addAll(spec.getInternalAggregateOutputNames());
+        }
+
+        // Project output: row_id first, then all Aggregate output slots (original + hidden),
+        // then the derived hidden states.
         ImmutableList.Builder<NamedExpression> projectOutputs = ImmutableList.builder();
         projectOutputs.add(rowIdAlias);
         for (NamedExpression aggOutput : newAgg.getOutputExpressions()) {
-            projectOutputs.add(aggOutput.toSlot());
+            if (!internalAggOutputNames.contains(aggOutput.getName())) {
+                projectOutputs.add(aggOutput.toSlot());
+            }
         }
+        projectOutputs.addAll(derivedHiddenOutputs);
 
-        // Resolve IvmAggTarget slots from the new Aggregate output
-        List<Slot> newAggSlots = newAgg.getOutput();
+        // Resolve IvmAggTarget slots from the new Aggregate output and the derived project outputs
+        List<Slot> newAggSlots = new ArrayList<>(newAgg.getOutput());
+        for (NamedExpression derivedOutput : derivedHiddenOutputs) {
+            newAggSlots.add(derivedOutput.toSlot());
+        }
         // groupCountSlot is at origOutputs.size() (first hidden output after original outputs)
         Slot groupCountSlot = newAggSlots.get(origOutputs.size());
         List<IvmAggTarget> resolvedTargets = resolveAggTargetSlots(aggTargets, newAggSlots);
@@ -831,7 +961,7 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
                 .collect(ImmutableList.toImmutableList());
 
         IvmAggMeta aggMeta = new IvmAggMeta(scalarAgg, resolvedGroupKeys,
-                groupCountSlot, resolvedTargets);
+                groupCountSlot, resolvedTargets, internalAggOutputNames);
         rewriteResult.setAggMeta(aggMeta);
 
         LogicalProject<?> result = new LogicalProject<>(projectOutputs.build(), newAgg);
@@ -900,7 +1030,8 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
 
             resolved.add(new IvmAggTarget(target.getOrdinal(), target.getFunctionKind(),
                     resolvedVisible, resolvedHidden.build(), target.getValueStateSlot(),
-                    target.visibleColumnNameIsGenerated(), target.getExprArgs()));
+                    target.visibleColumnNameIsGenerated(), target.getExprArgs(),
+                    target.getMinMaxTopK()));
         }
         return resolved;
     }

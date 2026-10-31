@@ -57,6 +57,7 @@ import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.mtmv.ivm.IvmUtil;
+import org.apache.doris.mtmv.ivm.agg.IvmAggStateKey;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
 import org.apache.doris.persist.AlterMTMV;
@@ -80,6 +81,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -509,6 +511,7 @@ public class MTMV extends OlapTable {
             Map<TableNameInfo, Integer> oldWindowLimits =
                     MTMVPropertyUtil.getIvmPartitionWindowLimit(this.mvProperties);
             Map<String, String> oldSyncWindow = MTMVPropertyUtil.partitionSyncWindowOf(this.mvProperties);
+            Long oldMinMaxTopK = MTMVPropertyUtil.getIvmMinMaxTopK(this.mvProperties).orElse(null);
             this.mvProperties.putAll(mvProperties);
             // The one thing a property change can owe the refresh baseline: a whole-MV rebuild, when it
             // brings base table partitions back into the set the MV maintains. Their stream backlog was
@@ -530,7 +533,7 @@ public class MTMV extends OlapTable {
                 // property record never carried a snapshot.
                 return;
             }
-            if (rebuildsWholeMv(oldExcludedTriggerTables, oldWindowLimits, oldSyncWindow)) {
+            if (rebuildsWholeMv(oldExcludedTriggerTables, oldWindowLimits, oldSyncWindow, oldMinMaxTopK)) {
                 // Journaled on its own record, ahead of the property change below; a replay applies both
                 // in that order. Submitted here and awaited below, outside the lock: the order is the
                 // enqueue order, which the lock already fixes, so there is nothing to gain by holding the
@@ -557,15 +560,41 @@ public class MTMV extends OlapTable {
      * backlog was skipped.
      */
     private boolean rebuildsWholeMv(Set<TableNameInfo> oldExcludedTriggerTables,
-            Map<TableNameInfo, Integer> oldWindowLimits, Map<String, String> oldSyncWindow) {
-        // Judged once here rather than in each of the three: they answer "did this property move in the
+            Map<TableNameInfo, Integer> oldWindowLimits, Map<String, String> oldSyncWindow,
+            Long oldMinMaxTopK) {
+        // Judged once here rather than in each of the four: they answer "did this property move in the
         // direction that owes a rebuild", which is only a question an MV maintaining an IVM baseline has.
         if (!maintainsIvmBaseline()) {
             return false;
         }
-        return unexcludesABaseTable(oldExcludedTriggerTables)
+        // The persisted MIN/MAX state was built for the old capacity. A larger K needs values the old
+        // state already dropped; a smaller one would keep entries the new apply never produces. Either
+        // direction makes the state unreadable, so any change rebuilds the whole MV -- but only when
+        // the MV actually keeps that state: an aggregate MV without MIN/MAX, or a detail MV, has
+        // nothing for the property to describe.
+        boolean minMaxTopKChanged = !Objects.equals(oldMinMaxTopK,
+                MTMVPropertyUtil.getIvmMinMaxTopK(this.mvProperties).orElse(null));
+        return (minMaxTopKChanged && keepsMinMaxTopKState())
+                || unexcludesABaseTable(oldExcludedTriggerTables)
                 || widensPartitionWindowLimit(oldWindowLimits)
                 || widensSyncWindow(oldSyncWindow);
+    }
+
+    /**
+     * Whether this MV keeps a MIN/MAX top-K state, i.e. it is an aggregate MV containing MIN or MAX
+     * that IVM normalized. The state lives in hidden columns named after its state key, so the MV's
+     * own schema answers the question without re-analyzing the query; a detail MV and an aggregate
+     * MV without MIN/MAX have none of them.
+     */
+    private boolean keepsMinMaxTopKState() {
+        for (Column column : getColumns()) {
+            if (IvmUtil.isIvmMinMaxTopKStateColumn(column.getName(), IvmAggStateKey.MIN_TOPK.name())
+                    || IvmUtil.isIvmMinMaxTopKStateColumn(column.getName(),
+                            IvmAggStateKey.MAX_TOPK.name())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

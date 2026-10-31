@@ -20,7 +20,10 @@ package org.apache.doris.mtmv.ivm;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 
+import com.google.common.collect.ImmutableSet;
+
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Result of one delta rewrite visitor step.
@@ -33,11 +36,23 @@ public class IvmDeltaRewriteResult {
     final Slot dmlFactorSlot;
     final Slot sequenceSlot;
     final int maxDeltaIndex;
+    /**
+     * Hidden state columns whose value this sub-plan computes itself, so a project above it must
+     * pass the slot through instead of recomputing the state (a derived state such as MIN/MAX's
+     * bound is otherwise re-derived from the array and overwrites the merged value).
+     */
+    final Set<String> ownedHiddenStateNames;
 
     IvmDeltaRewriteResult(Plan plan, Slot dmlFactorSlot, Slot sequenceSlot, int maxDeltaIndex) {
+        this(plan, dmlFactorSlot, sequenceSlot, maxDeltaIndex, ImmutableSet.of());
+    }
+
+    IvmDeltaRewriteResult(Plan plan, Slot dmlFactorSlot, Slot sequenceSlot, int maxDeltaIndex,
+            Set<String> ownedHiddenStateNames) {
         this.plan = Objects.requireNonNull(plan, "plan can not be null");
         this.dmlFactorSlot = Objects.requireNonNull(dmlFactorSlot, "dml factor slot can not be null");
         this.sequenceSlot = Objects.requireNonNull(sequenceSlot, "sequence slot can not be null");
         this.maxDeltaIndex = maxDeltaIndex;
+        this.ownedHiddenStateNames = ImmutableSet.copyOf(ownedHiddenStateNames);
     }
 }
