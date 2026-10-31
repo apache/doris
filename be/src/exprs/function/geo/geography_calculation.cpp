@@ -1637,10 +1637,8 @@ double geography_distance(const GeoShape& left_shape, const GeoShape& right_shap
         right_shape.type() == GeoShapeType::GEO_SHAPE_POINT) {
         const auto start = geography_point_coordinate(left_wkb);
         const auto end = geography_point_coordinate(right_wkb);
-        const auto [sin_half, cos_half] =
-                geography_degree_sincos(end.first, -start.first, true);
-        const auto [sin_delta, cos_delta] =
-                geography_degree_sincos(end.second, -start.second);
+        const auto [sin_half, cos_half] = geography_degree_sincos(end.first, -start.first, true);
+        const auto [sin_delta, cos_delta] = geography_degree_sincos(end.second, -start.second);
         const auto [sin_sum, cos_sum] = geography_degree_sincos(end.second, start.second);
         // The unrotated raw cross product changes only sign when operands are reversed.
         const GeographyFloat x = -sin_half * sin_sum;
@@ -1648,8 +1646,7 @@ double geography_distance(const GeoShape& left_shape, const GeoShape& right_shap
         const GeographyFloat z = geography_degree_sincos(start.second).second *
                                  geography_degree_sincos(end.second).second *
                                  geography_degree_sincos(end.first, -start.first).first;
-        const GeographyFloat dot =
-                cos_delta * cos_half * cos_half - cos_sum * sin_half * sin_half;
+        const GeographyFloat dot = cos_delta * cos_half * cos_half - cos_sum * sin_half * sin_half;
         using std::atan2;
         using std::sqrt;
         // Multiply before narrowing: a tiny angle can underflow double while its metres do not.
@@ -1663,7 +1660,21 @@ double geography_distance(const GeoShape& left_shape, const GeoShape& right_shap
     geography_shape_index(right_shape, nodes.right, nodes, &right);
     S2ClosestEdgeQuery query(&left);
     S2ClosestEdgeQuery::ShapeIndexTarget target(&right);
-    return S2Earth::ToMeters(query.GetDistance(&target).ToAngle());
+    const double distance = S2Earth::ToMeters(query.GetDistance(&target).ToAngle());
+    // POINT(58+ulp 0) can round onto a line endpoint at (58,0) despite a raw gap.
+    // Confirm zero using raw contact and the existing Polygon interior/side admission.
+    if (distance == 0 && (left_shape.type() == GeoShapeType::GEO_SHAPE_POINT ||
+                          right_shape.type() == GeoShapeType::GEO_SHAPE_POINT)) {
+        bool intersects = false;
+        THROW_IF_ERROR(geography_point_relation("st_intersects", left_shape, right_shape, nodes,
+                                                &intersects));
+        if (!intersects) {
+            throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                            "Geography distance does not support ambiguous spherical Point/shape "
+                            "zero distance");
+        }
+    }
+    return distance;
 }
 
 double geography_area(const GeoShape& shape, StringRef wkb, bool square_meters) {

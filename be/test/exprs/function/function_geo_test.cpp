@@ -1468,11 +1468,18 @@ TEST(VGeoFunctionsTest, GeographyRawEndpointsSurviveRoundedPointCollisions) {
     const std::string point = "POINT (0 58)";
     const std::string line = "LINESTRING (0 58.00000000000001,180 -58)";
     for (bool reverse : {false, true}) {
-        double distance = -1;
-        geography_measurement("st_distance", {reverse ? line : point, reverse ? point : line},
-                              &distance);
-        EXPECT_GE(distance, 0);
-        EXPECT_LT(distance, 1);
+        // The raw minor arc runs from 58+ulp via the north pole; latitude 58 is outside it.
+        // The old [0,1) assertion admitted a rounded zero despite the raw-disjoint predicates.
+        Block distance;
+        const auto status = execute_geography_test(
+                "st_distance",
+                {geography_test_hex(reverse ? line : point),
+                 geography_test_hex(reverse ? point : line)},
+                make_nullable(std::make_shared<DataTypeFloat64>()), &distance);
+        EXPECT_EQ(status.code(), ErrorCode::NOT_IMPLEMENTED_ERROR);
+        EXPECT_NE(status.to_string().find("ambiguous spherical Point/shape zero distance"),
+                  std::string::npos)
+                << status;
         expect_geography_relation("st_intersects", reverse ? line : point, reverse ? point : line,
                                   false);
         expect_geography_relation("st_touches", reverse ? line : point, reverse ? point : line,
@@ -2064,24 +2071,107 @@ TEST(VGeoFunctionsTest, GeographyDWithinConstantShapesEvaluateEveryRadiusRow) {
     expect_dwithin_constant_shapes({0, -1}, false, true);
 }
 
-static void expect_dwithin_zero(const std::string& left, const std::string& right, bool expected) {
+static Status execute_dwithin_zero_test(const std::string& left, const std::string& right,
+                                        Block* block) {
     const auto type = std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY);
-    Block block;
     for (const auto& wkt : {left, right}) {
         const auto wkb = spatial_test_wkb(geography_test_hex(wkt));
         auto column = type->create_column();
         column->insert_data(wkb.data(), wkb.size());
-        block.insert({std::move(column), type, "shape"});
+        block->insert({std::move(column), type, "shape"});
     }
     const auto radius_type = std::make_shared<DataTypeFloat64>();
-    block.insert({ColumnFloat64::create(1, 0), radius_type, "radius"});
+    block->insert({ColumnFloat64::create(1, 0), radius_type, "radius"});
     const auto result_type = make_nullable(std::make_shared<DataTypeUInt8>());
     const auto function = SimpleFunctionFactory::instance().get_function(
-            "st_dwithin", block.get_columns_with_type_and_name(), result_type);
-    ASSERT_NE(function, nullptr);
-    block.insert({nullptr, result_type, "result"});
-    ASSERT_TRUE(function->execute(nullptr, block, {0, 1, 2}, 3, 1).ok());
+            "st_dwithin", block->get_columns_with_type_and_name(), result_type);
+    EXPECT_NE(function, nullptr);
+    block->insert({nullptr, result_type, "result"});
+    return function->execute(nullptr, *block, {0, 1, 2}, 3, 1);
+}
+
+static void expect_dwithin_zero(const std::string& left, const std::string& right, bool expected) {
+    Block block;
+    ASSERT_TRUE(execute_dwithin_zero_test(left, right, &block).ok());
     EXPECT_EQ((*block.get_by_position(3).column)[0].get<TYPE_BOOLEAN>(), expected);
+}
+
+static void expect_rounded_point_shape_distance_error(const std::string& left,
+                                                      const std::string& right) {
+    SCOPED_TRACE(left + " versus " + right);
+    Block distance;
+    const auto status = execute_geography_test(
+            "st_distance", {geography_test_hex(left), geography_test_hex(right)},
+            make_nullable(std::make_shared<DataTypeFloat64>()), &distance);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("ambiguous spherical"), std::string::npos) << status;
+    Block within;
+    const auto within_status = execute_dwithin_zero_test(left, right, &within);
+    EXPECT_FALSE(within_status.ok());
+    EXPECT_NE(within_status.to_string().find("ambiguous spherical"), std::string::npos)
+            << within_status;
+}
+
+TEST(VGeoFunctionsTest, GeographyPointShapeDistanceRejectsRoundedOnlyZero) {
+    const std::vector<std::pair<std::string, std::string>> cases {
+            {"POINT (58.00000000000001 0)", "LINESTRING (58 0,57 -1)"},
+            {"POINT (0 58.00000000000001)", "LINESTRING (0 57,0 58)"},
+            {"POINT (0 58)", "LINESTRING (0 58.00000000000001,180 -58)"},
+            {"POINT (58.00000000000001 0)", "POLYGON ((58 0,57 -1,58 -1,58 0))"},
+            {"POINT (6.999999999999999 10.25)", "POLYGON ((7 10,8 10,8 11,7 11,7 10))"}};
+    // S2 reports zero for an endpoint gap or a raw exterior point rounded onto/inside a polygon.
+    // Both distance APIs must reject that unsupported zero rather than turn it into contact.
+    for (const auto& [point, shape] : cases) {
+        expect_rounded_point_shape_distance_error(point, shape);
+        expect_rounded_point_shape_distance_error(shape, point);
+    }
+}
+
+static void expect_point_shape_zero_distance(const std::string& left, const std::string& right) {
+    SCOPED_TRACE(left + " versus " + right);
+    double distance = -1;
+    geography_measurement("st_distance", {left, right}, &distance);
+    EXPECT_EQ(distance, 0);
+    expect_dwithin_zero(left, right, true);
+}
+
+TEST(VGeoFunctionsTest, GeographyPointShapeZeroDistanceKeepsRawContactAndInteriors) {
+    const std::string hole = "POLYGON ((0 0,4 0,4 4,0 4,0 0),(1 1,3 1,3 3,1 3,1 1))";
+    const std::vector<std::pair<std::string, std::string>> cases {
+            {"POINT (58 0)", "LINESTRING (58 0,57 -1)"},
+            {"POINT (58.00000000000001 0)", "LINESTRING (58 0,59 0)"},
+            {"POINT (0 58.00000000000001)", "LINESTRING (0 58,0 59)"},
+            {"POINT (58 0)", "POLYGON ((58 0,57 -1,58 -1,58 0))"},
+            {"POINT (58.00000000000001 0)", "POLYGON ((58 0,59 0,59 1,58 1,58 0))"},
+            {"POINT (58.00000000000001 0)", "POLYGON ((57 -1,59 -1,59 1,57 1,57 -1))"},
+            {"POINT (0.5 2)", hole},
+            {"POINT (1 2)", hole},
+            {"POINT (-180 0)", "LINESTRING (180 0,179 0)"},
+            {"POINT (123 90)", "LINESTRING (0 89,0 90)"}};
+    for (const auto& [point, shape] : cases) {
+        expect_point_shape_zero_distance(point, shape);
+        expect_point_shape_zero_distance(shape, point);
+    }
+}
+
+static void expect_point_shape_positive_distance(const std::string& left,
+                                                 const std::string& right) {
+    SCOPED_TRACE(left + " versus " + right);
+    double distance = -1;
+    geography_measurement("st_distance", {left, right}, &distance);
+    EXPECT_GT(distance, 0);
+    expect_dwithin_zero(left, right, false);
+}
+
+TEST(VGeoFunctionsTest, GeographyPointShapePositiveDistanceKeepsSeparatedPointsAndHoles) {
+    const std::vector<std::pair<std::string, std::string>> cases {
+            {"POINT (58.1 0)", "LINESTRING (58 0,57 -1)"},
+            {"POINT (58.1 0)", "POLYGON ((58 0,57 -1,58 -1,58 0))"},
+            {"POINT (2 2)", "POLYGON ((0 0,4 0,4 4,0 4,0 0),(1 1,3 1,3 3,1 3,1 1))"}};
+    for (const auto& [point, shape] : cases) {
+        expect_point_shape_positive_distance(point, shape);
+        expect_point_shape_positive_distance(shape, point);
+    }
 }
 
 TEST(VGeoFunctionsTest, GeographyDWithinHasNoLegacyMetreClamp) {
@@ -2108,8 +2198,7 @@ TEST(VGeoFunctionsTest, GeographyPointDistancePreservesOriginalOrdinates) {
     const std::vector<Case> cases {
             {"POINT (58 0)", "POINT (58.00000000000001 0)", ulp},
             {"POINT (0 58)", "POINT (0 58.00000000000001)", ulp},
-            {"POINT (179.99999999999997 0)", "POINT (-180 0)",
-             180.0 - std::nextafter(180.0, 0.0)},
+            {"POINT (179.99999999999997 0)", "POINT (-180 0)", 180.0 - std::nextafter(180.0, 0.0)},
             {"POINT (0 0)", "POINT (1e-300 0)", 1e-300},
             {"POINT (10 45)", "POINT (10 46)", 1},
             {"POINT (0 0)", "POINT (180 0)", 180},
