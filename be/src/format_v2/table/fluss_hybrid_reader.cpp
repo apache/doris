@@ -119,6 +119,11 @@ bool FlussHybridReader::current_split_uses_metadata_count() const {
     return _current_split_reader->current_split_uses_metadata_count();
 }
 
+std::optional<SharedListenableFuture<Void>> FlussHybridReader::waiting_for() const {
+    DORIS_CHECK(_current_split_reader != nullptr);
+    return _current_split_reader->waiting_for();
+}
+
 Status FlussHybridReader::abort_split() {
     DORIS_CHECK(_current_split_reader != nullptr);
     DORIS_CHECK(_current_side != nullptr && _current_type != nullptr);

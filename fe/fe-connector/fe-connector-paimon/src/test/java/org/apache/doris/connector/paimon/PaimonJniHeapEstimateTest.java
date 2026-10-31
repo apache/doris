@@ -1,0 +1,337 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.connector.paimon;
+
+import org.apache.paimon.CoreOptions;
+import org.apache.paimon.catalog.Catalog;
+import org.apache.paimon.catalog.FileSystemCatalog;
+import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.catalog.TableQueryAuthResult;
+import org.apache.paimon.data.BinaryRow;
+import org.apache.paimon.fs.local.LocalFileIO;
+import org.apache.paimon.io.DataFileMeta;
+import org.apache.paimon.schema.Schema;
+import org.apache.paimon.schema.SchemaChange;
+import org.apache.paimon.stats.SimpleStats;
+import org.apache.paimon.table.FallbackReadFileStoreTable;
+import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.Table;
+import org.apache.paimon.table.source.DataSplit;
+import org.apache.paimon.table.source.IncrementalSplit;
+import org.apache.paimon.table.source.QueryAuthSplit;
+import org.apache.paimon.table.source.Split;
+import org.apache.paimon.types.DataTypes;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.OptionalLong;
+
+public class PaimonJniHeapEstimateTest {
+
+    private static final long MB = 1024L * 1024;
+
+    // A primary-key table's: 128 MB row groups, 64 MB stripes, four columns a file (4 MB of dictionaries).
+    private final PaimonJniHeapEstimate estimate = new PaimonJniHeapEstimate(true, false,
+            schemaId -> new PaimonJniHeapEstimate.FileLayout(128 * MB, 64 * MB, MB, 4));
+
+    /**
+     * paimon's parquet writer keeps a column's dictionary page up to the table's parquet.dictionary.page.size,
+     * so a parquet file written under a schema version that sets it is allowed that much for every column. ORC
+     * does not take the option.
+     */
+    @Test
+    public void parquetDictionaryPagesAreAsLargeAsTheSchemaVersionAllows() {
+        PaimonJniHeapEstimate.FileLayout large = PaimonJniHeapEstimate.FileLayout.of(
+                Collections.singletonMap("parquet.dictionary.page.size", String.valueOf(16 * MB)), 3, 0);
+        Assertions.assertEquals((5 + 3 * 16) * MB, large.bytesHeld(file("data-0.parquet", 5 * MB)));
+        Assertions.assertEquals((5 + 3) * MB, large.bytesHeld(file("data-1.orc", 5 * MB)));
+        Assertions.assertEquals((5 + 3) * MB, PaimonJniHeapEstimate.FileLayout.of(Collections.emptyMap(), 3, 0)
+                .bytesHeld(file("data-2.parquet", 5 * MB)));
+    }
+
+    /**
+     * A diff read between two snapshots of a primary-key table merges the files only the earlier one has and
+     * those only the later one has, both merges open together; of an append table it reads the later files
+     * one after another. A fallback-branch table hands it over wrapped, and the splits of other kinds - those
+     * of the metadata system tables - declare nothing.
+     */
+    @Test
+    public void diffSplitHoldsBothFileSetsOfAPrimaryKeyTableAndOneLaterFileOfAnAppendTable() {
+        IncrementalSplit diff = new IncrementalSplit(2L, BinaryRow.EMPTY_ROW, 0, 1,
+                Arrays.asList(file("data-0.parquet", 130 * MB), file("data-1.parquet", 12 * MB)), null,
+                Arrays.asList(file("data-2.parquet", 40 * MB), file("data-3.parquet", 300 * MB)), null, false);
+        long merged = (130 + 4) * MB + (12 + 4) * MB + (40 + 4) * MB + (256 + 4) * MB;
+        Assertions.assertEquals(merged, estimate.bytesOf(diff));
+        Assertions.assertEquals(merged, estimate.bytesOf(FallbackReadFileStoreTable.toFallbackSplit(diff, true)));
+
+        PaimonJniHeapEstimate appendTable = new PaimonJniHeapEstimate(false, false,
+                schemaId -> new PaimonJniHeapEstimate.FileLayout(128 * MB, 64 * MB, MB, 4));
+        Assertions.assertEquals((256 + 4) * MB, appendTable.bytesOf(diff));
+
+        Split metadata = new Split() {
+            @Override
+            public long rowCount() {
+                return 1;
+            }
+
+            @Override
+            public OptionalLong mergedRowCount() {
+                return OptionalLong.empty();
+            }
+        };
+        Assertions.assertEquals(0, estimate.bytesOf(metadata));
+        Assertions.assertEquals(0, estimate.bytesOf(FallbackReadFileStoreTable.toFallbackSplit(metadata, true)));
+    }
+
+    /**
+     * The split that ran a 2 GB heap out sixteen at a time: an uncompacted primary-key bucket whose 130 MB
+     * file overlaps a 12 MB one. Merged, both are open at once.
+     */
+    @Test
+    public void mergedSplitHoldsARowGroupOfEveryFile() {
+        DataSplit split = split(false, file("data-0.parquet", 130 * MB), file("data-1.parquet", 12 * MB));
+        Assertions.assertEquals((130 + 4) * MB + (12 + 4) * MB, estimate.bytesOf(split));
+    }
+
+    /**
+     * A table with query-auth rules has every split planned in a QueryAuthSplit, which a fallback-branch table
+     * wraps in its FallbackSplit; the reader reads the split inside, merging it as it would unwrapped.
+     */
+    @Test
+    public void splitPlannedForQueryAuthHoldsWhatTheSplitInsideHolds() {
+        TableQueryAuthResult rules = new TableQueryAuthResult(Collections.emptyList(), Collections.emptyMap());
+        DataSplit merged = split(false, file("data-0.parquet", 130 * MB), file("data-1.parquet", 12 * MB));
+        long expected = (130 + 4) * MB + (12 + 4) * MB;
+        Assertions.assertEquals(expected, estimate.bytesOf(new QueryAuthSplit(merged, rules)));
+        Assertions.assertEquals(expected, estimate.bytesOf(
+                FallbackReadFileStoreTable.toFallbackSplit(new QueryAuthSplit(merged, rules), true)));
+
+        IncrementalSplit diff = new IncrementalSplit(2L, BinaryRow.EMPTY_ROW, 0, 1,
+                Collections.singletonList(file("data-2.parquet", 40 * MB)), null,
+                Collections.singletonList(file("data-3.parquet", 300 * MB)), null, false);
+        Assertions.assertEquals((40 + 4) * MB + (256 + 4) * MB, estimate.bytesOf(new QueryAuthSplit(diff, rules)));
+    }
+
+    @Test
+    public void splitThatNeedsNoMergingHoldsItsLargestFile() {
+        DataSplit split = split(true, file("data-0.parquet", 130 * MB), file("data-1.parquet", 12 * MB));
+        Assertions.assertEquals((130 + 4) * MB, estimate.bytesOf(split));
+    }
+
+    /**
+     * paimon plans the files a first-row table keeps above level 0 as a split that needs no merging, also those
+     * written before it counted deleted rows, but reads such a split file by file only when every file counts
+     * them: it merges the others, a file of one level open beside one of another whose keys overlap. An append
+     * table's split is read file by file whatever its files count.
+     */
+    @Test
+    public void splitWithFilesThatDoNotCountDeletedRowsIsMergedOfAPrimaryKeyTable() {
+        DataSplit uncounted = split(true, uncountedFile("data-0.parquet", 130 * MB, 2),
+                uncountedFile("data-1.parquet", 12 * MB, 1));
+        Assertions.assertEquals((130 + 4) * MB + (12 + 4) * MB, estimate.bytesOf(uncounted));
+        DataSplit mixed = split(true, uncountedFile("data-0.parquet", 130 * MB, 2), file("data-1.parquet", 12 * MB));
+        Assertions.assertEquals((130 + 4) * MB + (12 + 4) * MB, estimate.bytesOf(mixed));
+
+        PaimonJniHeapEstimate appendTable = new PaimonJniHeapEstimate(false, false,
+                schemaId -> new PaimonJniHeapEstimate.FileLayout(128 * MB, 64 * MB, MB, 4));
+        Assertions.assertEquals((130 + 4) * MB, appendTable.bytesOf(uncounted));
+    }
+
+    /**
+     * $audit_log and $binlog keep the deleted rows, which has paimon merge a primary-key table's split it planned
+     * as needing no merging. A deletion-vector or first-row table's such split holds files of two levels whose
+     * keys overlap, open together then; the files of one level are a sorted run, read one after another all the
+     * same. An append table's read has no deletes to keep.
+     */
+    @Test
+    public void readThatKeepsDeletesMergesTheFilesOfMoreThanOneLevel() {
+        PaimonJniHeapEstimate keepingDeletes = new PaimonJniHeapEstimate(true, true,
+                schemaId -> new PaimonJniHeapEstimate.FileLayout(128 * MB, 64 * MB, MB, 4));
+        DataSplit twoLevels = split(true, fileOnLevel("data-0.parquet", 60 * MB, 5),
+                fileOnLevel("data-1.parquet", 50 * MB, 4));
+        Assertions.assertEquals((60 + 4) * MB, estimate.bytesOf(twoLevels));
+        Assertions.assertEquals((60 + 4) * MB + (50 + 4) * MB, keepingDeletes.bytesOf(twoLevels));
+
+        DataSplit oneLevel = split(true, fileOnLevel("data-2.parquet", 60 * MB, 5),
+                fileOnLevel("data-3.parquet", 50 * MB, 5));
+        Assertions.assertEquals((60 + 4) * MB, keepingDeletes.bytesOf(oneLevel));
+
+        PaimonJniHeapEstimate appendTable = new PaimonJniHeapEstimate(false, true,
+                schemaId -> new PaimonJniHeapEstimate.FileLayout(128 * MB, 64 * MB, MB, 4));
+        Assertions.assertEquals((60 + 4) * MB, appendTable.bytesOf(twoLevels));
+    }
+
+    /** Moving on to the next row group, a file has the old one and the new one in the heap together. */
+    @Test
+    public void fileOfMoreThanOneRowGroupHoldsTwoAtMost() {
+        Assertions.assertEquals((200 + 4) * MB, estimate.bytesOf(split(false, file("data-0.parquet", 200 * MB))));
+        Assertions.assertEquals((256 + 4) * MB, estimate.bytesOf(split(false, file("data-0.parquet", 900 * MB))));
+    }
+
+    @Test
+    public void anOrcFileHoldsItsStripe() {
+        Assertions.assertEquals((128 + 4) * MB, estimate.bytesOf(split(false, file("data-0.ORC", 300 * MB))));
+        Assertions.assertEquals((40 + 4) * MB, estimate.bytesOf(split(false, file("data-0.orc", 40 * MB))));
+    }
+
+    /**
+     * The row group comes from the table's options with the precedence paimon's writers apply, and every
+     * file has a dictionary for each column, the keys a second time beside the sequence and row kind. A
+     * file written under the table's own schema version is laid out without reading any schema, and a
+     * table whose versions are not at hand (a system table other than $ro) is laid out the same way.
+     */
+    @Test
+    public void theTableOptionsSetTheRowGroupAndTheColumns(@TempDir Path warehouse) throws Exception {
+        // (id INT, v STRING, w BIGINT) keyed by id: 3 + 1 + 2 = 6 columns, 6 MB of dictionaries a file.
+        DataSplit oneBigFile = split(false, file("data-0.parquet", 100 * MB));
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            assertBothDeclare((100 + 6) * MB, table(catalog, "defaults", Collections.emptyMap()), oneBigFile);
+            assertBothDeclare((64 + 6) * MB, table(catalog, "parquet_option",
+                    Collections.singletonMap("parquet.block.size", String.valueOf(32 * MB))), oneBigFile);
+            // file.block-size wins over the format's own option.
+            Map<String, String> both = new HashMap<>();
+            both.put("file.block-size", "16 mb");
+            both.put("parquet.block.size", String.valueOf(32 * MB));
+            assertBothDeclare((32 + 6) * MB, table(catalog, "block_size", both), oneBigFile);
+        }
+    }
+
+    /**
+     * A file stores a nested field in a column for every primitive value it holds, each with a dictionary of
+     * its own: every field of a row, an array's element, a map's key and value, a multiset's element beside its
+     * count, a variant's value beside its metadata.
+     */
+    @Test
+    public void nestedFieldHasADictionaryForEveryColumnItIsStoredIn(@TempDir Path warehouse) throws Exception {
+        // (id INT, payload ROW<STRING, STRING, ARRAY<STRING>>, tags MAP<STRING, INT>) keyed by id:
+        // 1 + 3 + 2 + 1 + 2 = 9 columns, 9 MB of dictionaries a file.
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "nested");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("payload", DataTypes.ROW(DataTypes.STRING(), DataTypes.STRING(),
+                            DataTypes.ARRAY(DataTypes.STRING())))
+                    .column("tags", DataTypes.MAP(DataTypes.STRING(), DataTypes.INT()))
+                    .primaryKey("id")
+                    .option("bucket", "1")
+                    .build(), false);
+            assertBothDeclare((100 + 9) * MB, catalog.getTable(id), split(false, file("data-0.parquet", 100 * MB)));
+        }
+        Assertions.assertEquals(2, PaimonJniHeapEstimate.FileLayout.columns(DataTypes.MULTISET(DataTypes.STRING())));
+        Assertions.assertEquals(2, PaimonJniHeapEstimate.FileLayout.columns(DataTypes.VARIANT()));
+    }
+
+    /**
+     * An ALTER TABLE leaves the files written before it as they are, so a file is laid out by the schema
+     * version it was written under: its row group size and its columns. The version is read once, however
+     * many files were written under it, and the table's own version is never read.
+     */
+    @Test
+    public void eachFileIsLaidOutByTheSchemaVersionItWasWrittenUnder(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            // Version 0: 128 MB row groups by default, 6 columns a file.
+            table(catalog, "altered", Collections.emptyMap());
+            // Version 1: 16 MB row groups, and a column more: 7 columns a file.
+            Identifier id = Identifier.create("db", "altered");
+            catalog.alterTable(id, Arrays.asList(
+                    SchemaChange.setOption(CoreOptions.FILE_BLOCK_SIZE.key(), "16 mb"),
+                    SchemaChange.addColumn("x", DataTypes.INT())), false);
+            FileStoreTable table = (FileStoreTable) catalog.getTable(id);
+            Assertions.assertEquals(1L, table.schema().id());
+            List<Long> reads = new ArrayList<>();
+            PaimonJniHeapEstimate estimate = PaimonJniHeapEstimate.of(table, false, schemaId -> {
+                reads.add(schemaId);
+                return table.schemaManager().schema(schemaId);
+            });
+
+            DataSplit merged = split(false, file("data-0.parquet", 900 * MB, 0), file("data-1.parquet", 900 * MB, 1));
+            Assertions.assertEquals((256 + 6) * MB + (32 + 7) * MB, estimate.bytesOf(merged));
+            Assertions.assertEquals((256 + 6) * MB,
+                    estimate.bytesOf(split(false, file("data-2.parquet", 900 * MB, 0))));
+            Assertions.assertEquals(Collections.singletonList(0L), reads);
+        }
+    }
+
+    private static void assertBothDeclare(long expected, Table table, DataSplit split) {
+        Assertions.assertEquals(expected, PaimonJniHeapEstimate.of((FileStoreTable) table, false, schemaId -> {
+            throw new AssertionError("read schema " + schemaId + ", the table's own");
+        }).bytesOf(split));
+        Assertions.assertEquals(expected, PaimonJniHeapEstimate.of(table).bytesOf(split));
+    }
+
+    private static Table table(Catalog catalog, String name, Map<String, String> options) throws Exception {
+        Identifier id = Identifier.create("db", name);
+        catalog.createTable(id, Schema.newBuilder()
+                .column("id", DataTypes.INT())
+                .column("v", DataTypes.STRING())
+                .column("w", DataTypes.BIGINT())
+                .primaryKey("id")
+                .option("bucket", "1")
+                .options(options)
+                .build(), false);
+        return catalog.getTable(id);
+    }
+
+    private static DataFileMeta file(String name, long size) {
+        return file(name, size, 0L);
+    }
+
+    private static DataFileMeta file(String name, long size, long schemaId) {
+        return DataFileMeta.forAppend(name, size, 1000L, SimpleStats.EMPTY_STATS, 0L, 0L, schemaId,
+                Collections.emptyList(), null, null, null, null, null, null);
+    }
+
+    // A file of a level, which counts its deleted rows: none.
+    private static DataFileMeta fileOnLevel(String name, long size, int level) {
+        return DataFileMeta.create(name, size, 1000L, BinaryRow.EMPTY_ROW, BinaryRow.EMPTY_ROW,
+                SimpleStats.EMPTY_STATS, SimpleStats.EMPTY_STATS, 0L, 0L, 0L, level, Collections.emptyList(),
+                0L, null, null, null, null, null, null);
+    }
+
+    // A file written before paimon counted deleted rows (0.7 and earlier): it has no deleteRowCount.
+    private static DataFileMeta uncountedFile(String name, long size, int level) {
+        return DataFileMeta.create(name, size, 1000L, BinaryRow.EMPTY_ROW, BinaryRow.EMPTY_ROW,
+                SimpleStats.EMPTY_STATS, SimpleStats.EMPTY_STATS, 0L, 0L, 0L, level, Collections.emptyList(),
+                null, null, null, null, null, null, null);
+    }
+
+    private static DataSplit split(boolean rawConvertible, DataFileMeta... files) {
+        return DataSplit.builder()
+                .withSnapshot(1L)
+                .withPartition(BinaryRow.EMPTY_ROW)
+                .withBucket(0)
+                .withBucketPath("bucket-0")
+                .withDataFiles(Arrays.asList(files))
+                .rawConvertible(rawConvertible)
+                .build();
+    }
+}
