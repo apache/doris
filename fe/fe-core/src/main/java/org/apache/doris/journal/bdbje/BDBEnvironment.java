@@ -25,6 +25,7 @@ import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.ha.HAProtocol;
 import org.apache.doris.system.Frontend;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.je.Cursor;
@@ -64,6 +65,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.IntConsumer;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
 
@@ -79,6 +81,12 @@ public class BDBEnvironment {
     private static final List<String> BDBJE_LOG_LEVEL = ImmutableList.of("OFF", "SEVERE", "WARNING",
             "INFO", "CONFIG", "FINE", "FINER", "FINEST", "ALL");
     public static final String PALO_JOURNAL_GROUP = "PALO_JOURNAL_GROUP";
+    // NetworkRestore rewrites the log files of the environment directory, it must never run concurrently.
+    // See setup() and exitForNetworkRestore().
+    private static final Object NETWORK_RESTORE_LOCK = new Object();
+    // only replaced in unit tests
+    @VisibleForTesting
+    static volatile IntConsumer exitHook = System::exit;
 
     private ReplicatedEnvironment replicatedEnvironment;
     private EnvironmentConfig environmentConfig;
@@ -205,15 +213,15 @@ public class BDBEnvironment {
                 epochDB = replicatedEnvironment.openDatabase(null, "epochDB", dbConfig);
                 break;
             } catch (InsufficientLogException insufficientLogEx) {
+                // e.g. a new node joins the group, this node is too far behind, or this node must roll back
+                // past a checkpoint after the master changed (see exitForNetworkRestore()).
+                // This is the only place to run NetworkRestore: the environment failed to open, so there is
+                // no environment handle or bdbje daemon thread, and no other thread uses the environment yet.
                 LOG.info("i:{} insufficientLogEx:", i, insufficientLogEx);
-                NetworkRestore restore = new NetworkRestore();
-                NetworkRestoreConfig config = new NetworkRestoreConfig();
-                config.setRetainLogFiles(false); // delete obsolete log files.
-                // Use the members returned by insufficientLogEx.getLogProviders()
-                // to select the desired subset of members and pass the resulting
-                // list as the argument to config.setLogProviders(), if the
-                // default selection of providers is not suitable.
-                restore.execute(insufficientLogEx, config);
+                this.close();
+                synchronized (NETWORK_RESTORE_LOCK) {
+                    executeNetworkRestore(insufficientLogEx);
+                }
             } catch (DatabaseException e) {
                 LOG.info("i:{} exception:", i, e);
                 if (i < RETRY_TIME - 1) {
@@ -228,6 +236,47 @@ public class BDBEnvironment {
                 }
             }
         }
+        if (replicatedEnvironment == null || epochDB == null) {
+            // e.g. still got InsufficientLogException at the last retry
+            LOG.error("failed to open replicated environment after {} retries. will exit.", RETRY_TIME);
+            exitHook.accept(-1);
+        }
+    }
+
+    /*
+     * Handle InsufficientLogException thrown by an opened environment: exit the process WITHOUT NetworkRestore.
+     *
+     * Once the opened environment is invalidated, every thread which touches it (replayer, http/rpc threads, ...)
+     * gets the same exception. Running NetworkRestore in this process is unsafe:
+     * - NetworkRestore deletes and renames log files in the environment directory, concurrent restores by
+     *   different threads corrupt the directory;
+     * - the invalidated environment is still open, other threads hold its handles and its bdbje daemon threads
+     *   may still touch the log files;
+     * - the in-memory meta may have replayed logs which have been rolled back, it must be rebuilt anyway.
+     *
+     * After restart, opening the environment throws InsufficientLogException again because the cause still
+     * exists, and setup() performs the restore in a clean state. If no exception is thrown after restart, the
+     * node can sync up with the master normally and no restore is needed.
+     */
+    public static void exitForNetworkRestore(InsufficientLogException insufficientLogEx, String reason) {
+        synchronized (NETWORK_RESTORE_LOCK) {
+            LOG.error("bdb environment needs network restore, thread: {}, reason: {}. "
+                    + "will exit, and restore when opening bdb environment after restart.",
+                    Thread.currentThread().getName(), reason, insufficientLogEx);
+            exitHook.accept(-1);
+        }
+    }
+
+    // MUST be called with NETWORK_RESTORE_LOCK held
+    private static void executeNetworkRestore(InsufficientLogException insufficientLogEx) {
+        NetworkRestore restore = new NetworkRestore();
+        NetworkRestoreConfig config = new NetworkRestoreConfig();
+        config.setRetainLogFiles(false); // delete obsolete log files.
+        // Use the members returned by insufficientLogEx.getLogProviders()
+        // to select the desired subset of members and pass the resulting
+        // list as the argument to config.setLogProviders(), if the
+        // default selection of providers is not suitable.
+        restore.execute(insufficientLogEx, config);
     }
 
     public ReplicationGroupAdmin getReplicationGroupAdmin() {
