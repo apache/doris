@@ -664,7 +664,7 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
         index_reader = index_searcher->getReader();
 #endif
         auto source = segment_v2::clucene_index_source(segment_v2::non_owning_reader(index_reader),
-                                                       ws_field_name, io_ctx);
+                                                       collect_info.lucene_field, io_ctx);
         index_query::IndexScoringStats scoring_stats;
         RETURN_IF_ERROR(source->scoring_stats(&scoring_stats));
         if (hidden_rows != nullptr) {

@@ -40,4 +40,11 @@ public:
     }
 };
 
+// The name BM25 statistics of a MATCH are kept under. Two indexes of one column hold different
+// terms and lengths under the same field, so the field alone cannot key them: over Apple and
+// apple, an index that folds case has df(apple) = 2 and one that does not has df(apple) = 1.
+inline std::wstring match_statistics_field(const std::wstring& field, int64_t index_id) {
+    return field + L"@" + std::to_wstring(index_id);
+}
+
 } // namespace doris::segment_v2

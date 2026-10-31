@@ -59,6 +59,12 @@ Status read_clucene_null_bitmap(IndexFileReader& file_reader, const TabletIndex&
                                 lucene::store::Directory* dir = nullptr);
 
 // run_leaf on the CLucene field `field` of `searcher`, its errors reported as CLucene ones.
+// `statistics_field` names the leaf inside the query, as _statistics_field does for an index.
+Status run_clucene_leaf(const IndexQueryContextPtr& context, std::wstring field,
+                        const std::wstring& statistics_field,
+                        const index_query::logical::Node& leaf, const roaring::Roaring* candidates,
+                        bool scoring, const FulltextIndexSearcherPtr& searcher,
+                        const std::shared_ptr<roaring::Roaring>& result);
 Status run_clucene_leaf(const IndexQueryContextPtr& context, std::wstring field,
                         const index_query::logical::Node& leaf, const roaring::Roaring* candidates,
                         bool scoring, const FulltextIndexSearcherPtr& searcher,

@@ -308,8 +308,8 @@ Status SniiIndexReader::_run_leaf(const IndexQueryContextPtr& context,
     auto source = _bind_source(context, field, index);
     const uint32_t doc_count = source->doc_count();
     auto result = std::make_shared<roaring::Roaring>();
-    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(run_leaf(context, field, leaf, candidates, scoring,
-                                                std::move(source), doc_count, result));
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(run_leaf(context, _statistics_field(field), leaf, candidates,
+                                                scoring, std::move(source), doc_count, result));
     result->runOptimize();
     *out = std::move(result);
     return Status::OK();

@@ -391,11 +391,14 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
 
     std::string field_name =
             build_field_name(index_meta->col_unique_ids()[0], candidates.index_suffix_path);
-    std::wstring ws_field_name = inverted_index::StringHelper::to_wstring(field_name);
+    std::wstring lucene_field = inverted_index::StringHelper::to_wstring(field_name);
+    std::wstring ws_field_name =
+            segment_v2::match_statistics_field(lucene_field, index_meta->index_id());
 
     auto iter = collect_infos->find(ws_field_name);
     if (iter == collect_infos->end()) {
         CollectInfo collect_info;
+        collect_info.lucene_field = std::move(lucene_field);
         RETURN_IF_ERROR(append_scoring_leaf(&collect_info, term_infos));
         preserve_selected_index_metadata(candidates, index_meta, &collect_info);
         iter = collect_infos->emplace(ws_field_name, std::move(collect_info)).first;
