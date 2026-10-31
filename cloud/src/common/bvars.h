@@ -721,6 +721,7 @@ extern mBvarStatus<int64_t> g_bvar_recycler_instance_next_ts;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_start_ts;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_end_ts;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_last_success_ts;
+extern mBvarStatus<int64_t> g_bvar_adaptive_thread_pool_concurrency;
 
 extern mBvarIntAdder g_bvar_recycler_vault_recycle_task_status;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycled_num;

@@ -111,6 +111,17 @@ CONF_mStrings(recycle_whitelist, ""); // Comma seprated list
 CONF_mStrings(recycle_blacklist, ""); // Comma seprated list
 // IO worker thread pool concurrency: object list, delete
 CONF_mInt32(instance_recycler_worker_pool_size, "32");
+// Whether the recycler worker pools use AdaptiveThreadPool (shrinks when meta service or FDB is
+// under great stress) instead of a fixed size SimpleThreadPool.
+// It takes effect on the next created pool.
+CONF_mBool(enable_recycler_adaptive_thread_pool, "true");
+// AdaptiveThreadPool: concurrency lower bound, halving interval under pressure,
+// and the pressure-free interval before adding workers
+CONF_mInt32(adaptive_thread_pool_min_size, "4");
+CONF_mInt64(adaptive_thread_pool_shrink_interval_ms, "30000");
+CONF_mInt64(adaptive_thread_pool_expand_interval_ms, "180000");
+// AdaptiveThreadPool: the number of workers added by each expand, a value below 1 is treated as 1
+CONF_mInt32(adaptive_thread_pool_expand_step, "2");
 // Max number of delete tasks per batch when recycling objects.
 // Each task deletes up to 1000 files. Controls memory usage during large-scale deletion.
 CONF_Int32(recycler_max_tasks_per_batch, "1000");
