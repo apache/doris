@@ -623,6 +623,35 @@ public class CreateIcebergSpatialV3Table {
         CAST(NULL AS AGG_STATE<count_map(MAP<INT, INT>)>), CAST(NULL AS AGG_STATE<sum_map(MAP<INT, INT>)>),
         CAST(NULL AS AGG_STATE<avg_map(MAP<INT, INT>)>), CAST(NULL AS AGG_STATE<min_map(MAP<INT, INT>)>),
         CAST(NULL AS AGG_STATE<max_map(MAP<INT, INT>)>) from numbers('number'='3') order by number"""
+    // Aggregate keys must reject spatial leaves through actual scan slots and state entry points.
+    for (String column : ["g_array", "gg_array", "g_map", "gg_map", "g_struct", "gg_struct"]) {
+        for (String suffix : ["", "_state"]) {
+            test {
+                sql """select /*+ SET_VAR(enable_agg_state=true) */ map_agg_v2${suffix}(${column}, id)
+                    from spatial_nested_source"""
+                exception "map_agg does not support spatial keys"
+            }
+            test {
+                sql """select /*+ SET_VAR(enable_agg_state=true) */ ndv${suffix}(${column})
+                    from spatial_nested_source"""
+                exception "must use with specific function"
+            }
+        }
+    }
+    for (String spatial : ["GEOMETRY", "GEOGRAPHY"]) {
+        for (String nested : ["ARRAY<${spatial}>", "MAP<INT, ${spatial}>", "STRUCT<shape:${spatial}>"]) {
+            test {
+                sql """select /*+ SET_VAR(enable_agg_state=true) */
+                    CAST(NULL AS AGG_STATE<map_agg_v2(${nested}, INT)>)"""
+                exception "map_agg does not support spatial keys"
+            }
+            test {
+                sql """select /*+ SET_VAR(enable_agg_state=true) */
+                    CAST(NULL AS AGG_STATE<ndv(${nested})>)"""
+                exception "must use with specific function"
+            }
+        }
+    }
     // Imported nested columns must obey the same group-array admission rule.
     for (String function : ["group_array_union", "group_array_intersect"]) {
         test {

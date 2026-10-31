@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
+import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.CheckLegalityAfterRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
@@ -759,6 +760,61 @@ public class SpatialAggregateLegalityTest {
                         function::checkLegalityBeforeTypeCoercion, function.getName());
                 Assertions.assertEquals(function.getName() + " does not support spatial arguments",
                         error.getMessage());
+            }
+        }
+    }
+
+    @Test
+    public void mapAggRejectsNestedSpatialKeysButKeepsValues() {
+        Expression integer = new SlotReference("id", IntegerType.INSTANCE);
+        for (DataType spatial : List.of(new GeometryType("EPSG:3857"),
+                new GeographyType("OGC:CRS84", "spherical"))) {
+            for (DataType nested : List.of(ArrayType.of(spatial), MapType.of(IntegerType.INSTANCE, spatial),
+                    new StructType(List.of(new StructField("shape", spatial, true, ""))))) {
+                for (Expression value : List.of(new SlotReference("shape", nested, false),
+                        new SlotReference("shape", nested, true), new NullLiteral(nested))) {
+                    MapAggV2 rejected = new MapAggV2(value, integer);
+                    for (BoundFunction entry : List.of(rejected, StateCombinator.create(rejected),
+                            new CombineCombinator(rejected.getArguments(), rejected))) {
+                        AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                                entry::checkLegalityBeforeTypeCoercion);
+                        Assertions.assertEquals("map_agg does not support spatial keys", error.getMessage());
+                    }
+                    MapAggV2 accepted = new MapAggV2(integer, value);
+                    for (BoundFunction entry : List.of(accepted, StateCombinator.create(accepted),
+                            new CombineCombinator(accepted.getArguments(), accepted))) {
+                        Assertions.assertDoesNotThrow(entry::checkLegalityBeforeTypeCoercion);
+                    }
+                    Assertions.assertEquals(nested, ((MapType) accepted.getDataType()).getValueType());
+                }
+            }
+        }
+    }
+
+    @Test
+    public void nestedSpatialMapKeysAndNdvRejectThroughSqlRewrite() {
+        for (String spatial : List.of("GEOMETRY('EPSG:3857')", "GEOGRAPHY")) {
+            for (String nested : List.of("ARRAY<" + spatial + ">", "MAP<INT, " + spatial + ">",
+                    "STRUCT<shape:" + spatial + ">")) {
+                String source = " from (select CAST(NULL AS " + nested
+                        + ") shape from numbers('number'='3')) shapes";
+                for (String sql : List.of("select map_agg_v2(shape, 1)" + source,
+                        "select map_agg_v2_state(shape, 1)" + source,
+                        "select CAST(NULL AS AGG_STATE<map_agg_v2(" + nested + ", INT)>)")) {
+                    Exception error = Assertions.assertThrows(Exception.class,
+                            () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(sql).rewrite(), sql);
+                    Assertions.assertTrue(error.getMessage().contains("map_agg does not support spatial keys"),
+                            error.getMessage());
+                }
+                for (String sql : List.of("select ndv(shape)" + source, "select ndv_state(shape)" + source,
+                        "select CAST(NULL AS AGG_STATE<ndv(" + nested + ")>)")) {
+                    Exception error = Assertions.assertThrows(Exception.class,
+                            () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(sql).rewrite(), sql);
+                    Assertions.assertTrue(error.getMessage().contains(Type.OnlyMetricTypeErrorMsg),
+                            error.getMessage());
+                }
+                Assertions.assertDoesNotThrow(() -> PlanChecker.from(MemoTestUtils.createConnectContext())
+                        .analyze("select map_agg_v2(1, shape)" + source).rewrite());
             }
         }
     }

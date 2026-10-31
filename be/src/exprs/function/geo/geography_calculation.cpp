@@ -88,21 +88,6 @@ static Float geography_pi() {
     }
 }
 
-// Calculations use canonical positions; raw spatial accessors still return the original WKB.
-static S2Point canonical_geography_point(const S2Point& point) {
-    const auto coordinate = S2LatLng(point);
-    const double latitude = coordinate.lat().radians();
-    // All longitudes at a pole and +/-180 at the date line denote the same position.
-    if (std::abs(latitude) == M_PI_2) {
-        return {0, 0, latitude > 0 ? 1.0 : -1.0};
-    }
-    if (coordinate.lng().radians() == M_PI) {
-        // Flip only sin(longitude): rebuilding latitude can change its last bit.
-        return {point.x(), -point.y(), point.z()};
-    }
-    return point;
-}
-
 // Error-free TwoSum preserves tiny differences from a half-turn (e.g. -1e-15 + 180).
 static std::pair<double, double> geography_degree_sum(double a, double b) {
     const double high = a + b;
@@ -1646,12 +1631,30 @@ bool geography_portable_bearing_for_test(StringRef from, StringRef to, double* b
 
 double geography_distance(const GeoShape& left_shape, const GeoShape& right_shape,
                           StringRef left_wkb, StringRef right_wkb) {
-    // Keep the common point-pair path allocation-free while canonicalizing date-line/pole aliases.
+    // Read original ordinates: 58 and 58.00000000000001 degrees can round to the same S2Point.
+    // Reuse raw-arc product identities in wide arithmetic; accessors retain the raw WKB.
     if (left_shape.type() == GeoShapeType::GEO_SHAPE_POINT &&
         right_shape.type() == GeoShapeType::GEO_SHAPE_POINT) {
-        return S2Earth::GetDistanceMeters(
-                canonical_geography_point(*assert_cast<const GeoPoint&>(left_shape).point()),
-                canonical_geography_point(*assert_cast<const GeoPoint&>(right_shape).point()));
+        const auto start = geography_point_coordinate(left_wkb);
+        const auto end = geography_point_coordinate(right_wkb);
+        const auto [sin_half, cos_half] =
+                geography_degree_sincos(end.first, -start.first, true);
+        const auto [sin_delta, cos_delta] =
+                geography_degree_sincos(end.second, -start.second);
+        const auto [sin_sum, cos_sum] = geography_degree_sincos(end.second, start.second);
+        // The unrotated raw cross product changes only sign when operands are reversed.
+        const GeographyFloat x = -sin_half * sin_sum;
+        const GeographyFloat y = cos_half * sin_delta;
+        const GeographyFloat z = geography_degree_sincos(start.second).second *
+                                 geography_degree_sincos(end.second).second *
+                                 geography_degree_sincos(end.first, -start.first).first;
+        const GeographyFloat dot =
+                cos_delta * cos_half * cos_half - cos_sum * sin_half * sin_half;
+        using std::atan2;
+        using std::sqrt;
+        // Multiply before narrowing: a tiny angle can underflow double while its metres do not.
+        return static_cast<double>(atan2(sqrt(x * x + y * y + z * z), dot) *
+                                   S2Earth::RadiusMeters());
     }
     const GeographyEdgeNodes nodes(left_wkb, right_wkb);
     MutableS2ShapeIndex left;

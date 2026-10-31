@@ -18,6 +18,7 @@
 #include <arrow/api.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
+#include <s2/s2earth.h>
 #include <stdint.h>
 
 #include <array>
@@ -2095,6 +2096,38 @@ TEST(VGeoFunctionsTest, GeographyDWithinHasNoLegacyMetreClamp) {
     expect_dwithin_zero("LINESTRING (10 45,10 46)", "LINESTRING (10 45.3,10 45.9)", true);
     expect_dwithin_zero("LINESTRING (0 0,1 0)", "LINESTRING (0 0.000000000001,1 0.000000000001)",
                         false);
+}
+
+TEST(VGeoFunctionsTest, GeographyPointDistancePreservesOriginalOrdinates) {
+    struct Case {
+        std::string left;
+        std::string right;
+        double degrees;
+    };
+    const double ulp = std::nextafter(58.0, 59.0) - 58.0;
+    const std::vector<Case> cases {
+            {"POINT (58 0)", "POINT (58.00000000000001 0)", ulp},
+            {"POINT (0 58)", "POINT (0 58.00000000000001)", ulp},
+            {"POINT (179.99999999999997 0)", "POINT (-180 0)",
+             180.0 - std::nextafter(180.0, 0.0)},
+            {"POINT (0 0)", "POINT (1e-300 0)", 1e-300},
+            {"POINT (10 45)", "POINT (10 46)", 1},
+            {"POINT (0 0)", "POINT (180 0)", 180},
+            {"POINT (180 0)", "POINT (-180 0)", 0},
+            {"POINT (0 90)", "POINT (123 90)", 0}};
+    for (const auto& value : cases) {
+        SCOPED_TRACE(value.left + ", " + value.right);
+        // Equator and meridian arcs have the independent closed form radius * angle.
+        const double expected = value.degrees * (M_PI / 180) * S2Earth::RadiusMeters();
+        for (bool reverse : {false, true}) {
+            const auto& left = reverse ? value.right : value.left;
+            const auto& right = reverse ? value.left : value.right;
+            double distance = -1;
+            geography_measurement("st_distance", {left, right}, &distance);
+            EXPECT_NEAR(distance, expected, expected * 1e-12);
+            expect_dwithin_zero(left, right, value.degrees == 0);
+        }
+    }
 }
 
 TEST(VGeoFunctionsTest, GeographyPointRelationsDistinguishInteriorAndBoundary) {

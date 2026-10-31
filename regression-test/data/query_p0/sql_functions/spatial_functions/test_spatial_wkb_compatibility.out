@@ -138,6 +138,16 @@ true
 2	true	true	true	true
 3	false	false	false	false
 
+-- !geography_raw_point_distance --
+0	true	true	true	false	false
+1	true	true	true	false	false
+2	true	true	true	false	false
+3	true	true	true	false	false
+4	false	false	true	true	true
+5	false	false	true	true	true
+6	true	true	true	false	false
+7	true	true	true	false	false
+
 -- !geography_complete_contains --
 true	true	false	true
 

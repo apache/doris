@@ -65,7 +65,7 @@ public class MapAggV2 extends NotNullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (getArgumentType(0).isSpatialType()) {
+        if (getArgumentType(0).toCatalogDataType().typeContainsSpatialType()) {
             throw new AnalysisException("map_agg does not support spatial keys");
         }
     }
