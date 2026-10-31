@@ -66,7 +66,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -746,17 +745,13 @@ public class NereidsPlanner extends Planner {
     }
 
     protected void distribute(PhysicalPlan physicalPlan, ExplainLevel explainLevel) {
-        boolean canUseNereidsDistributePlanner = SessionVariable.canUseNereidsDistributePlanner()
-                || (physicalPlan instanceof PhysicalDictionarySink); // dic sink only supported in new Coordinator
-        if ((!canUseNereidsDistributePlanner && explainLevel.isPlanLevel)) {
-            return;
-        } else if ((canUseNereidsDistributePlanner && explainLevel.isPlanLevel
-                && (explainLevel != ExplainLevel.ALL_PLAN && explainLevel != ExplainLevel.DISTRIBUTED_PLAN))) {
+        if (explainLevel.isPlanLevel
+                && explainLevel != ExplainLevel.ALL_PLAN && explainLevel != ExplainLevel.DISTRIBUTED_PLAN) {
             return;
         }
 
         splitFragments(physicalPlan);
-        doDistribute(canUseNereidsDistributePlanner, explainLevel);
+        doDistribute(explainLevel);
 
         addLocalExchangeAfterDistribute();
     }
@@ -772,10 +767,7 @@ public class NereidsPlanner extends Planner {
         }
     }
 
-    protected void doDistribute(boolean canUseNereidsDistributePlanner, ExplainLevel explainLevel) {
-        if (!canUseNereidsDistributePlanner) {
-            return;
-        }
+    protected void doDistribute(ExplainLevel explainLevel) {
         switch (explainLevel) {
             case NONE:
             case ALL_PLAN:
@@ -1100,8 +1092,7 @@ public class NereidsPlanner extends Planner {
 
                 distributedPlanStringBuilder.append("========== DISTRIBUTED PLAN ==========\n");
                 if (distributedPlans == null || distributedPlans.isEmpty()) {
-                    plan = "Distributed plan not generated, please set enable_nereids_distribute_planner "
-                            + "and enable_pipeline_x_engine to true";
+                    plan = "Distributed plan not generated";
                 } else {
                     plan += DistributedPlan.toString(Lists.newArrayList(distributedPlans.values())) + "\n\n";
                 }

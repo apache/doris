@@ -80,7 +80,9 @@ public class SingleFragmentPipelineTask extends LeafRuntimeTask {
         }
 
         long currentProcessEpoch = backend.getProcessEpoch();
-        if (backendProcessEpoch > 0 && currentProcessEpoch > 0 && backendProcessEpoch != currentProcessEpoch) {
+        // A zero current epoch can come from older metadata during replay/upgrade. All other
+        // epoch changes invalidate running tasks, including an initially uninitialized capture.
+        if (currentProcessEpoch != 0 && backendProcessEpoch != currentProcessEpoch) {
             Status unhealthyStatus = new Status(TStatusCode.INTERNAL_ERROR,
                     "backend {} process epoch changed from {} to {}, indicating that the backend restarted",
                     backend.getId(), backendProcessEpoch, currentProcessEpoch);

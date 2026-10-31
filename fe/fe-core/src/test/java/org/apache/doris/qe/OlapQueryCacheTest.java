@@ -136,6 +136,10 @@ public class OlapQueryCacheTest {
         MysqlSerializer serializer = MysqlSerializer.newInstance();
         env = AccessTestUtil.fetchAdminCatalog();
         ctx = Mockito.spy(new ConnectContext());
+        ctx.setQueryId(new TUniqueId());
+        Backend backend = new Backend(1L, "127.0.0.1", 9050);
+        backend.setAlive(true);
+        env.getClusterInfo().addBackend(backend);
         InternalCatalog currentCatalog = (InternalCatalog) env.getCurrentCatalog();
         Mockito.doReturn(new Database()).when(currentCatalog).getDbNullable(Mockito.<String>isNull());
         CatalogMgr catalogMgr = env.getCatalogMgr();
@@ -169,8 +173,6 @@ public class OlapQueryCacheTest {
         Mockito.doReturn(123L).when(ctx).getForwardedStmtId();
         Mockito.doNothing().when(ctx).setKilled();
         Mockito.doNothing().when(ctx).updateReturnRows(Mockito.anyInt());
-        Mockito.doNothing().when(ctx).setQueryId(Mockito.any(TUniqueId.class));
-        Mockito.doReturn(new TUniqueId()).when(ctx).queryId();
         Mockito.doReturn(0L).when(ctx).getStartTime();
         Mockito.doReturn(fullDbName).when(ctx).getDatabase();
         Mockito.doReturn(sessionVariable).when(ctx).getSessionVariable();

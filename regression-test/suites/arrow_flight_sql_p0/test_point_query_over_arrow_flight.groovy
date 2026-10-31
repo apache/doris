@@ -22,7 +22,7 @@ import org.apache.doris.regression.util.JdbcUtils
 // A UNIQUE KEY point query that matches the short circuit is executed by PointQueryExecutor instead of
 // a Coordinator, and neither end of that path can serve an Arrow Flight result:
 //
-//  * Coordinator and NereidsCoordinator are the only places that register a FlightSqlEndpointsLocation,
+//  * Coordinator is the only place that registers a FlightSqlEndpointsLocation,
 //    so GetFlightInfo found no endpoint and failed with
 //    "fetch arrow flight schema failed, no FlightSqlEndpointsLocations", dropping the row.
 //  * The BE could not be pointed at either. tablet_fetch_data serializes with VMysqlResultWriter into

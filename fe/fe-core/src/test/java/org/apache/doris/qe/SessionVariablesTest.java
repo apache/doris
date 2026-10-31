@@ -248,8 +248,7 @@ public class SessionVariablesTest extends TestWithFeService {
         VarAttrDef.VarAttr varAttr = field.getAnnotation(VarAttrDef.VarAttr.class);
         Assertions.assertEquals(
                 "Controls the number of producer BEs for each broadcast join runtime filter in "
-                        + "the Nereids distributed planner. Values less than or equal to 0 disable the limit. "
-                        + "The legacy Coordinator path keeps the existing behavior.",
+                        + "the Nereids distributed planner. Values less than or equal to 0 disable the limit.",
                 varAttr.description());
     }
 

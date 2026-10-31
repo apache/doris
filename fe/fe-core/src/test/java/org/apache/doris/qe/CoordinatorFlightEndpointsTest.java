@@ -36,7 +36,7 @@ import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 
-public class NereidsCoordinatorFlightEndpointsTest {
+public class CoordinatorFlightEndpointsTest {
     private static final TUniqueId QUERY_ID = new TUniqueId(1, 2);
 
     @Test
@@ -107,7 +107,7 @@ public class NereidsCoordinatorFlightEndpointsTest {
         }
         Mockito.when(plan.getInstanceJobs()).thenReturn(ImmutableList.copyOf(jobs));
         Mockito.when(plan.getFragmentJob().getFragment().getOutputExprs()).thenReturn(new ArrayList<>());
-        NereidsCoordinator coordinator = Mockito.mock(NereidsCoordinator.class, Mockito.CALLS_REAL_METHODS);
+        Coordinator coordinator = Mockito.mock(Coordinator.class, Mockito.CALLS_REAL_METHODS);
         Mockito.doReturn(QUERY_ID).when(coordinator).getQueryId();
         coordinator.processTopSink(coordinatorContext, plan);
         return context.getFlightSqlEndpointsLocations();

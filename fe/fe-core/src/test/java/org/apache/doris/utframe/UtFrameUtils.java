@@ -36,6 +36,7 @@ import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.MockedBackendFactory.DefaultBeThriftServiceImpl;
 import org.apache.doris.utframe.MockedBackendFactory.DefaultHeartbeatServiceImpl;
 import org.apache.doris.utframe.MockedBackendFactory.DefaultPBackendServiceImpl;
@@ -70,6 +71,8 @@ public class UtFrameUtils {
     // Help to create a mocked ConnectContext.
     public static ConnectContext createDefaultCtx(UserIdentity userIdentity, String remoteIp) throws IOException {
         ConnectContext ctx = new ConnectContext();
+        UUID queryId = UUID.randomUUID();
+        ctx.setQueryId(new TUniqueId(queryId.getMostSignificantBits(), queryId.getLeastSignificantBits()));
         ctx.setCurrentUserIdentity(userIdentity);
         ctx.setRemoteIP(remoteIp);
         ctx.setEnv(Env.getCurrentEnv());

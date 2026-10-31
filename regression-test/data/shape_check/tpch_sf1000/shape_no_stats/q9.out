@@ -8,11 +8,11 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN shuffle] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=() build RFs:RF7 o_orderkey->l_orderkey
+----------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=() build RFs:RF7 o_orderkey->l_orderkey
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((partsupp.ps_partkey = lineitem.l_partkey) and (partsupp.ps_suppkey = lineitem.l_suppkey)) otherCondition=() build RFs:RF3 ps_suppkey->l_suppkey;RF4 ps_suppkey->s_suppkey;RF5 ps_partkey->l_partkey;RF6 ps_partkey->p_partkey
+--------------------hashJoin[INNER_JOIN colocated] hashCondition=((partsupp.ps_partkey = lineitem.l_partkey) and (partsupp.ps_suppkey = lineitem.l_suppkey)) otherCondition=() build RFs:RF3 ps_suppkey->l_suppkey;RF4 ps_suppkey->s_suppkey;RF5 ps_partkey->l_partkey;RF6 ps_partkey->p_partkey
 ----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF2 p_partkey->l_partkey
+------------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF2 p_partkey->l_partkey
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey)) otherCondition=() build RFs:RF1 s_suppkey->l_suppkey
 ------------------------------PhysicalProject

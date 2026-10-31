@@ -70,9 +70,9 @@ public class UnassignedScanSingleRemoteTableJob extends AbstractUnassignedScanJo
     }
 
     /**
-     * Avoid extra local-shuffle instances for a file TVF row-count scan with one
-     * actual split assigned to this worker. The scan still feeds the upper COUNT
-     * aggregation; this shortcut only reduces fragment-instance overhead.
+     * Keep HTTP stream loads on one instance, and avoid extra local-shuffle
+     * instances for a file TVF row-count scan with one actual split assigned to this worker.
+     * The scan still feeds the upper COUNT aggregation; this shortcut only reduces fragment-instance overhead.
      * Dynamic split sources and existing external-table COUNT paths retain their
      * original parallelism.
      */
@@ -80,6 +80,11 @@ public class UnassignedScanSingleRemoteTableJob extends AbstractUnassignedScanJo
     protected int degreeOfParallelism(ScanSource scanSource, int maxParallel,
             boolean useLocalShuffleToAddParallel) {
         ScanNode scanNode = scanNodes.get(0);
+        // HTTP stream load owns one input stream and completes its BE load context once.
+        // Extra local-shuffle instances would invoke that completion callback more than once.
+        if (scanNode instanceof TVFScanNode && ((TVFScanNode) scanNode).isFileStreamType()) {
+            return 1;
+        }
         if (scanNode instanceof TVFScanNode && scanNode.getPushDownAggNoGroupingOp() == TPushAggOp.COUNT
                 && scanSource instanceof DefaultScanSource) {
             ScanRanges scanRanges = ((DefaultScanSource) scanSource).scanNodeToScanRanges.get(scanNode);

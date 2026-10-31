@@ -17,9 +17,6 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.common.profile.ExecutionProfile;
-import org.apache.doris.planner.PlanFragmentId;
-import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TIcebergCommitData;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaimonCommitMessage;
@@ -37,7 +34,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
 import java.util.Collections;
 
 class QeProcessorImplReportAckTest {
@@ -151,31 +147,6 @@ class QeProcessorImplReportAckTest {
         Assertions.assertFalse(retry.isExternalFileCommitDataAccepted());
         Assertions.assertEquals(TStatusCode.INTERNAL_ERROR, retry.getStatus().getStatusCode());
         Mockito.verify(coordinator, Mockito.times(1)).updateFragmentExecStatus(params);
-    }
-
-    @Test
-    void coordinatorReportStateUsesCrossThreadVisibility() throws Exception {
-        Field done = Coordinator.PipelineExecContext.class.getDeclaredField("done");
-        Field txnId = Coordinator.class.getDeclaredField("txnId");
-
-        Assertions.assertTrue(Modifier.isVolatile(done.getModifiers()));
-        Assertions.assertTrue(Modifier.isVolatile(txnId.getModifiers()));
-    }
-
-    @Test
-    void legacyCoordinatorRetriesFailedAcceptanceBeforeMarkingDone() {
-        Backend backend = Mockito.mock(Backend.class);
-        Mockito.when(backend.getHost()).thenReturn("127.0.0.1");
-        ExecutionProfile profile = Mockito.mock(ExecutionProfile.class);
-        Coordinator.PipelineExecContext context = new Coordinator.PipelineExecContext(
-                new PlanFragmentId(7), null, backend, profile, -1);
-        TReportExecStatusParams report = new TReportExecStatusParams().setDone(true);
-
-        Assertions.assertTrue(context.updatePipelineStatus(report));
-        context.finishPipelineStatus(false);
-        Assertions.assertTrue(context.updatePipelineStatus(report));
-        context.finishPipelineStatus(true);
-        Assertions.assertFalse(context.updatePipelineStatus(report));
     }
 
     private Coordinator register(TUniqueId queryId) throws Exception {
