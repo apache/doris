@@ -44,6 +44,8 @@ public class QueryCacheNormalizerTest extends TestWithFeService {
 
     @Override
     protected void runBeforeAll() throws Exception {
+        // Cache normalization must not fail because concurrent CI work exhausts the planner timeout.
+        connectContext.getSessionVariable().enableNereidsTimeout = false;
         // Create database `db1`.
         createDatabase("db1");
 

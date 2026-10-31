@@ -42,8 +42,8 @@
 #include "core/data_type/data_type_varbinary.h"
 #include "core/data_type_serde/orc_serde_utils.h"
 #include "core/value/uuid_value.h"
-#include "format/orc/vorc_reader.h"
 #include "format/table/iceberg/schema_parser.h"
+#include "format_v2/orc/orc_file_input_stream.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/runtime_state.h"
@@ -401,8 +401,8 @@ TEST_F(VOrcTransformerTest, ConvertsNestedLegacyUuidAndValidatesFixedBeforeOrcWr
 
     io::FileReaderSPtr file_reader;
     ASSERT_TRUE(_fs->open_file(_file_path, &file_reader).ok());
-    auto input_stream = std::make_unique<ORCFileInputStream>(
-            _file_path, file_reader, nullptr, nullptr, 8L * 1024L * 1024L, 1L * 1024L * 1024L);
+    auto input_stream = std::make_unique<format::orc::OrcFileInputStream>(
+            _file_path, file_reader, nullptr, nullptr, format::orc::OrcFileInputStreamOptions {});
     auto reader = orc::createReader(std::move(input_stream), orc::ReaderOptions());
     auto row_reader = reader->createRowReader();
     auto row_batch = row_reader->createRowBatch(1);
@@ -450,8 +450,8 @@ TEST_F(VOrcTransformerTest, PreservesVarbinaryUuidCarrierBeforeOrcWrite) {
 
     io::FileReaderSPtr file_reader;
     ASSERT_TRUE(_fs->open_file(_file_path, &file_reader).ok());
-    auto input_stream = std::make_unique<ORCFileInputStream>(
-            _file_path, file_reader, nullptr, nullptr, 8L * 1024L * 1024L, 1L * 1024L * 1024L);
+    auto input_stream = std::make_unique<format::orc::OrcFileInputStream>(
+            _file_path, file_reader, nullptr, nullptr, format::orc::OrcFileInputStreamOptions {});
     auto reader = orc::createReader(std::move(input_stream), orc::ReaderOptions());
     auto row_reader = reader->createRowReader();
     auto row_batch = row_reader->createRowBatch(1);
@@ -492,8 +492,8 @@ TEST_F(VOrcTransformerTest, PreservesNativeUuidCarrierBeforeIcebergOrcWrite) {
 
     io::FileReaderSPtr file_reader;
     ASSERT_TRUE(_fs->open_file(_file_path, &file_reader).ok());
-    auto input_stream = std::make_unique<ORCFileInputStream>(
-            _file_path, file_reader, nullptr, nullptr, 8L * 1024L * 1024L, 1L * 1024L * 1024L);
+    auto input_stream = std::make_unique<format::orc::OrcFileInputStream>(
+            _file_path, file_reader, nullptr, nullptr, format::orc::OrcFileInputStreamOptions {});
     auto reader = orc::createReader(std::move(input_stream), orc::ReaderOptions());
     auto row_reader = reader->createRowReader();
     auto row_batch = row_reader->createRowBatch(1);
@@ -675,8 +675,8 @@ TEST_F(VOrcTransformerTest, SkipsInvalidBinaryChildrenHiddenByNullableCollection
 
     io::FileReaderSPtr file_reader;
     ASSERT_TRUE(_fs->open_file(_file_path, &file_reader).ok());
-    auto input_stream = std::make_unique<ORCFileInputStream>(
-            _file_path, file_reader, nullptr, nullptr, 8L * 1024L * 1024L, 1L * 1024L * 1024L);
+    auto input_stream = std::make_unique<format::orc::OrcFileInputStream>(
+            _file_path, file_reader, nullptr, nullptr, format::orc::OrcFileInputStreamOptions {});
     auto reader = orc::createReader(std::move(input_stream), orc::ReaderOptions());
     auto row_reader = reader->createRowReader();
     auto row_batch = row_reader->createRowBatch(2);

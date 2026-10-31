@@ -39,7 +39,7 @@
 #include "core/data_type/data_type_variant_v2.h"
 #include "exprs/vexpr_context.h"
 #include "format/table/deletion_vector_reader.h"
-#include "format/table/paimon_reader.h"
+#include "format/table/paimon_deletion_vector.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/jni/paimon_jni_reader.h"
 #include "format_v2/table/paimon_rust_table_reader.h"

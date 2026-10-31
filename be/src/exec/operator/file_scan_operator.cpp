@@ -23,45 +23,19 @@
 #include <memory>
 
 #include "common/cast_set.h"
-#include "core/assert_cast.h"
-#include "core/data_type/data_type_array.h"
-#include "core/data_type/data_type_map.h"
-#include "core/data_type/data_type_nullable.h"
-#include "core/data_type/data_type_struct.h"
 #include "exec/operator/olap_scan_operator.h"
 #include "exec/operator/scan_operator.h"
 #include "exec/scan/file_scan_range_utils.h"
-#include "exec/scan/file_scanner.h"
 #include "exec/scan/file_scanner_v2.h"
 #include "exec/scan/scanner_context.h"
 #include "format/format_common.h"
-#include "format/table/iceberg_scan_semantics.h"
 #include "format_v2/parquet/parquet_profile.h"
+#include "storage/id_manager.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_manager.h"
 
 namespace doris {
 namespace {
-
-bool contains_variant_type(const DataTypePtr& input) {
-    const auto type = remove_nullable(input);
-    switch (type->get_primitive_type()) {
-    case TYPE_VARIANT:
-        return true;
-    case TYPE_ARRAY:
-        return contains_variant_type(assert_cast<const DataTypeArray&>(*type).get_nested_type());
-    case TYPE_MAP: {
-        const auto& map = assert_cast<const DataTypeMap&>(*type);
-        return contains_variant_type(map.get_key_type()) ||
-               contains_variant_type(map.get_value_type());
-    }
-    case TYPE_STRUCT:
-        return std::ranges::any_of(assert_cast<const DataTypeStruct&>(*type).get_elements(),
-                                   contains_variant_type);
-    default:
-        return false;
-    }
-}
 
 // The most file scanners one instance of a file scan node runs: the max_file_scanners_concurrency
 // session variable, 16 when it is not set.
@@ -143,87 +117,6 @@ ScannerScheduler* FileScanLocalState::scan_scheduler(RuntimeState* state) const 
     return state->get_query_ctx()->get_remote_scan_scheduler();
 }
 
-#ifdef BE_TEST
-bool FileScanLocalState::TEST_should_use_file_scanner_v2(const TQueryOptions& query_options,
-                                                         bool is_load,
-                                                         const TFileScanRangeParams& scan_params) {
-    return should_use_file_scanner_v2(query_options, is_load, scan_params);
-}
-#endif
-
-bool FileScanLocalState::should_use_file_scanner_v2(const TQueryOptions& query_options,
-                                                    bool is_load,
-                                                    const TFileScanRangeParams& scan_params) {
-    if (is_load) {
-        // ADBC and Fluss are query-only connectors. Their default Parquet format must not
-        // admit them to the ordinary file-load conversion path.
-        if (scan_params.__isset.table_format_params &&
-            (scan_params.table_format_params.table_format_type == "adbc" ||
-             scan_params.table_format_params.table_format_type == "fluss")) {
-            return false;
-        }
-        // Load planners omit query session options. Thrift's default makes an omitted V2
-        // option indistinguishable from false, so ingestion selects by format instead.
-        switch (scan_params.format_type) {
-        case TFileFormatType::FORMAT_PARQUET:
-        case TFileFormatType::FORMAT_ORC:
-        case TFileFormatType::FORMAT_JSON:
-        case TFileFormatType::FORMAT_CSV_PLAIN:
-        case TFileFormatType::FORMAT_CSV_GZ:
-        case TFileFormatType::FORMAT_CSV_BZ2:
-        case TFileFormatType::FORMAT_CSV_LZ4FRAME:
-        case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
-        case TFileFormatType::FORMAT_CSV_LZOP:
-        case TFileFormatType::FORMAT_CSV_DEFLATE:
-        case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
-        case TFileFormatType::FORMAT_PROTO:
-        case TFileFormatType::FORMAT_TEXT:
-        case TFileFormatType::FORMAT_WAL:
-        case TFileFormatType::FORMAT_ARROW:
-            return true;
-        default:
-            return false;
-        }
-    }
-    // ADBC only has a FileScannerV2 reader, and enable_file_scanner_v2 is a session variable marked
-    // fuzzy=true, so the regression harness flips it to false at random. Without letting adbc
-    // through unconditionally, those queries land in v1, which has no "adbc" branch, and come back
-    // with an undiagnosable NotSupported -- showing up in CI as a random failure.
-    // Loads are left alone: there
-    // is no ADBC load path, so widening the rule to cover them would only route them somewhere they
-    // still cannot run.
-    // Fluss is in the same position, and reaches this the same way: FlussScanPlanProvider stamps the
-    // scan-level format so the choice can be made here, before any range is fetched. Every range of a
-    // fluss scan carries that same format -- log ranges and wrapped lake splits alike -- and is
-    // dispatched inside FlussHybridReader, which only FileScannerV2 builds. Loads are left alone for
-    // the same reason as adbc: there is no fluss load path.
-    if (!is_load && scan_params.__isset.table_format_params &&
-        (scan_params.table_format_params.table_format_type == "adbc" ||
-         scan_params.table_format_params.table_format_type == "fluss")) {
-        return true;
-    }
-    // Hybrid scans advertise native Parquet at scan level because ranges can arrive after the
-    // scanner is selected; FORMAT_JNI alone does not imply that every range uses JNI.
-    const bool is_hybrid_native_parquet = scan_params.format_type == TFileFormatType::FORMAT_JNI &&
-                                          scan_params.__isset.contains_native_parquet &&
-                                          scan_params.contains_native_parquet;
-    // Version 1 introduces the explicit wall-clock/instant contract that scanner V1 cannot honor.
-    const bool requires_parquet_timestamp_contract =
-            (scan_params.format_type == TFileFormatType::FORMAT_PARQUET ||
-             is_hybrid_native_parquet || supports_iceberg_scan_semantics_v1(&scan_params)) &&
-            (scan_params.__isset.hive_parquet_time_zone ||
-             (scan_params.__isset.parquet_timestamp_semantics_version &&
-              scan_params.parquet_timestamp_semantics_version >= 1));
-    const bool scanner_v2_requested = (query_options.__isset.enable_file_scanner_v2 &&
-                                       query_options.enable_file_scanner_v2) ||
-                                      requires_parquet_timestamp_contract;
-    // Iceberg's default write format does not describe retained files, and remote splits arrive
-    // after scanner construction. Keep versioned Iceberg scans on V2 without eagerly listing
-    // every file.
-    return scanner_v2_requested && !is_load &&
-           scan_params.format_type != TFileFormatType::FORMAT_LANCE;
-}
-
 Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     if (_split_source->num_scan_ranges() == 0) {
         _eos = true;
@@ -245,41 +138,12 @@ Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
         scan_params = _split_source->get_params();
     }
     RETURN_IF_ERROR(validate_file_scan_support(*scan_params));
-    const bool is_load =
-            state()->desc_tbl().get_tuple_descriptor(scan_params->src_tuple_id) != nullptr;
-    // TODO: Use scanner v2 for all queries.
-    const bool use_file_scanner_v2 =
-            should_use_file_scanner_v2(state()->query_options(), is_load, *scan_params);
-    _operator_profile->add_info_string("UseScannerV2", use_file_scanner_v2 ? "true" : "false");
-    const auto* output_tuple_desc = state()->desc_tbl().get_tuple_descriptor(_output_tuple_id);
-    DORIS_CHECK(output_tuple_desc != nullptr);
-    const bool metadata_only_count =
-            is_count_star_pushdown() && _split_source->all_ranges_have_table_level_row_count();
-    if (!is_load && !use_file_scanner_v2 && !metadata_only_count &&
-        std::ranges::any_of(output_tuple_desc->slots(), [](const SlotDescriptor* slot) {
-            return contains_variant_type(slot->type());
-        })) {
-        // A syntactic COUNT(*) alone is insufficient: every assigned range must prove that the
-        // legacy scanner will emit metadata counts without decoding a Variant carrier.
-        return Status::NotSupported(
-                "External VARIANT columns require FileScannerV2; the legacy file scanner does "
-                "not support VARIANT");
-    }
-    if (use_file_scanner_v2) {
-        _parquet_profile_cache =
-                std::make_unique<format::parquet::ParquetProfileCache>(_scanner_profile.get());
-    }
+    _parquet_profile_cache =
+            std::make_unique<format::parquet::ParquetProfileCache>(_scanner_profile.get());
     for (int i = 0; i < _max_scanners; ++i) {
-        ScannerSPtr scanner;
-        if (use_file_scanner_v2) {
-            scanner = FileScannerV2::create_shared(state(), this, p._limit, _split_source,
-                                                   _scanner_profile.get(), p._kv_cache.get(),
-                                                   &p._colname_to_slot_id);
-        } else {
-            scanner = FileScanner::create_shared(state(), this, p._limit, _split_source,
-                                                 _scanner_profile.get(), p._kv_cache.get(),
-                                                 &p._colname_to_slot_id);
-        }
+        ScannerSPtr scanner = FileScannerV2::create_shared(
+                state(), this, p._limit, _split_source, _scanner_profile.get(), p._kv_cache.get(),
+                &p._colname_to_slot_id);
         RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
         scanners->push_back(std::move(scanner));
     }

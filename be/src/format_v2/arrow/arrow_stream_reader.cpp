@@ -508,12 +508,18 @@ Status ArrowStreamReader::get_block(Block* block, size_t* rows, bool* eof) {
         for (const auto& [id, position] : _request->local_positions) {
             // Preserve the original array and pass a row range: Arrow Slice creates nonzero
             // offsets, which nested Doris SerDes deliberately reject.
-            RETURN_IF_ERROR(guard.get_datatype_by_position(position.value())
-                                    ->get_serde()
-                                    ->read_column_from_arrow(*columns.at(position.value()),
-                                                             _arrays[id.value()].get(),
-                                                             _batch_offset, end,
-                                                             _state->timezone_obj()));
+            const auto& data_type = guard.get_datatype_by_position(position.value());
+            const auto& array = _arrays[id.value()];
+            auto status = data_type->get_serde()->read_column_from_arrow(
+                    *columns.at(position.value()), array.get(), _batch_offset, end,
+                    _state->timezone_obj());
+            // Keep load-validation error codes and identify the failing column, as the retired
+            // stream reader did; e.g. a Date64 outside Doris' range must remain INVALID_ARGUMENT.
+            if (!status.ok()) {
+                return status.prepend(fmt::format(
+                        "Arrow column '{}' ({} -> {}): ", _file_slots[id.value()]->col_name(),
+                        array->type()->ToString(), data_type->get_name()));
+            }
         }
     }
     *rows = cast_set<size_t>(end - _batch_offset);

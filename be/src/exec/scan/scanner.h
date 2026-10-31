@@ -56,7 +56,7 @@ public:
     Scanner(RuntimeState* state, ScanLocalStateBase* local_state, int64_t limit,
             RuntimeProfile* profile);
 
-    //only used for FileScanner read one line.
+    // Standalone scanner context used by external row fetches and reader tests.
     Scanner(RuntimeState* state, RuntimeProfile* profile)
             : _state(state), _limit(1), _profile(profile), _total_rf_num(0), _has_prepared(false) {
         DorisMetrics::instance()->scanner_cnt->increment(1);

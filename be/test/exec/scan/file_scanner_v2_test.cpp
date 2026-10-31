@@ -41,7 +41,6 @@
 #include "exec/operator/file_scan_operator.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exec/scan/file_scan_io_context.h"
-#include "exec/scan/file_scanner.h"
 #include "exec/scan/split_source_connector.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/runtime_filter_expr.h"
@@ -69,65 +68,7 @@ TFileRangeDesc range_with_format(std::string table_format, TFileFormatType::type
     return range;
 }
 
-TFileRangeDesc iceberg_position_deletes_range(TFileFormatType::type format_type, int content) {
-    auto range = range_with_format("iceberg", format_type);
-    TIcebergFileDesc iceberg_params;
-    iceberg_params.__set_content(content);
-    range.table_format_params.__set_iceberg_params(std::move(iceberg_params));
-    return range;
-}
-
-TFileRangeDesc hudi_range_with_delta_logs() {
-    auto range = range_with_format("hudi", TFileFormatType::FORMAT_PARQUET);
-    THudiFileDesc hudi_params;
-    hudi_params.__set_delta_logs({"delta.log"});
-    range.table_format_params.__set_hudi_params(std::move(hudi_params));
-    return range;
-}
-
-TFileRangeDesc legacy_paimon_jni_range_without_reader_type() {
-    auto range = range_with_format("paimon", TFileFormatType::FORMAT_JNI);
-    TPaimonFileDesc paimon_params;
-    paimon_params.__set_paimon_split("legacy-split");
-    paimon_params.__set_paimon_predicate("legacy-predicate");
-    range.table_format_params.__set_paimon_params(std::move(paimon_params));
-    return range;
-}
-
-TFileRangeDesc paimon_rust_jni_range(bool with_schema_json = true) {
-    auto range = range_with_format("paimon", TFileFormatType::FORMAT_JNI);
-    TPaimonFileDesc paimon_params;
-    paimon_params.__set_reader_type(TPaimonReaderType::PAIMON_RUST);
-    paimon_params.__set_file_format("parquet");
-    paimon_params.__set_paimon_split("serialized-rust-split");
-    paimon_params.__set_paimon_table("/paimon/warehouse/db.db/t");
-    paimon_params.__set_db_name("db");
-    paimon_params.__set_table_name("t");
-    if (with_schema_json) {
-        paimon_params.__set_paimon_table_schema_json("{}");
-    }
-    range.table_format_params.__set_paimon_params(std::move(paimon_params));
-    return range;
-}
-
-TEST(FileScannerTest, V1CountPushdownRequiresExplicitCountStarArguments) {
-    EXPECT_EQ(TPushAggOp::type::COUNT, FileScanner::TEST_effective_push_down_agg_type(
-                                               TPushAggOp::type::COUNT, std::vector<int32_t> {}));
-
-    // A missing field is an old FE plan with unknown COUNT semantics, not COUNT(*).
-    EXPECT_EQ(TPushAggOp::type::NONE, FileScanner::TEST_effective_push_down_agg_type(
-                                              TPushAggOp::type::COUNT, std::nullopt));
-    // V1 cannot evaluate COUNT(col) NULL/CAST semantics before replacing the reader with
-    // CountReader, so an explicit argument must use the normal scan path.
-    EXPECT_EQ(TPushAggOp::type::NONE, FileScanner::TEST_effective_push_down_agg_type(
-                                              TPushAggOp::type::COUNT, std::vector<int32_t> {7}));
-
-    // The COUNT argument field must not affect other storage-layer aggregate operations.
-    EXPECT_EQ(TPushAggOp::type::MINMAX, FileScanner::TEST_effective_push_down_agg_type(
-                                                TPushAggOp::type::MINMAX, std::nullopt));
-}
-
-TEST(FileScannerTest, CountStarPlaceholderIsNotASemanticProjection) {
+TEST(FileScannerV2Test, CountStarPlaceholderIsNotASemanticProjection) {
     EXPECT_TRUE(ScanLocalStateBase::is_count_star_pushdown(TPushAggOp::type::COUNT,
                                                            std::vector<int32_t> {}));
     EXPECT_FALSE(ScanLocalStateBase::is_count_star_pushdown(TPushAggOp::type::COUNT,
@@ -141,6 +82,32 @@ TEST(FileScannerV2Test, AdaptiveBatchSizeRunsForCountFallbackOnly) {
     EXPECT_TRUE(FileScannerV2::TEST_should_run_adaptive_batch_size(true, false));
     EXPECT_FALSE(FileScannerV2::TEST_should_run_adaptive_batch_size(true, true));
     EXPECT_FALSE(FileScannerV2::TEST_should_run_adaptive_batch_size(false, false));
+}
+
+TEST(FileScannerV2Test, ReaderDispatchIgnoresDeprecatedOptionAndRejectsUnknownTables) {
+    for (int option = 0; option < 3; ++option) {
+        TQueryOptions options;
+        if (option != 0) {
+            options.__set_enable_file_scanner_v2(option == 2);
+        }
+        RuntimeState state(options, TQueryGlobals());
+        RuntimeProfile profile("file_scan");
+        TFileScanRangeParams params;
+        params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+        FileScannerV2 scanner(&state, &profile, nullptr);
+        scanner._params = &params;
+        std::unique_ptr<format::TableReader> reader;
+        ASSERT_TRUE(
+                scanner._create_table_reader_for_format(
+                               range_with_format("tvf", TFileFormatType::FORMAT_PARQUET), &reader)
+                        .ok());
+        ASSERT_NE(reader, nullptr);
+        EXPECT_TRUE(
+                scanner._create_table_reader_for_format(
+                               range_with_format("unknown_table", TFileFormatType::FORMAT_PARQUET),
+                               &reader)
+                        .is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+    }
 }
 
 struct RetryableCloseState {
@@ -176,30 +143,167 @@ public:
     size_t partition_prune_conjunct_count = 0;
 };
 
+class ErrorContextTableReader final : public format::TableReader {
+public:
+    Status prepare_split(const format::SplitReadOptions&) override { return prepare_status; }
+    Status refresh_conjuncts(VExprContextSPtrs) override { return refresh_status; }
+    Status get_block(Block*, bool* eof) override {
+        *eof = false;
+        return read_status;
+    }
+
+    Status prepare_status;
+    Status refresh_status;
+    Status read_status;
+};
+
+TEST(FileScannerV2Test, ReaderErrorsRetainCurrentPathAndOrcContext) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("file_error_context");
+    TFileScanRangeParams params;
+    auto reader = std::make_unique<ErrorContextTableReader>();
+    auto* errors = reader.get();
+    FileScannerV2 scanner(&state, &profile, std::move(reader));
+    scanner._params = &params;
+    scanner._io_ctx = std::make_shared<io::IOContext>();
+    scanner._has_prepared_split = true;
+    Block block;
+    bool eof = false;
+    for (const auto format : {TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_ORC}) {
+        params.__set_format_type(format);
+        const std::string reason = format == TFileFormatType::FORMAT_ORC
+                                           ? "Orc row reader nextBatch failed. reason = bad data"
+                                           : "bad data";
+        errors->read_status = Status::InvalidArgument(reason);
+        for (const auto* path : {"s3://test-bucket/first.data", "s3://test-bucket/second.data"}) {
+            scanner._current_range.__set_path(path);
+            auto status = scanner._get_block_impl(&state, &block, &eof);
+            EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);
+            EXPECT_NE(status.to_string().find(reason), std::string::npos) << status;
+            EXPECT_NE(status.to_string().find(std::string(". cur path: ") + path),
+                      std::string::npos)
+                    << status;
+            EXPECT_FALSE(eof);
+        }
+    }
+    errors->read_status = Status::OK();
+    EXPECT_TRUE(scanner._get_block_impl(&state, &block, &eof).ok());
+}
+
+TEST(FileScannerV2Test, RefreshErrorsRetainCurrentPath) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("refresh_error_context");
+    TFileScanRangeParams params;
+    auto reader = std::make_unique<ErrorContextTableReader>();
+    reader->refresh_status = Status::InvalidArgument("injected refresh failure");
+    FileScannerV2 scanner(&state, &profile, std::move(reader));
+    scanner._params = &params;
+    scanner._has_prepared_split = true;
+    scanner._applied_rf_num = 1;
+    scanner._current_range.__set_path("s3://test-bucket/refresh.parquet");
+    Block block;
+    bool eof = false;
+    const auto status = scanner._get_block_impl(&state, &block, &eof);
+    EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);
+    EXPECT_NE(status.to_string().find("injected refresh failure"), std::string::npos) << status;
+    EXPECT_NE(status.to_string().find(". cur path: s3://test-bucket/refresh.parquet"),
+              std::string::npos)
+            << status;
+}
+
+TEST(FileScannerV2Test, OpenErrorsNameSelectedRangeBeforePreparingReader) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("open_error_context");
+    TFileScanRangeParams params;
+    TScanRangeParams split;
+    auto range = range_with_format("", TFileFormatType::FORMAT_AVRO);
+    range.__set_path("s3://test-bucket/unsupported.avro");
+    split.scan_range.ext_scan_range.file_scan_range.ranges.push_back(range);
+    FileScannerV2 scanner(&state, &profile, nullptr);
+    scanner._params = &params;
+    scanner._split_source =
+            std::make_shared<LocalSplitSourceConnector>(std::vector<TScanRangeParams> {split}, 1);
+    const auto status = scanner._open_impl(&state);
+    EXPECT_EQ(status.code(), ErrorCode::NOT_IMPLEMENTED_ERROR);
+    EXPECT_NE(status.to_string().find("Avro file reads"), std::string::npos) << status;
+    EXPECT_NE(status.to_string().find(". cur path: s3://test-bucket/unsupported.avro"),
+              std::string::npos)
+            << status;
+    EXPECT_EQ(scanner.get_current_scan_range_name(), range.path);
+}
+
+TEST(FileScannerV2Test, PrepareErrorsNameNextFileInsteadOfPreviousFile) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("prepare_error_context");
+    ObjectPool pool;
+    TDescriptorTable thrift_descriptors;
+    TTupleDescriptor tuple;
+    tuple.__set_id(0);
+    thrift_descriptors.tupleDescriptors.push_back(tuple);
+    DescriptorTbl* descriptors = nullptr;
+    ASSERT_TRUE(DescriptorTbl::create(&pool, thrift_descriptors, &descriptors).ok());
+    TPlanNode plan;
+    plan.__set_node_id(0);
+    plan.__set_node_type(TPlanNodeType::FILE_SCAN_NODE);
+    plan.__set_limit(-1);
+    plan.__set_row_tuples({0});
+    TFileScanNode scan;
+    scan.__set_tuple_id(0);
+    plan.__set_file_scan_node(scan);
+    FileScanOperatorX parent(&pool, plan, 0, *descriptors, 1);
+    FileScanLocalState local_state(&state, &parent);
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_WAL);
+    auto reader = std::make_unique<ErrorContextTableReader>();
+    reader->prepare_status = Status::InvalidArgument("injected prepare failure");
+    FileScannerV2 scanner(&state, &profile, std::move(reader));
+    scanner._params = &params;
+    scanner._local_state = &local_state;
+    scanner._io_ctx = std::make_shared<io::IOContext>();
+    scanner._adaptive_batch_predicted_rows_counter =
+            ADD_COUNTER(&profile, "Predicted", TUnit::UNIT);
+    scanner._adaptive_batch_actual_bytes_counter = ADD_COUNTER(&profile, "Actual", TUnit::BYTES);
+    scanner._current_range.__set_path("s3://test-bucket/previous.wal");
+    auto range = range_with_format("", TFileFormatType::FORMAT_WAL);
+    range.__set_path("s3://test-bucket/next.wal");
+    TScanRangeParams split;
+    split.scan_range.ext_scan_range.file_scan_range.ranges.push_back(range);
+    scanner._split_source =
+            std::make_shared<LocalSplitSourceConnector>(std::vector<TScanRangeParams> {split}, 1);
+    Block block;
+    bool eof = false;
+    const auto status = scanner._get_block_impl(&state, &block, &eof);
+    EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);
+    EXPECT_NE(status.to_string().find("injected prepare failure"), std::string::npos) << status;
+    EXPECT_NE(status.to_string().find(". cur path: s3://test-bucket/next.wal"), std::string::npos)
+            << status;
+    EXPECT_EQ(status.to_string().find("previous.wal"), std::string::npos) << status;
+}
+
+TEST(FileScannerV2Test, RowIdErrorsRetainCurrentPath) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("row_id_error_context");
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_CSV_PLAIN);
+    auto range = range_with_format("", TFileFormatType::FORMAT_CSV_PLAIN);
+    range.__set_path("s3://test-bucket/row-id.csv");
+    FileScannerV2 scanner(&state, &profile, nullptr);
+    scanner._params = &params;
+    Block block;
+    int64_t init_ms = 0;
+    int64_t read_ms = 0;
+    const auto status = scanner.read_by_rows(range, {0}, &block, &init_ms, &read_ms);
+    EXPECT_EQ(status.code(), ErrorCode::NOT_IMPLEMENTED_ERROR);
+    EXPECT_NE(status.to_string().find("row-id fetch supports only"), std::string::npos) << status;
+    EXPECT_NE(status.to_string().find(". cur path: s3://test-bucket/row-id.csv"), std::string::npos)
+            << status;
+}
+
 VExprSPtr slot_ref(int slot_id, int column_id, DataTypePtr type, const std::string& name) {
     return VSlotRef::create_shared(slot_id, column_id, -1, std::move(type), name);
 }
 
 TExprNode bool_in_pred_node();
-
-class UnsafePartitionPredicate final : public VExpr {
-public:
-    UnsafePartitionPredicate() : VExpr(std::make_shared<DataTypeUInt8>(), false) {}
-
-    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t count,
-                               ColumnPtr& result_column) const override {
-        auto result = ColumnUInt8::create();
-        result->get_data().resize_fill(count, 1);
-        result_column = std::move(result);
-        return Status::OK();
-    }
-
-    const std::string& expr_name() const override { return _expr_name; }
-    bool is_safe_to_execute_on_selected_rows() const override { return false; }
-
-private:
-    const std::string _expr_name = "UnsafePartitionPredicate";
-};
 
 class UndigestibleRuntimePredicate final : public VExpr {
 public:
@@ -322,119 +426,6 @@ VExprContextSPtr int_minmax_runtime_filter(int32_t upper_bound, int filter_id) {
 
 } // namespace
 
-// Scenario: FileScannerV2::is_supported should honor table format, scan params format, and the
-// optional per-range file format override as a single matrix.
-TEST(FileScannerV2Test, SupportedFormatMatrix) {
-    struct Case {
-        std::string table_format;
-        TFileFormatType::type params_format;
-        std::optional<TFileFormatType::type> range_format;
-        bool expected;
-    };
-
-    const std::vector<Case> cases {
-            {"", TFileFormatType::FORMAT_PARQUET, std::nullopt, true},
-            {"tvf", TFileFormatType::FORMAT_PARQUET, std::nullopt, true},
-            {"hive", TFileFormatType::FORMAT_PARQUET, std::nullopt, true},
-            {"iceberg", TFileFormatType::FORMAT_PARQUET, std::nullopt, true},
-            {"paimon", TFileFormatType::FORMAT_PARQUET, std::nullopt, true},
-            // A fluss range that does not say it is a lake split is a range of fluss's own log,
-            // and those are read through JNI alone; see FlussRangesAreSupportedByTheirRangeKind
-            // for the lake shapes.
-            {"fluss", TFileFormatType::FORMAT_PARQUET, std::nullopt, false},
-            {"fluss", TFileFormatType::FORMAT_JNI, std::nullopt, true},
-            {"hudi", TFileFormatType::FORMAT_PARQUET, std::nullopt, true},
-            {"jdbc", TFileFormatType::FORMAT_PARQUET, std::nullopt, false},
-            {"", TFileFormatType::FORMAT_JNI, std::nullopt, false},
-            {"hive", TFileFormatType::FORMAT_ORC, std::nullopt, true},
-            {"transactional_hive", TFileFormatType::FORMAT_ORC, std::nullopt, false},
-            {"jdbc", TFileFormatType::FORMAT_JNI, std::nullopt, true},
-            {"hive", TFileFormatType::FORMAT_JNI, std::nullopt, false},
-            {"", TFileFormatType::FORMAT_CSV_PLAIN, std::nullopt, true},
-            {"tvf", TFileFormatType::FORMAT_CSV_GZ, std::nullopt, true},
-            {"hive", TFileFormatType::FORMAT_CSV_BZ2, std::nullopt, true},
-            {"hive", TFileFormatType::FORMAT_CSV_LZ4FRAME, std::nullopt, true},
-            {"hive", TFileFormatType::FORMAT_CSV_LZ4BLOCK, std::nullopt, true},
-            {"hive", TFileFormatType::FORMAT_CSV_LZOP, std::nullopt, true},
-            {"hive", TFileFormatType::FORMAT_CSV_DEFLATE, std::nullopt, true},
-            {"hive", TFileFormatType::FORMAT_CSV_SNAPPYBLOCK, std::nullopt, true},
-            {"hive", TFileFormatType::FORMAT_PROTO, std::nullopt, true},
-            {"hive", TFileFormatType::FORMAT_TEXT, std::nullopt, true},
-            {"hive", TFileFormatType::FORMAT_JSON, std::nullopt, true},
-            {"hive", TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_ORC, true},
-            {"hive", TFileFormatType::FORMAT_ORC, TFileFormatType::FORMAT_PARQUET, true},
-            {"hive", TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_CSV_PLAIN, true},
-            {"hive", TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_TEXT, true},
-            {"hive", TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_JSON, true},
-            {"remote_doris", TFileFormatType::FORMAT_ARROW, std::nullopt, true},
-            {"hive", TFileFormatType::FORMAT_ARROW, std::nullopt, false},
-            {"", TFileFormatType::FORMAT_ARROW, std::nullopt, false},
-            {"", TFileFormatType::FORMAT_WAL, std::nullopt, true},
-            {"es", TFileFormatType::FORMAT_ES_HTTP, std::nullopt, true},
-            {"", TFileFormatType::FORMAT_ES_HTTP, std::nullopt, false},
-            {"", TFileFormatType::FORMAT_LANCE, std::nullopt, false},
-    };
-
-    for (const auto& test_case : cases) {
-        TFileScanRangeParams params;
-        params.__set_format_type(test_case.params_format);
-        auto range = range_with_format(test_case.table_format,
-                                       test_case.range_format.value_or(test_case.params_format));
-        if (!test_case.range_format.has_value()) {
-            range.__isset.format_type = false;
-        }
-        EXPECT_EQ(FileScannerV2::is_supported(params, range), test_case.expected)
-                << "table_format=" << test_case.table_format
-                << ", params_format=" << static_cast<int>(test_case.params_format)
-                << ", range_has_format=" << test_case.range_format.has_value();
-    }
-
-    TFileScanRangeParams params;
-    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
-    EXPECT_FALSE(FileScannerV2::is_supported(params, hudi_range_with_delta_logs()));
-}
-
-TEST(FileScannerV2Test, ArrowVariantRequiresNativeCarrier) {
-    EXPECT_TRUE(FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_ARROW, true,
-                                                                "adbc")
-                        .ok());
-    EXPECT_TRUE(FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_ARROW,
-                                                                false, "remote_doris")
-                        .ok());
-    EXPECT_TRUE(FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_PARQUET,
-                                                                true, "iceberg")
-                        .ok());
-
-    const auto status = FileScannerV2::TEST_validate_variant_projection(
-            TFileFormatType::FORMAT_ARROW, true, "remote_doris");
-    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
-    EXPECT_NE(status.to_string().find(
-                      "External Variant Arrow reads require an ADBC native Variant carrier"),
-              std::string::npos)
-            << status;
-}
-
-// Scenario: Iceberg position-delete system table splits use FileScannerV2 for both native delete
-// formats and V3 deletion vectors. Avro remains unsupported and is rejected by FE before routing.
-TEST(FileScannerV2Test, IcebergPositionDeletesSupportNativeFormats) {
-    TFileScanRangeParams params;
-    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
-
-    const auto parquet_position_delete = iceberg_position_deletes_range(
-            TFileFormatType::FORMAT_PARQUET, kIcebergPositionDeleteContent);
-    const auto parquet_deletion_vector = iceberg_position_deletes_range(
-            TFileFormatType::FORMAT_PARQUET, kIcebergDeletionVectorContent);
-    const auto orc_position_delete = iceberg_position_deletes_range(TFileFormatType::FORMAT_ORC,
-                                                                    kIcebergPositionDeleteContent);
-    const auto avro_position_delete = iceberg_position_deletes_range(TFileFormatType::FORMAT_AVRO,
-                                                                     kIcebergPositionDeleteContent);
-
-    EXPECT_TRUE(FileScannerV2::is_supported(params, parquet_position_delete));
-    EXPECT_TRUE(FileScannerV2::is_supported(params, parquet_deletion_vector));
-    EXPECT_TRUE(FileScannerV2::is_supported(params, orc_position_delete));
-    EXPECT_FALSE(FileScannerV2::is_supported(params, avro_position_delete));
-}
-
 // Ready IN/Bloom/MinMax runtime filters all expose their payload through get_digest(). Rebuilding
 // the scanner digest must therefore be stable for the same payload and isolated for a different
 // payload. An RF without a complete digest remains the zero-digest safety fallback.
@@ -464,130 +455,6 @@ TEST(FileScannerV2Test, ConditionCacheDigestIncludesRuntimeFilterPayload) {
               0);
 }
 
-TEST(FileScannerV2Test, ArrowStreamLoadsSelectV2) {
-    TQueryOptions options;
-    TFileScanRangeParams params;
-    params.__set_format_type(TFileFormatType::FORMAT_ARROW);
-    params.__set_file_type(TFileType::FILE_STREAM);
-    params.__set_src_tuple_id(0);
-    TFileRangeDesc range;
-    range.__set_format_type(TFileFormatType::FORMAT_ARROW);
-    range.__set_file_type(TFileType::FILE_STREAM);
-    range.__set_load_id(TUniqueId());
-    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, true, params));
-    EXPECT_TRUE(FileScannerV2::is_supported(params, range));
-}
-
-TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesAndLoads) {
-    TQueryOptions query_options;
-    TFileScanRangeParams params;
-    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
-
-    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-
-    query_options.__set_enable_file_scanner_v2(true);
-    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, true, params));
-
-    params.__set_format_type(TFileFormatType::FORMAT_WAL);
-    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-    params.__set_format_type(TFileFormatType::FORMAT_JNI);
-    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-
-    params.__set_format_type(TFileFormatType::FORMAT_ES_HTTP);
-    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, true, params));
-    query_options.__set_enable_file_scanner_v2(false);
-    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-    query_options.__set_enable_file_scanner_v2(true);
-
-    const std::vector<TFileFormatType::type> unsupported_formats {TFileFormatType::FORMAT_LANCE};
-    for (const auto format : unsupported_formats) {
-        params.__set_format_type(format);
-        EXPECT_FALSE(
-                FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-    }
-
-    params.__set_format_type(TFileFormatType::FORMAT_ORC);
-    TTableFormatFileDesc table_format_params;
-    table_format_params.__set_table_format_type("hive");
-    params.__set_table_format_params(table_format_params);
-    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-
-    query_options.__set_enable_file_scanner_v2(false);
-    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-
-    params.format_type = TFileFormatType::FORMAT_PARQUET;
-    params.__set_hive_parquet_time_zone("Asia/Shanghai");
-    // An intermediate FE's explicit field 36 also needs a reader that can honor its timezone.
-    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-    params.__isset.hive_parquet_time_zone = false;
-    params.__set_parquet_timestamp_semantics_version(1);
-    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, true, params));
-    // Paimon keeps FORMAT_JNI at scan level even when its ranges are native Parquet files.
-    params.format_type = TFileFormatType::FORMAT_JNI;
-    params.__set_paimon_predicate("encoded-predicate");
-    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-    params.__set_history_schema_info({schema::external::TSchema {}});
-    // Native ORC has history schemas too; that metadata alone must not override the session.
-    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-    params.__set_contains_native_parquet(false);
-    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-    params.__set_contains_native_parquet(true);
-    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-    params.__set_parquet_timestamp_semantics_version(0);
-    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-    params.__set_hive_parquet_time_zone("");
-    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-    params.format_type = TFileFormatType::FORMAT_ORC;
-    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-}
-
-TEST(FileScannerV2Test, IcebergOrcDefaultCannotHideDeferredParquetRanges) {
-    TQueryOptions options;
-    options.__set_enable_file_scanner_v2(false);
-    TFileScanRangeParams params;
-    params.__set_format_type(TFileFormatType::FORMAT_ORC);
-    params.__set_iceberg_scan_semantics_version(2);
-    params.__set_parquet_timestamp_semantics_version(1);
-    // Scanner construction precedes remote split delivery; the default says nothing about
-    // retained Parquet files after changing write.format.default to ORC.
-    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, false, params));
-    // ORC loads select V2 independently of the external-query session option.
-    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, true, params));
-    params.__isset.parquet_timestamp_semantics_version = false;
-    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, false, params));
-    params.__set_hive_parquet_time_zone("");
-    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, false, params));
-    params.__isset.iceberg_scan_semantics_version = false;
-    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, false, params));
-}
-
-TEST(FileScannerV2Test, LegacyCountExemptionRequiresMetadataCountOnEveryRange) {
-    auto scan_range = [](std::optional<int64_t> row_count) {
-        TScanRangeParams params;
-        auto& file_range = params.scan_range.ext_scan_range.file_scan_range;
-        TFileRangeDesc range;
-        if (row_count.has_value()) {
-            TTableFormatFileDesc table_format;
-            table_format.__set_table_level_row_count(*row_count);
-            range.__set_table_format_params(table_format);
-        }
-        file_range.ranges.push_back(std::move(range));
-        return params;
-    };
-
-    LocalSplitSourceConnector proven({scan_range(4), scan_range(0)}, 2);
-    EXPECT_TRUE(proven.all_ranges_have_table_level_row_count());
-
-    LocalSplitSourceConnector missing({scan_range(4), scan_range(std::nullopt)}, 2);
-    EXPECT_FALSE(missing.all_ranges_have_table_level_row_count());
-
-    LocalSplitSourceConnector invalid({scan_range(4), scan_range(-1)}, 2);
-    EXPECT_FALSE(invalid.all_ranges_have_table_level_row_count());
-}
-
 TEST(FileScannerV2Test, RemoteSplitSourceStopsLocallyWithoutQueryCancellation) {
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     RemoteSplitSourceConnector source(&state, nullptr, 1, 1, 1);
@@ -600,90 +467,11 @@ TEST(FileScannerV2Test, RemoteSplitSourceStopsLocallyWithoutQueryCancellation) {
     EXPECT_FALSE(has_next);
 }
 
-TEST(FileScannerV2Test, JniCompatibilityShapesUseV2Scanner) {
-    TQueryOptions query_options;
-    query_options.__set_enable_file_scanner_v2(true);
-
-    TFileScanRangeParams params;
-    params.__set_format_type(TFileFormatType::FORMAT_JNI);
-    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-    EXPECT_TRUE(FileScannerV2::is_supported(params, legacy_paimon_jni_range_without_reader_type()));
-}
-
-TEST(FileScannerV2Test, PaimonRustSplitUsesV2Scanner) {
-    TFileScanRangeParams params;
-    params.__set_format_type(TFileFormatType::FORMAT_JNI);
-
-    // A complete rust split (schema json + serialized split) is supported by V2.
-    EXPECT_TRUE(FileScannerV2::is_supported(params, paimon_rust_jni_range()));
-    EXPECT_TRUE(FileScannerV2::TEST_validate_scan_range(params, paimon_rust_jni_range()).ok());
-
-    // The schema-json pipeline field is required: a rust split without it cannot open the
-    // table and is rejected at validation instead of failing deep inside the reader.
-    const auto rust_range_without_schema = paimon_rust_jni_range(/*with_schema_json=*/false);
-    EXPECT_FALSE(FileScannerV2::is_supported(params, rust_range_without_schema));
-    const auto status = FileScannerV2::TEST_validate_scan_range(params, rust_range_without_schema);
-    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
-
-    // Regression guard: PAIMON_CPP splits must remain on the V1 fallback.
-    auto cpp_range = range_with_format("paimon", TFileFormatType::FORMAT_JNI);
-    {
-        TPaimonFileDesc cpp_paimon_params;
-        cpp_paimon_params.__set_reader_type(TPaimonReaderType::PAIMON_CPP);
-        cpp_paimon_params.__set_file_format("parquet");
-        cpp_range.table_format_params.__set_paimon_params(std::move(cpp_paimon_params));
-    }
-    EXPECT_FALSE(FileScannerV2::is_supported(params, cpp_range));
-}
-
 // Scenario: every range of a fluss scan carries the one table format "fluss", and which side reads
 // it - fluss's own JNI scanner, or the paimon sibling's stack - is named per range in
 // fluss.range_type. Support therefore follows that key: a lake split is supported exactly where the
 // paimon payload it carries is, not by a separate rule that could start disagreeing with paimon's
 // after the sibling changes how it plans a split.
-TEST(FileScannerV2Test, FlussRangesAreSupportedByTheirRangeKind) {
-    TFileScanRangeParams params;
-    params.__set_format_type(TFileFormatType::FORMAT_JNI);
-
-    auto serialized_split = legacy_paimon_jni_range_without_reader_type();
-    serialized_split.table_format_params.__set_table_format_type("fluss");
-    serialized_split.table_format_params.__set_fluss_params(
-            {{"fluss.range_type", "LAKE_SUPPRESS"}, {"fluss.union.tail", ":0:0:9"}});
-    EXPECT_TRUE(FileScannerV2::is_supported(params, serialized_split));
-
-    auto native_file_as_jni = range_with_format("fluss", TFileFormatType::FORMAT_JNI);
-    native_file_as_jni.table_format_params.__set_fluss_params({{"fluss.range_type", "LAKE"}});
-    TPaimonFileDesc paimon_params;
-    paimon_params.__set_file_format("orc");
-    native_file_as_jni.table_format_params.__set_paimon_params(paimon_params);
-    EXPECT_TRUE(FileScannerV2::is_supported(params, native_file_as_jni));
-
-    // A plain native lake split, in both physical formats the sibling plans.
-    for (const auto native_format :
-         {TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_ORC}) {
-        auto native_split = range_with_format("fluss", native_format);
-        native_split.table_format_params.__set_fluss_params({{"fluss.range_type", "LAKE"}});
-        EXPECT_TRUE(FileScannerV2::is_supported(params, native_split))
-                << "native_format=" << static_cast<int>(native_format);
-    }
-
-    // No paimon payload at all is not a split the fluss reader can hand to the sibling.
-    auto lake_without_payload = range_with_format("fluss", TFileFormatType::FORMAT_JNI);
-    lake_without_payload.table_format_params.__set_fluss_params({{"fluss.range_type", "LAKE"}});
-    EXPECT_FALSE(FileScannerV2::is_supported(params, lake_without_payload));
-
-    // A suppressed lake split requires the Java Paimon payload the union wrapper understands.
-    // Refuse any other reader cleanly rather than reading a lake half without its suppression.
-    auto non_java_split = range_with_format("fluss", TFileFormatType::FORMAT_JNI);
-    non_java_split.table_format_params.__set_fluss_params(
-            {{"fluss.range_type", "LAKE_SUPPRESS"}, {"fluss.union.tail", ":0:0:9"}});
-    TPaimonFileDesc native_reader_params;
-    native_reader_params.__set_reader_type(TPaimonReaderType::PAIMON_NATIVE);
-    native_reader_params.__set_file_format("parquet");
-    non_java_split.table_format_params.__set_paimon_params(std::move(native_reader_params));
-    EXPECT_FALSE(FileScannerV2::is_supported(params, non_java_split));
-}
-
 // The scanner builds ONE reader from the first range and keeps it for its whole life, so the one
 // "fluss" format must map to the hybrid dispatcher whichever range kind happens to arrive first --
 // and the retired per-range format "fluss_union" must not resolve to a reader at all.
@@ -813,21 +601,6 @@ TEST(FileScannerV2Test, PartitionPruningRemainsEnabledWhenSessionSwitchIsFalse) 
                         .ok());
     EXPECT_EQ(captured->conjunct_count, 1);
     EXPECT_EQ(captured->partition_prune_conjunct_count, 1);
-}
-
-// Scenario: Once FileScannerV2 is selected, an unsupported range must fail instead of falling back
-// to FileScanner.
-TEST(FileScannerV2Test, ValidateScanRangeRejectsUnsupportedRange) {
-    TFileScanRangeParams params;
-    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
-
-    const auto supported = range_with_format("hive", TFileFormatType::FORMAT_PARQUET);
-    EXPECT_TRUE(FileScannerV2::TEST_validate_scan_range(params, supported).ok());
-
-    const auto unsupported = range_with_format("lakesoul", TFileFormatType::FORMAT_PARQUET);
-    const auto status = FileScannerV2::TEST_validate_scan_range(params, unsupported);
-    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
-    EXPECT_NE(status.to_string().find("LakeSoul"), std::string::npos);
 }
 
 // Scenario: external file scan IO contexts are query readers for SELECT so the shared file-cache
@@ -1254,26 +1027,6 @@ TEST(FileScannerV2Test, RewriteSlotRefsToGlobalIndexMatrix) {
         EXPECT_EQ(rewritten_child->column_id(), 2);
         EXPECT_EQ(rewritten_child->column_name(), "rf_value");
     }
-}
-
-TEST(FileScannerTest, PartitionPruningStopsAtUnsafePredicate) {
-    const auto bool_type = std::make_shared<DataTypeUInt8>();
-    auto unsafe_predicate = std::make_shared<UnsafePartitionPredicate>();
-    unsafe_predicate->add_child(slot_ref(1, 0, bool_type, "part"));
-    VExprContextSPtrs conjuncts {
-            runtime_filter_context(slot_ref(1, 0, bool_type, "part"), 1),
-            runtime_filter_context(std::move(unsafe_predicate), 2),
-            runtime_filter_context(slot_ref(1, 0, bool_type, "part"), 3),
-    };
-
-    RuntimeState state {TQueryOptions(), TQueryGlobals()};
-    RuntimeProfile profile("file_scanner");
-    FileScanner scanner(&state, &profile, nullptr, nullptr, nullptr);
-    scanner.TEST_init_runtime_filter_partition_prune_ctxs(conjuncts, {{1, 0}});
-
-    const auto& partition_conjuncts = scanner.TEST_runtime_filter_partition_prune_ctxs();
-    ASSERT_EQ(partition_conjuncts.size(), 1);
-    EXPECT_EQ(partition_conjuncts[0], conjuncts[0]);
 }
 
 } // namespace doris

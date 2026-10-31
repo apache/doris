@@ -109,7 +109,8 @@ suite("test_iceberg_static_partition_overwrite", "p0,external") {
             array(TIMESTAMP '0000-01-01 00:00:00.000001+00:00', CAST(NULL AS TIMESTAMP))),
         (2, TIMESTAMP '9999-12-31 23:59:59.999999+00:00', CAST(NULL AS ARRAY<TIMESTAMP>))"""
     def savedZone = sql("SELECT @@time_zone")[0][0]
-    def savedScannerV2 = sql("SHOW VARIABLES LIKE 'enable_file_scanner_v2'")[0][1]
+    // Read the deprecated option by its stable name; SHOW VARIABLES prefixes its display name.
+    def savedScannerV2 = sql("SELECT @@enable_file_scanner_v2")[0][0]
     def savedForceJni = sql("SHOW VARIABLES LIKE 'force_jni_scanner'")[0][1]
     try {
         sql "SET time_zone='UTC'"

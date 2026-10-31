@@ -21,7 +21,8 @@ suite("test_es_file_scanner_v2", "p2,external,es,external_docker,external_docker
         return
     }
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-    def originalV2 = sql("show variables like 'enable_file_scanner_v2'")[0][1]
+    // Read the deprecated option by its stable name; SHOW VARIABLES prefixes its display name.
+    def originalV2 = sql("SELECT @@enable_file_scanner_v2")[0][0]
     def originalBatchSize = sql("show variables like 'batch_size'")[0][1]
     def originalParallelScroll = sql("show variables like 'enable_es_parallel_scroll'")[0][1]
     try {
@@ -76,8 +77,8 @@ suite("test_es_file_scanner_v2", "p2,external,es,external_docker,external_docker
                 if (version == 7) {
                     queries.add("select extra from test_flatten order by extra")
                 }
-                // Compare against the existing scanner on the same index and ES version instead
-                // of embedding fixture results that can vary across the external Docker images.
+                // The deprecated scanner option must preserve results on the same index and ES
+                // version, without embedding results that vary across external Docker images.
                 [false, true].each { parallelScroll ->
                     sql "set enable_es_parallel_scroll = ${parallelScroll}"
                     // Exercise scroll pagination and the one-request LIMIT path at their batch boundaries.
@@ -91,7 +92,7 @@ suite("test_es_file_scanner_v2", "p2,external,es,external_docker,external_docker
                             assertEquals(expected, actual,
                                     "ES ${version}, docvalues=${docvalues}, parallel=${parallelScroll}, batch=${batchSize}: ${query}")
                         }
-                        // Both scanners share FE pushdown, so use an independent predicate as the oracle.
+                        // Option parity shares FE pushdown, so use an independent predicate as the oracle.
                         def expectedOr = sql("select test1 from test1 where test1 = 'string2' order by test1")
                         [false, true].each { scannerV2 ->
                             sql "set enable_file_scanner_v2 = ${scannerV2}"

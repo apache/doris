@@ -38,10 +38,12 @@
 #include <orc/sargs/Literal.hh>
 #include <orc/sargs/SearchArgument.hh>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <system_error>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -80,6 +82,7 @@
 #include "format_v2/orc/orc_file_input_stream.h"
 #include "format_v2/orc/orc_search_argument.h"
 #include "format_v2/timestamp_statistics.h"
+#include "io/fs/file_meta_cache.h"
 #include "io/fs/file_reader.h"
 #include "runtime/exec_env.h"
 #include "runtime/file_scan_profile.h"
@@ -108,7 +111,8 @@ bool detail::valid_statistics_bounds(const Field& min_value, const Field& max_va
 
 namespace {
 
-constexpr uint64_t DEFAULT_ORC_READ_BATCH_SIZE = 4096;
+// Keep the existing lazy-callback ceiling while honoring smaller session/adaptive caps.
+constexpr uint64_t MAX_ORC_READ_BATCH_SIZE = 4096;
 constexpr int DECIMAL_PRECISION_FOR_HIVE11 = BeConsts::MAX_DECIMAL128_PRECISION;
 constexpr int DECIMAL_SCALE_FOR_HIVE11 = 10;
 constexpr const char* ORC_LIST_ELEMENT_NAME = "element";
@@ -147,6 +151,14 @@ uint64_t orc_read_row_count(const ::orc::ReaderMetrics& metrics) {
 
 bool is_orc_stop(const io::IOContext* io_ctx, const std::exception& e) {
     return io_ctx != nullptr && io_ctx->should_stop && std::string_view(e.what()) == "stop";
+}
+
+Status orc_next_batch_error(const std::exception& e) {
+    // SDK callbacks throw Doris statuses; retain their codes after the caller handles clean EOF.
+    if (const auto* status_error = dynamic_cast<const doris::Exception*>(&e)) {
+        return status_error->to_status().prepend("Orc row reader nextBatch failed. reason = ");
+    }
+    return Status::InternalError("Orc row reader nextBatch failed. reason = {}", e.what());
 }
 
 Status fall_back_without_orc_sarg(const char* operation, const std::string& file_path,
@@ -848,6 +860,8 @@ struct OrcReaderScanState {
     std::unique_ptr<::orc::Reader> reader;
     const ::orc::Type* root_type = nullptr;
     ::orc::ReaderMetrics reader_metrics;
+    int64_t footer_read_calls = 0;
+    int64_t footer_cache_hits = 0;
     ::orc::RowReaderOptions row_reader_options; // projection + filter + SARG + stripe range
     std::string timezone = TimezoneUtils::default_time_zone;
     cctz::time_zone timezone_obj;
@@ -866,6 +880,7 @@ struct OrcReaderScanState {
     uint64_t condition_cache_next_row = 0;
     std::shared_ptr<ConditionCacheContext> condition_cache_ctx;
 
+    Block orc_lazy_predicate_block;
     std::vector<size_t> orc_lazy_selected_rows;
     size_t orc_lazy_input_rows = 0;
     bool enable_lazy_materialization = true;
@@ -882,6 +897,241 @@ struct OrcReaderScanState {
     bool row_reader_created = false;
 };
 
+// Dictionary rejection is independent of SARG min/max pruning: an absent value can lie
+// between both bounds. Retain per-stripe matches to filter encoded rows before string expansion.
+class OrcReader::StringDictFilterImpl final : public ::orc::StringDictFilter {
+public:
+    explicit StringDictFilterImpl(OrcReader* reader) : _reader(reader) {
+        const auto& request = *_reader->_request;
+        // Phase-two fetches must materialize every requested physical row.
+        if (request.row_ids.has_value()) {
+            return;
+        }
+        const auto safe_count =
+                std::min(request.metadata_pruning_safe_conjunct_count, request.conjuncts.size());
+        for (size_t i = 0; i < safe_count; ++i) {
+            _add_predicate(request.conjuncts[i]);
+        }
+        if (_columns.empty()) {
+            return;
+        }
+        // The SDK's depth-first dotted-path map uses last-write wins: root "a.b" can name
+        // nested a.b instead. Resolve requested names once and retain only matching physical IDs.
+        std::unordered_map<std::string, uint64_t> sdk_type_ids;
+        for (const auto& [id, column] : _columns) {
+            sdk_type_ids.emplace(column.name, id);
+        }
+        const auto resolve_names = [&](auto&& self, const ::orc::Type& type,
+                                       const std::string& prefix) -> void {
+            for (uint64_t i = 0; i < type.getSubtypeCount(); ++i) {
+                const auto& child = *type.getSubtype(i);
+                auto path = prefix;
+                if (type.getKind() == ::orc::STRUCT) {
+                    path = type.getColumnId() == 0 ? type.getFieldName(i)
+                                                   : prefix + "." + type.getFieldName(i);
+                    if (const auto it = sdk_type_ids.find(path); it != sdk_type_ids.end()) {
+                        it->second = child.getColumnId();
+                    }
+                }
+                self(self, child, path);
+            }
+        };
+        resolve_names(resolve_names, *_reader->_state->root_type, "");
+        std::erase_if(_columns, [&](const auto& entry) {
+            return sdk_type_ids.at(entry.second.name) != entry.first;
+        });
+    }
+
+    bool empty() const { return _columns.empty(); }
+    bool has_matches() const { return !_stripe_matches.empty(); }
+
+    void fillDictFilterColumnNames(std::unique_ptr<::orc::StripeInformation>,
+                                   std::list<std::string>& names) const override {
+        for (const auto& [id, column] : _columns) {
+            names.push_back(column.name);
+        }
+    }
+
+    void onStringDictsLoaded(
+            std::unordered_map<std::string, ::orc::StringDictionary*>& dictionaries,
+            bool* stripe_filtered) const override {
+        SCOPED_RAW_TIMER(&_reader->_reader_statistics.dict_filter_rewrite_time);
+        *stripe_filtered = false;
+        // Encodings and dictionary IDs are stripe-local, including dictionary-to-direct transitions.
+        _stripe_matches.clear();
+        for (const auto& [id, column] : _columns) {
+            const auto it = dictionaries.find(column.name);
+            // A later stripe may use direct encoding for a column that previously had a dictionary.
+            if (it == dictionaries.end()) {
+                continue;
+            }
+            bool has_match = false;
+            THROW_IF_ERROR(_has_match(column, *it->second, &has_match, &_stripe_matches[id]));
+            if (!has_match) {
+                *stripe_filtered = true;
+                if (_reader->_profile != nullptr) {
+                    COUNTER_UPDATE(_reader->_orc_profile.dictionary_stripes_filtered, 1);
+                }
+                return;
+            }
+        }
+    }
+
+    Status select_rows(const ::orc::StructVectorBatch& batch, size_t rows,
+                       std::vector<size_t>* selected) const {
+        IColumn::Filter keep(rows, 1);
+        for (const auto& [id, matches] : _stripe_matches) {
+            const auto& column = _columns.at(id);
+            const auto batch_index =
+                    _reader->_state->column_to_selected_batch_index.at(column.local_id);
+            const auto* encoded =
+                    dynamic_cast<const ::orc::EncodedStringVectorBatch*>(batch.fields[batch_index]);
+            // A direct-encoded stripe has no usable dictionary IDs even if a prior stripe did.
+            if (encoded == nullptr || !encoded->isEncoded) {
+                continue;
+            }
+            for (size_t row = 0; row < rows; ++row) {
+                if (encoded->hasNulls && !encoded->notNull[row]) {
+                    keep[row] &= matches.back();
+                    continue;
+                }
+                const auto index = encoded->index[row];
+                // Corrupt row codes must not index past the validated dictionary domain.
+                if (index < 0 || static_cast<uint64_t>(index) >= matches.size() - 1) {
+                    return Status::Corruption("Invalid ORC dictionary index {} for column {}",
+                                              index, column.name);
+                }
+                keep[row] &= matches[index];
+            }
+        }
+        selected->clear();
+        selected->reserve(rows);
+        for (size_t row = 0; row < rows; ++row) {
+            if (keep[row] != 0) {
+                selected->push_back(row);
+            }
+        }
+        return Status::OK();
+    }
+
+private:
+    struct DictionaryColumn {
+        std::string name;
+        format::LocalColumnId local_id;
+        size_t position = 0;
+        DataTypePtr type;
+        VExprContextSPtrs conjuncts;
+    };
+
+    void _add_predicate(const VExprContextSPtr& conjunct) {
+        const auto& root = conjunct->root();
+        const auto& children = root->children();
+        // Only direct slot/literal comparisons and IN lists are stable dictionary predicates.
+        // Casts, multi-column expressions and mutable runtime filters retain row-level evaluation.
+        if ((root->node_type() != TExprNodeType::BINARY_PRED &&
+             root->node_type() != TExprNodeType::IN_PRED) ||
+            root->is_rf_wrapper() || children.size() < 2 || !children[0]->is_slot_ref() ||
+            !std::ranges::all_of(children.begin() + 1, children.end(),
+                                 [](const auto& child) { return child->is_literal(); })) {
+            return;
+        }
+        const auto* slot = assert_cast<const VSlotRef*>(children[0].get());
+        const auto& request = *_reader->_request;
+        const auto column = std::ranges::find_if(request.local_positions, [&](const auto& entry) {
+            return static_cast<int64_t>(entry.second.value()) == slot->column_id();
+        });
+        if (column == request.local_positions.end() || is_virtual_column(column->first)) {
+            return;
+        }
+        const auto id = column->first.value();
+        const auto& type = *_reader->_state->root_type->getSubtype(id);
+        // CHAR padding and binary logical annotations need their own physical-to-value rules.
+        if (type.getKind() != ::orc::STRING && type.getKind() != ::orc::VARCHAR) {
+            return;
+        }
+        auto& target = _columns[type.getColumnId()];
+        target.name = _reader->_state->root_type->getFieldName(id);
+        target.local_id = column->first;
+        target.position = column->second.value();
+        target.type = _reader->_convert_to_doris_type(type);
+        target.conjuncts.push_back(conjunct);
+    }
+
+    Status _has_match(const DictionaryColumn& column, ::orc::StringDictionary& dictionary,
+                      bool* has_match, std::vector<uint8_t>* matches) const {
+        DBUG_EXECUTE_IF("OrcReader::dictionary_loaded", DBUG_RUN_CALLBACK(&dictionary));
+        const auto offset_count = dictionary.dictionaryOffset.size();
+        const auto* offsets = dictionary.dictionaryOffset.data();
+        // Validate the whole dictionary before reading entries or retaining their match bits.
+        // Empty, decreasing or oversized offsets can underflow counts/lengths or read past the blob.
+        if (offset_count == 0 || offsets[0] != 0) {
+            return Status::Corruption(
+                    "Invalid ORC dictionary offsets for column {}: missing zero sentinel",
+                    column.name);
+        }
+        for (size_t i = 1; i < offset_count; ++i) {
+            if (offsets[i] < offsets[i - 1] ||
+                std::cmp_greater(offsets[i], dictionary.dictionaryBlob.size())) {
+                return Status::Corruption(
+                        "Invalid ORC dictionary offsets for column {} at entry {}", column.name, i);
+            }
+        }
+        const auto value_count = offset_count - 1;
+        matches->assign(value_count + 1, 0);
+        *has_match = false;
+        const auto batch_size = _reader->_read_batch_size();
+        // Include NULL because dictionaries contain only non-null values. A null-safe predicate
+        // may accept NULL even when no dictionary value matches. Bound each temporary string block.
+        for (size_t offset = 0; offset <= value_count; offset += batch_size) {
+            const auto rows = std::min<size_t>(batch_size, value_count + 1 - offset);
+            auto values = column.type->create_column();
+            auto& nullable = assert_cast<ColumnNullable&>(*values);
+            auto& strings = assert_cast<ColumnString&>(nullable.get_nested_column());
+            for (size_t row = 0; row < rows; ++row) {
+                const auto index = offset + row;
+                if (index == value_count) {
+                    nullable.insert_default();
+                } else {
+                    char* data = nullptr;
+                    int64_t length = 0;
+                    dictionary.getValueByIndex(index, data, length);
+                    strings.insert_data(length == 0 ? "" : data, length);
+                    nullable.get_null_map_data().push_back(0);
+                }
+            }
+            Block block;
+            for (size_t position = 0; position < _reader->_request->local_positions.size();
+                 ++position) {
+                block.insert({column.type->create_column_const_with_default_value(rows),
+                              column.type, ""});
+            }
+            block.replace_by_position(column.position, std::move(values));
+            IColumn::Filter keep(rows, 1);
+            for (const auto& conjunct : column.conjuncts) {
+                IColumn::Filter filter(rows, 1);
+                bool filter_all = false;
+                RETURN_IF_ERROR(
+                        conjunct->execute_filter(&block, filter.data(), rows, false, &filter_all));
+                for (size_t row = 0; row < rows; ++row) {
+                    keep[row] &= filter[row];
+                }
+            }
+            if (_reader->_profile != nullptr) {
+                COUNTER_UPDATE(_reader->_orc_profile.dictionary_values_evaluated, rows);
+            }
+            for (size_t row = 0; row < rows; ++row) {
+                (*matches)[offset + row] = keep[row];
+                *has_match |= keep[row] != 0;
+            }
+        }
+        return Status::OK();
+    }
+
+    OrcReader* _reader;
+    std::map<uint64_t, DictionaryColumn> _columns;
+    mutable std::map<uint64_t, std::vector<uint8_t>> _stripe_matches;
+};
+
 OrcReader::OrcReader(std::shared_ptr<io::FileSystemProperties>& system_properties,
                      std::unique_ptr<io::FileDescription>& file_description,
                      std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
@@ -893,6 +1143,17 @@ OrcReader::OrcReader(std::shared_ptr<io::FileSystemProperties>& system_propertie
           _enable_mapping_varbinary(enable_mapping_varbinary) {}
 
 OrcReader::~OrcReader() = default;
+
+void OrcReader::set_batch_size(size_t batch_size) {
+    _batch_size = std::max<size_t>(1, batch_size);
+}
+
+size_t OrcReader::_read_batch_size() const {
+    // RowID fetch must not decode sequential rows following the requested position.
+    return _request != nullptr && _request->row_ids.has_value()
+                   ? 1
+                   : std::min<uint64_t>(_batch_size, MAX_ORC_READ_BATCH_SIZE);
+}
 
 // Expose ORC pruning and lazy-read statistics in RuntimeProfile. These counters
 // are the quickest way to confirm whether SARG/stripe pruning actually fired.
@@ -907,6 +1168,16 @@ void OrcReader::_init_profile() {
             ADD_CHILD_TIMER_WITH_LEVEL(_profile, orc_profile, file_scan_profile::FILE_READER, 1);
     _orc_profile.row_readers_created = ADD_CHILD_COUNTER_WITH_LEVEL(
             _profile, "OrcRowReadersCreated", TUnit::UNIT, orc_profile, 1);
+    _orc_profile.dictionary_stripes_filtered = ADD_CHILD_COUNTER_WITH_LEVEL(
+            _profile, "DictionaryStripesFiltered", TUnit::UNIT, orc_profile, 1);
+    _orc_profile.dictionary_values_evaluated = ADD_CHILD_COUNTER_WITH_LEVEL(
+            _profile, "DictionaryValuesEvaluated", TUnit::UNIT, orc_profile, 1);
+    // Counter names are global to the scanner profile even when their parents differ. Keep ORC
+    // footer deltas separate from Parquet when both formats share the same scanner profile.
+    _orc_profile.file_footer_read_calls = ADD_CHILD_COUNTER_WITH_LEVEL(
+            _profile, "OrcFileFooterReadCalls", TUnit::UNIT, orc_profile, 1);
+    _orc_profile.file_footer_cache_hits = ADD_CHILD_COUNTER_WITH_LEVEL(
+            _profile, "OrcFileFooterHitCache", TUnit::UNIT, orc_profile, 1);
     _orc_profile.reader_call =
             ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "ReaderCall", TUnit::UNIT, orc_profile, 1);
     _orc_profile.reader_inclusive_latency_us = ADD_CHILD_COUNTER_WITH_LEVEL(
@@ -995,6 +1266,8 @@ void OrcReader::_collect_profile() const {
                        _reader_statistics.lazy_read_filtered_rows);
         COUNTER_UPDATE(_orc_profile.filtered_bytes, _reader_statistics.filtered_bytes);
         COUNTER_UPDATE(_orc_profile.open_file_num, _reader_statistics.open_file_num);
+        COUNTER_UPDATE(_orc_profile.file_footer_read_calls, _state->footer_read_calls);
+        COUNTER_UPDATE(_orc_profile.file_footer_cache_hits, _state->footer_cache_hits);
     }
     if (_io_ctx != nullptr && _io_ctx->file_reader_stats != nullptr) {
         _io_ctx->file_reader_stats->read_rows += read_row_count;
@@ -1009,6 +1282,10 @@ Status OrcReader::init(RuntimeState* state) {
     _init_profile();
     SCOPED_TIMER(_orc_profile.total_time);
     RETURN_IF_ERROR(format::FileReader::init(state));
+    if (_batch_size == 0) {
+        // Session limits still apply when no adaptive cap was supplied before init().
+        _batch_size = std::max(1, state->batch_size());
+    }
     _state = std::make_unique<OrcReaderScanState>();
     TimezoneUtils::find_cctz_time_zone(_state->timezone, _state->timezone_obj);
     if (state != nullptr) {
@@ -1025,6 +1302,22 @@ Status OrcReader::init(RuntimeState* state) {
     ::orc::ReaderOptions options;
     options.setMemoryPool(*ExecEnv::GetInstance()->orc_memory_pool());
     options.setReaderMetrics(&_state->reader_metrics);
+
+    auto* meta_cache = ExecEnv::GetInstance()->file_meta_cache();
+    // Preserve the V1 identity policy, including its file-size fallback when mtime is absent.
+    auto cache_key = FileMetaCache::get_key(_file_reader, *_file_description);
+    // The shared cache also contains Parquet objects and legacy ORC strings under other keys.
+    // Keep serialized V2 tails in their own domain so a hit always has the expected value type.
+    const bool cache_enabled = meta_cache != nullptr && meta_cache->enabled();
+    cache_key.append("\0orc-v2-tail", 12);
+    ObjLRUCache::CacheHandle cache_handle;
+    const bool cache_hit = cache_enabled && meta_cache->lookup(cache_key, &cache_handle);
+    // A warm open must use the serialized tail before createReader issues its footer read.
+    if (cache_hit) {
+        options.setSerializedFileTail(*cache_handle.data<std::string>());
+        ++_reader_statistics.file_footer_hit_cache;
+        ++_state->footer_cache_hits;
+    }
 
     OrcFileInputStreamOptions input_stream_options;
     const auto natural_read_size_mb = config::orc_natural_read_size_mb;
@@ -1044,6 +1337,18 @@ Status OrcReader::init(RuntimeState* state) {
     try {
         _state->reader = ::orc::createReader(std::move(input_stream), options);
         _state->root_type = &_state->reader->getType();
+        // Publish only successfully parsed tails, and only when the file has a stable identity.
+        if (!cache_hit) {
+            ++_reader_statistics.file_footer_read_calls;
+            // close() resets per-open state; cumulative reader statistics would publish twice
+            // when close is repeated or the same reader is initialized for another file.
+            ++_state->footer_read_calls;
+            if (cache_enabled) {
+                meta_cache->insert(cache_key,
+                                   new std::string(_state->reader->getSerializedFileTail()),
+                                   &cache_handle);
+            }
+        }
     } catch (const std::exception& e) {
         if (is_orc_stop(_io_ctx.get(), e)) {
             return Status::EndOfFile("stop");
@@ -1402,11 +1707,14 @@ Status OrcReader::open(std::shared_ptr<format::FileScanRequest> request) {
             std::unique(_state->read_columns.begin(), _state->read_columns.end()),
             _state->read_columns.end());
 
+    _state->orc_lazy_predicate_block.clear();
+    _string_dict_filter = std::make_unique<StringDictFilterImpl>(this);
     _state->orc_lazy_read_enabled = _can_apply_orc_lazy_callback();
 
     RETURN_IF_ERROR(_configure_row_reader_projection());
     RETURN_IF_ERROR(set_orc_reader_timezone(_state->timezone, &_state->row_reader_options));
-    _state->row_reader_options.setEnableLazyDecoding(_state->orc_lazy_read_enabled);
+    _state->row_reader_options.setEnableLazyDecoding(_state->orc_lazy_read_enabled ||
+                                                     !_string_dict_filter->empty());
     _state->row_reader_options.setUseTightNumericVector(false);
 
     RETURN_IF_ERROR(_init_search_argument_from_local_filters());
@@ -1885,18 +2193,14 @@ Status OrcReader::_create_row_reader() {
         }
         _state->row_reader = _state->reader->createRowReader(
                 _state->row_reader_options,
-                _state->orc_lazy_read_enabled ? _orc_filter.get() : nullptr);
+                _state->orc_lazy_read_enabled ? _orc_filter.get() : nullptr,
+                _string_dict_filter->empty() ? nullptr : _string_dict_filter.get());
         if (_profile != nullptr) {
             COUNTER_UPDATE(_orc_profile.row_readers_created, 1);
         }
         _state->selected_type = &_state->row_reader->getSelectedType();
         DORIS_CHECK(_state->selected_type->getKind() == ::orc::TypeKind::STRUCT);
-        // Row-id fetch seeks before every read; a one-row batch preserves exact selection instead
-        // of also returning the sequential rows that follow the requested position.
-        const uint64_t batch_size = _request != nullptr && _request->row_ids.has_value()
-                                            ? 1
-                                            : DEFAULT_ORC_READ_BATCH_SIZE;
-        _state->batch = _state->row_reader->createRowBatch(batch_size);
+        _state->batch = _state->row_reader->createRowBatch(_read_batch_size());
         _state->orc_lazy_selection_valid = false;
         _state->orc_lazy_selected_rows.clear();
         _state->orc_lazy_input_rows = 0;
@@ -2066,22 +2370,7 @@ void OrcReader::_mark_condition_cache_selected_rows(
     }
 }
 
-Status OrcReader::_filter_orc_batch(::orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size,
-                                    void* /*arg*/) {
-    if (!_state->orc_lazy_read_enabled || sel == nullptr || size == 0) {
-        data.numElements = size;
-        return Status::OK();
-    }
-    if (size > DEFAULT_ORC_READ_BATCH_SIZE) {
-        return Status::InvalidArgument("ORC lazy filter batch size {} exceeds {}", size,
-                                       DEFAULT_ORC_READ_BATCH_SIZE);
-    }
-
-    auto* struct_batch = dynamic_cast<::orc::StructVectorBatch*>(&data);
-    if (struct_batch == nullptr) {
-        return Status::InternalError("New ORC lazy filter expects struct row batch");
-    }
-
+Status OrcReader::_init_lazy_predicate_block() {
     std::vector<std::optional<format::LocalColumnId>> position_to_column(
             _request->local_positions.size());
     for (const auto& [file_column_id, local_position] : _request->local_positions) {
@@ -2096,7 +2385,7 @@ Status OrcReader::_filter_orc_batch(::orc::ColumnVectorBatch& data, uint16_t* se
         position_to_column[position] = file_column_id;
     }
 
-    Block filter_block;
+    auto& filter_block = _state->orc_lazy_predicate_block;
     filter_block.reserve(position_to_column.size());
     for (size_t position = 0; position < position_to_column.size(); ++position) {
         if (!position_to_column[position].has_value()) {
@@ -2127,22 +2416,62 @@ Status OrcReader::_filter_orc_batch(::orc::ColumnVectorBatch& data, uint16_t* se
                              _state->root_type->getFieldName(file_column_id.value())});
     }
 
+    return Status::OK();
+}
+
+Status OrcReader::_filter_orc_batch(::orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size,
+                                    void* /*arg*/) {
+    if (!_state->orc_lazy_read_enabled || sel == nullptr || size == 0) {
+        data.numElements = size;
+        return Status::OK();
+    }
+    if (size > MAX_ORC_READ_BATCH_SIZE) {
+        return Status::InvalidArgument("ORC lazy filter batch size {} exceeds {}", size,
+                                       MAX_ORC_READ_BATCH_SIZE);
+    }
+
+    auto* struct_batch = dynamic_cast<::orc::StructVectorBatch*>(&data);
+    if (struct_batch == nullptr) {
+        return Status::InternalError("New ORC lazy filter expects struct row batch");
+    }
+
+    // Reuse the callback's column layout and buffers. A fully rejected SDK batch can
+    // invoke this callback again before get_block() returns, so clear its prior rows first.
+    auto& filter_block = _state->orc_lazy_predicate_block;
+    if (filter_block.columns() == 0) {
+        RETURN_IF_ERROR(_init_lazy_predicate_block());
+    }
+    filter_block.clear_column_data(_request->local_positions.size());
+
+    std::vector<size_t> candidates;
+    // Direct-encoded batches retain the dense path without allocating a second row-index vector.
+    const bool dictionary_filter = _string_dict_filter->has_matches();
+    if (dictionary_filter) {
+        RETURN_IF_ERROR(_string_dict_filter->select_rows(*struct_batch, size, &candidates));
+    }
+    const auto* remap = dictionary_filter && candidates.size() != size ? &candidates : nullptr;
+    const size_t candidate_rows = remap == nullptr ? size : candidates.size();
     std::set<format::LocalColumnId> decoded_columns;
     RETURN_IF_ERROR(_decode_columns(*struct_batch, _request->predicate_columns, size, &filter_block,
-                                    &decoded_columns));
-
-    IColumn::Filter keep_filter(size, 1);
-    RETURN_IF_ERROR(_build_keep_filter(&filter_block, size, &keep_filter));
+                                    &decoded_columns, remap));
+    IColumn::Filter keep_filter(candidate_rows, 1);
+    RETURN_IF_ERROR(_build_keep_filter(&filter_block, candidate_rows, &keep_filter));
 
     _state->orc_lazy_selected_rows.clear();
-    _state->orc_lazy_selected_rows.reserve(size);
+    _state->orc_lazy_selected_rows.reserve(candidate_rows);
     uint16_t selected_rows = 0;
-    for (uint16_t row = 0; row < size; ++row) {
+    for (size_t row = 0; row < candidate_rows; ++row) {
         if (keep_filter[row] == 0) {
             continue;
         }
-        sel[selected_rows++] = row;
-        _state->orc_lazy_selected_rows.push_back(row);
+        const auto physical_row = remap == nullptr ? row : candidates[row];
+        sel[selected_rows++] = static_cast<uint16_t>(physical_row);
+        _state->orc_lazy_selected_rows.push_back(physical_row);
+    }
+    // Leaders now contain dictionary candidates, not every physical row (e.g. 5 of 4096).
+    // Compact them with residual results here; get_block must not apply physical indices twice.
+    if (selected_rows != candidate_rows) {
+        _filter_decoded_columns(&filter_block, keep_filter, selected_rows, decoded_columns);
     }
     _state->orc_lazy_input_rows = size;
     _state->orc_lazy_selection_valid = true;
@@ -2152,9 +2481,37 @@ Status OrcReader::_filter_orc_batch(::orc::ColumnVectorBatch& data, uint16_t* se
     return Status::OK();
 }
 
+Status OrcReader::_materialize_dictionary_selection(const ::orc::StructVectorBatch& batch,
+                                                    size_t physical_rows,
+                                                    const std::vector<size_t>& candidates,
+                                                    Block* block, size_t* rows) {
+    std::set<format::LocalColumnId> decoded;
+    RETURN_IF_ERROR(_decode_columns(batch, _request->predicate_columns, physical_rows, block,
+                                    &decoded, &candidates));
+    RETURN_IF_ERROR(_decode_columns(batch, _request->non_predicate_columns, physical_rows, block,
+                                    &decoded, &candidates));
+    IColumn::Filter keep(candidates.size(), 1);
+    auto status = _build_keep_filter(block, candidates.size(), &keep);
+    if (!status.ok()) {
+        return status.prepend("Orc row reader nextBatch failed. reason = ");
+    }
+    std::vector<size_t> surviving_rows;
+    for (size_t row = 0; row < candidates.size(); ++row) {
+        if (keep[row] != 0) {
+            surviving_rows.push_back(candidates[row]);
+        }
+    }
+    // Condition-cache granules use file row positions, not compact dictionary-candidate positions.
+    _mark_condition_cache_selected_rows(physical_rows, &surviving_rows);
+    *rows = candidates.size();
+    _filter_block_with_keep_filter(block, keep, surviving_rows.size(), rows);
+    return Status::OK();
+}
+
 Status OrcReader::_decode_column(const ::orc::Type& file_type, const ::orc::Type& selected_type,
                                  const ::orc::ColumnVectorBatch& batch, MutableColumnPtr& column,
                                  size_t rows, const std::vector<size_t>* selected_rows) const {
+    DBUG_EXECUTE_IF("OrcReader::_decode_column", DBUG_RUN_CALLBACK());
     DORIS_CHECK(file_type.getKind() == selected_type.getKind());
     DORIS_CHECK(column->is_nullable());
     const auto column_type = _convert_to_doris_type(selected_type);
@@ -2196,6 +2553,12 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     std::optional<uint64_t> fetched_row_id;
     while (true) {
         try {
+            const auto batch_size = _read_batch_size();
+            if (_state->batch->capacity != batch_size) {
+                // ORC uses the batch capacity as its decode limit. Resize before next(), without
+                // recreating the RowReader or losing its position when the adaptive cap changes.
+                _state->batch = _state->row_reader->createRowBatch(batch_size);
+            }
             if (_request->row_ids.has_value()) {
                 if (_state->next_row_id >= _request->row_ids->size()) {
                     _eof = true;
@@ -2210,6 +2573,9 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
                     RETURN_IF_ERROR(_advance_to_next_stripe_range(&advanced));
                     DORIS_CHECK(advanced);
                 }
+                // Exercise seek failures inside the phase-two materialization error boundary.
+                DBUG_EXECUTE_IF("OrcReader::rowid_seek.inject_error",
+                                { throw std::runtime_error("injected ORC RowID seek failure"); });
                 _state->row_reader->seekToRow(*fetched_row_id);
             }
             // Condition-cache seeks can perform I/O, so keep them in the same cancellation
@@ -2235,7 +2601,7 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
                 _eof = true;
                 return Status::OK();
             }
-            return Status::InternalError("Orc row reader nextBatch failed. reason = {}", e.what());
+            return orc_next_batch_error(e);
         }
         if (has_next) {
             if (_state->orc_lazy_read_enabled && _state->orc_lazy_selection_valid &&
@@ -2276,24 +2642,40 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
                                      _state->orc_lazy_input_rows, batch_rows);
     }
 
-    std::set<format::LocalColumnId> decoded_columns;
-    RETURN_IF_ERROR(_decode_columns(*struct_batch, _request->predicate_columns, batch_rows,
-                                    file_block, &decoded_columns));
+    // Without the SDK lazy callback, dictionary codes still avoid expanding rejected strings.
+    if (!orc_lazy_read_applied && _string_dict_filter->has_matches()) {
+        std::vector<size_t> candidates;
+        RETURN_IF_ERROR(_string_dict_filter->select_rows(*struct_batch, batch_rows, &candidates));
+        if (candidates.size() != batch_rows) {
+            RETURN_IF_ERROR(_materialize_dictionary_selection(*struct_batch, batch_rows, candidates,
+                                                              file_block, rows));
+            *eof = false;
+            return Status::OK();
+        }
+    }
 
-    const auto columns_decoded_before_selection = decoded_columns;
-    IColumn::Filter keep_filter;
+    std::set<format::LocalColumnId> decoded_columns;
+    if (orc_lazy_read_applied) {
+        // The callback already converted these leaders. Exchange ownership with the empty
+        // output columns so each predicate value is copied once and scratch can be reused.
+        for (const auto& projection : _request->predicate_columns) {
+            const auto column_id = projection.column_id();
+            const auto position = _request->local_positions.at(column_id).value();
+            std::swap(file_block->get_by_position(position).column,
+                      _state->orc_lazy_predicate_block.get_by_position(position).column);
+            decoded_columns.insert(column_id);
+        }
+    } else {
+        RETURN_IF_ERROR(_decode_columns(*struct_batch, _request->predicate_columns, batch_rows,
+                                        file_block, &decoded_columns));
+    }
+
     size_t selected_rows = batch_rows;
     std::vector<size_t> selected_row_indices;
     const std::vector<size_t>* non_predicate_selected_rows = nullptr;
     if (orc_lazy_read_applied) {
         selected_rows = _state->orc_lazy_selected_rows.size();
         if (selected_rows != batch_rows) {
-            keep_filter.resize(batch_rows);
-            std::fill(keep_filter.begin(), keep_filter.end(), 0);
-            for (const auto row : _state->orc_lazy_selected_rows) {
-                DORIS_CHECK(row < batch_rows);
-                keep_filter[row] = 1;
-            }
             selected_row_indices = _state->orc_lazy_selected_rows;
             non_predicate_selected_rows = &selected_row_indices;
         }
@@ -2306,8 +2688,6 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     *rows = batch_rows;
     if (orc_lazy_read_applied) {
         if (selected_rows != batch_rows) {
-            _filter_decoded_columns(file_block, keep_filter, selected_rows,
-                                    columns_decoded_before_selection);
             *rows = selected_rows;
         }
         _state->orc_lazy_selection_valid = false;
@@ -2812,9 +3192,13 @@ void OrcReader::_filter_requested_columns(Block* file_block, const IColumn::Filt
 Status OrcReader::close() {
     SCOPED_TIMER(_orc_profile.total_time);
     _collect_profile();
+    // A later init() must take its default cap from that session, not the previous scan.
+    _batch_size = 0;
     if (_state != nullptr) {
         _state = std::make_unique<OrcReaderScanState>();
     }
+    // RowReader must release the callback before its retained predicate contexts are cleared.
+    _string_dict_filter.reset();
     return format::FileReader::close();
 }
 

@@ -15,9 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "format/generic_reader.h"
+#pragma once
+
+#include <cstddef>
+#include <string>
+
+#include "common/status.h"
+#include "format/table/deletion_vector.h"
+#include "gen_cpp/PlanNodes_types.h"
 
 namespace doris {
-// GenericReader has no out-of-line method implementations.
-// Column-filling logic lives in TableFormatReader (table_format_reader.cpp).
+
+std::string build_paimon_deletion_vector_cache_key(const TPaimonDeletionFileDesc& deletion_file);
+Status validate_paimon_deletion_vector_descriptor(const TPaimonDeletionFileDesc& deletion_file,
+                                                  size_t& bytes_read);
+Status decode_paimon_deletion_vector_buffer(const char* buf, size_t buffer_size,
+                                            DeletionVector* deletion_vector);
+
 } // namespace doris

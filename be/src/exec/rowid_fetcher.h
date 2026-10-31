@@ -92,9 +92,6 @@ public:
                                        PMultiGetResponseV2* response);
 
 private:
-    static bool should_use_file_scanner_v2(const TQueryOptions& query_options,
-                                           const TFileScanRangeParams& scan_params,
-                                           const TFileRangeDesc& range);
     struct ExternalFetchStatistics;
 
     static Status read_doris_format_row(

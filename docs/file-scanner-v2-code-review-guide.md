@@ -4,6 +4,17 @@ This guide contains the detailed checklists referenced by
 `be/src/format_v2/AGENTS.md`. Read the common checklist for every FileReader review, then apply the
 format-specific checklist when reviewing Parquet or ORC.
 
+## Retiring an Existing Reader
+
+- Compare supported inputs, results, errors, lifecycle, profile ownership and performance behavior
+  with the old caller chain. Check actual FE payloads, including omitted optional metadata, before
+  treating a failing synthetic request as a migration regression.
+- Inventory tests by the invariant they protect. Keep shared/operator and active V2 coverage even
+  when its fixture also contains obsolete routing tests or lives in a retired reader directory.
+- Keep unrelated cache-policy changes and other behavior improvements separate from retirement.
+  Restore the supported legacy contract at the responsible layer and test interactions with
+  shared state, such as both format initialization orders on one scanner profile.
+
 ## Common FileReader: Indexes and Predicate Filtering
 
 - Inventory the reader's actual pruning capabilities before evaluating a change: metadata or
@@ -118,12 +129,13 @@ format-specific checklist when reviewing Parquet or ORC.
 
 ## Parquet Native Decode Boundary
 
-- V2 must instantiate only readers and decoders under `be/src/format_v2/parquet/`; calls into the
-  v1 `ParquetColumnReader` or edits under `be/src/format/parquet/` are review blockers.
+- File scans must instantiate only readers and decoders under `be/src/format_v2/parquet/`.
+  Shared writer/statistics helpers under `be/src/format/parquet/` must not introduce a second
+  scan reader or decoder implementation.
 - Footer parsing, schema-ID assignment, and the cached native metadata tree must also be v2-owned.
   Reusing a stable base file identity is allowed, but require a v2 cache type discriminator so
-  v1/v2 metadata objects can never be cross-cast. Production planning must not retain or rebuild an
-  Arrow `FileMetaData` tree from the serialized footer.
+  metadata objects from shared writer/metadata utilities can never be cross-cast. Production planning
+  must not retain or rebuild an Arrow `FileMetaData` tree from the serialized footer.
 - Trace the hot path as `ColumnReader -> Decoder span/cursor API -> DataTypeSerDe -> Doris Column`.
   Decoder must not accept a Doris column or target type, and the path must not create Arrow arrays,
   builders, `DecodedColumnView`, or another decoded leaf batch.
@@ -218,8 +230,7 @@ format-specific checklist when reviewing Parquet or ORC.
   precision, and overflow checks succeed. Scale-down with a non-zero remainder is a conversion
   failure; plain and dictionary integer/binary paths must narrow only afterward.
 - For cold small-file tests, separate footer I/O/Thrift parse from native schema and index planning.
-  V2 must not retain serialized footer bytes after the native metadata tree is initialized; v1 opens
-  remain independent.
+  V2 must not retain serialized footer bytes after the native metadata tree is initialized.
 - For HTTP Parquet objects at or below `in_memory_file_size`, v2 stages the complete object from
   byte zero before native page access. Verify both cold and footer-cache-hit scans: some Range
   servers accept the capability probe but return HTTP 200 for a near-EOF overlong range, so warm
@@ -309,6 +320,12 @@ format-specific checklist when reviewing Parquet or ORC.
 - Keep SDK filtering and Doris lazy materialization aligned: include the correct filter columns,
   preserve selected-row indexes, and decode non-predicate columns only for survivors without
   desynchronizing nested vectors or later batches.
+- Check dictionary-ID selection separately from whole-Stripe rejection. Matching dictionaries
+  should filter encoded rows before expanding rejected strings, including with lazy materialization
+  disabled. Reset match bits on every Stripe, preserve NULL semantics and pruning fences, and keep
+  physical row positions distinct from compact predicate-column positions.
+- Verify warm ORC opens reuse serialized tails with the existing V1 `FileMetaCache` key policy,
+  and keep cached V2 metadata representations isolated from other payload types.
 - Review SARG cost for large IN lists, deep trees, many Runtime Filters, repeated literal conversion,
   Stripe-statistics reads, and SDK index initialization. Build once per reader/Split setup and keep
   expensive work out of batch loops.

@@ -40,20 +40,8 @@ class Block;
 class VExprContext;
 
 /**
- * DEPRECATED: This class is transitional and should be removed once JDBC scanning
- * is fully integrated into the FileScanner path.
- *
- * JdbcScanner is the pipeline-level scanner for JDBC data sources.
- * It delegates to JdbcJniReader internally, which uses the unified
- * JniReader → JdbcJniScanner (Java) path for data reading.
- *
- * Prerequisites before deletion:
- * 1. FE: Change JdbcScanNode to generate FileScanNode plan with TFileFormatType::FORMAT_JDBC,
- *    so JDBC scans flow through FileScanner instead of JDBCScanLocalState → JdbcScanner.
- * 2. BE: Add FORMAT_JDBC case in FileScanner::_create_reader() to create JdbcJniReader
- *    (similar to Paimon/Hudi/MaxCompute/TrinoConnector).
- * 3. BE: Remove JDBCScanLocalState / jdbc_scan_operator.h/cpp which depend on this class.
- * 4. After the above, this file (jdbc_scanner.h/cpp) can be safely deleted.
+ * Pipeline scanner for dedicated JDBC scan nodes. File scan nodes use FileScannerV2
+ * and its connector readers; this scanner retains the dedicated JDBC plan contract.
  */
 class JdbcScanner : public Scanner {
     ENABLE_FACTORY_CREATOR(JdbcScanner);

@@ -29,6 +29,8 @@
 #include <fstream>
 #include <limits>
 #include <optional>
+#include <orc/OrcFile.hh>
+#include <orc/Vector.hh>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -44,6 +46,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "testutil/mock/mock_runtime_state.h"
+#include "testutil/scoped_temp_dir.h"
 #include "util/hash_util.hpp"
 
 namespace doris {
@@ -152,7 +155,8 @@ std::string temp_parquet_path(const std::string& filename) {
 
 void write_position_delete_parquet(const std::string& path,
                                    const std::vector<std::optional<std::string>>& file_paths,
-                                   const std::vector<std::optional<int64_t>>& positions) {
+                                   const std::vector<std::optional<int64_t>>& positions,
+                                   int64_t row_group_size = 1024) {
     ASSERT_EQ(file_paths.size(), positions.size());
 
     arrow::StringBuilder path_builder;
@@ -181,8 +185,8 @@ void write_position_delete_parquet(const std::string& path,
 
     std::shared_ptr<arrow::io::FileOutputStream> output;
     ASSERT_TRUE(arrow::io::FileOutputStream::Open(path).Value(&output).ok());
-    PARQUET_THROW_NOT_OK(
-            ::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), output, 1024));
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), output,
+                                                      row_group_size));
 }
 
 IcebergDeleteFileReaderOptions make_delete_file_reader_options(
@@ -680,6 +684,37 @@ TEST(IcebergDeleteFileReaderHelperTest, ReadOptionalParquetPositionDeleteColumns
     EXPECT_EQ(visitor.delete_rows[kTargetDataFilePath], std::vector<int64_t>({3, 9}));
 }
 
+TEST(IcebergDeleteFileReaderHelperTest, ReadsLargePositionDeleteRowGroupWithProductionBatchSize) {
+    doris::test::ScopedTempDirectory temp("iceberg_large_position_deletes");
+    const auto path = (temp.path() / "deletes.parquet").string();
+    constexpr int64_t row_count = 102401;
+    std::vector<std::optional<std::string>> files(row_count, kTargetDataFilePath);
+    std::vector<std::optional<int64_t>> positions;
+    positions.reserve(row_count);
+    for (int64_t row = 0; row < row_count; ++row) {
+        positions.emplace_back(row);
+    }
+    write_position_delete_parquet(path, files, positions, row_count);
+    RuntimeProfile profile("large_position_deletes");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    IcebergDeleteFileIOContext io_context(&state);
+    TFileScanRangeParams params;
+    params.file_type = TFileType::FILE_LOCAL;
+    TIcebergDeleteFileDesc file;
+    file.path = path;
+    file.__set_file_format(TFileFormatType::FORMAT_PARQUET);
+    auto options = make_delete_file_reader_options(&state, &profile, &params, &io_context.io_ctx);
+    options.batch_size = 102400;
+    CollectPositionDeleteVisitor visitor;
+    ASSERT_TRUE(read_iceberg_position_delete_file(file, options, &visitor).ok());
+    ASSERT_EQ(visitor.total_rows, row_count);
+    const auto& actual = visitor.delete_rows.at(kTargetDataFilePath);
+    ASSERT_EQ(actual.size(), row_count);
+    for (int64_t row = 0; row < row_count; ++row) {
+        ASSERT_EQ(actual[row], row);
+    }
+}
+
 TEST(IcebergDeleteFileReaderHelperTest, RejectParquetPositionDeleteColumnsWithActualNulls) {
     const auto delete_file_path = temp_parquet_path("iceberg_position_delete_with_nulls.parquet");
     write_position_delete_parquet(delete_file_path,
@@ -708,6 +743,55 @@ TEST(IcebergDeleteFileReaderHelperTest, RejectParquetPositionDeleteColumnsWithAc
     ASSERT_FALSE(st.ok());
     EXPECT_NE(st.to_string().find("file_path contains null values"), std::string::npos)
             << st.to_string();
+}
+
+TEST(IcebergDeleteFileReaderHelperTest, OrcPositionDeletesPreserveRowsAndRejectNulls) {
+    doris::test::ScopedTempDirectory temp("iceberg_orc_position_deletes");
+    for (int null_column : {-1, 0, 1}) {
+        const auto path = (temp.path() / "deletes.orc").string();
+        auto schema = ::orc::Type::buildTypeFromString("struct<file_path:string,pos:bigint>");
+        auto output = ::orc::writeLocalFile(path);
+        auto writer = ::orc::createWriter(*schema, output.get(), ::orc::WriterOptions());
+        auto batch = writer->createRowBatch(2);
+        auto& root = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+        auto& paths = dynamic_cast<::orc::StringVectorBatch&>(*root.fields[0]);
+        auto& positions = dynamic_cast<::orc::LongVectorBatch&>(*root.fields[1]);
+        root.numElements = paths.numElements = positions.numElements = 2;
+        std::string data_path = "s3://bucket/data.parquet";
+        for (size_t row = 0; row < 2; ++row) {
+            paths.data[row] = data_path.data();
+            paths.length[row] = data_path.size();
+            positions.data[row] = 3 + row;
+        }
+        if (null_column >= 0) {
+            auto& column = *root.fields[null_column];
+            column.hasNulls = true;
+            column.notNull[0] = true;
+            column.notNull[1] = false;
+        }
+        writer->add(*batch);
+        writer->close();
+        output->close();
+
+        RuntimeProfile profile("orc_delete_reader");
+        RuntimeState state((TQueryOptions()), TQueryGlobals());
+        IcebergDeleteFileIOContext io_context(&state);
+        auto params = make_local_parquet_scan_params();
+        TIcebergDeleteFileDesc delete_file;
+        delete_file.__set_path(path);
+        delete_file.__set_file_format(TFileFormatType::FORMAT_ORC);
+        auto options = delete_reader_options(&state, &profile, &params, &io_context, nullptr);
+        options.batch_size = 1;
+        CollectPositionDeleteVisitor visitor;
+        const auto status = read_iceberg_position_delete_file(delete_file, options, &visitor);
+        if (null_column < 0) {
+            ASSERT_TRUE(status.ok()) << status;
+            EXPECT_EQ(visitor.delete_rows[data_path], (std::vector<int64_t> {3, 4}));
+        } else {
+            EXPECT_FALSE(status.ok());
+            EXPECT_NE(status.to_string().find("contains null values"), std::string::npos) << status;
+        }
+    }
 }
 
 } // namespace doris
