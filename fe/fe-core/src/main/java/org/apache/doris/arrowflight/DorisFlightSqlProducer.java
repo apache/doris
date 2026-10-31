@@ -401,6 +401,10 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
 
     private FlightInfo executePreparedStatement(String peerIdentity, ConnectContext connectContext,
             String preparedStatementId, FlightDescriptor descriptor) {
+        // A prepared execution is the session's next request even when its handle fails the checks below, so
+        // what the previous request left is dropped before them, as executeQueryStatement does for a statement
+        // (which then finds nothing left). Prepare and GetSchema are metadata requests and leave it.
+        FlightProtocolAdapter.of(connectContext).beginRequest();
         PreparedQuery prepared = preparedQuery(connectContext, preparedStatementId);
         if (prepared.getSchema() == null) {
             // Prepare could not tell this statement's result schema and advertised the placeholder, so
@@ -489,11 +493,14 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     }
 
     // Execution parses the SQL again in the current session. Never silently replace the schema Prepare
-    // advertised when a setting such as sql_mode or time_zone changes the result.
+    // advertised when a setting such as sql_mode or time_zone changes the result. The check compares what
+    // Prepare would advertise now, so a handle also expires when only running its statement could tell the
+    // schema any more (a column grant revoked since Prepare, a DDL that turned a result column into an untyped
+    // NULL); prepared again, the statement gets the placeholder and runs unchecked.
     private static Schema checkPreparedSchema(ConnectContext connectContext, String preparedStatementId,
             PreparedQuery prepared) {
-        Schema schema = discoverSchema(connectContext, prepared.getSql());
-        if (!schema.equals(prepared.getSchema())) {
+        Schema schema = advertisedSchema(connectContext, prepared.getSql());
+        if (!prepared.getSchema().equals(schema)) {
             connectContext.removePreparedQuery(preparedStatementId);
             throw CallStatus.NOT_FOUND.withDescription("Prepared statement schema changed; prepare again")
                     .toRuntimeException();
@@ -501,12 +508,30 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         return schema;
     }
 
+    // The schema Prepare advertises and records for query: null stands for the placeholder of a statement
+    // whose result schema only running it can tell.
+    private static Schema advertisedSchema(ConnectContext connectContext, String query) {
+        try {
+            return analyzeSchema(connectContext, query);
+        } catch (UndiscoverableSchemaException e) {
+            return null;
+        }
+    }
+
+    // The schema GetSchema answers for query.
     private static Schema discoverSchema(ConnectContext connectContext, String query) {
         try {
-            return FlightSqlQuerySchema.analyze(connectContext, query);
+            return analyzeSchema(connectContext, query);
         } catch (UndiscoverableSchemaException e) {
             throw CallStatus.UNIMPLEMENTED.withDescription(e.getMessage()).withCause(e).toRuntimeException();
-        } catch (FlightRuntimeException e) {
+        }
+    }
+
+    private static Schema analyzeSchema(ConnectContext connectContext, String query)
+            throws UndiscoverableSchemaException {
+        try {
+            return FlightSqlQuerySchema.analyze(connectContext, query);
+        } catch (UndiscoverableSchemaException | FlightRuntimeException e) {
             throw e;
         } catch (Exception e) {
             throw CallStatus.INVALID_ARGUMENT.withDescription("Cannot determine query schema: " + e.getMessage())
@@ -564,17 +589,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             // before registering a handle so that a statement that cannot run leaves none behind. A
             // statement whose schema only running it can tell keeps the placeholder: the Arrow Flight
             // SQL JDBC driver prepares every statement and does not fall back when Prepare refuses one.
-            Schema schema;
-            try {
-                schema = FlightSqlQuerySchema.analyze(connectContext, query);
-            } catch (UndiscoverableSchemaException e) {
-                schema = null;
-            } catch (FlightRuntimeException e) {
-                throw e;
-            } catch (Exception e) {
-                throw CallStatus.INVALID_ARGUMENT.withDescription("Cannot determine query schema: " + e.getMessage())
-                        .withCause(e).toRuntimeException();
-            }
+            Schema schema = advertisedSchema(connectContext, query);
             final ByteString handle = ByteString.copyFromUtf8(peerIdentity + ":" + preparedStatementId);
             Result result = new Result(Any.pack(buildCreatePreparedStatementResult(handle,
                     new Schema(Collections.emptyList()), schema == null ? PLACEHOLDER_DATASET_SCHEMA : schema))

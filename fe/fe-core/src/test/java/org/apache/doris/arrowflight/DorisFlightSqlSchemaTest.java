@@ -19,6 +19,7 @@ package org.apache.doris.arrowflight;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
+import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -33,7 +34,9 @@ import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.parser.SqlDialectHelper;
+import org.apache.doris.nereids.trees.plans.commands.RevokeTablePrivilegeCommand;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -42,6 +45,7 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -922,6 +926,133 @@ public class DorisFlightSqlSchemaTest extends TestWithFeService {
             }
         } finally {
             flightContext.setExecutor(previous);
+        }
+    }
+
+    // Sends GetSchema for the first handle and GetFlightInfo for the second, both refused by the checks a prepared
+    // request runs before it executes, each after the previous request left a deferred coordinator, a result on
+    // this frontend and an endpoint. GetSchema is a metadata request and leaves them; GetFlightInfo is the next
+    // request of the session whatever its checks find, so it drops them first, as every GetFlightInfo does.
+    private void assertRefusedBeforeExecution(List<ActionCreatePreparedStatementResult> handles,
+            FlightStatusCode code, boolean handleKept) {
+        for (boolean execute : Arrays.asList(false, true)) {
+            ActionCreatePreparedStatementResult handle = handles.get(execute ? 1 : 0);
+            String request = (execute ? "GetFlightInfo of " : "GetSchema of ") + preparedId(handle);
+            StmtExecutor previous = Mockito.mock(StmtExecutor.class);
+            flightContext.addFlightSqlDeferredExecutor(previous);
+            flightContext.getFlightSqlChannel().addOKResult("previous", "SELECT 1");
+            flightContext.addFlightSqlEndpointsLocation(new FlightSqlEndpointsLocation(new TUniqueId(48, 3),
+                    new TNetworkAddress("127.0.0.1", 8070), new TNetworkAddress("127.0.0.1", 8060),
+                    new ArrayList<>()));
+            try {
+                FlightRuntimeException error = Assertions.assertThrows(FlightRuntimeException.class, () -> {
+                    if (execute) {
+                        producer.getFlightInfoPreparedStatement(command(handle), callContext,
+                                FlightDescriptor.command(new byte[0]));
+                    } else {
+                        producer.getSchemaPreparedStatement(command(handle), callContext,
+                                FlightDescriptor.command(new byte[0]));
+                    }
+                }, request);
+                Assertions.assertEquals(code, error.status().code(), request);
+                Assertions.assertEquals(handleKept, flightContext.getPreparedQuery(preparedId(handle)) != null,
+                        request);
+                Assertions.assertEquals(execute ? Collections.emptyList() : Collections.singletonList(previous),
+                        flightContext.getFlightSqlDeferredExecutors(), request);
+                Assertions.assertEquals(execute ? 0 : 1, flightContext.getFlightSqlChannel().resultNum(), request);
+                Assertions.assertEquals(execute ? 0 : 1, flightContext.getFlightSqlEndpointsLocations().size(),
+                        request);
+                Mockito.verify(previous, Mockito.times(execute ? 1 : 0)).finalizeArrowFlightQuery();
+            } finally {
+                FlightProtocolAdapter.of(flightContext).beginRequest();
+            }
+        }
+    }
+
+    @Test
+    void missingHandleFinishesThePreviousRequestOnExecution() {
+        ActionCreatePreparedStatementResult missing = ActionCreatePreparedStatementResult.newBuilder()
+                .setPreparedStatementHandle(ByteString.copyFromUtf8("schema-peer:never-prepared")).build();
+        assertRefusedBeforeExecution(Arrays.asList(missing, missing), FlightStatusCode.NOT_FOUND, false);
+    }
+
+    @Test
+    void namespaceChangeFinishesThePreviousRequestOnExecution() throws Exception {
+        List<ActionCreatePreparedStatementResult> handles = Arrays.asList(prepare("SELECT id FROM schema_input"),
+                prepare("SELECT id FROM schema_input"));
+        String database = flightContext.getDatabase();
+        // Moved outside the session's requests, as SetSessionOptions moves it.
+        flightContext.setDatabase("information_schema");
+        try {
+            assertRefusedBeforeExecution(handles, FlightStatusCode.NOT_FOUND, false);
+        } finally {
+            flightContext.setDatabase(database);
+            handles.forEach(handle -> flightContext.removePreparedQuery(preparedId(handle)));
+        }
+    }
+
+    @Test
+    void sqlModeDriftFinishesThePreviousRequestOnExecution() throws Exception {
+        long mode = flightContext.getSessionVariable().getSqlMode();
+        List<ActionCreatePreparedStatementResult> handles = new ArrayList<>();
+        try {
+            flightContext.getSessionVariable().setSqlMode(0);
+            handles.add(prepare("SELECT 1 || 2 AS x"));
+            handles.add(prepare("SELECT 1 || 2 AS x"));
+            // Changed outside the session's requests, as SetSessionOptions changes it.
+            flightContext.getSessionVariable().setSqlMode(SqlModeHelper.MODE_PIPES_AS_CONCAT);
+            assertRefusedBeforeExecution(handles, FlightStatusCode.NOT_FOUND, false);
+        } finally {
+            flightContext.getSessionVariable().setSqlMode(mode);
+            handles.forEach(handle -> flightContext.removePreparedQuery(preparedId(handle)));
+        }
+    }
+
+    @Test
+    void failedReanalysisFinishesThePreviousRequestOnExecution() throws Exception {
+        createView("CREATE VIEW schema_dropped_view AS SELECT id FROM schema_input");
+        List<ActionCreatePreparedStatementResult> handles = Arrays.asList(
+                prepare("SELECT id FROM schema_dropped_view"), prepare("SELECT id FROM schema_dropped_view"));
+        try {
+            // Another session drops the view: the statement fails as its execution would, and the handle stays.
+            dropView("DROP VIEW schema_dropped_view");
+            assertRefusedBeforeExecution(handles, FlightStatusCode.INVALID_ARGUMENT, true);
+        } finally {
+            handles.forEach(handle -> flightContext.removePreparedQuery(preparedId(handle)));
+        }
+    }
+
+    @Test
+    void checkedHandleExpiresOnceOnlyExecutionCanTellItsSchema() throws Exception {
+        addUser("schema_revoked_reader", true);
+        grantPriv("GRANT SELECT_PRIV ON schema_test.schema_input TO 'schema_revoked_reader'@'%'");
+        UserIdentity originalUser = flightContext.getCurrentUserIdentity();
+        flightContext.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("schema_revoked_reader", "%"));
+        // The analyzed plan sorts on name, the executed plan does not (columnGrantsAreCheckedAsExecutionChecksThem).
+        String sorted = "SELECT id FROM (SELECT id, name FROM schema_input ORDER BY name) d";
+        List<ActionCreatePreparedStatementResult> handles = new ArrayList<>();
+        try {
+            handles.add(prepare(sorted));
+            handles.add(prepare(sorted));
+            for (ActionCreatePreparedStatementResult handle : handles) {
+                Assertions.assertNotNull(flightContext.getPreparedQuery(preparedId(handle)).getSchema());
+            }
+            // Another session narrows the grant to the column the executed plan reads. The analyzed plan is denied
+            // now, so only execution can decide, and nothing is left to check the advertised schema against.
+            ((RevokeTablePrivilegeCommand) new NereidsParser().parseSingle(
+                    "REVOKE SELECT_PRIV ON schema_test.schema_input FROM 'schema_revoked_reader'@'%'"))
+                    .run(connectContext, null);
+            grantPriv("GRANT SELECT_PRIV(id) ON schema_test.schema_input TO 'schema_revoked_reader'@'%'");
+            assertRefusedBeforeExecution(handles, FlightStatusCode.NOT_FOUND, false);
+            // Prepared again, the statement keeps the placeholder and its execution decides.
+            ActionCreatePreparedStatementResult again = prepare(sorted);
+            handles.add(again);
+            Assertions.assertEquals(Collections.singletonList("ResultMeta"), datasetSchema(again).getFields()
+                    .stream().map(Field::getName).collect(Collectors.toList()));
+            Assertions.assertNull(flightContext.getPreparedQuery(preparedId(again)).getSchema());
+        } finally {
+            flightContext.setCurrentUserIdentity(originalUser);
+            handles.forEach(handle -> flightContext.removePreparedQuery(preparedId(handle)));
         }
     }
 }
