@@ -169,7 +169,29 @@ LanceSessionManager::~LanceSessionManager() {
 }
 
 Status LanceSessionManager::_initialize() {
+    // lance-c takes every size as uint64_t, so a negative setting would be cast to a capacity of
+    // nearly 2^64 (no limit) or to a block size lance-c rejects for a different reason. Report it
+    // as the configuration error it is; open_dataset() retains this status like any other.
+    if (_config.lance_index_cache_size_bytes < 0 || _config.lance_metadata_cache_size_bytes < 0) {
+        return Status::InvalidArgument(
+                "lance_index_cache_size_bytes ({}) and lance_metadata_cache_size_bytes ({}) must "
+                "not be negative. Fix be.conf and restart this BE. Session initialization will "
+                "not be retried in this BE process.",
+                _config.lance_index_cache_size_bytes, _config.lance_metadata_cache_size_bytes);
+    }
     if (_config.enable_lance_data_cache) {
+        // The data cache sizes only matter while the cache is enabled; a disabled cache ignores
+        // them, whatever their value.
+        if (_config.lance_data_cache_disk_capacity_bytes < 0 ||
+            _config.lance_data_cache_read_block_size_bytes < 0) {
+            return Status::InvalidArgument(
+                    "lance_data_cache_disk_capacity_bytes ({}) and "
+                    "lance_data_cache_read_block_size_bytes ({}) must not be negative. Fix "
+                    "be.conf, or set enable_lance_data_cache=false, and restart this BE. Session "
+                    "initialization will not be retried in this BE process.",
+                    _config.lance_data_cache_disk_capacity_bytes,
+                    _config.lance_data_cache_read_block_size_bytes);
+        }
         // Treat the configured cache mode as a process-level requirement. If an enabled
         // data cache cannot initialize, report the failure instead of silently creating a
         // session without it. This keeps directory/configuration/device failures visible
