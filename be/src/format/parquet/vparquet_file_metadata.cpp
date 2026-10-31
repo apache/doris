@@ -23,18 +23,27 @@
 #include <vector>
 
 #include "format/parquet/schema_desc.h"
+#include "format/parquet_metadata_memory.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 
 namespace doris {
 
-FileMetaData::FileMetaData(tparquet::FileMetaData& metadata, size_t mem_size)
-        : _metadata(metadata), _mem_size(mem_size) {
-    ExecEnv::GetInstance()->parquet_meta_tracker()->consume(mem_size);
+FileMetaData::FileMetaData(tparquet::FileMetaData& metadata) : _metadata(metadata) {
+    _mem_size = sizeof(*this) + parquet_metadata_dynamic_size(_metadata);
+    _tracked_mem_size = _mem_size;
+    ExecEnv::GetInstance()->parquet_meta_tracker()->consume(_tracked_mem_size);
 }
 
 FileMetaData::~FileMetaData() {
-    ExecEnv::GetInstance()->parquet_meta_tracker()->release(_mem_size);
+    ExecEnv::GetInstance()->parquet_meta_tracker()->release(_tracked_mem_size);
+}
+
+void FileMetaData::release_memory_tracking() const {
+    // The cache's tracked value now owns this charge. Active uncached readers keep the
+    // parquet tracker charge; cached values must not be counted by both limiters.
+    ExecEnv::GetInstance()->parquet_meta_tracker()->release(_tracked_mem_size);
+    _tracked_mem_size = 0;
 }
 
 Status FileMetaData::init_schema(const bool enable_mapping_varbinary,
@@ -44,7 +53,12 @@ Status FileMetaData::init_schema(const bool enable_mapping_varbinary,
     }
     _schema.set_enable_mapping_varbinary(enable_mapping_varbinary);
     _schema.set_enable_mapping_timestamp_tz(enable_mapping_timestamp_tz);
-    return _schema.parse_from_thrift(_metadata.schema);
+    auto status = _schema.parse_from_thrift(_metadata.schema);
+    const size_t schema_size = _schema.estimated_memory_size();
+    _mem_size += schema_size;
+    _tracked_mem_size += schema_size;
+    ExecEnv::GetInstance()->parquet_meta_tracker()->consume(schema_size);
+    return status;
 }
 
 const tparquet::FileMetaData& FileMetaData::to_thrift() const {

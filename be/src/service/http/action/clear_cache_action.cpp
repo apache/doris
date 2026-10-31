@@ -47,8 +47,8 @@ void ClearCacheAction::handle(HttpRequest* req) {
         }
         freed_size = CacheManager::instance()->cache_prune_all(cache_type, true);
         if (freed_size == -1) {
-            fmt::format_to(return_string_buffer,
-                           "ClearCacheAction cache:{} is not allowed to be pruned", cache_type_str);
+            fmt::format_to(return_string_buffer, "ClearCacheAction cache:{} is not registered",
+                           cache_type_str);
             LOG(WARNING) << fmt::to_string(return_string_buffer);
             HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR,
                                     fmt::to_string(return_string_buffer));

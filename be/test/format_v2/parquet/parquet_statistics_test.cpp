@@ -1747,7 +1747,7 @@ TEST(NativeParquetStatisticsTest, EmptyDictionaryRowGroupIsSkippedBeforeMetadata
     thrift_metadata.__set_num_rows(0);
     thrift_metadata.__set_row_groups({row_group});
 
-    format::parquet::NativeParquetMetadata native_metadata(thrift_metadata, 0);
+    format::parquet::NativeParquetMetadata native_metadata(thrift_metadata);
     ASSERT_TRUE(native_metadata.init_schema(false, false).ok());
     format::parquet::ParquetFileContext file_context;
     file_context.native_file =

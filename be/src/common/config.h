@@ -1558,8 +1558,12 @@ DECLARE_Bool(enable_row_store_compact_jsonb);
 DECLARE_Int64(max_hdfs_file_handle_cache_num);
 DECLARE_Int32(max_hdfs_file_handle_cache_time_sec);
 
-// max number of meta info of external files, such as parquet footer
+// Legacy footer entry limit, used when external_file_meta_cache_memory_limit is empty.
+// A non-positive value continues to disable the cache in either mode.
 DECLARE_Int64(max_external_file_meta_cache_num);
+// Startup-only footer budget: bytes or a percentage of the effective BE mem_limit.
+// Empty uses the legacy entry limit; 0 disables caching. Default is 1%.
+DECLARE_String(external_file_meta_cache_memory_limit);
 // Apply delete pred in cumu compaction
 DECLARE_mBool(enable_delete_when_cumu_compaction);
 
