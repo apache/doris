@@ -70,7 +70,11 @@ public class FloatLiteral extends FractionalLiteral {
                 // widening on BE keeps the sign of a NaN, which signbit() can observe
                 return new DoubleLiteral(Math.copySign(Double.NaN, Float.floatToRawIntBits(value) < 0 ? -1.0 : 1.0));
             }
-            return new DoubleLiteral(Double.parseDouble(String.valueOf(value)));
+            // the BE widens Float32 to Float64 in binary, so the value has to survive that
+            // widening unchanged. going through the shortest printing does not: 1e20f prints as
+            // 1.0E20, which is exactly representable as 100000000000000000000, while the binary
+            // widening of the same float is 100000002004087734272
+            return new DoubleLiteral((double) value);
         } else if (targetType.isDecimalV2Type() || targetType.isDecimalV3Type()) {
             if (Float.isInfinite(value) || Float.isNaN(value)) {
                 throw new CastException(String.format("%s can't cast to %s in strict mode.", getValue(), targetType));
