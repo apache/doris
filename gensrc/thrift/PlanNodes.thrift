@@ -1670,6 +1670,8 @@ struct TTopnFilterDesc {
   3: required bool null_first 
   // scan node id -> expr on scan node
   4: required map<Types.TPlanNodeId, Exprs.TExpr> target_node_id_to_target_expr
+  // Only a direct scan feeding an ordinary single-key TopN may discard equal values.
+  5: optional bool is_strict = false
 }
 
 // Specification of a runtime filter.

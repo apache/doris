@@ -85,7 +85,7 @@ public:
         argument_template.emplace_back(nullptr, _children[0]->data_type(), "topn value");
 
         _function = SimpleFunctionFactory::instance().get_function(
-                _predicate->is_asc() ? "le" : "ge", argument_template, _data_type, {},
+                _predicate->comparison_function(), argument_template, _data_type, {},
                 state->be_exec_version());
         if (!_function) {
             return Status::InternalError("get function failed");
@@ -192,7 +192,7 @@ public:
             TFunction fn;
             TFunctionName fn_name;
             fn_name.__set_db_name("");
-            fn_name.__set_function_name(_predicate->is_asc() ? "le" : "ge");
+            fn_name.__set_function_name(_predicate->comparison_function());
             fn.__set_name(fn_name);
             fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
             std::vector<TTypeDesc> arg_types;
@@ -210,7 +210,7 @@ public:
             TExprNode texpr_node;
             texpr_node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
             texpr_node.__set_node_type(TExprNodeType::BINARY_PRED);
-            texpr_node.__set_opcode(_predicate->is_asc() ? TExprOpcode::LE : TExprOpcode::GE);
+            texpr_node.__set_opcode(_predicate->comparison_opcode());
             texpr_node.__set_fn(fn);
             texpr_node.__set_num_children(2);
             texpr_node.__set_is_nullable(is_nullable());
@@ -230,7 +230,7 @@ public:
             new_root->add_child(VLiteral::create_shared(node));
         }
 
-        // Since the normal greater than or less than relationship does not consider the relationship of null values, the generated `col >=/<= xxx OR col is null.`
+        // A comparison rejects SQL NULL. Add IS NULL to preserve NULLS FIRST for either bound type.
         if (_predicate->nulls_first()) {
             VExprSPtr col_is_null_node;
             {

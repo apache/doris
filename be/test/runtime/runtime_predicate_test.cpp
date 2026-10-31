@@ -31,6 +31,7 @@
 #include "exprs/vtopn_pred.h"
 #include "runtime/descriptors.h"
 #include "runtime/query_context.h"
+#include "storage/index/zone_map/zone_map_index.h"
 #include "testutil/mock/mock_runtime_state.h"
 
 namespace doris {
@@ -41,7 +42,7 @@ constexpr TPlanNodeId TARGET_NODE_ID = 20;
 constexpr SlotId SLOT_ID = 0;
 
 TTopnFilterDesc create_topn_filter_desc(PrimitiveType type = TYPE_INT, bool is_asc = true,
-                                        bool nulls_first = false) {
+                                        bool nulls_first = false, bool is_strict = false) {
     auto target_expr = TRuntimeFilterDescBuilder::get_default_expr();
     target_expr.nodes[0].__set_type(create_type_desc(type));
 
@@ -49,6 +50,7 @@ TTopnFilterDesc create_topn_filter_desc(PrimitiveType type = TYPE_INT, bool is_a
     desc.__set_source_node_id(SOURCE_NODE_ID);
     desc.__set_is_asc(is_asc);
     desc.__set_null_first(nulls_first);
+    desc.__set_is_strict(is_strict);
     desc.__set_target_node_id_to_target_expr({{TARGET_NODE_ID, target_expr}});
     return desc;
 }
@@ -63,10 +65,11 @@ SlotDescriptor create_int_slot_descriptor() {
 
 VExprContextSPtr create_prepared_topn_expr(MockRuntimeState* state, const DataTypePtr& data_type,
                                            const Field& top_value = Field(), bool is_asc = true,
-                                           bool nulls_first = false) {
+                                           bool nulls_first = false, bool is_strict = false) {
     DORIS_CHECK(state != nullptr);
     DORIS_CHECK(data_type != nullptr);
-    auto desc = create_topn_filter_desc(data_type->get_primitive_type(), is_asc, nulls_first);
+    auto desc = create_topn_filter_desc(data_type->get_primitive_type(), is_asc, nulls_first,
+                                        is_strict);
     state->get_query_ctx()->init_runtime_predicates({desc});
     auto& predicate = state->get_query_ctx()->get_runtime_predicate(SOURCE_NODE_ID);
     predicate.set_detected_source();
@@ -132,7 +135,102 @@ void check_topn_uuid_scanner_predicate(bool is_asc, bool nulls_first) {
                      : (std::array<bool, 6> {false, false, false, true, true, nulls_first}));
 }
 
+void check_strict_scanner_predicate(bool ascending, bool nulls_first) {
+    RuntimePredicate predicate(create_topn_filter_desc(TYPE_INT, ascending, nulls_first, true));
+    auto slot = create_int_slot_descriptor();
+    ASSERT_TRUE(predicate.init_target(TARGET_NODE_ID, {{SLOT_ID, &slot}}, 0).ok());
+    const auto scanner_predicate = predicate.get_predicate(TARGET_NODE_ID);
+    auto column = ColumnInt32::create();
+    for (int value : {2, 3, 4}) {
+        column->insert_value(value);
+    }
+    std::array<bool, 3> matches {};
+    scanner_predicate->evaluate_vec(*column, matches.size(), matches.data());
+    EXPECT_EQ(matches, (std::array<bool, 3> {true, true, true}));
+    ASSERT_TRUE(predicate.update(Field::create_field<TYPE_INT>(3)).ok());
+    scanner_predicate->evaluate_vec(*column, matches.size(), matches.data());
+    EXPECT_EQ(matches, ascending ? (std::array<bool, 3> {true, false, false})
+                                 : (std::array<bool, 3> {false, false, true}));
+    segment_v2::ZoneMap zone_map;
+    zone_map.has_not_null = true;
+    zone_map.min_value = Field::create_field<TYPE_INT>(3);
+    zone_map.max_value = Field::create_field<TYPE_INT>(3);
+    EXPECT_FALSE(scanner_predicate->evaluate_and(zone_map));
+    zone_map.has_null = true;
+    EXPECT_EQ(scanner_predicate->evaluate_and(zone_map), nulls_first);
+}
+
 } // namespace
+
+TEST(RuntimePredicateTest, MissingStrictFlagKeepsInclusiveBounds) {
+    auto desc = create_topn_filter_desc(TYPE_INT, true, false, true);
+    desc.__isset.is_strict = false;
+    RuntimePredicate predicate(desc);
+    EXPECT_FALSE(predicate.is_strict());
+    EXPECT_STREQ(predicate.comparison_function(), "le");
+}
+
+TEST(RuntimePredicateTest, StrictBoundsRejectEqualRowsAndEqualZoneMaps) {
+    for (const bool ascending : {false, true}) {
+        for (const bool nulls_first : {false, true}) {
+            ASSERT_NO_FATAL_FAILURE(check_strict_scanner_predicate(ascending, nulls_first));
+        }
+    }
+}
+
+TEST(RuntimePredicateTest, StrictBoundsAgreeAcrossColumnRawAndDictionaryEvaluation) {
+    for (const bool ascending : {false, true}) {
+        MockRuntimeState state;
+        const auto type = std::make_shared<DataTypeInt32>();
+        auto context = create_prepared_topn_expr(&state, type, Field::create_field<TYPE_INT>(3),
+                                                 ascending, false, true);
+        const std::array<int32_t, 3> values {2, 3, 4};
+        IColumn::Filter matches(3, 1);
+        ASSERT_TRUE(context->root()
+                            ->execute_on_raw_fixed_values(
+                                    reinterpret_cast<const uint8_t*>(values.data()), values.size(),
+                                    sizeof(int32_t), type, 0, matches.data())
+                            .ok());
+        EXPECT_EQ(matches, ascending ? (IColumn::Filter {1, 0, 0}) : (IColumn::Filter {0, 0, 1}));
+        Block block;
+        auto column = ColumnInt32::create();
+        for (const auto value : values) {
+            column->insert_value(value);
+        }
+        block.insert({std::move(column), type, "topn_column"});
+        ColumnPtr result;
+        ASSERT_TRUE(
+                context->root()->execute_column(context.get(), &block, nullptr, 3, result).ok());
+        for (size_t row = 0; row < 3; ++row) {
+            EXPECT_EQ(result->get_bool(row), matches[row]);
+        }
+        DictionaryEvalContext dictionary;
+        dictionary.slots.emplace(
+                0, DictionaryEvalContext::SlotDictionary {
+                           .data_type = type, .values = {Field::create_field<TYPE_INT>(3)}});
+        EXPECT_EQ(context->root()->evaluate_dictionary_filter(dictionary),
+                  ZoneMapFilterResult::kNoMatch);
+        context->close();
+    }
+}
+
+TEST(RuntimePredicateTest, StrictBinaryBoundsRejectEquality) {
+    for (const bool ascending : {false, true}) {
+        MockRuntimeState state;
+        const auto type = DataTypeFactory::instance().create_data_type(TYPE_STRING, false);
+        auto context = create_prepared_topn_expr(
+                &state, type, Field::create_field<TYPE_STRING>("middle"), ascending, false, true);
+        const std::array<StringRef, 3> values {StringRef("alpha"), StringRef("middle"),
+                                               StringRef("zulu")};
+        IColumn::Filter matches(3, 1);
+        ASSERT_TRUE(context->root()
+                            ->execute_on_raw_binary_values(values.data(), values.size(), type, 0,
+                                                           matches.data())
+                            .ok());
+        EXPECT_EQ(matches, ascending ? (IColumn::Filter {1, 0, 0}) : (IColumn::Filter {0, 0, 1}));
+        context->close();
+    }
+}
 
 TEST(RuntimePredicateTest, init_target_creates_column_predicate_for_valid_column_id) {
     RuntimePredicate predicate(create_topn_filter_desc());

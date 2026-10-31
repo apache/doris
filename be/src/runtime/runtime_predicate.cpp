@@ -30,7 +30,9 @@
 namespace doris {
 
 RuntimePredicate::RuntimePredicate(const TTopnFilterDesc& desc)
-        : _nulls_first(desc.null_first), _is_asc(desc.is_asc) {
+        : _nulls_first(desc.null_first),
+          _is_asc(desc.is_asc),
+          _is_strict(desc.__isset.is_strict && desc.is_strict) {
     DCHECK(!desc.target_node_id_to_target_expr.empty());
     for (auto p : desc.target_node_id_to_target_expr) {
         _contexts[p.first].expr = p.second;
@@ -47,12 +49,16 @@ RuntimePredicate::RuntimePredicate(const TTopnFilterDesc& desc)
                         type_to_string(_type), ss.str());
     }
 
-    // For ASC  sort, create runtime predicate col_name <= max_top_value
-    // since values that > min_top_value are large than any value in current topn values
-    // For DESC sort, create runtime predicate col_name >= min_top_value
-    // since values that < min_top_value are less than any value in current topn values
-    _pred_constructor = _is_asc ? create_comparison_predicate<PredicateType::LE>
-                                : create_comparison_predicate<PredicateType::GE>;
+    // HeapSorter publishes a bound only after retaining limit + offset candidates. For a
+    // direct, single-key TopN these candidates already cover equality: e.g. after retaining
+    // [1, 2, 3], another 3 cannot improve LIMIT 3. Other plan shapes keep inclusive bounds.
+    if (_is_strict) {
+        _pred_constructor = _is_asc ? create_comparison_predicate<PredicateType::LT>
+                                    : create_comparison_predicate<PredicateType::GT>;
+    } else {
+        _pred_constructor = _is_asc ? create_comparison_predicate<PredicateType::LE>
+                                    : create_comparison_predicate<PredicateType::GE>;
+    }
 }
 
 Status RuntimePredicate::init_target(

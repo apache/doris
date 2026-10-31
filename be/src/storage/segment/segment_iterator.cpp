@@ -98,6 +98,7 @@
 #include "storage/olap_common.h"
 #include "storage/predicate/bloom_filter_predicate.h"
 #include "storage/predicate/column_predicate.h"
+#include "storage/predicate/shared_predicate.h"
 #include "storage/schema.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/column_reader_cache.h"
@@ -460,6 +461,11 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
             continue;
         }
         _col_predicates.emplace_back(predicate);
+        if (auto shared = std::dynamic_pointer_cast<SharedPredicate>(predicate)) {
+            const auto version = shared->version();
+            _topn_runtime_filters.push_back(
+                    {.predicate = std::move(shared), .applied_version = version});
+        }
     }
     _init_column_states();
     _tablet_id = opts.tablet_id;
@@ -617,15 +623,8 @@ Status SegmentIterator::_lazy_init(Block* block) {
 
     RETURN_IF_ERROR(_apply_ann_topn_predicate());
 
-    // _row_bitmap is immutable after _range_iter is created. Cache its cardinality to avoid
-    // traversing all roaring containers for every batch.
-    _row_bitmap_cardinality = _row_bitmap.cardinality();
-
-    if (_opts.read_orderby_key_reverse) {
-        _range_iter.reset(new BackwardBitmapRangeIterator(_row_bitmap));
-    } else {
-        _range_iter.reset(new BitmapRangeIterator(_row_bitmap));
-    }
+    _reset_range_iterator();
+    _topn_read_position = _opts.read_orderby_key_reverse ? num_rows() : 0;
 
     // Reserve columns for _initial_block_row_max (the original max before any adaptive
     // prediction) because the predictor may increase block_row_max on subsequent batches
@@ -1279,6 +1278,75 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     VLOG_DEBUG << fmt::format(
             "Enable ANN index-only scan for src column cid {} (skip reading data pages)", src_cid);
 
+    return Status::OK();
+}
+
+void SegmentIterator::_reset_range_iterator() {
+    // TopN pruning can replace the bitmap between batches. Refresh the cached cardinality with
+    // the cursor so batch sizing does not use the larger range from before the bound arrived.
+    _row_bitmap_cardinality = _row_bitmap.cardinality();
+    if (_opts.read_orderby_key_reverse) {
+        _range_iter.reset(new BackwardBitmapRangeIterator(_row_bitmap));
+    } else {
+        _range_iter.reset(new BitmapRangeIterator(_row_bitmap));
+    }
+}
+
+Status SegmentIterator::_update_topn_runtime_filter_ranges() {
+    // Apply the first bound immediately and throttle later changes by raw rows read.
+    // A 40960-row delta is not enough; it must exceed the limit.
+    constexpr uint64_t update_threshold = 4096 * 10;
+    auto needs_update = [&](const TopNRuntimeFilter& filter) {
+        return filter.predicate->version() > filter.applied_version &&
+               (filter.applied_version == 0 ||
+                _topn_rows_read - filter.last_update_rows > update_threshold);
+    };
+    if (std::ranges::none_of(_topn_runtime_filters, needs_update)) {
+        return Status::OK();
+    }
+
+    SCOPED_RAW_TIMER(&_opts.stats->generate_row_ranges_by_zonemap_ns);
+    roaring::Roaring remaining = _row_bitmap;
+    // Exclude already consumed rows BEFORE intersecting page ranges. For example, after reading
+    // [0,100), a surviving page [50,150) may only add [100,150) to the rebuilt forward iterator.
+    if (_opts.read_orderby_key_reverse) {
+        remaining.removeRange(_topn_read_position, num_rows());
+    } else {
+        remaining.removeRange(0, _topn_read_position);
+    }
+    const auto before = remaining.cardinality();
+    // The last returned batch may have exhausted the cursor before the producer publishes a
+    // tighter bound. There are no unread rows to test against page metadata in that case.
+    if (before == 0) {
+        return Status::OK();
+    }
+    for (auto& filter : _topn_runtime_filters) {
+        if (!needs_update(filter)) {
+            continue;
+        }
+        const auto snapshot = filter.predicate->snapshot();
+        DCHECK(snapshot.predicate != nullptr);
+        AndBlockColumnPredicate predicate;
+        predicate.add_column_predicate(
+                SingleColumnBlockPredicate::create_unique(snapshot.predicate));
+        RowRanges ranges = RowRanges::create_single(num_rows());
+        RETURN_IF_ERROR(
+                _column_iterators[filter.predicate->column_id()]->get_row_ranges_by_zone_map(
+                        &predicate, nullptr, &ranges));
+        remaining &= RowRanges::ranges_to_roaring(ranges);
+        filter.applied_version = snapshot.version;
+        filter.last_update_rows = _topn_rows_read;
+    }
+    const auto filtered = before - remaining.cardinality();
+    if (filtered != 0) {
+        // Roaring iterators borrow bitmap containers. Destroy the old cursor before replacing
+        // its bitmap, then bind a new cursor to the remaining rows in the same read direction.
+        _range_iter.reset();
+        _row_bitmap = std::move(remaining);
+        _reset_range_iterator();
+        _opts.stats->rows_stats_filtered += filtered;
+        _opts.stats->rows_stats_rp_filtered += filtered;
+    }
     return Status::OK();
 }
 
@@ -2665,6 +2733,11 @@ Status SegmentIterator::_read_columns_by_index(const std::vector<ColumnId>& read
     SCOPED_RAW_TIMER(&_opts.stats->predicate_column_read_ns);
 
     nrows_read = (uint16_t)_range_iter->read_batch_rowids(_block_rowids.data(), nrows_read_limit);
+    if (nrows_read > 0) {
+        _topn_read_position = _opts.read_orderby_key_reverse
+                                      ? _block_rowids[0]
+                                      : uint64_t(_block_rowids[nrows_read - 1]) + 1;
+    }
     bool is_continuous = (nrows_read > 1) &&
                          (_block_rowids[nrows_read - 1] - _block_rowids[0] == nrows_read - 1);
     VLOG_DEBUG << fmt::format(
@@ -3148,6 +3221,7 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
     DCHECK(is_mem_reuse);
 
     RETURN_IF_ERROR(_lazy_init(block));
+    RETURN_IF_ERROR(_update_topn_runtime_filter_ranges());
 
     SCOPED_RAW_TIMER(&_opts.stats->block_load_ns);
 
@@ -3197,6 +3271,7 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
 
     _opts.stats->blocks_load += 1;
     _opts.stats->raw_rows_read += _selected_size;
+    _topn_rows_read += _selected_size;
 
     if (_selected_size == 0) {
         return _process_eof(block);

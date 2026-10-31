@@ -36,8 +36,10 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TUniqueId;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -74,6 +76,37 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
         PhysicalTopN<? extends Plan> localTopN
                 = (PhysicalTopN<? extends Plan>) rfSource;
         Assertions.assertTrue(checker.getCascadesContext().getTopnFilterContext().isTopnFilterSource(localTopN));
+    }
+
+    @Test
+    public void testStrictBoundsOnlyForDirectSingleKeyTopN() {
+        double previousRatio = connectContext.getSessionVariable().topnFilterRatio;
+        TUniqueId previousQueryId = connectContext.queryId();
+        connectContext.setQueryId(new TUniqueId(1, 1));
+        connectContext.getSessionVariable().topnFilterRatio = 1000000;
+        try {
+            List<TopnFilter> directFilters = PlanChecker.from(connectContext)
+                    .plan("SELECT c_name FROM customer ORDER BY c_name LIMIT 5 OFFSET 2")
+                    .getTopnFilters();
+            Assertions.assertFalse(directFilters.isEmpty());
+            Assertions.assertTrue(directFilters.stream().anyMatch(filter -> filter.toThrift().isIsStrict()));
+
+            for (TopnFilter filter : directFilters) {
+                // A non-scan child requires inclusive bounds even when there is only one key.
+                filter.legacySortNode.setChild(0, Mockito.mock(PlanNode.class));
+                Assertions.assertFalse(filter.toThrift().isIsStrict());
+            }
+            for (String orderBy : List.of("c_name, c_custkey", "abs(c_custkey)")) {
+                List<TopnFilter> filters = PlanChecker.from(connectContext)
+                        .plan("SELECT c_name,c_custkey FROM customer ORDER BY " + orderBy + " LIMIT 5")
+                        .getTopnFilters();
+                Assertions.assertFalse(filters.isEmpty());
+                Assertions.assertTrue(filters.stream().noneMatch(filter -> filter.toThrift().isIsStrict()));
+            }
+        } finally {
+            connectContext.setQueryId(previousQueryId);
+            connectContext.getSessionVariable().topnFilterRatio = previousRatio;
+        }
     }
 
     @Test
