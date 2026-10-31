@@ -62,6 +62,53 @@ TEST(LanceSessionManagerTest, SessionAndDataCacheConfigurationsAreIndependent) {
     ASSERT_NE(dataset, nullptr);
 }
 
+TEST(LanceSessionManagerTest, RejectsNegativeCacheSizesBeforeCreatingTheSession) {
+    const auto open_with = [](LanceSessionManager::Config config) {
+        LanceSessionManager manager(std::move(config));
+        LanceDataset* raw_dataset = nullptr;
+        auto status = manager.open_dataset(lance_fixture_path().c_str(), nullptr, 0, &raw_dataset);
+        LanceDatasetPtr dataset(raw_dataset, lance_dataset_close);
+        EXPECT_EQ(dataset, nullptr);
+        return status;
+    };
+    // Cast to uint64_t, a negative index or metadata cache size would be accepted by lance-c
+    // as a cache of nearly 2^64 bytes, that is no limit at all.
+    for (const auto& [index_size, metadata_size] :
+         {std::pair<int64_t, int64_t> {-1, 0}, std::pair<int64_t, int64_t> {0, -1}}) {
+        const auto status = open_with({
+                .lance_index_cache_size_bytes = index_size,
+                .lance_metadata_cache_size_bytes = metadata_size,
+                .enable_lance_data_cache = false,
+                .lance_data_cache_path = "",
+                .lance_data_cache_disk_capacity_bytes = 0,
+                .lance_data_cache_read_block_size_bytes = 0,
+        });
+        EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
+        EXPECT_NE(status.to_string().find("must not be negative"), std::string::npos) << status;
+    }
+
+    // With the data cache enabled, its negative sizes are reported as such instead of as
+    // whatever lance-c makes of the wrapped value.
+    const auto cache_path = unique_cache_path();
+    std::filesystem::create_directories(cache_path);
+    for (const auto& [disk_capacity, block_size] :
+         {std::pair<int64_t, int64_t> {-1, 64 * 1024},
+          std::pair<int64_t, int64_t> {32 * 1024 * 1024, -1}}) {
+        const auto status = open_with({
+                .lance_index_cache_size_bytes = 0,
+                .lance_metadata_cache_size_bytes = 0,
+                .enable_lance_data_cache = true,
+                .lance_data_cache_path = cache_path.string(),
+                .lance_data_cache_disk_capacity_bytes = disk_capacity,
+                .lance_data_cache_read_block_size_bytes = block_size,
+        });
+        EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
+        EXPECT_NE(status.to_string().find("must not be negative"), std::string::npos) << status;
+    }
+    std::error_code error;
+    std::filesystem::remove_all(cache_path, error);
+}
+
 TEST(LanceSessionManagerTest, PublishesSessionCacheMetrics) {
     constexpr int64_t INDEX_CACHE_CAPACITY = 8 * 1024 * 1024;
     constexpr int64_t METADATA_CACHE_CAPACITY = 4 * 1024 * 1024;
