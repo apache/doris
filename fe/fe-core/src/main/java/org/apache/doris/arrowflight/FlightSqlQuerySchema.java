@@ -108,10 +108,10 @@ final class FlightSqlQuerySchema {
      * whose result columns depend on what they find (WARM UP SELECT answers OK instead of its
      * statistics when its source turns out empty), a request whose statements before the last are
      * not USE or SWITCH, a query with parameter placeholders, a result type this frontend cannot
-     * describe as the backend sends it, a query that the privilege check of its analyzed plan denies
-     * (only the check of the executed plan decides, see checkPrivileges). Prepare advertises the
-     * placeholder schema for such a statement and does not check its executions; GetSchema answers
-     * UNIMPLEMENTED.
+     * describe as the backend sends it (an untyped NULL column among them, at any depth), a query
+     * that the privilege check of its analyzed plan denies (only the check of the executed plan
+     * decides, see checkPrivileges). Prepare advertises the placeholder schema for such a statement
+     * and does not check its executions; GetSchema answers UNIMPLEMENTED.
      */
     static final class UndiscoverableSchemaException extends Exception {
         UndiscoverableSchemaException(String message) {
@@ -423,7 +423,9 @@ final class FlightSqlQuerySchema {
             // BE stamps the session time zone, where the shared mapping still says "UTC" (#67577).
             arrowType = new ArrowType.Timestamp(((ArrowType.Timestamp) arrowType).getUnit(), timezone);
         }
-        if (arrowType instanceof ArrowType.Null && primitive != PrimitiveType.NULL_TYPE) {
+        // NULL_TYPE too: BE builds an untyped NULL column as a UInt8 data type flagged as a NULL literal
+        // (data_type_factory.cpp), so convert_to_arrow_type sends it as Bool, never as Null.
+        if (arrowType instanceof ArrowType.Null) {
             throw new UndiscoverableSchemaException("Unsupported Arrow result type: " + type);
         }
         List<Field> children = new ArrayList<>();

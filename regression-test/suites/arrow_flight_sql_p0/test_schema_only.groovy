@@ -225,9 +225,11 @@ suite("test_schema_only", "arrow_flight_sql") {
                 assertEquals(prepareSchema("SHOW PROC '/'"), client.getExecuteSchema("SHOW PROC '/'", options).getSchema())
                 // A statement whose result schema only running it can tell keeps the placeholder on Prepare,
                 // since the Arrow Flight SQL JDBC driver prepares every statement and does not fall back when
-                // Prepare refuses one; GetSchema, asked for that schema itself, answers UNIMPLEMENTED.
+                // Prepare refuses one; GetSchema, asked for that schema itself, answers UNIMPLEMENTED. So does a
+                // result with an untyped NULL column, at any depth: BE sends it as nullable Bool, not as Null.
                 ["SHOW PYTHON PACKAGES IN '3.11'", "SHOW QUERY STATS", "DESC information_schema.tables",
-                 "WARM UP SELECT * FROM schema_source", "SET @schema_only = 1; SELECT @schema_only AS v"].each { query ->
+                 "WARM UP SELECT * FROM schema_source", "SET @schema_only = 1; SELECT @schema_only AS v",
+                 "SELECT NULL AS n", "SELECT ARRAY(NULL) AS a"].each { query ->
                     def placeholder = client.prepare(query, options)
                     try {
                         assertEquals(["ResultMeta"], placeholder.getResultSetSchema().getFields()*.getName())
@@ -272,6 +274,35 @@ suite("test_schema_only", "arrow_flight_sql") {
                     assertEquals(["7"], values)
                 } finally {
                     unchecked.close(options)
+                }
+                // A query such as `SELECT org_id, NULL FROM t` runs unchecked the same way, every time, instead of
+                // having its handle expired by the Bool that BE sends for the NULL column.
+                def nulls = client.prepare(
+                        "SELECT k, NULL AS n FROM (SELECT 1 AS k UNION ALL SELECT 2 AS k) t ORDER BY k", options)
+                try {
+                    assertEquals(["ResultMeta"], nulls.getResultSetSchema().getFields()*.getName())
+                    2.times {
+                        def info = nulls.execute(options)
+                        def keys = []
+                        def nullCount = 0
+                        info.getEndpoints().each { endpoint ->
+                            FlightClient.builder(allocator, endpoint.getLocations()[0]).build().withCloseable { be ->
+                                be.getStream(endpoint.getTicket(), options).withCloseable { stream ->
+                                    while (stream.next()) {
+                                        def root = stream.getRoot()
+                                        for (int i = 0; i < root.getRowCount(); ++i) {
+                                            keys.add(root.getVector("k").getObject(i).toString())
+                                            nullCount += root.getVector("n").isNull(i) ? 1 : 0
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        assertEquals(["1", "2"], keys.sort())
+                        assertEquals(2, nullCount)
+                    }
+                } finally {
+                    nulls.close(options)
                 }
                 // WARM UP SELECT answers OK instead of its statistics when planning proves its source empty, as for a
                 // table without data: its placeholder handle runs that unchecked rather than refusing it.

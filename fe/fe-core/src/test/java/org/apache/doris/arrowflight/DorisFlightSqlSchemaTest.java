@@ -514,30 +514,47 @@ public class DorisFlightSqlSchemaTest extends TestWithFeService {
         }
     }
 
+    private void assertKeepsPlaceholder(String query) throws Exception {
+        FlightRuntimeException error = Assertions.assertThrows(FlightRuntimeException.class,
+                () -> schema(query), query);
+        Assertions.assertEquals(FlightStatusCode.UNIMPLEMENTED, error.status().code(), query);
+        // The Arrow Flight SQL JDBC driver prepares every statement and does not fall back when Prepare
+        // refuses one: such a statement keeps the placeholder schema, and its handle has nothing to check.
+        ActionCreatePreparedStatementResult result = prepare(query);
+        try {
+            Assertions.assertEquals(Collections.singletonList("ResultMeta"), datasetSchema(result).getFields()
+                    .stream().map(Field::getName).collect(Collectors.toList()), query);
+            Assertions.assertNull(flightContext.getPreparedQuery(preparedId(result)).getSchema(), query);
+            Assertions.assertEquals(FlightStatusCode.UNIMPLEMENTED, Assertions.assertThrows(
+                    FlightRuntimeException.class, () -> producer.getSchemaPreparedStatement(command(result),
+                            callContext, FlightDescriptor.command(new byte[0]))).status().code(), query);
+        } finally {
+            flightContext.removePreparedQuery(preparedId(result));
+        }
+    }
+
     @Test
     void commandsWithUnknownOrDynamicMetadataKeepThePlaceholder() throws Exception {
         for (String query : Arrays.asList("SHOW PYTHON PACKAGES IN '3.11'", "DESC schema_input ALL",
                 "SHOW DATA FROM schema_input", "SHOW PARTITIONS FROM schema_input", "SHOW QUERY STATS",
                 "COPY INTO schema_input FROM @~", "WARM UP CLUSTER target WITH CLUSTER source",
                 "WARM UP SELECT * FROM schema_input", "SET @multi = 2; SELECT @multi")) {
-            FlightRuntimeException error = Assertions.assertThrows(FlightRuntimeException.class,
-                    () -> schema(query), query);
-            Assertions.assertEquals(FlightStatusCode.UNIMPLEMENTED, error.status().code(), query);
-            // The Arrow Flight SQL JDBC driver prepares every statement and does not fall back when Prepare
-            // refuses one: such a statement keeps the placeholder schema, and its handle has nothing to check.
-            ActionCreatePreparedStatementResult result = prepare(query);
-            try {
-                Assertions.assertEquals(Collections.singletonList("ResultMeta"), datasetSchema(result).getFields()
-                        .stream().map(Field::getName).collect(Collectors.toList()), query);
-                Assertions.assertNull(flightContext.getPreparedQuery(preparedId(result)).getSchema(), query);
-                Assertions.assertEquals(FlightStatusCode.UNIMPLEMENTED, Assertions.assertThrows(
-                        FlightRuntimeException.class, () -> producer.getSchemaPreparedStatement(command(result),
-                                callContext, FlightDescriptor.command(new byte[0]))).status().code(), query);
-            } finally {
-                flightContext.removePreparedQuery(preparedId(result));
-            }
+            assertKeepsPlaceholder(query);
         }
         Assertions.assertEquals(6, schema("SHOW FRONTEND CONFIG").getFields().size());
+    }
+
+    @Test
+    void untypedNullResultsKeepThePlaceholder() throws Exception {
+        // BE sends an untyped NULL column as nullable Bool, not as the Arrow Null of NULL_TYPE: an advertised
+        // Null would expire the handle on every execution, so such a result is not described, at any depth.
+        for (String query : Arrays.asList("SELECT NULL", "SELECT id, NULL AS n FROM schema_input ORDER BY id",
+                "SELECT ARRAY(NULL) AS a", "SELECT MAP('k', NULL) AS m", "SELECT NAMED_STRUCT('n', NULL) AS s")) {
+            assertKeepsPlaceholder(query);
+        }
+        // A NULL with a type is described as that type.
+        Assertions.assertEquals(new ArrowType.Utf8(), preparedSchema("SELECT CAST(NULL AS VARCHAR(20)) AS name")
+                .getFields().get(0).getType());
     }
 
     @Test
