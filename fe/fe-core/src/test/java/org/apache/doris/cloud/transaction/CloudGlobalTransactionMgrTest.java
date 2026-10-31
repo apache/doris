@@ -17,6 +17,7 @@
 
 package org.apache.doris.cloud.transaction;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.ChangelogConfig;
 import org.apache.doris.catalog.Database;
@@ -159,6 +160,26 @@ public class CloudGlobalTransactionMgrTest {
                     ArgumentCaptor.forClass(Cloud.AdvanceTsoFenceRequest.class);
             Mockito.verify(proxy).advanceTsoFence(capture.capture());
             Assertions.assertEquals(100, capture.getValue().getProposedFenceTso());
+        }
+    }
+
+    @Test
+    public void testBeginTransactionPersistsTxnUser() throws Exception {
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        UserIdentity txnUser = UserIdentity.createAnalyzedUserIdentWithIp("loader", "%");
+        try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            Mockito.when(proxy.beginTxn(Mockito.any())).thenReturn(BeginTxnResponse.newBuilder().setTxnId(1000)
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK)).build());
+            masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1), "owner_label", null, transactionSource,
+                    TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1,
+                    Config.stream_load_default_timeout_second, txnUser);
+            ArgumentCaptor<Cloud.BeginTxnRequest> capture = ArgumentCaptor.forClass(Cloud.BeginTxnRequest.class);
+            Mockito.verify(proxy).beginTxn(capture.capture());
+            TxnInfoPB info = capture.getValue().getTxnInfo();
+            Assertions.assertTrue(info.hasTxnUser());
+            Assertions.assertEquals(txnUser, TxnUtil.txnUserFromPb(info.getTxnUser()));
         }
     }
 

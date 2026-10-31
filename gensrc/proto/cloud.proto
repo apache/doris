@@ -539,6 +539,12 @@ message TxnTsoFencePB {
     optional int64 fence_tso = 1;
 }
 
+message TxnUserPB {
+    optional string user = 1;
+    optional string host = 2;
+    optional bool is_domain = 3;
+}
+
 message TxnInfoPB {
     optional int64 db_id = 1;
     repeated int64 table_ids = 2;
@@ -570,6 +576,8 @@ message TxnInfoPB {
     // Set by FE during begin_txn, used by commit_txn for compaction read-write separation
     optional string load_cluster_id = 22;
     optional int64 commit_tso = 23;
+    // Authenticated stream load creator; absent on legacy and internal transactions.
+    optional TxnUserPB txn_user = 24;
 }
 
 enum IndexObjectTypePB {
