@@ -83,6 +83,26 @@ public class ConnectContextTest {
     }
 
     @Test
+    public void testResetConnectionKeepsProcessingReservation() throws Exception {
+        ConnectContext ctx = Mockito.spy(new ConnectContext());
+        ctx.setEnv(env);
+        ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("testUser", "%"));
+        Mockito.when(env.getAuth()).thenReturn(auth);
+        Mockito.doNothing().when(ctx).closeChannel();
+
+        Assertions.assertTrue(ctx.startMysqlCommand());
+        ctx.resetConnection();
+        Assertions.assertEquals(MysqlCommand.COM_SLEEP, ctx.getCommand());
+        Assertions.assertFalse(ctx.closeIdleMysqlConnection());
+        Mockito.verify(ctx, Mockito.never()).closeChannel();
+
+        // processOnce releases the reservation only after finalizeCommand sends the reply.
+        ctx.finishMysqlCommand();
+        Assertions.assertTrue(ctx.closeIdleMysqlConnection());
+        Mockito.verify(ctx).closeChannel();
+    }
+
+    @Test
     public void testResetConnectionClearsSessionState() throws Exception {
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(env);
