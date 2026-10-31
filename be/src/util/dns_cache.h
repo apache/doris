@@ -17,12 +17,17 @@
 
 #pragma once
 
+#include <atomic>
 #include <chrono>
+#include <functional>
 #include <iostream>
+#include <memory>
+#include <mutex>
 #include <shared_mutex>
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "common/status.h"
 
@@ -32,11 +37,17 @@ namespace doris {
 // fe/fe-core/src/main/java/org/apache/doris/common/DNSCache.java
 class DNSCache {
 public:
+    using Resolver = std::function<Status(const std::string&, std::string&, bool, int*)>;
     DNSCache();
+    // Deterministic tests supply a resolver and drive refreshes without a background thread.
+    explicit DNSCache(Resolver resolver);
     ~DNSCache();
 
     // get ip by hostname
     Status get(const std::string& hostname, std::string* ip);
+
+    // Force a lookup after a socket fault, keeping the last IP as DNS-failure fallback.
+    void invalidate(const std::string& hostname);
 
 private:
     // Resolve hostname to IP address.
@@ -45,7 +56,7 @@ private:
     std::string _resolve_hostname(const std::string& hostname);
 
     // update the ip of hostname in cache
-    Status _update(const std::string& hostname);
+    Status _update(const std::string& hostname, std::string* ip = nullptr);
 
     // a function for refresh daemon thread
     // update cache at fix internal
@@ -54,9 +65,13 @@ private:
 private:
     // hostname -> ip
     std::unordered_map<std::string, std::string> cache;
+    std::unordered_set<std::string> _refresh_pending;
+    std::unordered_set<std::string> _refresh_inflight;
+    std::unordered_map<std::string, std::shared_ptr<std::mutex>> _refresh_locks;
     mutable std::shared_mutex mutex;
+    Resolver _resolver;
     std::thread refresh_thread;
-    bool stop_refresh = false;
+    std::atomic<bool> stop_refresh {false};
 };
 
 } // end of namespace doris

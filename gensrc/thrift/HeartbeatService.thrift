@@ -50,6 +50,8 @@ struct TMasterInfo {
     12: optional i64 tablet_report_inactive_duration_ms;
     13: optional string auth_token;
     14: optional TCloudClusterInfo cloud_cluster_info;
+    // Id 15 is reserved for changelog on master.
+    16: optional bool in_graceful_shutdown;
 }
 
 struct TBackendInfo {
