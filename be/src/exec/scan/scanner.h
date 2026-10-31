@@ -73,6 +73,12 @@ public:
     }
 
     virtual Status init(RuntimeState* state, const VExprContextSPtrs& conjuncts);
+
+    // Called by the scheduler before prepare(). Returns false when prepare() would wait for
+    // another scanner, for example one collecting statistics the scanner needs. The scheduler
+    // then gives the scanner thread back, and `wake_up` is called once prepare() can go ahead.
+    virtual bool ready_to_prepare(std::function<void()> /*wake_up*/) { return true; }
+
     Status prepare() {
         SCOPED_RAW_TIMER(&_per_scanner_timer);
         SCOPED_RAW_TIMER(&_per_scanner_prepare_timer);

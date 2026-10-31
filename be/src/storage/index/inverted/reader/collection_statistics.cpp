@@ -829,18 +829,85 @@ Status TabletCollectionStatistics::copy_to(RuntimeState* state,
                                            io::IOContext* io_ctx, const MowHiddenRows* hidden_rows,
                                            CollectionStatistics* statistics) {
     DORIS_CHECK(statistics != nullptr);
-    std::lock_guard lock(_mutex);
-    if (!_collected) {
-        // Every scanner of the tablet reads with the same delete bitmap and version.
-        _status = _statistics.collect_full_collection(
-                state, _rowsets, tablet_schema, common_expr_ctxs_push_down, io_ctx, hidden_rows);
-        _collected = true;
-        // Do not hold the rowsets any longer than needed.
-        _rowsets.clear();
+    {
+        std::unique_lock lock(_mutex);
+        _collected_cv.wait(lock, [this] { return _state != State::COLLECTING; });
+        if (_state == State::COLLECTED) {
+            RETURN_IF_ERROR(_status);
+            statistics->copy_collected_from(_statistics);
+            return Status::OK();
+        }
+        _state = State::COLLECTING;
     }
-    RETURN_IF_ERROR(_status);
+
+    // Collect without holding _mutex, so scanners arriving meanwhile can leave a wake-up instead
+    // of blocking. Only this caller touches _rowsets and _statistics until COLLECTED is published.
+    Status status;
+    bool finished = false;
+    Defer publish {[&] {
+        std::vector<std::function<void()>> waiters;
+        {
+            std::lock_guard lock(_mutex);
+            // Only an exception leaves the collection unfinished. The error is built here because
+            // building it records a stack trace.
+            _status = finished ? status
+                               : Status::InternalError("BM25 statistics collection did not finish");
+            _state = State::COLLECTED;
+            // Do not hold the rowsets any longer than needed.
+            _rowsets.clear();
+            waiters = _take_waiters();
+        }
+        _collected_cv.notify_all();
+        for (auto& wake_up : waiters) {
+            wake_up();
+        }
+    }};
+    // Every scanner of the tablet reads with the same delete bitmap and version.
+    status = _statistics.collect_full_collection(state, _rowsets, tablet_schema,
+                                                 common_expr_ctxs_push_down, io_ctx, hidden_rows);
+    finished = true;
+    RETURN_IF_ERROR(status);
     statistics->copy_collected_from(_statistics);
     return Status::OK();
+}
+
+TabletCollectionStatistics::Turn TabletCollectionStatistics::take_turn(
+        std::function<void()> wake_up) {
+    std::lock_guard lock(_mutex);
+    switch (_state) {
+    case State::NOT_STARTED:
+        _state = State::CLAIMED;
+        return Turn::COLLECT;
+    case State::COLLECTED:
+        return Turn::COLLECTED;
+    case State::CLAIMED:
+    case State::COLLECTING:
+        _waiters.push_back(std::move(wake_up));
+        return Turn::WAIT;
+    }
+    __builtin_unreachable();
+}
+
+void TabletCollectionStatistics::give_up_turn() {
+    std::vector<std::function<void()>> waiters;
+    {
+        std::lock_guard lock(_mutex);
+        if (_state != State::CLAIMED) {
+            return;
+        }
+        _state = State::NOT_STARTED;
+        waiters = _take_waiters();
+    }
+    // A woken scanner takes the turn again, and the first one collects.
+    for (auto& wake_up : waiters) {
+        wake_up();
+    }
+}
+
+std::vector<std::function<void()>> TabletCollectionStatistics::_take_waiters() {
+    std::vector<std::function<void()>> waiters;
+    waiters.swap(_waiters);
+    return waiters;
 }
 
 uint64_t CollectionStatistics::get_term_doc_freq_by_col(const std::wstring& lucene_col_name,

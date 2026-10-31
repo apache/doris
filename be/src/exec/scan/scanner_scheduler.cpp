@@ -181,6 +181,20 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         scanner->update_realtime_counters();
     };
 
+    // A scanner whose prepare() would wait for another scanner, such as one collecting BM25
+    // statistics of the same tablet, gives the thread back and is scheduled again once it can
+    // prepare. Blocking would hold scanner threads that other queries need.
+    if (!scanner->has_prepared() && !scanner->is_pruned_by_runtime_filter() && !ctx->done() &&
+        !scanner->ready_to_prepare([weak_ctx = std::weak_ptr<ScannerContext>(ctx), scan_task] {
+            if (auto ctx = weak_ctx.lock()) {
+                ctx->wake_up_waiting_scan_task(scan_task);
+            }
+        })) {
+        update_scanner_profile();
+        ctx->push_waiting_scan_task(scan_task);
+        return;
+    }
+
     Status status = Status::OK();
     bool eos = false;
     auto append_late_arrival_runtime_filter = [&] {

@@ -25,6 +25,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <list>
 #include <memory>
 #include <mutex>
@@ -104,6 +105,101 @@ private:
     std::atomic<int>* _running;
     std::atomic<int>* _peak_running;
     CountDownLatch* _overlap;
+};
+
+// Statistics one scanner of a tablet collects in prepare() while the others wait for them.
+struct MockTabletStatistics {
+    std::mutex mutex;
+    std::condition_variable collected_cv;
+    bool collected = false;
+    std::vector<std::function<void()>> waiters;
+
+    void publish() {
+        std::vector<std::function<void()>> to_wake;
+        {
+            std::lock_guard lock(mutex);
+            collected = true;
+            to_wake.swap(waiters);
+        }
+        collected_cv.notify_all();
+        for (auto& wake_up : to_wake) {
+            wake_up();
+        }
+    }
+};
+
+class StatisticsMockScanner : public Scanner {
+public:
+    // The collector finishes collecting only after `collection_done` is counted down.
+    StatisticsMockScanner(RuntimeState* state, ScanLocalStateBase* local_state,
+                          RuntimeProfile* profile, MockTabletStatistics* statistics, bool collector,
+                          CountDownLatch* collection_done, CountDownLatch* produced,
+                          std::atomic<int>* waits)
+            : Scanner(state, local_state, -1, profile),
+              _statistics(statistics),
+              _collector(collector),
+              _collection_done(collection_done),
+              _produced(produced),
+              _waits(waits) {}
+
+    bool ready_to_prepare(std::function<void()> wake_up) override {
+        if (_statistics == nullptr || _collector) {
+            return true;
+        }
+        std::lock_guard lock(_statistics->mutex);
+        if (_statistics->collected) {
+            return true;
+        }
+        _statistics->waiters.push_back(std::move(wake_up));
+        ++*_waits;
+        return false;
+    }
+
+protected:
+    Status _prepare_impl() override {
+        if (_collector) {
+            // Bounded so a scheduler that lets the waiter hold the other thread fails the test
+            // instead of hanging it.
+            if (!_collection_done->wait_for(std::chrono::seconds(10))) {
+                return Status::InternalError("statistics collection never finished");
+            }
+            _statistics->publish();
+        } else if (_statistics != nullptr) {
+            // Waits for the collector on its thread, as every scanner of a tablet did before
+            // ready_to_prepare(). Only a scheduler that runs it too early makes it wait.
+            std::unique_lock lock(_statistics->mutex);
+            if (!_statistics->collected_cv.wait_for(lock, std::chrono::seconds(10),
+                                                    [this] { return _statistics->collected; })) {
+                return Status::InternalError("statistics were never collected");
+            }
+        }
+        _has_prepared = true;
+        return Status::OK();
+    }
+
+    Status _get_block_impl(RuntimeState* /*state*/, Block* block, bool* eof) override {
+        if (_blocks_left == 0) {
+            *eof = true;
+            return Status::OK();
+        }
+        --_blocks_left;
+        block->get_by_position(0).column->assert_mutable()->insert_default();
+        if (_produced != nullptr) {
+            _produced->count_down();
+        }
+        *eof = false;
+        return Status::OK();
+    }
+
+    void _collect_profile_before_close() override {}
+
+private:
+    MockTabletStatistics* _statistics;
+    bool _collector;
+    CountDownLatch* _collection_done;
+    CountDownLatch* _produced;
+    std::atomic<int>* _waits;
+    int _blocks_left = 2;
 };
 
 class ScannerContextTest : public testing::Test {
@@ -1520,6 +1616,125 @@ TEST_F(ScannerContextTest, thread_pool_context_chain_runs_all_scanners) {
     EXPECT_TRUE(scanner_context->_process_status.ok());
     // The successor runnable ramped concurrency to the per-Context limit, and never beyond it.
     EXPECT_EQ(peak_running.load(), parallel_tasks);
+}
+
+// Two scanners of one tablet wait for statistics the third collects, and the collection
+// finishes only after a scanner of another tablet produced a block. With two scanner threads,
+// a waiting scanner that held its thread would leave none for the other tablet.
+TEST_F(ScannerContextTest, scanner_waiting_for_statistics_gives_thread_back) {
+    const int parallel_tasks = 2;
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
+    auto olap_scan_local_state =
+            OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+    olap_scan_local_state->_parent = scan_operator.get();
+    olap_scan_local_state->_max_scan_concurrency = max_concurrency_counter.get();
+    olap_scan_local_state->_min_scan_concurrency = min_concurrency_counter.get();
+    scan_operator->_should_run_serial = false;
+    TQueryOptions query_options;
+    query_options.__set_max_column_reader_num(0);
+    state->set_query_options(query_options);
+
+    MockTabletStatistics statistics;
+    CountDownLatch collection_done(1);
+    std::atomic<int> waits {0};
+    std::list<std::shared_ptr<ScannerDelegate>> scanners;
+    auto add_scanner = [&](MockTabletStatistics* tablet_statistics, bool collector,
+                           CountDownLatch* scanner_collection_done, CountDownLatch* produced) {
+        ScannerSPtr scanner = std::make_shared<StatisticsMockScanner>(
+                state.get(), olap_scan_local_state.get(), profile.get(), tablet_statistics,
+                collector, scanner_collection_done, produced, &waits);
+        scanners.push_back(std::make_shared<ScannerDelegate>(scanner));
+    };
+    // Pending scanners are admitted last-in first-out: the collector, then the waiters, then
+    // the scanner of the other tablet.
+    add_scanner(nullptr, false, nullptr, &collection_done);
+    for (int i = 0; i < 2; ++i) {
+        add_scanner(&statistics, false, nullptr, nullptr);
+    }
+    add_scanner(&statistics, true, &collection_done, nullptr);
+
+    auto task_execution_context = std::make_shared<TaskExecutionContext>();
+    state->set_task_execution_context(task_execution_context);
+    auto scanner_context = ScannerContext::create_shared(
+            state.get(), olap_scan_local_state.get(), output_tuple_desc, false, scanners, -1,
+            scan_dependency, &shared_limit, nullptr, nullptr, 0, false, parallel_tasks);
+    scanner_context->_newly_create_free_blocks_num = newly_create_free_blocks_num.get();
+    scanner_context->_scanner_memory_used_counter = scanner_memory_used_counter.get();
+
+    ThreadPoolSimplifiedScanScheduler scheduler("statistics_wait_test", cgroup_cpu_ctl);
+    ASSERT_TRUE(scheduler.start(2, 2, 16, 1).ok());
+    Defer cleanup = [&] { scheduler.stop(); };
+    scanner_context->_scanner_scheduler = &scheduler;
+    scanner_context->_min_scan_concurrency_of_scan_scheduler = 20;
+    ASSERT_TRUE(scanner_context->init().ok());
+
+    int64_t rows = 0;
+    bool eos = false;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    while (!eos) {
+        ASSERT_LT(std::chrono::steady_clock::now(), deadline) << scanner_context->debug_string();
+        Block block;
+        Status st = scanner_context->get_block_from_queue(state.get(), &block, &eos, 0);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        rows += block.rows();
+        if (!eos && block.rows() == 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+
+    EXPECT_EQ(rows, 4 * 2);
+    EXPECT_GE(waits.load(), 1);
+    std::unique_lock<std::mutex> transfer_lock(scanner_context->transfer_lock());
+    EXPECT_EQ(scanner_context->_num_finished_scanners, 4);
+    EXPECT_EQ(scanner_context->_in_flight_tasks_num, 0);
+    EXPECT_TRUE(scanner_context->_waiting_tasks.empty());
+    EXPECT_TRUE(scanner_context->_process_status.ok());
+}
+
+// A wake-up that arrives while the task is still on its scanner thread reschedules the task
+// as soon as it is parked.
+TEST_F(ScannerContextTest, wake_up_before_parking_reschedules_task) {
+    const int parallel_tasks = 1;
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
+    auto olap_scan_local_state =
+            OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+    olap_scan_local_state->_parent = scan_operator.get();
+    olap_scan_local_state->_max_scan_concurrency = max_concurrency_counter.get();
+    olap_scan_local_state->_min_scan_concurrency = min_concurrency_counter.get();
+    std::list<std::shared_ptr<ScannerDelegate>> scanners;
+    std::atomic<int> waits {0};
+    ScannerSPtr scanner = std::make_shared<StatisticsMockScanner>(
+            state.get(), olap_scan_local_state.get(), profile.get(), nullptr, false, nullptr,
+            nullptr, &waits);
+    scanners.push_back(std::make_shared<ScannerDelegate>(scanner));
+    auto scanner_context = ScannerContext::create_shared(
+            state.get(), olap_scan_local_state.get(), output_tuple_desc, false, scanners, -1,
+            scan_dependency, &shared_limit, nullptr, nullptr, 0, false, parallel_tasks);
+    std::unique_ptr<MockSimplifiedScanScheduler> scheduler =
+            std::make_unique<MockSimplifiedScanScheduler>(cgroup_cpu_ctl);
+    scanner_context->_scanner_scheduler = scheduler.get();
+
+    std::shared_ptr<ScanTask> task;
+    {
+        std::unique_lock<std::mutex> transfer_lock(scanner_context->transfer_lock());
+        task = scanner_context->_pending_tasks.top();
+        scanner_context->_pending_tasks.pop();
+        task->set_state(ScanTask::State::IN_FLIGHT);
+        scanner_context->_in_flight_tasks_num++;
+    }
+    scanner_context->wake_up_waiting_scan_task(task);
+    EXPECT_TRUE(task->wake_up_requested);
+
+    // Parking the task schedules it again instead of keeping it.
+    EXPECT_CALL(*scheduler, schedule_scan_task(testing::_, task, testing::_))
+            .WillOnce(testing::Return(Status::OK()));
+    scanner_context->push_waiting_scan_task(task);
+    std::unique_lock<std::mutex> transfer_lock(scanner_context->transfer_lock());
+    EXPECT_FALSE(task->wake_up_requested);
+    EXPECT_TRUE(scanner_context->_waiting_tasks.empty());
+    EXPECT_EQ(scanner_context->_in_flight_tasks_num, 0);
 }
 
 TEST_F(ScannerContextTest, thread_pool_context_runnable_is_deduplicated) {

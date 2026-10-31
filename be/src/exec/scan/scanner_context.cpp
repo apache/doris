@@ -362,6 +362,43 @@ void ScannerContext::push_completed_scan_task(std::shared_ptr<ScanTask> scan_tas
     _dependency->set_ready();
 }
 
+void ScannerContext::push_waiting_scan_task(std::shared_ptr<ScanTask> scan_task) {
+    std::unique_lock<std::mutex> l(_transfer_lock);
+    _in_flight_tasks_num--;
+    if (done()) {
+        return;
+    }
+    Status status;
+    if (scan_task->wake_up_requested) {
+        // The scanner became ready after it was found waiting: run it again.
+        scan_task->wake_up_requested = false;
+        status = _scanner_scheduler->schedule_scan_task(shared_from_this(), scan_task, l);
+    } else {
+        _waiting_tasks.insert(std::move(scan_task));
+        // The parked task freed a concurrency slot, which another pending scanner can use.
+        status = _scanner_scheduler->schedule_scan_task(shared_from_this(), nullptr, l);
+    }
+    if (!status.ok()) {
+        set_context_failure(status, l);
+    }
+}
+
+void ScannerContext::wake_up_waiting_scan_task(const std::shared_ptr<ScanTask>& scan_task) {
+    std::unique_lock<std::mutex> l(_transfer_lock);
+    if (_waiting_tasks.erase(scan_task) == 0) {
+        // The task is still on its scanner thread, on the way to push_waiting_scan_task().
+        scan_task->wake_up_requested = true;
+        return;
+    }
+    if (done()) {
+        return;
+    }
+    Status status = _scanner_scheduler->schedule_scan_task(shared_from_this(), scan_task, l);
+    if (!status.ok()) {
+        set_context_failure(status, l);
+    }
+}
+
 Status ScannerContext::get_block_from_queue(RuntimeState* state, Block* block, bool* eos, int id) {
     if (state->is_cancelled()) {
         _set_scanner_done();
@@ -552,14 +589,15 @@ std::string ScannerContext::debug_string() {
     // destructor. Do not dereference the operator-owned _shared_scan_limit for diagnostics.
     return fmt::format(
             "_query_id: {}, id: {}, total scanners: {}, pending tasks: {}, completed tasks: {},"
-            " _should_stop: {}, _is_finished: {}, free blocks: {},"
+            " waiting tasks: {}, _should_stop: {}, _is_finished: {}, free blocks: {},"
             " limit: {}, _in_flight_tasks_num: {}, _is_context_queued: {}, "
             "_num_finished_scanners: {}, _max_scan_concurrency: {}, expected_scanners: {},"
             " _max_bytes_in_queue: {}, _ins_idx: {}, _enable_adaptive_scanners: {}, "
             "_mem_share_arb: {}, _scanner_mem_limiter: {}",
             print_id(_query_id), ctx_id, _all_scanners.size(), _pending_tasks.size(),
-            _completed_tasks.size(), _should_stop, _is_finished, _free_blocks.size_approx(), limit,
-            _in_flight_tasks_num, _is_context_queued, _num_finished_scanners, _max_scan_concurrency,
+            _completed_tasks.size(), _waiting_tasks.size(), _should_stop, _is_finished,
+            _free_blocks.size_approx(), limit, _in_flight_tasks_num, _is_context_queued,
+            _num_finished_scanners, _max_scan_concurrency,
             _enable_adaptive_scanners ? _adaptive_processor->expected_scanners : -1,
             _max_bytes_in_queue, _ins_idx, _enable_adaptive_scanners,
             _enable_adaptive_scanners ? _mem_share_arb->debug_string() : "NULL",
