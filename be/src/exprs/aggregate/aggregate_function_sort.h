@@ -236,6 +236,10 @@ public:
     String get_name() const override { return _nested_func->get_name() + "Sort"; }
 
     DataTypePtr get_return_type() const override { return _nested_func->get_return_type(); }
+
+    void set_check_overflow_for_decimal(bool v) override {
+        _nested_func->set_check_overflow_for_decimal(v);
+    }
 };
 
 AggregateFunctionPtr transform_to_sort_agg_function(const AggregateFunctionPtr& nested_function,

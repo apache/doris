@@ -378,6 +378,10 @@ public:
 
     DataTypePtr get_return_type() const override { return nested_func->get_return_type(); }
 
+    void set_check_overflow_for_decimal(bool v) override {
+        nested_func->set_check_overflow_for_decimal(v);
+    }
+
     IAggregateFunction* transmit_to_stable() override {
         return new AggregateFunctionDistinct<Data, true>(nested_func,
                                                          IAggregateFunction::argument_types);
