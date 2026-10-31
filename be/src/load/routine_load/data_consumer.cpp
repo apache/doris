@@ -47,6 +47,7 @@
 #include "common/metrics/doris_metrics.h"
 #include "common/status.h"
 #include "load/routine_load/consumer_helpers.h"
+#include "load/routine_load/kafka_reader_telemetry.h"
 #include "load/routine_load/kinesis_conf.h"
 #include "runtime/aws_msk_iam_auth.h"
 #include "runtime/exec_env.h"
@@ -212,6 +213,7 @@ Status KafkaDataConsumer::assign_topic_partitions(
         const std::map<int32_t, int64_t>& begin_partition_offset, const std::string& topic,
         std::shared_ptr<StreamLoadContext> ctx) {
     DCHECK(_k_consumer);
+    _telemetry_job_id = ctx->job_id;
     // create TopicPartitions
     std::stringstream ss;
     std::vector<RdKafka::TopicPartition*> topic_partitions;
@@ -246,6 +248,8 @@ Status KafkaDataConsumer::assign_topic_partitions(
 
 Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
                                         int64_t max_running_time_ms) {
+    KafkaReaderTelemetry telemetry(_telemetry_job_id, _id, false);
+    int64_t queue_ns = 0;
     int64_t left_time = max_running_time_ms;
     LOG(INFO) << "start kafka consumer: " << _id << ", grp: " << _grp_id
               << ", max running time(ms): " << left_time;
@@ -275,6 +279,9 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
         consumer_watch.start();
         std::unique_ptr<RdKafka::Message> msg(_k_consumer->consume(1000 /* timeout, ms */));
         consumer_watch.stop();
+        if (msg->err() != RdKafka::ERR_NO_ERROR) {
+            telemetry.flush();
+        }
 
         DorisMetrics::instance()->routine_load_get_msg_count->increment(1);
         DorisMetrics::instance()->routine_load_get_msg_latency->increment(
@@ -292,12 +299,21 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
         });
 
         switch (msg->err()) {
-        case RdKafka::ERR_NO_ERROR:
+        case RdKafka::ERR_NO_ERROR: {
+            if (telemetry.enabled()) {
+                telemetry.received(msg->partition(), UnixMillis());
+            }
             retry_policy.reset();
             if (_consuming_partition_ids.count(msg->partition()) <= 0) {
                 _consuming_partition_ids.insert(msg->partition());
             }
             DorisMetrics::instance()->routine_load_consume_bytes->increment(msg->len());
+            const int64_t queue_start = telemetry.enabled() ? MonotonicNanos() : 0;
+            Defer queue_timer {[&] {
+                if (telemetry.enabled()) {
+                    queue_ns += MonotonicNanos() - queue_start;
+                }
+            }};
             if (msg->len() == 0) {
                 // ignore msg with length 0.
                 // put empty msg into queue will cause the load process shutting down.
@@ -313,6 +329,7 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
             ++received_rows;
             DorisMetrics::instance()->routine_load_consume_rows->increment(1);
             break;
+        }
         case RdKafka::ERR__TIMED_OUT:
             // leave the status as OK, because this may happened
             // if there is no data in kafka.
@@ -364,6 +381,8 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
         }
     }
 
+    telemetry.timing("poll", consumer_watch.elapsed_time());
+    telemetry.timing("queue", queue_ns);
     LOG(INFO) << "kafka consumer done: " << _id << ", grp: " << _grp_id
               << ". cancelled: " << _cancelled << ", left time(ms): " << left_time
               << ", total cost(ms): " << watch.elapsed_time() / 1000 / 1000
@@ -595,7 +614,7 @@ Status KafkaDataConsumer::commit(std::vector<RdKafka::TopicPartition*>& offset) 
 // if the kafka brokers and topic are same,
 // we considered this consumer as matched, thus can be reused.
 bool KafkaDataConsumer::match(std::shared_ptr<StreamLoadContext> ctx) {
-    if (ctx->load_src_type != TLoadSourceType::KAFKA) {
+    if (ctx->load_src_type != TLoadSourceType::KAFKA || ctx->kafka_info->use_share_consumer) {
         return false;
     }
     if (_brokers != ctx->kafka_info->brokers || _topic != ctx->kafka_info->topic) {

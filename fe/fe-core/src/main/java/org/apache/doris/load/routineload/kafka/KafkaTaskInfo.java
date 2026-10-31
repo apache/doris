@@ -106,6 +106,7 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         tKafkaLoadInfo.setTopic(routineLoadJob.getTopic());
         tKafkaLoadInfo.setBrokers(routineLoadJob.getBrokerList());
         tKafkaLoadInfo.setPartitionBeginOffset(partitionIdToOffset);
+        tKafkaLoadInfo.setUseShareConsumer(routineLoadJob.isUseShareConsumer());
         tKafkaLoadInfo.setProperties(routineLoadJob.getConvertedCustomProperties());
         tRoutineLoadTask.setKafkaLoadInfo(tKafkaLoadInfo);
         tRoutineLoadTask.setType(TLoadSourceType.KAFKA);
@@ -170,6 +171,15 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     protected boolean hasMoreDataToConsume() throws UserException {
         KafkaRoutineLoadJob routineLoadJob = (KafkaRoutineLoadJob) routineLoadManager.getJob(jobId);
         return routineLoadJob.hasMoreDataToConsume(id, partitionIdToOffset);
+    }
+
+    @Override
+    protected boolean isSourceExhausted(RLTaskTxnCommitAttachment attachment) {
+        KafkaRoutineLoadJob routineLoadJob = (KafkaRoutineLoadJob) routineLoadManager.getJob(jobId);
+        if (routineLoadJob.isUseShareConsumer()) {
+            return attachment.getTotalRows() == 0 && attachment.getReceivedBytes() == 0;
+        }
+        return super.isSourceExhausted(attachment);
     }
 
     @Override

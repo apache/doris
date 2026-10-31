@@ -47,6 +47,8 @@
 #include "load/message_body_sink.h"
 #include "load/routine_load/data_consumer.h"
 #include "load/routine_load/data_consumer_group.h"
+#include "load/routine_load/kafka_reader_telemetry.h"
+#include "load/routine_load/kafka_share_consumer.h"
 #include "load/stream_load/new_load_stream_mgr.h"
 #include "load/stream_load/stream_load_context.h"
 #include "load/stream_load/stream_load_executor.h"
@@ -440,7 +442,28 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
 
     // create data consumer group
     std::shared_ptr<DataConsumerGroup> consumer_grp;
-    HANDLE_ERROR(consumer_pool->get_consumer_grp(ctx, &consumer_grp), "failed to get consumers");
+    std::shared_ptr<KafkaShareConsumer> share_consumer;
+    Defer release_share_batch {[&] {
+        if (share_consumer) {
+            auto st = share_consumer->cancel(ctx);
+            if (!st.ok()) {
+                LOG(WARNING) << "Failed to release Kafka share batch: " << ctx->brief() << ", "
+                             << st;
+            }
+        }
+    }};
+    if (ctx->kafka_info && ctx->kafka_info->use_share_consumer) {
+        if (ctx->is_multi_table || !ctx->kafka_info->begin_offset.empty()) {
+            HANDLE_ERROR(Status::InvalidArgument("PAUSE: Invalid Kafka share task"),
+                         "invalid share task");
+        }
+        std::shared_ptr<DataConsumer> consumer;
+        HANDLE_ERROR(consumer_pool->get_consumer(ctx, &consumer), "failed to get share consumer");
+        share_consumer = std::static_pointer_cast<KafkaShareConsumer>(consumer);
+    } else {
+        HANDLE_ERROR(consumer_pool->get_consumer_grp(ctx, &consumer_grp),
+                     "failed to get consumers");
+    }
 
     // create and set pipe
     std::shared_ptr<io::StreamLoadPipe> pipe;
@@ -452,8 +475,9 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
         } else {
             pipe = std::make_shared<io::KafkaConsumerPipe>();
         }
-        Status st = std::static_pointer_cast<KafkaDataConsumerGroup>(consumer_grp)
-                            ->assign_topic_partitions(ctx);
+        Status st = share_consumer ? Status::OK()
+                                   : std::static_pointer_cast<KafkaDataConsumerGroup>(consumer_grp)
+                                             ->assign_topic_partitions(ctx);
         if (!st.ok()) {
             err_handler(ctx, st, st.to_string());
             cb(ctx);
@@ -530,23 +554,51 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
         HANDLE_MULTI_TABLE_ERROR(pipe->finish(), "finish multi table task failed");
     } else {
         // start to consume, this may block a while
-        HANDLE_ERROR(consumer_grp->start_all(ctx, pipe), "consuming failed");
+        HANDLE_ERROR(
+                share_consumer ? share_consumer->consume(ctx) : consumer_grp->start_all(ctx, pipe),
+                "consuming failed");
     }
 
+    KafkaReaderTelemetry telemetry(ctx->job_id, ctx->id,
+                                   ctx->kafka_info && ctx->kafka_info->use_share_consumer,
+                                   ctx->load_src_type == TLoadSourceType::KAFKA);
+    const int64_t pipeline_wait_start = MonotonicNanos();
     // wait for all consumers finished
     HANDLE_ERROR(ctx->load_status_future.get(), "consume failed");
+    telemetry.timing("task_pipeline_wait", MonotonicNanos() - pipeline_wait_start,
+                     ctx->number_loaded_rows);
 
     ctx->load_cost_millis = UnixMillis() - ctx->start_millis;
 
     // return the consumer back to pool
     // call this before commit txn, in case the next task can come very fast
-    consumer_pool->return_consumers(consumer_grp.get());
+    if (!share_consumer) {
+        consumer_pool->return_consumers(consumer_grp.get());
+    }
 
     // commit txn
     int64_t commit_and_publish_start_time = MonotonicNanos();
     HANDLE_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx.get()), "commit failed");
     g_routine_load_commit_and_publish_latency_ms
             << (MonotonicNanos() - commit_and_publish_start_time) / 1000000;
+    telemetry.timing("task_commit", MonotonicNanos() - commit_and_publish_start_time,
+                     ctx->number_loaded_rows);
+    if (share_consumer) {
+        DBUG_EXECUTE_IF("RoutineLoadTaskExecutor.before_share_ack", DBUG_BLOCK);
+        const int64_t ack_start = MonotonicNanos();
+        Status st = share_consumer->acknowledge_committed();
+        telemetry.timing(st.ok() ? "task_ack_ok" : "task_ack_failed", MonotonicNanos() - ack_start,
+                         ctx->number_loaded_rows);
+        if (st.ok()) {
+            consumer_pool->return_consumer(std::move(share_consumer));
+        } else {
+            LOG(WARNING) << "Doris committed but Kafka share acknowledgement failed; redelivery "
+                            "may duplicate rows: "
+                         << ctx->brief() << ", " << st;
+        }
+        cb(ctx);
+        return;
+    }
     // commit kafka offset
     switch (ctx->load_src_type) {
     case TLoadSourceType::KAFKA: {
@@ -567,7 +619,10 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
             topic_partitions.push_back(tp1);
         }
 
+        const int64_t offset_submit_start = MonotonicNanos();
         st = std::static_pointer_cast<KafkaDataConsumer>(consumer)->commit(topic_partitions);
+        telemetry.timing("task_offset_submit", MonotonicNanos() - offset_submit_start,
+                         ctx->number_loaded_rows);
         if (!st.ok()) {
             // Kafka Offset Commit is idempotent, Failure should not block the normal process
             // So just print a warning

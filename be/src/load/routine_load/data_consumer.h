@@ -170,6 +170,7 @@ public:
 private:
     std::string _brokers;
     std::string _topic;
+    int64_t _telemetry_job_id = -1;
     std::unordered_map<std::string, std::string> _custom_properties;
     std::set<int32_t> _consuming_partition_ids;
 

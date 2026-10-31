@@ -190,14 +190,14 @@ public abstract class RoutineLoadTaskInfo {
             this.isEof = false;
             return;
         }
+        this.isEof = isSourceExhausted(rlTaskTxnCommitAttachment);
+    }
+
+    protected boolean isSourceExhausted(RLTaskTxnCommitAttachment attachment) {
         RoutineLoadJob routineLoadJob = routineLoadManager.getJob(jobId);
-        if (rlTaskTxnCommitAttachment.getTotalRows() < routineLoadJob.getMaxBatchRows()
-                && rlTaskTxnCommitAttachment.getReceivedBytes() < routineLoadJob.getMaxBatchSizeBytes()
-                && rlTaskTxnCommitAttachment.getTaskExecutionTimeMs() < routineLoadJob.getMaxBatchIntervalS() * 1000) {
-            this.isEof = true;
-        } else {
-            this.isEof = false;
-        }
+        return attachment.getTotalRows() < routineLoadJob.getMaxBatchRows()
+                && attachment.getReceivedBytes() < routineLoadJob.getMaxBatchSizeBytes()
+                && attachment.getTaskExecutionTimeMs() < routineLoadJob.getMaxBatchIntervalS() * 1000;
     }
 
     protected boolean shouldDelaySchedule(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment) {

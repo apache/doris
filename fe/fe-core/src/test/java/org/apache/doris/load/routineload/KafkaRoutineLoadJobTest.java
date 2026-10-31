@@ -107,6 +107,27 @@ public class KafkaRoutineLoadJobTest {
     }
 
     @Test
+    public void testShareConsumerConcurrencyAndSerialization() throws Exception {
+        int originalLimit = Config.max_routine_load_task_concurrent_num;
+        try {
+            Config.max_routine_load_task_concurrent_num = 9;
+            KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "share", 1L,
+                    1L, "127.0.0.1:9092", "topic", UserIdentity.ADMIN);
+            Deencapsulation.setField(job, "currentKafkaPartitions", Arrays.asList(0, 1, 2));
+            Deencapsulation.setField(job, "desireTaskConcurrentNum", 9);
+            Assertions.assertEquals(3, job.calculateCurrentConcurrentTaskNum());
+            Deencapsulation.setField(job, "useShareConsumer", true);
+            Assertions.assertEquals(9, job.calculateCurrentConcurrentTaskNum());
+            Assertions.assertTrue(job.hasMoreDataToConsume(UUID.randomUUID(), Maps.newHashMap()));
+            String json = org.apache.doris.persist.gson.GsonUtils.GSON.toJson(job);
+            Assertions.assertTrue(com.google.gson.JsonParser.parseString(json).getAsJsonObject()
+                    .get("useShareConsumer").getAsBoolean());
+        } finally {
+            Config.max_routine_load_task_concurrent_num = originalLimit;
+        }
+    }
+
+    @Test
     public void testRoutineLoadTaskConcurrentNum() throws MetaNotFoundException {
         Config.max_routine_load_task_concurrent_num = 6;
 
@@ -175,6 +196,26 @@ public class KafkaRoutineLoadJobTest {
                     Assertions.fail();
                 }
             }
+        }
+    }
+
+    @Test
+    public void testShareTasksHaveNoPartitionOwnership() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        RoutineLoadTaskScheduler scheduler = Mockito.mock(RoutineLoadTaskScheduler.class);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getRoutineLoadTaskScheduler()).thenReturn(scheduler);
+            KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "share", 1L,
+                    1L, "localhost:9092", "topic", UserIdentity.ADMIN);
+            Deencapsulation.setField(job, "useShareConsumer", true);
+            job.divideRoutineLoadJob(9);
+            List<RoutineLoadTaskInfo> tasks = Deencapsulation.getField(job, "routineLoadTaskInfoList");
+            Assertions.assertEquals(9, tasks.size());
+            for (RoutineLoadTaskInfo task : tasks) {
+                Assertions.assertTrue(((KafkaTaskInfo) task).getPartitions().isEmpty());
+            }
+            Mockito.verify(scheduler).addTasksInQueue(tasks);
         }
     }
 
@@ -351,6 +392,41 @@ public class KafkaRoutineLoadJobTest {
         Assertions.assertEquals("******", showCreateCustomProperties.get("property.session_token"));
         Assertions.assertEquals("doris", showCreateCustomProperties.get("property.sasl.username"));
         Assertions.assertEquals("plain_secret", customProperties.get("sasl.password"));
+    }
+
+    @Test
+    public void testShareBatchSchedulingAndRenewal() throws UserException {
+        RoutineLoadManager manager = Mockito.mock(RoutineLoadManager.class);
+        Env env = Mockito.mock(Env.class);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getRoutineLoadManager()).thenReturn(manager);
+            KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "share_job", 1L,
+                    1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+            Mockito.when(manager.getJob(1L)).thenReturn(job);
+            KafkaTaskInfo task = new KafkaTaskInfo(new UUID(1, 1), 1L, 20000,
+                    Maps.newHashMap(), false, 1000, false);
+            for (boolean share : new boolean[] {false, true}) {
+                Deencapsulation.setField(job, "useShareConsumer", share);
+                for (String field : new String[] {"loadedRows", "filteredRows", "unselectedRows", "receivedBytes"}) {
+                    RLTaskTxnCommitAttachment attachment = new RLTaskTxnCommitAttachment();
+                    Deencapsulation.setField(attachment, field, 1L);
+                    task.handleTaskByTxnCommitAttachment(attachment);
+                    Assertions.assertEquals(!share, task.getIsEof(), field);
+                    Assertions.assertEquals(!share, task.needDedalySchedule(), field);
+                    KafkaTaskInfo renewed = new KafkaTaskInfo(task, Maps.newHashMap(), false);
+                    Assertions.assertEquals(!share, renewed.needDedalySchedule(), field);
+                }
+            }
+            Deencapsulation.setField(job, "useShareConsumer", true);
+            for (long elapsed : new long[] {1L, job.getMaxBatchIntervalS() * 1000}) {
+                RLTaskTxnCommitAttachment empty = new RLTaskTxnCommitAttachment();
+                Deencapsulation.setField(empty, "taskExecutionTimeMs", elapsed);
+                task.handleTaskByTxnCommitAttachment(empty);
+                Assertions.assertTrue(task.needDedalySchedule());
+                Assertions.assertTrue(new KafkaTaskInfo(task, Maps.newHashMap(), false).needDedalySchedule());
+            }
+        }
     }
 
     @Test
