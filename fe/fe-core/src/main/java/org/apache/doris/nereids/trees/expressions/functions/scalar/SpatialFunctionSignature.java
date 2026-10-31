@@ -36,10 +36,6 @@ final class SpatialFunctionSignature {
         return FunctionSignature.ret(returnType).args(argument.getDataType());
     }
 
-    static FunctionSignature binary(Expression left, Expression right, DataType returnType) {
-        return spatialArguments(returnType, left, right);
-    }
-
     static FunctionSignature calculationBinary(Expression left, Expression right, DataType returnType) {
         if ((isSpatial(left) && !isSupportedCalculationType(left.getDataType()))
                 || (isSpatial(right) && !isSupportedCalculationType(right.getDataType()))) {
@@ -64,10 +60,6 @@ final class SpatialFunctionSignature {
                 throw unsupportedCalculationType(argument.getDataType());
             }
         }
-        return spatialArguments(returnType, first, second, third);
-    }
-
-    static FunctionSignature ternary(Expression first, Expression second, Expression third, DataType returnType) {
         return spatialArguments(returnType, first, second, third);
     }
 
