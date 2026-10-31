@@ -1957,9 +1957,9 @@ static bool has_timestamp_semantics(const ColumnDefinition& column) {
            std::ranges::any_of(column.children, has_timestamp_semantics);
 }
 
-static void attach_timestamp_semantics(const std::optional<bool>& timestamp_is_adjusted_to_utc,
-                                       const std::vector<ColumnDefinition>& file_children,
-                                       LocalColumnIndex* projection) {
+void attach_timestamp_semantics(const std::optional<bool>& timestamp_is_adjusted_to_utc,
+                                const std::vector<ColumnDefinition>& file_children,
+                                LocalColumnIndex* projection) {
     DORIS_CHECK(projection != nullptr);
     projection->timestamp_is_adjusted_to_utc = timestamp_is_adjusted_to_utc;
     for (const auto& file_child : file_children) {

@@ -165,6 +165,73 @@ const char* file_format_name(FileFormat format) {
     return "UNKNOWN";
 }
 
+const format::ColumnDefinition* find_matched_file_column(
+        const format::ColumnDefinition& table_column,
+        const std::vector<format::ColumnDefinition>& file_columns,
+        format::TableColumnMappingMode mode, bool allow_idless_complex_wrapper_projection) {
+    return mode == format::TableColumnMappingMode::BY_FIELD_ID
+                   ? format::find_column_by_field_id(table_column, file_columns,
+                                                     allow_idless_complex_wrapper_projection)
+                   : format::find_column_by_name(table_column, file_columns);
+}
+
+// Copy the table field's timestamp marker onto the file column TableColumnMapper selects for it,
+// descending the way the mapper does: ARRAY and MAP children by position, STRUCT children by the
+// mapping mode, through an ID-less wrapper at any depth when the mapper allows one. Only a
+// DATETIMEV2 or TIMESTAMPTZ leaf takes the marker. A TIMESTAMP_NS leaf (an INT64 NANOS column
+// without the UTC annotation) keeps its nanoseconds: the Parquet reader rewrites any marked
+// timestamp leaf, so a marker there would make it decode TIMESTAMPTZ while the file schema still
+// says TIMESTAMP_NS. Returns whether any leaf took a marker.
+bool annotate_matched_timestamp_semantics(const format::ColumnDefinition& table_column,
+                                          format::ColumnDefinition* file_column,
+                                          format::TableColumnMappingMode mode,
+                                          bool allow_idless_complex_wrapper_projection) {
+    DORIS_CHECK(file_column != nullptr);
+    DORIS_CHECK(file_column->type != nullptr);
+    switch (remove_nullable(file_column->type)->get_primitive_type()) {
+    case TYPE_DATETIMEV2:
+    case TYPE_TIMESTAMPTZ:
+        file_column->timestamp_is_adjusted_to_utc = table_column.timestamp_is_adjusted_to_utc;
+        return file_column->timestamp_is_adjusted_to_utc.has_value();
+    case TYPE_ARRAY:
+        DORIS_CHECK(file_column->children.size() == 1);
+        // FE omits nested metadata for a field it describes only by its root.
+        return table_column.children.size() == 1 &&
+               annotate_matched_timestamp_semantics(table_column.children[0],
+                                                    &file_column->children[0], mode,
+                                                    allow_idless_complex_wrapper_projection);
+    case TYPE_MAP: {
+        DORIS_CHECK(file_column->children.size() == 2);
+        if (table_column.children.size() != 2) {
+            return false;
+        }
+        const bool key = annotate_matched_timestamp_semantics(
+                table_column.children[0], &file_column->children[0], mode,
+                allow_idless_complex_wrapper_projection);
+        const bool value = annotate_matched_timestamp_semantics(
+                table_column.children[1], &file_column->children[1], mode,
+                allow_idless_complex_wrapper_projection);
+        return key || value;
+    }
+    case TYPE_STRUCT: {
+        bool annotated = false;
+        for (const auto& table_child : table_column.children) {
+            // TableColumnMapper falls back to an ID-less wrapper below the root as well.
+            const auto* matched = find_matched_file_column(table_child, file_column->children, mode,
+                                                           allow_idless_complex_wrapper_projection);
+            if (matched != nullptr) {
+                annotated |= annotate_matched_timestamp_semantics(
+                        table_child, &file_column->children[matched - file_column->children.data()],
+                        mode, allow_idless_complex_wrapper_projection);
+            }
+        }
+        return annotated;
+    }
+    default:
+        return false;
+    }
+}
+
 } // namespace
 
 bool IcebergTableReader::_scan_has_any_authoritative_name_mapping() const {
@@ -212,20 +279,28 @@ Status IcebergTableReader::annotate_file_schema(
     // Iceberg's positional fallback is a Parquet-reader-only compatibility path. Its ORC/Avro
     // readers instead derive a name mapping from the expected schema for id-less files, which is
     // exactly the current-name resurrection that v2 scan semantics deliberately rejects (#65784),
-    // so ORC keeps its existing behavior and stays out of scope here.
+    // so ORC keeps its existing behavior and stays out of scope here. ORC needs no timestamp
+    // marker either: its file type already separates TIMESTAMP from TIMESTAMP_INSTANT.
     if (_format != FileFormat::PARQUET) {
         return Status::OK();
     }
+    _apply_positional_id_fallback(file_schema);
+    return _apply_table_timestamp_semantics(file_schema, _mapping_mode(*file_schema));
+}
+
+void IcebergTableReader::_apply_positional_id_fallback(
+        std::vector<format::ColumnDefinition>* file_schema) {
+    DORIS_CHECK(file_schema != nullptr);
     // Iceberg's `hasIds` contract is existential: a single real field id keeps the file on the id
     // path and, exactly as in Iceberg, skips both the name mapping and the positional fallback.
     if (schema_has_any_field_id(*file_schema)) {
-        return Status::OK();
+        return;
     }
     // An old-FE plan keeps the legacy name fallback (rolling upgrade), and an explicit table-level
     // name mapping stays authoritative even when it does not cover this file.
     if (!supports_iceberg_scan_semantics_v2(_scan_params) ||
         _scan_has_any_authoritative_name_mapping()) {
-        return Status::OK();
+        return;
     }
     // ParquetSchemaUtil.addFallbackIds: ordinals start at 1, are counted over the physical
     // top-level fields in file order, and are not propagated to nested fields. Reader-synthesized
@@ -245,6 +320,46 @@ Status IcebergTableReader::annotate_file_schema(
         field.identifier = Field::create_field<TYPE_INT>(ordinal);
     }
     _positional_id_fallback = true;
+}
+
+// Iceberg decodes a Parquet timestamp by the table field's type, not by the file's annotation.
+// Spark and Hive write a timestamptz as INT96, which has no annotation, and `add_files` / `migrate`
+// attach those files unchanged. Without a marker FileScannerV2 decodes INT96 as a UTC wall clock
+// (DATETIMEV2) and the projection casts that to TIMESTAMPTZ in the session time zone, so in
+// Asia/Shanghai 2024-01-01T00:00:00Z reads as 2024-01-01 00:00:00+08:00, eight hours early. FE
+// marks each timestamptz field; copying the marker onto the matched file column and rewriting its
+// type gives the mapping, the scan request and the equality-delete keys the instant Iceberg reads.
+// A plan from an older FE carries no marker and keeps the file types.
+Status IcebergTableReader::_apply_table_timestamp_semantics(
+        std::vector<format::ColumnDefinition>* file_schema,
+        format::TableColumnMappingMode mode) const {
+    DORIS_CHECK(file_schema != nullptr);
+    const auto* schema = format::find_current_schema(_scan_params);
+    if (schema == nullptr || !schema->__isset.root_field || !schema->root_field.__isset.fields) {
+        return Status::OK();
+    }
+    // As in configure_mapper_options(); only Parquet files get here.
+    const bool allow_idless_complex_wrapper_projection =
+            supports_iceberg_scan_semantics_v1(_scan_params);
+    for (const auto& field_ptr : schema->root_field.fields) {
+        const auto* field = format::get_field_ptr(field_ptr);
+        if (field == nullptr) {
+            continue;
+        }
+        const auto table_column = format::build_schema_identity_from_external_field(*field);
+        const auto* matched = find_matched_file_column(table_column, *file_schema, mode,
+                                                       allow_idless_complex_wrapper_projection);
+        if (matched == nullptr) {
+            continue;
+        }
+        auto* file_column = &(*file_schema)[matched - file_schema->data()];
+        // Rebuilding a container recreates its type from the children, so leave every column
+        // without a marked leaf exactly as the file reader reported it.
+        if (annotate_matched_timestamp_semantics(table_column, file_column, mode,
+                                                 allow_idless_complex_wrapper_projection)) {
+            RETURN_IF_ERROR(format::apply_file_timestamp_semantics(file_column));
+        }
+    }
     return Status::OK();
 }
 
@@ -1075,6 +1190,23 @@ static Status build_equality_delete_key_expr(
     return build_nested_equality_delete_key_expr(path, std::move(root_expr), key_expr);
 }
 
+// Project the root file column of an equality key read without a ColumnMapping, carrying the
+// timestamp markers annotate_file_schema() and _load_equality_delete_file() put on the file schema.
+// The file block and the key expressions take the rewritten types from that schema, but the file
+// reader learns them only from the projection. For example, an older file holds payload
+// {existing INT, ts INT96 timestamptz} and the table later added payload.k: a delete on k reads
+// `payload` for its NULLs, and a bare top-level projection makes Parquet read
+// STRUCT<existing, DATETIMEV2(6)> into a STRUCT<existing, TIMESTAMPTZ(6)> file block, which fails
+// the scan.
+static format::LocalColumnIndex equality_delete_root_projection(
+        const format::ColumnDefinition& root) {
+    auto projection =
+            format::LocalColumnIndex::top_level(format::LocalColumnId(root.file_local_id()));
+    format::attach_timestamp_semantics(root.timestamp_is_adjusted_to_utc, root.children,
+                                       &projection);
+    return projection;
+}
+
 // Whether a missing key's default is NULL. `missing_path` runs from the missing root to the key,
 // and the root's initial default is walked down it with the key expression's child matching. The
 // root having a default is not enough: a missing `payload` defaulting to the struct `{}` takes
@@ -1203,6 +1335,9 @@ static Status equality_delete_comparison_type(int field_id, const DataTypePtr& d
     // The projection converts that DATETIMEV2 to the table's TIMESTAMPTZ in the session time zone
     // and the comparison cast does the same, so a tombstone matches exactly the value a query
     // returns: in Asia/Shanghai the key 2024-01-01 08:00:00 compares as 2024-01-01 00:00:00 UTC.
+    // When FE marks timestamptz fields, annotate_file_schema() and _load_equality_delete_file()
+    // read both Parquet sides as TIMESTAMPTZ already, so for Parquet this rule now serves plans
+    // from older FEs.
     if (remove_nullable(table_type)->get_primitive_type() == TYPE_TIMESTAMPTZ &&
         ((delete_primitive == TYPE_DATETIMEV2 && data_primitive == TYPE_TIMESTAMPTZ) ||
          (delete_primitive == TYPE_TIMESTAMPTZ && data_primitive == TYPE_DATETIMEV2))) {
@@ -1919,7 +2054,10 @@ Status IcebergTableReader::_build_missing_equality_delete_key_expr(
 
     const auto* root = data_path.front();
     const auto field_column_id = format::LocalColumnId(root->file_local_id());
-    _append_file_scan_column(request, field_column_id, &request->predicate_columns);
+    // The whole ancestor is read for its NULLs, so a marked timestamp leaf inside it, such as an
+    // INT96 timestamptz sibling of the missing key, needs its marker as well.
+    RETURN_IF_ERROR(format::FileScanRequestBuilder(request).add_predicate_column(
+            equality_delete_root_projection(*root)));
     const auto block_position = request->local_positions.at(field_column_id).value();
     VExprSPtr ancestor_expr;
     RETURN_IF_ERROR(build_equality_delete_key_expr(data_path, block_position, &ancestor_expr));
@@ -1961,7 +2099,14 @@ Status IcebergTableReader::_append_equality_delete_predicates(format::FileScanRe
             } else {
                 const auto* root = data_path.front();
                 const auto field_column_id = format::LocalColumnId(root->file_local_id());
-                _append_file_scan_column(request, field_column_id, &request->predicate_columns);
+                // A hidden key, like the missing key's ancestor above and the delete file's keys,
+                // has no ColumnMapping to carry the timestamp marker annotate_file_schema() put on
+                // its file column. Without it Parquet decodes an INT96 timestamptz key as
+                // DATETIMEV2 while the key expression below, built from the annotated file schema,
+                // expects TIMESTAMPTZ. A projected key, or a projected ancestor of a missing key,
+                // moves into the predicate columns and must keep the marker its mapping carried.
+                RETURN_IF_ERROR(format::FileScanRequestBuilder(request).add_predicate_column(
+                        equality_delete_root_projection(*root)));
                 const auto block_position = request->local_positions.at(field_column_id).value();
                 RETURN_IF_ERROR(
                         build_equality_delete_key_expr(data_path, block_position, &key_expr));
@@ -2284,6 +2429,15 @@ Status IcebergTableReader::_load_equality_delete_file(const TIcebergDeleteFileDe
 
     std::vector<format::ColumnDefinition> schema;
     RETURN_IF_ERROR(reader->get_schema(&schema));
+    if (delete_file.file_format == TFileFormatType::FORMAT_PARQUET) {
+        // Decode tombstones of a timestamptz key as instants, like the data keys they are
+        // compared with. Otherwise a catalog with enable_mapping_timestamp_tz=false reads them as
+        // session-local wall clocks, which cannot tell the two instants of a DST fall-back apart:
+        // in America/New_York a tombstone for 2024-11-03T05:30:00Z (01:30 EDT) would then match
+        // the row at 06:30:00Z (01:30 EST) as well, or instead. Delete files carry field ids.
+        RETURN_IF_ERROR(_apply_table_timestamp_semantics(
+                &schema, format::TableColumnMappingMode::BY_FIELD_ID));
+    }
     std::vector<EqualityDeleteColumnPath> delete_paths;
     RETURN_IF_ERROR(_resolve_equality_delete_fields(delete_file, schema, &delete_paths, result));
 
@@ -2292,7 +2446,7 @@ Status IcebergTableReader::_load_equality_delete_file(const TIcebergDeleteFileDe
     for (const auto& path : delete_paths) {
         DORIS_CHECK(!path.empty());
         RETURN_IF_ERROR(request_builder.add_non_predicate_column(
-                format::LocalColumnId(path.front()->file_local_id())));
+                equality_delete_root_projection(*path.front())));
     }
     Block file_block_template;
     std::vector<const format::ColumnDefinition*> roots(request->local_positions.size());

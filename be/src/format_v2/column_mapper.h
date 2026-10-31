@@ -196,6 +196,14 @@ const ColumnDefinition* find_column_by_name(const ColumnDefinition& table_column
 const ColumnDefinition* find_column_by_field_id(const ColumnDefinition& table_column,
                                                 const std::vector<ColumnDefinition>& file_schema,
                                                 bool allow_idless_complex_wrapper_projection);
+// Put the timestamp semantics recorded on an annotated file column and its descendants onto a
+// projection of that column. A full projection gains a child only for a subtree that carries a
+// semantic; a partial projection keeps its selection. Callers that project a file column without
+// a ColumnMapping, such as a hidden equality-delete key, must call this or the file reader keeps
+// the physical type while the annotated file schema expects the table-format type.
+void attach_timestamp_semantics(const std::optional<bool>& timestamp_is_adjusted_to_utc,
+                                const std::vector<ColumnDefinition>& file_children,
+                                LocalColumnIndex* projection);
 
 // Generic mapping layer from table schema to file schema.
 // Iceberg uses BY_FIELD_ID. Plain by-name formats can reuse this component as well, so keep this
