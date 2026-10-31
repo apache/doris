@@ -264,7 +264,6 @@ update_submodule "contrib/clucene" "clucene" "https://github.com/apache/doris-th
 update_submodule "contrib/openblas" "openblas" "https://github.com/apache/doris-thirdparty/archive/refs/heads/openblas.tar.gz"
 update_submodule "contrib/faiss" "faiss" "https://github.com/apache/doris-thirdparty/archive/refs/heads/faiss.tar.gz"
 update_submodule "contrib/h3" "h3" "https://github.com/uber/h3/archive/refs/tags/v4.5.0.tar.gz"
-update_submodule "contrib/perfect_hash" "perfect_hash" "https://github.com/ConstexprCore/perfect_hash/archive/81947016ab00330b94e16806e5f9acdaacaf96d4.tar.gz"
 
 if [[ "_${DENABLE_CLANG_COVERAGE}" == "_ON" ]]; then
     echo "export DORIS_TOOLCHAIN=clang" >>custom_env.sh

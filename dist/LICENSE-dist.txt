@@ -1473,7 +1473,6 @@ The MIT License -- licenses/LICENSE-MIT.txt
     * libxml2: 2.9.10
     * krb5: 1.19
     * nlohmann/json 3.10.1
-    * ConstexprCore/perfect_hash: 0.4.0 -- licenses/LICENSE-perfect_hash.txt
 
 LGPL -- licenes/LICENSE-LGPL.txt
     * gsasl: 1.10.0/1.8.0

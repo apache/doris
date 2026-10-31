@@ -67,7 +67,6 @@
 #include "exprs/function_context.h"
 #include "runtime/runtime_state.h"
 #include "util/string_parser.hpp"
-#include "util/weekday_parser.h"
 
 namespace doris {
 #include "common/compile_check_avoid_begin.h"
@@ -1650,103 +1649,6 @@ private:
         return round(months_between * 100000000) / 100000000;
     }
 };
-
-template <bool IsPrevious>
-class FunctionRelativeDay : public IFunction {
-public:
-    static constexpr auto name = IsPrevious ? "previous_day" : "next_day";
-    static FunctionPtr create() { return std::make_shared<FunctionRelativeDay<IsPrevious>>(); }
-    String get_name() const override { return name; }
-    size_t get_number_of_arguments() const override { return 2; }
-    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        auto result = std::make_shared<DataTypeDateV2>();
-        if (arguments[0].type->is_nullable() || arguments[1].type->is_nullable()) {
-            return make_nullable(std::move(result));
-        }
-        return result;
-    }
-
-    bool use_default_implementation_for_nulls() const override { return false; }
-
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count) const override {
-        CHECK_EQ(arguments.size(), 2);
-        auto res = ColumnDateV2::create();
-        res->reserve(input_rows_count);
-        const auto& date_column = block.get_by_position(arguments[0]).column;
-        const auto& week_column = block.get_by_position(arguments[1]).column;
-        const auto result_nullable = block.get_by_position(result).type->is_nullable();
-        ColumnUInt8::MutablePtr null_map;
-        if (result_nullable) {
-            null_map = ColumnUInt8::create(input_rows_count, 0);
-        }
-        Status status;
-        auto* null_map_data = null_map ? &null_map->get_data() : nullptr;
-        auto date_type = block.get_by_position(arguments[0]).type->get_primitive_type();
-        if (date_type == TYPE_TIMESTAMP_NS) {
-            status = execute_vector<TYPE_TIMESTAMP_NS>(input_rows_count, date_column, week_column,
-                                                       *res, null_map_data);
-        } else {
-            DORIS_CHECK_EQ(date_type, TYPE_DATEV2);
-            status = execute_vector<TYPE_DATEV2>(input_rows_count, date_column, week_column, *res,
-                                                 null_map_data);
-        }
-        if (!status.ok()) {
-            return status;
-        }
-        if (result_nullable) {
-            block.replace_by_position(result,
-                                      ColumnNullable::create(std::move(res), std::move(null_map)));
-        } else {
-            block.replace_by_position(result, std::move(res));
-        }
-        return Status::OK();
-    }
-
-private:
-    static Status compute_relative_day(DateV2Value<DateV2ValueType>& dtv, const int week_day) {
-        auto delta_days = IsPrevious ? ((dtv.weekday() + 1) - week_day + 7) % 7
-                                     : (week_day - (dtv.weekday() + 1) + 7) % 7;
-        delta_days = delta_days == 0 ? 7 : delta_days;
-        dtv.date_add_interval<TimeUnit::DAY>(TimeInterval(TimeUnit::DAY, delta_days, IsPrevious));
-        return Status::OK();
-    }
-
-    template <PrimitiveType DateType>
-    static Status execute_vector(size_t input_rows_count, const ColumnPtr& date_column,
-                                 const ColumnPtr& week_column, ColumnDateV2& res_col,
-                                 NullMap* null_map) {
-        const auto date_view = ColumnView<DateType>::create(date_column);
-        const auto week_view = ColumnView<TYPE_STRING>::create(week_column);
-        int const_week_day = 0;
-        if (week_view.is_const && input_rows_count > 0 && !week_view.is_null_at(0)) {
-            const_week_day = parse_weekday(week_view.value_at(0));
-        }
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            if (date_view.is_null_at(i) || week_view.is_null_at(i)) {
-                DORIS_CHECK(null_map != nullptr);
-                (*null_map)[i] = 1;
-                res_col.insert_default();
-                continue;
-            }
-            auto dtv = date_v2_from_date_like(date_view.value_at(i));
-            auto week = week_view.value_at(i);
-            const auto week_day = week_view.is_const ? const_week_day : parse_weekday(week);
-            // Validate after NULL propagation: next_day(NULL, 'MONDDY') must remain NULL,
-            // even though the constant weekday is parsed before entering the row loop.
-            if (week_day == 0) {
-                return Status::InvalidArgument("Function {} failed to parse weekday: {}", name,
-                                               week);
-            }
-            RETURN_IF_ERROR(compute_relative_day(dtv, week_day));
-            res_col.insert_value(dtv);
-        }
-        return Status::OK();
-    }
-};
-
-using FunctionNextDay = FunctionRelativeDay<false>;
-using FunctionPreviousDay = FunctionRelativeDay<true>;
 
 class FunctionTime : public IFunction {
 public:

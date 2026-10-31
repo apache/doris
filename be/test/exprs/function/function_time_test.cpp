@@ -40,7 +40,6 @@
 #include "exprs/function/function_test_util.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "util/timezone_utils.h"
-#include "util/weekday_parser.h"
 
 namespace doris {
 using namespace ut_type;
@@ -1883,15 +1882,35 @@ TEST(VTimestampFunctionsTest, months_between_test) {
     check_function_all_arg_comb<DataTypeFloat64, true>(func_name, input_types, data_set);
 }
 
+namespace {
+
+void expect_invalid_relative_day_weekday(std::string_view weekday) {
+    const InputTypeSet input_types = {PrimitiveType::TYPE_DATEV2, PrimitiveType::TYPE_VARCHAR};
+    for (const std::string name : {"next_day", "previous_day"}) {
+        const auto status = check_function<DataTypeDateV2, true>(
+                name, input_types, {{{std::string("2024-01-01"), std::string(weekday)}, Null()}},
+                -1, -1, true);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("failed to parse weekday:"), std::string::npos);
+    }
+}
+
+} // namespace
+
 TEST(WeekdayParserTest, aliases_and_case) {
     constexpr std::array<std::string_view, 21> aliases = {
             "MO",     "MON",       "MONDAY", "TU",       "TUE",      "TUESDAY", "WE",
             "WED",    "WEDNESDAY", "TH",     "THU",      "THURSDAY", "FR",      "FRI",
             "FRIDAY", "SA",        "SAT",    "SATURDAY", "SU",       "SUN",     "SUNDAY"};
+    constexpr std::array<std::string_view, 7> next_dates = {
+            "2024-01-08", "2024-01-02", "2024-01-03", "2024-01-04",
+            "2024-01-05", "2024-01-06", "2024-01-07"};
+    constexpr std::array<std::string_view, 7> previous_dates = {
+            "2023-12-25", "2023-12-26", "2023-12-27", "2023-12-28",
+            "2023-12-29", "2023-12-30", "2023-12-31"};
+    DataSet next_cases;
+    DataSet previous_cases;
     for (size_t i = 0; i < aliases.size(); ++i) {
-        auto exact_input = std::make_unique<char[]>(aliases[i].size());
-        std::copy(aliases[i].begin(), aliases[i].end(), exact_input.get());
-        EXPECT_EQ(parse_weekday(std::string_view(exact_input.get(), aliases[i].size())), i / 3 + 1);
         // Exercise every ASCII case combination, including all 512 forms of WEDNESDAY.
         for (size_t mask = 0; mask < (size_t {1} << aliases[i].size()); ++mask) {
             std::string input(aliases[i]);
@@ -1900,25 +1919,28 @@ TEST(WeekdayParserTest, aliases_and_case) {
                     input[j] += 'a' - 'A';
                 }
             }
-            EXPECT_EQ(parse_weekday(input), i / 3 + 1) << input;
+            next_cases.push_back(
+                    {{std::string("2024-01-01"), input}, std::string(next_dates[i / 3])});
+            previous_cases.push_back(
+                    {{std::string("2024-01-01"), input}, std::string(previous_dates[i / 3])});
         }
     }
+    const InputTypeSet input_types = {PrimitiveType::TYPE_DATEV2, PrimitiveType::TYPE_VARCHAR};
+    EXPECT_TRUE((check_function<DataTypeDateV2, true>("next_day", input_types, next_cases).ok()));
+    EXPECT_TRUE((check_function<DataTypeDateV2, true>("previous_day", input_types, previous_cases)
+                         .ok()));
 }
 
 TEST(WeekdayParserTest, invalid_names) {
-    EXPECT_EQ(parse_weekday(std::string_view {}), 0);
     constexpr std::array<std::string_view, 16> invalid = {
             "",     "M",    "MOND",     "MONDDY",   "MONDAYX", "MO ",     " MON", "SO",
             "TUES", "THUR", "WEDNESDA", "SATURDAX", "SUNDAX",  "Sunday!", "123",  "1234567890"};
     for (auto input : invalid) {
-        EXPECT_EQ(parse_weekday(input), 0) << input;
+        expect_invalid_relative_day_weekday(input);
     }
-    EXPECT_EQ(parse_weekday(std::string_view("MO\0", 3)), 0);
-    EXPECT_EQ(parse_weekday(std::string_view("MON\0AY", 6)), 0);
-    EXPECT_EQ(parse_weekday(std::string_view("\xCDON", 3)), 0);
-    // The input is an exact-size view: parsing must not require padding or a terminator.
-    const std::array<char, 3> input = {'M', 'o', 'N'};
-    EXPECT_EQ(parse_weekday(std::string_view(input.data(), input.size())), 1);
+    expect_invalid_relative_day_weekday(std::string_view("MO\0", 3));
+    expect_invalid_relative_day_weekday(std::string_view("MON\0AY", 6));
+    expect_invalid_relative_day_weekday(std::string_view("\xCDON", 3));
 }
 
 TEST(WeekdayParserTest, binary_bytes_in_aliases) {
@@ -1928,11 +1950,11 @@ TEST(WeekdayParserTest, binary_bytes_in_aliases) {
             for (unsigned int byte = 128; byte < 256; ++byte) {
                 std::string input(name);
                 input[position] = static_cast<char>(byte);
-                EXPECT_EQ(parse_weekday(input), 0);
+                expect_invalid_relative_day_weekday(input);
             }
             std::string input(name);
             input[position] = '\0';
-            EXPECT_EQ(parse_weekday(input), 0);
+            expect_invalid_relative_day_weekday(input);
         }
     }
 }
