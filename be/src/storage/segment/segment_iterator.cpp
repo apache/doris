@@ -591,7 +591,7 @@ void SegmentIterator::_initialize_predicate_results() {
 }
 
 Status SegmentIterator::init_iterators() {
-    RETURN_IF_ERROR(_init_column_iterators());
+    RETURN_IF_ERROR(_init_column_iterators(true));
     RETURN_IF_ERROR(_init_index_iterators());
     return Status::OK();
 }
@@ -611,6 +611,12 @@ Status SegmentIterator::_lazy_init(Block* block) {
         RETURN_IF_ERROR(_get_row_ranges_by_keys());
     }
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
+    // A wide VARIANT projection is unnecessary when index/delete/range pruning
+    // removes every row. Initialize surviving projections before materialization
+    // and prefetch; e.g. a trace lookup can reject all but two of 435 segments.
+    if (!_row_bitmap.isEmpty()) {
+        RETURN_IF_ERROR(_init_column_iterators(false));
+    }
     RETURN_IF_ERROR(_vec_init_lazy_materialization());
 
     _prepare_score_column_materialization();
@@ -2014,7 +2020,7 @@ bool SegmentIterator::_check_all_conditions_passed_inverted_index_for_column(Col
     return default_return;
 }
 
-Status SegmentIterator::_init_column_iterators() {
+Status SegmentIterator::_init_column_iterators(bool defer_variant_columns) {
     SCOPED_RAW_TIMER(&_opts.stats->segment_iterator_init_column_iterators_timer_ns);
     if (_cur_rowid >= num_rows()) {
         return Status::OK();
@@ -2022,6 +2028,11 @@ Status SegmentIterator::_init_column_iterators() {
 
     for (uint32_t cid = 0; cid < _schema->num_read_columns(); ++cid) {
         if (cid >= _schema->num_block_columns() && !_column_states[cid].has_delete_pred) {
+            continue;
+        }
+        // Index evaluation may already have populated a virtual iterator. The
+        // second initialization pass must preserve that iterator and its result.
+        if (_column_iterators[cid] != nullptr) {
             continue;
         }
         if (_schema->column(cid)->name() == BeConsts::COMPACTION_ROWID_COL) {
@@ -2045,23 +2056,29 @@ Status SegmentIterator::_init_column_iterators() {
             continue;
         }
 
-        if (_column_iterators[cid] == nullptr) {
-            RETURN_IF_ERROR(_segment->new_column_iterator(*_schema->column(cid),
-                                                          &_column_iterators[cid], &_opts,
-                                                          &_variant_sparse_column_cache));
-            ColumnIteratorOptions iter_opts {
-                    .use_page_cache = _opts.use_page_cache,
-                    // If the col is predicate column, then should read the last page to check
-                    // if the column is full dict encoding
-                    .is_predicate_column = _column_states[cid].has_predicate(),
-                    .file_reader = _use_read_ahead_for_column(cid)
-                                           ? _segment_read_ahead->file_reader().get()
-                                           : _file_reader.get(),
-                    .stats = _opts.stats,
-                    .io_ctx = _opts.io_ctx,
-            };
-            RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
+        // Expanding a root with 2000 subcolumns can overflow the reader cache
+        // before an index rejects this segment. Keep pruning inputs eager.
+        if (defer_variant_columns &&
+            _schema->column(cid)->type() == FieldType::OLAP_FIELD_TYPE_VARIANT &&
+            !_column_states[cid].has_predicate() && !_opts.col_id_to_predicates.contains(cid) &&
+            _opts.topn_filter_source_node_ids.empty()) {
+            continue;
         }
+
+        RETURN_IF_ERROR(_segment->new_column_iterator(*_schema->column(cid),
+                                                      &_column_iterators[cid], &_opts,
+                                                      &_variant_sparse_column_cache));
+        ColumnIteratorOptions iter_opts {
+                .use_page_cache = _opts.use_page_cache,
+                // Predicate columns read the last page to check full dict encoding.
+                .is_predicate_column = _column_states[cid].has_predicate(),
+                .file_reader = _use_read_ahead_for_column(cid)
+                                       ? _segment_read_ahead->file_reader().get()
+                                       : _file_reader.get(),
+                .stats = _opts.stats,
+                .io_ctx = _opts.io_ctx,
+        };
+        RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
     }
 
 #ifndef NDEBUG
@@ -2665,6 +2682,11 @@ Status SegmentIterator::_read_columns_by_index(const std::vector<ColumnId>& read
     SCOPED_RAW_TIMER(&_opts.stats->predicate_column_read_ns);
 
     nrows_read = (uint16_t)_range_iter->read_batch_rowids(_block_rowids.data(), nrows_read_limit);
+    // Pruning can leave no rows and no deferred VARIANT iterator. There is no
+    // column read phase to enter for an empty batch.
+    if (nrows_read == 0) {
+        return Status::OK();
+    }
     bool is_continuous = (nrows_read > 1) &&
                          (_block_rowids[nrows_read - 1] - _block_rowids[0] == nrows_read - 1);
     VLOG_DEBUG << fmt::format(

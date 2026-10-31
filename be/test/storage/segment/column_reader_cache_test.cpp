@@ -31,6 +31,7 @@
 #include "core/assert_cast.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
 #include "storage/segment/column_meta_accessor.h"
@@ -718,6 +719,90 @@ TEST_F(ColumnReaderCacheTest, FillMissingDecimalV3PrecisionForComplexTypeFromTab
     EXPECT_EQ(nested_type->get_primitive_type(), TYPE_DECIMAL64);
     EXPECT_EQ(nested_type->get_precision(), 18);
     EXPECT_EQ(nested_type->get_scale(), 4);
+}
+
+class VariantPathReaderMetaTest : public testing::Test {
+protected:
+    void SetUp() override {
+        _footer.set_version(SEGMENT_FOOTER_VERSION_V2_BASELINE);
+        auto* meta = _footer.add_columns();
+        meta->set_unique_id(7);
+        meta->set_column_id(0);
+        meta->set_type(static_cast<int>(FieldType::OLAP_FIELD_TYPE_INT));
+        meta->set_encoding(BIT_SHUFFLE);
+        meta->set_length(sizeof(int32_t));
+        meta->add_indexes()->set_type(ORDINAL_INDEX);
+        auto* zone_map = meta->add_indexes();
+        zone_map->set_type(ZONE_MAP_INDEX);
+        zone_map->mutable_zone_map_index()->mutable_segment_zone_map()->set_min("12");
+        zone_map->mutable_zone_map_index()->mutable_segment_zone_map()->set_max("34");
+        _variant._subcolumns_meta_info = std::make_unique<SubcolumnColumnMetaInfo>();
+        ASSERT_TRUE(_variant._subcolumns_meta_info->add(
+                PathInData("x"),
+                SubcolumnMeta {.file_column_type = std::make_shared<DataTypeInt32>(),
+                               .footer_ordinal = 0}));
+        ASSERT_TRUE(_accessor.init(_footer, nullptr).ok());
+    }
+
+    Status create_reader(std::shared_ptr<ColumnReader>* out, io::FileReaderSPtr file = nullptr) {
+        return _variant.create_path_reader(PathInData("x"), ColumnReaderOptions {}, &_accessor,
+                                           _footer, file, 1, out, nullptr, nullptr);
+    }
+
+    SegmentFooterPB _footer;
+    ColumnMetaAccessor _accessor;
+    VariantColumnReader _variant;
+};
+
+TEST_F(VariantPathReaderMetaTest, InlineReaderOwnsMetadataAfterFooterRelease) {
+    std::shared_ptr<ColumnReader> reader;
+    ASSERT_TRUE(create_reader(&reader).ok());
+    _footer.Clear();
+    ASSERT_NE(reader, nullptr);
+    EXPECT_EQ(reader->get_meta_type(), FieldType::OLAP_FIELD_TYPE_INT);
+    ASSERT_NE(reader->_segment_zone_map, nullptr);
+    EXPECT_EQ(reader->_segment_zone_map->min(), "12");
+    EXPECT_EQ(reader->_segment_zone_map->max(), "34");
+    ColumnIteratorUPtr iterator;
+    EXPECT_TRUE(reader->new_iterator(&iterator, nullptr).ok());
+}
+
+TEST_F(VariantPathReaderMetaTest, InvalidInlineOrdinalReturnsCorruption) {
+    _footer.clear_columns();
+    std::shared_ptr<ColumnReader> reader;
+    EXPECT_TRUE(create_reader(&reader).is<ErrorCode::CORRUPTION>());
+    EXPECT_EQ(reader, nullptr);
+}
+
+TEST_F(VariantPathReaderMetaTest, V3UsesExternalMetadataWhenInlineColumnsExist) {
+    const std::string dir = "./ut_dir/variant_path_reader_meta_test";
+    auto fs = io::global_local_filesystem();
+    ASSERT_TRUE(fs->create_directory(dir).ok());
+    io::FileWriterPtr writer;
+    ASSERT_TRUE(fs->create_file(dir + "/external_meta", &writer).ok());
+    ASSERT_TRUE(writer->append(Slice("prefix")).ok());
+    _footer.set_version(SEGMENT_FOOTER_VERSION_V3_EXT_COL_META);
+    _footer.set_col_meta_region_start(writer->bytes_appended());
+    ColumnMetaPB external = _footer.columns(0);
+    external.mutable_indexes(1)->mutable_zone_map_index()->mutable_segment_zone_map()->set_min(
+            "56");
+    const std::string bytes = external.SerializeAsString();
+    ASSERT_TRUE(writer->append(Slice(bytes)).ok());
+    auto* entry = _footer.add_column_meta_entries();
+    entry->set_unique_id(external.unique_id());
+    entry->set_length(static_cast<uint32_t>(bytes.size()));
+    ASSERT_TRUE(writer->close().ok());
+    io::FileReaderSPtr file;
+    ASSERT_TRUE(fs->open_file(dir + "/external_meta", &file).ok());
+    ASSERT_TRUE(_accessor.init(_footer, file).ok());
+    std::shared_ptr<ColumnReader> reader;
+    ASSERT_TRUE(create_reader(&reader, file).ok());
+    ASSERT_NE(reader->_segment_zone_map, nullptr);
+    EXPECT_EQ(reader->_segment_zone_map->min(), "56");
+    EXPECT_EQ(_footer.columns(0).indexes(1).zone_map_index().segment_zone_map().min(), "12");
+    reader.reset();
+    file.reset();
+    EXPECT_TRUE(fs->delete_directory(dir).ok());
 }
 
 } // namespace doris::segment_v2

@@ -126,7 +126,7 @@ private:
     [[nodiscard]] Status _init_query_read_ahead();
     // Complex columns retain their original reader and segment prefetcher.
     bool _use_read_ahead_for_column(ColumnId cid) const;
-    [[nodiscard]] Status _init_column_iterators();
+    [[nodiscard]] Status _init_column_iterators(bool defer_variant_columns);
     [[nodiscard]] Status _init_index_iterators();
     // Initialize eager and lazy page sequences after pruning and submit their first windows
     // together. Subsequent data-page reads advance each physical column's window.
