@@ -41,6 +41,35 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class EsConnectorRestClientTest {
 
     @Test
+    void mappingFetchIncludesIndexMappingDefaultsInOneRequest() throws Exception {
+        String metadata = "{\"test\":{\"settings\":{\"index\":{\"mapping\":"
+                + "{\"ignore_malformed\":\"true\"}}},\"mappings\":{\"properties\":{\"n\":{\"type\":\"long\"}}}}}";
+        byte[] body = metadata.getBytes(StandardCharsets.UTF_8);
+        Map<String, String> request = new ConcurrentHashMap<>();
+        AtomicInteger calls = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/test", exchange -> {
+            calls.incrementAndGet();
+            request.put("path", exchange.getRequestURI().getPath());
+            request.put("query", String.valueOf(exchange.getRequestURI().getQuery()));
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        try {
+            EsConnectorRestClient client = new EsConnectorRestClient(
+                    new String[]{"http://127.0.0.1:" + server.getAddress().getPort()}, null, null, false, null);
+            Assertions.assertEquals(metadata, client.getMapping("test"));
+            Assertions.assertEquals("/test", request.get("path"));
+            Assertions.assertEquals("filter_path=*.mappings,*.settings.index.mapping.*", request.get("query"));
+            Assertions.assertEquals(1, calls.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     void mixedEightAndNineNodesAreDiscoveredDuringUpgrade() throws Exception {
         String nodes = "{\"nodes\":{"
                 + "\"eight\":{\"version\":\"8.19.0\",\"name\":\"eight\",\"roles\":[\"data\",\"ingest\"],"

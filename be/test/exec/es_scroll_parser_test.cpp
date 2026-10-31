@@ -15,11 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "format/table/es/es_scroll_parser.h"
+
 #include <gtest/gtest.h>
 #include <rapidjson/document.h>
 #include <re2/re2.h>
 
+#include <cstring>
 #include <string>
+
+#include "core/assert_cast.h"
+#include "core/column/column_array.h"
+#include "core/column/column_nullable.h"
+#include "format/table/es/es_scroll_query.h"
+#include "runtime/descriptors.h"
+#include "util/jsonb_utils.h"
 
 namespace doris {
 
@@ -27,7 +37,398 @@ class EsScrollParserTest : public testing::Test {
 public:
     void SetUp() override {}
     void TearDown() override {}
+
+    static TSlotDescriptor value_slot(TPrimitiveType::type type, bool array = false) {
+        TSlotDescriptor slot;
+        slot.colName = "value";
+        slot.nullIndicatorBit = -1;
+        if (array) {
+            TTypeNode node;
+            node.__set_type(TTypeNodeType::ARRAY);
+            node.__set_contains_null(true);
+            node.__set_contains_nulls({true});
+            slot.slotType.types.push_back(node);
+        }
+        TTypeNode node;
+        node.__set_type(TTypeNodeType::SCALAR);
+        TScalarType scalar;
+        scalar.__set_type(type);
+        node.__set_scalar_type(scalar);
+        slot.slotType.types.push_back(node);
+        return slot;
+    }
+
+    static Status read_scalar(TPrimitiveType::type type, const std::string& json,
+                              MutableColumnPtr* column, bool array = false) {
+        auto descriptor = value_slot(type, array);
+        descriptor.nullIndicatorBit = 0;
+        SlotDescriptor slot(descriptor);
+        ScrollParser parser(false);
+        RETURN_IF_ERROR(
+                parser.parse(R"({"hits":{"hits":[{"_source":{"value":)" + json + "}}]}}", true));
+        std::vector<SlotDescriptor*> slots {&slot};
+        std::vector<MutableColumnPtr> columns;
+        columns.push_back(slot.type()->create_column());
+        bool eof = false;
+        RETURN_IF_ERROR(parser.fill_columns(slots, columns, &eof, {}, cctz::utc_time_zone()));
+        *column = std::move(columns[0]);
+        return Status::OK();
+    }
+
+    static TSlotDescriptor boolean_slot(bool array) {
+        return value_slot(TPrimitiveType::BOOLEAN, array);
+    }
 };
+
+TEST_F(EsScrollParserTest, JsonbSourcePreservesArrayContainers) {
+    for (const std::string value : {R"([{"x":1}])", "[]", "[null]", R"({"x":1})"}) {
+        MutableColumnPtr column;
+        auto status = read_scalar(TPrimitiveType::JSONB, value, &column);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        ASSERT_EQ(column->size(), 1);
+        ASSERT_FALSE(column->is_null_at(0)) << value;
+        const auto bytes = column->get_data_at(0);
+        EXPECT_EQ(JsonbToJson::jsonb_to_json_string(bytes.data, bytes.size), value);
+    }
+}
+
+TEST_F(EsScrollParserTest, IntegerNumericDoublePreservesLongBoundary) {
+    for (const std::string value : {"-9223372036854775808.0", "-9.223372036854776E18"}) {
+        MutableColumnPtr column;
+        auto status = read_scalar(TPrimitiveType::BIGINT, value, &column);
+        ASSERT_TRUE(status.ok()) << value << ": " << status.to_string();
+        ASSERT_FALSE(column->is_null_at(0));
+        EXPECT_EQ(assert_cast<const ColumnNullable&>(*column).get_nested_column().get_int(0),
+                  INT64_MIN);
+    }
+}
+
+TEST_F(EsScrollParserTest, NumericSourceEmptyStringsAreNull) {
+    for (auto type : {TPrimitiveType::TINYINT, TPrimitiveType::SMALLINT, TPrimitiveType::INT,
+                      TPrimitiveType::BIGINT, TPrimitiveType::FLOAT, TPrimitiveType::DOUBLE}) {
+        for (const std::string value : {R"("")", R"([""])"}) {
+            MutableColumnPtr column;
+            auto status = read_scalar(type, value, &column);
+            ASSERT_TRUE(status.ok()) << type << ": " << value << ": " << status.to_string();
+            ASSERT_EQ(column->size(), 1);
+            EXPECT_TRUE(column->is_null_at(0));
+        }
+    }
+}
+
+TEST_F(EsScrollParserTest, DeclaredSourceArraysPreserveNullElements) {
+    for (auto type : {TPrimitiveType::BIGINT, TPrimitiveType::BOOLEAN, TPrimitiveType::DOUBLE,
+                      TPrimitiveType::STRING, TPrimitiveType::DATEV2, TPrimitiveType::JSONB}) {
+        std::string value;
+        switch (type) {
+        case TPrimitiveType::BOOLEAN:
+            value = "true";
+            break;
+        case TPrimitiveType::STRING:
+            value = R"("text")";
+            break;
+        case TPrimitiveType::DATEV2:
+            value = R"("2026-01-01")";
+            break;
+        case TPrimitiveType::JSONB:
+            value = R"({"x":1})";
+            break;
+        default:
+            value = "1";
+        }
+        MutableColumnPtr column;
+        auto status = read_scalar(type, "[null," + value + ",null]", &column, true);
+        ASSERT_TRUE(status.ok()) << type << ": " << status.to_string();
+        ASSERT_FALSE(column->is_null_at(0));
+        const auto& array = assert_cast<const ColumnArray&>(
+                assert_cast<const ColumnNullable&>(*column).get_nested_column());
+        ASSERT_EQ(array.get_offsets()[0], 3);
+        EXPECT_TRUE(array.get_data().is_null_at(0));
+        EXPECT_FALSE(array.get_data().is_null_at(1));
+        EXPECT_TRUE(array.get_data().is_null_at(2));
+    }
+}
+
+TEST_F(EsScrollParserTest, NarrowIntegerSourceAcceptsJavaFloatingGrammar) {
+    for (auto type : {TPrimitiveType::TINYINT, TPrimitiveType::SMALLINT, TPrimitiveType::INT}) {
+        for (const std::string value : {"0x1.8p1", "0X1.8P1f", "3d", "+3F", " 3d "}) {
+            MutableColumnPtr column;
+            auto status = read_scalar(type, "\"" + value + "\"", &column);
+            ASSERT_TRUE(status.ok()) << type << ": " << value << ": " << status.to_string();
+            EXPECT_EQ(assert_cast<const ColumnNullable&>(*column).get_nested_column().get_int(0),
+                      3);
+        }
+        for (const std::string value : {"0x3", "0x1.8", "0x1p1junk", "3dd", "3 f"}) {
+            MutableColumnPtr column;
+            EXPECT_FALSE(read_scalar(type, "\"" + value + "\"", &column).ok()) << value;
+        }
+    }
+}
+
+TEST_F(EsScrollParserTest, FloatingSourceAcceptsJavaFloatingGrammar) {
+    for (auto type : {TPrimitiveType::FLOAT, TPrimitiveType::DOUBLE}) {
+        for (const std::string value : {"0x1.8p1", "3d", "+3F"}) {
+            MutableColumnPtr column;
+            auto status = read_scalar(type, "\"" + value + "\"", &column);
+            ASSERT_TRUE(status.ok()) << value << ": " << status.to_string();
+            auto bytes = column->get_data_at(0);
+            if (type == TPrimitiveType::FLOAT) {
+                float actual;
+                memcpy(&actual, bytes.data, sizeof(actual));
+                EXPECT_FLOAT_EQ(actual, 3.0F);
+            } else {
+                double actual;
+                memcpy(&actual, bytes.data, sizeof(actual));
+                EXPECT_DOUBLE_EQ(actual, 3.0);
+            }
+        }
+    }
+}
+
+TEST_F(EsScrollParserTest, FloatSourceRoundsDirectlyToFloat) {
+    MutableColumnPtr column;
+    auto status = read_scalar(TPrimitiveType::FLOAT,
+                              R"("1.000000059604644775390625000000000000000000000001")", &column);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    auto bytes = column->get_data_at(0);
+    float actual;
+    memcpy(&actual, bytes.data, sizeof(actual));
+    EXPECT_EQ(actual, 1.00000011920928955078125F);
+}
+
+TEST_F(EsScrollParserTest, EmptyAndNullScalarSourceArrays) {
+    for (auto type : {TPrimitiveType::FLOAT, TPrimitiveType::DOUBLE, TPrimitiveType::BOOLEAN,
+                      TPrimitiveType::BIGINT}) {
+        for (const std::string value : {"[]", "[null]", "null"}) {
+            MutableColumnPtr column;
+            auto status = read_scalar(type, value, &column);
+            ASSERT_TRUE(status.ok()) << type << ": " << value << ": " << status.to_string();
+            ASSERT_EQ(column->size(), 1);
+            EXPECT_TRUE(column->is_null_at(0));
+        }
+    }
+}
+
+TEST_F(EsScrollParserTest, FloatingPointSourceSingletonArrays) {
+    for (auto type : {TPrimitiveType::FLOAT, TPrimitiveType::DOUBLE}) {
+        MutableColumnPtr column;
+        auto status = read_scalar(type, "[1.5]", &column);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        ASSERT_FALSE(column->is_null_at(0));
+        auto data = assert_cast<const ColumnNullable&>(*column).get_nested_column().get_data_at(0);
+        if (type == TPrimitiveType::FLOAT) {
+            float actual;
+            memcpy(&actual, data.data, sizeof(actual));
+            EXPECT_FLOAT_EQ(actual, 1.5F);
+        } else {
+            double actual;
+            memcpy(&actual, data.data, sizeof(actual));
+            EXPECT_DOUBLE_EQ(actual, 1.5);
+        }
+    }
+}
+
+TEST_F(EsScrollParserTest, BooleanAndIntegerSourceSingletonArrays) {
+    MutableColumnPtr column;
+    auto status = read_scalar(TPrimitiveType::BOOLEAN, R"([""])", &column);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_FALSE(column->is_null_at(0));
+    EXPECT_FALSE(column->get_bool(0));
+    status = read_scalar(TPrimitiveType::BIGINT, "[1]", &column);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_FALSE(column->is_null_at(0));
+    EXPECT_EQ(assert_cast<const ColumnNullable&>(*column).get_nested_column().get_int(0), 1);
+}
+
+TEST_F(EsScrollParserTest, NarrowIntegerNaNAndInfinity) {
+    for (auto type : {TPrimitiveType::TINYINT, TPrimitiveType::SMALLINT, TPrimitiveType::INT}) {
+        MutableColumnPtr column;
+        auto status = read_scalar(type, R"("NaN")", &column);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        EXPECT_EQ(assert_cast<const ColumnNullable&>(*column).get_nested_column().get_int(0), 0);
+        EXPECT_FALSE(read_scalar(type, R"("Infinity")", &column).ok());
+    }
+}
+
+TEST_F(EsScrollParserTest, NarrowIntegerStringRounding) {
+    for (auto type : {TPrimitiveType::TINYINT, TPrimitiveType::SMALLINT, TPrimitiveType::INT,
+                      TPrimitiveType::BIGINT}) {
+        SlotDescriptor slot(value_slot(type));
+        std::vector<SlotDescriptor*> slots {&slot};
+        for (const auto& [value, expected] : std::vector<std::pair<std::string, int64_t>> {
+                     {"0.99999999999999999", type == TPrimitiveType::BIGINT ? 0 : 1},
+                     {"-0.99999999999999999", type == TPrimitiveType::BIGINT ? 0 : -1},
+                     {"1.2e1", 12},
+                     {"127.9", 127}}) {
+            ScrollParser parser(false);
+            ASSERT_TRUE(
+                    parser.parse(R"({"hits":{"hits":[{"_source":{"value":")" + value + R"("}}]}})",
+                                 true)
+                            .ok());
+            std::vector<MutableColumnPtr> columns;
+            columns.push_back(slot.type()->create_column());
+            bool eof = false;
+            auto status = parser.fill_columns(slots, columns, &eof, {}, cctz::utc_time_zone());
+            ASSERT_TRUE(status.ok()) << status.to_string();
+            EXPECT_EQ(columns[0]->get_int(0), expected) << type << ": " << value;
+        }
+    }
+}
+
+TEST_F(EsScrollParserTest, IntegerSourceCoercion) {
+    SlotDescriptor slot(value_slot(TPrimitiveType::BIGINT));
+    std::vector<SlotDescriptor*> slots {&slot};
+    for (const auto& [value, expected] :
+         std::vector<std::pair<std::string, int64_t>> {{R"("1.2e3")", 1200},
+                                                       {R"("-1.9E1")", -19},
+                                                       {R"("1.9e-1")", 0},
+                                                       {R"(".9e1")", 9},
+                                                       {R"("00012.9")", 12},
+                                                       {R"("-0.9")", 0},
+                                                       {R"("9223372036854775807")", INT64_MAX},
+                                                       {R"("-9.223372036854775808e18")", INT64_MIN},
+                                                       {R"("922337203685477580.7e1")", INT64_MAX},
+                                                       {"1.9", 1},
+                                                       {"[5]", 5},
+                                                       {R"(["1.2e3"])", 1200}}) {
+        ScrollParser parser(false);
+        ASSERT_TRUE(parser.parse(R"({"hits":{"hits":[{"_source":{"value":)" + value + "}}]}}", true)
+                            .ok());
+        std::vector<MutableColumnPtr> columns;
+        columns.push_back(slot.type()->create_column());
+        bool eof = false;
+        auto status = parser.fill_columns(slots, columns, &eof, {}, cctz::utc_time_zone());
+        ASSERT_TRUE(status.ok()) << value << ": " << status.to_string();
+        ASSERT_EQ(columns[0]->size(), 1);
+        EXPECT_EQ(columns[0]->get_int(0), expected) << value;
+    }
+    for (const std::string value :
+         {R"("9223372036854775808")", R"("1e1000000")", R"("1e")", R"("1.2junk")", "[1,2]"}) {
+        ScrollParser parser(false);
+        ASSERT_TRUE(parser.parse(R"({"hits":{"hits":[{"_source":{"value":)" + value + "}}]}}", true)
+                            .ok());
+        std::vector<MutableColumnPtr> columns;
+        columns.push_back(slot.type()->create_column());
+        bool eof = false;
+        EXPECT_FALSE(parser.fill_columns(slots, columns, &eof, {}, cctz::utc_time_zone()).ok())
+                << value;
+    }
+}
+
+TEST_F(EsScrollParserTest, FullSourceRequestOnlyAffectsSourceMode) {
+    std::map<std::string, std::string> properties {
+            {"query_dsl", "{\"match_all\":{}}"}, {"batch_size", "100"}, {"doc_values_mode", "0"}};
+    bool docvalues = true;
+    rapidjson::Document body;
+    auto query = ESScrollQueryBuilder::build(properties, {"value"}, {}, &docvalues);
+    body.Parse(query.c_str());
+    ASSERT_FALSE(body.HasParseError());
+    EXPECT_TRUE(body["_source"].IsArray());
+    EXPECT_FALSE(docvalues);
+    properties["read_full_source"] = "true";
+    query = ESScrollQueryBuilder::build(properties, {"value"}, {}, &docvalues);
+    body.Parse(query.c_str());
+    ASSERT_TRUE(body["_source"].IsBool());
+    EXPECT_TRUE(body["_source"].GetBool());
+    properties["doc_values_mode"] = "1";
+    query = ESScrollQueryBuilder::build(properties, {"value"}, {{"value", "value.raw"}},
+                                        &docvalues);
+    body.Parse(query.c_str());
+    EXPECT_TRUE(docvalues);
+    EXPECT_FALSE(body.HasMember("_source"));
+    ASSERT_TRUE(body["docvalue_fields"].IsArray());
+    EXPECT_STREQ(body["docvalue_fields"][0].GetString(), "value.raw");
+}
+
+TEST_F(EsScrollParserTest, IntegerArraySourceCoercion) {
+    SlotDescriptor slot(value_slot(TPrimitiveType::BIGINT, true));
+    std::vector<SlotDescriptor*> slots {&slot};
+    ScrollParser parser(false);
+    ASSERT_TRUE(
+            parser.parse(R"({"hits":{"hits":[{"_source":{"value":["1.2e3",-1.9,"9223372036854775807"]}}]}})",
+                         true)
+                    .ok());
+    std::vector<MutableColumnPtr> columns;
+    columns.push_back(slot.type()->create_column());
+    bool eof = false;
+    auto status = parser.fill_columns(slots, columns, &eof, {}, cctz::utc_time_zone());
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto& array = assert_cast<const ColumnArray&>(*columns[0]);
+    const auto& values = assert_cast<const ColumnNullable&>(array.get_data()).get_nested_column();
+    ASSERT_EQ(values.size(), 3);
+    EXPECT_EQ(values.get_int(0), 1200);
+    EXPECT_EQ(values.get_int(1), -1);
+    EXPECT_EQ(values.get_int(2), INT64_MAX);
+}
+
+TEST_F(EsScrollParserTest, IntegerCoercionChecksNarrowBounds) {
+    SlotDescriptor slot(value_slot(TPrimitiveType::TINYINT));
+    std::vector<SlotDescriptor*> slots {&slot};
+    for (const std::string value : {"128", "-129", R"("1.28e2")", R"("-1.29e2")"}) {
+        ScrollParser parser(false);
+        ASSERT_TRUE(parser.parse(R"({"hits":{"hits":[{"_source":{"value":)" + value + "}}]}}", true)
+                            .ok());
+        std::vector<MutableColumnPtr> columns;
+        columns.push_back(slot.type()->create_column());
+        bool eof = false;
+        EXPECT_FALSE(parser.fill_columns(slots, columns, &eof, {}, cctz::utc_time_zone()).ok())
+                << value;
+    }
+}
+
+TEST_F(EsScrollParserTest, BooleanSourceRepresentations) {
+    SlotDescriptor slot(boolean_slot(false));
+    std::vector<SlotDescriptor*> slots {&slot};
+    for (const auto& [value, expected] :
+         std::vector<std::pair<std::string, bool>> {{R"("")", false},
+                                                    {R"("false")", false},
+                                                    {R"("true")", true},
+                                                    {"false", false},
+                                                    {"true", true}}) {
+        ScrollParser parser(false);
+        auto status =
+                parser.parse(R"({"hits":{"hits":[{"_source":{"value":)" + value + "}}]}}", true);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        std::vector<MutableColumnPtr> columns;
+        columns.push_back(slot.type()->create_column());
+        bool eof = false;
+        status = parser.fill_columns(slots, columns, &eof, {}, cctz::utc_time_zone());
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        ASSERT_EQ(columns[0]->size(), 1);
+        EXPECT_EQ(columns[0]->get_bool(0), expected);
+    }
+}
+
+TEST_F(EsScrollParserTest, BooleanArraySourceEmptyString) {
+    SlotDescriptor slot(boolean_slot(true));
+    std::vector<SlotDescriptor*> slots {&slot};
+    ScrollParser parser(false);
+    auto status =
+            parser.parse(R"({"hits":{"hits":[{"_source":{"value":["","true",false]}}]}})", true);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    std::vector<MutableColumnPtr> columns;
+    columns.push_back(slot.type()->create_column());
+    bool eof = false;
+    status = parser.fill_columns(slots, columns, &eof, {}, cctz::utc_time_zone());
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto& array = assert_cast<const ColumnArray&>(*columns[0]);
+    const auto& values = assert_cast<const ColumnNullable&>(array.get_data()).get_nested_column();
+    ASSERT_EQ(values.size(), 3);
+    EXPECT_FALSE(values.get_bool(0));
+    EXPECT_TRUE(values.get_bool(1));
+    EXPECT_FALSE(values.get_bool(2));
+}
+
+TEST_F(EsScrollParserTest, InvalidBooleanSourceIsRejected) {
+    SlotDescriptor slot(boolean_slot(false));
+    std::vector<SlotDescriptor*> slots {&slot};
+    ScrollParser parser(false);
+    ASSERT_TRUE(parser.parse(R"({"hits":{"hits":[{"_source":{"value":"invalid"}}]}})", true).ok());
+    std::vector<MutableColumnPtr> columns;
+    columns.push_back(slot.type()->create_column());
+    bool eof = false;
+    EXPECT_FALSE(parser.fill_columns(slots, columns, &eof, {}, cctz::utc_time_zone()).ok());
+}
 
 // Test timezone pattern matching for ES datetime parsing fix
 TEST_F(EsScrollParserTest, TestTimezonePatternMatching) {
