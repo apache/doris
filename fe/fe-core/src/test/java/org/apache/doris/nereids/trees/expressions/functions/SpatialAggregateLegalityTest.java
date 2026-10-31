@@ -73,9 +73,12 @@ import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.List;
 
@@ -301,6 +304,25 @@ public class SpatialAggregateLegalityTest {
                 Exception error = Assertions.assertThrows(Exception.class,
                         () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(sql).rewrite(), sql);
                 Assertions.assertTrue(error.getMessage().contains("does not support spatial"), error.getMessage());
+            }
+        }
+    }
+
+    @ParameterizedTest(name = "type-only count_map state spatial value={0}")
+    @ValueSource(strings = {"GEOMETRY", "GEOGRAPHY"})
+    public void typedNullCountMapOrdinaryKeysKeepSpatialValues(String spatial) {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = MemoTestUtils.createConnectContext();
+        context.getSessionVariable().enableAggState = true;
+        String sql = "select CAST(NULL AS AGG_STATE<count_map(MAP<INT,ARRAY<" + spatial + ">>)>)";
+        try {
+            PlanChecker checker = Assertions.assertDoesNotThrow(
+                    () -> PlanChecker.from(context).analyze(sql).rewrite(), sql);
+            Assertions.assertInstanceOf(AggStateType.class, checker.getPlan().getOutput().get(0).getDataType(), sql);
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
             }
         }
     }

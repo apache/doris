@@ -20,6 +20,7 @@ package org.apache.doris.datasource.connector.converter;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
+import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -35,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
@@ -254,12 +256,17 @@ public final class ConnectorSpatialWriteNormalizer {
             // CAST(ARRAY(ARRAY(NULL)) AS ARRAY<INT>) must still fail: replacing its
             // source target must not erase a non-NULL inner array or a text conversion.
             if (depth >= 0 && depth <= arrayDepth(cast.getDataType()) && depth <= arrayDepth(target)) {
+                // NULL leaves do not make ARRAY<GEOMETRY> -> ARRAY<INT> a legal user cast.
+                // Bind the untouched container first to retain its constructor and CAST errors.
+                ExpressionAnalyzer.analyzeFunction(null, null, cast);
                 return new Cast(normalizeSpatialNullsBeforeBinding(cast.child(), target), target,
                         cast.isExplicitType(), cast.isStrict());
             }
         }
         if (input.getClass() == Cast.class && canRetargetSpatialNulls(input, target)) {
             Cast cast = (Cast) input;
+            // MAP/STRUCT NULL retagging must also preserve the original container's errors.
+            ExpressionAnalyzer.analyzeFunction(null, null, cast);
             // CAST(MAP('k', NULL:INT) AS MAP<STRING,INT>) hides NULL provenance.
             // Patch only spatial paths: replacing ordinary key/field types could erase
             // an intermediate cast error such as STRING -> TINYINT -> STRING.
@@ -382,8 +389,11 @@ public final class ConnectorSpatialWriteNormalizer {
             int step = named ? 2 : 1;
             if ((value instanceof StructLiteral || value instanceof CreateStruct || named
                     || constructor.equalsIgnoreCase("struct")) && fields.size() == step * struct.getFields().size()) {
-                return IntStream.range(0, struct.getFields().size()).allMatch(i -> canRetargetSpatialNulls(
-                        fields.get(i * step + step - 1), struct.getFields().get(i).getDataType()));
+                // Match the constructor's literal-name contract before scope-free validation.
+                return IntStream.range(0, struct.getFields().size()).allMatch(i ->
+                        (!named || fields.get(i * step) instanceof StringLikeLiteral)
+                                && canRetargetSpatialNulls(fields.get(i * step + step - 1),
+                                        struct.getFields().get(i).getDataType()));
             }
         }
         return false;

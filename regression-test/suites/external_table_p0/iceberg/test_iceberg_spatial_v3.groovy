@@ -1908,4 +1908,39 @@ public class CreateIcebergSpatialV3Table {
         g_struct is null, g_struct.shape is null, g_struct.label,
         gg_struct is null, gg_struct.shape is null, gg_struct.label
         from spatial_write_cast_null_containers order by id"""
+
+    // MERGE must validate an original outer container CAST before retagging its NULL leaves.
+    for (String kind : ["geometry", "geography"]) {
+        String prefix = kind == "geometry" ? "g" : "gg"
+        for (List<String> container : [
+                ["spatial_merge_cast_null_arrays", "${prefix}_array",
+                 "cast(array(cast(null as ${kind})) as array<int>)"],
+                ["spatial_write_cast_null_containers", "${prefix}_map",
+                 "cast(map('ordinary-key',cast(null as ${kind})) as map<string,int>)"],
+                ["spatial_write_cast_null_containers", "${prefix}_struct",
+                 "cast(named_struct('shape',cast(null as ${kind}),'label','kept') as struct<shape:int,label:string>)"]
+        ]) {
+            for (boolean matched : [false, true]) {
+                String clause = matched ? "when matched then update set ${container[1]} = ${container[2]}"
+                        : "when not matched then insert (id,${container[1]}) values (s.id,${container[2]})"
+                test {
+                    sql """merge into ${container[0]} t using (select ${matched ? 1 : 4} id) s
+                        on t.id = s.id ${clause}"""
+                    exception "can not cast"
+                }
+            }
+        }
+        String invalidName = "array_map(x -> x, array(array(1)))"
+        String invalidStruct = "cast(named_struct(${invalidName},cast(null as ${kind}),'label','kept')" +
+                " as struct<shape:${kind},label:string>)"
+        for (boolean matched : [false, true]) {
+            String clause = matched ? "when matched then update set ${prefix}_struct = ${invalidStruct}"
+                    : "when not matched then insert (id,${prefix}_struct) values (s.id,${invalidStruct})"
+            test {
+                sql """merge into spatial_write_cast_null_containers t using (select ${matched ? 1 : 4} id) s
+                    on t.id = s.id ${clause}"""
+                exception "named_struct only allows constant string parameter"
+            }
+        }
+    }
 }
