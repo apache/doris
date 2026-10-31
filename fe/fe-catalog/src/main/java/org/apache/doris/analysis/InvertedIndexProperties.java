@@ -72,6 +72,14 @@ public class InvertedIndexProperties {
 
     public static String INVERTED_INDEX_PARSER_FIELD_PATTERN_KEY = "field_pattern";
 
+    public static final String VARIANT_INDEX_SCOPE_KEY = "variant_index_scope";
+    public static final String VARIANT_INDEX_SCOPE_VALUES = "values";
+
+    public static boolean isVariantValuesIndex(Map<String, String> properties) {
+        return properties != null
+                && VARIANT_INDEX_SCOPE_VALUES.equalsIgnoreCase(properties.get(VARIANT_INDEX_SCOPE_KEY));
+    }
+
     // Default analyzer key constant - matches BE's INVERTED_INDEX_DEFAULT_ANALYZER_KEY
     public static final String INVERTED_INDEX_DEFAULT_ANALYZER_KEY = "__default__";
 

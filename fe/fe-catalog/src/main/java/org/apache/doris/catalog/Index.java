@@ -331,4 +331,10 @@ public class Index implements Writable {
                 || properties.containsKey(InvertedIndexProperties.INVERTED_INDEX_ANALYZER_NAME_KEY)
                 || properties.containsKey(InvertedIndexProperties.INVERTED_INDEX_NORMALIZER_NAME_KEY));
     }
+
+    /** A VARIANT values index: whole-column tokens from scalar leaves. */
+    public boolean isVariantValuesIndex() {
+        return indexType == IndexType.INVERTED
+                && InvertedIndexProperties.isVariantValuesIndex(properties);
+    }
 }

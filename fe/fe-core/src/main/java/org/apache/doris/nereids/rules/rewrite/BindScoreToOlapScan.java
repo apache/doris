@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
@@ -215,6 +216,15 @@ public class BindScoreToOlapScan implements CustomRewriter {
         }
         if (where.stream().noneMatch(conjunct -> conjunct.containsType(Match.class, Search.class))) {
             throw new AnalysisException(UNSUPPORTED_SELECT_ERROR);
+        }
+        for (Expression conjunct : where) {
+            for (Expression expression : conjunct.<Expression>collect(e -> e instanceof Match)) {
+                Match match = (Match) expression;
+                if (ExpressionAnalyzer.isVariantRootSlot(match.left())) {
+                    throw new AnalysisException(
+                            "score() is not supported with a MATCH served by a VARIANT values index");
+                }
+            }
         }
         List<Expression> ranges = where.stream()
                 .filter(conjunct -> conjunct.containsType(Score.class))

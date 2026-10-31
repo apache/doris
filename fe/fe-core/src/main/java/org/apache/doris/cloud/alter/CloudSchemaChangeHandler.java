@@ -20,6 +20,7 @@ package org.apache.doris.cloud.alter;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -158,6 +159,12 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
             }
             olapTable.readLock();
             try {
+                // New partitions must retain the format required by the table's values indexes.
+                if (invertedIndexFileStorageFormat != TInvertedIndexFileStorageFormat.SNII
+                        && olapTable.getIndexes().stream().anyMatch(Index::isVariantValuesIndex)) {
+                    throw new DdlException(
+                            "VARIANT values index requires partition.inverted_index_storage_format=SNII");
+                }
                 if (invertedIndexFileStorageFormat == olapTable.getPartitionInvertedIndexFileStorageFormat()) {
                     LOG.info("partitionInvertedIndexFileStorageFormat:{} is equal with table format:{}",
                             invertedIndexFileStorageFormat, olapTable.getPartitionInvertedIndexFileStorageFormat());
