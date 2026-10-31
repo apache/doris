@@ -47,8 +47,6 @@ import org.apache.doris.catalog.TableKeyMeta;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
-import org.apache.doris.catalog.info.TableNameInfo;
-import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.TableStreamManager;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
@@ -87,7 +85,6 @@ import org.apache.doris.job.extensions.insert.streaming.AbstractStreamingTask;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.job.task.AbstractTask;
-import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
@@ -1238,28 +1235,9 @@ public class MetadataGenerator {
         if (!mv.isIvm()) {
             return "";
         }
-        MTMVRelation relation = mv.getRelation();
-        Set<BaseTableInfo> baseTables = relation == null ? null : relation.getBaseTables();
         Map<String, String> streams = new LinkedHashMap<>();
-        if (baseTables != null && !baseTables.isEmpty()) {
-            Set<TableNameInfo> excluded = mv.getExcludedTriggerTables();
-            for (BaseTableInfo baseTableInfo : baseTables) {
-                if (excluded != null && MTMVPartitionUtil.isTableExcluded(excluded,
-                        new TableNameInfo(baseTableInfo.getCtlName(),
-                                baseTableInfo.getDbName(), baseTableInfo.getTableName()))) {
-                    continue;
-                }
-                List<String> qualifiers = baseTableInfo.toList();
-                TableIf streamTable = db.getTableNullable(IvmUtil.streamName(mv.getId(), qualifiers));
-                if (!(streamTable instanceof BaseTableStream)
-                        || !IvmUtil.isStreamOwnedBy((BaseTableStream) streamTable, qualifiers)) {
-                    continue;
-                }
-                String baseTableFullPath = String.join(".", qualifiers);
-                String streamFullPath = String.join(".", streamTable.getFullQualifiers());
-                streams.put(baseTableFullPath, streamFullPath);
-            }
-        }
+        IvmUtil.getIvmStreams(db, mv).forEach((baseTableInfo, stream) -> streams.put(
+                String.join(".", baseTableInfo.toList()), String.join(".", stream.getFullQualifiers())));
         return streams.toString();
     }
 

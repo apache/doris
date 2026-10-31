@@ -19,7 +19,6 @@ package org.apache.doris.catalog.stream;
 
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.thrift.TRow;
 
 import org.junit.jupiter.api.Assertions;
@@ -27,7 +26,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -55,8 +53,6 @@ public class OlapTableStreamConsumptionTest {
 
         OlapTableStream stream = Mockito.spy(new OlapTableStream());
         Mockito.doReturn(table).when(stream).getBaseTableNullable();
-        Deencapsulation.setField(stream, "partitionOffset", new HashMap<Long, Long>());
-        Deencapsulation.setField(stream, "partitionConsumptionTime", new HashMap<Long, Long>());
         List<TRow> rows = new ArrayList<>();
 
         stream.fillTableStreamConsumptionInfo(rows, unit -> {

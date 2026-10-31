@@ -356,12 +356,12 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
 
     @Test
     public void testUnprotectedUpdateAdvancesPartitionOffsetAndConsumptionTime() throws Exception {
-        // (B1) When no historicalPartitionTSO is present, unprotectedUpdateStreamUpdate should
-        // advance partitionOffset to the committed `next` TSO, record partitionConsumptionTime,
+        // (B1) When no historical TSO is present, unprotectedUpdateStreamUpdate should
+        // advance the offset to the committed `next` TSO, record the consumption time,
         // and leave hasHistoricalData() false.
         Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
         OlapTable baseTable = (OlapTable) db.getTableOrMetaException("tbl_stream_base");
-        // Create a fresh stream without showing initial rows so historicalPartitionTSO is empty.
+        // Create a fresh stream without showing initial rows so no partition has a historical TSO.
         createTable("create stream if not exists test_stream.s_no_init on table test_stream.tbl_stream_base\n"
                 + "properties('show_initial_rows' = 'false')");
         OlapTableStream stream = (OlapTableStream) db.getTableOrMetaException("s_no_init");
@@ -392,35 +392,28 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
         for (Map.Entry<Long, Long> entry : next.entrySet()) {
             long pid = entry.getKey();
             Assertions.assertEquals(entry.getValue(), stream.getStreamUpdate(pid).first,
-                    "partitionOffset must be advanced to next TSO");
+                    "the offset must be advanced to next TSO");
             Assertions.assertFalse(stream.hasHistoricalData(pid),
                     "no historical offset should be present after advance without prior history");
         }
-        // partitionConsumptionTime is private; verify via reflection on the same field name.
-        @SuppressWarnings("unchecked")
-        Map<Long, Long> consumptionTime = (Map<Long, Long>) Deencapsulation.getField(stream,
-                "partitionConsumptionTime");
+        // The consumption time is private; verify via reflection on the partition states.
         for (Long pid : next.keySet()) {
-            Assertions.assertEquals(Long.valueOf(ts), consumptionTime.get(pid),
-                    "partitionConsumptionTime must be recorded with the commit ts");
+            Assertions.assertEquals(ts, partitionState(stream, pid).getConsumptionTime(),
+                    "the consumption time must be recorded with the commit ts");
         }
     }
 
     @Test
     public void testUnprotectedUpdateClearsHistoryAndAdvancesToNextOffset() throws Exception {
-        // (B2) When historicalPartitionTSO is present, the commit must:
-        //   - remove the entry from historicalPartitionTSO (history consumed)
-        //   - advance partitionOffset to update.next
-        //   - set partitionConsumptionTime = ts.
+        // (B2) When the partition has a historical TSO, the commit must:
+        //   - clear the historical TSO (history consumed)
+        //   - advance the offset to update.next
+        //   - set the consumption time = ts.
         Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
         OlapTable baseTable = (OlapTable) db.getTableOrMetaException("tbl_stream_base");
         createTable("create stream if not exists test_stream.s_history on table test_stream.tbl_stream_base\n"
                 + "properties('show_initial_rows' = 'false')");
         OlapTableStream stream = (OlapTableStream) db.getTableOrMetaException("s_history");
-
-        @SuppressWarnings("unchecked")
-        Map<Long, Long> historicalPartitionTSO = (Map<Long, Long>) Deencapsulation.getField(stream,
-                "historicalPartitionTSO");
 
         Map<Long, Long> prev = new HashMap<>();
         Map<Long, Long> next = new HashMap<>();
@@ -429,7 +422,7 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
             long pid = partition.getId();
             long histTso = 8000L + seed;
             long nextTso = 9999L + seed;
-            historicalPartitionTSO.put(pid, histTso);
+            putHistoricalTso(stream, pid, histTso);
             prev.put(pid, histTso);
             next.put(pid, nextTso);
             seed++;
@@ -444,19 +437,14 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
             baseTable.writeUnlock();
         }
 
-        @SuppressWarnings("unchecked")
-        Map<Long, Long> consumptionTime = (Map<Long, Long>) Deencapsulation.getField(stream,
-                "partitionConsumptionTime");
         for (Map.Entry<Long, Long> entry : next.entrySet()) {
             long pid = entry.getKey();
             Assertions.assertFalse(stream.hasHistoricalData(pid),
-                    "historicalPartitionTSO must be cleared after commit");
-            Assertions.assertFalse(historicalPartitionTSO.containsKey(pid),
-                    "historicalPartitionTSO must be cleared after commit");
+                    "the historical TSO must be cleared after commit");
             Assertions.assertEquals(entry.getValue(), stream.getStreamUpdate(pid).first,
-                    "partitionOffset must be advanced to update.next after history consumed");
-            Assertions.assertEquals(Long.valueOf(ts), consumptionTime.get(pid),
-                    "partitionConsumptionTime must be recorded with the commit ts");
+                    "the offset must be advanced to update.next after history consumed");
+            Assertions.assertEquals(ts, partitionState(stream, pid).getConsumptionTime(),
+                    "the consumption time must be recorded with the commit ts");
         }
     }
 
@@ -465,16 +453,13 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
         // (C) End-to-end FE-side contract: the OlapTableStreamUpdate produced by the insert
         // path's planner must carry, for each selected partition,
         //   next == partition.getTso() (the dedicated commit-tso field), and
-        //   prev == -historicalPartitionTSO[pid] (negated to mark a history offset) when present,
-        //   else partitionOffset[pid].
+        //   prev == -(historical TSO of pid) (negated to mark a history offset) when present,
+        //   else the offset of pid.
         Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
         OlapTable baseTable = (OlapTable) db.getTableOrMetaException("tbl_stream_base");
-        // s1 was created with show_initial_rows=true. Seed historicalPartitionTSO for one
+        // s1 was created with show_initial_rows=true. Seed a historical TSO for one
         // partition to also cover the history branch.
         OlapTableStream stream = (OlapTableStream) db.getTableOrMetaException("s1");
-        @SuppressWarnings("unchecked")
-        Map<Long, Long> historicalPartitionTSO = (Map<Long, Long>) Deencapsulation.getField(stream,
-                "historicalPartitionTSO");
 
         // Bump partition versions so partition.getTso() differs from any initial seed and
         // is a meaningful upper bound. Pass tso explicitly (third arg) to simulate a
@@ -497,7 +482,7 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
         Partition historyPartition = baseTable.getPartitions().iterator().next();
         long historyPid = historyPartition.getId();
         long historyTso = 6789L;
-        historicalPartitionTSO.put(historyPid, historyTso);
+        putHistoricalTso(stream, historyPid, historyTso);
 
         String sql = "insert into test_stream.tbl_target select * from test_stream.s1";
         LogicalPlan logicalPlan = parser.parseSingle(sql);
@@ -527,7 +512,7 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
         // history partition's prev is the historical TSO snapshot encoded as negative
         // (see StreamConsumptionInfoExtractor).
         Assertions.assertEquals(Long.valueOf(-historyTso), producedPrev.get(historyPid),
-                "prev of history partition must equal negated historicalPartitionTSO");
+                "prev of history partition must equal the negated historical TSO");
     }
 
     @Test
@@ -990,6 +975,24 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
             Config.cloud_unique_id = previousCloudUniqueId;
             Config.meta_service_endpoint = previousMetaServiceEndpoint;
         }
+    }
+
+    private static OlapTableStream.PartitionStreamState partitionState(OlapTableStream stream, long partitionId) {
+        Map<Long, OlapTableStream.PartitionStreamState> partitionStates =
+                Deencapsulation.getField(stream, "partitionStates");
+        return partitionStates.get(partitionId);
+    }
+
+    // Gives the partition a historical TSO, as a stream that shows the initial rows records one, and keeps the rest
+    // of its state.
+    private static void putHistoricalTso(OlapTableStream stream, long partitionId, long historicalTso) {
+        Map<Long, OlapTableStream.PartitionStreamState> partitionStates =
+                Deencapsulation.getField(stream, "partitionStates");
+        OlapTableStream.PartitionStreamState state = partitionStates.get(partitionId);
+        partitionStates.put(partitionId, state == null
+                ? new OlapTableStream.PartitionStreamState(null, -1L, historicalTso, null)
+                : new OlapTableStream.PartitionStreamState(state.getOffset(), state.getConsumptionTime(),
+                        historicalTso, state.getKeepAlive()));
     }
 
     private void resetQueryContext() {

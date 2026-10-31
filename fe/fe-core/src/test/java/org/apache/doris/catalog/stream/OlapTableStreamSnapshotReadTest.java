@@ -124,8 +124,10 @@ public class OlapTableStreamSnapshotReadTest {
         Mockito.doReturn(table).when(stream).getBaseTableNullable();
         // The offsets have to be in place before the wrapper is built: it reads them into the map the read of
         // a snapshot is built from.
-        Deencapsulation.setField(stream, "partitionOffset", new HashMap<>(offsets));
-        Deencapsulation.setField(stream, "historicalPartitionTSO", new HashMap<Long, Long>());
+        Map<Long, OlapTableStream.PartitionStreamState> partitionStates =
+                Deencapsulation.getField(stream, "partitionStates");
+        offsets.forEach((partitionId, offset) ->
+                partitionStates.put(partitionId, OlapTableStream.PartitionStreamState.ofOffset(offset)));
         return new Fixture(stream, new OlapTableStreamWrapper(stream, table,
                 Lists.newArrayList(byId.keySet())));
     }
