@@ -17,12 +17,23 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
 import org.apache.doris.nereids.rules.expression.rules.OrToIn;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 class OrToInTest extends ExpressionRewriteTestHelper {
 
@@ -167,11 +178,14 @@ class OrToInTest extends ExpressionRewriteTestHelper {
 
     @Test
     void test14() {
-        // no rewrite, because of "f(a)"
+        // "a = 1" shares slot a with "f(a) = 2". The OR still implies "a in (1, 3)", so extract mode
+        // appends it and keeps the original OR; replace mode must not touch the OR.
         String expr = "(a=1 and f(a)=2) or a=3";
         Expression expression = PARSER.parseExpression(expr);
         Expression rewritten = OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(expression, context);
-        Assertions.assertEquals("OR[AND[(a = 1),(f(a) = 2)],(a = 3)]", rewritten.toSql());
+        Assertions.assertEquals("AND[a IN (1, 3),OR[AND[(a = 1),(f(a) = 2)],(a = 3)]]", rewritten.toSql());
+        Expression replaced = OrToIn.REPLACE_MODE_INSTANCE.rewriteTree(expression, context);
+        Assertions.assertEquals("OR[AND[(a = 1),(f(a) = 2)],(a = 3)]", replaced.toSql());
     }
 
     @Test
@@ -198,5 +212,116 @@ class OrToInTest extends ExpressionRewriteTestHelper {
         Expression expression = PARSER.parseExpression(expr);
         Expression rewritten = OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(expression, context);
         System.out.println(rewritten);
+    }
+
+    @Test
+    void testInferFromDisjunctWithDependentConjuncts() {
+        // Same shape as the homepage-rank query on dwd_traffic_events_di:
+        //   (spm=S1 and ep=P1 and ev=E1) or (spm=S2 and ep=P2 and ev=E2)
+        //   or (f(j)=.. and g(j) in (..) and ((spm=S3 and ep=P1 and ev=E1) or (spm=S4 and ep=P2 and ev=E2)))
+        // The inner OR is rewritten first and yields "spm in (3, 4)" etc. next to the kept inner OR, so these
+        // In-predicates share slots with their sibling. They must still take part in the outer inference.
+        String expr = "(spm=1 and ep=1 and ev=1) or (spm=2 and ep=2 and ev=2)"
+                + " or (f(j)=1 and g(j) in (1, 2) and ((spm=3 and ep=1 and ev=1) or (spm=4 and ep=2 and ev=2)))";
+        Expression expression = PARSER.parseExpression(expr);
+        // InferInPredicateFromOr calls rewriteTree(Expression) on filter predicates
+        Expression rewritten = OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(expression);
+        List<Expression> conjuncts = ExpressionUtils.extractConjunction(rewritten);
+        assertHasInPredicate(conjuncts, "spm", "1", "2", "3", "4");
+        assertHasInPredicate(conjuncts, "ep", "1", "2");
+        assertHasInPredicate(conjuncts, "ev", "1", "2");
+        // exactly 3 inferred In-predicates + the original OR. f(j) / g(j) are not plain slots and
+        // share j with each other, so they are never inferred to the top level.
+        Assertions.assertEquals(4, conjuncts.size(), conjuncts.toString());
+        Assertions.assertEquals(1, conjuncts.stream().filter(Or.class::isInstance).count());
+
+        assertFixedPoint(rewritten);
+
+        // replace mode must keep the original OR because the inferred In-predicates are not equivalent to it
+        Expression replaced = OrToIn.REPLACE_MODE_INSTANCE.rewriteTree(expression);
+        Assertions.assertTrue(replaced instanceof Or, replaced.toSql());
+    }
+
+    @Test
+    void testNonSlotCompareExprStillRequiresIndependence() {
+        // f(a) is not a plain slot, keep the conservative independence check even in extract mode
+        String expr = "(f(a)=1 and a>0) or f(a)=2";
+        Expression expression = PARSER.parseExpression(expr);
+        Expression rewritten = OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(expression);
+        Assertions.assertEquals("OR[AND[(f(a) = 1),(a > 0)],(f(a) = 2)]", rewritten.toSql());
+    }
+
+    @Test
+    void testSlotSharedWithOtherPredicate() {
+        // "a > 0" and "a is not null" share slot a with "a = 1" / "a in (2, 3)"
+        String expr = "(a=1 and a>0) or (a in (2, 3) and a is not null)";
+        Expression expression = PARSER.parseExpression(expr);
+        Expression rewritten = OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(expression);
+        List<Expression> conjuncts = ExpressionUtils.extractConjunction(rewritten);
+        assertHasInPredicate(conjuncts, "a", "1", "2", "3");
+        Assertions.assertEquals(2, conjuncts.size(), conjuncts.toString());
+        Assertions.assertEquals(1, conjuncts.stream().filter(Or.class::isInstance).count());
+        assertFixedPoint(rewritten);
+    }
+
+    @Test
+    void testSharedSlotInferenceRollbackSwitch() {
+        String sharedSlotExpr = "(spm=1 and ep=1 and ev=1) or (spm=2 and ep=2 and ev=2)"
+                + " or (f(j)=1 and g(j) in (1, 2) and ((spm=3 and ep=1 and ev=1) or (spm=4 and ep=2 and ev=2)))";
+        String functionExpr = "(a=1 and f(a)=2) or a=3";
+        String independentExpr = "(a=1 and b=1) or (a=2 and c=2)";
+        boolean origin = Config.enable_or_to_in_shared_slot_inference;
+        try {
+            // switch off: exactly the legacy behavior
+            Config.enable_or_to_in_shared_slot_inference = false;
+            Expression legacy = OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(PARSER.parseExpression(sharedSlotExpr));
+            Assertions.assertTrue(legacy instanceof Or, legacy.toSql());
+            Assertions.assertEquals("OR[AND[(a = 1),(f(a) = 2)],(a = 3)]",
+                    OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(PARSER.parseExpression(functionExpr), context).toSql());
+            // inference that never depended on the relaxation is not affected by the switch
+            Assertions.assertEquals("AND[a IN (1, 2),OR[AND[(a = 1),(b = 1)],AND[(a = 2),(c = 2)]]]",
+                    OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(PARSER.parseExpression(independentExpr)).toSql());
+
+            // switch on again: the change takes effect on the next rewrite without any restart
+            Config.enable_or_to_in_shared_slot_inference = true;
+            List<Expression> conjuncts = ExpressionUtils.extractConjunction(
+                    OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(PARSER.parseExpression(sharedSlotExpr)));
+            assertHasInPredicate(conjuncts, "spm", "1", "2", "3", "4");
+            Assertions.assertEquals("AND[a IN (1, 3),OR[AND[(a = 1),(f(a) = 2)],(a = 3)]]",
+                    OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(PARSER.parseExpression(functionExpr), context).toSql());
+            Assertions.assertEquals("AND[a IN (1, 2),OR[AND[(a = 1),(b = 1)],AND[(a = 2),(c = 2)]]]",
+                    OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(PARSER.parseExpression(independentExpr)).toSql());
+
+            // replace mode never uses the relaxation, whatever the switch is
+            for (boolean enabled : new boolean[] {true, false}) {
+                Config.enable_or_to_in_shared_slot_inference = enabled;
+                Assertions.assertEquals("OR[AND[(a = 1),(f(a) = 2)],(a = 3)]",
+                        OrToIn.REPLACE_MODE_INSTANCE.rewriteTree(PARSER.parseExpression(functionExpr)).toSql());
+            }
+        } finally {
+            Config.enable_or_to_in_shared_slot_inference = origin;
+        }
+    }
+
+    // InferInPredicateFromOr stores the extracted conjuncts as a set and is re-applied by a top-down
+    // rewrite job until the filter no longer changes, so a second application must keep the same set.
+    private static void assertFixedPoint(Expression firstRewritten) {
+        Set<Expression> firstPass = new LinkedHashSet<>(ExpressionUtils.extractConjunction(firstRewritten));
+        Expression secondInput = ExpressionUtils.and(Lists.newArrayList(firstPass));
+        Set<Expression> secondPass = new LinkedHashSet<>(ExpressionUtils.extractConjunction(
+                OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(secondInput)));
+        Assertions.assertEquals(firstPass, secondPass);
+    }
+
+    private static void assertHasInPredicate(List<Expression> conjuncts, String slotName, String... values) {
+        Set<String> expectedValues = ImmutableSet.copyOf(values);
+        boolean found = conjuncts.stream()
+                .filter(InPredicate.class::isInstance)
+                .map(InPredicate.class::cast)
+                .anyMatch(in -> in.getCompareExpr().toSql().equals(slotName)
+                        && in.getOptions().size() == expectedValues.size()
+                        && in.getOptions().stream().map(Expression::toSql).collect(Collectors.toSet())
+                                .equals(expectedValues));
+        Assertions.assertTrue(found, "expect " + slotName + " IN " + expectedValues + " in " + conjuncts);
     }
 }

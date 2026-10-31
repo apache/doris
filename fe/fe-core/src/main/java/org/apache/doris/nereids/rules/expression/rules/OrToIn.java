@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
@@ -58,6 +59,12 @@ public class OrToIn {
      *
      * case 2: from (a=1) or (a=2), "a in (1,2)" is inferred, the inferred expr is equivalent to the original expr
      * - replaceMode/extractMode: output a in (1, 2)
+     *
+     * case 3 (extractMode only, controlled by Config.enable_or_to_in_shared_slot_inference): the candidate slot
+     * is also referenced by sibling conjuncts of the same disjunct,
+     * e.g. "(a=1 and b=1) or (a in (2, 3) and ((a=2 and c=1) or (a=3 and c=2)))".
+     * - replaceMode: output origin expr
+     * - extractMode: output a in (1, 2, 3) and (origin expr)
      *
      * extractMode only used for filter, the inferred In-predicate could be pushed down.
      */
@@ -241,12 +248,59 @@ public class OrToIn {
         return true;
     }
 
+    /**
+     * Whether conjuncts.get(idx) may contribute an "X = literal" / "X IN (literals)" candidate.
+     *
+     * Replace mode may substitute the inferred In-predicate for the original OR, so it keeps the
+     * historical requirement that the candidate does not share input slots with sibling conjuncts.
+     *
+     * Extract mode never drops the original OR, it only appends "X IN (union of literals)". When X is a
+     * plain slot (deterministic, evaluated once per row), every disjunct implies its own top-level
+     * "X = c" / "X IN (...)", so the whole OR implies "X IN (union)" no matter whether X is also
+     * referenced by sibling conjuncts. Under three-valued logic "X IN (union) AND or" is equivalent to
+     * "or": or=TRUE implies X IN (union)=TRUE, and X IN (union)=FALSE implies every disjunct is FALSE.
+     * A typical shape where the independence check blocks a useful pushdown:
+     *   (spm='a' AND ...) OR (... AND spm IN ('c','d') AND ((spm='c' AND ...) OR (spm='d' AND ...)))
+     * Here "spm IN ('c','d')" was inferred from the inner OR, which is kept and still references spm.
+     *
+     * Config.enable_or_to_in_shared_slot_inference is the rollback switch of exactly this relaxation:
+     * when it is false, every conjunct goes through independentConjunct() as before.
+     */
+    private boolean isCandidateConjunct(int idx, List<Expression> conjuncts) {
+        if (mode == Mode.extractMode && Config.enable_or_to_in_shared_slot_inference
+                && isSlotCompareWithLiterals(conjuncts.get(idx))) {
+            return true;
+        }
+        return independentConjunct(idx, conjuncts);
+    }
+
+    private static boolean isSlotCompareWithLiterals(Expression conjunct) {
+        if (conjunct instanceof EqualTo) {
+            EqualTo eq = (EqualTo) conjunct;
+            return (eq.left() instanceof Slot && eq.right() instanceof Literal)
+                    || (eq.right() instanceof Slot && eq.left() instanceof Literal);
+        }
+        if (conjunct instanceof InPredicate) {
+            InPredicate inPredicate = (InPredicate) conjunct;
+            if (!(inPredicate.getCompareExpr() instanceof Slot)) {
+                return false;
+            }
+            for (Expression option : inPredicate.getOptions()) {
+                if (!(option instanceof Literal)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
     private Map<Expression, Set<Literal>> getCandidates(Expression disjunct) {
         List<Expression> conjuncts = ExpressionUtils.extractConjunction(disjunct);
         Map<Expression, Set<Literal>> candidates = new LinkedHashMap<>();
         // collect candidates from the first disjunction
         for (int idx = 0; idx < conjuncts.size(); idx++) {
-            if (!independentConjunct(idx, conjuncts)) {
+            if (!isCandidateConjunct(idx, conjuncts)) {
                 continue;
             }
             // find pattern: A=1 / A in (1, 2, 3 ...)
