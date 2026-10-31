@@ -93,21 +93,23 @@ uint32_t leaves_in_one_read(const BkdIndexBlockReader& block, uint32_t first, ui
 }
 
 // A flat bitmap needs no sort, but a pass over all its words however few bits are set, which pays
-// from about one point per this many documents.
-constexpr uint64_t kDocsPerPointForDocBits = 256;
-// A doc id from here up goes through the sort instead, which holds the bitmap to 32 MiB whatever a
-// damaged leaf says.
+// up to about this many doc ids per point. The doc ids decide, not the index's document count,
+// which leaves out rows with no value.
+constexpr uint64_t kDocIdsPerPointForDocBits = 256;
+// A doc id from here up goes through the sort whatever the points, which holds the bitmap to 32 MiB
+// whatever a damaged leaf says.
 constexpr uint32_t kMaxDocBitsDocId = 1U << 28;
 constexpr size_t kWordsPerContainer = 1024;
 
 // Sets the doc ids in `bits`, which grows by whole containers. Returns false, leaving `bits` as it
-// was, when one of them is too large for it.
-bool set_doc_bits(std::span<const uint32_t> doc_ids, std::vector<uint64_t>* bits) {
+// was, when one of them is not below `doc_id_end`.
+bool set_doc_bits(std::span<const uint32_t> doc_ids, uint32_t doc_id_end,
+                  std::vector<uint64_t>* bits) {
     uint32_t largest = 0;
     for (const uint32_t doc_id : doc_ids) {
         largest = std::max(largest, doc_id);
     }
-    if (largest >= kMaxDocBitsDocId) {
+    if (largest >= doc_id_end) {
         return false;
     }
     const size_t words = (static_cast<size_t>(largest >> 16) + 1) * kWordsPerContainer;
@@ -418,12 +420,13 @@ Status BkdReader::range(Slice lower, bool lower_inclusive, Slice upper, bool upp
 
 Status BkdReader::add_whole_leaves(uint32_t first, uint32_t end, roaring::Roaring* hits,
                                    BkdQueryScratch* scratch) const {
-    // Leaf order follows values rather than doc IDs. A narrow range gathers doc IDs, sorts them and
-    // inserts them in bounded chunks, which limit memory.
+    // Leaf order follows values rather than doc IDs. Doc IDs the flat bitmap does not take are
+    // gathered, sorted and inserted in bounded chunks, which limit memory.
     constexpr size_t kMaxGatheredDocIds = 1U << 20;
-    const bool use_doc_bits =
-            static_cast<uint64_t>(end - first) * block_.header().points_per_leaf >=
-            block_.header().doc_count / kDocsPerPointForDocBits;
+    const auto doc_bits_end = static_cast<uint32_t>(
+            std::min(static_cast<uint64_t>(end - first) * block_.header().points_per_leaf *
+                             kDocIdsPerPointForDocBits,
+                     static_cast<uint64_t>(kMaxDocBitsDocId)));
     // The boundary-leaf decode holds Slices INTO scratch->leaf_bytes, which the
     // interior loop is about to overwrite and may reallocate. Cleared so nothing
     // can later read a struct that still looks populated but points at freed
@@ -453,7 +456,7 @@ Status BkdReader::add_whole_leaves(uint32_t first, uint32_t end, roaring::Roarin
             RETURN_IF_ERROR(decode_leaf_doc_ids(
                     leaves.subslice(begin, stop - begin), block_.header().bytes_per_dim,
                     block_.leaf(leaf).count, &scratch->doc_ids, &scratch->runs));
-            if (use_doc_bits && set_doc_bits(scratch->doc_ids, &scratch->doc_bits)) {
+            if (set_doc_bits(scratch->doc_ids, doc_bits_end, &scratch->doc_bits)) {
                 continue;
             }
             scratch->gathered.insert(scratch->gathered.end(), scratch->doc_ids.begin(),

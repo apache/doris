@@ -626,12 +626,61 @@ TEST(BkdReaderTest, WideAndNarrowRangesMatchBruteForceForEveryShapeOfDocIds) {
               closed(kValues / 3, kValues / 3 + 2000)}) {
             EXPECT_TRUE(matches_brute_force(*opened.reader, shapes[shape], interval));
         }
-        // The bitmap stops at its limit, whatever doc ids the leaves hold.
+    }
+}
+
+// Few points at high doc ids would make a long bitmap with hardly a bit set, however wide the range
+// and however few documents the index counts, so they take the sort.
+TEST(BkdReaderTest, SparseDocIdsStayOutOfTheFlatBitmap) {
+    constexpr size_t kBytesPerPoint = 32;
+    constexpr size_t kContainerBytes = 8192;
+    constexpr uint32_t kBitmapLimit = 1U << 28;
+    Rng rng(20261031);
+    std::vector<std::vector<Point>> shapes;
+    // One document just below the bitmap's limit, its values spanning three leaves.
+    std::vector<Point> one_document;
+    for (int64_t value = 0; value < 3 * 8; ++value) {
+        one_document.push_back(Point {.value = value, .doc_id = kBitmapLimit - 1});
+    }
+    shapes.push_back(one_document);
+    // A column with a value in one row of a thousand.
+    std::vector<Point> mostly_null;
+    for (uint32_t i = 0; i < 6000; ++i) {
+        mostly_null.push_back(Point {.value = rng.next_in(0, 100000), .doc_id = i * 1000});
+    }
+    shapes.push_back(mostly_null);
+
+    for (size_t shape = 0; shape < shapes.size(); ++shape) {
+        SCOPED_TRACE("shape " + std::to_string(shape));
+        OpenedIndex opened;
+        ASSERT_TRUE(open_index(shapes[shape], 8, &opened).ok());
+        EXPECT_TRUE(matches_brute_force(*opened.reader, shapes[shape], Interval {}));
         BkdQueryScratch scratch;
         roaring::Roaring hits;
         ASSERT_TRUE(opened.reader->range(Slice(), true, Slice(), true, &hits, &scratch).ok());
-        EXPECT_LE(scratch.doc_bits.size() * sizeof(uint64_t), kBitmapLimit / 8);
+        EXPECT_LE(scratch.doc_bits.size() * sizeof(uint64_t),
+                  shapes[shape].size() * kBytesPerPoint + kContainerBytes);
     }
+}
+
+// However many points pay for it, the bitmap stops at its limit. Values follow doc ids here, so
+// whole leaves lie below the limit and whole leaves above it.
+TEST(BkdReaderTest, FlatBitmapStopsAtItsLimit) {
+    constexpr uint32_t kBitmapLimit = 1U << 28;
+    constexpr uint32_t kPoints = kBitmapLimit / 256 + 50000;
+    std::vector<Point> points;
+    points.reserve(kPoints);
+    for (uint32_t i = 0; i < kPoints; ++i) {
+        points.push_back(Point {.value = i, .doc_id = i * 256});
+    }
+    OpenedIndex opened;
+    ASSERT_TRUE(open_index(points, 512, &opened).ok());
+    EXPECT_TRUE(matches_brute_force(*opened.reader, points, Interval {}));
+    BkdQueryScratch scratch;
+    roaring::Roaring hits;
+    ASSERT_TRUE(opened.reader->range(Slice(), true, Slice(), true, &hits, &scratch).ok());
+    EXPECT_FALSE(scratch.doc_bits.empty());
+    EXPECT_LE(scratch.doc_bits.size() * sizeof(uint64_t), kBitmapLimit / 8);
 }
 
 // A container holds up to 4096 doc ids as an array and more as a bitset.
