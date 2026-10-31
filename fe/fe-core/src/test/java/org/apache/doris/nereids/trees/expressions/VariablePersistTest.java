@@ -29,8 +29,10 @@ import org.apache.doris.nereids.rules.expression.MergeGuardExpr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AvgMap;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SumMap;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Explode;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -114,6 +116,37 @@ public class VariablePersistTest extends ExpressionRewriteTestHelper {
         Expression rewritten = andExpr.accept(rewriter, Boolean.FALSE);
         Assertions.assertFalse(rewritten instanceof SessionVarGuardExpr,
                 "expression with no dependency on the changed variables should not be guarded");
+    }
+
+    /**
+     * A lambda is a structural root as well: array_map and the other higher-order functions require their
+     * lambda argument to stay a Lambda (ArrayMap.withChildren asserts it), so replacing the lambda with a
+     * guard would make the stored expression un-analyzable. The lambda body is still zone dependent and is
+     * guarded on its own, and the enclosing call carries the guard for the value it produces.
+     */
+    @Test
+    public void testLambdaIsNeverWrappedByGuard() {
+        Map<String, String> persistSessionVars = ImmutableMap.of("time_zone", "+00:00");
+        Map<String, String> currentSessionVars = ImmutableMap.of("time_zone", "+08:00");
+        SessionVarGuardRewriter.AddSessionVarGuardRewriter rewriter =
+                new SessionVarGuardRewriter.AddSessionVarGuardRewriter(persistSessionVars, currentSessionVars);
+
+        Lambda lambda = new Lambda(ImmutableList.of("x"),
+                new DateTrunc(new SlotReference("x", TimeStampTzType.of(6)), new VarcharLiteral("day")));
+        // the lambda keeps its shape, only its body is guarded
+        Expression rewrittenLambda = lambda.accept(rewriter, Boolean.FALSE);
+        Assertions.assertTrue(rewrittenLambda instanceof Lambda, "lambda must not be replaced by a guard");
+        Assertions.assertTrue(((Lambda) rewrittenLambda).getLambdaFunction() instanceof SessionVarGuardExpr,
+                "the lambda body must still be guarded");
+
+        // array_map(x -> date_trunc(x, 'day'), arr): the call is guarded, its lambda child stays a lambda
+        Expression rewrittenArrayMap = new ArrayMap(lambda).accept(rewriter, Boolean.FALSE);
+        Assertions.assertTrue(rewrittenArrayMap instanceof SessionVarGuardExpr,
+                "the array_map result is zone sensitive and must be guarded");
+        Expression call = ((SessionVarGuardExpr) rewrittenArrayMap).child();
+        Assertions.assertTrue(call instanceof ArrayMap);
+        Assertions.assertTrue(call.child(0) instanceof Lambda,
+                "array_map requires its first child to stay a lambda");
     }
 
     /**
