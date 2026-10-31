@@ -23,6 +23,7 @@
 #include <limits>
 #include <memory>
 #include <numeric>
+#include <random>
 #include <span>
 #include <string>
 #include <type_traits>
@@ -500,6 +501,58 @@ TEST(SniiStreamedWriterSessionTest, NullDocidsStorageIsTransferredIntoStreamedWr
     assert_ok(compound.finish());
 }
 
+TEST(SniiStreamedWriterSessionTest, OrdinaryLargeNullHandoffTracksRetainedCapacity) {
+    constexpr uint32_t kNullCount = 1U << 20;
+    SniiIndexInput input = empty_input(119, "ordinary_null_handoff", kNullCount);
+    input.null_docids.resize(kNullCount);
+    std::iota(input.null_docids.begin(), input.null_docids.end(), 0U);
+    const uint64_t retained_null_bytes = input.null_docids.capacity() * sizeof(uint32_t);
+    const uint64_t bitmap_build_bytes = format::NullBitmapWriter::build_memory_upper_bound(
+            std::span<const uint32_t>(input.null_docids));
+
+    int64_t mirrored_bytes = 0;
+    int64_t peak_bytes = 0;
+    writer::MemoryReporter reporter([&](int64_t delta) {
+        mirrored_bytes += delta;
+        peak_bytes = std::max(peak_bytes, mirrored_bytes);
+    });
+    input.mem_reporter = &reporter;
+    std::vector<uint32_t> null_docids;
+    null_docids.swap(input.null_docids);
+    auto null_docids_reservation = reporter.make_reservation();
+    assert_ok(null_docids_reservation.set_bytes(retained_null_bytes));
+    writer::TrackedNullDocids tracked_null_docids(std::move(null_docids_reservation),
+                                                  std::move(null_docids));
+    EXPECT_EQ(reporter.current_bytes(), retained_null_bytes);
+    EXPECT_EQ(mirrored_bytes, retained_null_bytes);
+
+    MemoryFile file;
+    SniiCompoundWriter compound(&file);
+    assert_ok(compound.add_logical_index(input, std::move(tracked_null_docids)));
+
+    EXPECT_GE(peak_bytes, static_cast<int64_t>(retained_null_bytes + bitmap_build_bytes));
+    EXPECT_EQ(reporter.current_bytes(), 0);
+    EXPECT_EQ(mirrored_bytes, 0);
+    assert_ok(compound.finish());
+    EXPECT_EQ(reporter.current_bytes(), 0);
+    EXPECT_EQ(mirrored_bytes, 0);
+}
+
+TEST(SniiStreamedWriterSessionTest, OrdinaryNullCopyHonorsReporterCap) {
+    SniiIndexInput input = empty_input(120, "ordinary_null_copy_cap", 1024);
+    input.null_docids.resize(input.doc_count);
+    std::iota(input.null_docids.begin(), input.null_docids.end(), 0U);
+    writer::MemoryReporter reporter(nullptr, input.null_docids.size() * sizeof(uint32_t) - 1);
+    input.mem_reporter = &reporter;
+    MemoryFile file;
+    SniiCompoundWriter compound(&file);
+    const Status status = compound.add_logical_index(input);
+    EXPECT_TRUE(status.is<ErrorCode::MEM_LIMIT_EXCEEDED>()) << status;
+    EXPECT_EQ(reporter.current_bytes(), 0);
+    EXPECT_EQ(file.bytes_written(), 0);
+    EXPECT_EQ(input.null_docids.size(), input.doc_count);
+}
+
 TEST(SniiStreamedWriterSessionTest, NullBitmapFinalizationHonorsReporterCap) {
     SniiIndexInput input = empty_input(95, "null_memory_cap", 2);
     input.null_docids = {1};
@@ -652,6 +705,112 @@ TEST(SniiStreamedWriterSessionTest, TightByteLimitKeepsReadableLegacySlimFrame) 
     assert_ok(index.lookup("dense", &found, &entry, &frq_base, &prx_base));
     ASSERT_TRUE(found);
     EXPECT_EQ(entry.enc, format::DictEntryEnc::kSlim);
+}
+
+namespace {
+
+// Documents 0..docs-1 with six positions each. In every window of kFrqBaseUnit documents the first
+// `repeated` share one list, which zstd stores about once; the others ascend by random steps of 1 to
+// 15, about four bits each for both zstd and PFOR.
+std::vector<PostingDoc> partly_repeated_positions(std::mt19937* rng, uint32_t docs,
+                                                  uint32_t repeated) {
+    std::uniform_int_distribution<uint32_t> step(1, 15);
+    std::vector<PostingDoc> out(docs);
+    for (uint32_t doc = 0; doc < docs; ++doc) {
+        out[doc].docid = doc;
+        if (doc % format::kFrqBaseUnit < repeated) {
+            out[doc].positions = {2, 9, 11, 20, 27, 33};
+            continue;
+        }
+        uint32_t position = 0;
+        for (int i = 0; i < 6; ++i) {
+            position += step(*rng);
+            out[doc].positions.push_back(position);
+        }
+    }
+    return out;
+}
+
+// The smallest frame of a window and its frame without zstd.
+std::pair<uint64_t, uint64_t> window_frames(std::span<const PostingDoc> docs) {
+    std::vector<uint32_t> flat;
+    std::vector<uint32_t> freqs;
+    for (const PostingDoc& doc : docs) {
+        flat.insert(flat.end(), doc.positions.begin(), doc.positions.end());
+        freqs.push_back(static_cast<uint32_t>(doc.positions.size()));
+    }
+    const auto frame = [&](uint32_t zstd_min_saving_percent) {
+        format::PrxWindowLimits limits = format::kReaderPrxWindowLimits;
+        limits.zstd_min_saving_percent = zstd_min_saving_percent;
+        ByteSink sink;
+        assert_ok(format::build_prx_window_flat(flat, freqs, -3, limits, &sink));
+        return static_cast<uint64_t>(sink.size());
+    };
+    return {frame(0), frame(100)};
+}
+
+} // namespace
+
+// Every window here is smaller as zstd, by less than 30%. The fixed share stores all of them in
+// their faster frame; the budget only as many as kPrxZstdBudgetPercent of the smallest frames pays
+// for, in the ordinary build and in the streamed one alike.
+TEST(SniiStreamedWriterSessionTest, PrxZstdBudgetBoundsTheBytesTradedForFasterReads) {
+    std::mt19937 rng(20261028);
+    std::vector<TermPostings> terms;
+    uint64_t smallest_bytes = 0;
+    uint64_t faster_bytes = 0;
+    // How much zstd saves depends on its own overheads, so keep the terms whose two windows both
+    // save something and less than 30%.
+    for (uint32_t t = 0; t < 2000 && terms.size() < 150; ++t) {
+        std::vector<PostingDoc> docs =
+                partly_repeated_positions(&rng, 2 * format::kFrqBaseUnit, 20 + t % 120);
+        uint64_t term_smallest = 0;
+        uint64_t term_faster = 0;
+        bool kept = true;
+        for (size_t begin = 0; begin < docs.size(); begin += format::kFrqBaseUnit) {
+            const auto [smallest, faster] =
+                    window_frames(std::span(docs).subspan(begin, format::kFrqBaseUnit));
+            kept &= smallest < faster && (faster - smallest) * 100 < faster * 30;
+            term_smallest += smallest;
+            term_faster += faster;
+        }
+        if (kept) {
+            smallest_bytes += term_smallest;
+            faster_bytes += term_faster;
+            terms.push_back(make_term("t" + std::to_string(10000 + t), std::move(docs)));
+        }
+    }
+    ASSERT_EQ(terms.size(), 150);
+    // Trading every window does not fit the budget.
+    ASSERT_GT((faster_bytes - smallest_bytes) * 100,
+              smallest_bytes * format::kPrxZstdBudgetPercent);
+
+    const auto written = [&](bool streamed, bool budget, uint32_t zstd_min_saving_percent) {
+        SniiIndexInput input;
+        input.index_id = 74;
+        input.index_suffix = "prx_budget";
+        input.config = format::IndexConfig::kDocsPositions;
+        input.doc_count = 2 * format::kFrqBaseUnit;
+        input.prx_zstd_budget = budget;
+        input.prx_window_limits.zstd_min_saving_percent = zstd_min_saving_percent;
+        input.terms = terms;
+        MemoryFile file;
+        assert_ok(streamed ? write_streamed_index(std::move(input), &file)
+                           : write_ordinary_index(std::move(input), &file));
+        return file.bytes_written();
+    };
+    for (bool streamed : {false, true}) {
+        const uint64_t smallest = written(streamed, false, 0);
+        const uint64_t fixed = written(streamed, false, 30);
+        const uint64_t budgeted = written(streamed, true, 30);
+        // The windows land in the posting region as they are; the lengths recorded for them move
+        // the rest of the segment by a few bytes per term.
+        const uint64_t slack = 16 * terms.size();
+        EXPECT_GE(fixed + slack, smallest + (faster_bytes - smallest_bytes)) << streamed;
+        EXPECT_GT(budgeted, smallest + slack) << streamed;
+        EXPECT_LE(budgeted, smallest + smallest_bytes * format::kPrxZstdBudgetPercent / 100 + slack)
+                << streamed;
+    }
 }
 
 #ifdef BE_TEST

@@ -25,7 +25,7 @@
 namespace doris::CastWrapper {
 
 template <typename ToDataType> // must datelike type
-WrapperType create_datelike_wrapper(FunctionContext* context, const DataTypePtr& from_type) {
+WrapperType create_datelike_wrapper(const CastOptions& options, const DataTypePtr& from_type) {
     std::shared_ptr<CastToBase> cast_to_datelike;
 
     auto make_datelike_wrapper = [&](const auto& types) -> bool {
@@ -35,7 +35,7 @@ WrapperType create_datelike_wrapper(FunctionContext* context, const DataTypePtr&
                       CastUtil::IsPureDigitType<FromDataType> || IsDatelikeTypes<FromDataType> ||
                       IsStringType<FromDataType> ||
                       std::is_same_v<FromDataType, DataTypeTimeStampTz>) {
-            if (context->enable_strict_mode()) {
+            if (options.strict_mode) {
                 cast_to_datelike = std::make_shared<
                         CastToImpl<CastModeType::StrictMode, FromDataType, ToDataType>>();
             } else {
@@ -54,28 +54,27 @@ WrapperType create_datelike_wrapper(FunctionContext* context, const DataTypePtr&
                 "CAST AS {} not supported {}", ToDataType {}.get_name(), from_type->get_name()));
     }
 
-    return [cast_to_datelike](FunctionContext* context, Block& block,
-                              const ColumnNumbers& arguments, const uint32_t result,
-                              size_t input_rows_count,
+    return [cast_to_datelike](RuntimeState* state, const ColumnWithTypeAndName& source_column,
+                              ColumnWithTypeAndName& target_column, size_t input_rows_count,
                               const NullMap::value_type* null_map = nullptr) {
-        return cast_to_datelike->execute_impl(context, block, arguments, result, input_rows_count,
+        return cast_to_datelike->execute_impl(state, source_column, target_column, input_rows_count,
                                               null_map);
     };
 }
 
-WrapperType create_datelike_wrapper(FunctionContext* context, const DataTypePtr& from_type,
+WrapperType create_datelike_wrapper(const CastOptions& options, const DataTypePtr& from_type,
                                     PrimitiveType to_type) {
     switch (to_type) {
     case TYPE_DATE:
-        return create_datelike_wrapper<DataTypeDate>(context, from_type);
+        return create_datelike_wrapper<DataTypeDate>(options, from_type);
     case TYPE_DATETIME:
-        return create_datelike_wrapper<DataTypeDateTime>(context, from_type);
+        return create_datelike_wrapper<DataTypeDateTime>(options, from_type);
     case TYPE_DATEV2:
-        return create_datelike_wrapper<DataTypeDateV2>(context, from_type);
+        return create_datelike_wrapper<DataTypeDateV2>(options, from_type);
     case TYPE_DATETIMEV2:
-        return create_datelike_wrapper<DataTypeDateTimeV2>(context, from_type);
+        return create_datelike_wrapper<DataTypeDateTimeV2>(options, from_type);
     case TYPE_TIMEV2:
-        return create_datelike_wrapper<DataTypeTimeV2>(context, from_type);
+        return create_datelike_wrapper<DataTypeTimeV2>(options, from_type);
     default:
         return create_unsupport_wrapper(
                 fmt::format("CAST AS date: unsupported to_type {}", type_to_string(to_type)));

@@ -52,6 +52,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaContext;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.catalog.RowTtlConfig;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
@@ -2325,6 +2326,9 @@ public class SchemaChangeHandler extends AlterHandler {
             //alterClauses can or cannot light schema change
             boolean lightSchemaChange = true;
             boolean lightIndexChange = false;
+            // A clause needs a heavy schema change job (a column or property change that can not be light, or
+            // an index that has to be built for the existing data). The light index change path can not run it.
+            boolean requiresHeavyChange = false;
             boolean buildIndexChange = false;
 
             // index id -> index schema
@@ -2386,6 +2390,9 @@ public class SchemaChangeHandler extends AlterHandler {
                                     entry -> entry.getKey().startsWith(PropertyAnalyzer.PROPERTIES_SEQUENCE_MAPPING))
                             .forEach(entry -> sequenceMappingSettings.put(entry.getKey(), entry.getValue()));
                 }
+            }
+            if (olapTable.hasRowTtl() && !sequenceMappingSettings.isEmpty()) {
+                throw new DdlException(PropertyAnalyzer.ROW_TTL_SEQUENCE_COLUMN_CONFLICT);
             }
 
             // A light DROP INDEX publishes the index metadata before it submits its delete jobs. Run the checks
@@ -2508,10 +2515,12 @@ public class SchemaChangeHandler extends AlterHandler {
                             indexSchemaMap, colUniqueIdSupplierMap);
                     if (!clauseCanLightSchemaChange) {
                         lightSchemaChange = false;
+                        requiresHeavyChange = true;
                     }
                     // TODO sequence mapping do not support light schema yet
                     if (olapTable.hasColumnSeqMapping() || !sequenceMapping.isEmpty()) {
                         lightSchemaChange = false;
+                        requiresHeavyChange = true;
                     }
                 } else if (alterOp instanceof AddColumnsOp) {
                     // add columns
@@ -2521,10 +2530,12 @@ public class SchemaChangeHandler extends AlterHandler {
                             indexSchemaMap, false, colUniqueIdSupplierMap);
                     if (!clauseCanLightSchemaChange) {
                         lightSchemaChange = false;
+                        requiresHeavyChange = true;
                     }
                     // TODO sequence mapping do not support light schema yet
                     if (olapTable.hasColumnSeqMapping() || !sequenceMapping.isEmpty()) {
                         lightSchemaChange = false;
+                        requiresHeavyChange = true;
                     }
                 } else if (alterOp instanceof DropColumnOp) {
                     // drop column and drop indexes on this column
@@ -2533,10 +2544,12 @@ public class SchemaChangeHandler extends AlterHandler {
                             indexSchemaMap, newIndexes);
                     if (!clauseCanLightSchemaChange) {
                         lightSchemaChange = false;
+                        requiresHeavyChange = true;
                     }
                     // TODO sequence mapping do not support light schema yet
                     if (olapTable.hasColumnSeqMapping() || !sequenceMapping.isEmpty()) {
                         lightSchemaChange = false;
+                        requiresHeavyChange = true;
                     }
                 } else if (alterOp instanceof ModifyColumnOp) {
                     // modify column
@@ -2544,15 +2557,18 @@ public class SchemaChangeHandler extends AlterHandler {
                             olapTable, indexSchemaMap);
                     if (!clauseCanLightSchemaChange) {
                         lightSchemaChange = false;
+                        requiresHeavyChange = true;
                     }
                 } else if (alterOp instanceof ReorderColumnsOp) {
                     // reorder column
                     processReorderColumn((ReorderColumnsOp) alterOp, olapTable, indexSchemaMap);
                     lightSchemaChange = false;
+                    requiresHeavyChange = true;
                 } else if (alterOp instanceof ModifyTablePropertiesOp) {
                     // modify table properties
                     // do nothing, properties are already in propertyMap
                     lightSchemaChange = false;
+                    requiresHeavyChange = true;
                 } else if (alterOp instanceof CreateIndexOp) {
                     CreateIndexOp createIndexOp = (CreateIndexOp) alterOp;
                     Index index = createIndexOp.getIndex();
@@ -2567,6 +2583,9 @@ public class SchemaChangeHandler extends AlterHandler {
                         alterIndexes.add(index);
                         isDropIndex = false;
                         lightIndexChange = true;
+                    } else {
+                        // The index has to be built for the existing data as well.
+                        requiresHeavyChange = true;
                     }
                 } else if (alterOp instanceof BuildIndexOp) {
                     BuildIndexOp buildIndexOp = (BuildIndexOp) alterOp;
@@ -2672,7 +2691,12 @@ public class SchemaChangeHandler extends AlterHandler {
                         lightIndexChange, buildIndexChange, indexSchemaMap);
             }
 
-            if (olapTable.hasChangelog() && !(lightSchemaChange || lightIndexChange)) {
+            // The light index change path only publishes the new schema and submits index delete jobs. When a
+            // clause also needs a heavy schema change, the whole statement runs as a heavy schema change job,
+            // which applies the index changes as well.
+            boolean useLightIndexChange = Config.enable_light_index_change && lightIndexChange
+                    && !requiresHeavyChange;
+            if (olapTable.hasChangelog() && !(lightSchemaChange || useLightIndexChange)) {
                 throw new DdlException("only support light schema change operator when use table with changelog");
             }
 
@@ -2681,7 +2705,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 //for schema change add/drop value column optimize, direct modify table meta.
                 modifyTableLightSchemaChange(rawSql, db, olapTable, indexSchemaMap, newIndexes,
                         null, isDropIndex, jobId, false, propertyMap);
-            } else if (Config.enable_light_index_change && lightIndexChange) {
+            } else if (useLightIndexChange) {
                 Index.checkConflict(newIndexes, olapTable.getCopiedBfColumns());
                 long jobId = Env.getCurrentEnv().getNextId();
                 // For light index changes, directly modify table metadata first.
@@ -3098,6 +3122,15 @@ public class SchemaChangeHandler extends AlterHandler {
             long storagePolicyId, int isInMemory, TabletBinlogConfig binlogConfig, String compactionPolicy,
             Map<String, Long> timeSeriesCompactionConfig, int skipWriteIndexOnLoad, int disableAutoCompaction,
             int verticalCompactionNumColumnsPerGroup) throws UserException {
+        updatePartitionProperties(db, olapTable, partition, storagePolicyId, isInMemory, binlogConfig,
+                compactionPolicy, timeSeriesCompactionConfig, skipWriteIndexOnLoad, disableAutoCompaction,
+                verticalCompactionNumColumnsPerGroup, null);
+    }
+
+    protected void updatePartitionProperties(Database db, OlapTable olapTable, Partition partition,
+            long storagePolicyId, int isInMemory, TabletBinlogConfig binlogConfig, String compactionPolicy,
+            Map<String, Long> timeSeriesCompactionConfig, int skipWriteIndexOnLoad, int disableAutoCompaction,
+            int verticalCompactionNumColumnsPerGroup, RowTtlConfig rowTtlConfig) throws UserException {
         String tableName = olapTable.getName();
         String partitionName = partition.getName();
         // Use the captured partition identity, including temporary partitions with the same name.
@@ -3105,7 +3138,7 @@ public class SchemaChangeHandler extends AlterHandler {
         // Changelog tablets keep the changelog compaction policy they are created with, so a new compaction
         // policy or time series setting must not reach them. ALTER sets one table property at a time,
         // so such an update has nothing else for them.
-        boolean includeChangelog = compactionPolicy == null
+        boolean includeChangelog = rowTtlConfig == null && compactionPolicy == null
                 && (timeSeriesCompactionConfig == null || timeSeriesCompactionConfig.isEmpty());
         olapTable.readLock();
         try {
@@ -3132,6 +3165,7 @@ public class SchemaChangeHandler extends AlterHandler {
                                             storagePolicyId, binlogConfig, countDownLatch, compactionPolicy,
                                             timeSeriesCompactionConfig, skipWriteIndexOnLoad,
                                             disableAutoCompaction, verticalCompactionNumColumnsPerGroup);
+            task.setRowTtlConfig(rowTtlConfig);
             batchTask.addTask(task);
         }
         if (!FeConstants.runningUnitTest) {
@@ -4111,6 +4145,70 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         return false;
+    }
+
+    public void updateRowTtl(Database db, OlapTable table, String ttl) throws UserException {
+        long durationUs = PropertyAnalyzer.parseRowTtlDurationMicros(ttl);
+        RowTtlConfig config;
+        List<Partition> partitions;
+        Map<Long, Set<Long>> replicas;
+        table.writeLockOrDdlException();
+        try {
+            table.checkNormalStateForAlter();
+            if (!table.hasRowTtl() || table.isDirectRowTtl()) {
+                throw new DdlException("function_column.ttl can only be changed on a source-column row TTL table");
+            }
+            // Independent replica/rollup GC makes resurrection of previously expired rows
+            // nondeterministic. Source cells alone cannot safely support retention extensions.
+            if (durationUs > table.getRowTtlDurationMicros()) {
+                throw new DdlException("Increasing function_column.ttl is not supported because expired rows "
+                        + "may already have been reclaimed independently by replicas");
+            }
+            config = new RowTtlConfig(durationUs, Math.addExact(table.getRowTtlConfig().getConfigVersion(), 1));
+            Map<String, String> published = config.toProperties();
+            // Persist the shorter query policy before authorizing deletion. New replicas
+            // created while these RPCs run inherit this policy and its generation.
+            published.put(RowTtlConfig.TTL_PROPERTY, ttl);
+            Env.getCurrentEnv().modifyTableProperties(db, table, published);
+            partitions = Lists.newArrayList(table.getAllPartitions());
+            replicas = rowTtlReplicas(table);
+        } finally {
+            table.writeUnlock();
+        }
+        int updatedPartitions = 0;
+        for (Partition partition : partitions) {
+            int failAfter = DebugPointUtil.getDebugParamOrDefault(
+                    "SchemaChangeHandler.updateRowTtl.fail_after_partitions", -1);
+            if (failAfter >= 0 && updatedPartitions >= failAfter) {
+                throw new DdlException("debug point: row TTL update failed after " + updatedPartitions + " partitions");
+            }
+            updatePartitionProperties(db, table, partition, -1, -1, null, null, null, -1, -1, -1, config);
+            updatedPartitions++;
+        }
+        table.writeLockOrDdlException();
+        try {
+            if (table.getRowTtlConfig().getConfigVersion() != config.getConfigVersion()
+                    || !replicas.equals(rowTtlReplicas(table))) {
+                throw new DdlException("Table changed during row TTL update; retry ALTER TABLE");
+            }
+        } finally {
+            table.writeUnlock();
+        }
+    }
+
+    private Map<Long, Set<Long>> rowTtlReplicas(OlapTable table) {
+        Map<Long, Set<Long>> replicas = new HashMap<>();
+        for (Partition partition : table.getAllPartitions()) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                for (Tablet tablet : index.getTablets()) {
+                    // A clone may have captured the old policy before these RPCs. Require
+                    // a retry so every current replica acknowledges the new GC policy.
+                    replicas.put(tablet.getId(), tablet.getReplicas().stream()
+                            .map(Replica::getId).collect(Collectors.toSet()));
+                }
+            }
+        }
+        return replicas;
     }
 
     public boolean updateChangelogConfig(Database db, OlapTable olapTable, List<AlterOp> alterOps)

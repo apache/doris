@@ -152,7 +152,8 @@ TEST_F(FunctionCastTest, test_cast_struct_null_row_skips_hidden_field_payload) {
             {std::move(from_column), from_type, "from"},
             {nullptr, to_type, "to"},
     };
-    ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+    ASSERT_TRUE(fn(ctx.get(), block.get_by_position(0), block.get_by_position(1), block.rows(),
+                   nullptr));
 
     const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
     EXPECT_TRUE(result.is_null_at(0));
@@ -180,7 +181,9 @@ TEST_F(FunctionCastTest, test_cast_struct_visible_field_still_fails) {
             {std::move(from_column), from_type, "from"},
             {nullptr, to_type, "to"},
     };
-    EXPECT_FALSE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr).ok());
+    EXPECT_FALSE(
+            fn(ctx.get(), block.get_by_position(0), block.get_by_position(1), block.rows(), nullptr)
+                    .ok());
 }
 
 // A field whose type does not change is passed through, while the fields that do change still
@@ -209,7 +212,8 @@ TEST_F(FunctionCastTest, test_cast_struct_unchanged_field_with_null_row) {
             {std::move(from_column), from_type, "from"},
             {nullptr, to_type, "to"},
     };
-    ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+    ASSERT_TRUE(fn(ctx.get(), block.get_by_position(0), block.get_by_position(1), block.rows(),
+                   nullptr));
 
     const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
     EXPECT_TRUE(result.is_null_at(0));

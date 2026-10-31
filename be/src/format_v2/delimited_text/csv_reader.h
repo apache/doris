@@ -60,6 +60,7 @@ private:
     Status _create_line_reader() override;
     Status _validate_line(const Slice& line) override;
     void _split_line(const Slice& line) override;
+    void _prepare_columns(std::vector<MutableColumnPtr>& columns, size_t batch_size) override;
     Status _deserialize_one_cell(const RequestedColumn& column, IColumn* output,
                                  Slice value) override;
     Slice _normalize_value(Slice value) const override;

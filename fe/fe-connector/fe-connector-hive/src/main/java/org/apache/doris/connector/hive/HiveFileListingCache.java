@@ -25,6 +25,7 @@ import org.apache.doris.connector.cache.MetaCacheSizeEstimate;
 import org.apache.doris.connector.cache.MetaCacheSizeEstimator;
 import org.apache.doris.connector.cache.ScopePath;
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.scan.ConnectorScanContext;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.FileSystem;
@@ -106,6 +107,14 @@ public class HiveFileListingCache {
     @FunctionalInterface
     interface DirectoryLister {
         List<HiveFileStatus> list(String location, FileSystem fs);
+
+        default List<HiveFileStatus> list(String location, FileSystem fs, ConnectorScanContext context) {
+            context.checkCancelled();
+            List<HiveFileStatus> files = list(location, fs);
+            context.checkCancelled();
+            context.filesEnumerated(files.size());
+            return files;
+        }
     }
 
     private final CatalogMetaCache owner;
@@ -128,7 +137,17 @@ public class HiveFileListingCache {
      */
     private static DirectoryLister defaultLister(HiveCatalogProperties properties) {
         boolean recursive = properties.isRecursiveDirectories();
-        return (location, fs) -> listFromFileSystem(location, fs, recursive);
+        return new DirectoryLister() {
+            @Override
+            public List<HiveFileStatus> list(String location, FileSystem fs) {
+                return listFromFileSystem(location, fs, recursive);
+            }
+
+            @Override
+            public List<HiveFileStatus> list(String location, FileSystem fs, ConnectorScanContext context) {
+                return listFromFileSystem(location, fs, recursive, context);
+            }
+        };
     }
 
     HiveFileListingCache(HiveCatalogProperties properties, DirectoryLister lister) {
@@ -185,6 +204,25 @@ public class HiveFileListingCache {
         return cache.get(new FileListingKey(dbName, tableName, location, partitionValues),
                 key -> new FileListingValue(lister.list(key.location, fs),
                         cache.isEnabled() && cache.isWeightBounded())).files;
+    }
+
+    /** A cancelled scan must neither fail another query's load nor publish a partial directory listing. */
+    public List<HiveFileStatus> listDataFiles(String dbName, String tableName, String location,
+            List<String> partitionValues, FileSystem fs, ConnectorScanContext context) {
+        context.checkCancelled();
+        boolean[] loaded = {false};
+        List<HiveFileStatus> files = cache.getForLoadScope(
+                new FileListingKey(dbName, tableName, location, partitionValues), context, key -> {
+                    loaded[0] = true;
+                    List<HiveFileStatus> listed = lister.list(key.location, fs, context);
+                    context.checkCancelled();
+                    return new FileListingValue(listed, cache.isEnabled() && cache.isWeightBounded());
+                }).files;
+        context.checkCancelled();
+        if (!loaded[0]) {
+            context.filesEnumerated(files.size());
+        }
+        return files;
     }
 
     /** Returns a cheap batch-planning hint, or -1 when listing would require I/O. */
@@ -256,6 +294,12 @@ public class HiveFileListingCache {
     }
 
     static List<HiveFileStatus> listFromFileSystem(String location, FileSystem fs, boolean recursive) {
+        return listFromFileSystem(location, fs, recursive, new ConnectorScanContext());
+    }
+
+    static List<HiveFileStatus> listFromFileSystem(String location, FileSystem fs, boolean recursive,
+            ConnectorScanContext context) {
+        context.checkCancelled();
         if (fs == null) {
             // No engine filesystem for this catalog (empty storage): a SYSTEMIC config error affecting every
             // partition. Fail loud (the scan path does NOT skip this), never a silent empty scan.
@@ -274,7 +318,8 @@ public class HiveFileListingCache {
         }
         try {
             List<HiveFileStatus> files = new ArrayList<>();
-            collectFiles(resolved, loc, recursive, files);
+            collectFiles(resolved, loc, recursive, files, context);
+            context.checkCancelled();
             return files;
         } catch (IOException e) {
             if (isSystemicResolutionFailure(e)) {
@@ -301,14 +346,15 @@ public class HiveFileListingCache {
      * Descent reuses the already-resolved {@code resolved} (a sub-directory shares scheme/authority).
      */
     private static void collectFiles(FileSystem resolved, Location dir, boolean recursive,
-            List<HiveFileStatus> out) throws IOException {
-        try (FileIterator it = resolved.list(dir)) {
+            List<HiveFileStatus> out, ConnectorScanContext context) throws IOException {
+        context.checkCancelled();
+        try (FileIterator it = resolved.list(dir).withCancellationCheck(context::checkCancelled)) {
             while (it.hasNext()) {
                 FileEntry entry = it.next();
                 String name = entry.name();
                 if (entry.isDirectory()) {
                     if (recursive && !isHidden(name)) {
-                        collectFiles(resolved, entry.location(), true, out);
+                        collectFiles(resolved, entry.location(), true, out, context);
                     }
                     continue;
                 }
@@ -317,6 +363,7 @@ public class HiveFileListingCache {
                 }
                 out.add(new HiveFileStatus(entry.location().uri(), entry.length(),
                         entry.modificationTime()));
+                context.filesEnumerated(1);
             }
         }
     }

@@ -17,107 +17,107 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Iceberg 写入 P0 覆盖矩阵
+# Iceberg Write P0 Coverage Matrix
 
-## 范围与判定原则
+## Scope and criteria
 
-本文档覆盖 Doris 向 Iceberg 表写入时的正确性、兼容性和失败原子性。矩阵既检查单项能力，也检查 schema change、Partition Evolution、snapshot/tag/branch、行级 delete/update/merge、表模型、分区与 bucket、数据类型和 NULL 语义之间的交互。
+This document covers the correctness, compatibility and failure atomicity of Doris writes to Iceberg tables. The matrix checks individual capabilities as well as the interactions among schema change, partition evolution, snapshots/tags/branches, row-level delete/update/merge, table models, partitioning and bucketing, data types and NULL semantics.
 
-所有正向 suite 都在最后一次写入后比较 Doris 与 Spark 的同表逻辑结果；涉及 transform metadata 的 suite 还比较物理分区值，涉及历史引用时另行校验 snapshot、tag 和 branch 的隔离性。
+After the last write, every positive suite compares the logical result of the same table in Doris and Spark. Suites that involve transform metadata also compare physical partition values, and suites that involve historical references additionally check that snapshots, tags and branches stay isolated.
 
-覆盖状态含义：
+Coverage status:
 
-- 已覆盖（验证通过）：P0 suite 对该场景有确定性结果断言，且已在多 BE 环境验证。
-- 预期拒绝：Doris 明确不支持该操作，P0 suite 验证错误信息与失败原子性。
-- 已覆盖（隔离负向）：已形成可复现产品问题的 regression；默认 P0 隔离运行，避免杀死共享 BE 或提交不可读文件。
+- Covered (verified): a P0 suite asserts a deterministic result for the scenario, and it has been verified on a multi-BE cluster.
+- Expected rejection: Doris explicitly does not support the operation; a P0 suite checks the error message and failure atomicity.
+- Covered (isolated negative): a regression reproduces a known product issue. It runs isolated from the default P0 run, so that it does not kill a shared BE or commit unreadable files.
 
-## 风险点
+## Risks
 
-| 编号 | 风险描述 | 来源 | 影响面 | 级别 |
+| ID | Risk | Source | Impact | Priority |
 | --- | --- | --- | --- | --- |
-| R01 | schema change 后 writer 仍按旧列位置或旧 field id 写入，造成静默错列 | 白盒：Iceberg field id 与 Doris slot 映射 | 数据正确性 | P0 |
-| R02 | Partition Evolution 后新文件落入旧 spec、分区值计算错误，或跨 spec 过滤漏数 | 黑盒 + 白盒：多 partition spec 并存 | 写入与查询正确性 | P0 |
-| R03 | 字符串、数值、日期时间、decimal、布尔和 NULL 作为 identity/bucket/truncate/time transform 源时行为不一致 | 黑盒：类型与边界输入 | 分区路由、裁剪 | P0 |
-| R04 | schema/partition 演进后 snapshot、tag、branch 绑定了错误 schema 或数据版本 | 黑盒：历史读与引用 | time travel 正确性 | P0 |
-| R05 | MOR 的 delete/update/merge 跨新旧 spec 时生成错误 delete file；COW 被拒绝后仍发布快照 | 白盒：row-level DML commit | 数据丢失、失败原子性 | P0 |
-| R06 | Duplicate、Unique MOW、Unique MOR、Aggregate 源表语义在 INSERT SELECT 时被改变 | 黑盒：不同 Doris 表模型 | 跨表写入正确性 | P0 |
-| R07 | RANGE/LIST/无分区源表以及 HASH/RANDOM/AUTO bucket 在多 BE 执行时产生重复或丢行 | 黑盒 + 白盒：分布式 exchange 与 sink writer | 分布式写入正确性 | P0 |
-| R08 | primitive、ARRAY、MAP、STRUCT 及嵌套 NULL 在 schema change 前后写入错误 | 黑盒：复杂类型与 NULL | 数据正确性、兼容性 | P0 |
-| R09 | NULL 写入 Iceberg required 列未报错、部分数据或空快照被提交 | 白盒：required 校验与 commit | 约束、失败原子性 | P0 |
-| R10 | INSERT OVERWRITE 在演进后的当前 spec、branch 或 NULL 分区上误删其他分区 | 黑盒：覆盖写 | 数据丢失 | P0 |
-| R11 | 单 BE 可通过但多 BE 并发 sink 出现文件名、commit 或分区冲突 | 白盒：并行 writer 与统一 commit | 分布式稳定性 | P0 |
-| R12 | nullable STRING 或 DML 产生的 Nullable block 经过 truncate transform 时 BE FATAL | 白盒：partition transformer 列类型约束 | 集群可用性 | P0 |
-| R13 | MERGE 的多个源行匹配同一目标行时未执行基数校验，错误提交重复数据 | 黑盒 + 白盒：MERGE cardinality 与 commit | 数据正确性 | P0 |
-| R14 | branch 写入污染 main，或 tag/不支持的 branch 行级 DML 失败后仍发布快照 | 黑盒：reference write 边界 | 历史引用、失败原子性 | P0 |
-| R15 | 当前 spec 覆盖写未正确清理旧 spec delete file，或失败覆盖写留下部分快照 | 白盒：overwrite commit 与 delete file | 数据丢失、失败原子性 | P0 |
-| R16 | CTAS 对复杂类型、NULL、分区 transform、文件格式和失败清理的行为不一致 | 黑盒：DDL + writer 一体提交 | schema、文件格式、原子性 | P0 |
-| R17 | sort order、distribution mode、多次文件 flush 和并发 commit 组合导致乱序、丢行或重复提交 | 白盒：exchange、sort writer、optimistic commit | 分布式正确性、稳定性 | P0 |
-| R18 | STRING identity/bucket/truncate 对空串、中文、emoji、组合字符和 NULL 的物理分区值计算错误 | 黑盒：UTF-8 transform metadata | 分区路由、裁剪 | P0 |
-| R19 | 写入的数据文件、position delete 或 deletion vector 按 BE 实际写入的规范化地址（如 s3://）记入元数据，而不是表自己的 location（如 s3a://、oss://） | 白盒：sink 写路径与提交路径 | 其他引擎与维护操作能否打开文件 | P0 |
+| R01 | After a schema change the writer still writes by old column positions or old field IDs, silently misplacing columns | White box: mapping of Iceberg field IDs to Doris slots | Data correctness | P0 |
+| R02 | After partition evolution new files land in an old spec, partition values are computed wrongly, or filtering across specs misses rows | Black box + white box: multiple coexisting partition specs | Write and query correctness | P0 |
+| R03 | Strings, numerics, date/time, decimal, boolean and NULL behave inconsistently as the source of identity/bucket/truncate/time transforms | Black box: types and boundary inputs | Partition routing, pruning | P0 |
+| R04 | After schema/partition evolution a snapshot, tag or branch binds the wrong schema or data version | Black box: historical reads and references | Time travel correctness | P0 |
+| R05 | MOR delete/update/merge across old and new specs produces wrong delete files; COW still publishes a snapshot after being rejected | White box: row-level DML commit | Data loss, failure atomicity | P0 |
+| R06 | Duplicate, Unique MOW, Unique MOR and Aggregate source table semantics change in INSERT SELECT | Black box: different Doris table models | Cross-table write correctness | P0 |
+| R07 | RANGE/LIST/unpartitioned source tables and HASH/RANDOM/AUTO buckets produce duplicate or lost rows on multiple BEs | Black box + white box: distributed exchange and sink writer | Distributed write correctness | P0 |
+| R08 | Primitive, ARRAY, MAP, STRUCT and nested NULL values are written wrongly before or after a schema change | Black box: complex types and NULL | Data correctness, compatibility | P0 |
+| R09 | Writing NULL to an Iceberg required column does not fail, and partial data or an empty snapshot is committed | White box: required check and commit | Constraints, failure atomicity | P0 |
+| R10 | INSERT OVERWRITE on the evolved current spec, a branch or a NULL partition deletes other partitions by mistake | Black box: overwrite | Data loss | P0 |
+| R11 | A single BE passes but concurrent sinks on multiple BEs conflict on file names, commits or partitions | White box: parallel writers and a single commit | Distributed stability | P0 |
+| R12 | A nullable STRING, or a Nullable block produced by DML, makes the BE FATAL in the truncate transform | White box: column type constraints of the partition transformer | Cluster availability | P0 |
+| R13 | When several MERGE source rows match one target row, the cardinality check is skipped and duplicate data is committed | Black box + white box: MERGE cardinality and commit | Data correctness | P0 |
+| R14 | A branch write pollutes main, or a failed tag write or unsupported branch row-level DML still publishes a snapshot | Black box: reference write boundaries | Historical references, failure atomicity | P0 |
+| R15 | Overwriting the current spec does not clean up delete files of old specs, or a failed overwrite leaves a partial snapshot | White box: overwrite commit and delete files | Data loss, failure atomicity | P0 |
+| R16 | CTAS behaves inconsistently for complex types, NULL, partition transforms, file formats and failure cleanup | Black box: DDL and writer committed together | Schema, file format, atomicity | P0 |
+| R17 | Combining sort order, distribution mode, multiple file flushes and concurrent commits causes misordering, lost rows or duplicate commits | White box: exchange, sort writer, optimistic commit | Distributed correctness, stability | P0 |
+| R18 | STRING identity/bucket/truncate computes wrong physical partition values for empty strings, Chinese text, emoji, combining characters and NULL | Black box: UTF-8 transform metadata | Partition routing, pruning | P0 |
+| R19 | Written data files, position deletes or deletion vectors are recorded in metadata under the normalized address BE actually wrote them at (such as s3://) instead of the table's own location (such as s3a:// or oss://) | White box: sink write path versus commit path | Whether other engines and maintenance operations can open the files | P0 |
 
-## 组合覆盖
+## Combined coverage
 
-| 维度 | 场景 | 状态 | P0 suite |
+| Dimension | Scenario | Status | P0 suite |
 | --- | --- | --- | --- |
-| 基础写入 | Parquet/ORC、primitive/复杂类型、INSERT/OVERWRITE | 已覆盖 | `test_iceberg_write_insert`、`test_iceberg_insert_overwrite` |
-| Partition transform | identity、bucket、truncate、year/month/day/hour | 已覆盖 | `test_iceberg_write_transform_partitions`、`test_iceberg_static_partition_overwrite` |
-| schema + partition 演进 | add/rename/drop/type promotion 与 ADD/REPLACE/DROP partition field 后继续写入和过滤 | 已覆盖（验证通过） | `test_iceberg_write_evolution_refs` |
-| 复杂类型演进 | ARRAY/MAP/STRUCT promotion、STRUCT 新增字段、旧文件与新写入并存 | 已覆盖（验证通过） | `test_iceberg_write_complex_evolution` |
-| 历史版本 | 演进前后 snapshot、tag、branch；branch 独立写入和覆盖写 | 已覆盖（验证通过） | `test_iceberg_write_evolution_refs` |
-| MOR | partition evolution 后 DELETE/UPDATE/MERGE，校验当前、delete files 与历史版本 | 已覆盖（验证通过） | `test_iceberg_write_dml_modes_evolution` |
-| COW | partition evolution 后 DELETE/UPDATE/MERGE 拒绝，且数据和 snapshot 数不变 | 预期拒绝 | `test_iceberg_write_dml_modes_evolution` |
-| Doris 源表模型 | Duplicate、Unique MOW、Unique MOR、Aggregate | 已覆盖（验证通过） | `test_iceberg_write_source_models` |
-| Doris 源分区 | 无分区、RANGE、LIST | 已覆盖（验证通过） | `test_iceberg_write_source_models` |
-| Doris 源 bucket | HASH 固定 bucket、RANDOM bucket、HASH AUTO bucket | 已覆盖（验证通过） | `test_iceberg_write_source_models` |
-| 分区源类型 | STRING/INT/BIGINT/DATE/DATETIME/DECIMAL 的 bucket 与适用 transform；BOOLEAN identity 与非法 bucket | 已覆盖（验证通过） | `test_iceberg_write_partition_types_null` |
-| NULL 分区 | identity NULL、数值/decimal bucket 与 truncate NULL、time transform NULL、多列组合 NULL | 已覆盖（验证通过） | `test_iceberg_write_partition_types_null` |
-| nullable STRING truncate | nullable STRING 经过 truncate transform 的 INSERT，以及 UPDATE 产生的 Nullable projection 写入 | 已覆盖（常规回归） | `test_iceberg_write_nullable_truncate_negative` |
-| MERGE 完整语义 | 条件 MATCHED、DELETE/UPDATE、多个条件 NOT MATCHED、NULL-safe 与普通 NULL key | 已覆盖（验证通过） | `test_iceberg_write_merge_semantics` |
-| MERGE 基数约束 | 多个源行匹配同一目标行必须整句失败且不发布快照 | 已覆盖（常规回归） | `test_iceberg_write_merge_duplicate_source_negative` |
-| MERGE + STRING truncate | required truncate 源列经 MERGE nullable projection 写入 | 已覆盖（常规回归） | `test_iceberg_write_merge_truncate_negative` |
-| branch/tag 写入边界 | branch INSERT/OVERWRITE 隔离；tag 写入和 branch DELETE/UPDATE/MERGE 明确拒绝 | 已覆盖（验证通过） | `test_iceberg_write_branch_dml_boundary` |
-| nullable 数据 | 顶层 NULL、ARRAY NULL 元素、MAP NULL value、STRUCT NULL child | 已覆盖并增强 | `test_iceberg_write_insert`、`test_iceberg_write_complex_evolution` |
-| required 列正向与 schema change | required 列合法写入、nullable 列写 NULL、增加 required 列与 nullable→required 拒绝 | 已覆盖（验证通过） | `test_iceberg_write_nullability_atomicity` |
-| required 列写 NULL | VALUES 与分布式 INSERT SELECT 混合批次写 NULL | 已覆盖（隔离负向） | `test_iceberg_write_required_null_values_negative`、`test_iceberg_write_required_null_select_negative` |
-| 覆盖写 | 当前 spec、静态分区、branch、空输入、连续多次 partition evolution、NULL 当前分区 | 已覆盖并增强 | `test_iceberg_static_partition_overwrite`、`test_iceberg_write_evolution_refs`、`test_iceberg_write_overwrite_evolution` |
-| 覆盖写 + delete files | MOR DELETE/UPDATE/MERGE 后覆盖写，演进前后 delete files 与历史 tag 共存 | 已覆盖（验证通过） | `test_iceberg_write_overwrite_delete_files` |
-| 覆盖写失败原子性 | main/branch 分布式严格类型转换失败、快照/文件/数据不变、修正后重试 | 已覆盖（验证通过） | `test_iceberg_write_overwrite_atomicity` |
-| STRING 物理 transform | identity、nullable bucket、required truncate 的 UTF-8 边界值及 transform width evolution | 已覆盖（验证通过） | `test_iceberg_write_string_transform_metadata` |
-| CTAS | 复杂类型、嵌套 NULL、identity+bucket、ORC 压缩、失败建表清理 | 已覆盖（验证通过） | `test_iceberg_write_ctas_format_boundary` |
-| 文件格式边界 | Parquet/ORC 正向写入；Avro 表写入明确拒绝并保持快照和文件不变 | 已覆盖（正向 + 预期拒绝） | `test_iceberg_write_ctas_format_boundary` |
-| 排序与分布属性 | 多列 sort order、NULL ordering、none/hash/range distribution、强制多文件 flush | 已覆盖（验证通过） | `test_iceberg_write_order_distribution_properties` |
-| 并发写入 | 同行冲突 MERGE 的串行化不变量、非冲突分布式 append | 已覆盖（验证通过） | `test_iceberg_write_concurrent_merge_invariants` |
-| 分布式执行 | 多 bucket 源表、多分区 Iceberg sink、多 BE writer、suite 间无共享 catalog/database | 已覆盖（验证通过） | 所有本次新增 suite |
-| 文件路径记录 | INSERT、分区 OVERWRITE、branch INSERT、DELETE、UPDATE、MERGE、rewrite_data_files 写出的全部文件（v2 position delete、v3 deletion vector）都记在表的 data location 下 | 已覆盖（常规回归） | `test_iceberg_write_file_locations` |
-| Spark 交叉验证 | 十五个正向 suite 在最后一次写入后逐行比较；STRING transform suite 另行比较演进前后的物理分区 metadata | 已覆盖（验证通过） | 十五个正向 suite；物理 metadata 见 `test_iceberg_write_string_transform_metadata` |
+| Basic writes | Parquet/ORC, primitive/complex types, INSERT/OVERWRITE | Covered | `test_iceberg_write_insert`, `test_iceberg_insert_overwrite` |
+| Partition transforms | identity, bucket, truncate, year/month/day/hour | Covered | `test_iceberg_write_transform_partitions`, `test_iceberg_static_partition_overwrite` |
+| Schema + partition evolution | Continued writes and filtering after add/rename/drop/type promotion and ADD/REPLACE/DROP partition field | Covered (verified) | `test_iceberg_write_evolution_refs` |
+| Complex type evolution | ARRAY/MAP/STRUCT promotion, new STRUCT fields, old files coexisting with new writes | Covered (verified) | `test_iceberg_write_complex_evolution` |
+| Historical versions | Snapshots, tags and branches before and after evolution; independent writes and overwrites on a branch | Covered (verified) | `test_iceberg_write_evolution_refs` |
+| MOR | DELETE/UPDATE/MERGE after partition evolution, checking the current version, delete files and historical versions | Covered (verified) | `test_iceberg_write_dml_modes_evolution` |
+| COW | DELETE/UPDATE/MERGE after partition evolution are rejected, with data and snapshot count unchanged | Expected rejection | `test_iceberg_write_dml_modes_evolution` |
+| Doris source table models | Duplicate, Unique MOW, Unique MOR, Aggregate | Covered (verified) | `test_iceberg_write_source_models` |
+| Doris source partitioning | Unpartitioned, RANGE, LIST | Covered (verified) | `test_iceberg_write_source_models` |
+| Doris source buckets | Fixed HASH buckets, RANDOM buckets, HASH AUTO buckets | Covered (verified) | `test_iceberg_write_source_models` |
+| Partition source types | bucket and applicable transforms on STRING/INT/BIGINT/DATE/DATETIME/DECIMAL; BOOLEAN identity and invalid bucket | Covered (verified) | `test_iceberg_write_partition_types_null` |
+| NULL partitions | identity NULL, numeric/decimal bucket and truncate NULL, time transform NULL, NULL in multi-column combinations | Covered (verified) | `test_iceberg_write_partition_types_null` |
+| Nullable STRING truncate | INSERT of a nullable STRING through the truncate transform, and writes of the Nullable projection produced by UPDATE | Covered (regular regression) | `test_iceberg_write_nullable_truncate_negative` |
+| Full MERGE semantics | Conditional MATCHED, DELETE/UPDATE, multiple conditional NOT MATCHED, NULL-safe and plain NULL keys | Covered (verified) | `test_iceberg_write_merge_semantics` |
+| MERGE cardinality | Several source rows matching one target row must fail the whole statement and publish no snapshot | Covered (regular regression) | `test_iceberg_write_merge_duplicate_source_negative` |
+| MERGE + STRING truncate | A required truncate source column written through the MERGE nullable projection | Covered (regular regression) | `test_iceberg_write_merge_truncate_negative` |
+| Branch/tag write boundaries | Branch INSERT/OVERWRITE isolation; tag writes and branch DELETE/UPDATE/MERGE explicitly rejected | Covered (verified) | `test_iceberg_write_branch_dml_boundary` |
+| Nullable data | Top-level NULL, NULL ARRAY elements, NULL MAP values, NULL STRUCT children | Covered and extended | `test_iceberg_write_insert`, `test_iceberg_write_complex_evolution` |
+| Required columns and schema change | Valid writes to required columns, NULL written to nullable columns, rejection of adding a required column and of nullable→required | Covered (verified) | `test_iceberg_write_nullability_atomicity` |
+| NULL written to required columns | NULL written by VALUES and by mixed batches of a distributed INSERT SELECT | Covered (isolated negative) | `test_iceberg_write_required_null_values_negative`, `test_iceberg_write_required_null_select_negative` |
+| Overwrite | Current spec, static partitions, branches, empty input, consecutive partition evolutions, NULL current partition | Covered and extended | `test_iceberg_static_partition_overwrite`, `test_iceberg_write_evolution_refs`, `test_iceberg_write_overwrite_evolution` |
+| Overwrite + delete files | Overwrite after MOR DELETE/UPDATE/MERGE, with delete files from before and after evolution coexisting with historical tags | Covered (verified) | `test_iceberg_write_overwrite_delete_files` |
+| Overwrite failure atomicity | Distributed strict cast failure on main/branch, snapshots/files/data unchanged, retry after the fix | Covered (verified) | `test_iceberg_write_overwrite_atomicity` |
+| STRING physical transforms | UTF-8 boundary values for identity, nullable bucket and required truncate, and transform width evolution | Covered (verified) | `test_iceberg_write_string_transform_metadata` |
+| CTAS | Complex types, nested NULL, identity+bucket, ORC compression, cleanup after a failed CTAS | Covered (verified) | `test_iceberg_write_ctas_format_boundary` |
+| File format boundaries | Positive Parquet/ORC writes; writes to Avro tables explicitly rejected, with snapshots and files unchanged | Covered (positive + expected rejection) | `test_iceberg_write_ctas_format_boundary` |
+| Sort and distribution properties | Multi-column sort order, NULL ordering, none/hash/range distribution, forced multi-file flush | Covered (verified) | `test_iceberg_write_order_distribution_properties` |
+| Concurrent writes | Serializability invariant of conflicting MERGEs on the same row, non-conflicting distributed appends | Covered (verified) | `test_iceberg_write_concurrent_merge_invariants` |
+| Distributed execution | Multi-bucket source tables, multi-partition Iceberg sinks, multiple BE writers, no catalog/database shared between suites | Covered (verified) | All suites added by this work |
+| File path recording | Every file written by INSERT, partition OVERWRITE, branch INSERT, DELETE, UPDATE, MERGE and rewrite_data_files (v2 position deletes, v3 deletion vectors) is recorded under the table's data location | Covered (regular regression) | `test_iceberg_write_file_locations` |
+| Spark cross-check | Fifteen positive suites compare row by row after the last write; the STRING transform suite also compares physical partition metadata before and after evolution | Covered (verified) | The fifteen positive suites; physical metadata in `test_iceberg_write_string_transform_metadata` |
 
-## 本次新增用例设计
+## Design of the added cases
 
-| 用例 | 目标 | 覆盖风险 | 测试维度 | 前置条件 | 负载描述 | 执行预期 |
+| Case | Goal | Risks covered | Test dimensions | Preconditions | Workload | Expected result |
 | --- | --- | --- | --- | --- | --- | --- |
-| W01 | 验证 schema 与 partition spec 同时演进后的写入、过滤和历史引用 | R01、R02、R04、R10 | 功能、正确性、兼容性 | Iceberg REST catalog | 演进前后多批 Doris 写入，建立 snapshot/tag/branch，并对 branch 覆盖写 | 当前、历史和 branch 各自返回确定数据；跨 spec 过滤不漏数 |
-| W02 | 验证复杂类型 field id 在演进后保持正确 | R01、R08 | 功能、正确性 | Iceberg v2 | ARRAY/MAP value promotion、STRUCT child promotion/add，写入含嵌套 NULL 的新旧行 | 旧值按新 schema 可读，新值不串字段，嵌套 NULL 保留 |
-| W03 | 验证 MOR/COW 与 partition evolution、NULL 分区、time travel 的交互 | R02、R04、R05 | 功能、正确性、异常 | Iceberg v2 MOR/COW | MOR 执行 delete/update/merge；COW 执行相同操作 | MOR 当前与历史版本一致；COW 明确拒绝且无新 snapshot |
-| W04 | 验证不同 Doris 表模型、分区和 bucket 作为 Iceberg 写入源 | R06、R07、R11 | 正确性、兼容性 | 多 BE Doris | 四种表模型、三种分区方式、HASH/RANDOM/AUTO bucket 执行 INSERT SELECT | 写入结果保持各源表语义，无重复或丢行 |
-| W05 | 验证不同类型与 NULL 的 partition/bucket transform | R02、R03、R11 | 功能、正确性、边界 | Iceberg v2 | identity/bucket/truncate/time transform 多列组合，包含 NULL | 数据与 `$partitions` 统计一致；NULL 行可过滤且可继续写入 |
-| W06 | 验证 required/nullable schema change 与合法写入 | R09、R11 | 异常、正确性 | Iceberg required 列 | 拒绝增加无默认值 required 列和 nullable→required；执行 VALUES/INSERT SELECT 合法写入 | schema change 失败不产生 snapshot；合法写入与 Spark 结果一致 |
-| W07 | 验证 required 列 NULL 拒绝和 statement 原子性 | R09、R11 | 隔离负向、正确性 | 隔离 Iceberg database | VALUES 写 NULL；多 bucket 源表 INSERT SELECT 混合有效与 NULL 行 | 修复前会错误提交并产生不可读文件；修复后整条语句在 snapshot 发布前拒绝 |
-| W08 | 验证 STRING truncate 的 Nullable block 处理 | R03、R05、R12 | 常规回归、稳定性 | Iceberg v2 | nullable STRING INSERT；partition evolution 后 UPDATE 产生 Nullable block | 写入成功并保持 NULL 分区语义，BE 不发生 FATAL |
-| W09 | 验证 MERGE 条件动作、多个 NOT MATCHED 与 NULL key 语义 | R02、R03、R05 | 功能、正确性 | Iceberg v2 MOR | identity/bucket 分区间移动、删除、插入、NULL-safe 与普通等值匹配 | 每个源行只选择一个动作，Spark 与 Doris 结果一致 |
-| W10 | 验证 MERGE 多源匹配单目标的基数约束 | R13 | 常规回归、原子性 | Iceberg v2 MOR | 两个源行同时更新一个目标行 | 整句拒绝且无新快照和文件 |
-| W11 | 验证 branch/tag 的写入能力边界 | R04、R14 | 功能、异常、原子性 | 已建立 branch 与 tag | branch INSERT/OVERWRITE；branch 行级 DML 与 tag 写入 | branch 与 main 隔离；不支持操作明确拒绝且引用不变化 |
-| W12 | 验证多次 Partition Evolution 后覆盖写和历史引用 | R02、R04、R10、R15 | 功能、正确性 | Iceberg v2 | ADD/REPLACE/DROP identity、bucket、truncate、day/hour 后动态覆盖写 | 仅替换当前 spec 命中的分区，tag/branch 和旧 spec 保持可读 |
-| W13 | 验证 delete files 与覆盖写、演进的交互 | R02、R05、R15 | 正确性、兼容性 | Iceberg v2 MOR | DELETE/UPDATE/MERGE 生成 delete files，再在新旧 spec 上覆盖写 | replacement 行不被旧 delete files 隐藏，历史 tag 不受影响 |
-| W14 | 验证 main/branch 覆盖写失败与重试原子性 | R09、R10、R15 | 异常、原子性 | 多 BE Doris | 分布式严格类型转换失败后检查数据、文件和快照，再执行修正重试 | 失败零提交；重试恰好产生一个快照且无重复 |
-| W15 | 验证 STRING transform 的真实物理分区值 | R03、R18 | 边界、正确性 | Iceberg v2 | 空串、ASCII、中文、emoji、组合字符、NULL bucket，随后替换 bucket/truncate 宽度 | 行结果和 `$partitions` 物理值均与 Spark 一致 |
-| W16 | 验证 CTAS、复杂类型、格式和失败清理 | R08、R09、R16 | 功能、异常、兼容性 | 内部多 bucket 源表 | CTAS 到 ORC 分区表；严格转换失败；向 Avro 表写入 | ORC 与 Spark 一致；失败不遗留表或快照；Avro 明确拒绝 |
-| W17 | 验证 sort order、distribution mode 和多文件 flush | R03、R11、R17 | 正确性、稳定性 | 多 BE Doris | NULL sort key、多列升降序、none/hash/range、低 target file size | 计划包含声明排序，多文件总行数正确，三种分布模式结果一致 |
-| W18 | 验证并发 MERGE 与 append 的提交不变量 | R11、R13、R17 | 并发、原子性 | 多 BE Doris | readiness barrier 保证两个独立会话同时具备 dispatch 条件；同行更新与互不冲突 append | 同行提交可串行化且基数为一；仅接受 Iceberg validation/commit conflict；非冲突写入无丢失或重复 |
-| W19 | 验证 MERGE source projection 进入 truncate transform 的类型安全 | R12、R18 | 常规回归、稳定性 | Iceberg v2 MOR | required STRING truncate 列执行匹配更新与未匹配插入 | MERGE 接受 nullable 物理投影中的非 NULL 值，并生成正确物理分区 |
-| W20 | 验证每种写入操作记录的文件路径都在表自己的 location 下 | R19 | 正确性、兼容性 | REST fixture 的 warehouse 为 s3a://，BE 侧规范化为 s3:// | v2、v3 表依次执行 INSERT、分区 OVERWRITE、branch INSERT、DELETE、UPDATE、MERGE、rewrite_data_files | `$all_files` 中每个文件都以 `SHOW CREATE TABLE` 的 LOCATION 加 `/data/` 开头；新增写入操作也加到这个用例 |
+| W01 | Verify writes, filtering and historical references after schema and partition spec evolve together | R01, R02, R04, R10 | Function, correctness, compatibility | Iceberg REST catalog | Several batches of Doris writes before and after evolution, creating snapshots/tags/branches, and overwriting a branch | Current, historical and branch versions each return deterministic data; filtering across specs misses no rows |
+| W02 | Verify that complex type field IDs stay correct after evolution | R01, R08 | Function, correctness | Iceberg v2 | ARRAY/MAP value promotion, STRUCT child promotion/add, writing old and new rows with nested NULL | Old values are readable under the new schema, new values do not cross fields, nested NULL is preserved |
+| W03 | Verify the interaction of MOR/COW with partition evolution, NULL partitions and time travel | R02, R04, R05 | Function, correctness, failure | Iceberg v2 MOR/COW | Delete/update/merge on MOR; the same operations on COW | MOR current and historical versions agree; COW is explicitly rejected with no new snapshot |
+| W04 | Verify different Doris table models, partitioning and buckets as the source of Iceberg writes | R06, R07, R11 | Correctness, compatibility | Multi-BE Doris | INSERT SELECT from four table models, three partitioning schemes and HASH/RANDOM/AUTO buckets | Results keep each source table's semantics, with no duplicate or lost rows |
+| W05 | Verify partition/bucket transforms on different types and NULL | R02, R03, R11 | Function, correctness, boundaries | Iceberg v2 | Multi-column combinations of identity/bucket/truncate/time transforms, including NULL | Data agrees with the `$partitions` statistics; NULL rows can be filtered and written again |
+| W06 | Verify required/nullable schema changes and valid writes | R09, R11 | Failure, correctness | Iceberg required columns | Reject adding a required column without a default and nullable→required; run valid VALUES/INSERT SELECT writes | A failed schema change creates no snapshot; valid writes agree with Spark |
+| W07 | Verify rejection of NULL in required columns and statement atomicity | R09, R11 | Isolated negative, correctness | Isolated Iceberg database | VALUES writing NULL; INSERT SELECT from a multi-bucket source table mixing valid and NULL rows | Before the fix it wrongly commits and produces unreadable files; after the fix the whole statement is rejected before the snapshot is published |
+| W08 | Verify handling of the Nullable block in STRING truncate | R03, R05, R12 | Regular regression, stability | Iceberg v2 | Nullable STRING INSERT; UPDATE producing a Nullable block after partition evolution | Writes succeed and keep NULL partition semantics, and the BE does not FATAL |
+| W09 | Verify MERGE conditional actions, multiple NOT MATCHED clauses and NULL key semantics | R02, R03, R05 | Function, correctness | Iceberg v2 MOR | Moving rows between identity/bucket partitions, deletes, inserts, NULL-safe and plain equality matches | Each source row picks exactly one action; Spark and Doris agree |
+| W10 | Verify the cardinality constraint of several MERGE source rows matching one target | R13 | Regular regression, atomicity | Iceberg v2 MOR | Two source rows updating one target row at the same time | The whole statement is rejected with no new snapshot or files |
+| W11 | Verify the write capability boundaries of branches and tags | R04, R14 | Function, failure, atomicity | Branch and tag created | Branch INSERT/OVERWRITE; branch row-level DML and tag writes | Branch is isolated from main; unsupported operations are explicitly rejected and references do not change |
+| W12 | Verify overwrite and historical references after repeated partition evolution | R02, R04, R10, R15 | Function, correctness | Iceberg v2 | Dynamic overwrite after ADD/REPLACE/DROP of identity, bucket, truncate and day/hour fields | Only partitions matched by the current spec are replaced; tags/branches and old specs stay readable |
+| W13 | Verify the interaction of delete files with overwrite and evolution | R02, R05, R15 | Correctness, compatibility | Iceberg v2 MOR | DELETE/UPDATE/MERGE producing delete files, then overwrites on old and new specs | Replacement rows are not hidden by old delete files; historical tags are unaffected |
+| W14 | Verify atomicity of failed overwrites on main/branch and of retries | R09, R10, R15 | Failure, atomicity | Multi-BE Doris | Check data, files and snapshots after a distributed strict cast failure, then retry after the fix | The failure commits nothing; the retry produces exactly one snapshot with no duplicates |
+| W15 | Verify the real physical partition values of STRING transforms | R03, R18 | Boundaries, correctness | Iceberg v2 | Empty strings, ASCII, Chinese text, emoji, combining characters and NULL buckets, then replacing the bucket/truncate width | Row results and the physical values in `$partitions` both agree with Spark |
+| W16 | Verify CTAS, complex types, formats and failure cleanup | R08, R09, R16 | Function, failure, compatibility | Internal multi-bucket source table | CTAS to a partitioned ORC table; strict cast failure; writing to an Avro table | ORC agrees with Spark; a failure leaves no table or snapshot; Avro is explicitly rejected |
+| W17 | Verify sort order, distribution mode and multi-file flush | R03, R11, R17 | Correctness, stability | Multi-BE Doris | NULL sort keys, multi-column ascending/descending order, none/hash/range, low target file size | The plan contains the declared sort; the total row count across files is correct; the three distribution modes agree |
+| W18 | Verify commit invariants of concurrent MERGE and append | R11, R13, R17 | Concurrency, atomicity | Multi-BE Doris | A readiness barrier makes two independent sessions ready to dispatch at the same time; updates of the same row and non-conflicting appends | Commits on the same row are serializable with cardinality one; only Iceberg validation/commit conflicts are accepted; non-conflicting writes are neither lost nor duplicated |
+| W19 | Verify type safety of the MERGE source projection entering the truncate transform | R12, R18 | Regular regression, stability | Iceberg v2 MOR | Matched updates and unmatched inserts on a required STRING truncate column | MERGE accepts non-NULL values in the nullable physical projection and produces correct physical partitions |
+| W20 | Verify that every write operation records its file paths under the table's own location | R19 | Correctness, compatibility | The REST fixture's warehouse is s3a://, which BE normalizes to s3:// | INSERT, partition OVERWRITE, branch INSERT, DELETE, UPDATE, MERGE and rewrite_data_files in turn on v2 and v3 tables | Every file in `$all_files` starts with the LOCATION from `SHOW CREATE TABLE` plus `/data/`; new write operations are added to this case too |
 
-## P0 覆盖检查
+## P0 coverage check
 
-R01-R19 均映射到至少一个 P0 regression。十五个正向 suite 在最后一次成功写入后均由 Spark/Doris 交叉校验同表逻辑结果；transform、rollover、CTAS property 和失败原子性另有物理 metadata 或状态 oracle。W08、W10、W19 已作为常规回归运行；仍可能写出不可读 required-null 文件的 W07 保留隔离开关，避免破坏共享集群。
+Each of R01-R19 maps to at least one P0 regression. After the last successful write, all fifteen positive suites cross-check the logical result of the same table between Spark and Doris; transforms, rollover, CTAS properties and failure atomicity additionally have physical metadata or state oracles. W08, W10 and W19 run as regular regressions; W07, which may still write unreadable required-null files, keeps its isolation switch so that it does not damage a shared cluster.
 
-本矩阵未覆盖项为 0。COW 行级 DML、branch 行级 DML、tag 写入和 Avro 写入属于当前明确能力边界，均以预期拒绝用例固化错误语义与失败原子性；仅 required-null 已知缺陷继续使用隔离负向 regression。
+This matrix has no uncovered items. COW row-level DML, branch row-level DML, tag writes and Avro writes are explicit current capability boundaries, each pinned by an expected-rejection case that fixes the error semantics and failure atomicity; only the known required-null defect keeps using an isolated negative regression.

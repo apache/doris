@@ -39,6 +39,7 @@
 #include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type_serde/orc_serde_utils.h"
 #include "core/data_type_serde/parquet_decode_source.h"
+#include "core/decimal12.h"
 #include "core/types.h"
 #include "exec/common/arithmetic_overflow.h"
 #include "exec/common/endian.h"
@@ -920,6 +921,11 @@ Status DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
     // Decimal<Int128I> for deicmalv3
     if constexpr (T == TYPE_DECIMALV2) {
         const auto* concrete_array = dynamic_cast<const arrow::DecimalArray*>(arrow_array);
+        // A string or a different decimal width cannot be read as Decimal128, including NULLs.
+        if (concrete_array == nullptr) {
+            return Status::InvalidArgument("Expected Arrow Decimal128Array for {}, got {}",
+                                           get_name(), arrow_array->type()->ToString());
+        }
         const auto* arrow_decimal_type =
                 static_cast<const arrow::DecimalType*>(arrow_array->type().get());
         const auto arrow_scale = arrow_decimal_type->scale();
@@ -947,6 +953,11 @@ Status DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
         }
     } else if constexpr (T == TYPE_DECIMAL32 || T == TYPE_DECIMAL64 || T == TYPE_DECIMAL128I) {
         const auto* concrete_array = dynamic_cast<const arrow::DecimalArray*>(arrow_array);
+        // A string or a different decimal width cannot be read as Decimal128, including NULLs.
+        if (concrete_array == nullptr) {
+            return Status::InvalidArgument("Expected Arrow Decimal128Array for {}, got {}",
+                                           get_name(), arrow_array->type()->ToString());
+        }
         for (auto value_i = start; value_i < end; ++value_i) {
             const auto* value = concrete_array->Value(value_i);
             auto decimal_value = unaligned_load<FieldType>(value);
@@ -954,6 +965,11 @@ Status DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
         }
     } else if constexpr (T == TYPE_DECIMAL256) {
         const auto* concrete_array = dynamic_cast<const arrow::Decimal256Array*>(arrow_array);
+        // Reject incompatible arrays before Value(), independently of buffer validation.
+        if (concrete_array == nullptr) {
+            return Status::InvalidArgument("Expected Arrow Decimal256Array, got {}",
+                                           arrow_array->type()->ToString());
+        }
         for (auto value_i = start; value_i < end; ++value_i) {
             auto decimal_value = unaligned_load<FieldType>(concrete_array->Value(value_i));
             column_data.emplace_back(decimal_value);

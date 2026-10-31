@@ -132,6 +132,7 @@ public class QueryProcessor extends AbstractJobProcessor {
             boolean reachedLimit = LimitUtils.cancelIfReachLimit(
                     resultBatch, limitRows, numReceivedRows, coordinatorContext::cancelSchedule);
             if (reachedLimit) {
+                coordinatorContext.stopSplitGeneration();
                 resultBatch.setEos(true);
             } else if (resultBatch.isEos()) {
                 tryFinishSchedule();

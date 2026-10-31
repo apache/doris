@@ -21,6 +21,8 @@
 #include <rapidjson/document.h>
 
 #include <atomic>
+#include <cstdlib>
+#include <set>
 #include <tuple>
 #include <utility>
 
@@ -111,6 +113,28 @@ EsScrollStreamFactory factory(const std::shared_ptr<StreamState>& state) {
         return std::make_unique<ResponseStream>(state);
     };
 }
+
+class ScrollHttpHandler final : public HttpHandler {
+public:
+    void handle(HttpRequest* req) override {
+        if (req->method() == DELETE) {
+            EXPECT_EQ(req->get_request_body(), R"({"scroll_id":"scroll-token"})");
+            ++clears;
+            HttpChannel::send_reply(req, HttpStatus::OK, R"({"succeeded":true})");
+        } else if (searches.fetch_add(1) == 0) {
+            HttpChannel::send_reply(req, HttpStatus::OK,
+                                    page(empty ? "" : R"({"_source":{"id":7}})"));
+        } else {
+            HttpChannel::send_reply(req, scroll_status, R"({"error":"scroll failed"})");
+        }
+    }
+
+    bool empty = false;
+    HttpStatus scroll_status = HttpStatus::NOT_FOUND;
+    std::atomic<int> searches {0};
+    std::atomic<int> clears {0};
+};
+
 class EsV2ReaderTest : public testing::Test {
 protected:
     void SetUp() override {
@@ -130,13 +154,30 @@ protected:
                                        {"_id":"b","_source":{"id":2,"name":null,"values":[]}})"),
                 page(R"({"_id":"c","_source":{"id":3,"name":"three","values":null}})")};
     }
-    std::unique_ptr<EsFileReader> reader() {
+    std::unique_ptr<EsFileReader> reader(bool real_http = false) {
         auto props = std::make_shared<io::FileSystemProperties>();
         auto file = std::make_unique<io::FileDescription>();
         file->path = "es://example/0";
-        auto result = std::make_unique<EsFileReader>(props, file, _io, &_profile, _range, _params,
-                                                     _slots, factory(_responses));
+        auto result = std::make_unique<EsFileReader>(
+                props, file, _io, &_profile, _range, _params, _slots,
+                real_http ? EsScrollStreamFactory {} : factory(_responses));
         EXPECT_TRUE(result->init(&_state).ok());
+        return result;
+    }
+    std::unique_ptr<EsFileReader> http_reader(EvHttpServer& server, HttpHandler* handler) {
+        EXPECT_TRUE(server.register_handler(POST, "/example/_search", handler));
+        EXPECT_TRUE(server.register_handler(POST, "/_search/scroll", handler));
+        EXPECT_TRUE(server.register_handler(DELETE, "/_search/scroll", handler));
+        server.start();
+        EXPECT_GT(server.get_real_port(), 0);
+        _range.table_format_params.es_params["host_port"] =
+                "http://127.0.0.1:" + std::to_string(server.get_real_port());
+        auto props = std::make_shared<io::FileSystemProperties>();
+        auto file = std::make_unique<io::FileDescription>();
+        auto result = std::make_unique<EsFileReader>(props, file, _io, &_profile, _range, _params,
+                                                     _slots);
+        EXPECT_TRUE(result->init(&_state).ok());
+        result->set_batch_size(1);
         return result;
     }
     std::shared_ptr<FileScanRequest> request(std::initializer_list<int> ids) {
@@ -535,6 +576,171 @@ TEST_F(EsV2ReaderTest, FullyFilteredBatchesKeepScanningUntilEof) {
     }
     EXPECT_EQ(_io->predicate_filtered_rows, 3);
     EXPECT_EQ(_responses->closes, 1);
+}
+
+TEST_F(EsV2ReaderTest, SourceOnlyFieldsDisableDocvalues) {
+    for (int source_column : {1, 2}) {
+        _responses = std::make_shared<StreamState>();
+        _responses->pages = {page(R"({"_id":"a","_source":{"id":1,"name":"one"}})")};
+        _params.es_properties["doc_values_mode"] = "1";
+        _params.__set_es_docvalue_context({{"id", "id"}, {"_id", "_id"}});
+        auto scan = reader();
+        auto projection = request({0, source_column});
+        ASSERT_TRUE(scan->open(projection).ok());
+        EXPECT_FALSE(_responses->docvalues);
+        rapidjson::Document query;
+        query.Parse(_responses->properties.at("query").c_str());
+        ASSERT_FALSE(query.HasParseError());
+        EXPECT_TRUE(query.HasMember("_source"));
+        EXPECT_FALSE(query.HasMember("docvalue_fields"));
+        auto output = block(*scan, *projection);
+        size_t rows = 0;
+        bool eof = false;
+        ASSERT_TRUE(scan->get_block(&output, &rows, &eof).ok());
+        ASSERT_EQ(rows, 1);
+        EXPECT_EQ(int_at(output, 0, 0), 1);
+        EXPECT_EQ(string_at(output, 1, 0), source_column == 1 ? "one" : "a");
+        ASSERT_TRUE(scan->close().ok());
+        EXPECT_EQ(_responses->closes, 1);
+    }
+}
+
+TEST_F(EsV2ReaderTest, DocvaluesPreserveMissingFieldsAndEmptyArrays) {
+    _params.es_properties["doc_values_mode"] = "1";
+    _params.__set_es_docvalue_context(
+            {{"id", "id"}, {"name", "name.keyword"}, {"values", "values"}});
+    _responses->pages = {page(R"({"fields":{"id":[1],"name.keyword":["one"],"values":[1,3]}},
+                                {"fields":{"id":[2],"values":[]}},
+                                {"fields":{"id":[3],"name.keyword":null,"values":null}})")};
+    auto scan = reader();
+    auto projection = request({1, 3, 0});
+    ASSERT_TRUE(scan->open(projection).ok());
+    EXPECT_TRUE(_responses->docvalues);
+    auto output = block(*scan, *projection);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(scan->get_block(&output, &rows, &eof).ok());
+    ASSERT_EQ(rows, 3);
+    for (const auto& column : output) {
+        EXPECT_EQ(column.column->size(), rows);
+    }
+    EXPECT_EQ(string_at(output, 0, 0), "one");
+    EXPECT_TRUE(output.get_by_position(0).column->is_null_at(1));
+    EXPECT_TRUE(output.get_by_position(0).column->is_null_at(2));
+    EXPECT_FALSE(output.get_by_position(1).column->is_null_at(1));
+    EXPECT_TRUE(output.get_by_position(1).column->is_null_at(2));
+    const auto& values = assert_cast<const ColumnArray&>(
+            assert_cast<const ColumnNullable&>(*output.get_by_position(1).column)
+                    .get_nested_column());
+    EXPECT_EQ(values.get_offsets()[0], 2);
+    EXPECT_EQ(values.get_offsets()[1], 2);
+    EXPECT_EQ(values.get_offsets()[2], 2);
+    EXPECT_EQ(int_at(output, 2, 2), 3);
+}
+
+TEST_F(EsV2ReaderTest, RealHttpEarlyCloseClearsInitialScroll) {
+    ScrollHttpHandler handler;
+    EvHttpServer server {0};
+    auto scan = http_reader(server, &handler);
+    ASSERT_TRUE(scan->open(request({0})).ok());
+    ASSERT_TRUE(scan->close().ok());
+    scan.reset();
+    EXPECT_EQ(handler.searches.load(), 1);
+    EXPECT_EQ(handler.clears.load(), 1);
+}
+
+TEST_F(EsV2ReaderTest, RealHttpEmptyResultClearsScroll) {
+    ScrollHttpHandler handler;
+    handler.empty = true;
+    EvHttpServer server {0};
+    auto scan = http_reader(server, &handler);
+    auto projection = request({0});
+    ASSERT_TRUE(scan->open(projection).ok());
+    auto output = block(*scan, *projection);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(scan->get_block(&output, &rows, &eof).ok());
+    EXPECT_EQ(rows, 0);
+    EXPECT_TRUE(eof);
+    ASSERT_TRUE(scan->close().ok());
+    EXPECT_EQ(handler.searches.load(), 1);
+    EXPECT_EQ(handler.clears.load(), 1);
+}
+
+TEST_F(EsV2ReaderTest, RealHttpScrollErrorsFailAndReleaseContext) {
+    for (auto status : {HttpStatus::NOT_FOUND, HttpStatus::INTERNAL_SERVER_ERROR}) {
+        ScrollHttpHandler handler;
+        handler.scroll_status = status;
+        EvHttpServer server {0};
+        auto scan = http_reader(server, &handler);
+        auto projection = request({0});
+        ASSERT_TRUE(scan->open(projection).ok());
+        auto output = block(*scan, *projection);
+        size_t rows = 0;
+        bool eof = false;
+        ASSERT_TRUE(scan->get_block(&output, &rows, &eof).ok());
+        ASSERT_EQ(rows, 1);
+        output = block(*scan, *projection);
+        const auto result = scan->get_block(&output, &rows, &eof);
+        EXPECT_FALSE(result.ok());
+        EXPECT_NE(result.to_string().find(status == HttpStatus::NOT_FOUND ? "No search context"
+                                                                          : "scroll failed"),
+                  std::string::npos);
+        ASSERT_TRUE(scan->close().ok());
+        scan.reset();
+        EXPECT_EQ(handler.searches.load(), 2);
+        EXPECT_EQ(handler.clears.load(), 1);
+    }
+}
+
+// The opt-in fixture has integer id / keyword name and rows (1,"alpha"), (2,"beta"), (3,null).
+TEST_F(EsV2ReaderTest, ConfiguredHttpSourceSupportsSourceAndDocvalues) {
+    const char* host = std::getenv("DORIS_ES_TEST_HOST");
+    if (host == nullptr) {
+        GTEST_SKIP() << "Set DORIS_ES_TEST_HOST and DORIS_ES_TEST_INDEX for a live ES smoke test";
+    }
+    const char* index = std::getenv("DORIS_ES_TEST_INDEX");
+    ASSERT_NE(index, nullptr);
+    _range.table_format_params.es_params["host_port"] = host;
+    _range.table_format_params.es_params["index"] = index;
+    _range.table_format_params.es_params["shard_id"] = "-1";
+    for (const auto& [property, variable] : {std::pair {"user", "DORIS_ES_TEST_USER"},
+                                             std::pair {"password", "DORIS_ES_TEST_PASSWORD"}}) {
+        if (const char* value = std::getenv(variable); value != nullptr) {
+            _params.es_properties[property] = value;
+        }
+    }
+    _params.__set_es_docvalue_context({{"id", "id"}, {"name", "name"}});
+    for (bool docvalues : {false, true}) {
+        _params.es_properties["doc_values_mode"] = docvalues ? "1" : "0";
+        auto scan = reader(true);
+        scan->set_batch_size(1);
+        auto projection = request({1, 0});
+        const auto opened = scan->open(projection);
+        ASSERT_TRUE(opened.ok()) << opened;
+        size_t total = 0;
+        std::set<int32_t> ids;
+        bool eof = false;
+        while (!eof) {
+            auto output = block(*scan, *projection);
+            size_t rows = 0;
+            const auto status = scan->get_block(&output, &rows, &eof);
+            ASSERT_TRUE(status.ok()) << status;
+            for (size_t row = 0; row < rows; ++row) {
+                const int32_t id = int_at(output, 1, row);
+                ids.insert(id);
+                if (id == 3) {
+                    EXPECT_TRUE(output.get_by_position(0).column->is_null_at(row));
+                } else {
+                    EXPECT_EQ(string_at(output, 0, row), id == 1 ? "alpha" : "beta");
+                }
+            }
+            total += rows;
+        }
+        EXPECT_EQ(total, 3);
+        EXPECT_EQ(ids, (std::set<int32_t> {1, 2, 3}));
+        ASSERT_TRUE(scan->close().ok());
+    }
 }
 
 } // namespace doris::format::es

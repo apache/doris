@@ -56,6 +56,29 @@ TEST(SniiVarint, TruncatedFails) {
     EXPECT_FALSE(decode_varint32(buf, buf + 1, &out, &next).ok());
 }
 
+TEST(SniiVarint, TenthByteOverflowFails) {
+    // Nine continuation bytes carry bits 0..62. The tenth byte can only add bit 63, so a larger
+    // payload would be shifted out of the result and decode to a silently truncated value.
+    uint8_t buf[10];
+    for (int i = 0; i < 9; ++i) {
+        buf[i] = 0xFF;
+    }
+    uint64_t out = 0;
+    const uint8_t* next = nullptr;
+
+    buf[9] = 0x01; // 2^64 - 1, the largest valid encoding
+    ASSERT_TRUE(decode_varint64(buf, buf + 10, &out, &next).ok());
+    EXPECT_EQ(out, 0xFFFFFFFFFFFFFFFFULL);
+    EXPECT_EQ(next, buf + 10);
+
+    for (int tenth : {0x02, 0x40, 0x7F}) {
+        buf[9] = static_cast<uint8_t>(tenth);
+        EXPECT_FALSE(decode_varint64(buf, buf + 10, &out, &next).ok()) << tenth;
+    }
+    buf[9] = 0x81; // a continuation past the tenth byte
+    EXPECT_FALSE(decode_varint64(buf, buf + 10, &out, &next).ok());
+}
+
 TEST(SniiVarint, Overflow32Fails) {
     // encode a value > 2^32-1, decoding with decode_varint32 should fail
     uint8_t buf[10];

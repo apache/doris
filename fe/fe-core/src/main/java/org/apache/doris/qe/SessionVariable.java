@@ -592,14 +592,22 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_ICEBERG_INTERNAL_PARTITION_PRUNING =
             "enable_iceberg_internal_partition_pruning";
 
+    public static final String ICEBERG_MANIFEST_LOAD_CONCURRENCY = "iceberg_manifest_load_concurrency";
+
     public static final String NUM_PARTITIONS_IN_BATCH_MODE = "num_partitions_in_batch_mode";
+
+    public static final String SPLIT_PARTITION_BATCH_SIZE = "split_partition_batch_size";
 
     public static final String NUM_FILES_IN_BATCH_MODE = "num_files_in_batch_mode";
 
     public static final String SPLIT_BATCH_SIZE = "split_batch_size";
+    public static final String SPLIT_INITIAL_BATCH_SIZE = "split_initial_batch_size";
 
     public static final String SPLIT_QUEUE_CAPACITY = "split_queue_capacity";
 
+    public static final String SPLIT_PRODUCER_PARALLELISM = "split_producer_parallelism";
+
+    public static final String FIRST_SPLIT_WAIT_TIMEOUT_MS = "first_split_wait_timeout_ms";
     public static final String FETCH_SPLITS_MAX_WAIT_TIME = "fetch_splits_max_wait_time_ms";
 
     /**
@@ -737,6 +745,8 @@ public class SessionVariable implements Serializable, Writable {
             "spill_aggregation_sink_mem_limit_bytes";
     public static final String SPILL_SORT_SINK_MEM_LIMIT_BYTES =
             "spill_sort_sink_mem_limit_bytes";
+    public static final String SPILL_ANALYTIC_SINK_MEM_LIMIT_BYTES =
+            "spill_analytic_sink_mem_limit_bytes";
     public static final String SPILL_SORT_MERGE_MEM_LIMIT_BYTES =
             "spill_sort_merge_mem_limit_bytes";
     public static final String SPILL_REVOCABLE_MEMORY_HIGH_WATERMARK_PERCENT =
@@ -2617,36 +2627,81 @@ public class SessionVariable implements Serializable, Writable {
             description = "If the number of partitions exceeds the threshold, scan ranges will be got through batch "
                     + "mode.",
             needForward = true)
-    public int numPartitionsInBatchMode = 1024;
+    public int numPartitionsInBatchMode = 1;
+
+    @VarAttrDef.VarAttr(name = SPLIT_PARTITION_BATCH_SIZE, checker = "checkSplitPartitionBatchSize",
+            needForward = true, description = "Maximum number of Hive partitions resolved per split producer "
+                    + "batch. This does not control when batch mode is enabled.")
+    public int splitPartitionBatchSize = 16;
 
     @VarAttrDef.VarAttr(
             name = NUM_FILES_IN_BATCH_MODE,
             fuzzy = true,
             description = "If the number of files exceeds the threshold, scan ranges will be got through batch mode.",
             needForward = true)
-    public int numFilesInBatchMode = 1024;
+    public int numFilesInBatchMode = 1;
 
     @VarAttrDef.VarAttr(name = SPLIT_BATCH_SIZE, checker = "checkSplitBatchSize", needForward = true,
             description = "Maximum number of splits in a producer batch.")
-    public int splitBatchSize = 128;
+    public int splitBatchSize = 8;
 
     @VarAttrDef.VarAttr(name = SPLIT_QUEUE_CAPACITY, checker = "checkSplitQueueCapacity", needForward = true,
-            description = "Maximum number of queued split batches per backend.")
-    public int splitQueueCapacity = 32;
+            description = "Maximum number of queued splits per backend.")
+    public int splitQueueCapacity = 1024;
+
+    @VarAttrDef.VarAttr(name = SPLIT_INITIAL_BATCH_SIZE, checker = "checkSplitInitialBatchSize", needForward = true,
+            description = "Maximum number of splits returned by the first fetch per backend; "
+                    + "does not limit background split production or subsequent fetches.")
+    public int splitInitialBatchSize = 64;
+
+    public void checkSplitInitialBatchSize(String value) throws Exception {
+        checkFieldValue(SPLIT_INITIAL_BATCH_SIZE, 1, value);
+    }
+
+    @VarAttrDef.VarAttr(name = SPLIT_PRODUCER_PARALLELISM, checker = "checkSplitProducerParallelism",
+            needForward = true, description = "Maximum partition-batch split producers per scan node. "
+                    + "Zero uses the FE external metadata loader pool size. Whole-scan streams use one producer.")
+    public int splitProducerParallelism = 0;
+
+    @VarAttrDef.VarAttr(name = FIRST_SPLIT_WAIT_TIMEOUT_MS, checker = "checkFirstSplitWaitTimeout",
+            needForward = true, description = "First split wait timeout in milliseconds.")
+    public long firstSplitWaitTimeoutMs = 30000;
+
+    public void checkFirstSplitWaitTimeout(String value) throws Exception {
+        checkFieldLongValue(FIRST_SPLIT_WAIT_TIMEOUT_MS, 1, value);
+    }
+
+    public long getFirstSplitWaitTimeoutMs() {
+        return firstSplitWaitTimeoutMs;
+    }
 
     public void checkSplitBatchSize(String value) throws Exception {
         checkFieldValue(SPLIT_BATCH_SIZE, 1, value);
+    }
+
+    public void checkSplitPartitionBatchSize(String value) throws Exception {
+        checkFieldValue(SPLIT_PARTITION_BATCH_SIZE, 1, value);
     }
 
     public void checkSplitQueueCapacity(String value) throws Exception {
         checkFieldValue(SPLIT_QUEUE_CAPACITY, 1, value);
     }
 
+    public void checkSplitProducerParallelism(String value) throws Exception {
+        checkFieldValue(SPLIT_PRODUCER_PARALLELISM, 0, value);
+    }
+
     @VarAttrDef.VarAttr(
             name = FETCH_SPLITS_MAX_WAIT_TIME,
-            description = "The max wait time of getting splits in batch mode.",
+            checker = "checkFetchSplitsMaxWaitTime",
+            description = "Maximum wait time per split-fetch RPC in batch mode. A running producer can be retried "
+                    + "after this interval; completion, cancellation and production errors are reported separately.",
             needForward = true)
     public long fetchSplitsMaxWaitTime = 1000;
+
+    public void checkFetchSplitsMaxWaitTime(String value) throws Exception {
+        checkFieldLongValue(FETCH_SPLITS_MAX_WAIT_TIME, 1, value);
+    }
 
     @VarAttrDef.VarAttr(
             name = ENABLE_PARQUET_LAZY_MAT,
@@ -3412,6 +3467,11 @@ public class SessionVariable implements Serializable, Writable {
                     + "exceeds this threshold (in bytes). Default is 64MB.")
     public long spillSortSinkMemLimitBytes = 64L * 1024L * 1024L;
 
+    @VarAttrDef.VarAttr(name = SPILL_ANALYTIC_SINK_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
+            description = "Non-streaming analytic partitions will proactively spill when revocable memory "
+                    + "exceeds this threshold (in bytes). Default is 64MB.")
+    public long spillAnalyticSinkMemLimitBytes = 64L * 1024L * 1024L;
+
     @VarAttrDef.VarAttr(name = SPILL_SORT_MERGE_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
             description = "After spill is triggered, total memory budget for the sort merge phase (in bytes). "
                     + "Divided by spill_buffer_size_bytes gives the number of files that can be merged "
@@ -3730,6 +3790,19 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ICEBERG_PARTITION_OVERWRITE_MODE = "iceberg_partition_overwrite_mode";
     public static final String ICEBERG_PARTITION_OVERWRITE_MODE_DYNAMIC = "dynamic";
     public static final String ICEBERG_PARTITION_OVERWRITE_MODE_STATIC = "static";
+    @VarAttrDef.VarAttr(name = ICEBERG_MANIFEST_LOAD_CONCURRENCY, needForward = true,
+            checker = "checkIcebergManifestLoadConcurrency",
+            description = "Maximum concurrent Iceberg manifest-cache reads per query and prefetch window per scan. "
+                    + "Set to 1 for sequential loading.")
+    public int icebergManifestLoadConcurrency = 8;
+
+    public void checkIcebergManifestLoadConcurrency(String value) {
+        int concurrency = Integer.parseInt(value);
+        if (concurrency < 1 || concurrency > 64) {
+            throw new IllegalArgumentException("iceberg_manifest_load_concurrency must be between 1 and 64");
+        }
+    }
+
     @VarAttrDef.VarAttr(name = ICEBERG_PARTITION_OVERWRITE_MODE, needForward = true,
             checker = "checkIcebergPartitionOverwriteMode", setter = "setIcebergPartitionOverwriteMode",
             description = "Scope of INSERT OVERWRITE on an Iceberg table when no PARTITION clause is given. "
@@ -4986,6 +5059,10 @@ public class SessionVariable implements Serializable, Writable {
         return numPartitionsInBatchMode;
     }
 
+    public int getSplitPartitionBatchSize() {
+        return splitPartitionBatchSize;
+    }
+
     public int getNumFilesInBatchMode() {
         return numFilesInBatchMode;
     }
@@ -4994,8 +5071,16 @@ public class SessionVariable implements Serializable, Writable {
         return splitBatchSize;
     }
 
+    public int getSplitInitialBatchSize() {
+        return splitInitialBatchSize;
+    }
+
     public int getSplitQueueCapacity() {
         return splitQueueCapacity;
+    }
+
+    public int getSplitProducerParallelism() {
+        return splitProducerParallelism;
     }
 
     public long getFetchSplitsMaxWaitTime() {
@@ -5817,6 +5902,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setSpillJoinBuildSinkMemLimitBytes(spillJoinBuildSinkMemLimitBytes);
         tResult.setSpillAggregationSinkMemLimitBytes(spillAggregationSinkMemLimitBytes);
         tResult.setSpillSortSinkMemLimitBytes(spillSortSinkMemLimitBytes);
+        tResult.setSpillAnalyticSinkMemLimitBytes(spillAnalyticSinkMemLimitBytes);
         tResult.setSpillSortMergeMemLimitBytes(spillSortMergeMemLimitBytes);
 
         tResult.setDataQueueMaxBlocks(dataQueueMaxBlocks);

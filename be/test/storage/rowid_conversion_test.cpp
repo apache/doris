@@ -626,6 +626,50 @@ TEST_F(TestRowIdConversion, ConvertDestinationPositionToPhysicalSegmentId) {
     EXPECT_EQ(dst.segment_id, 100);
 }
 
+TEST_F(TestRowIdConversion, VisibilityFilteredRowsDoNotMaskMissingMappings) {
+    auto tablet_schema = create_schema(UNIQUE_KEYS);
+    auto input_meta = std::make_shared<RowsetMeta>();
+    init_rs_meta(input_meta, 2, 2);
+    RowsetId input_id;
+    input_id.init(100);
+    input_meta->set_rowset_id(input_id);
+    input_meta->set_segment_ids({10});
+    auto input = std::make_shared<BetaRowset>(tablet_schema, input_meta, absolute_dir);
+    auto output_meta = std::make_shared<RowsetMeta>();
+    init_rs_meta(output_meta, 2, 2);
+    RowsetId output_id;
+    output_id.init(200);
+    output_meta->set_rowset_id(output_id);
+    output_meta->set_segment_ids({100});
+    auto output = std::make_shared<BetaRowset>(tablet_schema, output_meta, absolute_dir);
+    auto tablet = create_tablet(*tablet_schema, true);
+
+    for (auto mode : {RowIdConversion::Mode::DENSE, RowIdConversion::Mode::LAZY_CHUNKED}) {
+        RowIdConversion conversion(mode);
+        ASSERT_TRUE(conversion.init_segment_map(input_id, {10}, {3}).ok());
+        conversion.set_dst_rowset_id(output_id);
+        conversion.enable_visibility_filter_tracking();
+        ASSERT_TRUE(conversion.add({RowLocation(input_id, 10, 0)}, {1}).ok());
+        conversion.visibility_filtered_rows()->insert(RowLocation(input_id, 10, 1));
+
+        DeleteBitmap input_bitmap(1);
+        input_bitmap.add({input_id, 10, 5}, 0);
+        input_bitmap.add({input_id, 10, 5}, 2);
+        // A load publishes this deletion after the compaction has expired row 1.
+        input_bitmap.add({input_id, 10, 7}, 1);
+        DeleteBitmap output_bitmap(1);
+        std::set<RowLocation> missed_rows;
+        tablet->calc_compaction_output_rowset_delete_bitmap({input}, output, conversion, 0, 10,
+                                                            &missed_rows, nullptr, input_bitmap,
+                                                            &output_bitmap);
+
+        EXPECT_TRUE(output_bitmap.contains({output_id, 100, 5}, 0));
+        ASSERT_EQ(missed_rows.size(), 1);
+        EXPECT_EQ(*missed_rows.begin(), RowLocation(input_id, 10, 2));
+        EXPECT_FALSE(output_bitmap.contains({output_id, 100, 7}, 0));
+    }
+}
+
 TEST_F(TestRowIdConversion, LazyChunkedOnlyAllocatesTouchedRows) {
     constexpr uint32_t NUM_ROWS = 1'000'000;
     RowsetId src_rowset;

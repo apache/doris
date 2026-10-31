@@ -38,8 +38,9 @@ public:
               _pattern(std::move(pattern)) {}
     ~ExpandQuery() override = default;
 
-    WeightPtr weight(bool enable_scoring) override {
-        return std::make_shared<ExpandWeight>(_context, _field, _kind, _pattern, enable_scoring);
+    // Scores are constant, so scoring changes nothing.
+    WeightPtr weight(bool /*enable_scoring*/) override {
+        return std::make_shared<ExpandWeight>(_context, _field, _kind, _pattern);
     }
 
 private:

@@ -49,4 +49,42 @@ Status zstd_decompress(Slice input, size_t expected_uncomp_len, std::vector<uint
     return Status::OK();
 }
 
+ZstdDecompressor::~ZstdDecompressor() {
+    ZSTD_freeDCtx(static_cast<ZSTD_DCtx*>(_context));
+}
+
+Status ZstdDecompressor::decompress(Slice input, size_t expected_uncomp_len, Slice* out) {
+    if (_context == nullptr) {
+        _context = ZSTD_createDCtx();
+        if (_context == nullptr) {
+            return Status::Error<ErrorCode::MEM_ALLOC_FAILED, false>(
+                    "zstd decompress: cannot create a context");
+        }
+    }
+    if (expected_uncomp_len > _capacity) {
+        // Every byte is written by the decompression before it is read, so the buffer is not
+        // zero-filled. The old buffer goes first, so the two are never held together.
+        _buffer.reset();
+        _capacity = 0;
+        _buffer = make_unique_buffer<uint8_t>(expected_uncomp_len);
+        if (_buffer == nullptr) {
+            return Status::Error<ErrorCode::MEM_ALLOC_FAILED, false>(
+                    "zstd decompress: cannot allocate {} bytes", expected_uncomp_len);
+        }
+        _capacity = expected_uncomp_len;
+    }
+    const size_t n = ZSTD_decompressDCtx(static_cast<ZSTD_DCtx*>(_context), _buffer.get(),
+                                         expected_uncomp_len, input.data(), input.size());
+    if (ZSTD_isError(n)) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                std::string("zstd decompress: ") + ZSTD_getErrorName(n));
+    }
+    if (n != expected_uncomp_len) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "zstd decompressed length mismatch");
+    }
+    *out = Slice(_buffer.get(), expected_uncomp_len);
+    return Status::OK();
+}
+
 } // namespace doris::snii

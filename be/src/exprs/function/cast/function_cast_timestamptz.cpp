@@ -18,7 +18,7 @@
 #include "exprs/function/cast/cast_to_timestamptz.h"
 
 namespace doris::CastWrapper {
-WrapperType create_timestamptz_wrapper(FunctionContext* context, const DataTypePtr& from_type) {
+WrapperType create_timestamptz_wrapper(const CastOptions& options, const DataTypePtr& from_type) {
     std::shared_ptr<CastToBase> cast_to_timestamptz;
 
     auto make_timestamptz_wrapper = [&](const auto& types) -> bool {
@@ -27,7 +27,7 @@ WrapperType create_timestamptz_wrapper(FunctionContext* context, const DataTypeP
         if constexpr (CastUtil::IsBaseCastFromType<FromDataType> ||
                       IsTimeStampTzType<FromDataType> ||
                       std::is_same_v<FromDataType, DataTypeTimeStampNs>) {
-            if (context->enable_strict_mode()) {
+            if (options.strict_mode) {
                 cast_to_timestamptz = std::make_shared<
                         CastToImpl<CastModeType::StrictMode, FromDataType, DataTypeTimeStampTz>>();
             } else {
@@ -47,11 +47,10 @@ WrapperType create_timestamptz_wrapper(FunctionContext* context, const DataTypeP
                 fmt::format("CAST AS timestamptz not supported {}", from_type->get_name()));
     }
 
-    return [cast_to_timestamptz](FunctionContext* context, Block& block,
-                                 const ColumnNumbers& arguments, uint32_t result,
-                                 size_t input_rows_count,
+    return [cast_to_timestamptz](RuntimeState* state, const ColumnWithTypeAndName& source_column,
+                                 ColumnWithTypeAndName& target_column, size_t input_rows_count,
                                  const NullMap::value_type* null_map = nullptr) {
-        return cast_to_timestamptz->execute_impl(context, block, arguments, result,
+        return cast_to_timestamptz->execute_impl(state, source_column, target_column,
                                                  input_rows_count, null_map);
     };
 }

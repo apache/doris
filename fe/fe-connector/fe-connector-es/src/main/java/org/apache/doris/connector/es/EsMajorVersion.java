@@ -32,7 +32,8 @@ public class EsMajorVersion {
     public static final EsMajorVersion V_6_X = new EsMajorVersion((byte) 6, "6.x");
     public static final EsMajorVersion V_7_X = new EsMajorVersion((byte) 7, "7.x");
     public static final EsMajorVersion V_8_X = new EsMajorVersion((byte) 8, "8.x");
-    public static final EsMajorVersion LATEST = V_8_X;
+    public static final EsMajorVersion V_9_X = new EsMajorVersion((byte) 9, "9.x");
+    public static final EsMajorVersion LATEST = V_9_X;
 
     public final byte major;
     private final String version;
@@ -87,6 +88,11 @@ public class EsMajorVersion {
         }
         if (version.startsWith("8.")) {
             return new EsMajorVersion((byte) 8, version);
+        }
+        // Node discovery parses every node during rolling upgrades; ES 9 uses the same typeless
+        // mapping and HTTP scan APIs as ES 8. Keep future, unverified majors explicitly rejected.
+        if (version.startsWith("9.")) {
+            return new EsMajorVersion((byte) 9, version);
         }
         throw new DorisConnectorException(
                 "Unsupported/Unknown ES Cluster version [" + version + "]. "

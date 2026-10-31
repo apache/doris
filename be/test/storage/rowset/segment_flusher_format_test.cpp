@@ -71,6 +71,7 @@
 #include "storage/index/index_compound_reader.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
+#include "storage/index/index_writer.h"
 #include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/index/primary_key_index.h"
@@ -3353,6 +3354,72 @@ protected:
     std::string _saved_storage_root_path;
     std::string _storage_root_path;
 };
+
+TEST_F(SegmentFlusherTransformFormatTest, HorizontalCompactionSealsIndexesAfterPostingsAreWritten) {
+    const auto saved_searcher_cache = config::enable_write_index_searcher_cache;
+    Defer restore_cache([&] { config::enable_write_index_searcher_cache = saved_searcher_cache; });
+    // Verify the physical files even when cache population cannot expose a missing index.
+    config::enable_write_index_searcher_cache = false;
+    for (auto format : {InvertedIndexStorageFormatPB::V1, InvertedIndexStorageFormatPB::V2,
+                        InvertedIndexStorageFormatPB::V3}) {
+        SCOPED_TRACE(format);
+        auto schema = create_external_inverted_index_schema(format, false);
+        auto block_result = create_external_inverted_index_block(schema, 0);
+        ASSERT_TRUE(block_result.has_value()) << block_result.error();
+        auto block = std::move(block_result).value();
+        RowsetWriterContext context;
+        context.rowset_id.init(90000 + format);
+        context.tablet_id = 10001;
+        context.tablet_schema = schema;
+        context.tablet_path = _storage_root_path;
+        context.rowset_state = VISIBLE;
+        context.segments_overlap = NONOVERLAPPING;
+        context.version = {0, 3};
+        context.write_type = DataWriteType::TYPE_COMPACTION;
+        context.compaction_type = ReaderType::READER_FULL_COMPACTION;
+        context.columns_to_do_index_compaction.insert(1);
+        auto writer_result = RowsetFactory::create_rowset_writer(*_engine, context, false);
+        ASSERT_TRUE(writer_result.has_value()) << writer_result.error();
+        auto writer = std::move(writer_result).value();
+        ASSERT_TRUE(writer->add_block(&block).ok());
+        ASSERT_TRUE(writer->flush().ok());
+
+        auto* beta_writer = static_cast<BaseBetaRowsetWriter*>(writer.get());
+        ASSERT_EQ(beta_writer->index_file_writers().size(), 1);
+        auto* index_file_writer = beta_writer->index_file_writers().at(0).get();
+        EXPECT_FALSE(index_file_writer->_closed);
+        const auto* index_meta = schema->inverted_indexes().front();
+        std::unique_ptr<segment_v2::IndexColumnWriter> index_writer;
+        ASSERT_TRUE(segment_v2::IndexColumnWriter::create(&schema->column(1), &index_writer,
+                                                          index_file_writer, index_meta)
+                            .ok());
+        // Like index compaction, supply the postings only after the data segment has flushed.
+        const auto& values = assert_cast<const ColumnString&>(*block.get_by_position(1).column);
+        for (size_t row = 0; row < block.rows(); ++row) {
+            auto value = values.get_data_at(row);
+            Slice slice(value.data, value.size);
+            ASSERT_TRUE(index_writer->add_values(reinterpret_cast<const uint8_t*>(&slice), 1).ok());
+        }
+        ASSERT_TRUE(index_writer->finish().ok());
+        RowsetSharedPtr rowset;
+        auto status = writer->build(rowset);
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_EQ(rowset->num_rows(), block.rows());
+        auto prefix = std::string(segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(
+                context.segment_path(0)));
+        status = verify_external_inverted_index_contents(prefix, format, schema, 0);
+        ASSERT_TRUE(status.ok()) << status;
+        auto path =
+                format == InvertedIndexStorageFormatPB::V1
+                        ? segment_v2::InvertedIndexDescriptor::get_index_file_path_v1(
+                                  prefix, index_meta->index_id(), index_meta->get_index_suffix())
+                        : segment_v2::InvertedIndexDescriptor::get_index_file_path_v2(prefix);
+        int64_t index_size = 0;
+        ASSERT_TRUE(io::global_local_filesystem()->file_size(path, &index_size).ok());
+        EXPECT_GT(index_size, 0);
+        EXPECT_EQ(rowset->index_disk_size(), index_size);
+    }
+}
 
 TEST_F(SegmentFlusherTransformFormatTest,
        ChangelogWritesNotNullComplexColumnsToNullableAfterColumns) {

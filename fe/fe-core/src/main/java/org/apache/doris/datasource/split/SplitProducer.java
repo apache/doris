@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.split;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.connector.spi.ConnectorTaskScheduler;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -33,14 +34,23 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.function.LongSupplier;
 
 /**
- * Serially advances one producer batch per task, yielding the shared executor when a BE queue is
- * full. Each producer retains at most one assigned batch and resumes when a consumer frees space.
+ * Serially advances bounded batches per task, yielding for fairness or queue backpressure.
+ * A running worker owns source closure. For an idle/queued producer, close claims ownership under
+ * scheduleLock and dispatches cleanup separately; a stale queued run then does nothing. Neither
+ * plugin code nor assignment callbacks run under scheduleLock.
  */
 public class SplitProducer implements Runnable, Closeable {
     private static final Logger LOG = LogManager.getLogger(SplitProducer.class);
+
+    // Bound cached batches and remote listing work so other queries can run.
+    static final int MAX_BATCHES_PER_TASK = 16;
+    static final long MAX_TASK_NANOS = TimeUnit.MILLISECONDS.toNanos(1);
 
     public interface BatchSource extends Closeable {
         List<Split> getNextBatch() throws Exception;
@@ -50,88 +60,176 @@ public class SplitProducer implements Runnable, Closeable {
         }
     }
 
+    private enum State {
+        IDLE, QUEUED, RUNNING, CLOSING, CLOSED
+    }
+
     private final SplitAssignment assignment;
     private final Executor executor;
-    private final BatchSource source;
-    private final Consumer<Exception> completion;
+    private final Executor cleanupExecutor;
+    private final LongSupplier nanoTime;
+    private BatchSource source;
+    private Consumer<Exception> completion;
     private final Runnable resume = this::schedule;
+    private final Runnable retryAdmission = this::submit;
     private final Object scheduleLock = new Object();
-    private boolean scheduled;
+    private State state = State.IDLE;
     private boolean wakeupRequested;
-    private boolean completed;
+    private boolean registered;
     private volatile boolean cancelled;
     private Iterator<Map.Entry<Backend, Collection<Split>>> pending = Collections.emptyIterator();
     private Backend pendingBackend;
-    private Collection<TScanRangeLocations> pendingRanges;
+    private List<TScanRangeLocations> pendingRanges;
+    private int pendingRangeOffset;
 
     public SplitProducer(SplitAssignment assignment, Executor executor, BatchSource source,
             Consumer<Exception> completion) {
+        this(assignment, executor, source, completion, SplitTaskCleanup.executor());
+    }
+
+    SplitProducer(SplitAssignment assignment, Executor executor, BatchSource source,
+            Consumer<Exception> completion, Executor cleanupExecutor) {
+        this(assignment, executor, source, completion, cleanupExecutor, System::nanoTime);
+    }
+
+    SplitProducer(SplitAssignment assignment, Executor executor, BatchSource source,
+            Consumer<Exception> completion, LongSupplier nanoTime) {
+        this(assignment, executor, source, completion, SplitTaskCleanup.executor(), nanoTime);
+    }
+
+    SplitProducer(SplitAssignment assignment, Executor executor, BatchSource source,
+            Consumer<Exception> completion, Executor cleanupExecutor, LongSupplier nanoTime) {
+        this.nanoTime = nanoTime;
         this.assignment = assignment;
         this.executor = executor;
         this.source = source;
         this.completion = completion;
+        this.cleanupExecutor = cleanupExecutor;
     }
 
     public void start() {
-        assignment.addCloseable(this);
-        schedule();
+        synchronized (scheduleLock) {
+            registered = assignment.addProducer(this);
+        }
+        if (registered) {
+            schedule();
+        } else {
+            close();
+        }
     }
 
     private void schedule() {
         synchronized (scheduleLock) {
-            if (completed) {
+            if (state == State.CLOSING || state == State.CLOSED) {
                 return;
             }
             wakeupRequested = true;
-            if (scheduled) {
+            if (state != State.IDLE) {
                 return;
             }
-            scheduled = true;
+            state = State.QUEUED;
         }
         submit();
     }
 
     private void submit() {
+        submit(false);
+    }
+
+    private void submit(boolean continuation) {
         try {
-            executor.execute(this);
+            if (executor instanceof ConnectorTaskScheduler) {
+                ConnectorTaskScheduler scheduler = (ConnectorTaskScheduler) executor;
+                if (continuation) {
+                    scheduler.tryExecuteContinuation(this, this::admissionFailed, retryAdmission);
+                } else {
+                    scheduler.tryExecute(this, this::admissionFailed, retryAdmission);
+                }
+            } else {
+                executor.execute(this);
+            }
+            // Cancellation may precede admission. Remove either a queued entry or its capacity callback.
+            if (cancelled) {
+                removeAdmission();
+            }
         } catch (RuntimeException e) {
-            complete(cancelled || !assignment.needMoreSplit() ? null : e);
+            admissionFailed(e);
+        }
+    }
+
+    private void admissionFailed(Throwable failure) {
+        synchronized (scheduleLock) {
+            if (state != State.QUEUED) {
+                return;
+            }
+            state = State.CLOSING;
+        }
+        UserException error = publishFailure(failure);
+        cleanupExecutor.execute(() -> finish(error));
+    }
+
+    private void removeAdmission() {
+        if (executor instanceof ConnectorTaskScheduler) {
+            ConnectorTaskScheduler scheduler = (ConnectorTaskScheduler) executor;
+            scheduler.removeSpaceListener(retryAdmission);
+            scheduler.remove(this);
+        } else if (executor instanceof ThreadPoolExecutor) {
+            ((ThreadPoolExecutor) executor).remove(this);
         }
     }
 
     @Override
     public void run() {
         synchronized (scheduleLock) {
+            if (state != State.QUEUED) {
+                return;
+            }
+            state = State.RUNNING;
             wakeupRequested = false;
         }
         boolean more = false;
+        boolean exhausted = false;
+        Throwable failure = null;
         try {
-            more = produceBatch();
-        } catch (Exception e) {
-            complete(e);
-        }
-        synchronized (scheduleLock) {
-            if (completed || (!more && !wakeupRequested)) {
-                scheduled = false;
-                return;
+            long start = nanoTime.getAsLong();
+            for (int batches = 0; batches < MAX_BATCHES_PER_TASK; batches++) {
+                if (cancelled || !assignment.needMoreSplit()) {
+                    break;
+                }
+                if (pendingRanges == null && !pending.hasNext()) {
+                    List<Split> batch = source.getNextBatch();
+                    if (batch.isEmpty()) {
+                        exhausted = true;
+                        break;
+                    }
+                    if (cancelled || !assignment.needMoreSplit()) {
+                        break;
+                    }
+                    pending = assignment.assignBatch(batch).asMap().entrySet().iterator();
+                }
+                more = offerPending();
+                if (!more || nanoTime.getAsLong() - start >= MAX_TASK_NANOS) {
+                    break;
+                }
             }
+        } catch (Throwable e) {
+            failure = e;
         }
-        submit();
+        boolean closing;
+        boolean resubmit;
+        synchronized (scheduleLock) {
+            closing = cancelled || !assignment.needMoreSplit() || exhausted || failure != null;
+            resubmit = !closing && (more || wakeupRequested);
+            state = closing ? State.CLOSING : resubmit ? State.QUEUED : State.IDLE;
+        }
+        if (closing) {
+            finish(publishFailure(failure));
+        } else if (resubmit) {
+            submit(true);
+        }
     }
 
-    private boolean produceBatch() throws Exception {
-        if (cancelled || !assignment.needMoreSplit()) {
-            complete(null);
-            return false;
-        }
-        if (pendingRanges == null && !pending.hasNext()) {
-            List<Split> batch = source.getNextBatch();
-            if (batch.isEmpty()) {
-                complete(null);
-                return false;
-            }
-            pending = assignment.assignBatch(batch).asMap().entrySet().iterator();
-        }
+    private boolean offerPending() throws UserException {
         while (!cancelled && assignment.needMoreSplit()) {
             if (pendingRanges == null) {
                 if (!pending.hasNext()) {
@@ -140,44 +238,75 @@ public class SplitProducer implements Runnable, Closeable {
                 Map.Entry<Backend, Collection<Split>> entry = pending.next();
                 pendingBackend = entry.getKey();
                 pendingRanges = assignment.createScanRanges(pendingBackend, entry.getValue());
+                pendingRangeOffset = 0;
             }
-            if (!assignment.offerBatch(pendingBackend, pendingRanges, resume)) {
-                if (cancelled || !assignment.needMoreSplit()) {
-                    complete(null);
-                }
+            int accepted = assignment.offerBatch(pendingBackend, pendingRanges, pendingRangeOffset, resume);
+            if (accepted == 0) {
                 return false;
             }
-            pendingRanges = null;
+            pendingRangeOffset += accepted;
+            if (pendingRangeOffset == pendingRanges.size()) {
+                pendingRanges = null;
+            }
         }
-        complete(null);
         return false;
     }
 
-    private void complete(Exception failure) {
-        synchronized (scheduleLock) {
-            if (completed) {
-                return;
-            }
-            completed = true;
+    private UserException publishFailure(Throwable failure) {
+        if (failure == null || cancelled || assignment.isStop()) {
+            return null;
         }
+        UserException error = new UserException(failure.getMessage(), failure);
+        // Wake the query and stop peers before potentially blocking source closure. Termination
+        // still completes only after close and the completion callback have both finished.
+        assignment.setException(error);
+        return error;
+    }
+
+    private void finish(Exception failure) {
+        removeAdmission();
         assignment.removeQueueSpaceListener(pendingBackend, resume);
-        assignment.removeCloseable(this);
+        pending = Collections.emptyIterator();
+        pendingRanges = null;
+        pendingBackend = null;
+        try {
+            source.close();
+        } catch (Throwable e) {
+            if (failure != null) {
+                failure.addSuppressed(e);
+            } else if (!cancelled && !assignment.isStop()) {
+                failure = publishFailure(e);
+            } else {
+                LOG.warn("Failed to close stopped split producer source", e);
+            }
+        } finally {
+            source = null;
+        }
         try {
             completion.accept(failure);
-        } catch (Exception e) {
+        } catch (Throwable e) {
             assignment.setException(new UserException(e.getMessage(), e));
         } finally {
-            try {
-                source.close();
-            } catch (Exception e) {
-                LOG.warn("Failed to close split producer source", e);
+            completion = null;
+            synchronized (scheduleLock) {
+                state = State.CLOSED;
+            }
+            if (registered) {
+                assignment.producerFinished(this);
             }
         }
     }
 
     @Override
     public void close() {
-        cancelled = true;
-        schedule();
+        synchronized (scheduleLock) {
+            cancelled = true;
+            if (state == State.RUNNING || state == State.CLOSING || state == State.CLOSED) {
+                return;
+            }
+            state = State.CLOSING;
+        }
+        removeAdmission();
+        cleanupExecutor.execute(() -> finish(null));
     }
 }

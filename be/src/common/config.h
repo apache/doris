@@ -1466,10 +1466,18 @@ DECLARE_mInt32(inverted_index_max_buffered_docs);
 // import CPU; see the DEFINEs in config.cpp).
 DECLARE_mInt32(snii_dict_block_zstd_level);
 DECLARE_mInt32(snii_prx_zstd_level);
+// A .prx window is stored zstd-compressed only if that frame is smaller than the PFOR one by at
+// least this percentage; 0 picks the smaller frame. Negative (the default) lets each index choose
+// within a size budget. Affects segments written from now on.
+DECLARE_mInt32(snii_prx_zstd_min_saving_percent);
 // Patch C: prx zstd level for DIRECT-LOAD segments only (default 3, cheaper
 // import); compaction rewrites at snii_prx_zstd_level so settled segments are
 // unaffected. Full contract at the DEFINE in config.cpp.
 DECLARE_mInt32(snii_prx_zstd_level_direct_load);
+// A SNII batch read of at most this many physical segments (and 256 KiB) is read on the calling
+// thread when the index file is on the local filesystem and recent small reads were fast, i.e. hit
+// the page cache. 0 always fans out to the buffered-reader prefetch pool.
+DECLARE_mInt32(snii_inline_read_max_segments);
 // G16-d: target SNII dict block size in bytes; 0 = format default (64 KiB).
 // Bigger blocks -> better per-block zstd on the dict region, larger cold
 // fetch+decompress unit per dict-block miss. Write side only.
@@ -1884,6 +1892,36 @@ DECLARE_mInt32(segment_file_cache_consume_rowids_batch_size);
 DECLARE_mBool(enable_query_segment_file_cache_prefetch);
 // Number of blocks to prefetch ahead in segment iterator for query
 DECLARE_mInt32(query_segment_file_cache_prefetch_block_size);
+// Enable exact range read-ahead for query data pages
+DECLARE_mBool(enable_query_read_ahead);
+// Opt-in interval/lifecycle diagnostics, buffered and written to separate JSONL files.
+DECLARE_mBool(enable_read_io_trace);
+DECLARE_String(read_io_trace_dir);
+DECLARE_Int64(read_io_trace_flush_bytes);
+DECLARE_Int32(read_io_trace_flush_interval_ms);
+// Query-level resident read-ahead buffer limit
+DECLARE_Int64(read_ahead_max_bytes_per_query);
+// BE-level resident read-ahead buffer limit
+DECLARE_Int64(read_ahead_max_bytes_per_be);
+// Per-column eager read-ahead byte window
+DECLARE_mInt64(read_ahead_eager_window_bytes);
+// Per-column lazy read-ahead byte window
+DECLARE_mInt64(read_ahead_lazy_window_bytes);
+// Foreground file-range coalescing and cache-block completion policy
+DECLARE_mInt64(read_ahead_max_gap_bytes);
+DECLARE_mInt64(read_ahead_max_range_bytes);
+DECLARE_mDouble(read_ahead_max_read_amplification_ratio);
+DECLARE_mDouble(read_ahead_block_fill_min_coverage);
+// Background completion policy and BE-wide resource limits for partial File Cache blocks
+DECLARE_Int64(hole_fill_max_gap_bytes);
+DECLARE_Int64(hole_fill_max_range_bytes);
+DECLARE_Double(hole_fill_max_read_amplification_ratio);
+DECLARE_Int64(hole_fill_max_pending_bytes_per_be);
+DECLARE_mInt32(hole_fill_workers_per_be);
+// Pool threads for multi-range hole reads; single-range reads run on block workers.
+DECLARE_mInt32(hole_fill_remote_read_threads_per_be);
+// Minimum time queued partial blocks remain mergeable; applies to existing queued tasks.
+DECLARE_mInt32(hole_fill_merge_delay_ms);
 // Enable segment file cache block prefetch for compaction
 DECLARE_mBool(enable_compaction_segment_file_cache_prefetch);
 // Number of blocks to prefetch ahead in segment iterator for compaction

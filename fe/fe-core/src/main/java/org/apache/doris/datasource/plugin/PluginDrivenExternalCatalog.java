@@ -43,6 +43,7 @@ import org.apache.doris.connector.ConnectorSessionBuilder;
 import org.apache.doris.connector.ConnectorStatementScopeImpl;
 import org.apache.doris.connector.DefaultConnectorContext;
 import org.apache.doris.connector.DefaultConnectorValidationContext;
+import org.apache.doris.connector.cache.MetaCacheCleanup;
 import org.apache.doris.connector.ddl.CreateTableInfoToConnectorRequestConverter;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorCapability;
@@ -64,6 +65,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalFunctionRules;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
+import org.apache.doris.datasource.ExternalResourceReclaimer;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.connector.converter.ConnectorBranchTagConverter;
@@ -91,6 +93,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Arrays;
@@ -117,13 +120,13 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(PluginDrivenExternalCatalog.class);
 
     // Volatile for cross-thread visibility; all mutations happen under synchronized(this)
-    // via makeSureInitialized() → initLocalObjectsImpl(), or resetToUninitialized() → onClose().
+    // via makeSureInitialized() → initLocalObjectsImpl(), or resetToUninitialized() → detachResources().
     private transient volatile Connector connector;
 
     // The engine-owned context shared by the connector (and any sibling it builds via createSiblingConnector).
     // Held so the catalog can close the context's cached engine FileSystem (DefaultConnectorContext.getFileSystem)
     // on teardown -- connectors only borrow that FS and must not close it. Null until the real connector is built
-    // (the lightweight CatalogFactory context is not tracked here; its FS is never built).
+    // The CatalogFactory validation context is retained too, so its caches have the same ownership boundary.
     private transient volatile DefaultConnectorContext connectorContext;
 
     // The displayed engine name, resolved from the provider on first use (see getDisplayEngineName).
@@ -150,6 +153,12 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         this.connector = connector;
     }
 
+    public PluginDrivenExternalCatalog(long catalogId, String name, String resource,
+            Map<String, String> props, String comment, Connector connector, DefaultConnectorContext context) {
+        this(catalogId, name, resource, props, comment, connector);
+        this.connectorContext = context;
+    }
+
     @Override
     protected void initLocalObjectsImpl() {
         // Always (re-)create the connector so it gets the proper engine context,
@@ -166,16 +175,9 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
             // Close the old connector (e.g., the one injected by CatalogFactory during
             // checkWhenCreating) to release its connection pool and classloader reference.
             if (oldConnector != null && oldConnector != newConnector) {
-                try {
-                    oldConnector.close();
-                } catch (IOException e) {
-                    LOG.warn("Failed to close old connector during re-initialization "
-                            + "for catalog {}", name, e);
-                }
-                // ...and close the replaced context's cached engine FileSystem (never the live one).
-                if (oldContext != null && oldContext != connectorContext) {
-                    closeConnectorContextQuietly(oldContext);
-                }
+                DefaultConnectorContext contextToClose = oldContext != connectorContext ? oldContext : null;
+                ExternalResourceReclaimer.getInstance().submit("replaced connector for catalog " + id,
+                        detachedResourceCleanup(() -> { }, oldConnector, contextToClose, name));
             }
         }
         if (connector == null) {
@@ -222,8 +224,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         this.connectorContext = context;
         // The standalone entry point, same as CatalogFactory uses: this is the second door onto a catalog (the
         // lazy build after image deserialization), and both doors must agree on what may become a catalog.
-        return ConnectorFactory.createStandaloneCatalogConnector(
-                catalogType, catalogProperty.getProperties(), context);
+        return context.createCatalogConnector(catalogType, catalogProperty.getProperties());
     }
 
     @Override
@@ -515,8 +516,8 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
 
     /**
      * Handles catalog property updates. Delegates to the parent which resets
-     * caches, sets objectCreated=false, and calls onClose() to release the
-     * current connector. The next makeSureInitialized() call will trigger
+     * caches, sets objectCreated=false, and detaches the current connector
+     * for background cleanup. The next makeSureInitialized() call will trigger
      * initLocalObjectsImpl() which creates a new connector with the updated
      * properties and proper engine context (auth, etc.).
      *
@@ -1762,41 +1763,70 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         }
     }
 
-    private void closeConnectorContextQuietly(DefaultConnectorContext context) {
-        if (context == null) {
-            return;
-        }
-        try {
-            context.close();
-        } catch (Throwable e) {
-            LOG.warn("Failed to close connector context filesystem for catalog {}", name, e);
-        }
+    @Override
+    protected Runnable captureConnectorCacheRetirement() {
+        DefaultConnectorContext contextToRetire = connectorContext;
+        return contextToRetire == null ? () -> { } : contextToRetire::retireMetadataCaches;
     }
 
     @Override
-    protected void closeResources() {
-        try {
-            super.closeResources();
-        } catch (Throwable e) {
-            LOG.warn("Failed to close common resources for plugin-driven catalog {}", name, e);
-        }
-
-        // Detach every stage before invoking external code. A throwing connector must not remain reachable
-        // for another close attempt or prevent the connector-context stage from running.
+    protected Runnable detachResources() {
+        Runnable commonCleanup = super.detachResources();
         Connector connectorToClose = connector;
-        connector = null;
-        if (connectorToClose != null) {
-            try {
-                connectorToClose.close();
-            } catch (Throwable e) {
-                LOG.warn("Failed to close connector for catalog {}", name, e);
-            }
-        }
-        // Close the shared context's cached engine FileSystem AFTER the connector(s) release their borrowed
-        // reference to it. No-op when no FS was ever built (e.g. non-hive plugin catalogs never call
-        // getFileSystem()).
         DefaultConnectorContext contextToClose = connectorContext;
+        connector = null;
         connectorContext = null;
-        closeConnectorContextQuietly(contextToClose);
+        // Capture all stages together. A new runtime may be published before this action starts.
+        return detachedResourceCleanup(commonCleanup, connectorToClose, contextToClose, name);
+    }
+
+    private static Runnable detachedResourceCleanup(Runnable commonCleanup, Connector connectorToClose,
+            DefaultConnectorContext contextToClose, String catalogName) {
+        return () -> {
+            Throwable failure = null;
+            try {
+                commonCleanup.run();
+            } catch (Throwable e) {
+                failure = e;
+            }
+            if (connectorToClose != null) {
+                Thread thread = Thread.currentThread();
+                ClassLoader previous = thread.getContextClassLoader();
+                try {
+                    thread.setContextClassLoader(connectorToClose.getClass().getClassLoader());
+                    MetaCacheCleanup.runWithResourceReclaimer((description, child) -> child.run(), () -> {
+                        try {
+                            connectorToClose.close();
+                        } catch (IOException e) {
+                            throw new UncheckedIOException(e);
+                        }
+                    });
+                } catch (Throwable e) {
+                    if (failure == null) {
+                        failure = e;
+                    } else if (failure != e) {
+                        failure.addSuppressed(e);
+                    }
+                } finally {
+                    thread.setContextClassLoader(previous);
+                }
+            }
+            // The context owns the shared filesystem; close it after the connector releases its borrow.
+            if (contextToClose != null) {
+                try {
+                    contextToClose.close();
+                } catch (Throwable e) {
+                    if (failure == null) {
+                        failure = e;
+                    } else if (failure != e) {
+                        failure.addSuppressed(e);
+                    }
+                }
+            }
+            if (failure != null) {
+                throw new IllegalStateException("Failed to close detached resources for catalog " + catalogName,
+                        failure);
+            }
+        };
     }
 }

@@ -2209,6 +2209,15 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false)
     public static int max_external_cache_loader_thread_pool_size = 64;
 
+    @ConfField(description = "Workers for fair split production")
+    public static int external_scan_split_threads = 64;
+
+    @ConfField(description = "Workers for independent metadata tasks")
+    public static int external_scan_metadata_threads = 64;
+
+    @ConfField(description = "Maximum queued tasks per query in each external scan scheduler")
+    public static int external_scan_task_queue_capacity = 128;
+
     /**
      * Max cache num of external catalog's file
      * Decrease this value if FE's memory is small
@@ -2524,7 +2533,7 @@ public class Config extends ConfigBase {
      * This is to solve the case that user forgot the password.
      */
     @ConfField(mutable = false)
-    public static boolean skip_localhost_auth_check  = true;
+    public static boolean skip_localhost_auth_check = false;
 
     @ConfField(mutable = true)
     public static boolean enable_round_robin_create_tablet = true;

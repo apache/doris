@@ -47,6 +47,16 @@ public class ScopedMetaCacheConcurrencyTest {
     private static final ScopePath PARTITION = ScopePath.partition("db", "tbl", "p=1");
 
     @Test
+    public void requestOwnedLoadsCannotEscapeIntoAutomaticRefresh() {
+        try (ScopedMetaCacheRegistry registry = new ScopedMetaCacheRegistry()) {
+            ScopedMetaCache<String, String> cache = registry.createCacheWithRefresh(
+                    "test", ENABLED, Duration.ofNanos(1L), Runnable::run, () -> { });
+            Assertions.assertThrows(IllegalStateException.class,
+                    () -> cache.getForLoadScope("key", TABLE, new Object(), ignored -> "value"));
+        }
+    }
+
+    @Test
     public void maintenanceRemovalRunsAfterCaffeineReleasesItsLock() throws Exception {
         for (String operation : new String[] {"cleanup", "read", "iterate", "close"}) {
             AtomicLong ticker = new AtomicLong();

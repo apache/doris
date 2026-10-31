@@ -418,10 +418,9 @@ Status CluceneTextIndexReader::_run_leaf(const IndexQueryContextPtr& context,
                                          const logical::Node& leaf,
                                          const roaring::Roaring* candidates, bool scoring,
                                          std::shared_ptr<roaring::Roaring>* out) {
-    const bool publish_scores = scoring && leaf.as<logical::Expand>() == nullptr;
     auto result = std::make_shared<roaring::Roaring>();
     RETURN_IF_ERROR(run_clucene_leaf(context, StringUtil::string_to_wstring(column_name), leaf,
-                                     candidates, publish_scores,
+                                     candidates, scoring,
                                      static_cast<CluceneOpenedIndex&>(index).searcher, result));
     result->runOptimize();
     *out = std::move(result);

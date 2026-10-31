@@ -37,12 +37,15 @@
 #include "format_v2/column_mapper.h"
 #include "format_v2/materialized_reader_util.h"
 #include "io/file_factory.h"
+#include "io/fs/buffered_reader.h"
 #include "io/fs/tracing_file_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/file_scan_profile.h"
 #include "runtime/runtime_state.h"
 #include "util/decompressor.h"
+#include "util/defer_op.h"
 #include "util/string_util.h"
+#include "util/utf8_check.h"
 
 namespace doris::format {
 namespace {
@@ -190,11 +193,21 @@ void DelimitedTextReader::_init_profile() {
     _text_profile.create_line_reader_time =
             ADD_CHILD_TIMER_WITH_LEVEL(_profile, "CreateLineReaderTime", DELIMITED_TEXT_PROFILE, 1);
     _text_profile.read_line_time =
-            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "ReadLineTime", DELIMITED_TEXT_PROFILE, 1);
+            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "SampledReadLineTime", DELIMITED_TEXT_PROFILE, 1);
     _text_profile.split_line_time =
-            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "SplitLineTime", DELIMITED_TEXT_PROFILE, 1);
-    _text_profile.deserialize_time =
-            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DeserializeTime", DELIMITED_TEXT_PROFILE, 1);
+            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "SampledSplitLineTime", DELIMITED_TEXT_PROFILE, 1);
+    _text_profile.deserialize_time = ADD_CHILD_TIMER_WITH_LEVEL(_profile, "SampledDeserializeTime",
+                                                                DELIMITED_TEXT_PROFILE, 1);
+    _text_profile.split_prefix_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "SplitPrefixTime", DELIMITED_TEXT_PROFILE, 1);
+    _text_profile.sampled_read_line_calls = ADD_CHILD_COUNTER_WITH_LEVEL(
+            _profile, "SampledReadLineCalls", TUnit::UNIT, DELIMITED_TEXT_PROFILE, 1);
+    _text_profile.sampled_parsed_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
+            _profile, "SampledParsedRows", TUnit::UNIT, DELIMITED_TEXT_PROFILE, 1);
+    _profile->add_info_string(
+            "DelimitedTextTiming",
+            "Stage timers are unscaled samples of every 1024th read_line call "
+            "(starting with the first); DelimitedTextReader is full elapsed time");
     _text_profile.conjunct_filter_time =
             ADD_CHILD_TIMER_WITH_LEVEL(_profile, "ConjunctFilterTime", DELIMITED_TEXT_PROFILE, 1);
     _text_profile.delete_conjunct_filter_time = ADD_CHILD_TIMER_WITH_LEVEL(
@@ -242,7 +255,7 @@ Status DelimitedTextReader::init(RuntimeState* state) {
     // each physical file slot maps to a field ordinal in the text row. The local id exposed in the
     // file schema is therefore the text-field ordinal, not the slot vector position.
     _source_column_idxs.clear();
-    if (_scan_params->__isset.column_idxs && !_scan_params->column_idxs.empty()) {
+    if (!_schema_only && _scan_params->__isset.column_idxs && !_scan_params->column_idxs.empty()) {
         if (_scan_params->column_idxs.size() != _source_file_slot_descs.size()) {
             return Status::InvalidArgument(
                     "{} v2 reader column_idxs size {} does not match file slot size {}",
@@ -281,6 +294,50 @@ Status DelimitedTextReader::init(RuntimeState* state) {
     return Status::OK();
 }
 
+Status DelimitedTextReader::infer_schema(RuntimeState* state,
+                                         std::vector<ColumnDefinition>* schema) {
+    Defer profile_flush {[this] { _flush_profile(); }};
+    _schema_only = true;
+    RETURN_IF_ERROR(init(state));
+    if (_file_description->range_start_offset != 0) {
+        return Status::InvalidArgument("Schema inference requires a zero start offset");
+    }
+    if (_scan_params->file_type == TFileType::FILE_BROKER) {
+        return Status::NotSupported("Delimited schema inference does not support broker load");
+    }
+    RETURN_IF_ERROR(_open_file());
+    RETURN_IF_ERROR(_create_decompressor());
+    RETURN_IF_ERROR(_create_line_reader());
+    // A header is the schema input, not a data record to skip. For example,
+    // csv_with_names must return "id,name" rather than the first row's values.
+    _skip_lines = 0;
+    Slice line;
+    bool eof = false;
+    RETURN_IF_ERROR(_read_next_line(&line, &eof));
+    const auto header = to_lower(_scan_params->file_attributes.header_type);
+    const bool has_names =
+            header == BeConsts::CSV_WITH_NAMES || header == BeConsts::CSV_WITH_NAMES_AND_TYPES;
+    if (eof || line.empty()) {
+        // Empty compressed files reach this same check after decompression. Preserve the
+        // schema RPC's existing diagnostics for callers such as the empty-LZOP TVF case.
+        return Status::InternalError("The first line is empty, can not parse column {}",
+                                     has_names ? "names" : "numbers");
+    }
+    // TEXT scans allow raw bytes, but schema RPCs must retain their UTF-8 validation contract
+    // (for example, a header containing 0xFF must fail unless validation is explicitly disabled).
+    if (!validate_utf8(*_scan_params, line.data, line.size)) {
+        return Status::InternalError("Only support csv data in utf8 codec");
+    }
+    _split_line(line);
+    schema->clear();
+    for (size_t i = 0; i < _split_values.size(); ++i) {
+        const auto name = has_names ? _split_values[i].to_string() : fmt::format("c{}", i + 1);
+        schema->push_back(synthetic_file_child(
+                name, make_nullable(std::make_shared<DataTypeString>()), cast_set<int32_t>(i)));
+    }
+    return Status::OK();
+}
+
 Status DelimitedTextReader::get_schema(std::vector<ColumnDefinition>* file_schema) const {
     SCOPED_TIMER(_text_profile.total_time);
     if (file_schema == nullptr) {
@@ -315,8 +372,13 @@ Status DelimitedTextReader::open(std::shared_ptr<FileScanRequest> request) {
     return Status::OK();
 }
 
+void DelimitedTextReader::set_batch_size(size_t batch_size) {
+    _batch_size = std::max(size_t {1}, batch_size);
+}
+
 Status DelimitedTextReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     SCOPED_TIMER(_text_profile.total_time);
+    Defer profile_flush {[this] { _flush_profile(); }};
     DORIS_CHECK(file_block != nullptr);
     DORIS_CHECK(rows != nullptr);
     DORIS_CHECK(eof != nullptr);
@@ -324,7 +386,9 @@ Status DelimitedTextReader::get_block(Block* file_block, size_t* rows, bool* eof
         return Status::InternalError("{} v2 reader is not open", _reader_name);
     }
 
-    const auto batch_size = _runtime_state != nullptr ? _runtime_state->batch_size() : 4096;
+    const size_t batch_size =
+            _batch_size != 0 ? _batch_size
+                             : (_runtime_state != nullptr ? _runtime_state->batch_size() : 4096);
     const auto max_block_bytes = _runtime_state != nullptr
                                          ? _runtime_state->preferred_block_size_bytes()
                                          : std::numeric_limits<size_t>::max();
@@ -334,6 +398,7 @@ Status DelimitedTextReader::get_block(Block* file_block, size_t* rows, bool* eof
     {
         auto columns_guard = file_block->mutate_columns_scoped();
         auto& columns = columns_guard.mutable_columns();
+        _prepare_columns(columns, batch_size);
         // Delimited text readers are column-pruned but not lazy materialized: all file-local
         // columns requested by TableReader are decoded before file-local conjuncts are evaluated.
         while (*rows < batch_size && !_line_reader_eof &&
@@ -392,6 +457,7 @@ Status DelimitedTextReader::get_block(Block* file_block, size_t* rows, bool* eof
 Status DelimitedTextReader::get_aggregate_result(const FileAggregateRequest& request,
                                                  FileAggregateResult* result) {
     SCOPED_TIMER(_text_profile.total_time);
+    Defer profile_flush {[this] { _flush_profile(); }};
     DORIS_CHECK(result != nullptr);
     if (request.agg_type != TPushAggOp::type::COUNT) {
         return Status::NotSupported("{} v2 reader only supports COUNT aggregate pushdown",
@@ -416,7 +482,7 @@ Status DelimitedTextReader::get_aggregate_result(const FileAggregateRequest& req
             break;
         }
         if (line.size == 0) {
-            update_counter(_text_profile.empty_lines_read, 1);
+            ++_pending_profile.empty_lines_read;
             if (_empty_line_as_record() ||
                 (_runtime_state != nullptr && _runtime_state->is_read_csv_empty_line_as_null())) {
                 ++count;
@@ -442,6 +508,13 @@ Status DelimitedTextReader::close() {
         _line_reader.reset();
     }
     _decompressor.reset();
+    // Stream pipes are shared with the load context; preserve their existing ownership and
+    // cancellation behavior. Only filesystem readers enter the sequential prefetch path.
+    if (_file_reader != nullptr && _scan_params->file_type != TFileType::FILE_STREAM) {
+        // Drain prefetch workers before publishing their counters or releasing IOContext refs.
+        RETURN_IF_ERROR(_file_reader->close());
+        _file_reader->collect_profile_before_close();
+    }
     _file_reader.reset();
     _tracing_file_reader.reset();
     _requested_columns.clear();
@@ -556,13 +629,19 @@ Status DelimitedTextReader::_open_file() {
         // Stream load/http_stream data lives in NewLoadStreamMgr rather than a filesystem. The
         // generic FileFactory path only supports real file systems, so FILE_STREAM must use the
         // same pipe-reader lookup as the old CSV reader.
-        RETURN_IF_ERROR(FileFactory::create_pipe_reader(*_stream_load_id, &_file_reader,
-                                                        _runtime_state, /*need_schema=*/false));
+        RETURN_IF_ERROR(FileFactory::create_pipe_reader(
+                *_stream_load_id, &_file_reader, _runtime_state, /*need_schema=*/_schema_only));
     } else {
         auto reader_options = FileFactory::get_reader_options(_runtime_state->query_options(),
                                                               *_file_description);
-        auto file_reader = DORIS_TRY(FileFactory::create_file_reader(
-                *_system_properties, *_file_description, reader_options, _profile));
+        // Include the prefix used to align non-first splits. Unknown-size first splits read to
+        // EOF; PrefetchBufferedReader bounds this range by the opened file's physical size.
+        const auto prefetch_end = _size < 0 ? std::numeric_limits<size_t>::max()
+                                            : cast_set<size_t>(_start_offset + _size);
+        auto file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
+                _profile, *_system_properties, *_file_description, reader_options,
+                io::DelegateReader::AccessMode::SEQUENTIAL, _io_ctx,
+                io::PrefetchRange(_start_offset, prefetch_end)));
         _file_reader = _io_ctx && _io_ctx->file_reader_stats
                                ? std::make_shared<io::TracingFileReader>(std::move(file_reader),
                                                                          _io_ctx->file_reader_stats)
@@ -580,7 +659,7 @@ Status DelimitedTextReader::_read_next_line(Slice* line, bool* eof) {
     DORIS_CHECK(line != nullptr);
     DORIS_CHECK(eof != nullptr);
     if (_align_split_prefix) {
-        SCOPED_TIMER(_text_profile.read_line_time);
+        SCOPED_TIMER(_text_profile.split_prefix_time);
         DCHECK_EQ(_skip_lines, 1);
         size_t skipped_lines = 0;
         auto* text_reader = assert_cast<NewPlainTextLineReader*>(_line_reader.get());
@@ -590,13 +669,19 @@ Status DelimitedTextReader::_read_next_line(Slice* line, bool* eof) {
         _align_split_prefix = false;
         _skip_lines = 0;
         _bom_removed = true;
-        update_counter(_text_profile.skipped_lines, skipped_lines);
+        _pending_profile.skipped_lines += skipped_lines;
     }
     while (true) {
         const uint8_t* ptr = nullptr;
         size_t size = 0;
         {
-            SCOPED_TIMER(_text_profile.read_line_time);
+            _sample_current_line =
+                    _profile != nullptr && (_read_line_calls++ % PROFILE_SAMPLE_INTERVAL == 0);
+            std::optional<ScopedRawTimer<MonotonicStopWatch, int64_t>> timer;
+            if (_sample_current_line) {
+                ++_pending_profile.sampled_read_line_calls;
+                timer.emplace(&_pending_profile.read_line_time);
+            }
             RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx.get()));
         }
         if (_line_reader_eof && size == 0) {
@@ -612,12 +697,12 @@ Status DelimitedTextReader::_read_next_line(Slice* line, bool* eof) {
         if (_skip_lines > 0) {
             --_skip_lines;
             _bom_removed = true;
-            update_counter(_text_profile.skipped_lines, 1);
+            ++_pending_profile.skipped_lines;
             continue;
         }
         *line = Slice(ptr, size);
         *eof = false;
-        update_counter(_text_profile.raw_lines_read, 1);
+        ++_pending_profile.raw_lines_read;
         return Status::OK();
     }
 }
@@ -627,12 +712,12 @@ Status DelimitedTextReader::_fill_columns_from_line(const Slice& line,
                                                     size_t* rows) {
     DORIS_CHECK(columns != nullptr);
     if (line.size == 0) {
-        update_counter(_text_profile.empty_lines_read, 1);
+        ++_pending_profile.empty_lines_read;
         if (!_empty_line_as_record()) {
             if (_runtime_state != nullptr && _runtime_state->is_read_csv_empty_line_as_null()) {
                 for (const auto& column : _requested_columns) {
                     RETURN_IF_ERROR(_append_null((*columns)[column.block_position.value()].get()));
-                    update_counter(_text_profile.cells_deserialized, 1);
+                    ++_pending_profile.cells_deserialized;
                 }
                 ++(*rows);
             }
@@ -642,10 +727,17 @@ Status DelimitedTextReader::_fill_columns_from_line(const Slice& line,
     RETURN_IF_ERROR(_validate_line(line));
 
     {
-        SCOPED_TIMER(_text_profile.split_line_time);
+        std::optional<ScopedRawTimer<MonotonicStopWatch, int64_t>> timer;
+        if (_sample_current_line) {
+            ++_pending_profile.sampled_parsed_rows;
+            timer.emplace(&_pending_profile.split_line_time);
+        }
         _split_line(line);
     }
-    SCOPED_TIMER(_text_profile.deserialize_time);
+    std::optional<ScopedRawTimer<MonotonicStopWatch, int64_t>> timer;
+    if (_sample_current_line) {
+        timer.emplace(&_pending_profile.deserialize_time);
+    }
     if (_request->reject_invalid_rows) {
         const auto expected = cast_set<size_t>(_scan_params->num_of_columns_from_file);
         const bool ignore_extra = _scan_params->file_attributes.ignore_csv_redundant_col;
@@ -664,10 +756,29 @@ Status DelimitedTextReader::_fill_columns_from_line(const Slice& line,
                               ? _split_values[field_index]
                               : Slice(_options.null_format, _options.null_len);
         RETURN_IF_ERROR(_deserialize_one_cell(column, output, _normalize_value(value)));
-        update_counter(_text_profile.cells_deserialized, 1);
+        ++_pending_profile.cells_deserialized;
     }
     ++(*rows);
     return Status::OK();
+}
+
+void DelimitedTextReader::_flush_profile() {
+    update_counter(_text_profile.raw_lines_read, _pending_profile.raw_lines_read);
+    update_counter(_text_profile.empty_lines_read, _pending_profile.empty_lines_read);
+    update_counter(_text_profile.skipped_lines, _pending_profile.skipped_lines);
+    update_counter(_text_profile.cells_deserialized, _pending_profile.cells_deserialized);
+    update_counter(_text_profile.read_line_time, _pending_profile.read_line_time);
+    update_counter(_text_profile.split_line_time, _pending_profile.split_line_time);
+    update_counter(_text_profile.deserialize_time, _pending_profile.deserialize_time);
+    update_counter(_text_profile.sampled_read_line_calls, _pending_profile.sampled_read_line_calls);
+    update_counter(_text_profile.sampled_parsed_rows, _pending_profile.sampled_parsed_rows);
+    _pending_profile = {};
+}
+
+void DelimitedTextReader::_prepare_columns(std::vector<MutableColumnPtr>& columns,
+                                           size_t batch_size) {
+    (void)columns;
+    (void)batch_size;
 }
 
 Status DelimitedTextReader::_validate_line(const Slice& line) {

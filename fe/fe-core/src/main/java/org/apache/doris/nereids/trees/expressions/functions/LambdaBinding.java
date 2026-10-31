@@ -21,6 +21,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
 
 /** Mapping between SQL lambda parameters and the lambda arguments used during execution. */
@@ -29,4 +31,13 @@ public interface LambdaBinding {
     List<Slot> getAnalysisSlots();
 
     Lambda close(Expression analyzedBody);
+
+    /**
+     * Non-lambda inputs that the function still needs after binding. Higher-order functions drop
+     * their array inputs because the arrays live in the lambda argument references, but a scalar
+     * configuration argument (for example the ascending flag of array_sorted_merge) has to stay.
+     */
+    default List<Expression> getExtraInputs() {
+        return ImmutableList.of();
+    }
 }
