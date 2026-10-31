@@ -334,13 +334,7 @@ public final class SPMPlanTreeSupport {
         collectRowLimits(userPlan, allowed);
         Map<String, Integer> used = new HashMap<>();
         collectRowLimits(replayed, used);
-        for (Map.Entry<String, Integer> entry : used.entrySet()) {
-            Integer available = allowed.get(entry.getKey());
-            if (available == null || available < entry.getValue()) {
-                return false;
-            }
-        }
-        return true;
+        return containsEveryCap(allowed, used);
     }
 
     /**
@@ -363,9 +357,22 @@ public final class SPMPlanTreeSupport {
         collectRowLimits(userPlan, required);
         Map<String, Integer> exposed = new HashMap<>();
         collectRowLimits(replayed, exposed);
-        for (Map.Entry<String, Integer> entry : required.entrySet()) {
-            Integer present = exposed.get(entry.getKey());
-            if (present == null || present < entry.getValue()) {
+        return containsEveryCap(exposed, required);
+    }
+
+    /**
+     * Whether every cap of {@code used} is available in {@code available} with at least the same
+     * multiplicity (the multiset containment both cap checks are built on).
+     *
+     * @param available the caps the other side carries
+     * @param used      the caps that must be justified
+     * @return whether {@code used} is contained in {@code available}
+     */
+    private static boolean containsEveryCap(Map<String, Integer> available,
+            Map<String, Integer> used) {
+        for (Map.Entry<String, Integer> entry : used.entrySet()) {
+            Integer count = available.get(entry.getKey());
+            if (count == null || count < entry.getValue()) {
                 return false;
             }
         }

@@ -280,8 +280,23 @@ public class SPMPlanner {
                     continue;
                 }
                 LogicalPlan replay = SPMPlanTreeSupport.mergeLimits(alignedReplay, matchPlan);
-                if (!limitContractPreserved(replay, matchPlan, bindTree)
-                        || !SPMPlanTreeSupport.orderContractPreserved(replay, matchPlan)) {
+                // The cap contract keys every row cap by the OCCURRENCE of the relation it
+                // truncates, and the occurrence is the relation's ordinal in the tree's walk
+                // order. That ordinal is only stable when the caller's tree and the FROZEN plan
+                // render the occurrences in the same relative order - which the optimizer need
+                // not do: it may place a derived table on the OTHER side of a JOIN than the user
+                // wrote it (a derived-table TopN joined with the same table), and the very same
+                // cap then keys as t#0 on one side and t#1 on the other. For a caller that runs
+                // the statement the frozen plan was BUILT FROM (its canonical plan digest equals
+                // the baseline's planSqlDigest) the cap contract cannot prove anything the text
+                // identity does not already prove, so the replay is kept; any other caller - a
+                // value variant, whose digest matches but whose placement could genuinely differ -
+                // still has to satisfy it (see SPMRound40SafetyTest).
+                boolean sameFrozenStatement = candidate.getPlanSqlDigest() != null
+                        && candidate.getPlanSqlDigest().equals(queryDigest);
+                if (!SPMPlanTreeSupport.orderContractPreserved(replay, matchPlan)
+                        || (!sameFrozenStatement
+                                && !limitContractPreserved(replay, matchPlan, bindTree))) {
                     LOG.info("SPM tryRewritePlan: baseline {} skipped: its plan cannot carry"
                                     + " the caller's LIMIT / OFFSET / ORDER BY contract"
                                     + " (caller {}, replayed {}, replayedCapsWithinCaller={},"

@@ -109,8 +109,8 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
                         auditEvent.shuffleSendRows = queryStats.shuffle_send_rows;
                         auditEvent.spillWriteBytesToLocalStorage = queryStats.spill_write_bytes_to_local_storage;
                         auditEvent.spillReadBytesFromLocalStorage = queryStats.spill_read_bytes_from_local_storage;
-                    auditEvent.spillWriteBytesToRemoteStorage = queryStats.spill_write_bytes_to_remote_storage;
-                    auditEvent.spillReadBytesFromRemoteStorage = queryStats.spill_read_bytes_from_remote_storage;
+                        auditEvent.spillWriteBytesToRemoteStorage = queryStats.spill_write_bytes_to_remote_storage;
+                        auditEvent.spillReadBytesFromRemoteStorage = queryStats.spill_read_bytes_from_remote_storage;
                     }
                     ret = Env.getCurrentAuditEventProcessor().handleAuditEvent(auditEvent);
                 } finally {
@@ -118,7 +118,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
                     // accepted the event (the processor's own fence covers it from the
                     // enqueue) or discarded it (it will never be published): until then
                     // the event is this manager's responsibility, so it keeps fencing
-
+                    // progress.
                     releaseInFlightAuditEvent(auditEvent);
                 }
                 if (!ret) {
