@@ -237,13 +237,34 @@ public:
     void set_bad(bool is_bad) { _is_bad = is_bad; }
 
     int64_t last_cumu_compaction_failure_time() { return _last_cumu_compaction_failure_millis; }
+    // Timestamp-only update; also used by paths that must not grow the failure streak
+    // (the thread-pool-busy delay in olap_server, or the Defer in CumulativeCompaction
+    // whose failure is also reported by Tablet::execute_compaction). A zero value is
+    // written on success and resets the streak, so the backoff in
+    // should_skip_compaction() starts over from the base delay.
     void set_last_cumu_compaction_failure_time(int64_t millis) {
         _last_cumu_compaction_failure_millis = millis;
+        if (millis == 0) {
+            _cumu_compaction_consecutive_failures = 0;
+        }
+    }
+    // Records one cumu compaction failure event: bumps the timestamp and grows the
+    // consecutive failure streak exactly once per event.
+    void note_cumu_compaction_failure(int64_t millis) {
+        _last_cumu_compaction_failure_millis = millis;
+        ++_cumu_compaction_consecutive_failures;
     }
 
     int64_t last_base_compaction_failure_time() { return _last_base_compaction_failure_millis; }
     void set_last_base_compaction_failure_time(int64_t millis) {
         _last_base_compaction_failure_millis = millis;
+        if (millis == 0) {
+            _base_compaction_consecutive_failures = 0;
+        }
+    }
+    void note_base_compaction_failure(int64_t millis) {
+        _last_base_compaction_failure_millis = millis;
+        ++_base_compaction_consecutive_failures;
     }
 
     int64_t last_full_compaction_failure_time() { return _last_full_compaction_failure_millis; }
@@ -597,6 +618,10 @@ private:
     std::atomic<int64_t> _last_base_compaction_failure_millis;
     // timestamp of last full compaction failure
     std::atomic<int64_t> _last_full_compaction_failure_millis;
+    // consecutive compaction failure streaks, drive the exponential backoff in
+    // should_skip_compaction(); reset to 0 when the failure time is cleared on success
+    std::atomic<int32_t> _cumu_compaction_consecutive_failures {0};
+    std::atomic<int32_t> _base_compaction_consecutive_failures {0};
     // timestamp of last cumu compaction success
     std::atomic<int64_t> _last_cumu_compaction_success_millis;
     // timestamp of last base compaction success

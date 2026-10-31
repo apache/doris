@@ -897,6 +897,11 @@ bool CompactionMixin::handle_ordered_data_compaction() {
 }
 
 Status CompactionMixin::execute_compact() {
+    // Inject a persistent compaction failure to exercise the failure backoff path,
+    // e.g. regression tests for issue #66299.
+    DBUG_EXECUTE_IF("Compaction.execute_compact.force_failure",
+                    { return Status::InternalError("injected compaction failure"); });
+
     int64_t profile_start_time_ms = UnixMillis();
     uint32_t checksum_before;
     uint32_t checksum_after;

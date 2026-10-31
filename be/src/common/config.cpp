@@ -522,6 +522,10 @@ DEFINE_mInt64(base_compaction_dup_key_max_file_size_mbytes, "1024");
 
 DEFINE_Bool(enable_skip_tablet_compaction, "true");
 DEFINE_mInt32(skip_tablet_compaction_second, "10");
+// Max backoff between two compaction attempts of a consecutively failing tablet.
+// The backoff starts from tablet_sched_delay_time_ms and doubles on every
+// consecutive failure until it reaches this cap, unit is second.
+DEFINE_mInt32(compaction_failure_backoff_max_second, "300");
 
 // output rowset of cumulative compaction total disk size exceed this config size,
 // this rowset will be given to base compaction, unit is m byte.
