@@ -4,6 +4,17 @@ This guide contains the detailed checklists referenced by
 `be/src/format_v2/AGENTS.md`. Read the common checklist for every FileReader review, then apply the
 format-specific checklist when reviewing Parquet or ORC.
 
+## Retiring an Existing Reader
+
+- Compare supported inputs, results, errors, lifecycle, profile ownership and performance behavior
+  with the old caller chain. Check actual FE payloads, including omitted optional metadata, before
+  treating a failing synthetic request as a migration regression.
+- Inventory tests by the invariant they protect. Keep shared/operator and active V2 coverage even
+  when its fixture also contains obsolete routing tests or lives in a retired reader directory.
+- Keep unrelated cache-policy changes and other behavior improvements separate from retirement.
+  Restore the supported legacy contract at the responsible layer and test interactions with
+  shared state, such as both format initialization orders on one scanner profile.
+
 ## Common FileReader: Indexes and Predicate Filtering
 
 - Inventory the reader's actual pruning capabilities before evaluating a change: metadata or
@@ -313,8 +324,8 @@ format-specific checklist when reviewing Parquet or ORC.
   should filter encoded rows before expanding rejected strings, including with lazy materialization
   disabled. Reset match bits on every Stripe, preserve NULL semantics and pruning fences, and keep
   physical row positions distinct from compact predicate-column positions.
-- Verify warm ORC opens reuse serialized tails only for stable file identities. Filesystem identity,
-  version and size must participate in the key; mutable files without a version bypass the cache.
+- Verify warm ORC opens reuse serialized tails with the existing V1 `FileMetaCache` key policy,
+  and keep cached V2 metadata representations isolated from other payload types.
 - Review SARG cost for large IN lists, deep trees, many Runtime Filters, repeated literal conversion,
   Stripe-statistics reads, and SDK index initialization. Build once per reader/Split setup and keep
   expensive work out of batch loops.

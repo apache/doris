@@ -1172,10 +1172,12 @@ void OrcReader::_init_profile() {
             _profile, "DictionaryStripesFiltered", TUnit::UNIT, orc_profile, 1);
     _orc_profile.dictionary_values_evaluated = ADD_CHILD_COUNTER_WITH_LEVEL(
             _profile, "DictionaryValuesEvaluated", TUnit::UNIT, orc_profile, 1);
+    // Counter names are global to the scanner profile even when their parents differ. Keep ORC
+    // footer deltas separate from Parquet when both formats share the same scanner profile.
     _orc_profile.file_footer_read_calls = ADD_CHILD_COUNTER_WITH_LEVEL(
-            _profile, "FileFooterReadCalls", TUnit::UNIT, orc_profile, 1);
+            _profile, "OrcFileFooterReadCalls", TUnit::UNIT, orc_profile, 1);
     _orc_profile.file_footer_cache_hits = ADD_CHILD_COUNTER_WITH_LEVEL(
-            _profile, "FileFooterHitCache", TUnit::UNIT, orc_profile, 1);
+            _profile, "OrcFileFooterHitCache", TUnit::UNIT, orc_profile, 1);
     _orc_profile.reader_call =
             ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "ReaderCall", TUnit::UNIT, orc_profile, 1);
     _orc_profile.reader_inclusive_latency_us = ADD_CHILD_COUNTER_WITH_LEVEL(
@@ -1302,13 +1304,11 @@ Status OrcReader::init(RuntimeState* state) {
     options.setReaderMetrics(&_state->reader_metrics);
 
     auto* meta_cache = ExecEnv::GetInstance()->file_meta_cache();
-    auto cache_key = FileMetaCache::get_stable_key(
-            _file_description->fs_name, _file_reader->path().native(), _file_description->mtime,
-            _file_reader->mtime(), _file_description->file_size,
-            static_cast<int64_t>(_file_reader->size()), _file_description->is_immutable);
+    // Preserve the V1 identity policy, including its file-size fallback when mtime is absent.
+    auto cache_key = FileMetaCache::get_key(_file_reader, *_file_description);
     // The shared cache also contains Parquet objects and legacy ORC strings under other keys.
     // Keep serialized V2 tails in their own domain so a hit always has the expected value type.
-    const bool cache_enabled = !cache_key.empty() && meta_cache != nullptr && meta_cache->enabled();
+    const bool cache_enabled = meta_cache != nullptr && meta_cache->enabled();
     cache_key.append("\0orc-v2-tail", 12);
     ObjLRUCache::CacheHandle cache_handle;
     const bool cache_hit = cache_enabled && meta_cache->lookup(cache_key, &cache_handle);

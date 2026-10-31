@@ -129,8 +129,14 @@ std::string build_native_file_cache_key(std::string_view fs_name, std::string_vi
                                         int64_t description_mtime, int64_t reader_mtime,
                                         int64_t description_file_size, int64_t reader_file_size,
                                         bool is_immutable) {
-    return FileMetaCache::get_stable_key(fs_name, path, description_mtime, reader_mtime,
-                                         description_file_size, reader_file_size, is_immutable);
+    const int64_t mtime = description_mtime != 0 ? description_mtime : reader_mtime;
+    if (mtime == 0 && !is_immutable) {
+        // Unknown version is not a stable identity: an overwrite can preserve path and size while
+        // changing both footer semantics and page bytes.
+        return {};
+    }
+    const int64_t file_size = description_file_size >= 0 ? description_file_size : reader_file_size;
+    return fmt::format("{}::{}::mtime={}::size={}", fs_name, path, mtime, file_size);
 }
 
 bool is_serialized_index_range_safe(size_t file_size, int64_t offset, int64_t length) {

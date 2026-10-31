@@ -7181,6 +7181,31 @@ TEST_F(NewOrcReaderTest, ProfileKeepsPruningCountersBelowOrcReader) {
     EXPECT_TRUE(children.at("OrcReader").contains("OrcFilteredRowsByGroup"));
 }
 
+void expect_footer_counter_isolation(RuntimeProfile* profile, format::orc::OrcReader* orc_reader,
+                                     const format::parquet::ParquetProfile& parquet_profile) {
+    auto* orc_reads = orc_reader->_orc_profile.file_footer_read_calls;
+    auto* orc_hits = orc_reader->_orc_profile.file_footer_cache_hits;
+    EXPECT_NE(orc_reads, parquet_profile.file_footer_read_calls);
+    EXPECT_NE(orc_hits, parquet_profile.file_footer_hit_cache);
+    // A shared scanner profile must keep both formats' deltas regardless of registration order.
+    COUNTER_UPDATE(orc_reads, 3);
+    COUNTER_UPDATE(orc_hits, 5);
+    COUNTER_UPDATE(parquet_profile.file_footer_read_calls, 7);
+    COUNTER_UPDATE(parquet_profile.file_footer_hit_cache, 11);
+    EXPECT_EQ(orc_reads->value(), 3);
+    EXPECT_EQ(orc_hits->value(), 5);
+    EXPECT_EQ(parquet_profile.file_footer_read_calls->value(), 7);
+    EXPECT_EQ(parquet_profile.file_footer_hit_cache->value(), 11);
+    TRuntimeProfileTree tree;
+    profile->to_thrift(&tree, 3);
+    ASSERT_FALSE(tree.nodes.empty());
+    const auto& children = tree.nodes.front().child_counters_map;
+    EXPECT_TRUE(children.at("OrcReader").contains("OrcFileFooterReadCalls"));
+    EXPECT_TRUE(children.at("OrcReader").contains("OrcFileFooterHitCache"));
+    EXPECT_TRUE(children.at("ParquetReader").contains("FileFooterReadCalls"));
+    EXPECT_TRUE(children.at("ParquetReader").contains("FileFooterHitCache"));
+}
+
 TEST_F(NewOrcReaderTest, ProfileCountersStayIsolatedWhenParquetInitializesFirst) {
     RuntimeProfile profile("parquet_then_orc_profile");
     format::parquet::ParquetProfile parquet_profile;
@@ -7193,6 +7218,7 @@ TEST_F(NewOrcReaderTest, ProfileCountersStayIsolatedWhenParquetInitializesFirst)
     ASSERT_NE(profile.get_counter("RowGroupsFiltered"), nullptr);
     EXPECT_NE(profile.get_counter("OrcRowGroupsFiltered"),
               profile.get_counter("RowGroupsFiltered"));
+    expect_footer_counter_isolation(&profile, reader.get(), parquet_profile);
 }
 
 TEST_F(NewOrcReaderTest, ProfileCountersStayIsolatedWhenOrcInitializesFirst) {
@@ -7207,6 +7233,7 @@ TEST_F(NewOrcReaderTest, ProfileCountersStayIsolatedWhenOrcInitializesFirst) {
     ASSERT_NE(profile.get_counter("RowGroupsFiltered"), nullptr);
     EXPECT_NE(profile.get_counter("OrcRowGroupsFiltered"),
               profile.get_counter("RowGroupsFiltered"));
+    expect_footer_counter_isolation(&profile, reader.get(), parquet_profile);
 }
 
 TEST_F(NewOrcReaderTest, DisableOrcFilterByMinMaxKeepsRowGroupProfileZero) {
@@ -8027,7 +8054,7 @@ TEST_F(NewOrcReaderTest, SargVarcharCastToStringConjunctPrunesStripes) {
     EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 200);
 }
 
-TEST_F(NewOrcReaderTest, FooterCacheAvoidsWarmReadsAndSeparatesFileVersions) {
+TEST_F(NewOrcReaderTest, FooterCachePreservesLegacyFileIdentityAndAvoidsWarmReads) {
     FileMetaCache cache(1024);
     auto* env = ExecEnv::GetInstance();
     auto* previous = env->_file_meta_cache;
@@ -8041,38 +8068,33 @@ TEST_F(NewOrcReaderTest, FooterCacheAvoidsWarmReadsAndSeparatesFileVersions) {
     sp->set_call_back(
             "LocalFileReader::pread", [&](auto&&) { ++reads; }, &guard);
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
-    const auto open = [&](int64_t version, const std::string& fs_name, bool immutable = false) {
+    const auto open = [&](int64_t version) {
         reads = 0;
         RuntimeProfile profile("footer-cache");
         auto reader = create_reader(&profile);
         reader->_file_description->mtime = version;
-        reader->_file_description->fs_name = fs_name;
-        reader->_file_description->is_immutable = immutable;
         auto status = reader->init(&state);
         EXPECT_TRUE(status.ok()) << status;
         EXPECT_EQ(reader->get_total_rows(), ROW_COUNT);
         EXPECT_TRUE(reader->close().ok());
-        const auto read_calls = profile.get_counter("FileFooterReadCalls")->value();
-        const auto cache_hits = profile.get_counter("FileFooterHitCache")->value();
+        const auto read_calls = profile.get_counter("OrcFileFooterReadCalls")->value();
+        const auto cache_hits = profile.get_counter("OrcFileFooterHitCache")->value();
         EXPECT_TRUE(reader->close().ok());
-        EXPECT_EQ(profile.get_counter("FileFooterReadCalls")->value(), read_calls);
-        EXPECT_EQ(profile.get_counter("FileFooterHitCache")->value(), cache_hits);
+        EXPECT_EQ(profile.get_counter("OrcFileFooterReadCalls")->value(), read_calls);
+        EXPECT_EQ(profile.get_counter("OrcFileFooterHitCache")->value(), cache_hits);
         return reads;
     };
-    EXPECT_GT(open(1, "fs-one"), 0);
-    EXPECT_EQ(open(1, "fs-one"), 0);
-    EXPECT_GT(open(2, "fs-one"), 0);
-    EXPECT_EQ(open(2, "fs-one"), 0);
-    EXPECT_GT(open(2, "fs-two"), 0);
-    EXPECT_EQ(open(2, "fs-two"), 0);
-    EXPECT_GT(open(0, "mutable"), 0);
-    EXPECT_GT(open(0, "mutable"), 0);
-    EXPECT_GT(open(0, "immutable", true), 0);
-    EXPECT_EQ(open(0, "immutable", true), 0);
+    EXPECT_GT(open(1), 0);
+    EXPECT_EQ(open(1), 0);
+    EXPECT_GT(open(2), 0);
+    EXPECT_EQ(open(2), 0);
+    // V1 caches versionless files by path and size; migration preserves that existing behavior.
+    EXPECT_GT(open(0), 0);
+    EXPECT_EQ(open(0), 0);
     FileMetaCache disabled(0);
     env->_file_meta_cache = &disabled;
-    EXPECT_GT(open(1, "fs-one"), 0);
-    EXPECT_GT(open(1, "fs-one"), 0);
+    EXPECT_GT(open(1), 0);
+    EXPECT_GT(open(1), 0);
 }
 
 TEST_F(NewOrcReaderTest, DictionaryFiltersEncodedRowsBeforeExpandingLongStrings) {

@@ -17,23 +17,7 @@
 
 #include "io/fs/file_meta_cache.h"
 
-#include <fmt/format.h>
-
 namespace doris {
-
-std::string FileMetaCache::get_stable_key(std::string_view fs_name, std::string_view path,
-                                          int64_t description_mtime, int64_t reader_mtime,
-                                          int64_t description_file_size, int64_t reader_file_size,
-                                          bool is_immutable) {
-    const int64_t mtime = description_mtime != 0 ? description_mtime : reader_mtime;
-    // Mutable files can be overwritten without changing their size. An unknown version cannot
-    // safely identify cached footer semantics; immutable table-format files do not have that risk.
-    if (mtime == 0 && !is_immutable) {
-        return {};
-    }
-    const int64_t file_size = description_file_size >= 0 ? description_file_size : reader_file_size;
-    return fmt::format("{}::{}::mtime={}::size={}", fs_name, path, mtime, file_size);
-}
 
 std::string FileMetaCache::get_key(const std::string file_name, int64_t modification_time,
                                    int64_t file_size) {
