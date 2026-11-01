@@ -1824,6 +1824,8 @@ public abstract class RoutineLoadJob
         appendProperties(sb, JsonFileFormatProperties.PROP_JSON_ROOT, getJsonRoot(), false);
         appendProperties(sb, LoadCommand.STRICT_MODE, isStrictMode(), false);
         appendProperties(sb, LoadCommand.TIMEZONE, getTimezone(), false);
+        appendProperties(sb, CreateRoutineLoadInfo.SEND_BATCH_PARALLELISM, getSendBatchParallelism(), false);
+        appendProperties(sb, CreateRoutineLoadInfo.LOAD_TO_SINGLE_TABLET, isLoadToSingleTablet(), false);
         appendProperties(sb, LoadCommand.EXEC_MEM_LIMIT, getMemLimit(), true);
         sb.append(")\n");
         // 6. data_source
