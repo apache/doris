@@ -897,6 +897,26 @@ TEST(VGeoFunctionsTest, GeographyRejectsRoundedNonpointPolygonSideConversion) {
         expect_rounded_polygon_interior_error(name, polygon, line);
         expect_rounded_polygon_interior_error(name, line, polygon);
     }
+    // A nearby Polygon/Polygon pair is already safe: containment is false, while the
+    // nonpoint proximity fallback rejects the Boolean relation explicitly.
+    const std::string nearby_polygon =
+            "POLYGON ((6.999999999999999 10.2,6.999999999999998 10.2,"
+            "6.999999999999998 10.3,6.999999999999999 10.3,6.999999999999999 10.2))";
+    expect_geography_relation("st_contains", polygon, nearby_polygon, false);
+    expect_geography_relation("st_within", nearby_polygon, polygon, false);
+    for (const auto* name : {"st_intersects", "st_disjoint"}) {
+        for (const bool reverse : {false, true}) {
+            Block block;
+            const auto type = make_nullable(std::make_shared<DataTypeUInt8>());
+            const auto status =
+                    execute_geography_test(name,
+                                           {geography_test_hex(reverse ? nearby_polygon : polygon),
+                                            geography_test_hex(reverse ? polygon : nearby_polygon)},
+                                           type, &block);
+            EXPECT_FALSE(status.ok());
+            EXPECT_NE(status.to_string().find("ambiguous spherical"), std::string::npos) << status;
+        }
+    }
 }
 
 TEST(VGeoFunctionsTest, GeographyRejectsRoundedPointPolygonOwnership) {
