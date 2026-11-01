@@ -417,7 +417,13 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             long partRowCount = olapScan.getTable()
                     .getRowCountForPartitionIndex(id, olapScan.getSelectedIndexId(), true);
             if (partRowCount == -1) {
-                unknownPartitionCount++;
+                if (olapScan.getTable().isTemporaryPartition(id)) {
+                    // Normal partition statistics cannot estimate an unreported temporary partition.
+                    partRowCountSum += Math.max(1, olapScan.getTable()
+                            .getRowCountForPartitionIndex(id, olapScan.getSelectedIndexId(), false));
+                } else {
+                    unknownPartitionCount++;
+                }
             } else {
                 partRowCountSum += partRowCount;
             }
@@ -510,6 +516,19 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      */
     public Statistics computeOlapScan(OlapScan olapScan) {
         OlapTable olapTable = olapScan.getTable();
+        // BindRelation selects either normal or temporary partitions for the entire scan.
+        if (!olapScan.getSelectedPartitionIds().isEmpty()
+                && olapTable.isTemporaryPartition(olapScan.getSelectedPartitionIds().get(0))) {
+            double rowCount = getSelectedPartitionRowCount(olapScan, 0);
+            StatisticsBuilder builder = new StatisticsBuilder().setRowCount(rowCount);
+            // Table-level row counts and column statistics describe only normal partitions.
+            for (Slot slot : ((Plan) olapScan).getOutput()) {
+                builder.putColumnStatistics(slot,
+                        new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN, rowCount).build());
+            }
+            setHasUnknownColStatsInStatementContext();
+            return computeVirtualColumnStats(olapScan, builder.build());
+        }
         double tableRowCount = getOlapTableRowCount(olapScan);
         tableRowCount = Math.max(1, tableRowCount);
 

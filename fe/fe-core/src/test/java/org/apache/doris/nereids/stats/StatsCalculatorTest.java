@@ -29,6 +29,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
@@ -78,6 +79,8 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -281,6 +284,85 @@ public class StatsCalculatorTest {
             Assertions.assertEquals(4, result.count, 0.001);
             // the table level statistic covers the whole table, so numNulls is scaled: 3 * 4 / 12
             Assertions.assertEquals(1, result.numNulls, 0.001);
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"0, 1", "1, 1", "3, 1", "1, 2", "2, 2", "3, 2"})
+    public void testTemporaryPartitionScanUsesSelectedRowCounts(int normalPartitionCount, int temporaryPartitionCount) {
+        try (MockPartitionPrunedScan fixture = mockPartitionPrunedScan(false, newTableStatistic(1), null)) {
+            OlapTable table = fixture.scan.getTable();
+            Mockito.when(table.getPartitionNum()).thenReturn(normalPartitionCount);
+            Mockito.when(table.getRowCountForIndex(10L, true)).thenReturn(3L * normalPartitionCount);
+            List<Long> selectedPartitions = new ArrayList<>();
+            for (long id = 1; id <= temporaryPartitionCount; id++) {
+                selectedPartitions.add(id);
+                Mockito.when(table.isTemporaryPartition(id)).thenReturn(true);
+                Mockito.when(table.getRowCountForPartitionIndex(id, 10L, true)).thenReturn(5L);
+                Partition partition = Mockito.mock(Partition.class);
+                Mockito.when(partition.getName()).thenReturn("tp" + id);
+                Mockito.when(table.getPartition(id)).thenReturn(partition);
+            }
+            Mockito.when(fixture.scan.getSelectedPartitionIds()).thenReturn(selectedPartitions);
+
+            Statistics statistics = fixture.computeOlapScan();
+            Assertions.assertEquals(5 * temporaryPartitionCount, statistics.getRowCount());
+            Assertions.assertTrue(statistics.findColumnStatistics(fixture.slot).isUnKnown);
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"0, 0, 0", "-1, 0, 1", "-1, 7, 7"})
+    public void testTemporaryPartitionScanEmptyAndUnreported(
+            long reportedRowCount, long partialRowCount, double expectedRowCount) {
+        try (MockPartitionPrunedScan fixture = mockPartitionPrunedScan(false, newTableStatistic(1), null)) {
+            OlapTable table = fixture.scan.getTable();
+            Mockito.when(table.isTemporaryPartition(1L)).thenReturn(true);
+            Mockito.when(table.getRowCountForPartitionIndex(1L, 10L, true)).thenReturn(reportedRowCount);
+            Mockito.when(table.getRowCountForPartitionIndex(1L, 10L, false)).thenReturn(partialRowCount);
+
+            Statistics statistics = fixture.computeOlapScan();
+            Assertions.assertEquals(expectedRowCount, statistics.getRowCount());
+            Assertions.assertTrue(statistics.findColumnStatistics(fixture.slot).isUnKnown);
+        }
+    }
+
+    @Test
+    public void testTemporaryPartitionScanUsesSelectedIndex() {
+        try (MockPartitionPrunedScan fixture = mockPartitionPrunedScan(false, newTableStatistic(1), null)) {
+            ConnectContext.get().setStatementContext(new StatementContext());
+            OlapTable table = fixture.scan.getTable();
+            Mockito.when(table.isTemporaryPartition(1L)).thenReturn(true);
+            Mockito.when(fixture.scan.getSelectedIndexId()).thenReturn(20L);
+            Mockito.when(table.getRowCountForPartitionIndex(1L, 20L, true)).thenReturn(7L);
+
+            Assertions.assertEquals(7, fixture.computeOlapScan().getRowCount());
+        }
+    }
+
+    @Test
+    public void testUnreportedNormalPartitionUsesTableStatistics() {
+        try (MockPartitionPrunedScan fixture = mockPartitionPrunedScan(false, newTableStatistic(1), null)) {
+            Mockito.when(fixture.scan.getTable().getRowCountForPartitionIndex(1L, 10L, true)).thenReturn(-1L);
+
+            Assertions.assertEquals(4, fixture.computeOlapScan().getRowCount());
+        }
+    }
+
+    @Test
+    public void testTemporaryPartitionScanIgnoresInjectedTableStatistics() {
+        try (MockPartitionPrunedScan fixture = mockPartitionPrunedScan(true, newTableStatistic(1), null)) {
+            OlapTable table = fixture.scan.getTable();
+            Mockito.when(table.isTemporaryPartition(1L)).thenReturn(true);
+            TableStatsMeta tableStats = Mockito.mock(TableStatsMeta.class);
+            tableStats.userInjected = true;
+            Mockito.when(tableStats.getRowCount(10L)).thenReturn(1000L);
+            Mockito.when(Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(table.getId()))
+                    .thenReturn(tableStats);
+
+            Statistics statistics = fixture.computeOlapScan();
+            Assertions.assertEquals(4, statistics.getRowCount());
+            Assertions.assertTrue(statistics.findColumnStatistics(fixture.slot).isUnKnown);
         }
     }
 
