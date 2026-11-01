@@ -37,6 +37,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/field.h"
+#include "format/format_common.h"
 #include "format_v2/column_data.h"
 #include "format_v2/parquet/parquet_reader.h"
 #include "gen_cpp/ExternalTableSchema_types.h"

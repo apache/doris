@@ -43,6 +43,7 @@
 #include "roaring/roaring64map.hh"
 #include "runtime/runtime_profile.h"
 #include "storage/olap_scan_common.h"
+#include "storage/segment/column_reader.h"
 #include "util/obj_lru_cache.h"
 
 namespace cctz {

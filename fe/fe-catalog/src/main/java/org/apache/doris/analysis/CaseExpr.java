@@ -71,7 +71,18 @@ public class CaseExpr extends Expr {
      * use for Nereids ONLY
      */
     public CaseExpr(List<CaseWhenClause> whenClauses, Expr elseExpr, boolean nullable) {
+        this(null, whenClauses, elseExpr, nullable);
+    }
+
+    /**
+     * use for Nereids ONLY, with an optional simple CASE input
+     */
+    public CaseExpr(Expr caseInput, List<CaseWhenClause> whenClauses, Expr elseExpr, boolean nullable) {
         super();
+        if (caseInput != null) {
+            children.add(caseInput);
+            hasCaseExpr = true;
+        }
         for (CaseWhenClause whenClause : whenClauses) {
             children.add(whenClause.getWhenExpr());
             children.add(whenClause.getThenExpr());
@@ -82,7 +93,7 @@ public class CaseExpr extends Expr {
         }
         // nereids do not have CaseExpr, and nereids will unify the types,
         // so just use the first then type
-        type = children.get(1).getType();
+        type = whenClauses.get(0).getThenExpr().getType();
         this.nullable = nullable;
     }
 

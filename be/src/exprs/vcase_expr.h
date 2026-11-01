@@ -67,7 +67,7 @@ public:
         DORIS_CHECK(cloned_expr != nullptr);
         auto node = clone_texpr_node();
         TCaseExpr case_node;
-        case_node.__set_has_case_expr(false);
+        case_node.__set_has_case_expr(_has_case_expr);
         case_node.__set_has_else_expr(_has_else_expr);
         node.__set_case_expr(case_node);
         *cloned_expr = VCaseExpr::create_shared(node);
@@ -75,6 +75,17 @@ public:
     }
 
 private:
+    void _open_simple_case_lookup(VExprContext* context);
+
+    template <PrimitiveType PType>
+    Status _execute_simple_case_lookup(VExprContext* context, const Block* block,
+                                       const Selector* selector, size_t count,
+                                       const ColumnPtr& input, ColumnPtr& result_column) const;
+
+    template <PrimitiveType PType>
+    Status _execute_simple_case(VExprContext* context, const Block* block, const Selector* selector,
+                                size_t count, ColumnPtr& result_column) const;
+
     template <typename IndexType, typename ColumnType>
     ColumnPtr _execute_update_result_impl(const IndexType* then_idx,
                                           std::vector<ColumnPtr>& then_columns,
@@ -214,10 +225,6 @@ private:
     void update_result_auto_simd(MutableColumnPtr& result_column_ptr,
                                  const IndexType* __restrict then_idx,
                                  std::vector<ColumnPtr>& then_columns, size_t rows_count) const {
-        for (auto& then_ptr : then_columns) {
-            then_ptr = then_ptr->convert_to_full_column_if_const();
-        }
-
         result_column_ptr->resize(rows_count);
         auto* __restrict result_raw_data =
                 assert_cast<ColumnType*, TypeCheckOnRelease::DISABLE>(result_column_ptr.get())
@@ -242,33 +249,41 @@ private:
             if (!then_columns[i]) {
                 continue;
             }
+            const auto& [column, is_const] = unpack_if_const(then_columns[i]);
             const auto* __restrict column_raw_data =
-                    assert_cast<const ColumnType*, TypeCheckOnRelease::DISABLE>(
-                            then_columns[i].get())
+                    assert_cast<const ColumnType*, TypeCheckOnRelease::DISABLE>(column.get())
                             ->get_data()
                             .data();
-            if constexpr (std::is_same_v<ColumnType, ColumnFloat32> ||
-                          std::is_same_v<ColumnType, ColumnFloat64> ||
-                          std::is_same_v<ColumnType, ColumnDate> ||
-                          std::is_same_v<ColumnType, ColumnDateTime> ||
-                          std::is_same_v<ColumnType, ColumnDateV2> ||
-                          std::is_same_v<ColumnType, ColumnDateTimeV2> ||
-                          std::is_same_v<ColumnType, ColumnTimeStampNs> ||
-                          std::is_same_v<ColumnType, ColumnTimeStampTz>) {
-                // Arithmetic masking propagates unselected NaN/Infinity and loses signed zero.
-                // Conditional stores also let the compiler vectorize without loading from a
-                // selected source/destination pointer, as a ternary assignment can do.
-                for (size_t row_idx = 0; row_idx < rows_count; row_idx++) {
-                    if (then_idx[row_idx] == i) {
-                        result_raw_data[row_idx] = column_raw_data[row_idx];
+            const auto update_branch = [&](const auto& value_at) {
+                if constexpr (std::is_same_v<ColumnType, ColumnFloat32> ||
+                              std::is_same_v<ColumnType, ColumnFloat64> ||
+                              std::is_same_v<ColumnType, ColumnDate> ||
+                              std::is_same_v<ColumnType, ColumnDateTime> ||
+                              std::is_same_v<ColumnType, ColumnDateV2> ||
+                              std::is_same_v<ColumnType, ColumnDateTimeV2> ||
+                              std::is_same_v<ColumnType, ColumnTimeStampNs> ||
+                              std::is_same_v<ColumnType, ColumnTimeStampTz>) {
+                    // Arithmetic masking propagates unselected NaN/Infinity and loses signed zero.
+                    // Conditional stores also let the compiler vectorize without loading from a
+                    // selected source/destination pointer, as a ternary assignment can do.
+                    for (size_t row_idx = 0; row_idx < rows_count; row_idx++) {
+                        if (then_idx[row_idx] == i) {
+                            result_raw_data[row_idx] = value_at(row_idx);
+                        }
+                    }
+                } else {
+                    for (size_t row_idx = 0; row_idx < rows_count; row_idx++) {
+                        result_raw_data[row_idx] +=
+                                typename ColumnType::value_type(then_idx[row_idx] == i) *
+                                value_at(row_idx);
                     }
                 }
+            };
+            if (is_const) {
+                const auto value = column_raw_data[0];
+                update_branch([value](size_t) { return value; });
             } else {
-                for (int row_idx = 0; row_idx < rows_count; row_idx++) {
-                    result_raw_data[row_idx] +=
-                            typename ColumnType::value_type(then_idx[row_idx] == i) *
-                            column_raw_data[row_idx];
-                }
+                update_branch([column_raw_data](size_t row) { return column_raw_data[row]; });
             }
         }
     }
@@ -331,6 +346,7 @@ private:
         return _execute_update_result<IndexType>(then_idx_ptr, then_columns, rows_count);
     }
 
+    bool _has_case_expr;
     bool _has_else_expr;
 
     inline static const std::string FUNCTION_NAME = "case";

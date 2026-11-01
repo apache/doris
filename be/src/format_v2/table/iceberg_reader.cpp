@@ -49,6 +49,7 @@
 #include "core/value/time_value.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
+#include "format/format_common.h"
 #include "format/table/deletion_vector_reader.h"
 #include "format/table/iceberg_default_value.h"
 #include "format_v2/expr/equality_delete_predicate.h"
