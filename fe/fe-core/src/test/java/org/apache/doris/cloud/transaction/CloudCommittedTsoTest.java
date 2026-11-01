@@ -135,6 +135,70 @@ public class CloudCommittedTsoTest {
     }
 
     @Test
+    public void testKvCommitErrorIsFencedButDefiniteFailureIsReleased() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        TSOService tsoService = Mockito.mock(TSOService.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database db = Mockito.mock(Database.class);
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        Mockito.when(env.getTSOService()).thenReturn(tsoService);
+        Mockito.when(catalog.getDbOrMetaException(1L)).thenReturn(db);
+        Method commit = CloudGlobalTransactionMgr.class.getDeclaredMethod("commitTxn",
+                Cloud.CommitTxnRequest.Builder.class, List.class, long.class, boolean.class, List.class, List.class);
+        commit.setAccessible(true);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+                MockedStatic<MetaServiceProxy> mockedProxy = Mockito.mockStatic(MetaServiceProxy.class);
+                MockedStatic<TransactionUtil> allocation = Mockito.mockStatic(TransactionUtil.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            mockedEnv.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            mockedProxy.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            allocation.when(() -> TransactionUtil.getCommitTSO(10L, db, Collections.emptySet())).thenReturn(500L);
+
+            // MetaService answers KV_TXN_COMMIT_ERR when its KV commit timed out, which may still land.
+            Mockito.doReturn(CommitTxnResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                            .setCode(MetaServiceCode.KV_TXN_COMMIT_ERR).setMsg("Timeout"))
+                    .build()).when(proxy).commitTxn(Mockito.any());
+            InvocationTargetException error = Assertions.assertThrows(InvocationTargetException.class,
+                    () -> commit.invoke(new CloudGlobalTransactionMgr(),
+                            Cloud.CommitTxnRequest.newBuilder().setDbId(1).setTxnId(10),
+                            Collections.emptyList(), 10L, false, Collections.emptyList(), Collections.emptyList()));
+            Assertions.assertTrue(error.getCause().getMessage().contains("KV_TXN_COMMIT_ERR"),
+                    error.getCause().getMessage());
+            Mockito.verify(tsoService).fenceAndAbandonCommitTso(1, 10, 500);
+            Mockito.verify(tsoService, Mockito.never()).abandonCommitTso(
+                    Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong());
+            Mockito.clearInvocations(tsoService);
+
+            // A fence that fails fails the commit with the fence error, and the TSO is not given up on its own: the
+            // TSO service deactivates instead, until a calibration fences MetaService above it.
+            UserException fenceFailure = new UserException("Failed to fence an uncertain commit TSO");
+            Mockito.doThrow(fenceFailure).when(tsoService).fenceAndAbandonCommitTso(1, 10, 500);
+            error = Assertions.assertThrows(InvocationTargetException.class,
+                    () -> commit.invoke(new CloudGlobalTransactionMgr(),
+                            Cloud.CommitTxnRequest.newBuilder().setDbId(1).setTxnId(10),
+                            Collections.emptyList(), 10L, false, Collections.emptyList(), Collections.emptyList()));
+            Assertions.assertSame(fenceFailure, error.getCause());
+            Mockito.verify(tsoService, Mockito.never()).abandonCommitTso(
+                    Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong());
+            Mockito.clearInvocations(tsoService);
+
+            // A transaction too old to commit has failed for good, so its TSO is released without a fence.
+            Mockito.doReturn(CommitTxnResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                            .setCode(MetaServiceCode.KV_TXN_TOO_OLD))
+                    .build()).when(proxy).commitTxn(Mockito.any());
+            Assertions.assertThrows(InvocationTargetException.class,
+                    () -> commit.invoke(new CloudGlobalTransactionMgr(),
+                            Cloud.CommitTxnRequest.newBuilder().setDbId(1).setTxnId(10),
+                            Collections.emptyList(), 10L, false, Collections.emptyList(), Collections.emptyList()));
+            Mockito.verify(tsoService).abandonCommitTso(1, 10, 500);
+            Mockito.verify(tsoService, Mockito.never()).fenceAndAbandonCommitTso(
+                    Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong());
+        }
+    }
+
+    @Test
     public void testValidationFailureDoesNotAllocateTsoOrSendCommit() throws Exception {
         Env env = Mockito.mock(Env.class);
         TabletInvertedIndex index = Mockito.mock(TabletInvertedIndex.class);

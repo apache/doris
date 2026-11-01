@@ -970,6 +970,19 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             } else if (code == MetaServiceCode.OK || code == MetaServiceCode.TXN_ALREADY_VISIBLE
                     || code == MetaServiceCode.TXN_ALREADY_ABORTED) {
                 Env.getCurrentEnv().getTSOService().markTxnFinished(commitTxnRequest.getDbId(), transactionId);
+            } else if (code == MetaServiceCode.KV_TXN_COMMIT_ERR) {
+                // MetaService answers this when the KV commit of the transaction timed out or failed with an error it
+                // does not classify, and a commit that timed out after it was sent can still land. So the TSO is given
+                // up only once MetaService is fenced at it, as when the RPC fails: by then the commit has landed or
+                // it can no longer land.
+                try {
+                    Env.getCurrentEnv().getTSOService().fenceAndAbandonCommitTso(
+                            commitTxnRequest.getDbId(), transactionId, commitTxnRequest.getCommitTso());
+                } catch (UserException fenceException) {
+                    LOG.warn("commitTxn failed, transactionId:{}, retryTime:{}, commitTxnResponse:{}",
+                            transactionId, retryTime, commitTxnResponse);
+                    throw fenceException;
+                }
             } else {
                 Env.getCurrentEnv().getTSOService().abandonCommitTso(
                         commitTxnRequest.getDbId(), transactionId, commitTxnRequest.getCommitTso());
