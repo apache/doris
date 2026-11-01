@@ -368,6 +368,8 @@ public class RoutineLoadJobTest {
                 + "\"fuzzy_parse\" = \"false\",\n"
                 + "\"strict_mode\" = \"false\",\n"
                 + "\"timezone\" = \"Asia/Shanghai\",\n"
+                + "\"send_batch_parallelism\" = \"1\",\n"
+                + "\"load_to_single_tablet\" = \"false\",\n"
                 + "\"exec_mem_limit\" = \"2147483648\"\n"
                 + ")\n"
                 + "FROM KAFKA\n"
@@ -377,6 +379,24 @@ public class RoutineLoadJobTest {
                 + ");";
         System.out.println(showCreateInfo);
         Assertions.assertEquals(expect, showCreateInfo);
+    }
+
+    @Test
+    public void testGetShowCreateInfoWithNonDefaultLoadProperties() throws UserException {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(
+                111L, "test_load", 1, 11,
+                "localhost:9092", "test_topic", UserIdentity.ADMIN);
+
+        Deencapsulation.setField(routineLoadJob, "sendBatchParallelism", 2);
+        Deencapsulation.setField(routineLoadJob, "loadToSingleTablet", true);
+
+        String showCreateInfo = routineLoadJob.getShowCreateInfo();
+
+        String expectedProperties = "\"send_batch_parallelism\" = \"2\",\n"
+                + "\"load_to_single_tablet\" = \"true\",\n"
+                + "\"exec_mem_limit\" = \"2147483648\"\n";
+
+        Assertions.assertTrue(showCreateInfo.contains(expectedProperties), showCreateInfo);
     }
 
     @Test
