@@ -72,8 +72,8 @@ TEST_F(S3FileReaderTest, ConcurrentReadsCollectAllStatistics) {
     EXPECT_CALL(*client, GetObject(testing::_))
             .Times(thread_count * reads_per_thread)
             .WillRepeatedly(successful_read);
-    auto holder = std::make_shared<ObjClientHolder>(S3ClientConf {});
-    holder->_client = std::make_shared<S3ObjStorageClient>(client);
+    auto holder = std::make_shared<ObjClientHolder>(ObjClientConfig {});
+    holder->set_client_for_test(std::make_shared<S3ObjStorageClient>(client));
     RuntimeProfile profile("parallel-s3-reads");
     S3FileReader reader(holder, "bucket", "key", 16 * thread_count, &profile);
     std::unique_ptr<ThreadPool> pool;
@@ -113,8 +113,8 @@ TEST_F(S3FileReaderTest, TraceClipsEOFAndLabelsReadSources) {
     ReadIOTraceCapture trace;
     auto client = std::make_shared<MockRangeReadS3Client>();
     EXPECT_CALL(*client, GetObject(testing::_)).Times(4).WillRepeatedly(successful_read);
-    auto holder = std::make_shared<ObjClientHolder>(S3ClientConf {});
-    holder->_client = std::make_shared<S3ObjStorageClient>(client);
+    auto holder = std::make_shared<ObjClientHolder>(ObjClientConfig {});
+    holder->set_client_for_test(std::make_shared<S3ObjStorageClient>(client));
     S3FileReader reader(holder, "bucket", "key", 32, nullptr);
     IOContext context;
     context.reader_type = ReaderType::READER_QUERY;
@@ -160,8 +160,8 @@ TEST_F(S3FileReaderTest, CollectsRetryStatistics) {
                 return Aws::S3::Model::GetObjectOutcome(std::move(error));
             })
             .WillOnce(successful_read);
-    auto holder = std::make_shared<ObjClientHolder>(S3ClientConf {});
-    holder->_client = std::make_shared<S3ObjStorageClient>(client);
+    auto holder = std::make_shared<ObjClientHolder>(ObjClientConfig {});
+    holder->set_client_for_test(std::make_shared<S3ObjStorageClient>(client));
     RuntimeProfile profile("retry-s3-read");
     S3FileReader reader(holder, "bucket", "key", 16, &profile);
     std::string buffer(16, '\0');

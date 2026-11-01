@@ -48,6 +48,7 @@
 #include "format_v2/column_mapper.h"
 #include "io/fs/stream_load_pipe.h"
 #include "io/io_common.h"
+#include "io/obj_storage/obj_client_factory.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
 #include "testutil/desc_tbl_builder.h"
@@ -580,7 +581,7 @@ TEST_F(CsvV2ReaderTest, S3PrefetchPreservesSplitRowsAndReadStatistics) {
         env->_buffered_reader_prefetch_thread_pool.reset();
         env->_buffered_reader_prefetch_thread_pool = std::move(saved_pool);
         config::in_memory_file_size = saved_in_memory_size;
-        S3ClientFactory::instance().clear_client_creator_for_test();
+        io::ObjClientFactory::instance().set_client_creator_for_test(nullptr);
     });
     ASSERT_TRUE(ThreadPoolBuilder("CsvPrefetchTest")
                         .set_min_threads(1)
@@ -590,8 +591,8 @@ TEST_F(CsvV2ReaderTest, S3PrefetchPreservesSplitRowsAndReadStatistics) {
     // Keep the small fixture on the same prefetch path as a large S3 CSV file.
     config::in_memory_file_size = 0;
     auto client = std::make_shared<CsvPrefetchS3Client>();
-    S3ClientFactory::instance().set_client_creator_for_test(
-            [client](const S3ClientConf&) { return client; });
+    io::ObjClientFactory::instance().set_client_creator_for_test(
+            [client](const io::ObjClientConfig&) { return client; });
     _params.__set_file_type(TFileType::FILE_S3);
     _state._query_options.__set_enable_file_cache(false);
 
