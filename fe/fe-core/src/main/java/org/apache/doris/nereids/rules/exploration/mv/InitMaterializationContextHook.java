@@ -275,6 +275,14 @@ public class InitMaterializationContextHook implements PlannerHook {
                         }
                     }
                     if (createMvSql != null) {
+                        if (SessionVarGuardRewriter.isPlanSessionVarFenceNewer(meta.getSessionVariables())) {
+                            // The index definition was persisted by a newer FE: planning its stored SQL here
+                            // can only mis-analyze it, so the sync MV is not used for rewrite.
+                            LOG.warn("skip sync materialized view {} of {} for rewrite: its metadata was"
+                                            + " written by a newer Doris version", indexName,
+                                    olapTable.getQualifiedName());
+                            continue;
+                        }
                         Optional<String> querySql =
                                 new NereidsParser().parseForSyncMv(createMvSql);
                         if (!querySql.isPresent()) {

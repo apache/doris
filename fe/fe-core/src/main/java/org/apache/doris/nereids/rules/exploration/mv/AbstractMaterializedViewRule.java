@@ -64,8 +64,10 @@ import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
@@ -1111,22 +1113,34 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
 
     /**
      * Whether the materialized view plan carries a cache guard in a row-set / grouping / ordering
-     * affecting position: a filter or join predicate, a group-by key, an order-by key or a window
+     * affecting position: a filter or join predicate (including a mark-join conjunct), a HAVING
+     * predicate, a group-by key (including the grouping-set keys of a repeat), an order-by key or a window
      * partition/order key. Such a guard means the materialized rows / groups were derived with the
      * creation session semantics, so a query in a different session can never compensate them and the
      * rewrite must be rejected regardless of which outputs the query selects.
      */
-    private static boolean containsCacheGuardInRowAffectingExpressions(Plan plan) {
+    static boolean containsCacheGuardInRowAffectingExpressions(Plan plan) {
         for (Plan node : plan.<Plan>collectToList(p -> true)) {
             List<Expression> expressions = new ArrayList<>();
             if (node instanceof LogicalFilter) {
                 expressions.addAll(((LogicalFilter<?>) node).getConjuncts());
+            } else if (node instanceof LogicalHaving) {
+                // HAVING is a filter above the aggregation: a guard there decides which groups survive.
+                expressions.addAll(((LogicalHaving<?>) node).getConjuncts());
             } else if (node instanceof LogicalJoin) {
                 LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) node;
                 expressions.addAll(join.getHashJoinConjuncts());
                 expressions.addAll(join.getOtherJoinConjuncts());
+                // A mark join conjunct evaluates to a three-valued mark that is part of the row, e.g. the
+                // output of a correlated subquery, so a guarded one carries the creation-session value into
+                // the materialized rows as well.
+                expressions.addAll(join.getMarkJoinConjuncts());
             } else if (node instanceof LogicalAggregate) {
                 expressions.addAll(((LogicalAggregate<?>) node).getGroupByExpressions());
+            } else if (node instanceof LogicalRepeat) {
+                // The grouping sets of a repeat own the group-by keys of every grouping, so a guarded key
+                // there decides the grouping of the whole materialized result.
+                ((LogicalRepeat<?>) node).getGroupingSets().forEach(expressions::addAll);
             } else if (node instanceof LogicalSort) {
                 ((LogicalSort<?>) node).getOrderKeys().stream()
                         .map(OrderKey::getExpr).forEach(expressions::add);

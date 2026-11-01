@@ -121,6 +121,37 @@ suite("test_generated_column_timestamptz_timezone","ddl") {
         exception "time-zone sensitive"
     }
 
+    // current_date() (and the analogous current_time/now forms) reads the wall clock in the session time
+    // zone and is folded as a planning-time constant, so a generated column would keep whatever zone its
+    // first evaluation happened in. It has no children, so it must be classified by the function itself.
+    test {
+        sql """
+        create table gencol_current_date(
+            id int,
+            d DATE generated always as (current_date()) not null
+        )
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_num" = "1");
+        """
+        exception "time-zone sensitive"
+    }
+
+    // now() renders the session clock as a DATETIME in the session zone, so the same instant is stored
+    // differently by different load sessions. Must be rejected for the same reason.
+    test {
+        sql """
+        create table gencol_now(
+            id int,
+            ts DATETIME(6) generated always as (now()) not null
+        )
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_num" = "1");
+        """
+        exception "time-zone sensitive"
+    }
+
     // A struct cast is compared leaf by leaf: keeping one TIMESTAMPTZ field while rendering another into a
     // zone-free representation still depends on the write session zone. Must be rejected.
     test {

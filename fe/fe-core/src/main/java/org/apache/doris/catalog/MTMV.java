@@ -63,6 +63,7 @@ import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.EditLog.EditLogItem;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -1620,6 +1621,17 @@ public class MTMV extends OlapTable {
     }
 
     protected MTMVCache createRewriteCache(ConnectContext currentContext, boolean needLock, int guardMask) {
+        if (SessionVarGuardRewriter.isPlanSessionVarFenceNewer(this.sessionVariables)) {
+            // The definition was persisted by a newer FE, so planning its stored SQL here can only
+            // mis-analyze it: a newer function or session setting is unknown, and a dependency this FE does
+            // not classify would stay unguarded in the cache. Both the lazy query path and the refresh
+            // pre-generation path callers treat the failure as "no cache", which just disables rewrite.
+            throw new org.apache.doris.nereids.exceptions.AnalysisException("materialized view " + getName()
+                    + " was written by a newer Doris version (plan session variable fence "
+                    + SessionVarGuardRewriter.planSessionVarFenceVersion(this.sessionVariables)
+                    + ", this frontend supports " + SessionVariable.CURRENT_PLAN_SESSION_VAR_FENCE_VERSION
+                    + "), so it is not used for rewrite until all frontends are upgraded.");
+        }
         return MTMVCache.from(this.getQuerySql(),
                 MTMVPlanUtil.createMTMVContext(this, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE),
                 true, needLock, currentContext, guardMask);

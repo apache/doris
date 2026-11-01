@@ -21,6 +21,7 @@ import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CaseExpr;
 import org.apache.doris.analysis.CaseWhenClause;
 import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
@@ -192,6 +193,23 @@ public class SessionVarGuardStoredExprTest {
                 SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(new IsNullPredicate(tzSlot("ts"), false)));
         Assertions.assertFalse(
                 SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(new IsNullPredicate(tzSlot("ts"), true)));
+    }
+
+    /**
+     * The current-time functions read the wall clock in the session time zone and are folded as
+     * planning-time constants, so a stored expression would keep the zone of whoever evaluated it first.
+     * They have no children, which is why the child-type fallback cannot see them: the function itself has
+     * to be classified.
+     */
+    @Test
+    public void testSessionClockFunctionsAreSensitive() {
+        for (String function : Lists.newArrayList("current_date", "curdate", "current_time", "curtime",
+                "now", "current_timestamp", "localtime", "localtimestamp", "sysdate")) {
+            FunctionCallExpr call = new FunctionCallExpr(function, Lists.newArrayList(), false);
+            call.setType(ScalarType.createDateV2Type());
+            Assertions.assertTrue(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(call),
+                    function + "() must be classified as zone sensitive");
+        }
     }
 
     /**
