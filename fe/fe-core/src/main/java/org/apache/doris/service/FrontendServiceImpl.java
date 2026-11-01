@@ -3220,9 +3220,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     public TGetBinlogResult getBinlog(TGetBinlogRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("receive get binlog request: {}", request);
-        }
 
         TGetBinlogResult result = new TGetBinlogResult();
         TStatus status = new TStatus(TStatusCode.OK);
@@ -3339,7 +3336,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     // getSnapshot
     public TGetSnapshotResult getSnapshot(TGetSnapshotRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        LOG.trace("receive get snapshot info request: {}", request);
 
         TGetSnapshotResult result = new TGetSnapshotResult();
         TStatus status = checkMaster();
@@ -3453,7 +3449,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     // Restore Snapshot
     public TRestoreSnapshotResult restoreSnapshot(TRestoreSnapshotRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        LOG.trace("receive restore snapshot info request: {}", request);
 
         TRestoreSnapshotResult result = new TRestoreSnapshotResult();
         TStatus status = checkMaster();
@@ -3713,9 +3708,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     public TGetMasterTokenResult getMasterToken(TGetMasterTokenRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("receive get master token request: {}", request);
-        }
 
         TGetMasterTokenResult result = new TGetMasterTokenResult();
         TStatus status = checkMaster();
@@ -3743,9 +3735,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     // getBinlogLag
     public TGetBinlogLagResult getBinlogLag(TGetBinlogRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("receive get binlog lag request: {}", request);
-        }
 
         TGetBinlogLagResult result = new TGetBinlogLagResult();
         TStatus status = checkMaster();
@@ -3845,9 +3834,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     public TLockBinlogResult lockBinlog(TLockBinlogRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("receive lock binlog request: {}", request);
-        }
 
         TLockBinlogResult result = new TLockBinlogResult();
         TStatus status = checkMaster();

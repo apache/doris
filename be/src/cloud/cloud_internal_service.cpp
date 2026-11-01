@@ -369,6 +369,17 @@ void set_too_many_tasks_response(PFetchPeerDataResponse* response, const std::st
     response->mutable_status()->set_status_code(TStatusCode::TOO_MANY_TASKS);
 }
 
+// NOT_FOUND means this peer cannot serve the block now; the client rotates the candidate instead
+// of counting an RPC failure.
+Status reject_peer_block_not_found(PFetchPeerDataResponse* response, const std::string& msg) {
+    g_file_cache_get_by_peer_failed_num << 1;
+    g_file_cache_get_by_peer_not_downloaded_block_num << 1;
+    LOG(WARNING) << msg;
+    response->mutable_status()->add_error_msgs(msg);
+    response->mutable_status()->set_status_code(TStatusCode::NOT_FOUND);
+    return Status::NotFound<false>(msg);
+}
+
 bool try_reject_if_queue_timed_out(std::chrono::steady_clock::time_point enqueue_ts,
                                    PFetchPeerDataResponse* response) {
     auto wait_us = elapsed_us(enqueue_ts);
@@ -603,6 +614,87 @@ Status trigger_peer_server_fill(io::FileBlockSPtr& fb, int64_t fill_tablet_id,
                                      file_size, offset, size, timeout_ms));
 }
 
+// Serve one cache block of a peer request: wait for a DOWNLOADING block, fill an EMPTY block when
+// `do_fill` is set, then append the block to `response`. The payload goes to
+// `response_attachment` when it is non-null, otherwise into the protobuf.
+Status serve_peer_cache_block(const PFetchPeerDataRequest* request, const CacheBlockReqest& cb_req,
+                              io::FileBlockSPtr& fb, const io::UInt128Wrapper& hash,
+                              size_t file_size, bool do_fill, butil::IOBuf* response_attachment,
+                              PFetchPeerDataResponse* response) {
+    auto fb_state = fb->state();
+    if (fb_state == io::FileBlock::State::DOWNLOADING) {
+        if (do_fill) {
+            // Only peer fill requests should wait longer here. Plain peer-cache reads keep
+            // the short wait semantics so they can fail fast and let the client race S3.
+            [[maybe_unused]] const bool completed =
+                    wait_for_file_block_state(fb, config::peer_server_cache_fill_timeout_ms);
+            fb_state = fb->state();
+        } else {
+            // Wait for in-progress download to complete using the normal short timeout.
+            fb_state = fb->wait();
+        }
+    }
+    if (fb_state == io::FileBlock::State::EMPTY) {
+        if (!do_fill) {
+            return reject_peer_block_not_found(
+                    response, fmt::format("cache block not downloaded, {}",
+                                          format_peer_cache_block_context(request, cb_req, fb, hash,
+                                                                          file_size, do_fill)));
+        }
+        // Server-side fill: request.path already carries the full remote path.
+        auto fill_st = trigger_peer_server_fill(
+                fb, get_rowset_meta_tablet_id_from_request(request),
+                get_peer_cache_filename(request->path()),
+                get_rowset_meta_resource_id_from_request(request), request->path(),
+                request->has_file_size() ? request->file_size() : -1,
+                static_cast<int64_t>(fb->range().left), static_cast<int64_t>(fb->range().size()),
+                config::peer_server_cache_fill_timeout_ms);
+        if (!fill_st.ok()) {
+            g_file_cache_get_by_peer_failed_num << 1;
+            g_file_cache_get_by_peer_not_downloaded_block_num << 1;
+            if (fill_st.is<ErrorCode::TOO_MANY_TASKS>()) {
+                // Server slot exhausted: healthy but overloaded. Client must not rotate
+                // or evict — just fall back to S3 and retry same candidate next time.
+                response->mutable_status()->add_error_msgs(std::string(fill_st.msg()));
+                response->mutable_status()->set_status_code(TStatusCode::TOO_MANY_TASKS);
+            } else if (fill_st.is<ErrorCode::NOT_FOUND>()) {
+                // Soft miss (fill incomplete, timeout, unexpected state) — client rotates,
+                // not evicts.
+                response->mutable_status()->add_error_msgs(std::string(fill_st.msg()));
+                response->mutable_status()->set_status_code(TStatusCode::NOT_FOUND);
+            } else {
+                LOG(WARNING) << "cache block fill failed, status=" << fill_st << ", "
+                             << format_peer_cache_block_context(request, cb_req, fb, hash,
+                                                                file_size, do_fill);
+                set_error_response(response, "cache block not ready");
+            }
+            return fill_st;
+        }
+        fb_state = io::FileBlock::State::DOWNLOADED;
+    }
+    if (fb_state != io::FileBlock::State::DOWNLOADED) {
+        // A concurrent download was in progress (DOWNLOADING at request time) but its
+        // wait() returned a non-DOWNLOADED state (e.g., timed-out while still
+        // DOWNLOADING, or some other non-EMPTY intermediate state).  The server is
+        // healthy; the block just isn't available yet.
+        return reject_peer_block_not_found(
+                response, fmt::format("cache block not ready after wait, {}",
+                                      format_peer_cache_block_context(request, cb_req, fb, hash,
+                                                                      file_size, do_fill)));
+    }
+
+    g_file_cache_get_by_peer_blocks_num << 1;
+    doris::CacheBlockPB* out = response->add_datas();
+    // In attachment mode, metadata order must match attachment append order because the
+    // client consumes attachment payload sequentially using resp.datas() order.
+    Status read_status = read_file_block(fb, file_size, out, response_attachment);
+    if (!read_status.ok()) {
+        set_error_response(response, "read cache file error");
+        return read_status;
+    }
+    return Status::OK();
+}
+
 Status handle_peer_file_cache_block_request(const PFetchPeerDataRequest* request,
                                             PFetchPeerDataResponse* response,
                                             brpc::Controller* cntl) {
@@ -645,6 +737,7 @@ Status handle_peer_file_cache_block_request(const PFetchPeerDataRequest* request
     const bool use_attachment =
             cntl != nullptr && request->has_support_attachment() && request->support_attachment();
     response->set_data_in_attachment(use_attachment);
+    butil::IOBuf* response_attachment = use_attachment ? &cntl->response_attachment() : nullptr;
     if (use_attachment) {
         g_file_cache_get_by_peer_attachment_response_num << 1;
     } else {
@@ -660,8 +753,8 @@ Status handle_peer_file_cache_block_request(const PFetchPeerDataRequest* request
         if (offset >= file_size) {
             continue;
         }
-        // Clip tail requests before get_or_set so peer reads do not synthesize EMPTY blocks past
-        // EOF and then fail the whole RPC.
+        // Clip tail requests before the cache lookup so peer reads do not synthesize EMPTY blocks
+        // past EOF and then fail the whole RPC.
         size = std::min(size, file_size - offset);
         if (size == 0) {
             continue;
@@ -673,102 +766,41 @@ Status handle_peer_file_cache_block_request(const PFetchPeerDataRequest* request
                     int sleep_ms = dp->param<int>("sleep_ms", 300);
                     bthread_usleep(sleep_ms * 1000);
                 });
-        auto get_or_set_start = std::chrono::steady_clock::now();
-        auto holder = cache->get_or_set(hash, offset, size, ctx);
-        g_file_cache_get_by_peer_get_or_set_latency << elapsed_us(get_or_set_start);
-        ++get_or_set_calls;
-        get_or_set_blocks += holder.file_blocks.size();
+        if (do_fill) {
+            // Pull-through fill needs the EMPTY cell from get_or_set: the fill download lands in
+            // that cell, and this handler reads it back once the download finishes.
+            auto get_or_set_start = std::chrono::steady_clock::now();
+            auto holder = cache->get_or_set(hash, offset, size, ctx);
+            g_file_cache_get_by_peer_get_or_set_latency << elapsed_us(get_or_set_start);
+            ++get_or_set_calls;
+            get_or_set_blocks += holder.file_blocks.size();
+            for (auto& fb : holder.file_blocks) {
+                RETURN_IF_ERROR(serve_peer_cache_block(request, cb_req, fb, hash, file_size,
+                                                       do_fill, response_attachment, response));
+                ++response_blocks;
+            }
+            continue;
+        }
 
-        for (auto& fb : holder.file_blocks) {
-            auto fb_state = fb->state();
-            if (fb_state == io::FileBlock::State::DOWNLOADING) {
-                if (do_fill) {
-                    // Only peer fill requests should wait longer here. Plain peer-cache reads keep
-                    // the short wait semantics so they can fail fast and let the client race S3.
-                    [[maybe_unused]] const bool completed = wait_for_file_block_state(
-                            fb, config::peer_server_cache_fill_timeout_ms);
-                    fb_state = fb->state();
-                } else {
-                    // Wait for in-progress download to complete using the normal short timeout.
-                    fb_state = fb->wait();
-                }
-            }
-            if (fb_state == io::FileBlock::State::EMPTY) {
-                if (!do_fill) {
-                    const std::string msg =
-                            fmt::format("cache block not downloaded, {}",
-                                        format_peer_cache_block_context(request, cb_req, fb, hash,
-                                                                        file_size, do_fill));
-                    g_file_cache_get_by_peer_failed_num << 1;
-                    g_file_cache_get_by_peer_not_downloaded_block_num << 1;
-                    LOG(WARNING) << msg;
-                    // Use NOT_FOUND so the client can distinguish "block not cached"
-                    // from an actual RPC/server error.  On NOT_FOUND the client rotates
-                    // the candidate to the end of its list (trying another CG next time)
-                    // rather than incrementing the RPC-failure eviction counter.
-                    response->mutable_status()->add_error_msgs(msg);
-                    response->mutable_status()->set_status_code(TStatusCode::NOT_FOUND);
-                    return Status::NotFound<false>(msg);
-                }
-                // Server-side fill: request.path already carries the full remote path.
-                auto fill_st = trigger_peer_server_fill(
-                        fb, get_rowset_meta_tablet_id_from_request(request), cache_key_path,
-                        get_rowset_meta_resource_id_from_request(request), path,
-                        request->has_file_size() ? request->file_size() : -1,
-                        static_cast<int64_t>(fb->range().left),
-                        static_cast<int64_t>(fb->range().size()),
-                        config::peer_server_cache_fill_timeout_ms);
-                if (!fill_st.ok()) {
-                    g_file_cache_get_by_peer_failed_num << 1;
-                    g_file_cache_get_by_peer_not_downloaded_block_num << 1;
-                    if (fill_st.is<ErrorCode::TOO_MANY_TASKS>()) {
-                        // Server slot exhausted: healthy but overloaded. Client must not rotate
-                        // or evict — just fall back to S3 and retry same candidate next time.
-                        response->mutable_status()->add_error_msgs(std::string(fill_st.msg()));
-                        response->mutable_status()->set_status_code(TStatusCode::TOO_MANY_TASKS);
-                    } else if (fill_st.is<ErrorCode::NOT_FOUND>()) {
-                        // Soft miss (fill incomplete, timeout, unexpected state) — client rotates,
-                        // not evicts.
-                        response->mutable_status()->add_error_msgs(std::string(fill_st.msg()));
-                        response->mutable_status()->set_status_code(TStatusCode::NOT_FOUND);
-                    } else {
-                        LOG(WARNING) << "cache block fill failed, status=" << fill_st << ", "
-                                     << format_peer_cache_block_context(request, cb_req, fb, hash,
-                                                                        file_size, do_fill);
-                        set_error_response(response, "cache block not ready");
-                    }
-                    return fill_st;
-                }
-                fb_state = io::FileBlock::State::DOWNLOADED;
-            }
-            if (fb_state != io::FileBlock::State::DOWNLOADED) {
-                // A concurrent download was in progress (DOWNLOADING at request time) but its
-                // wait() returned a non-DOWNLOADED state (e.g., timed-out while still
-                // DOWNLOADING, or some other non-EMPTY intermediate state).  The server is
-                // healthy; the block just isn't available yet.  Return NOT_FOUND so the client
-                // rotates the candidate instead of evicting it.
-                const std::string msg =
-                        fmt::format("cache block not ready after wait, {}",
-                                    format_peer_cache_block_context(request, cb_req, fb, hash,
-                                                                    file_size, do_fill));
-                g_file_cache_get_by_peer_failed_num << 1;
-                g_file_cache_get_by_peer_not_downloaded_block_num << 1;
-                LOG(WARNING) << msg;
-                response->mutable_status()->add_error_msgs(msg);
-                response->mutable_status()->set_status_code(TStatusCode::NOT_FOUND);
-                return Status::NotFound<false>(msg);
-            }
-
-            g_file_cache_get_by_peer_blocks_num << 1;
-            doris::CacheBlockPB* out = response->add_datas();
-            // In attachment mode, metadata order must match attachment append order because the
-            // client consumes attachment payload sequentially using resp.datas() order.
-            Status read_status = read_file_block(
-                    fb, file_size, out, use_attachment ? &cntl->response_attachment() : nullptr);
-            if (!read_status.ok()) {
-                set_error_response(response, "read cache file error");
-                return read_status;
-            }
+        // A plain peer read only serves blocks that are already downloaded. This lookup inserts no
+        // EMPTY cells, takes no downloader ownership, and accepts any cached layout, including
+        // short cells left by a pull-through fill from a client with a smaller cache block size.
+        // It also refreshes LRU state for the returned blocks.
+        io::FileBlocks blocks;
+        bool fully_covered = false;
+        RETURN_IF_ERROR(cache->get_downloaded_blocks_if_fully_covered(hash, offset, size, ctx,
+                                                                      &blocks, &fully_covered));
+        if (!fully_covered) {
+            return reject_peer_block_not_found(
+                    response,
+                    fmt::format(
+                            "cache block not fully downloaded, req_block=[offset={}, size={}], {}",
+                            cb_req.block_offset(), cb_req.block_size(),
+                            format_peer_request_context(request, hash, file_size)));
+        }
+        for (auto& fb : blocks) {
+            RETURN_IF_ERROR(serve_peer_cache_block(request, cb_req, fb, hash, file_size, do_fill,
+                                                   response_attachment, response));
             ++response_blocks;
         }
     }

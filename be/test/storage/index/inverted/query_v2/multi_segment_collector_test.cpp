@@ -17,6 +17,23 @@
 
 #include <CLucene.h>
 #include <CLucene/index/MultiReader.h>
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow-field"
+#pragma clang diagnostic ignored "-Woverloaded-virtual"
+#pragma clang diagnostic ignored "-Winconsistent-missing-override"
+#pragma clang diagnostic ignored "-Wreorder-ctor"
+#pragma clang diagnostic ignored "-Wshorten-64-to-32"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Woverloaded-virtual"
+#endif
+#include <CLucene/index/_MultiSegmentReader.h>
+#ifdef __clang__
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 #include <gtest/gtest.h>
 
 #include <memory>
@@ -25,6 +42,7 @@
 #include <vector>
 
 #include "io/fs/local_file_system.h"
+#include "storage/compaction/collection_statistics.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
 #include "storage/index/inverted/query_v2/bit_set_query/bit_set_query.h"
@@ -33,6 +51,7 @@
 #include "storage/index/inverted/query_v2/collect/top_k_collector.h"
 #include "storage/index/inverted/query_v2/null_masked_query.h"
 #include "storage/index/inverted/query_v2/term_query/term_query.h"
+#include "storage/index/inverted/similarity/bm25_similarity.h"
 #include "storage/index/inverted/util/string_helper.h"
 
 CL_NS_USE(index)
@@ -66,9 +85,11 @@ public:
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
     }
 
-private:
+protected:
     static void create_test_index(const std::string& dir, const std::vector<std::string>& docs,
-                                  int32_t max_buffered_docs = 100) {
+                                  int32_t max_buffered_docs = 100,
+                                  const std::string& field_name = "title",
+                                  bool store_norms = false) {
         CustomAnalyzerConfig::Builder builder;
         builder.with_tokenizer_config("standard", {});
         auto custom_analyzer_config = builder.build();
@@ -85,9 +106,11 @@ private:
         auto char_string_reader = std::make_shared<lucene::util::SStringReader<char>>();
         auto* doc = _CLNEW lucene::document::Document();
         int32_t field_config = lucene::document::Field::STORE_NO;
-        field_config |= lucene::document::Field::INDEX_NONORMS;
+        if (!store_norms) {
+            field_config |= lucene::document::Field::INDEX_NONORMS;
+        }
         field_config |= lucene::document::Field::INDEX_TOKENIZED;
-        auto field_name_w = StringHelper::to_wstring("title");
+        auto field_name_w = StringHelper::to_wstring(field_name);
         auto* field = _CLNEW lucene::document::Field(field_name_w.c_str(), field_config);
         field->setOmitTermFreqAndPositions(false);
         doc->add(*field);
@@ -249,6 +272,49 @@ TEST_F(MultiSegmentCollectorTest, CollectDocSetWithSingleReaderBinding) {
 
     _CLDECDELETE(dir0);
     _CLDECDELETE(dir1);
+}
+
+// An index of several CLucene segments opens as a reader of several segments. The BM25 statistics
+// read its norm length sums per segment, and they equal those of the reader's combined norms.
+TEST_F(MultiSegmentCollectorTest, NormLengthSumsReadEachSegment) {
+    const std::string dir = kTestDir + "/segmented_norms";
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(dir).ok());
+    std::string long_doc;
+    for (int i = 0; i < 30; ++i) {
+        long_doc += "word ";
+    }
+    create_test_index(dir, {"a b", "c", long_doc, "d e f", "g", "h i"}, 2, "title", true);
+
+    auto reader = make_shared_reader(lucene::index::IndexReader::open(dir.c_str()));
+    auto* multi_segment = dynamic_cast<lucene::index::MultiSegmentReader*>(reader.get());
+    ASSERT_NE(multi_segment, nullptr);
+    ASSERT_EQ(multi_segment->getSubReaders()->length, 3);
+    uint64_t all = 0;
+    ASSERT_TRUE(collection_statistics_detail::sum_norm_lengths(reader.get(), L"title", &all).ok());
+    const std::vector<uint32_t> docs {0, 2, 3, 5};
+    uint64_t some = 0;
+    ASSERT_TRUE(
+            collection_statistics_detail::sum_norm_lengths_of(reader.get(), L"title", docs, &some)
+                    .ok());
+
+    auto combined = make_shared_reader(lucene::index::IndexReader::open(dir.c_str()));
+    const uint8_t* norms = combined->norms(L"title");
+    ASSERT_NE(norms, nullptr);
+    auto length = [](uint8_t norm) {
+        return static_cast<uint64_t>(static_cast<float>(BM25Similarity::byte4_to_int(norm)));
+    };
+    uint64_t expected_all = 0;
+    for (int32_t doc = 0; doc < combined->maxDoc(); ++doc) {
+        expected_all += length(norms[doc]);
+    }
+    uint64_t expected_some = 0;
+    for (const uint32_t doc : docs) {
+        expected_some += length(norms[doc]);
+    }
+    EXPECT_EQ(all, expected_all);
+    EXPECT_EQ(some, expected_some);
+    // Lengths below 24 are exact; the 30-token row reads back approximately.
+    EXPECT_EQ(expected_all - length(norms[2]), 9);
 }
 
 } // namespace doris::segment_v2

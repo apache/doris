@@ -102,6 +102,20 @@ TEST(OlapScannerTest, BuildScoreRuntimeCollectionIoContextAllowsMissingQueryCont
     EXPECT_EQ(io_ctx.file_cache_stats, &stats);
     EXPECT_TRUE(io_ctx.is_inverted_index);
     EXPECT_EQ(io_ctx.remote_scan_cache_write_limiter, nullptr);
+    EXPECT_FALSE(io_ctx.is_disposable);
+}
+
+// The statistics read the index before the scan, with the query's file cache choice.
+TEST(OlapScannerTest, BuildScoreRuntimeCollectionIoContextFollowsQueryFileCacheOptions) {
+    MockRuntimeState state;
+    state._query_id = make_query_id();
+    state._query_ctx = nullptr;
+    state._query_options.__set_disable_file_cache(true);
+
+    io::FileCacheStatistics stats;
+    auto io_ctx = build_score_runtime_collection_io_context(&state, ReaderType::READER_QUERY, 3600,
+                                                            &stats);
+    EXPECT_TRUE(io_ctx.is_disposable);
 }
 
 } // namespace doris

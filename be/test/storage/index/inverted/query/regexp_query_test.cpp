@@ -25,6 +25,7 @@
 
 #include "io/fs/local_file_system.h"
 #include "runtime/runtime_state.h"
+#include "storage/compaction/collection_similarity.h"
 #include "storage/index/inverted/query/query.h"
 #include "storage/index/inverted/query/query_info.h"
 
@@ -296,6 +297,39 @@ TEST_F(RegexpQueryTest, SearchWithEmptyTerms) {
     // Search without adding any terms should not crash
     EXPECT_NO_THROW(regexp_query.search(result));
     EXPECT_TRUE(result.isEmpty());
+}
+
+// With score() a regexp scores the constant 1 for every matching row, and without it publishes
+// no score. The matching rows stand in for what the expanded terms' postings would return.
+TEST_F(RegexpQueryTest, ScoresConstantOnePerMatchingRow) {
+    std::shared_ptr<lucene::search::IndexSearcher> searcher = nullptr;
+    OlapReaderStatistics stats;
+    RuntimeState runtime_state;
+    io::IOContext io_ctx;
+    for (const bool constant_score : {false, true}) {
+        SCOPED_TRACE(constant_score);
+        auto context = std::make_shared<IndexQueryContext>();
+        context->runtime_state = &runtime_state;
+        context->stats = &stats;
+        context->io_ctx = &io_ctx;
+        context->collection_similarity = std::make_shared<CollectionSimilarity>();
+        RegexpQuery regexp_query(searcher, context);
+        regexp_query._constant_score = constant_score;
+
+        roaring::Roaring result;
+        result.add(1);
+        result.add(5);
+        regexp_query.search(result);
+
+        auto scores = context->collection_similarity->release_scores();
+        if (constant_score) {
+            ASSERT_EQ(scores.size(), 2U);
+            EXPECT_FLOAT_EQ(scores[1], 1.0F);
+            EXPECT_FLOAT_EQ(scores[5], 1.0F);
+        } else {
+            EXPECT_TRUE(scores.empty());
+        }
+    }
 }
 
 TEST_F(RegexpQueryTest, GetRegexPrefixWithDebugPoint) {

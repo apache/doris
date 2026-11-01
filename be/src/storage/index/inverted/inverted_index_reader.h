@@ -213,6 +213,13 @@ private:
     }
 };
 
+// The null bitmap of an inverted index, through the inverted index query cache. Reads it from
+// `dir` when that is the index's open directory, otherwise opens the index.
+Status read_inverted_index_null_bitmap(IndexFileReader& file_reader, const TabletIndex& index_meta,
+                                       const io::IOContext* io_ctx,
+                                       InvertedIndexQueryCacheHandle* cache_handle,
+                                       lucene::store::Directory* dir = nullptr);
+
 class InvertedIndexReader : public IndexReader {
 public:
     explicit InvertedIndexReader(const TabletIndex* index_meta,
