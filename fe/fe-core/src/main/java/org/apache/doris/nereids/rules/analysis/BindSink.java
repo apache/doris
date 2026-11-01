@@ -1395,6 +1395,12 @@ public class BindSink implements AnalysisRuleFactory {
         public Map<Long, Expression> createSyncMvWhereClause() {
             Map<Long, Expression> mvWhereClauses = new HashMap<>();
             long baseIndexId = olapTable.getBaseIndexId();
+            // The guard carries the creation session variables and is only needed when they differ from the
+            // session the clause is evaluated (loaded) in, so the load session is captured before the
+            // persisted variables are installed for the analysis below - otherwise the comparison would see
+            // the persisted values on both sides and never guard anything.
+            Map<String, String> currentSessionVars =
+                    ConnectContext.get().getSessionVariable().getAffectQueryResultInPlanVariables();
             for (Map.Entry<Long, MaterializedIndexMeta> entry : olapTable.getVisibleIndexIdToMeta().entrySet()) {
                 try (AutoCloseSessionVariable auto = new AutoCloseSessionVariable(
                         ConnectContext.get(), entry.getValue().getSessionVariables())) {
@@ -1406,8 +1412,11 @@ public class BindSink implements AnalysisRuleFactory {
                             entry.getValue().getSessionVariables());
                     Expression predicate = analyze(entry.getValue().getWhereClause().accept(
                             ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
-                    predicate = predicate.accept(new AddSessionVarGuardRewriter(
-                            entry.getValue().getSessionVariables()), Boolean.FALSE);
+                    if (SessionVarGuardRewriter.needsSessionVarGuard(
+                            currentSessionVars, entry.getValue().getSessionVariables())) {
+                        predicate = predicate.accept(new AddSessionVarGuardRewriter(
+                                entry.getValue().getSessionVariables(), currentSessionVars), Boolean.FALSE);
+                    }
                     mvWhereClauses.put(entry.getKey(), predicate);
                 }
             }

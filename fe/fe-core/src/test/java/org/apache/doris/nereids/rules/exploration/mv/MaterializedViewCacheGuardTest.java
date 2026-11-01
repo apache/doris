@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.TimeStampTzType;
@@ -120,5 +122,53 @@ public class MaterializedViewCacheGuardTest {
                 new DistributeHint(DistributeType.NONE), Optional.empty(), scan("l"), scan("r"),
                 new JoinReorderContext());
         Assertions.assertFalse(AbstractMaterializedViewRule.containsCacheGuardInRowAffectingExpressions(unguarded));
+    }
+
+    /**
+     * A predicate that only names a slot produced by a guarded project alias is row affecting too: the
+     * creation-session semantics live in the producer expression, not in the predicate. Without following the
+     * slot lineage, an MV that materializes only a count over such a filter would look unguarded, because no
+     * guarded scan column is mapped for the query to read.
+     */
+    @Test
+    public void testGuardedProjectAliasUsedByRowFilterIsRowAffecting() {
+        Alias guardedAlias = new Alias(CACHE_GUARD, "d");
+        LogicalProject<Plan> project = new LogicalProject<>(
+                ImmutableList.of(guardedAlias, new SlotReference("ts", TimeStampTzType.of(6))), scan("l"));
+        LogicalFilter<Plan> filter = new LogicalFilter<>(
+                // d > '2023-12-31 00:00:00': the predicate only references the produced slot
+                Sets.newHashSet(new GreaterThan(guardedAlias.toSlot(), new VarcharLiteral("2023-12-31 00:00:00"))),
+                project);
+        Assertions.assertTrue(AbstractMaterializedViewRule.containsCacheGuardInRowAffectingExpressions(filter));
+
+        // the same shape without a guard in the producer stays rewriteable
+        Alias unguardedAlias = new Alias(
+                new DateTrunc(new SlotReference("ts", TimeStampTzType.of(6)), new VarcharLiteral("day")), "d");
+        LogicalProject<Plan> unguardedProject = new LogicalProject<>(
+                ImmutableList.of(unguardedAlias, new SlotReference("ts", TimeStampTzType.of(6))), scan("l"));
+        LogicalFilter<Plan> unguardedFilter = new LogicalFilter<>(
+                Sets.newHashSet(new GreaterThan(unguardedAlias.toSlot(),
+                        new VarcharLiteral("2023-12-31 00:00:00"))),
+                unguardedProject);
+        Assertions.assertFalse(
+                AbstractMaterializedViewRule.containsCacheGuardInRowAffectingExpressions(unguardedFilter));
+    }
+
+    /**
+     * The lineage is followed transitively, so a predicate over a slot that an intermediate project renames
+     * still reaches the guarded expression below it - which is what nested subqueries in a definition look
+     * like.
+     */
+    @Test
+    public void testGuardedProducerIsFoundThroughNestedProject() {
+        Alias guardedAlias = new Alias(CACHE_GUARD, "d");
+        LogicalProject<Plan> inner = new LogicalProject<>(
+                ImmutableList.of(guardedAlias, new SlotReference("ts", TimeStampTzType.of(6))), scan("l"));
+        Alias renamed = new Alias(guardedAlias.toSlot(), "d2");
+        LogicalProject<Plan> outer = new LogicalProject<>(ImmutableList.of(renamed), inner);
+        LogicalFilter<Plan> filter = new LogicalFilter<>(
+                Sets.newHashSet(new GreaterThan(renamed.toSlot(), new VarcharLiteral("2023-12-31 00:00:00"))),
+                outer);
+        Assertions.assertTrue(AbstractMaterializedViewRule.containsCacheGuardInRowAffectingExpressions(filter));
     }
 }

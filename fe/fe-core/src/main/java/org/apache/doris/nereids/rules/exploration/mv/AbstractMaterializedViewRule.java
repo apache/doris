@@ -44,6 +44,7 @@ import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
@@ -1120,6 +1121,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      * rewrite must be rejected regardless of which outputs the query selects.
      */
     static boolean containsCacheGuardInRowAffectingExpressions(Plan plan) {
+        Map<Slot, Expression> slotProducers = slotProducers(plan);
         for (Plan node : plan.<Plan>collectToList(p -> true)) {
             List<Expression> expressions = new ArrayList<>();
             if (node instanceof LogicalFilter) {
@@ -1155,9 +1157,63 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             } else if (node instanceof LogicalWindow) {
                 expressions.addAll(((LogicalWindow<?>) node).getWindowExpressions());
             }
-            if (containsCacheGuard(expressions)) {
+            if (containsCacheGuard(expressions) || producesCacheGuard(expressions, slotProducers)) {
                 return true;
             }
+        }
+        return false;
+    }
+
+    /**
+     * The expression that materializes each slot of {@code plan}. An alias output is mapped to the expression
+     * it names, so a row-affecting predicate that only mentions the slot can be traced to the expression
+     * producing it - possibly through several nested projects and subqueries.
+     *
+     * <p>The scan uses the node expressions rather than the node output: a project's output is already
+     * reduced to slots, which loses the alias and with it the definition of the produced value.
+     */
+    private static Map<Slot, Expression> slotProducers(Plan plan) {
+        Map<Slot, Expression> producers = new HashMap<>();
+        for (Plan node : plan.<Plan>collectToList(p -> true)) {
+            for (Expression expression : node.getExpressions()) {
+                if (expression instanceof Alias) {
+                    Alias alias = (Alias) expression;
+                    // The first definition wins: an outer project can only re-alias a slot of an inner one,
+                    // and following the outermost definition is what reaches the guarded expression.
+                    producers.putIfAbsent(alias.toSlot(), alias.child());
+                }
+            }
+        }
+        return producers;
+    }
+
+    /**
+     * Whether any slot of the row-affecting expressions is materialized by an expression carrying a cache
+     * guard. A predicate such as {@code d = boundary} only references the slot, while the creation-session
+     * semantics live in the project that computes {@code d} (e.g. a guarded date_trunc). Without following
+     * that lineage the rows filtered by such a predicate would look unguarded, so a query that selects only
+     * an aggregate (and hence maps no guarded scan column) could reuse the creation-session row set.
+     */
+    private static boolean producesCacheGuard(Collection<? extends Expression> expressions,
+            Map<Slot, Expression> slotProducers) {
+        Set<Slot> visited = new HashSet<>();
+        List<Slot> pending = new ArrayList<>();
+        for (Expression expression : expressions) {
+            pending.addAll(expression.collectToSet(Slot.class::isInstance));
+        }
+        while (!pending.isEmpty()) {
+            Slot slot = pending.remove(pending.size() - 1);
+            if (!visited.add(slot)) {
+                continue;
+            }
+            Expression producer = slotProducers.get(slot);
+            if (producer == null) {
+                continue;
+            }
+            if (containsCacheGuard(ImmutableList.of(producer))) {
+                return true;
+            }
+            pending.addAll(producer.collectToSet(Slot.class::isInstance));
         }
         return false;
     }
