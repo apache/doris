@@ -80,6 +80,7 @@ import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.LocationProvider;
 import org.apache.iceberg.io.OutputFile;
+import org.apache.iceberg.types.EdgeAlgorithm;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.DateTimeUtil;
@@ -233,6 +234,16 @@ public class IcebergWritePlanProviderTest {
                     }
                 }
             }
+        }
+    }
+
+    @Test
+    public void planWriteRejectsReferencedSpatialCrs() {
+        for (Type spatial : Arrays.asList(Types.GeometryType.of("projjson:custom"),
+                Types.GeographyType.of("projjson:custom", EdgeAlgorithm.SPHERICAL))) {
+            Table table = spatialTable(spatialSchema(spatial), 3, "parquet", PartitionSpec.unpartitioned());
+            WriteHandle handle = new WriteHandle(new IcebergTableHandle("db1", "spatial"));
+            assertSpatialWriteRejected(table, handle, "Referenced spatial CRS");
         }
     }
 

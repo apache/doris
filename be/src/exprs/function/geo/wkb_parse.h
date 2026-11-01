@@ -47,9 +47,10 @@ public:
     // Build supported calculation shapes from validated typed WKB without payload copies.
     static GeoParseStatus parse_wkb_bytes(const char* data, size_t size,
                                           std::unique_ptr<GeoShape>& shape);
-    static GeoParseStatus validate_wkb_bytes(const char* data, size_t size,
-                                             bool geographic = false);
-    static Status validate_spatial_wkb(const char* data, size_t size, bool geographic, size_t row);
+    static GeoParseStatus validate_wkb_bytes(const char* data, size_t size, bool geographic = false,
+                                             bool reject_dimensions = false);
+    static Status validate_spatial_wkb(const char* data, size_t size, bool geographic, size_t row,
+                                       bool reject_dimensions = false);
     static GeoParseStatus wkb_to_wkt(const char* data, size_t size, std::string* wkt);
     // Preserve sequence/ring boundaries for admitted XY calculation shapes.
     static GeoParseStatus calculation_coordinates(const char* data, size_t size,

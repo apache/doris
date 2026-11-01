@@ -969,7 +969,7 @@ struct StAsBinary {
     }
 };
 
-class StAsBinaryFunction final : public SpatialWkbGeoFunction<StAsBinary> {
+class StAsBinaryFunction final : public SpatialWkbGeoFunction<StAsBinary, false> {
 public:
     static FunctionPtr create() { return std::make_shared<StAsBinaryFunction>(); }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {

@@ -562,6 +562,14 @@ TEST_F(WkbParseTest, IsoDimensionsPreserveAllSevenShapesAndMixedEndianMembers) {
     }
 }
 
+TEST_F(WkbParseTest, SpatialOperationValidationRejectsIsoDimensions) {
+    const auto point_z = iso_wkb(1001, iso_coordinate(1, 1, 2));
+    EXPECT_EQ(WkbParse::validate_wkb_bytes(point_z.data(), point_z.size()),
+              GeoParseStatus::GEO_PARSE_OK);
+    EXPECT_EQ(WkbParse::validate_wkb_bytes(point_z.data(), point_z.size(), false, true),
+              GeoParseStatus::GEO_PARSE_WKB_UNSUPPORTED_METADATA);
+}
+
 TEST_F(WkbParseTest, IsoPointAccessPreservesXyAndRejectsCalculations) {
     for (uint32_t dimensions = 1; dimensions <= 3; ++dimensions) {
         const auto big_point =

@@ -1151,7 +1151,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             spatial |= IcebergSpatialSchemaValidator.containsSpatial(field.type());
         }
         if (spatial) {
-            IcebergSpatialSchemaValidator.validateTable(
+            IcebergSpatialSchemaValidator.validateTable(schema,
                     IcebergSchemaBuilder.getEffectiveFormatVersion(request.getProperties(), properties),
                     IcebergSchemaBuilder.getEffectiveFileFormatName(request.getProperties(), properties));
         }
@@ -1940,6 +1940,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         boolean spatial = false;
         for (IcebergColumnChange change : changes) {
             spatial |= IcebergSpatialSchemaValidator.containsSpatial(change.getType());
+            IcebergSpatialSchemaValidator.validateSpatialCrs(change.getType());
         }
         if (spatial) {
             catalogOps.withTable(handle.getDbName(), handle.getTableName(), table -> {

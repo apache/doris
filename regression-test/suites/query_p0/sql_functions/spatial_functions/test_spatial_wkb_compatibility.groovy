@@ -556,7 +556,7 @@ suite("test_spatial_wkb_compatibility") {
                 def otherShape = "ST_GeogFromWKB('${other}')"
                 test {
                     sql "select ${function}(${reverse ? otherShape : roundedContactPolygon}, ${reverse ? roundedContactPolygon : otherShape})"
-                    exception "ambiguous spherical Polygon boundary interiors"
+                    exception "ambiguous spherical Polygon boundary"
                 }
             }
         }

@@ -24,6 +24,7 @@
 #include <s2/s2closest_point_query.h>
 #include <s2/s2contains_point_query.h>
 #include <s2/s2earth.h>
+#include <s2/s2edge_crossings.h>
 #include <s2/s2edge_distances.h>
 #include <s2/s2lax_polygon_shape.h>
 #include <s2/s2loop.h>
@@ -1147,6 +1148,35 @@ static bool geography_rounded_vertex_collision(const GeographyEdgeNodes::RawEdge
     return collision(a, b) || collision(b, a);
 }
 
+static bool geography_has_raw_polygon_edge_crossing(const GeographyEdgeNodes::RawEdges& left_edges,
+                                                    const GeographyEdgeNodes::RawEdges& right_edges,
+                                                    const GeographyEdgeNodes& nodes) {
+    const auto crosses = [&](const auto& left, const auto& right) {
+        if (S2::CrossingSign(left.first.point, left.second.point, right.first.point,
+                             right.second.point) <= 0) {
+            return false;
+        }
+        const auto intersection = S2::GetIntersection(left.first.point, left.second.point,
+                                                      right.first.point, right.second.point);
+        const auto lat_lng = S2LatLng(intersection);
+        const GeographyVertex raw_intersection(
+                {.x = lat_lng.lng().degrees(), .y = lat_lng.lat().degrees()});
+        return nodes.contains_point(left.first, left.second, raw_intersection) &&
+               nodes.contains_point(right.first, right.second, raw_intersection);
+    };
+    for (const auto& left_ring : left_edges.polygon) {
+        for (const auto& right_ring : right_edges.polygon) {
+            for (const auto& left : left_ring) {
+                if (std::ranges::any_of(right_ring,
+                                        [&](const auto& right) { return crosses(left, right); })) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
 static Status geography_check_polygon_interiors(std::string_view name, const S2ShapeIndex& left,
                                                 const S2ShapeIndex& right,
                                                 const GeographyEdgeNodes& nodes,
@@ -1541,6 +1571,7 @@ static Status geography_relation_impl(std::string_view name, const GeoShape& lhs
         // CLOSED indexes can turn a raw endpoint/apex gap into contact. An unrelated collision
         // must not hide genuine contact or a strict interior point elsewhere in either shape.
         const bool has_witness =
+                geography_has_raw_polygon_edge_crossing(left_edges, right_edges, nodes) ||
                 (lhs.type() == GeoShapeType::GEO_SHAPE_POLYGON &&
                  geography_has_polygon_intersection_witness(nodes.left, left, nodes.right,
                                                             nodes)) ||

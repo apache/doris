@@ -58,12 +58,12 @@ static bool has_spatial_leaf(const DataTypePtr& type) {
 }
 
 static Status validate_spatial_range(const IColumn& input, const DataTypePtr& type, size_t start,
-                                     size_t end) {
+                                     size_t end, bool reject_dimensions) {
     if (!has_spatial_leaf(type) || start == end) {
         return Status::OK();
     }
     if (const auto* constant = check_and_get_column<ColumnConst>(input)) {
-        return validate_spatial_range(constant->get_data_column(), type, 0, 1);
+        return validate_spatial_range(constant->get_data_column(), type, 0, 1, reject_dimensions);
     }
     const auto* nullable = check_and_get_column<ColumnNullable>(input);
     const IColumn& column = nullable ? nullable->get_nested_column() : input;
@@ -79,31 +79,35 @@ static Status validate_spatial_range(const IColumn& input, const DataTypePtr& ty
             const auto value = column.get_data_at(row);
             const auto& spatial = assert_cast<const DataTypeSpatial&>(*nested_type);
             RETURN_IF_ERROR(WkbParse::validate_spatial_wkb(
-                    value.data, value.size, spatial.requires_geographic_coordinates(), row));
+                    value.data, value.size, spatial.requires_geographic_coordinates(), row,
+                    reject_dimensions));
             break;
         }
         case TYPE_ARRAY: {
             const auto& array = assert_cast<const ColumnArray&>(column);
             const auto& array_type = assert_cast<const DataTypeArray&>(*nested_type);
             RETURN_IF_ERROR(validate_spatial_range(array.get_data(), array_type.get_nested_type(),
-                                                   array.offset_at(row), array.get_offsets()[row]));
+                                                   array.offset_at(row), array.get_offsets()[row],
+                                                   reject_dimensions));
             break;
         }
         case TYPE_MAP: {
             const auto& map = assert_cast<const ColumnMap&>(column);
             const auto& map_type = assert_cast<const DataTypeMap&>(*nested_type);
             RETURN_IF_ERROR(validate_spatial_range(map.get_keys(), map_type.get_key_type(),
-                                                   map.offset_at(row), map.get_offsets()[row]));
+                                                   map.offset_at(row), map.get_offsets()[row],
+                                                   reject_dimensions));
             RETURN_IF_ERROR(validate_spatial_range(map.get_values(), map_type.get_value_type(),
-                                                   map.offset_at(row), map.get_offsets()[row]));
+                                                   map.offset_at(row), map.get_offsets()[row],
+                                                   reject_dimensions));
             break;
         }
         case TYPE_STRUCT: {
             const auto& structure = assert_cast<const ColumnStruct&>(column);
             const auto& elements = assert_cast<const DataTypeStruct&>(*nested_type).get_elements();
             for (size_t i = 0; i < elements.size(); ++i) {
-                RETURN_IF_ERROR(
-                        validate_spatial_range(structure.get_column(i), elements[i], row, row + 1));
+                RETURN_IF_ERROR(validate_spatial_range(structure.get_column(i), elements[i], row,
+                                                       row + 1, reject_dimensions));
             }
             break;
         }
@@ -114,10 +118,12 @@ static Status validate_spatial_range(const IColumn& input, const DataTypePtr& ty
     return Status::OK();
 }
 
-Status validate_spatial_wkb_inputs(const Block& block, const ColumnNumbers& arguments) {
+Status validate_spatial_wkb_inputs(const Block& block, const ColumnNumbers& arguments,
+                                   bool reject_dimensions) {
     for (const auto argument : arguments) {
         const auto& entry = block.get_by_position(argument);
-        RETURN_IF_ERROR(validate_spatial_range(*entry.column, entry.type, 0, entry.column->size()));
+        RETURN_IF_ERROR(validate_spatial_range(*entry.column, entry.type, 0, entry.column->size(),
+                                               reject_dimensions));
     }
     return Status::OK();
 }

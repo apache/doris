@@ -77,7 +77,7 @@ public:
 // serialized value before any file data is consumed.  Do not use this wrapper for legacy
 // geo functions or numeric constructors: their nullable arguments rely on the default
 // null propagation supplied by IFunction.
-template <typename Impl>
+template <typename Impl, bool RejectDimensions = true>
 class SpatialWkbGeoFunction : public GeoFunction<Impl> {
 public:
     static FunctionPtr create() { return std::make_shared<SpatialWkbGeoFunction<Impl>>(); }
@@ -85,7 +85,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        RETURN_IF_ERROR(validate_spatial_wkb_inputs(block, arguments));
+        RETURN_IF_ERROR(validate_spatial_wkb_inputs(block, arguments, RejectDimensions));
         return GeoFunction<Impl>::execute_impl(context, block, arguments, result, input_rows_count);
     }
 };

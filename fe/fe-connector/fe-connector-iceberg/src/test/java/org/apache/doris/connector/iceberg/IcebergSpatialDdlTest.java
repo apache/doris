@@ -187,6 +187,18 @@ public class IcebergSpatialDdlTest {
     }
 
     @Test
+    public void testCreateRejectsReferencedSpatialCrsBeforeRemote() {
+        for (String typeName : Arrays.asList("GEOMETRY", "GEOGRAPHY")) {
+            ConnectorType type = ConnectorType.of(typeName).withSpatialMetadata("projjson:custom", null);
+            RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+            Assertions.assertThrows(DorisConnectorException.class,
+                    () -> metadata(ops, Collections.emptyMap()).createTable(null,
+                            request(type, Map.of(TableProperties.FORMAT_VERSION, "3"))));
+            Assertions.assertTrue(ops.log.isEmpty());
+        }
+    }
+
+    @Test
     public void testCreateRespectsCatalogPropertyPrecedence() {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         metadata(ops, Map.of("table-default.format-version", "3",

@@ -25,7 +25,8 @@
 
 namespace doris {
 class Block;
-Status validate_spatial_wkb_inputs(const Block& block, const ColumnNumbers& arguments);
+Status validate_spatial_wkb_inputs(const Block& block, const ColumnNumbers& arguments,
+                                   bool reject_dimensions = false);
 // Validate physical binary values using the spatial identity supplied by the table schema.
 Status append_spatial_wkb(const ColumnPtr& source, IColumn& destination,
                           const DataTypePtr& spatial_type,

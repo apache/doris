@@ -102,8 +102,12 @@ GeoParseStatus read_wkb_type(WkbParseContext& ctx, uint32_t* type, uint32_t* dim
 class RawWkbReader {
 public:
     RawWkbReader(WkbParseContext& context, bool geographic, std::ostream* output = nullptr,
-                 GeoCoordinateListList* sequences = nullptr)
-            : _ctx(context), _geographic(geographic), _output(output), _sequences(sequences) {}
+                 GeoCoordinateListList* sequences = nullptr, bool reject_dimensions = false)
+            : _ctx(context),
+              _geographic(geographic),
+              _output(output),
+              _sequences(sequences),
+              _reject_dimensions(reject_dimensions) {}
 
     GeoParseStatus read() {
         do {
@@ -111,6 +115,9 @@ public:
             const auto status = read_wkb_type(_ctx, &type, &_dimensions);
             if (status != GeoParseStatus::GEO_PARSE_OK) {
                 return status;
+            }
+            if (_reject_dimensions && _dimensions != 0) {
+                return GeoParseStatus::GEO_PARSE_WKB_UNSUPPORTED_METADATA;
             }
             if (!matches_parent(type)) {
                 return GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR;
@@ -340,6 +347,7 @@ private:
     const bool _geographic;
     std::ostream* const _output;
     GeoCoordinateListList* const _sequences;
+    const bool _reject_dimensions;
     uint32_t _root_type = 0;
     uint32_t _dimensions = 0;
     std::array<double, 4> _coordinate {};
@@ -534,16 +542,18 @@ GeoParseStatus WkbParse::geometry_type(const char* data, size_t size, std::strin
     return status;
 }
 
-GeoParseStatus WkbParse::validate_wkb_bytes(const char* data, size_t size, bool geographic) {
+GeoParseStatus WkbParse::validate_wkb_bytes(const char* data, size_t size, bool geographic,
+                                            bool reject_dimensions) {
     WkbParseContext ctx;
     if (initialize_context(data, size, &ctx) != GeoParseStatus::GEO_PARSE_OK) {
         return GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR;
     }
-    return RawWkbReader(ctx, geographic).read();
+    return RawWkbReader(ctx, geographic, nullptr, nullptr, reject_dimensions).read();
 }
 
-Status WkbParse::validate_spatial_wkb(const char* data, size_t size, bool geographic, size_t row) {
-    const auto status = validate_wkb_bytes(data, size, geographic);
+Status WkbParse::validate_spatial_wkb(const char* data, size_t size, bool geographic, size_t row,
+                                      bool reject_dimensions) {
+    const auto status = validate_wkb_bytes(data, size, geographic, reject_dimensions);
     if (status == GeoParseStatus::GEO_PARSE_WKB_UNSUPPORTED_METADATA) {
         return Status::NotSupported(
                 "WKB dimensions or embedded SRID are not supported for spatial inputs at row {}",

@@ -359,7 +359,7 @@ TEST(VGeoFunctionsTest, IsoDimensionsAreStoredButNotCalculated) {
                                          : DataTypePtr(std::make_shared<DataTypeFloat64>());
             const auto status = execute_geography_test(name, values, make_nullable(result), &block);
             EXPECT_FALSE(status.ok()) << name;
-            EXPECT_NE(status.to_string().find("does not support this Geography WKB shape"),
+            EXPECT_NE(status.to_string().find("WKB dimensions or embedded SRID are not supported"),
                       std::string::npos)
                     << status.to_string();
         }
@@ -1195,6 +1195,17 @@ TEST(VGeoFunctionsTest, GeographyIntersectsKeepsIndependentPolygonWitnesses) {
         expect_geography_relation("st_intersects", right, left, true);
         expect_geography_relation("st_disjoint", left, right, false);
         expect_geography_relation("st_disjoint", right, left, false);
+    }
+}
+
+TEST(VGeoFunctionsTest, GeographyIntersectsKeepsRawPolygonCrossingWitness) {
+    const std::string left = "POLYGON ((0 58.00000000000001,1 59,-1 59,0 58.00000000000001))";
+    const std::string right = "POLYGON ((0 58,1 57,1 59,0 58))";
+    for (const bool reverse : {false, true}) {
+        const auto& first = reverse ? right : left;
+        const auto& second = reverse ? left : right;
+        expect_geography_relation("st_intersects", first, second, true);
+        expect_geography_relation("st_disjoint", first, second, false);
     }
 }
 

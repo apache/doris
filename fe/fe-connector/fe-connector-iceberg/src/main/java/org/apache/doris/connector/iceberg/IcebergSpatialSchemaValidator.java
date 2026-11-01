@@ -32,6 +32,7 @@ import org.apache.iceberg.io.LocationProvider;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 
+import java.util.Locale;
 import java.util.Map;
 
 /** Constraints of the Doris spatial Parquet writer, checked before DDL commits and data writes. */
@@ -55,6 +56,39 @@ final class IcebergSpatialSchemaValidator {
 
     static boolean containsSpatial(Schema schema) {
         return schema.columns().stream().anyMatch(field -> containsSpatial(field.type()));
+    }
+
+    static void validateSpatialCrs(Type type) {
+        if (type.typeId() == Type.TypeID.GEOMETRY) {
+            String crs = ((Types.GeometryType) type).crs();
+            if (crs.toLowerCase(Locale.ROOT).startsWith("projjson:")) {
+                throw new DorisConnectorException(
+                        "Referenced spatial CRS is not supported for Parquet writes: " + crs);
+            }
+            return;
+        }
+        if (type.typeId() == Type.TypeID.GEOGRAPHY) {
+            String crs = ((Types.GeographyType) type).crs();
+            if (crs.toLowerCase(Locale.ROOT).startsWith("projjson:")) {
+                throw new DorisConnectorException(
+                        "Referenced spatial CRS is not supported for Parquet writes: " + crs);
+            }
+            return;
+        }
+        if (type.isNestedType()) {
+            for (Types.NestedField field : type.asNestedType().fields()) {
+                validateSpatialCrs(field.type());
+            }
+        }
+    }
+
+    static void validateSpatialCrs(Schema schema) {
+        schema.columns().forEach(field -> validateSpatialCrs(field.type()));
+    }
+
+    static void validateTable(Schema schema, int formatVersion, String fileFormat) {
+        validateTable(formatVersion, fileFormat);
+        validateSpatialCrs(schema);
     }
 
     static void validateTable(int formatVersion, String fileFormat) {
@@ -113,7 +147,7 @@ final class IcebergSpatialSchemaValidator {
             if (containsSpatial(updated.schema())) {
                 Table candidate = new BaseTable(new StaticTableOperations(
                         updated, delegate.io(), delegate.locationProvider()), tableName);
-                validateTable(updated.formatVersion(),
+                validateTable(updated.schema(), updated.formatVersion(),
                         IcebergWriterHelper.resolveFileFormatName(candidate, updated.properties()));
             }
             delegate.commit(base, updated);
