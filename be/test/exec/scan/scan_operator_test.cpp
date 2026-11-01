@@ -21,6 +21,7 @@
 #include <gtest/gtest.h>
 
 #include "common/object_pool.h"
+#include "core/column/column_nullable.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "exec/operator/olap_scan_operator.h"
@@ -252,7 +253,8 @@ TEST_F(ScanProjectionTest, preserves_nulls_after_limit) {
     EXPECT_FALSE(column->is_null_at(0));
     EXPECT_TRUE(column->is_null_at(1));
     EXPECT_FALSE(column->is_null_at(2));
-    EXPECT_EQ(column->get_int(2), 30);
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
+    EXPECT_EQ(nullable_column.get_nested_column().get_int(2), 30);
     EXPECT_TRUE(eos);
 }
 
