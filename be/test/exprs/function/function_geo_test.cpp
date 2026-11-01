@@ -2209,6 +2209,15 @@ TEST(VGeoFunctionsTest, GeographyPointShapeZeroDistanceKeepsRawContactAndInterio
     }
 }
 
+TEST(VGeoFunctionsTest, GeographyPointLineNearZeroDistanceKeepsRawContact) {
+    const std::string point = "POINT (10 45.5)";
+    const std::string line = "LINESTRING (10 45,10 46)";
+    for (const auto& [left, right] :
+         std::vector<std::pair<std::string, std::string>> {{point, line}, {line, point}}) {
+        expect_geography_zero_distance(left, right);
+    }
+}
+
 static void expect_geography_positive_distance(const std::string& left, const std::string& right) {
     SCOPED_TRACE(left + " versus " + right);
     double distance = -1;

@@ -147,6 +147,18 @@ public class ConnectorSpatialWriteValidatorTest {
     }
 
     @Test
+    public void testRequiredIcebergListRejectsNullSpatialElements() {
+        ScalarType geometry = ScalarType.createGeometryType("OGC:CRS84");
+        Column target = ConnectorColumnConverter.convertColumn(new ConnectorColumn("payload",
+                ConnectorType.arrayOf(ConnectorType.of("GEOMETRY").withSpatialMetadata("OGC:CRS84", null), false),
+                null, true, null));
+        Expression nullElement = new Array(new NullLiteral(DataType.fromCatalogType(geometry)));
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> ConnectorSpatialWriteValidator.validate(target, nullElement));
+        Assertions.assertTrue(exception.getMessage().contains("required array element"), exception.getMessage());
+    }
+
+    @Test
     public void testTransparentWrappersDoNotHideCrsMismatch() {
         ScalarType target = ScalarType.createGeometryType("OGC:CRS84");
         DataType targetDataType = DataType.fromCatalogType(target);

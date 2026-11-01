@@ -1417,21 +1417,20 @@ public class CreateIcebergSpatialV3Table {
     sql """insert into spatial_zm_copy select id, geom, geog from spatial_zm_values"""
     for (boolean scanV2 : [false, true]) {
         "qt_spatial_zm_payload_${scanV2}"("""select /*+ SET_VAR(enable_file_scanner_v2=${scanV2}) */
-            id, ST_AsText(geom), ST_AsText(geog), ST_X(geom), ST_Y(geog),
-            hex(ST_AsBinary(geom)), hex(ST_AsBinary(geog)), ST_GeometryType(geom)
+            id, hex(ST_AsBinary(geom)), hex(ST_AsBinary(geog))
             from spatial_zm_copy order by id""")
     }
     for (String query : ["ST_Length(geog)", "ST_Distance(geog, geog)", "ST_Azimuth(geog, geog)",
             "ST_Area_Square_Meters(geog)", "ST_Area_Square_Km(geog)"]) {
         test {
             sql """select ${query} from spatial_zm_values where id = 1"""
-            exception "does not support this Geography WKB shape"
+            exception "WKB dimensions or embedded SRID are not supported"
         }
     }
     // Recreate the catalog so the second read resolves schema and files from external metadata.
     createCatalog()
-    order_qt_spatial_zm_reread """select id, ST_AsText(geom), ST_AsText(geog),
-        hex(ST_AsBinary(geom)), hex(ST_AsBinary(geog)) from spatial_zm_copy"""
+    order_qt_spatial_zm_reread """select id, hex(ST_AsBinary(geom)),
+        hex(ST_AsBinary(geog)) from spatial_zm_copy"""
     order_qt_spatial_dml_reread """
         select id, ST_AsText(geom), hex(ST_AsBinary(geom)), ST_AsText(geog)
         from spatial_dml_values

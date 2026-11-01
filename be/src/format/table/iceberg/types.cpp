@@ -213,18 +213,30 @@ std::unique_ptr<PrimitiveType> Types::from_primitive_string(const std::string& t
             return std::make_unique<GeometryType>(crs);
         }
 
-        std::regex geography(R"(geography\s*(?:\(([^,]*?)(?:,\s*(\w*)\s*)?\))?)",
-                             std::regex::icase);
-        // GeographyType.toString() appends the algorithm after the raw CRS. Only the final comma
-        // separates it in geography(projjson:{"a":1,"b":2}, spherical); retain legacy defaults too.
-        std::regex geography_with_algorithm(R"(geography\s*\(([\s\S]*),\s*(\w*)\s*\))",
-                                            std::regex::icase);
-        if (std::regex_match(type_string, match, geography_with_algorithm,
-                             std::regex_constants::match_default) ||
-            std::regex_match(type_string, match, geography, std::regex_constants::match_default)) {
-            const std::string crs = match[1].matched ? match[1].str() : GeographyType::DEFAULT_CRS;
-            const std::string algorithm =
-                    match[2].matched ? trim(match[2].str()) : GeographyType::DEFAULT_ALGORITHM;
+        std::regex geography(R"(geography\s*(?:\(([\s\S]*)\))?)", std::regex::icase);
+        if (std::regex_match(type_string, match, geography, std::regex_constants::match_default)) {
+            std::string crs = match[1].matched ? match[1].str() : GeographyType::DEFAULT_CRS;
+            std::string algorithm = GeographyType::DEFAULT_ALGORITHM;
+            if (match[1].matched) {
+                const auto comma = crs.rfind(',');
+                if (comma != std::string::npos) {
+                    const std::string candidate = trim(crs.substr(comma + 1));
+                    if (candidate.empty()) {
+                        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                                               "Spatial edge algorithm must not be empty");
+                    }
+                    std::string lower_candidate;
+                    std::transform(candidate.begin(), candidate.end(),
+                                   std::back_inserter(lower_candidate),
+                                   [](unsigned char c) { return std::tolower(c); });
+                    if (lower_candidate == "spherical" || lower_candidate == "vincenty" ||
+                        lower_candidate == "thomas" || lower_candidate == "andoyer" ||
+                        lower_candidate == "karney") {
+                        algorithm = candidate;
+                        crs.resize(comma);
+                    }
+                }
+            }
             if (crs.empty() || algorithm.empty()) {
                 throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                        "Spatial CRS and edge algorithm must not be empty");

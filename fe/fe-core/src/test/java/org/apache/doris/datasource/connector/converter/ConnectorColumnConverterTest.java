@@ -462,6 +462,15 @@ class ConnectorColumnConverterTest {
     }
 
     @Test
+    void convertArrayTypeCarriesElementNullability() {
+        ConnectorType required = ConnectorType.arrayOf(ConnectorType.of("GEOMETRY"), false);
+        Column converted = ConnectorColumnConverter.convertColumn(
+                new ConnectorColumn("payload", required, null, true, null));
+        Assertions.assertFalse(converted.getChildren().get(0).isAllowNull(),
+                "required Iceberg LIST elements must remain non-null in Doris type conversion");
+    }
+
+    @Test
     void convertColumnStampsNestedFieldIdsOntoChildTree() {
         // WHY (H-10 L3): post-flip iceberg nested-column pruning is only correct if EVERY level of the Doris
         // Column tree carries uniqueId = iceberg field-id (legacy IcebergUtils.updateIcebergColumnUniqueId set

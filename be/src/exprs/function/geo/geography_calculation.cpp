@@ -1762,9 +1762,13 @@ double geography_distance(const GeoShape& left_shape, const GeoShape& right_shap
                                 right_shape.type() == GeoShapeType::GEO_SHAPE_POLYGON) ||
                                (left_shape.type() == GeoShapeType::GEO_SHAPE_POLYGON &&
                                 right_shape.type() == GeoShapeType::GEO_SHAPE_POINT);
+    const bool point_line = (left_shape.type() == GeoShapeType::GEO_SHAPE_POINT &&
+                             right_shape.type() == GeoShapeType::GEO_SHAPE_LINE_STRING) ||
+                            (left_shape.type() == GeoShapeType::GEO_SHAPE_LINE_STRING &&
+                             right_shape.type() == GeoShapeType::GEO_SHAPE_POINT);
     const double conversion_error_meters =
             S2Earth::ToMeters(geography_conversion_error().ToAngle());
-    if (distance == 0 || (point_polygon && distance <= conversion_error_meters)) {
+    if (distance == 0 || ((point_polygon || point_line) && distance <= conversion_error_meters)) {
         bool intersects = false;
         const auto status = geography_relation_impl("st_intersects", left_shape, right_shape, nodes,
                                                     &intersects);

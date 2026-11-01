@@ -212,6 +212,10 @@ TEST(SpatialTypeTest, PreservesCustomCrsCommasAndParentheses) {
             check_geography_type_string(geography_name, crs, algorithm);
         }
     }
+    check_geography_type_string("geography(Custom:Comma,Token)", "Custom:Comma,Token",
+                                GeographyType::DEFAULT_ALGORITHM);
+    check_geography_type_string(R"(geography(projjson:{"a":1,"b":2}))", R"(projjson:{"a":1,"b":2})",
+                                GeographyType::DEFAULT_ALGORITHM);
 }
 
 TEST(SpatialTypeTest, PreservesCanonicalCrsWhitespaceAndEmbeddedNulls) {
@@ -228,9 +232,8 @@ TEST(SpatialTypeTest, PreservesCanonicalCrsWhitespaceAndEmbeddedNulls) {
 TEST(SpatialTypeTest, RejectsEmptyParametersAndMalformedTypes) {
     for (const auto& name :
          {"geometry()", "geography()", "geography(, spherical)", "geography(OGC:CRS84,)",
-          "geography(OGC:CRS84, \t)", "geography(OGC:CRS84, not-an-algorithm)",
-          "geometry(OGC:CRS84", "geography(OGC:CRS84, spherical", "geometry_extra",
-          "geography_extra"}) {
+          "geography(OGC:CRS84, \t)", "geometry(OGC:CRS84",
+          "geography(OGC:CRS84, spherical", "geometry_extra", "geography_extra"}) {
         SCOPED_TRACE(name);
         EXPECT_THROW(Types::from_primitive_string(name), doris::Exception);
     }

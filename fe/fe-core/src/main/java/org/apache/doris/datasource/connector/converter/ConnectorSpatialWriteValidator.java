@@ -65,7 +65,34 @@ public final class ConnectorSpatialWriteValidator {
     public static void validate(Column targetColumn, Expression source) {
         Type targetType = targetColumn.getType();
         if (targetType.typeContainsSpatialType()) {
+            validateRequiredArrayNulls(source, targetColumn, targetColumn.getName());
             validateExpression(source, targetType, targetColumn.getName());
+        }
+    }
+
+    private static void validateRequiredArrayNulls(Expression expression, Column targetColumn,
+            String columnName) {
+        if (expression instanceof Alias || expression instanceof Cast) {
+            validateRequiredArrayNulls(expression.child(0), targetColumn, columnName);
+            return;
+        }
+        if (!(targetColumn.getType() instanceof ArrayType) || targetColumn.getChildren().isEmpty()
+                || targetColumn.getChildren().get(0).isAllowNull()) {
+            return;
+        }
+        List<? extends Expression> elements;
+        if (expression instanceof Array) {
+            elements = ((Array) expression).getArguments();
+        } else if (expression instanceof ArrayLiteral) {
+            elements = ((ArrayLiteral) expression).getValue();
+        } else {
+            return;
+        }
+        for (Expression element : elements) {
+            if (element.isNullLiteral() || element instanceof Cast && element.child(0).isNullLiteral()) {
+                throw new AnalysisException("Spatial connector write cannot put NULL into required array element '"
+                        + columnName + "[]'");
+            }
         }
     }
 
