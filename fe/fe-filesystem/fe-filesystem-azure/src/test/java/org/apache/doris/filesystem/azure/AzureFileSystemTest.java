@@ -318,6 +318,20 @@ class AzureFileSystemTest {
     }
 
     @Test
+    void globListWithLimit_keepsLiteralPlusInInputKeys() throws IOException {
+        for (String base : List.of("wasbs://c@a.host/", "https://a.blob.core.windows.net/c/",
+                "s3://c/")) {
+            mockListingWithUriParsing(List.of("data/a+b/1/file.csv", "data/a b/1/file.csv"));
+            GlobListing listing = fs.globListWithLimit(
+                    Location.of(base + "data/a+b/[12]/*"), null, 0L, 0L);
+            Assertions.assertEquals(List.of(base + "data/a+b/1/file.csv"),
+                    listing.getFiles().stream().map(file -> file.location().uri()).toList());
+            Mockito.verify(mockStorage).listObjects(
+                    ArgumentMatchers.eq(base + "data/a%2Bb/1/"), ArgumentMatchers.any());
+        }
+    }
+
+    @Test
     void globListWithLimit_fallsBackForEscapedRangeEndpoints() throws IOException {
         mockListingWithUriParsing(List.of("data/b/sub/file.csv", "data/m/sub/file.csv"));
         for (String characterClass : List.of("[\\a-z]", "[a-\\c]")) {
