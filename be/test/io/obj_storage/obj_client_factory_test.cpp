@@ -153,7 +153,8 @@ TEST_F(ObjClientFactoryTest, ResolvesS3ParamIntoS3Backend) {
 }
 
 TEST_F(ObjClientFactoryTest, ResolvesAzureParamIntoAzureBackend) {
-    auto config = resolve(make_azure_param("resolve-azure.example.com"));
+    auto param = make_azure_param("resolve-azure.example.com");
+    auto config = resolve(param);
 
     ASSERT_TRUE(std::holds_alternative<AzureClientConfig>(config.backend));
     const auto& azure = std::get<AzureClientConfig>(config.backend);
@@ -161,7 +162,7 @@ TEST_F(ObjClientFactoryTest, ResolvesAzureParamIntoAzureBackend) {
     EXPECT_EQ(azure.account, "account");
     EXPECT_EQ(azure.container, "container");
     ASSERT_TRUE(std::holds_alternative<AzureSharedKeyConfig>(azure.auth));
-    EXPECT_EQ(std::get<AzureSharedKeyConfig>(azure.auth).account_key, "YWNjb3VudC1rZXk=");
+    EXPECT_EQ(std::get<AzureSharedKeyConfig>(azure.auth).account_key, param.sk);
     EXPECT_EQ(config.usage, ClientUsage::EXTERNAL_ACCESS);
     EXPECT_EQ(config.provider(), ObjStorageProvider::AZURE);
 }
@@ -208,8 +209,9 @@ TEST_F(ObjClientFactoryTest, ToStringMasksCredentials) {
     EXPECT_EQ(s3_text.find("s3-secret-key"), std::string::npos);
     EXPECT_EQ(s3_text.find("s3-session-token"), std::string::npos);
 
-    auto azure_text = resolve(make_azure_param("mask-azure.example.com")).to_string();
-    EXPECT_EQ(azure_text.find("YWNjb3VudC1rZXk="), std::string::npos);
+    auto azure_param = make_azure_param("mask-azure.example.com");
+    auto azure_text = resolve(azure_param).to_string();
+    EXPECT_EQ(azure_text.find(azure_param.sk), std::string::npos);
     EXPECT_NE(azure_text.find("shared_key"), std::string::npos);
 }
 
