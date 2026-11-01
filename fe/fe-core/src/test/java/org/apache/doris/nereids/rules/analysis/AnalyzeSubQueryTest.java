@@ -268,6 +268,74 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
+    public void testCorrelatedInSubqueryWithNestedLimit() {
+        // The limit of the derived table keeps one row of the rows of the correlation key of an outer
+        // row, so it cannot be evaluated once for the domains of every outer row (the rewrite which
+        // unnests the subquery reads the value which the IN compares from the aggregation of one
+        // domain): the subquery is reported instead of building a plan which reads the columns of the
+        // outer query from the rows of another correlation key.
+        String sql = "select T1.id from T1 where T1.id in "
+                + "(select max(c) from (select count(*) c from T2 where T2.id = T1.id group by T2.score"
+                + " limit 1) x)";
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(sql));
+        Assertions.assertTrue(
+                exception.getMessage().contains("access outer query's column before limit is not supported"));
+    }
+
+    @Test
+    public void testCorrelatedInSubqueryWithNestedTopN() {
+        String sql = "select T1.id from T1 where T1.id in "
+                + "(select max(c) from (select count(*) c from T2 where T2.id = T1.id group by T2.score"
+                + " order by c limit 1) x)";
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(sql));
+        Assertions.assertTrue(
+                exception.getMessage().contains("access outer query's column before limit is not supported"));
+    }
+
+    @Test
+    public void testCorrelatedInSubqueryWithNestedLateralView() {
+        // The lateral view of the derived table explodes the arrays of the rows of the correlation key
+        // of an outer row, so it cannot be evaluated once for the domains of every outer row either.
+        String sql = "select T1.id from T1 where T1.id in "
+                + "(select max(e) from (select count(*) c, array_agg(T2.score) a from T2"
+                + " where T2.id = T1.id group by T2.score) x lateral view explode(a) t as e)";
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(sql));
+        Assertions.assertTrue(
+                exception.getMessage().contains("access outer query's column before lateral view is not supported"));
+    }
+
+    @Test
+    public void testCorrelatedInSubqueryWithALateralViewWhichReadsTheOuterColumn() {
+        // The generator of a lateral view below the correlated predicate reads the outer column, which
+        // the rewrite of the subquery cannot produce on the inner side of the join.
+        String sql = "select T1.id from T1 where T1.id in "
+                + "(select e from T2 lateral view explode(array(T1.id, T2.score)) t as e"
+                + " where T2.id = T1.id)";
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(sql));
+        Assertions.assertTrue(
+                exception.getMessage().contains("access outer query's column in lateral view is not supported"));
+    }
+
+    @Test
+    public void testCorrelatedScalarSubqueryWithALateralViewWhichReadsTheOuterColumn() {
+        String sql = "select T1.id from T1 where T1.score > "
+                + "(select e from T2 lateral view explode(array(T1.score, T2.score)) t as e)";
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(sql));
+        Assertions.assertTrue(
+                exception.getMessage().contains("access outer query's column in lateral view is not supported"));
+    }
+
+    @Test
     public void testExistsOverScalarAggUnionOrderBy() {
         // EXISTS over scalar aggregate with ORDER BY wrapper and UNION ALL.
         // hasTopLevelScalarAgg() must see through LogicalSort to fold to TRUE/FALSE.
@@ -287,6 +355,184 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements MemoPatter
                 + ") u ORDER BY 1"
                 + ") AS result";
         PlanChecker.from(connectContext).analyze(sql);
+    }
+
+    @Test
+    public void testInSubqueryWhichReadsTheOuterColumnInItsAggregationIsRejected() {
+        // The rewrite of a correlated IN subquery reads the value which the IN compares from the
+        // aggregation of the domain of every outer row (see UnCorrelatedApplyAggregateFilter), so the
+        // subquery may not read the outer column from its aggregation: the plan of the rewrite would
+        // aggregate the value of the outer row and read it from a scan which does not produce it.
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(
+                        "SELECT T1.id FROM T1 WHERE T1.id IN (SELECT sum(T2.score + T1.score) FROM T2)"));
+        Assertions.assertTrue(exception.getMessage().contains("access outer query's column in aggregate"),
+                "unexpected message: " + exception.getMessage());
+    }
+
+    @Test
+    public void testInSubqueryWhichReadsTheOuterColumnInItsProjectionIsRejected() {
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(
+                        "SELECT T1.id FROM T1 WHERE T1.id IN (SELECT T1.score FROM T2 WHERE T2.id = T1.id)"));
+        Assertions.assertTrue(exception.getMessage().contains("access outer query's column in project"),
+                "unexpected message: " + exception.getMessage());
+    }
+
+    @Test
+    public void testNestedAggregatedInSubqueryWhichReadsTheOuterColumnInItsFilterIsAnalyzed() {
+        // the outer column of a filter below the aggregation of the subquery is the one which the
+        // rewrite carries: the predicates of that filter become the condition of the join which pairs
+        // an outer row with the rows of its domain, and the aggregations above it are grouped by the
+        // correlation key of that row, however many of them the subquery has
+        PlanChecker.from(connectContext).analyze(
+                "SELECT T1.id FROM T1 WHERE T1.id IN (SELECT max(c) FROM"
+                        + " (SELECT count(*) AS c FROM T2 WHERE T2.id = T1.id GROUP BY T2.score) x)");
+        PlanChecker.from(connectContext).analyze(
+                "SELECT T1.id FROM T1 WHERE T1.id IN (SELECT max(c) FROM"
+                        + " (SELECT count(*) AS c FROM T2 WHERE T2.id = T1.id GROUP BY T2.score) x"
+                        + " HAVING max(c) <= T1.score)");
+    }
+
+    @Test
+    public void testInSubqueryWhichComputesAWindowIsRejected() {
+        // The rewrite of a correlated IN subquery groups the aggregation of its domain by the
+        // correlation key of the outer row, so the nodes of the subquery which sit above the correlated
+        // predicate are evaluated on the rows of one correlation key. A window is evaluated on the rows
+        // of the node it sits in, so the window of the rewrite would be evaluated over the rows of every
+        // correlation key together, while the window of the subquery of the query is evaluated over the
+        // rows of one domain.
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(
+                        "SELECT T1.id FROM T1 WHERE T1.id IN (SELECT sum(T2.score) OVER () FROM T2"
+                                + " WHERE T2.id = T1.id GROUP BY T2.score)"));
+        Assertions.assertTrue(exception.getMessage().contains("before window function"),
+                "unexpected message: " + exception.getMessage());
+    }
+
+    @Test
+    public void testScalarSubqueryWithGroupingSetsIsRejected() {
+        // The grouping sets of the subquery are computed by a repeat node above the aggregation of the
+        // domain (see containsARepeatAboveTheCorrelatedPredicate): the rewrite which unnests the
+        // subquery reads the aggregation of that domain from below the repeat, so the repeat would be
+        // evaluated on the rows of every correlation key together and the correlation predicate of the
+        // subquery would have no aggregation below it to carry it.
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(
+                        "SELECT T1.id, (SELECT count(*) FROM T2 WHERE T2.id = T1.id"
+                                + " GROUP BY GROUPING SETS ((T2.score), ())) FROM T1"));
+        Assertions.assertTrue(exception.getMessage().contains("before grouping sets"),
+                "unexpected message: " + exception.getMessage());
+    }
+
+    @Test
+    public void testInSubqueryWithGroupingSetsIsRejected() {
+        // The IN subquery of the query is compared with the value of the grouping sets of every
+        // correlation key together when the repeat is not reported: the value of the subquery of an
+        // outer row would be the value of the aggregation of the domains of the other outer rows.
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(
+                        "SELECT T1.id FROM T1 WHERE T1.id IN (SELECT count(*) FROM T2"
+                                + " WHERE T2.id = T1.id GROUP BY GROUPING SETS ((T2.score), ()))"));
+        Assertions.assertTrue(exception.getMessage().contains("before grouping sets"),
+                "unexpected message: " + exception.getMessage());
+    }
+
+    @Test
+    public void testExistsSubqueryWithGroupingSetsIsRejected() {
+        // The EXISTS of the outer rows whose correlated domain is empty would be true when the grouping
+        // sets of the subquery are computed for the rows of every correlation key together: the group
+        // above the aggregation of the domain of one of the other keys has a row as well.
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(
+                        "SELECT T1.id FROM T1 WHERE EXISTS (SELECT count(*) FROM T2"
+                                + " WHERE T2.id = T1.id GROUP BY GROUPING SETS ((T2.score), ()))"));
+        Assertions.assertTrue(exception.getMessage().contains("before grouping sets"),
+                "unexpected message: " + exception.getMessage());
+    }
+
+    @Test
+    public void testGroupingSetsBelowTheCorrelatedPredicateIsAccepted() {
+        // a repeat below the correlated predicate computes the rows which that predicate selects, so
+        // the rewrite keeps its evaluation domain unchanged
+        PlanChecker.from(connectContext).analyze(
+                "SELECT T1.id FROM T1 WHERE T1.id IN (SELECT count(*) FROM"
+                        + " (SELECT id, score FROM T2 GROUP BY GROUPING SETS ((id, score), ())) x"
+                        + " WHERE x.id = T1.id)");
+    }
+
+    @Test
+    public void testInSubqueryWithJoinAboveTheCorrelatedPredicateIsRejected() {
+        // The join combines the rows of the domain of an outer row with the rows of its other side,
+        // and the rewrite reads the aggregation of that domain from below the join
+        // (see containsAJoinAboveTheCorrelatedPredicate): the join would be evaluated once for the
+        // rows of every correlation key together.
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(
+                        "SELECT T1.id FROM T1 WHERE T1.id IN (SELECT count(*) FROM"
+                                + " (SELECT T2.id, T2.score FROM T2 WHERE T2.score = T1.id) x"
+                                + " JOIN T3 j ON x.id = j.id)"));
+        Assertions.assertTrue(exception.getMessage().contains("before join"),
+                "unexpected message: " + exception.getMessage());
+    }
+
+    @Test
+    public void testExistsSubqueryWithJoinAboveTheCorrelatedPredicateIsRejected() {
+        // The aggregation above the join groups the rows which the join produces, and the keys of the
+        // correlation are the keys of one branch of the join alone: the EXISTS of an outer row whose
+        // domain is empty would be decided by the rows of another correlation key.
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(
+                        "SELECT T1.id FROM T1 WHERE EXISTS (SELECT count(*) FROM"
+                                + " (SELECT T2.id, T2.score FROM T2 WHERE T2.score = T1.id) x"
+                                + " JOIN T3 j ON x.id = j.id GROUP BY x.score)"));
+        Assertions.assertTrue(exception.getMessage().contains("before join"),
+                "unexpected message: " + exception.getMessage());
+    }
+
+    @Test
+    public void testJoinBelowTheCorrelatedPredicateIsAccepted() {
+        // a join below the correlated predicate is part of the rows which that predicate selects (the
+        // domain of an outer row), so the rewrite keeps it as it is
+        PlanChecker.from(connectContext).analyze(
+                "SELECT T1.id FROM T1 WHERE T1.id IN (SELECT count(*) FROM T2"
+                        + " JOIN T3 ON T2.id = T3.id WHERE T2.score = T1.id)");
+    }
+
+    @Test
+    public void testComputedProjectionBelowTheAggregationOfTheDomainIsRejected() {
+        // The projection computes the columns which the aggregation above it reads from the rows of
+        // the correlated domain, and the rewrite drops the projections between the filter of the
+        // WHERE clause and the aggregation (see containsAComputedProjectionBelowTheAggregation): the
+        // computed column of the projection would be missing below the aggregation.
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(
+                        "SELECT T1.id FROM T1 WHERE T1.id NOT IN (SELECT max(c) FROM"
+                                + " (SELECT count(z) c FROM (SELECT T2.id, T2.score + 1 z FROM T2"
+                                + " WHERE T2.score = T1.id) p GROUP BY p.id HAVING count(z) > 0) x)"));
+        Assertions.assertTrue(exception.getMessage().contains("below the aggregation"),
+                "unexpected message: " + exception.getMessage());
+    }
+
+    @Test
+    public void testProjectionOfTheDomainBelowTheAggregationIsAccepted() {
+        // a projection which only passes the columns of its child through is redundant below the
+        // aggregation of the domain, so the rewrite drops it and keeps the subquery
+        PlanChecker.from(connectContext).analyze(
+                "SELECT T1.id FROM T1 WHERE T1.id NOT IN (SELECT max(c) FROM"
+                        + " (SELECT count(id) c FROM (SELECT T2.score, T2.id FROM T2"
+                        + " WHERE T2.score = T1.id) p GROUP BY p.id) x)");
+    }
+
+    @Test
+    public void testConstantProjectionOfTheDomainIsAccepted() {
+        // the subquery does not aggregate the rows of its domain, so the rules which rewrite a set
+        // membership read those rows (see UnCorrelatedApplyFilter): only the projections below an
+        // aggregation are dropped by the rewrite of the aggregating subqueries, so the constant
+        // projection of the select list of this subquery is accepted
+        PlanChecker.from(connectContext).analyze(
+                "SELECT T1.id FROM T1 WHERE T1.score + 2 IN (SELECT 1 FROM T2"
+                        + " WHERE T1.id IS NULL AND T1.id IS NOT NULL)");
     }
 
     @Test

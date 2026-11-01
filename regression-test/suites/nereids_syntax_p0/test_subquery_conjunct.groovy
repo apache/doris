@@ -47,24 +47,37 @@ suite("test_subquery_conjunct") {
         sql """ select * from subquery_conjunct_table t1 where abs(t1.c1) != ( select sum(c1) from subquery_conjunct_table t2 where abs(t2.c1 -1) + t1.id = t1.c1) order by t1.id, t1.c1; """
         exception "Unsupported correlated subquery with correlated predicate"
     }
+    // a scalar subquery whose correlated predicate is not an equality is evaluated on the
+    // aggregation of the domain of every outer row: the value of a sum over an empty domain is null
+    // (it is not the null of the left outer join, which the aggregation of the rewrite produces
+    // itself), and the outer row is kept when its value differs from that null
+    qt_select_ne_sum_gt """ select * from subquery_conjunct_table t1 where abs(t1.c1) != (select sum(c1) from subquery_conjunct_table t2 where abs(t2.c1) > t1.c1) order by t1.id; """
+    // IN over the aggregation of the correlated rows, with a non trivial expression on the left
+    // hand side of the IN: the expression is compared with the value of the select list of the
+    // subquery, and a row whose domain is empty compares with the aggregation of an empty domain
+    // (NULL for sum) instead of being dropped or compared with nothing
+    qt_select_in_sum """ select * from subquery_conjunct_table t1 where abs(t1.c1) in (select sum(c1) from subquery_conjunct_table t2 where t2.c1 + 1 = t1.c1) order by t1.id, t1.c1; """
+    qt_select_in_sum_abs """ select * from subquery_conjunct_table t1 where abs(t1.c1) in (select sum(c1) from subquery_conjunct_table t2 where abs(t2.c1) = t1.c1) order by t1.id, t1.c1; """
+    qt_select_not_in_sum """ select * from subquery_conjunct_table t1 where abs(t1.c1) not in (select sum(c1) from subquery_conjunct_table t2 where t2.c1 + 1= t1.c1) order by t1.id, t1.c1; """
+    qt_select_not_in_sum_abs """ select * from subquery_conjunct_table t1 where abs(t1.c1) not in (select sum(c1) from subquery_conjunct_table t2 where abs(t2.c1 -1) = t1.c1) order by t1.id, t1.c1; """
+    // a grouped scalar subquery whose select list computes its value (count(*) + 1): the projection
+    // which computes the value sits between the aggregation of the subquery and the aggregation which
+    // counts the rows of a correlation key (the runtime check of a scalar subquery), so the rewrite
+    // has to carry it. The value is computed for the domain of every outer row, and the outer rows
+    // whose domain has no group return null
+    order_qt_computed_grouped_scalar """
+        select t1.id, t1.c1, (select count(*) + 1 from subquery_conjunct_table t2 where t2.id = t1.id group by t2.id) as v
+        from subquery_conjunct_table t1 order by t1.id, t1.c1;
+    """
+    order_qt_computed_grouped_scalar_empty_domain """
+        select t1.id, t1.c1, (select count(*) + 1 from subquery_conjunct_table t2 where t2.id = t1.id + 100 group by t2.id) as v
+        from subquery_conjunct_table t1 order by t1.id, t1.c1;
+    """
+    // the domain of an outer row holds several groups of the derived table, so the value of the
+    // subquery is not unique for that row: the runtime check of the scalar subquery rejects the query
     test {
-        sql """ select * from subquery_conjunct_table t1 where abs(t1.c1) != (select sum(c1) from subquery_conjunct_table t2 where abs(t2.c1) > t1.c1) order by t1.id; """
-        exception "scalar subquery's correlatedPredicates's operator must be EQ"
-    }
-    test {
-        sql """ select * from subquery_conjunct_table t1 where abs(t1.c1) in (select sum(c1) from subquery_conjunct_table t2 where t2.c1 + 1 = t1.c1) order by t1.id, t1.c1; """
-        exception "Unsupported correlated subquery with grouping and/or aggregation"
-    }
-    test {
-        sql """ select * from subquery_conjunct_table t1 where abs(t1.c1) in (select sum(c1) from subquery_conjunct_table t2 where abs(t2.c1) = t1.c1) order by t1.id, t1.c1; """
-        exception "Unsupported correlated subquery with grouping and/or aggregation"
-    }
-    test {
-        sql """ select * from subquery_conjunct_table t1 where abs(t1.c1) not in (select sum(c1) from subquery_conjunct_table t2 where t2.c1 + 1= t1.c1) order by t1.id, t1.c1; """
-        exception "Unsupported correlated subquery with grouping and/or aggregation"
-    }
-    test {
-        sql """ select * from subquery_conjunct_table t1 where abs(t1.c1) not in (select sum(c1) from subquery_conjunct_table t2 where abs(t2.c1 -1) = t1.c1) order by t1.id, t1.c1; """
-        exception "Unsupported correlated subquery with grouping and/or aggregation"
+        sql """ select t1.id, (select count(*) + 1 from subquery_conjunct_table t2 where t2.id = t1.id group by t2.c1) as v
+            from subquery_conjunct_table t1 order by t1.id; """
+        exception "correlate scalar subquery must return only 1 row"
     }
 }
