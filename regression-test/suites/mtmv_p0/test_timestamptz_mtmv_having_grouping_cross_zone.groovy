@@ -28,6 +28,7 @@ suite("test_timestamptz_mtmv_having_grouping_cross_zone","mtmv") {
     def tableName = "timestamptz_mtmv_having_grouping_cross_zone_table"
     def havingMvName = "timestamptz_mtmv_having_grouping_cross_zone_having_mv"
     def groupingMvName = "timestamptz_mtmv_having_grouping_cross_zone_grouping_mv"
+    def countMvName = "timestamptz_mtmv_having_grouping_cross_zone_count_mv"
 
     sql "DROP DATABASE IF EXISTS ${dbName}"
     sql "CREATE DATABASE ${dbName}"
@@ -86,9 +87,36 @@ suite("test_timestamptz_mtmv_having_grouping_cross_zone","mtmv") {
     """
     waitingMTMVTaskFinishedByMvName(groupingMvName, dbName)
 
+    // A count-only definition whose row filter references a guarded derived column, so no guarded column is
+    // projected: the row set itself was selected under the creation zone.
+    sql "DROP MATERIALIZED VIEW IF EXISTS ${countMvName}"
+    sql """
+        CREATE MATERIALIZED VIEW ${countMvName}
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 1
+        PROPERTIES('replication_num' = '1')
+        AS
+        SELECT COUNT(*) AS c
+        FROM (SELECT id, date_trunc(ts, 'day') AS d FROM ${tableName}) x
+        WHERE d > '2023-12-31 00:00:00'
+    """
+    waitingMTMVTaskFinishedByMvName(countMvName, dbName)
+
     // Cross-zone reads must return exactly what the direct query returns, i.e. the creation-session rows and
     // groups must not be substituted.
     sql "SET time_zone = '${queryTz}'"
+    def countQuery = "SELECT COUNT(*) AS c FROM (SELECT id, date_trunc(ts, 'day') AS d FROM ${tableName}) x" +
+            " WHERE d > '2023-12-31 00:00:00'"
+    sql "SET enable_materialized_view_rewrite = false"
+    def countOff = sql "${countQuery}"
+    sql "SET enable_materialized_view_rewrite = true"
+    mv_rewrite_fail(countQuery, countMvName)
+    def countOn = sql "${countQuery}"
+    Assert.assertEquals("a guarded row filter must not be substituted by a count-only MV across zones",
+            countOff, countOn)
+    // In +00:00 the second instant belongs to 2023-12-31, so only one row passes the filter.
+    Assert.assertEquals(1L, ((Number) countOn[0][0]).longValue())
+
     def havingQuery = "SELECT id, SUM(v) AS s FROM ${tableName} GROUP BY id" +
             " HAVING date_trunc(MAX(ts), 'day') > '2023-12-31 00:00:00'"
     sql "SET enable_materialized_view_rewrite = false"
