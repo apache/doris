@@ -19,6 +19,8 @@ package org.apache.doris.common.profile;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.profile.PlanningDiagnostics.PassSnapshot;
+import org.apache.doris.common.profile.PlanningDiagnostics.Phase;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SafeStringBuilder;
 import org.apache.doris.common.util.TimeUtils;
@@ -37,6 +39,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonObject;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
@@ -146,6 +149,7 @@ public class SummaryProfile {
     public static final String NEREIDS_PRE_REWRITE_BY_MV_TIME = "Nereids Pre Rewrite By Mv Time";
     public static final String NEREIDS_OPTIMIZE_TIME = "Nereids Optimize Time";
     public static final String NEREIDS_TRANSLATE_TIME = "Nereids Translate Time";
+    public static final String NEREIDS_PLANNING_DETAILS = "Nereids Planning Details";
     public static final String NEREIDS_DISTRIBUTE_TIME = "Nereids Distribute Time";
     public static final String NEREIDS_GARBAGE_COLLECT_TIME = "Garbage Collect During Plan Time";
     public static final String NEREIDS_BE_FOLD_CONST_TIME = "Nereids Fold Const By BE Time";
@@ -217,6 +221,7 @@ public class SummaryProfile {
             NEREIDS_PRE_REWRITE_BY_MV_TIME,
             NEREIDS_OPTIMIZE_TIME,
             NEREIDS_TRANSLATE_TIME,
+            NEREIDS_PLANNING_DETAILS,
             INIT_SCAN_NODE_TIME,
             FINALIZE_SCAN_NODE_TIME,
             GET_SPLITS_TIME,
@@ -275,6 +280,7 @@ public class SummaryProfile {
             .put(NEREIDS_COLLECT_TABLE_PARTITION_TIME, 1)
             .put(NEREIDS_OPTIMIZE_TIME, 1)
             .put(NEREIDS_TRANSLATE_TIME, 1)
+            .put(NEREIDS_PLANNING_DETAILS, 1)
             .put(INIT_SCAN_NODE_TIME, 2)
             .put(FINALIZE_SCAN_NODE_TIME, 2)
             .put(GET_SPLITS_TIME, 3)
@@ -582,6 +588,27 @@ public class SummaryProfile {
     @ResetOnRetry(ResetScope.PLAN)
     private long waitChangeVisibleEndTime = -1L;
 
+    @SerializedName("planningPassCount")
+    private long planningPassCount;
+    @SerializedName("planningFailedPassCount")
+    private long planningFailedPassCount;
+    @SerializedName("planningPhaseFailures")
+    private PlanningPhaseCounters planningPhaseFailures = new PlanningPhaseCounters();
+    @SerializedName("planningElapsedMs")
+    private long planningElapsedMs;
+    @SerializedName("planningPhaseTotals")
+    private PlanningPhaseCounters planningPhaseTotals = new PlanningPhaseCounters();
+    @SerializedName("lastPlanningPass")
+    private PassSnapshot lastPlanningPass;
+    @SerializedName("planningNestedPassCount")
+    private long planningNestedPassCount;
+    @SerializedName("planningNestedFailedPassCount")
+    private long planningNestedFailedPassCount;
+    @SerializedName("lastNestedPlanningPass")
+    private PassSnapshot lastNestedPlanningPass;
+
+    private transient long planningPassSequence;
+
     private enum ResetScope {
         PLAN,
         EXECUTION
@@ -818,6 +845,7 @@ public class SummaryProfile {
         executionSummaryProfile.addInfoString(NEREIDS_PRE_REWRITE_BY_MV_TIME, getPrettyNereidsPreRewriteByMvTime());
         executionSummaryProfile.addInfoString(NEREIDS_OPTIMIZE_TIME, getPrettyNereidsOptimizeTime());
         executionSummaryProfile.addInfoString(NEREIDS_TRANSLATE_TIME, getPrettyNereidsTranslateTime());
+        executionSummaryProfile.addInfoString(NEREIDS_PLANNING_DETAILS, getPlanningDetails().toString());
         executionSummaryProfile.addInfoString(NEREIDS_DISTRIBUTE_TIME, getPrettyNereidsDistributeTime());
         executionSummaryProfile.addInfoString(NEREIDS_GARBAGE_COLLECT_TIME, getPrettyNereidsGarbageCollectionTime());
         executionSummaryProfile.addInfoString(NEREIDS_BE_FOLD_CONST_TIME, getPrettyNereidsBeFoldConstTime());
@@ -1593,24 +1621,83 @@ public class SummaryProfile {
         this.assignedWeightPerBackend = assignedWeightPerBackend;
     }
 
+    public synchronized long nextPlanningPassId() {
+        return ++planningPassSequence;
+    }
+
+    /** Root passes accumulate across retries/CTAS; nested times are already included in their parents. */
+    synchronized void addPlanningPass(PassSnapshot pass, boolean nested) {
+        if (nested) {
+            planningNestedPassCount++;
+            planningNestedFailedPassCount += pass.success ? 0 : 1;
+            lastNestedPlanningPass = pass;
+            return;
+        }
+        planningPassCount++;
+        planningFailedPassCount += pass.success ? 0 : 1;
+        planningElapsedMs += pass.elapsedMs;
+        lastPlanningPass = pass;
+        for (Phase phase : Phase.values()) {
+            long elapsed = pass.phaseMillis(phase);
+            if (elapsed >= 0) {
+                planningPhaseTotals.add(phase, elapsed);
+            }
+            long failures = pass.phaseFailures(phase);
+            if (failures > 0) {
+                planningPhaseFailures.add(phase, failures);
+            }
+        }
+    }
+
+    public synchronized JsonObject getPlanningDetails() {
+        JsonObject result = new JsonObject();
+        result.addProperty("passes", planningPassCount);
+        result.addProperty("failed_passes", planningFailedPassCount);
+        result.addProperty("nested_passes", planningNestedPassCount);
+        result.addProperty("nested_failed_passes", planningNestedFailedPassCount);
+        result.addProperty("elapsed_ms", planningElapsedMs);
+        result.add("phase_time_ms", planningPhaseTotals.toJson());
+        result.add("phase_failures", planningPhaseFailures.toJson());
+        result.add("last_pass", lastPlanningPass == null ? new JsonObject() : lastPlanningPass.toJson(true));
+        result.add("last_nested_pass", lastNestedPlanningPass == null
+                ? new JsonObject() : lastNestedPlanningPass.toJson(true));
+        return result;
+    }
+
+    /** Audit adds only root-pass summaries across all attempts; legacy timings retain last-attempt semantics. */
+    private synchronized void addPlanningAuditTimes(JsonObject result) {
+        if (planningPassCount == 0) {
+            return;
+        }
+        result.addProperty("planning_passes", Math.min(Integer.MAX_VALUE, planningPassCount));
+        result.addProperty("planning_failed_passes", Math.min(Integer.MAX_VALUE, planningFailedPassCount));
+        result.addProperty("planning_last_failed", lastPlanningPass.success ? 0 : 1);
+    }
+
+    public int getNereidsPreRewriteByMvTimeMs() {
+        return getTimeMs(nereidsPreRewriteByMvFinishTime, nereidsCollectTablePartitionFinishTime);
+    }
+
     public String getPlanTime() {
-        String planTimesMs = "{"
-                + "\"plan\"" + ":" + this.getPlanTimeMs() + ","
-                + "\"garbage_collect\"" + ":" + this.getNereidsGarbageCollectionTimeMs() + ","
-                + "\"wait_change_visible\"" + ":" + this.getWaitChangeVisibleTimeMs() + ","
-                + "\"lock_tables\"" + ":" + this.getNereidsLockTableTimeMs() + ","
-                + "\"analyze\"" + ":" + this.getNereidsAnalysisTimeMs() + ","
-                + "\"rewrite\"" + ":" + this.getNereidsRewriteTimeMs() + ","
-                + "\"fold_const_by_be\"" + ":" + this.getNereidsBeFoldConstTimeMs() + ","
-                + "\"collect_partitions\"" + ":" + this.getNereidsCollectTablePartitionTimeMs() + ","
-                + "\"optimize\"" + ":" + this.getNereidsOptimizeTimeMs() + ","
-                + "\"translate\"" + ":" + this.getNereidsTranslateTimeMs() + ","
-                + "\"init_scan_node\"" + ":" + this.getInitScanNodeTimeMs() + ","
-                + "\"finalize_scan_node\"" + ":" + this.getFinalizeScanNodeTimeMs() + ","
-                + "\"create_scan_range\"" + ":" + this.getCreateScanRangeTimeMs() + ","
-                + "\"distribute\"" + ":" + this.getNereidsDistributeTimeMs()
-                + "}";
-        return planTimesMs;
+        JsonObject times = new JsonObject();
+        times.addProperty("plan", getPlanTimeMs());
+        times.addProperty("garbage_collect", getNereidsGarbageCollectionTimeMs());
+        times.addProperty("wait_change_visible", getWaitChangeVisibleTimeMs());
+        times.addProperty("preload_external_metadata", getNereidsPreloadExternalMetadataTimeMs());
+        times.addProperty("pre_rewrite_mv", getNereidsPreRewriteByMvTimeMs());
+        times.addProperty("lock_tables", getNereidsLockTableTimeMs());
+        times.addProperty("analyze", getNereidsAnalysisTimeMs());
+        times.addProperty("rewrite", getNereidsRewriteTimeMs());
+        times.addProperty("fold_const_by_be", getNereidsBeFoldConstTimeMs());
+        times.addProperty("collect_partitions", getNereidsCollectTablePartitionTimeMs());
+        times.addProperty("optimize", getNereidsOptimizeTimeMs());
+        times.addProperty("translate", getNereidsTranslateTimeMs());
+        times.addProperty("init_scan_node", getInitScanNodeTimeMs());
+        times.addProperty("finalize_scan_node", getFinalizeScanNodeTimeMs());
+        times.addProperty("create_scan_range", getCreateScanRangeTimeMs());
+        times.addProperty("distribute", getNereidsDistributeTimeMs());
+        addPlanningAuditTimes(times);
+        return times.toString();
     }
 
     public String getMetaTime() {
