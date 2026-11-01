@@ -266,10 +266,11 @@ public class VariablePersistTest extends ExpressionRewriteTestHelper {
         Map<String, String> legacyPersist = ImmutableMap.of("sql_mode", "1");
         Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE,
                 SessionVarGuardRewriter.computeGuardMask(currentSame, legacyPersist));
-        // empty or missing metadata -> the creation zone is unknown, so the time-zone fence applies
-        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE,
+        // empty or missing metadata -> no variable at all is known about the creation session, so both
+        // dependency families have to be guarded
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE | SessionVarGuardRewriter.GUARD_OTHER,
                 SessionVarGuardRewriter.computeGuardMask(currentSame, new HashMap<>()));
-        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE,
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE | SessionVarGuardRewriter.GUARD_OTHER,
                 SessionVarGuardRewriter.computeGuardMask(currentSame, null));
         Assertions.assertTrue(SessionVarGuardRewriter.needsSessionVarGuard(currentSame, new HashMap<>()),
                 "unknown creation metadata must enable the time-zone guard fence");
@@ -1007,9 +1008,9 @@ public class VariablePersistTest extends ExpressionRewriteTestHelper {
         Assertions.assertEquals(SessionVarGuardRewriter.GUARD_NONE,
                 SessionVarGuardRewriter.computeSyncMvGuardMask(current, persisted));
         // an empty or time_zone-less map is an unknown creation zone, never an unconditional match
-        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE,
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE | SessionVarGuardRewriter.GUARD_OTHER,
                 SessionVarGuardRewriter.computeSyncMvGuardMask(current, new HashMap<>()));
-        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE,
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE | SessionVarGuardRewriter.GUARD_OTHER,
                 SessionVarGuardRewriter.computeSyncMvGuardMask(current, null));
         Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE,
                 SessionVarGuardRewriter.computeSyncMvGuardMask(current,
@@ -1138,6 +1139,51 @@ public class VariablePersistTest extends ExpressionRewriteTestHelper {
         Mockito.when(frontend.getVersion()).thenReturn(version);
         Mockito.when(frontend.isAlive()).thenReturn(alive);
         return frontend;
+    }
+
+    /**
+     * An empty legacy map records no variable at all, so the creation session's other affectQueryResult
+     * variables are unknown too and their dependency family has to be guarded as well - otherwise an object
+     * materialized before the plan-variable set existed would be reused for a session whose decimal/precision
+     * settings differ from the ones it was materialized with.
+     */
+    @Test
+    public void testEmptyLegacyMapGuardsBothFamilies() {
+        Map<String, String> currentSessionVars = ImmutableMap.of(
+                SessionVariable.TIME_ZONE, "+08:00", "enable_decimal256", "true");
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE | SessionVarGuardRewriter.GUARD_OTHER,
+                SessionVarGuardRewriter.computeGuardMask(currentSessionVars, new HashMap<>()));
+        // the guard rewriter selects both families for such an object as well: an "other"-family expression
+        // (here If, which is NeedSessionVarGuard) is wrapped even though no persisted variable differs
+        SessionVarGuardRewriter.AddSessionVarGuardRewriter rewriter =
+                new SessionVarGuardRewriter.AddSessionVarGuardRewriter(new HashMap<>(), currentSessionVars);
+        Expression ifExpr = new If(new SlotReference("cond", BooleanType.INSTANCE),
+                new SlotReference("a", BooleanType.INSTANCE), new SlotReference("b", BooleanType.INSTANCE));
+        Assertions.assertTrue(ifExpr.accept(rewriter, Boolean.FALSE) instanceof SessionVarGuardExpr,
+                "an object with unknown creation variables must guard the other family too");
+        // a map that only lacks time_zone still records the other variables, so it stays comparable
+        Map<String, String> legacyWithVars = ImmutableMap.of("enable_decimal256", "true");
+        Assertions.assertEquals(SessionVarGuardRewriter.GUARD_TIME_ZONE,
+                SessionVarGuardRewriter.computeGuardMask(currentSessionVars, legacyWithVars));
+    }
+
+    /**
+     * The fence-version predicate used when deciding whether stored metadata can be read or a rewrite cache
+     * may be built: only a newer (or unparsable) stamp is newer, the current one and legacy maps are not.
+     */
+    @Test
+    public void testIsPlanSessionVarFenceNewer() {
+        Assertions.assertFalse(SessionVarGuardRewriter.isPlanSessionVarFenceNewer(null));
+        Assertions.assertFalse(SessionVarGuardRewriter.isPlanSessionVarFenceNewer(new HashMap<>()));
+        Assertions.assertFalse(SessionVarGuardRewriter.isPlanSessionVarFenceNewer(ImmutableMap.of(
+                SessionVariable.PLAN_SESSION_VAR_FENCE_VERSION,
+                String.valueOf(SessionVariable.CURRENT_PLAN_SESSION_VAR_FENCE_VERSION))));
+        Assertions.assertTrue(SessionVarGuardRewriter.isPlanSessionVarFenceNewer(ImmutableMap.of(
+                SessionVariable.PLAN_SESSION_VAR_FENCE_VERSION,
+                String.valueOf(SessionVariable.CURRENT_PLAN_SESSION_VAR_FENCE_VERSION + 1))));
+        // an unparsable stamp is treated as newer than anything known
+        Assertions.assertTrue(SessionVarGuardRewriter.isPlanSessionVarFenceNewer(ImmutableMap.of(
+                SessionVariable.PLAN_SESSION_VAR_FENCE_VERSION, "fence-v2")));
     }
 
     /**

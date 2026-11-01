@@ -70,6 +70,7 @@ import org.apache.doris.system.Frontend;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
 import java.time.DateTimeException;
@@ -95,6 +96,16 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
     public static final int GUARD_NONE = 0;
     public static final int GUARD_TIME_ZONE = 1;
     public static final int GUARD_OTHER = 2;
+
+    /**
+     * The current-time functions whose value is the wall clock read in the session time zone. They are
+     * non-deterministic as well, but the reason a stored (materialized) expression cannot use them is the
+     * zone: the legacy tree folds them as planning-time constants, so the materialized value keeps the
+     * session zone of whoever evaluated it first.
+     */
+    private static final Set<String> SESSION_ZONE_CLOCK_FUNCTIONS = ImmutableSet.of(
+            "current_date", "curdate", "current_time", "curtime", "now", "current_timestamp",
+            "localtime", "localtimestamp", "sysdate");
 
     /** The leading {@code major.minor.revision} of a Doris version string. */
     private static final java.util.regex.Pattern DORIS_RELEASE_VERSION =
@@ -218,7 +229,10 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
                     var != null && (var.isEmpty() || !var.containsKey(SessionVariable.TIME_ZONE)
                             || !timeZonesEquivalent(var.get(SessionVariable.TIME_ZONE),
                                     currentVars == null ? null : currentVars.get(SessionVariable.TIME_ZONE))),
-                    var != null && !var.isEmpty() && differsInNonTimeZoneVars(currentVars, var),
+                    // An empty map records no variable at all, so the creation session's other variables are
+                    // unknown as well and their dependency family has to be guarded too; a map that only lacks
+                    // time_zone still carries them and can be compared exactly.
+                    var != null && (var.isEmpty() || differsInNonTimeZoneVars(currentVars, var)),
                     false);
         }
 
@@ -429,14 +443,15 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
      */
     public static int computeGuardMask(Map<String, String> currentSessionVars,
             Map<String, String> persistSessionVars) {
-        if (planSessionVarFenceVersion(persistSessionVars)
-                > SessionVariable.CURRENT_PLAN_SESSION_VAR_FENCE_VERSION) {
+        if (isPlanSessionVarFenceNewer(persistSessionVars)) {
             // The persisted plan-variable set was written by a newer FE (metadata produced before a
             // downgrade). This FE cannot interpret it, so it must not build a rewrite cache that any
             // session could consume: select both guard families.
             return GUARD_TIME_ZONE | GUARD_OTHER;
         }
         int mask = GUARD_NONE;
+        // An empty (or missing) map records nothing at all, so no dependency family can be assumed equal.
+        boolean creationSessionFullyUnknown = persistSessionVars == null || persistSessionVars.isEmpty();
         // The creation zone is unknown (pre-change metadata, including an empty map) or differs from the
         // current zone.
         if (!isCreationSessionKnown(persistSessionVars)
@@ -444,8 +459,8 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
                         currentSessionVars == null ? null : currentSessionVars.get(SessionVariable.TIME_ZONE))) {
             mask |= GUARD_TIME_ZONE;
         }
-        if (persistSessionVars != null && !persistSessionVars.isEmpty()
-                && differsInNonTimeZoneVars(currentSessionVars, persistSessionVars)) {
+        if (creationSessionFullyUnknown
+                || differsInNonTimeZoneVars(currentSessionVars, persistSessionVars)) {
             mask |= GUARD_OTHER;
         }
         return mask;
@@ -632,12 +647,18 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
     public static void checkPlanSessionVarFenceReadable(String objectDescription,
             Map<String, String> persistSessionVars) {
         int fence = planSessionVarFenceVersion(persistSessionVars);
-        if (fence > SessionVariable.CURRENT_PLAN_SESSION_VAR_FENCE_VERSION) {
+        if (isPlanSessionVarFenceNewer(persistSessionVars)) {
             throw new AnalysisException("Failed to read " + objectDescription + ": it was written by a newer"
                     + " Doris version (plan session variable fence " + fence + ", this frontend supports "
                     + SessionVariable.CURRENT_PLAN_SESSION_VAR_FENCE_VERSION + "), so its session semantics"
                     + " cannot be reproduced here. Upgrade all frontends before reading it.");
         }
+    }
+
+    /** Whether the persisted map was written by a frontend newer than this one (see the fence version). */
+    public static boolean isPlanSessionVarFenceNewer(Map<String, String> persistSessionVars) {
+        return planSessionVarFenceVersion(persistSessionVars)
+                > SessionVariable.CURRENT_PLAN_SESSION_VAR_FENCE_VERSION;
     }
 
     private static DigitalVersion parseReleaseVersion(String version) {
@@ -685,6 +706,13 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
             // instant, an offset-free string slot holds whatever the storage session wrote).
             return false;
         }
+        if (expr instanceof FunctionCallExpr && isSessionZoneClockFunction((FunctionCallExpr) expr)) {
+            // current_date / current_time / now and their aliases read the wall clock in the session time
+            // zone, and the legacy tree folds them as planning-time constants. A stored expression would
+            // therefore keep the write/load session's clock reading, which differs between zones and even
+            // between loads, so it can never be materialized reproducibly.
+            return true;
+        }
         if (expr instanceof IsNullPredicate) {
             // IS (NOT) NULL itself is zone invariant, but it only reads the null-ness of its operand: a
             // nullable CASE built from a zone-sensitive expression (e.g.
@@ -722,6 +750,14 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
             }
         }
         return false;
+    }
+
+    /** Whether the call is a session-zone dependent current-time function (see the name set above). */
+    private static boolean isSessionZoneClockFunction(FunctionCallExpr functionCall) {
+        if (functionCall.getFnName() == null) {
+            return false;
+        }
+        return SESSION_ZONE_CLOCK_FUNCTIONS.contains(functionCall.getFnName().getFunction().toLowerCase());
     }
 
     /**
