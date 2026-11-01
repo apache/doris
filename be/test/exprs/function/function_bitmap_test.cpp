@@ -24,6 +24,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "core/column/column_string.h"
 #include "core/data_type/data_type_bitmap.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
@@ -814,6 +815,22 @@ TEST(function_bitmap_test, function_bitmap_from_binary) {
         static_cast<void>(check_function<DataTypeBitMap, true>(func_name, input_types, data_set));
     }
     EXPECT_TRUE(config::set_config("bitmap_serialize_version", "1", false, true).ok());
+}
+
+// bitmap_to_binary is registered for exactly one BITMAP argument. A BITMAP-typed slot that
+// actually holds a string column can only come from a planner bug, and the function must
+// report it instead of reinterpreting the column as a ColumnBitmap.
+TEST(function_bitmap_test, function_bitmap_to_binary_rejects_non_bitmap_column) {
+    Block block;
+    block.insert({ColumnString::create(), std::make_shared<DataTypeBitMap>(), "c0"});
+    FunctionBasePtr function = SimpleFunctionFactory::instance().get_function(
+            "bitmap_to_binary", block.get_columns_with_type_and_name(),
+            std::make_shared<DataTypeVarbinary>());
+    ASSERT_TRUE(function != nullptr);
+    block.insert({nullptr, std::make_shared<DataTypeVarbinary>(), "result"});
+    ColumnNumbers arguments {0};
+    auto status = function->execute(nullptr, block, arguments, block.columns() - 1, 1);
+    EXPECT_TRUE(status.is<ErrorCode::RUNTIME_ERROR>());
 }
 
 } // namespace doris

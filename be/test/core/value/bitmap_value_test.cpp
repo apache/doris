@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <numeric>
 #include <string>
 #include <vector>
 
@@ -987,6 +988,198 @@ TEST(BitmapValueTest, valid_and_deserialize) {
     }
 
     config::enable_set_in_bitmap_value = false;
+}
+
+// A BITMAP64 payload whose varint64 map size never terminates must be rejected instead of
+// letting the decoder run off the end of the buffer looking for the last varint byte.
+TEST(BitmapValueTest, valid_and_deserialize_bitmap64_bad_varint) {
+    std::string bytes;
+    bytes += static_cast<char>(BitmapTypeCode::BITMAP64);
+    bytes.append(10, '\x80'); // 10 continuation bytes: decode_varint64_ptr gives up
+
+    BitmapValue deserialized;
+    EXPECT_FALSE(deserialized.valid_and_deserialize(bytes.data(), bytes.size()));
+    EXPECT_EQ(deserialized.cardinality(), 0);
+}
+
+// Every map entry needs at least a 4-byte key, so a corrupted varint64 map size must be
+// rejected up front instead of driving an (almost) unbounded loop over the payload.
+TEST(BitmapValueTest, valid_and_deserialize_bitmap64_map_size_too_large) {
+    std::string bytes;
+    bytes += static_cast<char>(BitmapTypeCode::BITMAP64);
+    bytes += static_cast<char>(5); // varint map size = 5
+    bytes.append(4, '\0');         // room for a single 4-byte key, not five
+
+    BitmapValue deserialized;
+    EXPECT_FALSE(deserialized.valid_and_deserialize(bytes.data(), bytes.size()));
+    EXPECT_EQ(deserialized.cardinality(), 0);
+}
+
+// bitmap_serialize_version=2 writes the non-portable roaring format, whose first byte is a
+// tag: ARRAY_UINT32 (1) when a uint32 array is smaller than the portable form, CONTAINER (2)
+// otherwise. The reader must advance by the bytes the ORIGINAL encoding occupies for both.
+TEST(BitmapValueTest, valid_and_deserialize_bitmap_v2_array_uint32) {
+    const bool old_enable_set = config::enable_set_in_bitmap_value;
+    const int16_t old_serialize_version = config::bitmap_serialize_version;
+    config::enable_set_in_bitmap_value = false;
+    config::bitmap_serialize_version = 2;
+
+    // Two single-element containers: the portable form (20 bytes) is larger than the uint32
+    // array form (12 bytes), so roaring_bitmap_serialize picks ARRAY_UINT32.
+    BitmapValue bitmap({0, 65536});
+    std::string bytes = serialize_for_valid_and_deserialize(bitmap);
+    EXPECT_EQ(BitmapTypeCode::BITMAP32_V2, static_cast<int>(bytes[0]));
+    EXPECT_EQ(1, static_cast<int>(bytes[1])); // CROARING_SERIALIZATION_ARRAY_UINT32
+
+    BitmapValue deserialized;
+    EXPECT_TRUE(deserialized.valid_and_deserialize(bytes.data(), bytes.size()));
+    check_bitmap_equal(deserialized, bitmap);
+
+    // trailing bytes are rejected for the ARRAY_UINT32 form too
+    bytes += '\x7f';
+    BitmapValue rejected;
+    EXPECT_FALSE(rejected.valid_and_deserialize(bytes.data(), bytes.size()));
+    EXPECT_EQ(rejected.cardinality(), 0);
+
+    config::enable_set_in_bitmap_value = old_enable_set;
+    config::bitmap_serialize_version = old_serialize_version;
+}
+
+// With enable_set_in_bitmap_value on, a SINGLE32/SINGLE64 payload is materialized as a SET so
+// that a later add() does not have to convert it.
+TEST(BitmapValueTest, valid_and_deserialize_single_with_set_enabled) {
+    const bool old_enable_set = config::enable_set_in_bitmap_value;
+    config::enable_set_in_bitmap_value = true;
+
+    BitmapValue single32(1);
+    std::string bytes32 = serialize_for_valid_and_deserialize(single32);
+    EXPECT_EQ(BitmapTypeCode::SINGLE32, static_cast<int>(bytes32[0]));
+    BitmapValue deserialized32;
+    EXPECT_TRUE(deserialized32.valid_and_deserialize(bytes32.data(), bytes32.size()));
+    EXPECT_EQ(BitmapTypeCode::SET, deserialized32.get_type_code());
+    EXPECT_EQ(1u, deserialized32.cardinality());
+    EXPECT_TRUE(deserialized32.contains(1));
+
+    BitmapValue single64((uint64_t)4294967296);
+    std::string bytes64 = serialize_for_valid_and_deserialize(single64);
+    EXPECT_EQ(BitmapTypeCode::SINGLE64, static_cast<int>(bytes64[0]));
+    BitmapValue deserialized64;
+    EXPECT_TRUE(deserialized64.valid_and_deserialize(bytes64.data(), bytes64.size()));
+    EXPECT_EQ(BitmapTypeCode::SET, deserialized64.get_type_code());
+    EXPECT_EQ(1u, deserialized64.cardinality());
+    EXPECT_TRUE(deserialized64.contains(4294967296));
+
+    config::enable_set_in_bitmap_value = old_enable_set;
+}
+
+// SET payload edge cases: a payload with no count byte, a count above the SET threshold, and
+// duplicated values (which the trusted deserialize() path also treats as corruption).
+TEST(BitmapValueTest, valid_and_deserialize_set_rejects_malformed_payload) {
+    // only the type code: the count byte is missing
+    {
+        std::string bytes(1, static_cast<char>(BitmapTypeCode::SET));
+        BitmapValue deserialized;
+        EXPECT_FALSE(deserialized.valid_and_deserialize(bytes.data(), bytes.size()));
+    }
+    // count above SET_TYPE_THRESHOLD (32): such a payload must be written as SET_V2
+    {
+        std::string bytes;
+        bytes += static_cast<char>(BitmapTypeCode::SET);
+        bytes += static_cast<char>(33);
+        bytes.append(33 * sizeof(uint64_t), '\0');
+        BitmapValue deserialized;
+        EXPECT_FALSE(deserialized.valid_and_deserialize(bytes.data(), bytes.size()));
+    }
+    // duplicated values cannot come from a valid writer
+    {
+        std::string bytes;
+        bytes += static_cast<char>(BitmapTypeCode::SET);
+        bytes += static_cast<char>(2);
+        for (uint64_t value : {uint64_t(5), uint64_t(5)}) {
+            bytes.append(reinterpret_cast<const char*>(&value), sizeof(value));
+        }
+        BitmapValue deserialized;
+        EXPECT_FALSE(deserialized.valid_and_deserialize(bytes.data(), bytes.size()));
+        EXPECT_EQ(deserialized.cardinality(), 0);
+    }
+}
+
+// SET_V2 (type code 10) carries a uint32 count instead of a single byte. It is written by other
+// engines, so the bounded reader must accept it and honour enable_set_in_bitmap_value.
+TEST(BitmapValueTest, valid_and_deserialize_set_v2) {
+    const bool old_enable_set = config::enable_set_in_bitmap_value;
+    auto make_set_v2 = [](const std::vector<uint64_t>& values) {
+        std::string bytes;
+        bytes += static_cast<char>(BitmapTypeCode::SET_V2);
+        auto count = static_cast<uint32_t>(values.size());
+        bytes.append(reinterpret_cast<const char*>(&count), sizeof(count));
+        for (uint64_t value : values) {
+            bytes.append(reinterpret_cast<const char*>(&value), sizeof(value));
+        }
+        return bytes;
+    };
+
+    // set enabled and a count within the SET threshold: the value stays a SET
+    config::enable_set_in_bitmap_value = true;
+    {
+        std::string bytes = make_set_v2({1, 9999999});
+        BitmapValue deserialized;
+        EXPECT_TRUE(deserialized.valid_and_deserialize(bytes.data(), bytes.size()));
+        EXPECT_EQ(BitmapTypeCode::SET, deserialized.get_type_code());
+        EXPECT_EQ(2u, deserialized.cardinality());
+        EXPECT_TRUE(deserialized.contains(1));
+        EXPECT_TRUE(deserialized.contains(9999999));
+    }
+    // a count above the SET threshold converts to BITMAP even with set enabled
+    {
+        std::vector<uint64_t> values(40);
+        std::iota(values.begin(), values.end(), 0);
+        std::string bytes = make_set_v2(values);
+        BitmapValue deserialized;
+        EXPECT_TRUE(deserialized.valid_and_deserialize(bytes.data(), bytes.size()));
+        EXPECT_EQ(BitmapTypeCode::BITMAP32, deserialized.get_type_code());
+        EXPECT_EQ(values.size(), deserialized.cardinality());
+    }
+    // count == 0 needs no value bytes at all
+    {
+        std::string bytes = make_set_v2({});
+        BitmapValue deserialized;
+        EXPECT_TRUE(deserialized.valid_and_deserialize(bytes.data(), bytes.size()));
+        EXPECT_EQ(0u, deserialized.cardinality());
+    }
+    // set disabled: the same payload converts to BITMAP with equal contents
+    config::enable_set_in_bitmap_value = false;
+    {
+        std::string bytes = make_set_v2({1, 9999999});
+        BitmapValue deserialized;
+        EXPECT_TRUE(deserialized.valid_and_deserialize(bytes.data(), bytes.size()));
+        EXPECT_EQ(BitmapTypeCode::BITMAP32, deserialized.get_type_code());
+        EXPECT_EQ(2u, deserialized.cardinality());
+        EXPECT_TRUE(deserialized.contains(9999999));
+    }
+    {
+        std::string bytes = make_set_v2({});
+        BitmapValue deserialized;
+        EXPECT_TRUE(deserialized.valid_and_deserialize(bytes.data(), bytes.size()));
+        EXPECT_EQ(0u, deserialized.cardinality());
+    }
+    // truncated: the uint32 count does not fit in the buffer
+    {
+        std::string bytes = make_set_v2({1, 2});
+        BitmapValue deserialized;
+        EXPECT_FALSE(deserialized.valid_and_deserialize(bytes.data(), 3));
+        EXPECT_EQ(0u, deserialized.cardinality());
+    }
+    // count does not match the payload length
+    {
+        std::string bytes = make_set_v2({1, 2});
+        bytes.resize(bytes.size() - 1);
+        BitmapValue deserialized;
+        EXPECT_FALSE(deserialized.valid_and_deserialize(bytes.data(), bytes.size()));
+        EXPECT_EQ(0u, deserialized.cardinality());
+    }
+
+    config::enable_set_in_bitmap_value = old_enable_set;
 }
 
 TEST(BitmapValueTest, set_to_string) {

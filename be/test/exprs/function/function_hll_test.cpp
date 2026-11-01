@@ -22,6 +22,7 @@
 #include <string>
 #include <utility>
 
+#include "core/column/column_string.h"
 #include "core/data_type/data_type_hll.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_varbinary.h"
@@ -256,5 +257,21 @@ TEST(function_hll_test, function_hll_from_binary_test) {
 
         static_cast<void>(check_function<DataTypeHLL, true>(func_name, input_types, data_set));
     }
+}
+
+// hll_to_binary is registered for exactly one HLL argument. An HLL-typed slot that actually
+// holds a string column can only come from a planner bug, and the function must report it
+// instead of reinterpreting the column as a ColumnHLL.
+TEST(function_hll_test, function_hll_to_binary_rejects_non_hll_column) {
+    Block block;
+    block.insert({ColumnString::create(), std::make_shared<DataTypeHLL>(), "c0"});
+    FunctionBasePtr function = SimpleFunctionFactory::instance().get_function(
+            "hll_to_binary", block.get_columns_with_type_and_name(),
+            std::make_shared<DataTypeVarbinary>());
+    ASSERT_TRUE(function != nullptr);
+    block.insert({nullptr, std::make_shared<DataTypeVarbinary>(), "result"});
+    ColumnNumbers arguments {0};
+    auto status = function->execute(nullptr, block, arguments, block.columns() - 1, 1);
+    EXPECT_TRUE(status.is<ErrorCode::RUNTIME_ERROR>());
 }
 } // namespace doris
