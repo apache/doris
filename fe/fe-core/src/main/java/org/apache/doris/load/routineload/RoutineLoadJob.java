@@ -385,6 +385,7 @@ public abstract class RoutineLoadJob
         if (info.getExecMemLimit() != -1) {
             this.execMemLimit = info.getExecMemLimit();
         }
+        jobProperties.put(CreateRoutineLoadInfo.EXEC_MEM_LIMIT_PROPERTY, String.valueOf(execMemLimit));
         if (info.getSendBatchParallelism() > 0) {
             this.sendBatchParallelism = info.getSendBatchParallelism();
         }
@@ -2037,6 +2038,7 @@ public abstract class RoutineLoadJob
                     }
                 }
                 createRoutineLoadInfo.validate(ctx);
+                restoreRuntimeProperties(createRoutineLoadInfo);
                 setRoutineLoadDesc(createRoutineLoadInfo.getRoutineLoadDesc());
             } finally {
                 ctx.cleanup();
@@ -2060,6 +2062,76 @@ public abstract class RoutineLoadJob
         if (userIdentity != null) {
             userIdentity.setIsAnalyzed();
         }
+    }
+
+    /**
+     * Restore runtime configuration omitted from serialized job fields. The persisted property map
+     * reflects ALTER changes; the original CREATE statement supplies missing values for older jobs.
+     */
+    private void restoreRuntimeProperties(CreateRoutineLoadInfo createInfo) throws DdlException {
+        Map<String, String> createProperties = createInfo.getJobProperties();
+        String filterRatioValue = resolveRecoveredProperty(CreateRoutineLoadInfo.MAX_FILTER_RATIO_PROPERTY,
+                createProperties, String.valueOf(createInfo.getMaxFilterRatio()),
+                String.valueOf(DEFAULT_MAX_FILTER_RATIO));
+        String memoryLimitValue = resolveRecoveredProperty(CreateRoutineLoadInfo.EXEC_MEM_LIMIT_PROPERTY,
+                createProperties, String.valueOf(createInfo.getExecMemLimit()),
+                String.valueOf(DEFAULT_EXEC_MEM_LIMIT));
+        String batchParallelismValue = resolveRecoveredProperty(CreateRoutineLoadInfo.SEND_BATCH_PARALLELISM,
+                createProperties, String.valueOf(createInfo.getSendBatchParallelism()),
+                String.valueOf(DEFAULT_SEND_BATCH_PARALLELISM));
+        String singleTabletValue = resolveRecoveredProperty(CreateRoutineLoadInfo.LOAD_TO_SINGLE_TABLET,
+                createProperties, String.valueOf(createInfo.isLoadToSingleTablet()),
+                String.valueOf(DEFAULT_LOAD_TO_SINGLE_TABLET));
+
+        final double recoveredFilterRatio;
+        final long recoveredMemoryLimit;
+        final int recoveredBatchParallelism;
+        try {
+            recoveredFilterRatio = Double.parseDouble(filterRatioValue);
+            recoveredMemoryLimit = Long.parseLong(memoryLimitValue);
+            recoveredBatchParallelism = Integer.parseInt(batchParallelismValue);
+        } catch (NumberFormatException e) {
+            throw new DdlException("Invalid persisted routine load configuration: " + e.getMessage(), e);
+        }
+        if (!Double.isFinite(recoveredFilterRatio)
+                || !CreateRoutineLoadInfo.MAX_FILTER_RATIO_PRED.test(recoveredFilterRatio)) {
+            throw new DdlException("Invalid persisted max_filter_ratio: " + filterRatioValue);
+        }
+        if (!CreateRoutineLoadInfo.EXEC_MEM_LIMIT_PRED.test(recoveredMemoryLimit)) {
+            throw new DdlException("Invalid persisted exec_mem_limit: " + memoryLimitValue);
+        }
+        if (!CreateRoutineLoadInfo.SEND_BATCH_PARALLELISM_PRED.test((long) recoveredBatchParallelism)) {
+            throw new DdlException("Invalid persisted send_batch_parallelism: " + batchParallelismValue);
+        }
+        if (!"true".equalsIgnoreCase(singleTabletValue) && !"false".equalsIgnoreCase(singleTabletValue)) {
+            throw new DdlException("Invalid persisted load_to_single_tablet: " + singleTabletValue);
+        }
+
+        // Validate everything before updating runtime fields or normalizing persisted properties.
+        maxFilterRatio = recoveredFilterRatio;
+        execMemLimit = recoveredMemoryLimit;
+        sendBatchParallelism = recoveredBatchParallelism;
+        loadToSingleTablet = Boolean.parseBoolean(singleTabletValue);
+        jobProperties.put(CreateRoutineLoadInfo.MAX_FILTER_RATIO_PROPERTY, String.valueOf(maxFilterRatio));
+        jobProperties.put(CreateRoutineLoadInfo.EXEC_MEM_LIMIT_PROPERTY, String.valueOf(execMemLimit));
+        jobProperties.put(CreateRoutineLoadInfo.SEND_BATCH_PARALLELISM, String.valueOf(sendBatchParallelism));
+        jobProperties.put(CreateRoutineLoadInfo.LOAD_TO_SINGLE_TABLET, String.valueOf(loadToSingleTablet));
+    }
+
+    private String resolveRecoveredProperty(String propertyName, Map<String, String> createProperties,
+            String validatedCreateValue, String defaultValue) throws DdlException {
+        String value;
+        if (jobProperties.containsKey(propertyName)) {
+            value = jobProperties.get(propertyName);
+        } else if (createProperties != null && createProperties.containsKey(propertyName)) {
+            value = validatedCreateValue;
+        } else {
+            value = defaultValue;
+        }
+        if (value == null || value.isEmpty()) {
+            throw new DdlException("Missing persisted routine load property value: " + propertyName);
+        }
+        return value;
     }
 
     public abstract void modifyProperties(AlterRoutineLoadCommand command) throws UserException;
