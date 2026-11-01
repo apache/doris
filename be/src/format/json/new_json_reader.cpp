@@ -1213,7 +1213,7 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
                 continue;
             }
             size_t sub_column_idx = sub_col_name_to_idx[sub_key];
-            auto sub_column_ptr = struct_column_ptr->get_column(sub_column_idx).get_ptr();
+            auto* sub_column_ptr = &struct_column_ptr->get_column(sub_column_idx);
 
             if (has_value[sub_column_idx]) [[unlikely]] {
                 // Since struct_value can only be traversed once, we can only insert
@@ -1224,7 +1224,7 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
 
             const auto& sub_col_type = type_struct->get_element(sub_column_idx);
             RETURN_IF_ERROR(_simdjson_write_data_to_column<use_string_cache>(
-                    sub.value(), sub_col_type, sub_column_ptr.get(), column_name + "." + sub_key,
+                    sub.value(), sub_col_type, sub_column_ptr, column_name + "." + sub_key,
                     sub_serdes[sub_column_idx], valid));
         }
 
@@ -1234,7 +1234,7 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
                 continue;
             }
 
-            auto sub_column_ptr = struct_column_ptr->get_column(sub_col_idx).get_ptr();
+            auto* sub_column_ptr = &struct_column_ptr->get_column(sub_col_idx);
             if (is_column_nullable(*sub_column_ptr)) {
                 sub_column_ptr->insert_default();
                 continue;

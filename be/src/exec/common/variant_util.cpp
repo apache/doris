@@ -278,7 +278,7 @@ ColumnPtr jsonb_root_to_json_string_column(const IColumn& root) {
         const auto json = JsonbToJson::jsonb_to_json_string(jsonb.data, jsonb.size);
         result->insert_data(json.data(), json.size());
     }
-    return result->get_ptr();
+    return result;
 }
 
 void get_column_by_type(const DataTypePtr& data_type, const std::string& name, TabletColumn& column,

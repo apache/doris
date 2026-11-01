@@ -93,7 +93,7 @@ private:
         const auto* column_right_ptr = assert_cast<const ColumnConst*>(column_right.get());
         DCHECK(column_right_ptr != nullptr);
 
-        return Impl::vector_constant(column_left->get_ptr(),
+        return Impl::vector_constant(column_left,
                                      column_right_ptr->template get_value<Impl::ResultType>());
     }
 
@@ -102,11 +102,11 @@ private:
         DCHECK(column_left_ptr != nullptr);
 
         return Impl::constant_vector(column_left_ptr->template get_value<Impl::ResultType>(),
-                                     column_right->get_ptr());
+                                     column_right);
     }
 
     ColumnPtr vector_vector(ColumnPtr column_left, ColumnPtr column_right) const {
-        return Impl::vector_vector(column_left->get_ptr(), column_right->get_ptr());
+        return Impl::vector_vector(column_left, column_right);
     }
 };
 

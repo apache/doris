@@ -537,8 +537,8 @@ private:
                                 auto src = column_right_ptr
                                                    ->template get_value<Impl::DataTypeB::PType>();
                                 std::memcpy(&tmp, &src, sizeof(src));
-                                res = Impl::vector_constant(column_left->get_ptr(), tmp, type_left,
-                                                            type_right, max_and_multiplier.first,
+                                res = Impl::vector_constant(column_left, tmp, type_left, type_right,
+                                                            max_and_multiplier.first,
                                                             max_and_multiplier.second, type_result,
                                                             check_overflow_for_decimal);
                                 return true;
@@ -554,7 +554,7 @@ private:
                                 auto max_and_multiplier = Impl::get_max_and_multiplier(
                                         type_left, type_right, type_result);
                                 res = Impl::vector_constant(
-                                        column_left->get_ptr(),
+                                        column_left,
                                         column_right_ptr
                                                 ->template get_value<Impl::DataTypeB::PType>(),
                                         type_left, type_right, max_and_multiplier.first,
@@ -569,8 +569,7 @@ private:
             }
         } else {
             res = Impl::vector_constant(
-                    column_left->get_ptr(),
-                    column_right_ptr->template get_value<Impl::DataTypeB::PType>());
+                    column_left, column_right_ptr->template get_value<Impl::DataTypeB::PType>());
         }
         return res;
     }
@@ -593,7 +592,7 @@ private:
                                 auto src = column_left_ptr
                                                    ->template get_value<Impl::DataTypeA::PType>();
                                 std::memcpy(&tmp, &src, sizeof(src));
-                                res = Impl::constant_vector(tmp, column_right->get_ptr(), type_left,
+                                res = Impl::constant_vector(tmp, column_right, type_left,
                                                             type_right, max_and_multiplier.first,
                                                             max_and_multiplier.second, type_result,
                                                             check_overflow_for_decimal);
@@ -612,7 +611,7 @@ private:
                                 res = Impl::constant_vector(
                                         column_left_ptr
                                                 ->template get_value<Impl::DataTypeA::PType>(),
-                                        column_right->get_ptr(), type_left, type_right,
+                                        column_right, type_left, type_right,
                                         max_and_multiplier.first, max_and_multiplier.second,
                                         type_result, check_overflow_for_decimal);
                                 return true;
@@ -624,8 +623,7 @@ private:
             }
         } else {
             res = Impl::constant_vector(
-                    column_left_ptr->template get_value<Impl::DataTypeA::PType>(),
-                    column_right->get_ptr());
+                    column_left_ptr->template get_value<Impl::DataTypeA::PType>(), column_right);
         }
         return res;
     }
@@ -641,8 +639,7 @@ private:
                             remove_nullable(res_data_type).get(), [&](const auto& type_result) {
                                 auto max_and_multiplier = Impl::get_max_and_multiplier(
                                         type_left, type_right, type_result);
-                                res = Impl::vector_vector(column_left->get_ptr(),
-                                                          column_right->get_ptr(), type_left,
+                                res = Impl::vector_vector(column_left, column_right, type_left,
                                                           type_right, max_and_multiplier.first,
                                                           max_and_multiplier.second, type_result,
                                                           check_overflow_for_decimal);
@@ -658,8 +655,7 @@ private:
                             remove_nullable(res_data_type).get(), [&](const auto& type_result) {
                                 auto max_and_multiplier = Impl::get_max_and_multiplier(
                                         type_left, type_right, type_result);
-                                res = Impl::vector_vector(column_left->get_ptr(),
-                                                          column_right->get_ptr(), type_left,
+                                res = Impl::vector_vector(column_left, column_right, type_left,
                                                           type_right, max_and_multiplier.first,
                                                           max_and_multiplier.second, type_result,
                                                           check_overflow_for_decimal);
@@ -671,7 +667,7 @@ private:
                 }
             }
         } else {
-            res = Impl::vector_vector(column_left->get_ptr(), column_right->get_ptr());
+            res = Impl::vector_vector(column_left, column_right);
         }
         return res;
     }
