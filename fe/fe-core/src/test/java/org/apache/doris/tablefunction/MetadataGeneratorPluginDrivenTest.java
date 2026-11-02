@@ -25,6 +25,7 @@ import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.thrift.TFetchSchemaTableDataResult;
 import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TStatusCode;
@@ -47,7 +48,7 @@ import java.util.Optional;
  * {@link PluginDrivenExternalCatalog}, so the old {@code instanceof MaxComputeExternalCatalog}
  * branch no longer matches and the partitions() TVF would fall through to
  * "not support catalog". These tests lock in that the new branch routes partition
- * listing through the connector SPI (using remote names) and emits one
+ * listing through the table's guarded handle resolver and retained metadata read, and emits one
  * single-string-column row per partition, matching the legacy dealMaxComputeCatalog shape.</p>
  */
 public class MetadataGeneratorPluginDrivenTest {
@@ -61,7 +62,7 @@ public class MetadataGeneratorPluginDrivenTest {
     }
 
     @Test
-    public void testRoutesToSpiWithRemoteNamesAndBuildsRows() throws Exception {
+    public void testRoutesThroughGuardedTableAndBuildsRows() throws Exception {
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
         ConnectorStatementScope scope = new ConnectorStatementScopeImpl();
         Mockito.when(session.getStatementScope()).thenReturn(scope);
@@ -75,13 +76,13 @@ public class MetadataGeneratorPluginDrivenTest {
         Mockito.when(catalog.getConnector()).thenReturn(connector);
         Mockito.when(connector.getMetadata(session)).thenReturn(metadata);
 
-        ExternalTable table = Mockito.mock(ExternalTable.class);
-        Mockito.when(table.getRemoteDbName()).thenReturn("remote_db");
-        Mockito.when(table.getRemoteName()).thenReturn("remote_tbl");
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
 
-        // The SPI must be queried with the REMOTE db/table names, not the local Doris names.
-        Mockito.when(metadata.getTableHandle(session, "remote_db", "remote_tbl"))
-                .thenReturn(Optional.of(handle));
+        Mockito.when(table.resolveConnectorTableHandle(session, metadata)).thenReturn(Optional.of(handle));
+        PluginDrivenExternalTable.MetadataRead read = Mockito.mock(PluginDrivenExternalTable.MetadataRead.class);
+        Mockito.when(table.observeConnectorMetadata(session, metadata)).thenReturn(read);
+        Mockito.when(read.execute(Mockito.any())).thenAnswer(call ->
+                ((java.util.function.Supplier<?>) call.getArgument(0)).get());
         Mockito.when(metadata.listPartitionNames(session, handle))
                 .thenReturn(Arrays.asList("pt=1", "pt=2"));
 
@@ -92,7 +93,8 @@ public class MetadataGeneratorPluginDrivenTest {
         Assertions.assertEquals(2, rows.size());
         Assertions.assertEquals("pt=1", rows.get(0).getColumnValue().get(0).getStringVal());
         Assertions.assertEquals("pt=2", rows.get(1).getColumnValue().get(0).getStringVal());
-        Mockito.verify(metadata).getTableHandle(session, "remote_db", "remote_tbl");
+        Mockito.verify(table).resolveConnectorTableHandle(session, metadata);
+        Mockito.verify(read).execute(Mockito.any());
         Mockito.verify(metadata).close();
     }
 
@@ -110,11 +112,8 @@ public class MetadataGeneratorPluginDrivenTest {
         Mockito.when(catalog.getConnector()).thenReturn(connector);
         Mockito.when(connector.getMetadata(session)).thenReturn(metadata);
 
-        ExternalTable table = Mockito.mock(ExternalTable.class);
-        Mockito.when(table.getRemoteDbName()).thenReturn("remote_db");
-        Mockito.when(table.getRemoteName()).thenReturn("remote_tbl");
-        Mockito.when(metadata.getTableHandle(session, "remote_db", "remote_tbl"))
-                .thenReturn(Optional.empty());
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(table.resolveConnectorTableHandle(session, metadata)).thenReturn(Optional.empty());
 
         TFetchSchemaTableDataResult result = invokeDeal(catalog, table);
 

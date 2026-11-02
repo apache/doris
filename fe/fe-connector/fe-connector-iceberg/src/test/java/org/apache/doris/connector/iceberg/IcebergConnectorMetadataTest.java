@@ -279,6 +279,15 @@ public class IcebergConnectorMetadataTest {
     }
 
     @Test
+    public void partitionNameListingPreservesConfirmedAbsence() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        IcebergConnectorMetadata metadata = metadataWith(ops);
+        ops.loadTableFailure = new NoSuchTableException("dropped during partition-name read");
+        Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                () -> metadata.listPartitionNames(null, new IcebergTableHandle("db1", "t1")));
+    }
+
+    @Test
     public void noTableCacheSnapshotReadCanDiscoverDropAfterHandleResolution() {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.tableExists = true;

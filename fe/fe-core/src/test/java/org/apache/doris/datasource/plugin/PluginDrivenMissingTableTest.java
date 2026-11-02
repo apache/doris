@@ -25,6 +25,8 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.RefreshManager;
+import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.Util;
@@ -63,10 +65,13 @@ import org.apache.doris.datasource.scan.PluginDrivenScanNode;
 import org.apache.doris.datasource.split.SplitAssignment;
 import org.apache.doris.datasource.split.SplitProducer;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.commands.ShowPartitionsCommand;
+import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.tablefunction.MetadataGenerator;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -1284,14 +1289,16 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
 
     @ParameterizedTest
     @ValueSource(strings = {"stats", "pinned-stats", "dml", "partition-values", "mvcc", "deferred-mvcc",
-            "estimate", "stream-open", "stream-next", "batch-open", "batch-next"})
+            "estimate", "stream-open", "stream-next", "batch-open", "batch-next", "show-partitions",
+            "show-partition-stats", "partition-names"})
     void remainingProviderReadsRepairConfirmedAbsence(String operation) throws Exception {
         verifyRemainingRead(operation, false);
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"stats", "pinned-stats", "dml", "partition-values", "mvcc", "deferred-mvcc",
-            "estimate", "stream-open", "stream-next", "batch-open", "batch-next"})
+            "estimate", "stream-open", "stream-next", "batch-open", "batch-next", "show-partitions",
+            "show-partition-stats", "partition-names"})
     void delayedRemainingReadsPreserveRecreatedSource(String operation) throws Exception {
         verifyRemainingRead(operation, true);
     }
@@ -1319,6 +1326,15 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
             Mockito.doAnswer(absent).when(metadata).validateRowLevelDmlMode(
                     Mockito.any(), Mockito.any(), Mockito.any());
             read = () -> table.validateConnectorRowLevelDml(Mockito.mock(ConnectorRowLevelDmlRequest.class));
+        } else if (operation.startsWith("show-partition") || "partition-names".equals(operation)) {
+            if ("show-partition-stats".equals(operation)) {
+                Mockito.when(connector.getCapabilities()).thenReturn(java.util.EnumSet.of(
+                        org.apache.doris.connector.spi.ConnectorCapability.SUPPORTS_PARTITION_STATS));
+                Mockito.when(metadata.listPartitions(Mockito.any(), Mockito.any(), Mockito.any())).thenAnswer(absent);
+            } else {
+                Mockito.when(metadata.listPartitionNames(Mockito.any(), Mockito.any())).thenAnswer(absent);
+            }
+            read = () -> readPartitionNames(operation, table);
         } else if (partitionedTables) {
             if (mvccTables) {
                 Mockito.when(metadata.beginQuerySnapshot(Mockito.any(), Mockito.any()))
@@ -1417,7 +1433,7 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"command", "replay", "metadata-replay", "rename"})
+    @ValueSource(strings = {"command", "replay", "metadata-replay", "rename", "db-replay", "truncate-replay"})
     void coldDatabaseRefreshProtectsPublishedReplacement(String operation) throws Exception {
         warmTarget();
         CountDownLatch refreshing = new CountDownLatch(1);
@@ -1437,6 +1453,10 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
             RefreshManager manager = new RefreshManager();
             if ("command".equals(operation)) {
                 manager.handleRefreshTable(catalog.getName(), "db", "a");
+            } else if ("db-replay".equals(operation)) {
+                manager.replayRefreshDb(ExternalObjectLog.createForRefreshDb(catalog.getId(), "db"));
+            } else if ("truncate-replay".equals(operation)) {
+                catalog.replayTruncateTable(new TruncateTableInfo(catalog.getName(), "db", "a", null, 123L));
             } else {
                 ExternalObjectLog log = "rename".equals(operation)
                         ? ExternalObjectLog.createForRenameTable(catalog.getId(), "db", "a", "renamed")
@@ -1471,6 +1491,124 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
             Assertions.assertSame(replacement, database.getTableNullable(replacement.getId()));
             Assertions.assertSame(schema, replacement.getFullSchema());
             Assertions.assertEquals("recreated metadata", remoteCache.get("a"));
+        } finally {
+            finishRefresh.countDown();
+            releaseMissing.countDown();
+        }
+    }
+
+    private void readPartitionNames(String operation, PluginDrivenExternalTable table) throws Exception {
+        if ("partition-names".equals(operation)) {
+            Deencapsulation.invoke(MetadataGenerator.class, "dealPluginDrivenCatalog", catalog, table);
+        } else {
+            ShowPartitionsCommand command = new ShowPartitionsCommand(
+                    new TableNameInfo(catalog.getName(), "db", "a"), null, null, -1, -1, false);
+            Deencapsulation.setField(command, "catalog", catalog);
+            Deencapsulation.invoke(command, "handleShowPluginDrivenTablePartitions");
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"show-partitions", "partition-names"})
+    void partitionNameHandleMissRepairsConfirmedAbsence(String operation) throws Exception {
+        PluginDrivenExternalTable table = warmTarget();
+        remoteTables.remove("a");
+        if ("show-partitions".equals(operation)) {
+            Assertions.assertThrows(AnalysisException.class, () -> readPartitionNames(operation, table));
+        } else {
+            readPartitionNames(operation, table);
+        }
+        Assertions.assertNull(database.getTableNullable(table.getId()));
+        Assertions.assertNull(remoteCache.get("a"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"show-partitions", "partition-names"})
+    void delayedPartitionNameHandleMissPreservesRecreatedSource(String operation) throws Exception {
+        PluginDrivenExternalTable table = warmTarget();
+        remoteTables.remove("a");
+        blockMissing.set(true);
+        Future<?> missing = worker.submit(() -> {
+            if ("show-partitions".equals(operation)) {
+                Assertions.assertThrows(AnalysisException.class, () -> readPartitionNames(operation, table));
+            } else {
+                readPartitionNames(operation, table);
+            }
+            return null;
+        });
+        Assertions.assertTrue(missingStarted.await(10, TimeUnit.SECONDS));
+        remoteTables.put("a", "recreated_column");
+        new RefreshManager().handleRefreshTable(catalog.getName(), "db", "a");
+        PluginDrivenExternalTable replacement = database.getTableNullable("a");
+        List<Column> schema = replacement.getFullSchema();
+        remoteCache.put("a", "recreated metadata");
+        releaseMissing.countDown();
+        missing.get(10, TimeUnit.SECONDS);
+        Assertions.assertSame(replacement, database.getTableNullable(replacement.getId()));
+        Assertions.assertSame(schema, replacement.getFullSchema());
+        Assertions.assertEquals("recreated metadata", remoteCache.get("a"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"mutation", "event", "metadata-replay", "truncate-replay", "cold-truncate-replay"})
+    void metadataOnlyRefreshProtectsNormallyEvictedReplacement(String operation) throws Exception {
+        PluginDrivenExternalTable old = warmTarget();
+        int loads = catalog.nameLoads.get();
+        CountDownLatch refreshing = new CountDownLatch(1);
+        CountDownLatch finishRefresh = new CountDownLatch(1);
+        Mockito.doAnswer(call -> {
+            refreshing.countDown();
+            Assertions.assertTrue(finishRefresh.await(10, TimeUnit.SECONDS));
+            remoteCache.remove("a");
+            return null;
+        }).when(connector).invalidateTable("db", "a");
+        if ("cold-truncate-replay".equals(operation)) {
+            database.evictTableObjectForTest("a");
+            Mockito.doAnswer(call -> {
+                refreshing.countDown();
+                Assertions.assertTrue(finishRefresh.await(10, TimeUnit.SECONDS));
+                remoteCache.clear();
+                return null;
+            }).when(connector).invalidateDb("db");
+        }
+        Future<?> refresh = worker.submit(() -> {
+            RefreshManager manager = new RefreshManager();
+            if ("event".equals(operation)) {
+                manager.refreshExternalTableFromEvent(catalog.getName(), "db", "a", 123L);
+            } else if ("metadata-replay".equals(operation)) {
+                manager.replayRefreshTable(ExternalObjectLog.createForRefreshTable(catalog.getId(), "db", "a", 123L));
+            } else if (operation.endsWith("truncate-replay")) {
+                catalog.replayTruncateTable(new TruncateTableInfo(catalog.getName(), "db", "a", null, 123L));
+            } else {
+                manager.refreshTableInternal(database, old, 123L);
+            }
+            return null;
+        });
+        try {
+            Assertions.assertTrue(refreshing.await(10, TimeUnit.SECONDS));
+            database.evictTableObjectForTest("a");
+            PluginDrivenExternalTable replacement = database.getTableNullable("a");
+            Assertions.assertNotSame(old, replacement);
+            Mockito.when(metadata.renderShowCreateTableDdl(Mockito.any(), Mockito.any())).thenAnswer(call -> {
+                remoteTables.remove("a");
+                missingStarted.countDown();
+                Assertions.assertTrue(releaseMissing.await(10, TimeUnit.SECONDS));
+                throw new ConnectorTableNotFoundException("db", "a", null);
+            });
+            Future<?> missing = worker.submit(() -> Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                    replacement::getShowCreateTableDdl));
+            Assertions.assertTrue(missingStarted.await(10, TimeUnit.SECONDS));
+            remoteTables.put("a", "recreated_column");
+            finishRefresh.countDown();
+            refresh.get(10, TimeUnit.SECONDS);
+            List<Column> schema = replacement.getFullSchema();
+            remoteCache.put("a", "recreated metadata");
+            releaseMissing.countDown();
+            missing.get(10, TimeUnit.SECONDS);
+            Assertions.assertSame(replacement, database.getTableNullable(replacement.getId()));
+            Assertions.assertSame(schema, replacement.getFullSchema());
+            Assertions.assertEquals("recreated metadata", remoteCache.get("a"));
+            Assertions.assertEquals(loads, catalog.nameLoads.get());
         } finally {
             finishRefresh.countDown();
             releaseMissing.countDown();

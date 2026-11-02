@@ -1044,20 +1044,25 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
                     .refreshTableInternal(db.get(), table.get(), info.getUpdateTime());
             return;
         }
-        ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+        beginTableLookupRefresh();
         try {
-            Connector replayConnector = connector;
-            if (isInitialized() && replayConnector != null) {
-                if (db.isPresent()) {
-                    replayConnector.invalidateDb(db.get().getRemoteName());
-                } else {
-                    replayConnector.invalidateAll();
+            ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+            try {
+                Connector replayConnector = connector;
+                if (isInitialized() && replayConnector != null) {
+                    if (db.isPresent()) {
+                        replayConnector.invalidateDb(db.get().getRemoteName());
+                    } else {
+                        replayConnector.invalidateAll();
+                    }
                 }
+            } finally {
+                long dbId = Util.genIdByName(getName(), info.getDb());
+                cacheMgr.invalidateTable(getId(), dbId, info.getDb(),
+                        Util.genIdByName(getName(), info.getDb(), info.getTable()), info.getTable());
             }
         } finally {
-            long dbId = Util.genIdByName(getName(), info.getDb());
-            cacheMgr.invalidateTable(getId(), dbId, info.getDb(),
-                    Util.genIdByName(getName(), info.getDb(), info.getTable()), info.getTable());
+            endTableLookupRefresh();
         }
     }
 

@@ -2601,21 +2601,14 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * form — iceberg does not declare {@code SUPPORTS_PARTITION_STATS}). Post-cutover this restores real rows
      * for partitioned tables (master rejected iceberg SHOW PARTITIONS outright, so the SPI default empty list
      * would otherwise return silently zero rows). The remote PARTITIONS scan runs inside the auth context; a
-     * concurrent drop yields an empty list.
+     * concurrent drop preserves confirmed table absence for guarded FE lookup repair.
      */
     @Override
     public List<String> listPartitionNames(ConnectorSession session, ConnectorTableHandle handle) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         try {
             return executeAuthenticated(() -> {
-                Table table;
-                try {
-                    table = resolveTableForRead(session, iceHandle);
-                } catch (NoSuchTableException e) {
-                    LOG.warn("Iceberg table not found while listing partitions: {}.{}",
-                            iceHandle.getDbName(), iceHandle.getTableName(), e);
-                    return Collections.<String>emptyList();
-                }
+                Table table = resolveTableForRead(session, iceHandle);
                 return IcebergPartitionUtils.listPartitionNames(table,
                         TableIdentifier.of(iceHandle.getDbName(), iceHandle.getTableName()), partitionCache);
             });

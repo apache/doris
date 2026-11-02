@@ -1245,7 +1245,7 @@ public abstract class ExternalCatalog
         this.dbIdNameIndex = new IdNameIndex("external database");
     }
 
-    /** Fence all observations, including those on objects published during lookup invalidation. */
+    /** Fence cleanup observations across refreshes, including objects admitted by normal cache eviction. */
     public void beginTableLookupRefresh() {
         synchronized (this) {
             activeTableLookupRefreshes++;
