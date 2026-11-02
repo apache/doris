@@ -315,20 +315,25 @@ public class Auth implements Writable {
         RPC_SESSION_NARROWING.remove();
     }
 
-    // The SU-narrowed role set: exactly the override roles + the implicit information_schema/mysql
-    // read baseline (see narrowingBaselineRole). Shared by the live-session and RPC-handler paths.
-    private Set<Role> narrowedRoleSet(Set<String> overrideRoleNames) {
+    // The SU-narrowed role set of a target identity: the override roles the target STILL holds + the
+    // implicit information_schema/mysql read baseline (SU_NARROWING_BASELINE). The ceiling is
+    // re-evaluated on every resolution, exactly as a normal session re-reads its grants on every
+    // check: a role revoked from the target after the switch (or dropped and re-created under the
+    // same name, or every role after DROP USER) drops out of the open narrowed session at once.
+    // Shared by the live-session, forwarded and RPC-handler paths.
+    private Set<Role> narrowedRoleSet(UserIdentity target, Set<String> overrideRoleNames) {
+        Set<String> stillGranted = getGrantedRoleNames(target);
         Set<Role> narrowed = Sets.newHashSet();
         for (String roleName : overrideRoleNames) {
+            if (!stillGranted.contains(roleName)) {
+                continue;
+            }
             Role role = roleManager.getRole(roleName);
             if (role != null) {
                 narrowed.add(role);
             }
         }
-        Role baseline = narrowingBaselineRole();
-        if (baseline != null) {
-            narrowed.add(baseline);
-        }
+        narrowed.add(SU_NARROWING_BASELINE);
         return narrowed;
     }
 
@@ -338,8 +343,15 @@ public class Auth implements Writable {
             Set<String> rpcOverride = rpcNarrow.get(userIdentity);
             if (rpcOverride != null) {
                 // SU narrowing: a BE->FE metadata RPC carried this session's narrowed role subset.
-                return narrowedRoleSet(rpcOverride);
+                return narrowedRoleSet(userIdentity, rpcOverride);
             }
+        }
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && userIdentity.equals(ctx.getCurrentUserIdentity()) && ctx.isSessionRoleNarrowed()) {
+            // SU-narrowed session: the override REPLACES every role source (user grants, LDAP,
+            // authenticated roles), so none of them is resolved first. Return the override roles the
+            // target still holds + the information_schema/mysql read baseline (see narrowedRoleSet).
+            return narrowedRoleSet(userIdentity, ctx.getSessionRoleOverride());
         }
         Set<Role> roles = Sets.newHashSet();
         Set<String> roleNames = userRoleManager.getRolesByUser(userIdentity);
@@ -355,15 +367,7 @@ public class Auth implements Writable {
                 roles.addAll(ldapRoles);
             }
         }
-        ConnectContext ctx = ConnectContext.get();
         if (ctx != null && userIdentity.equals(ctx.getCurrentUserIdentity())) {
-            if (ctx.isSessionRoleNarrowed()) {
-                Set<String> sessionRoleOverride = ctx.getSessionRoleOverride();
-                // SU-narrowed session: the override REPLACES every role source (user grants, LDAP,
-                // authenticated roles); SuUserCommand enforced the ceiling at switch time. Return the
-                // override roles + the information_schema/mysql read baseline (see narrowedRoleSet).
-                return narrowedRoleSet(sessionRoleOverride);
-            }
             for (String roleName : ctx.getAuthenticatedRoles()) {
                 Role role = roleManager.getRole(roleName);
                 if (role != null) {
@@ -420,14 +424,14 @@ public class Auth implements Writable {
     // The implicit information_schema/mysql read grants that RoleManager.createDefaultRole gives
     // every user's default role, isolated into a synthetic role so an SU-narrowed session keeps
     // them (self-filtered by the session's real privileges) without re-including the default role's
-    // privilege-bearing direct grants. Built once.
-    private static volatile Role narrowingBaselineRoleCache = null;
+    // privilege-bearing direct grants. Its name carries the default-role prefix, so it can be neither
+    // CREATEd nor bound by a row policy (both validate the role), and it is hidden from every role
+    // listing (getRoleNamesByUserWithLdap). Built once, at class load, from constant inputs: a
+    // failure here is a build defect, and the FE must not start without the role.
+    public static final String SU_NARROWING_BASELINE_ROLE = RoleManager.DEFAULT_ROLE_PREFIX + "su_narrowing_baseline";
+    private static final Role SU_NARROWING_BASELINE = buildNarrowingBaselineRole();
 
-    private static Role narrowingBaselineRole() {
-        Role cached = narrowingBaselineRoleCache;
-        if (cached != null) {
-            return cached;
-        }
+    private static Role buildNarrowingBaselineRole() {
         try {
             List<TablePattern> tablePatterns = Lists.newArrayList();
             TablePattern info = new TablePattern(DEFAULT_CATALOG, InfoSchemaDb.DATABASE_NAME, "*");
@@ -438,14 +442,10 @@ public class Auth implements Writable {
             tablePatterns.add(mysql);
             WorkloadGroupPattern wg = new WorkloadGroupPattern(WorkloadGroupMgr.DEFAULT_GROUP_NAME);
             wg.analyze();
-            Role role = new Role("su_narrowing_baseline", tablePatterns,
+            return new Role(SU_NARROWING_BASELINE_ROLE, tablePatterns,
                     PrivBitSet.of(Privilege.SELECT_PRIV), wg, PrivBitSet.of(Privilege.USAGE_PRIV));
-            narrowingBaselineRoleCache = role;
-            return role;
-        } catch (Exception e) {
-            LOG.warn("failed to build SU narrowing baseline role (information_schema/mysql reads "
-                    + "will not be preserved in narrowed sessions)", e);
-            return null;
+        } catch (AnalysisException e) {
+            throw new IllegalStateException("failed to build the SU narrowing baseline role", e);
         }
     }
 
@@ -484,6 +484,10 @@ public class Auth implements Writable {
         Set<String> res = Sets.newHashSetWithExpectedSize(rolesByUserWithLdap.size());
         for (Role role : rolesByUserWithLdap) {
             String roleName = role.getRoleName();
+            if (roleName.equals(SU_NARROWING_BASELINE_ROLE)) {
+                // the synthetic SU baseline is an implementation detail, never a role anybody granted
+                continue;
+            }
             if (showUserDefaultRole || !roleName.startsWith(RoleManager.DEFAULT_ROLE_PREFIX)) {
                 res.add(roleName);
             }
@@ -1764,8 +1768,10 @@ public class Auth implements Writable {
                 userAuthInfo.add(requireSan);
                 userAuthInfo.add(Strings.nullToEmpty(user.getAuthIntegration()));
                 // ============== Roles ==============
-                userAuthInfo.add(Joiner.on(",").join(userRoleManager
-                        .getRolesByUser(userIdent, ConnectContext.get().getSessionVariable().showUserDefaultRole)));
+                // the same resolution as every privilege column below: an SU-narrowed session lists
+                // its narrowed set, not the identity's full role union
+                userAuthInfo.add(Joiner.on(",").join(getRoleNamesByUserWithLdap(userIdent,
+                        ConnectContext.get().getSessionVariable().showUserDefaultRole)));
             }
         }
         // ==============GlobalPrivs==============
@@ -1974,9 +1980,9 @@ public class Auth implements Writable {
 
     private ResourcePrivTable getUserStorageVaultPrivTable(UserIdentity userIdentity) {
         ResourcePrivTable table = new ResourcePrivTable();
-        Set<String> roles = userRoleManager.getRolesByUser(userIdentity);
-        for (String roleName : roles) {
-            table.merge(roleManager.getRole(roleName).getStorageVaultPrivTable());
+        // storage-vault usage is data access: the narrowed set, like checkCloudPriv
+        for (Role role : getRolesByUserWithLdap(userIdentity)) {
+            table.merge(role.getStorageVaultPrivTable());
         }
         return table;
     }

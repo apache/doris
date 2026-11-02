@@ -21,8 +21,10 @@ import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.proc.AuthProcDir;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantResourcePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.SuUserCommand;
@@ -30,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.SetPassVarOp;
 import org.apache.doris.nereids.trees.plans.commands.info.SetUserPropertyVarOp;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -99,6 +102,23 @@ public class SuUserNarrowingTest extends TestWithFeService {
         ctx.setRemoteIP("127.0.0.1");
         ctx.setThreadLocalInfo();
         return ctx;
+    }
+
+    /** Runs an administrative statement on the test's admin session, then restores the thread's context. */
+    private void runAsAdmin(String sql) throws Exception {
+        LogicalPlan plan = new NereidsParser().parseSingle(sql);
+        Assertions.assertTrue(plan instanceof Command, sql);
+        ConnectContext current = ConnectContext.get();
+        connectContext.setThreadLocalInfo();
+        try {
+            ((Command) plan).run(connectContext, new StmtExecutor(connectContext, sql));
+        } finally {
+            current.setThreadLocalInfo();
+        }
+    }
+
+    private static String shownRoles(UserIdentity user) {
+        return Env.getCurrentEnv().getAuth().getAuthInfo(user).get(0).get(AuthProcDir.TITLE_NAMES.indexOf("Roles"));
     }
 
     private static void assertSwitchRefused(ConnectContext ctx, UserIdentity target, String role) {
@@ -471,5 +491,75 @@ public class SuUserNarrowingTest extends TestWithFeService {
         } finally {
             connectContext.setThreadLocalInfo();
         }
+    }
+
+    /**
+     * The narrowed set is a live intersection with the target's grants, not a snapshot taken at the
+     * switch: a role revoked from the target afterwards (or dropped and re-created under its name,
+     * or every role after DROP USER) drops out of the open narrowed session on the next check,
+     * exactly as it would for the person's own session. SHOW GRANTS lists that same set, and never
+     * the synthetic baseline role.
+     */
+    @Test
+    public void testCeilingIsReEvaluatedOnEveryCheck() throws Exception {
+        addUser("ceil_person", true);
+        addUser("ceil_gone", true);
+        createRole("ceil_role");
+        createRole("ceil_gone_role");
+        grantPriv("GRANT SELECT_PRIV ON internal.test.* TO ROLE 'ceil_role';");
+        grantPriv("GRANT SELECT_PRIV ON internal.test.* TO ROLE 'ceil_gone_role';");
+        grantRole("GRANT 'ceil_role' TO 'ceil_person'@'%'");
+        grantRole("GRANT 'ceil_gone_role' TO 'ceil_gone'@'%'");
+        UserIdentity person = ident("ceil_person");
+        UserIdentity gone = ident("ceil_gone");
+
+        ConnectContext ctx = proxySession("ceil_svc");
+        try {
+            new SuUserCommand(new UserIdentity("ceil_person", "%"),
+                    Collections.singletonList("ceil_role"), null).run(ctx, null);
+            Assertions.assertTrue(canSelectDb(person, "test"));
+            Assertions.assertEquals("ceil_role", shownRoles(person));
+
+            // a REVOKE from the target is honoured by the open narrowed session at once
+            runAsAdmin("REVOKE 'ceil_role' FROM 'ceil_person'@'%'");
+            Assertions.assertFalse(canSelectDb(person, "test"));
+            // the information_schema/mysql baseline stays, and is not listed as a role
+            Assertions.assertTrue(canSelectInfoSchema(person));
+            Assertions.assertEquals("", shownRoles(person));
+
+            // DROP ROLE + CREATE ROLE under the same name is not a grant to the target
+            runAsAdmin("DROP ROLE ceil_role");
+            runAsAdmin("CREATE ROLE ceil_role");
+            runAsAdmin("GRANT SELECT_PRIV ON internal.test.* TO ROLE 'ceil_role'");
+            Assertions.assertFalse(canSelectDb(person, "test"));
+            // granting it to the target again is
+            runAsAdmin("GRANT 'ceil_role' TO 'ceil_person'@'%'");
+            Assertions.assertTrue(canSelectDb(person, "test"));
+            Assertions.assertEquals("ceil_role", shownRoles(person));
+        } finally {
+            connectContext.setThreadLocalInfo();
+        }
+
+        ConnectContext ctx2 = proxySession("ceil_svc2");
+        try {
+            new SuUserCommand(new UserIdentity("ceil_gone", "%"),
+                    Collections.singletonList("ceil_gone_role"), null).run(ctx2, null);
+            Assertions.assertTrue(canSelectDb(gone, "test"));
+            // a dropped target holds nothing: the session keeps only the metadata baseline
+            runAsAdmin("DROP USER 'ceil_gone'@'%'");
+            Assertions.assertFalse(canSelectDb(gone, "test"));
+            Assertions.assertTrue(canSelectInfoSchema(gone));
+        } finally {
+            connectContext.setThreadLocalInfo();
+        }
+    }
+
+    @Test
+    public void testSyntheticBaselineRoleCannotBeNamed() {
+        // the default-role prefix keeps it out of CREATE ROLE, out of row-policy binding (which
+        // validates the role) and out of every role listing
+        Assertions.assertTrue(Auth.SU_NARROWING_BASELINE_ROLE.startsWith(RoleManager.DEFAULT_ROLE_PREFIX));
+        Assertions.assertThrows(Exception.class, () -> runAsAdmin("CREATE ROLE " + Auth.SU_NARROWING_BASELINE_ROLE));
+        Assertions.assertFalse(Env.getCurrentEnv().getAuth().doesRoleExist(Auth.SU_NARROWING_BASELINE_ROLE));
     }
 }
