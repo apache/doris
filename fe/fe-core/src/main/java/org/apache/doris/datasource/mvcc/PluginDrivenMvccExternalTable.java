@@ -768,6 +768,9 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     @Override
     public LogicalFileScan.SelectedPartitions initSelectedPartitions(Optional<MvccSnapshot> snapshot) {
         PluginDrivenMvccSnapshot pin = getOrMaterialize(snapshot);
+        if (pin.isPartitionViewUnavailable() || pin.isPartitionViewMaterialized() && pin.isPartitionInvalid()) {
+            return LogicalFileScan.SelectedPartitions.NOT_PRUNED;
+        }
         if (pin.hasDeferredPartitions()) {
             return LogicalFileScan.SelectedPartitions.NATIVE;
         }
@@ -786,6 +789,9 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         if (supportsConnectorPartitionPruning()) {
             PluginDrivenMvccSnapshot pin = getOrMaterialize(snapshot);
             if (pin.isPartitionViewMaterialized()) {
+                if (pin.isPartitionInvalid()) {
+                    throw new IllegalStateException("Partition view is unavailable for table " + getName());
+                }
                 return pin.getNameToPartitionItem();
             }
             if (pin.isPartitionViewUnavailable()) {
@@ -945,6 +951,15 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     @Override
     public Map<String, PartitionItem> getAndCopyPartitionItems(Optional<MvccSnapshot> snapshot)
             throws AnalysisException {
+        if (snapshot.isPresent() && snapshot.get() instanceof PluginDrivenMvccSnapshot) {
+            PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot) snapshot.get();
+            if (pin.isPartitionViewUnavailable() || pin.isPartitionViewMaterialized() && pin.isPartitionInvalid()) {
+                throw new AnalysisException("Partition view is unavailable for table " + getName());
+            }
+            if (supportsConnectorPartitionPruning() && pin.isPartitionViewMaterialized()) {
+                return new HashMap<>(pin.getNameToPartitionItem());
+            }
+        }
         Optional<ExternalTablePreloadInfo> sharedView = sharedLatestPreloadInfo(snapshot);
         if (sharedView.isPresent()) {
             ExternalTablePreloadInfo preloadInfo = sharedView.get();
@@ -969,6 +984,9 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     @Override
     public PartitionType getPartitionType(Optional<MvccSnapshot> snapshot) {
         PluginDrivenMvccSnapshot pin = getOrMaterialize(snapshot);
+        if (pin.isPartitionViewUnavailable()) {
+            return PartitionType.UNPARTITIONED;
+        }
         if (pin.getPartitionType() != null) {
             // Range-view path: the connector already decided RANGE vs UNPARTITIONED (its eligibility gate).
             return pin.getPartitionType();

@@ -177,9 +177,10 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
         }
 
         Map<String, PartitionItem> nameToPartitionItem = scan.getSelectedPartitions().selectedPartitions;
-        boolean connectorFilteredPartitions = false;
-        Optional<FilterApplicationResult<ConnectorTableHandle>> connectorFilterResult = Optional.empty();
-        ConnectorExpression connectorPredicate = null;
+        Optional<FilterApplicationResult<ConnectorTableHandle>> connectorFilterResult =
+                initialSelection.getConnectorFilterResult();
+        boolean connectorFilteredPartitions = connectorFilterResult.isPresent();
+        ConnectorExpression connectorPredicate = initialSelection.getCoveredConnectorFilter().orElse(null);
         if (nameToPartitionItem.isEmpty()
                 && scan.getSelectedPartitions().isDeferredPartitionPruning()
                 && externalTable instanceof PluginDrivenExternalTable

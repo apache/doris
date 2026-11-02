@@ -90,6 +90,7 @@ public class HiveConnectorMetadataPartitionViewCacheTest {
     private static HiveTableHandle handle() {
         return new HiveTableHandle.Builder("db1", "t1", HiveTableType.HIVE)
                 .partitionKeyNames(PART_KEYS)
+                .partitionKeyTypes(Map.of("year", "STRING", "month", "STRING"))
                 .build();
     }
 

@@ -225,6 +225,17 @@ public class PruneFileScanPartitionTest {
             Assertions.assertEquals(Set.of("p=3"), second.selectedPartitions.keySet());
             Assertions.assertSame(secondHandle, second.getConnectorFilterResult().get().getHandle());
             Assertions.assertEquals(secondCovered, second.getCoveredConnectorFilter().get());
+            SelectedPartitions copiedSelection = first.withPruned(false);
+            Assertions.assertFalse(copiedSelection.isPruned);
+            Assertions.assertSame(firstResult, copiedSelection.getConnectorFilterResult().get());
+            Assertions.assertEquals(firstCovered, copiedSelection.getCoveredConnectorFilter().get());
+            LogicalFileScan repruneScan = firstScan.withSelectedPartitions(copiedSelection);
+            SelectedPartitions repruned = fixture.prune(new LogicalFilter<>(
+                    Set.of(addedPredicate), repruneScan));
+            Assertions.assertEquals(Set.of("p=2"), repruned.selectedPartitions.keySet());
+            Assertions.assertEquals(SelectedPartitions.UNKNOWN_TOTAL_PARTITION_NUM, repruned.totalPartitionNum);
+            Assertions.assertSame(firstResult, repruned.getConnectorFilterResult().get());
+            Assertions.assertEquals(firstCovered, repruned.getCoveredConnectorFilter().get());
             Mockito.verify(fixture.table, Mockito.times(1))
                     .applyPartitionFilterForScan(Mockito.any(), Mockito.eq(firstCovered));
             Mockito.verify(fixture.table, Mockito.times(1))

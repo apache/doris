@@ -19,6 +19,7 @@ package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
+import org.apache.doris.connector.hms.HmsPartitionFilterSaturatedException;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
@@ -38,6 +39,8 @@ import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -236,6 +239,43 @@ public class HiveConnectorMetadataPartitionPruningTest {
                 prunedLocations(applyFilter(metadata, handle, eq("ts", "2024-01-01 10:00:00"))));
         Assertions.assertEquals(Collections.singletonList("ts=2024-01-01 10:00:00.500"),
                 prunedLocations(applyFilter(metadata, handle, eq("ts", "2024-01-01 10:00:00.500000"))));
+    }
+
+    @Test
+    public void testTimestampTzFallbackKeepsPartitionsForOffsetAndLocalLiterals() {
+        List<String> parts = Arrays.asList("ts=2024-01-01 00%3A00%3A00/region=west",
+                "ts=2024-01-01 08%3A00%3A00/region=west",
+                "ts=2024-01-01 00%3A00%3A00/region=east");
+        HmsFilterClient client = new HmsFilterClient(parts, Collections.emptyList());
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                client, HiveTestProperties.minimal(), new FakeConnectorContext());
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .partitionKeyNames(Arrays.asList("ts", "region"))
+                .partitionKeyTypes(Map.of("ts", "TIMESTAMPTZ", "region", "STRING"))
+                .build();
+        ConnectorType type = ConnectorType.of("TIMESTAMPTZ", 6, 0);
+        OffsetDateTime offsetValue = OffsetDateTime.parse("2024-01-01T08:00:00+08:00");
+        for (LocalDateTime value : Arrays.asList(offsetValue.toLocalDateTime(),
+                offsetValue.withOffsetSameInstant(ZoneOffset.UTC).toLocalDateTime())) {
+            ConnectorColumnRef column = new ConnectorColumnRef("ts", type);
+            ConnectorLiteral literal = new ConnectorLiteral(type, value);
+            for (ConnectorExpression timestampPredicate : Arrays.asList(
+                    new ConnectorComparison(ConnectorComparison.Operator.EQ, column, literal),
+                    new ConnectorIn(column, Collections.singletonList(literal), false))) {
+                Assertions.assertFalse(applyFilter(metadata, handle, timestampPredicate).isPresent());
+                Assertions.assertEquals(parts, partitionNames(metadata.listPartitions(
+                        null, handle, Optional.of(timestampPredicate))));
+                ConnectorExpression combined = and(timestampPredicate, eq("region", "west"));
+                Optional<FilterApplicationResult<ConnectorTableHandle>> result = applyFilter(metadata, handle,
+                        combined);
+                Assertions.assertTrue(result.isPresent());
+                Assertions.assertEquals(parts.subList(0, 2), prunedLocations(result));
+                Assertions.assertEquals(parts.subList(0, 2),
+                        partitionNames(metadata.listPartitions(null, handle, Optional.of(combined))));
+            }
+        }
+        Assertions.assertNull(client.filter);
+        Assertions.assertTrue(client.wasListPartitionNamesCalled());
     }
 
     @Test
@@ -482,6 +522,46 @@ public class HiveConnectorMetadataPartitionPruningTest {
     }
 
     @Test
+    public void testUnknownPartitionTypeDeclinesHmsAndKeepsLocalCandidates() {
+        List<String> untypedParts = Arrays.asList("p=01", "p=1", "p=2");
+        HmsFilterClient untypedClient = new HmsFilterClient(untypedParts, Collections.singletonList("p=1"));
+        HiveConnectorMetadata untypedMetadata = new HiveConnectorMetadata(
+                untypedClient, HiveTestProperties.minimal(), new FakeConnectorContext());
+        HiveTableHandle untypedHandle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .partitionKeyNames(Collections.singletonList("p"))
+                .build();
+        for (ConnectorExpression predicate : Arrays.asList(eq("p", "1"), in("p", "1"))) {
+            Assertions.assertFalse(applyFilter(untypedMetadata, untypedHandle, predicate).isPresent());
+            Assertions.assertEquals(untypedParts, partitionNames(untypedMetadata.listPartitions(
+                    null, untypedHandle, Optional.of(predicate))));
+        }
+        Assertions.assertNull(untypedClient.filter);
+        Assertions.assertTrue(untypedClient.wasListPartitionNamesCalled());
+
+        List<String> parts = Arrays.asList("p=01/region=west", "p=1/region=west", "p=2/region=east");
+        HmsFilterClient client = new HmsFilterClient(parts, Collections.singletonList("p=1/region=west"));
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                client, HiveTestProperties.minimal(), new FakeConnectorContext());
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .partitionKeyNames(Arrays.asList("p", "region"))
+                .partitionKeyTypes(Collections.singletonMap("region", "STRING"))
+                .build();
+        ConnectorExpression unknownPredicate = eq("p", "1");
+
+        Assertions.assertFalse(applyFilter(metadata, handle, unknownPredicate).isPresent());
+        Assertions.assertEquals(parts, partitionNames(metadata.listPartitions(
+                null, handle, Optional.of(unknownPredicate))));
+        ConnectorExpression combined = and(unknownPredicate, eq("region", "west"));
+        Optional<FilterApplicationResult<ConnectorTableHandle>> result = applyFilter(metadata, handle, combined);
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertEquals(parts.subList(0, 2), prunedLocations(result));
+        Assertions.assertEquals(parts.subList(0, 2),
+                partitionNames(metadata.listPartitions(null, handle, Optional.of(combined))));
+        Assertions.assertNull(client.filter);
+        Assertions.assertTrue(client.wasListPartitionNamesCalled());
+    }
+
+    @Test
     public void testFilteredPartitionViewUsesHmsFilterWithoutListingAllPartitionNames() {
         HmsFilterClient client = new HmsFilterClient(Collections.singletonList("year=2024/month=01"));
         HiveConnectorMetadata metadata = new HiveConnectorMetadata(
@@ -527,6 +607,38 @@ public class HiveConnectorMetadataPartitionPruningTest {
         Assertions.assertEquals(
                 Arrays.asList("year=2024/month=01", "year=2024/month=02"), prunedLocations(result));
         Assertions.assertTrue(client.wasListPartitionNamesCalled());
+    }
+
+    @Test
+    public void testSaturatedHmsFilterFallsBackToFullNamesAndTypedStringPruning() {
+        List<String> parts = Arrays.asList("code=US%3ACA/n=01", "code=US%3ACA/n=1",
+                "code=EU%3ADE/n=01", "code=US%2FCA/n=01");
+        List<String> expected = parts.subList(0, 2);
+        SaturatedFilterClient client = new SaturatedFilterClient(parts);
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                client, HiveTestProperties.minimal(), new FakeConnectorContext());
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .partitionKeyNames(Arrays.asList("code", "n"))
+                .partitionKeyTypes(Map.of("code", "STRING", "n", "INT"))
+                .build();
+        ConnectorExpression predicate = eq("code", "US:CA");
+
+        Optional<FilterApplicationResult<ConnectorTableHandle>> result = applyFilter(metadata, handle, predicate);
+
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertEquals(expected, prunedLocations(result));
+        Assertions.assertEquals("(code = 'US:CA')", client.filter);
+        Assertions.assertEquals(1, client.filterCalls);
+        Assertions.assertTrue(client.wasListPartitionNamesCalled());
+        Assertions.assertEquals(-1, client.lastMaxParts);
+        Assertions.assertEquals(expected, client.lastRequestedNames);
+        Assertions.assertEquals(expected,
+                partitionNames(metadata.listPartitions(null, result.get().getHandle(), Optional.empty())));
+        Assertions.assertEquals(1, client.filterCalls);
+        Assertions.assertEquals(expected,
+                partitionNames(metadata.listPartitions(null, handle, Optional.of(predicate))));
+        Assertions.assertEquals(2, client.filterCalls);
+        Assertions.assertEquals(expected, client.lastRequestedNames);
     }
 
     @Test
@@ -667,6 +779,7 @@ public class HiveConnectorMetadataPartitionPruningTest {
                 new FakeHmsClient(escaped), HiveTestProperties.minimal(), new FakeConnectorContext());
         HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
                 .partitionKeyNames(Collections.singletonList("code"))
+                .partitionKeyTypes(Collections.singletonMap("code", "STRING"))
                 .build();
         Optional<FilterApplicationResult<ConnectorTableHandle>> result =
                 metadata.applyFilter(null, handle, new ConnectorFilterConstraint(eq("code", "US:CA")));
@@ -700,6 +813,7 @@ public class HiveConnectorMetadataPartitionPruningTest {
                 new FakeHmsClient(parts), HiveTestProperties.minimal(), new FakeConnectorContext());
         HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
                 .partitionKeyNames(Collections.singletonList("dt"))
+                .partitionKeyTypes(Collections.singletonMap("dt", "DATEV2"))
                 .build();
         ConnectorComparison dateEq = new ConnectorComparison(ConnectorComparison.Operator.EQ,
                 new ConnectorColumnRef("dt", ConnectorType.of("DATEV2")),
@@ -721,6 +835,7 @@ public class HiveConnectorMetadataPartitionPruningTest {
                 new FakeHmsClient(parts), HiveTestProperties.minimal(), new FakeConnectorContext());
         HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
                 .partitionKeyNames(Collections.singletonList("dt"))
+                .partitionKeyTypes(Collections.singletonMap("dt", "DATETIMEV2"))
                 .build();
         ConnectorComparison dtEq = new ConnectorComparison(ConnectorComparison.Operator.EQ,
                 new ConnectorColumnRef("dt", ConnectorType.of("DATETIMEV2", 6, 0)),
@@ -784,6 +899,7 @@ public class HiveConnectorMetadataPartitionPruningTest {
     private HiveTableHandle partitionedHandle() {
         return new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
                 .partitionKeyNames(PART_KEYS)
+                .partitionKeyTypes(Map.of("year", "STRING", "month", "STRING"))
                 .build();
     }
 
@@ -913,6 +1029,36 @@ public class HiveConnectorMetadataPartitionPruningTest {
         public List<HmsPartitionInfo> listPartitionsByFilter(String dbName, String tableName, String filter) {
             this.filter = filter;
             return getPartitions(dbName, tableName, filteredPartitionNames);
+        }
+    }
+
+    private static final class SaturatedFilterClient extends FakeHmsClient {
+        private String filter;
+        private int filterCalls;
+        private int lastMaxParts;
+        private List<String> lastRequestedNames;
+
+        SaturatedFilterClient(List<String> partitionNames) {
+            super(partitionNames);
+        }
+
+        @Override
+        public List<HmsPartitionInfo> listPartitionsByFilter(String dbName, String tableName, String filter) {
+            this.filter = filter;
+            filterCalls++;
+            throw new HmsPartitionFilterSaturatedException(1);
+        }
+
+        @Override
+        public List<String> listPartitionNames(String dbName, String tableName, int maxParts) {
+            lastMaxParts = maxParts;
+            return super.listPartitionNames(dbName, tableName, maxParts);
+        }
+
+        @Override
+        public List<HmsPartitionInfo> getPartitions(String dbName, String tableName, List<String> partNames) {
+            lastRequestedNames = new ArrayList<>(partNames);
+            return super.getPartitions(dbName, tableName, partNames);
         }
     }
 }

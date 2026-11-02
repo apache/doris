@@ -32,7 +32,9 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorCapability;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
@@ -59,6 +61,7 @@ import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenSchemaCacheValue;
 import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
+import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVTimestampSnapshot;
@@ -74,6 +77,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -1227,6 +1231,39 @@ public class PluginDrivenMvccExternalTableTest {
     }
 
     @Test
+    public void testMtmvCreationMaterializesPartitionViewWithoutAnExistingCandidate() throws AnalysisException {
+        Fixture fixture = Fixture.connectorPartitionPruning(Type.DATEV2, Collections.singletonList(
+                cpiWithPartitionValueMap("dt=2024-01-01", TS_2024_01_01)));
+        Mockito.when(((PluginDrivenExternalCatalog) fixture.table.getCatalog()).getConnector().getCapabilities())
+                .thenReturn(Collections.singleton(ConnectorCapability.SUPPORTS_METADATA_PRELOAD));
+        MvccSnapshot lightweight = fixture.table.loadSnapshot(Optional.empty(), Optional.empty());
+        MTMVPartitionInfo partitionInfo = Mockito.mock(MTMVPartitionInfo.class);
+        Mockito.when(partitionInfo.getPctTables()).thenReturn(Collections.singleton(fixture.table));
+        withContextSnapshot(fixture.table, lightweight, () -> {
+            StatementContext statement = ConnectContext.get().getStatementContext();
+            statement.registerExternalTableForPreload(fixture.table, Optional.empty(), Optional.empty());
+            Assertions.assertTrue(statement.getExternalTablePreloadInfo(fixture.table.getId()).isPresent());
+            Assertions.assertTrue(statement.getCandidateMTMVs().isEmpty());
+
+            Deencapsulation.invoke(CreateMTMVInfo.class, "preloadCreationPartitionViews",
+                    ConnectContext.get(), partitionInfo);
+            MvccSnapshot materialized = statement.getSnapshot(fixture.table).get();
+            Assertions.assertTrue(((PluginDrivenMvccSnapshot) materialized).isPartitionViewMaterialized());
+            Assertions.assertSame(((PluginDrivenMvccSnapshot) lightweight).getConnectorSnapshot(),
+                    ((PluginDrivenMvccSnapshot) materialized).getConnectorSnapshot());
+
+            try {
+                Assertions.assertEquals(Collections.singleton("dt=2024-01-01"),
+                        fixture.table.getAndCopyPartitionItems(Optional.of(materialized)).keySet());
+            } catch (AnalysisException exception) {
+                throw new AssertionError(exception);
+            }
+            Mockito.verify(fixture.metadata, Mockito.times(1)).listPartitions(
+                    Mockito.eq(fixture.session), Mockito.eq(fixture.pinnedHandle), Mockito.eq(Optional.empty()));
+        });
+    }
+
+    @Test
     public void testConnectorPartitionPruningMaterializesFullViewForExplicitConsumer() {
         Fixture f = Fixture.connectorPartitionPruning();
         f.table.loadSnapshot(Optional.empty(), Optional.empty());
@@ -1312,6 +1349,11 @@ public class PluginDrivenMvccExternalTableTest {
         Assertions.assertSame(lightweight.getConnectorSnapshot(), materialized.getConnectorSnapshot());
         Assertions.assertFalse(f.table.getNameToPartitionItemsForScan(Optional.of(materialized)).isPresent(),
                 "an invalid materialized pin must not expose its partial item map to scan finalization");
+        Assertions.assertTrue(f.table.initSelectedPartitions(Optional.of(materialized)).isNotPruned());
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> f.table.getNameToPartitionItems(Optional.of(materialized)));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> f.table.getAndCopyPartitionItems(Optional.of(materialized)));
         // Enumerated from the SNAPSHOT-PINNED handle, exactly as the data scan reads it.
         Mockito.verify(f.metadata).applySnapshot(Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.any());
         Mockito.verify(f.metadata).listPartitions(
@@ -1727,6 +1769,10 @@ public class PluginDrivenMvccExternalTableTest {
                 "a connector that cannot list AT the pin must not have its partitions listed");
         Assertions.assertTrue(pin.isPartitionViewUnavailable(),
                 "a snapshot-blind historical pin must be distinguished from a deferred latest view");
+        Assertions.assertEquals(PartitionType.UNPARTITIONED, f.table.getPartitionType(Optional.of(pin)));
+        Assertions.assertTrue(f.table.initSelectedPartitions(Optional.of(pin)).isNotPruned());
+        Assertions.assertThrows(AnalysisException.class,
+                () -> f.table.getAndCopyPartitionItems(Optional.of(pin)));
         Assertions.assertFalse(f.table.getNameToPartitionItemsForScan(Optional.of(pin)).isPresent(),
                 "an unavailable historical partition view must force scan-all without re-listing latest");
         Assertions.assertTrue(f.table.getNameToPartitionItems(Optional.of(pin)).isEmpty(),

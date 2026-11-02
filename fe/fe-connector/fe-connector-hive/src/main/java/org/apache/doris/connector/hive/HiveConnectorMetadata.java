@@ -2726,7 +2726,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             // must use the full partition-name listing and the typed local comparison below.
             return null;
         }
-        if (typeName != null && !isHmsStringType(typeName)) {
+        if (!isHmsStringType(typeName)) {
             return null;
         }
         if (value.indexOf('\\') >= 0 || value.indexOf('\'') >= 0) {
@@ -2777,9 +2777,9 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         return isHmsTypeName(typeName, "DATE", "DATEV2");
     }
 
-    /** The Doris types a hive {@code TIMESTAMP} partition key maps to (see {@code HmsTypeMapping}). */
+    /** The zone-less Doris types a hive {@code TIMESTAMP} partition key maps to. */
     private static boolean isHmsTimestampType(String typeName) {
-        return isHmsTypeName(typeName, "DATETIME", "DATETIMEV2", "TIMESTAMPTZ");
+        return isHmsTypeName(typeName, "DATETIME", "DATETIMEV2");
     }
 
     private static boolean isHmsTypeName(String typeName, String... names) {
@@ -2853,9 +2853,12 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      * (numeric, boolean, date, timestamp) is compared in the same VALUE domain as the typed Nereids pruner,
      * because this local prefilter's result is reused as the logical selected view: a raw text compare would
      * silently drop a type-equal partition (and, in batch mode, omit it from the scan altogether). STRING and
-     * the remaining key types keep exact text comparison.
+     * the remaining known key types except TIMESTAMPTZ keep exact text comparison.
      */
     private static boolean matchesAnyValue(String actualValue, List<String> allowedValues, String typeName) {
+        if (typeName == null || "TIMESTAMPTZ".equalsIgnoreCase(typeName)) {
+            return true;
+        }
         if (isHmsFloatType(typeName)) {
             return matchesParsedValue(actualValue, allowedValues, HiveConnectorMetadata::parseFloatValue);
         }

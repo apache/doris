@@ -47,11 +47,16 @@ import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.analysis.AddInitMaterializationHook;
 import org.apache.doris.nereids.rules.analysis.CollectRelation;
 import org.apache.doris.nereids.rules.analysis.PreloadExternalMetadata;
+import org.apache.doris.nereids.rules.exploration.mv.InitConsistentMaterializationContextHook;
+import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.nereids.rules.rewrite.PruneFileScanPartition;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -60,17 +65,21 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.InOrder;
 import org.mockito.Mockito;
 
@@ -1071,6 +1080,7 @@ public class StatementContextTest {
         try {
             statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
             statementContext.getCandidateMTMVs().add(candidateMtmv);
+            statementContext.addPlannerHook(InitMaterializationContextHook.INSTANCE);
             statementContext.registerExternalTableForPreload(
                     hiveExternalTable, Optional.empty(), Optional.empty(), true);
 
@@ -1136,6 +1146,7 @@ public class StatementContextTest {
         try {
             statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
             statementContext.getCandidateMTMVs().add(candidateMtmv);
+            statementContext.addPlannerHook(InitMaterializationContextHook.INSTANCE);
             statementContext.registerExternalTableForPreload(
                     hiveExternalTable, Optional.empty(), Optional.empty(), true);
 
@@ -1147,6 +1158,161 @@ public class StatementContextTest {
             Mockito.verify(hiveExternalTable, Mockito.never()).getNameToPartitionItemsForScan(Mockito.any());
         } finally {
             statementContext.close();
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "QUERY, false, false, false, false",
+            "QUERY, false, true,  false, false",
+            "QUERY, true,  false, false, true",
+            "QUERY, true,  true,  false, true",
+            "TABLE, false, false, false, false",
+            "TABLE, true,  false, false, false",
+            "TABLE, false, true,  false, true",
+            "TABLE, true,  true,  false, true",
+            "FILE,  false, false, false, false",
+            "FILE,  true,  false, false, false",
+            "FILE,  false, true,  false, true",
+            "FILE,  true,  true,  false, true",
+            "TABLE, false, false, true,  false",
+            "TABLE, true,  false, true,  true",
+            "TABLE, false, true,  true,  true",
+            "UNHOOKED, true, true, false, false",
+            "DISABLED, true, true, false, false"
+    })
+    public void testMixedSelectiveMtmvWarmupUsesRegisteredHooks(String sink, boolean queryExternalEligible,
+            boolean dmlExternalEligible, boolean explainHook, boolean expectFullView) throws Exception {
+        ConnectContext previousContext = ConnectContext.get();
+        String query = "select h.p from internal_catalog.db.internal_table i "
+                + "cross join hive_catalog.db.hive_table h where h.p = 1";
+        ConnectContext context = Mockito.mock(ConnectContext.class);
+        SessionVariable variables = new SessionVariable();
+        variables.enableMaterializedViewRewriteWhenBaseTableUnawareness = queryExternalEligible;
+        variables.enableDmlMaterializedViewRewriteWhenBaseTableUnawareness = dmlExternalEligible;
+        if (sink.equals("DISABLED")) {
+            variables.setEnableMaterializedViewRewrite(false);
+            variables.setEnableDmlMaterializedViewRewrite(false);
+        }
+        QueryState state = new QueryState();
+        state.setIsQuery(true);
+        Mockito.when(context.getSessionVariable()).thenReturn(variables);
+        Mockito.when(context.getState()).thenReturn(state);
+        Mockito.when(context.getCurrentUserIdentity()).thenReturn(UserIdentity.ROOT);
+        Mockito.doCallRealMethod().when(context).setThreadLocalInfo();
+
+        TableIf internal = Mockito.mock(TableIf.class);
+        Mockito.when(internal.getId()).thenReturn(1L);
+        Mockito.when(internal.needReadLockWhenPlan()).thenReturn(true);
+        AtomicBoolean locked = new AtomicBoolean();
+        Mockito.when(internal.tryReadLock(1, TimeUnit.MINUTES)).thenAnswer(invocation -> {
+            locked.set(true);
+            return true;
+        });
+        PluginDrivenMvccExternalTable hive = Mockito.mock(PluginDrivenMvccExternalTable.class);
+        DatabaseIf<TableIf> database = mockDatabase();
+        CatalogIf<?> catalog = mockCatalog();
+        Mockito.when(hive.getId()).thenReturn(32L);
+        Mockito.when(hive.getName()).thenReturn("hive_table");
+        Mockito.when(hive.getDatabase()).thenReturn(database);
+        Mockito.when(database.getId()).thenReturn(2L);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getId()).thenReturn(1L);
+        Mockito.when(catalog.getName()).thenReturn("hive_catalog");
+        Mockito.when(hive.supportsExternalMetadataPreload()).thenReturn(true);
+        Mockito.when(hive.supportsConnectorPartitionPruning()).thenReturn(true);
+        Mockito.when(hive.loadSnapshot(Mockito.any(), Mockito.any())).thenReturn(Mockito.mock(MvccSnapshot.class));
+        Column partitionColumn = new Column("p", Type.INT);
+        Mockito.when(hive.getPartitionColumns(Mockito.any())).thenReturn(List.of(partitionColumn));
+        Map<String, PartitionItem> fullView = ImmutableMap.of(
+                "p=1", new ListPartitionItem(List.of(PartitionKey.createPartitionKey(
+                        List.of(new PartitionValue("1")), List.of(partitionColumn)))),
+                "p=2", new ListPartitionItem(List.of(PartitionKey.createPartitionKey(
+                        List.of(new PartitionValue("2")), List.of(partitionColumn)))));
+        ConnectorFilteredPartitionView filtered = Mockito.mock(ConnectorFilteredPartitionView.class);
+        Mockito.when(filtered.getItems()).thenReturn(ImmutableMap.of("p=1", fullView.get("p=1")));
+        AtomicInteger filteredCalls = new AtomicInteger();
+        AtomicInteger fullCalls = new AtomicInteger();
+        Mockito.when(hive.applyPartitionFilterForScan(Mockito.any(), Mockito.any())).thenAnswer(invocation -> {
+            org.junit.jupiter.api.Assertions.assertFalse(locked.get());
+            filteredCalls.incrementAndGet();
+            return Optional.of(filtered);
+        });
+        Mockito.when(hive.getNameToPartitionItemsForScan(Mockito.any())).thenAnswer(invocation -> {
+            org.junit.jupiter.api.Assertions.assertFalse(locked.get());
+            fullCalls.incrementAndGet();
+            return Optional.of(fullView);
+        });
+
+        MTMVPartitionInfo partitionInfo = new MTMVPartitionInfo(MTMVPartitionType.FOLLOW_BASE_TABLE);
+        partitionInfo.setPctInfos(ImmutableList.of(new BaseColInfo("p", new BaseTableInfo(hive))));
+        MTMV candidate = Mockito.mock(MTMV.class);
+        Mockito.when(candidate.isUseForRewrite()).thenReturn(true);
+        Mockito.when(candidate.getMvPartitionInfo()).thenReturn(partitionInfo);
+        MTMVRelation mtmvRelation = Mockito.mock(MTMVRelation.class);
+        BaseTableInfo externalBase = Mockito.mock(BaseTableInfo.class);
+        Mockito.when(externalBase.isInternalTable()).thenReturn(false);
+        Mockito.when(mtmvRelation.getBaseTablesOneLevelAndFromView()).thenReturn(Collections.singleton(externalBase));
+        Mockito.when(candidate.getRelation()).thenReturn(mtmvRelation);
+
+        StatementContext statement = new StatementContext(context, new OriginStatement(query, 0));
+        Mockito.when(context.getStatementContext()).thenReturn(statement);
+        try {
+            context.setThreadLocalInfo();
+            LogicalPlan plan = new NereidsParser().parseSingle(query);
+            if (sink.equals("TABLE")) {
+                plan = new UnboundTableSink<>(List.of("internal_catalog", "db", "target"),
+                        Collections.emptyList(), Collections.emptyList(), Collections.emptyList(), plan.child(0));
+            } else if (sink.equals("FILE")) {
+                plan = new LogicalFileSink<>("file", "csv", Collections.emptyMap(), Collections.emptyList(),
+                        plan.child(0));
+            }
+            UnboundRelation relation = findUnboundRelationByName(plan, "hive_table");
+            CascadesContext cascades = CascadesContext.initContext(statement, plan, PhysicalProperties.ANY);
+            Rewriter.getCteChildrenRewriter(cascades,
+                    ImmutableList.of(Rewriter.topDown(new AddInitMaterializationHook())), false).execute();
+            if (explainHook) {
+                statement.addPlannerHook(InitMaterializationContextHook.INSTANCE);
+            }
+            if (sink.equals("UNHOOKED")) {
+                statement.clearMaterializedHooksBy(Collections.emptySet());
+            }
+            org.junit.jupiter.api.Assertions.assertEquals(sink.equals("QUERY") || explainHook,
+                    statement.getPlannerHooks().contains(InitMaterializationContextHook.INSTANCE));
+            org.junit.jupiter.api.Assertions.assertEquals(sink.equals("TABLE") || sink.equals("FILE"),
+                    statement.getPlannerHooks().contains(InitConsistentMaterializationContextHook.INSTANCE));
+            statement.getTables().put(List.of("internal_catalog", "db", "internal_table"), internal);
+            statement.getCandidateMTMVs().add(candidate);
+            statement.registerExternalTableForPreload(hive, Optional.empty(), Optional.empty(), true);
+            Optional<Expression> predicate = Deencapsulation.invoke(
+                    new CollectRelation(false), "initialScanPredicate", cascades, plan, relation);
+            ExternalTablePreloadInfo info = statement.getExternalTablePreloadInfo(hive.getId()).get();
+            info.registerScanPredicate(relation.getRelationId(), predicate.get());
+
+            statement.preloadDeferredScanPartitionViewsBeforeLock(true);
+            org.junit.jupiter.api.Assertions.assertEquals(1, filteredCalls.get());
+            org.junit.jupiter.api.Assertions.assertEquals(expectFullView ? 1 : 0, fullCalls.get());
+            org.junit.jupiter.api.Assertions.assertEquals(expectFullView, info.hasMtmvPartitionView());
+            org.junit.jupiter.api.Assertions.assertSame(filtered,
+                    info.getFilteredScanView(relation.getRelationId()).get());
+            org.junit.jupiter.api.Assertions.assertEquals(Set.of("p=1"),
+                    info.getFilteredScanView(relation.getRelationId()).get().getItems().keySet());
+            org.junit.jupiter.api.Assertions.assertFalse(info.hasScanPartitionView());
+            if (expectFullView) {
+                org.junit.jupiter.api.Assertions.assertEquals(fullView, info.getMtmvPartitionView().get());
+            }
+            statement.lock();
+            org.junit.jupiter.api.Assertions.assertTrue(locked.get());
+        } finally {
+            try {
+                statement.close();
+            } finally {
+                ConnectContext.remove();
+                if (previousContext != null) {
+                    previousContext.setThreadLocalInfo();
+                }
+            }
         }
     }
 

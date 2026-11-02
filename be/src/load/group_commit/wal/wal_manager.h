@@ -34,7 +34,6 @@
 
 #include "common/config.h"
 #include "load/group_commit/wal/wal_dirs_info.h"
-#include "load/group_commit/wal/wal_reader.h"
 #include "load/group_commit/wal/wal_table.h"
 #include "load/group_commit/wal/wal_writer.h"
 #include "load/stream_load/stream_load_context.h"

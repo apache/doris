@@ -64,6 +64,8 @@ import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
+import org.apache.doris.nereids.rules.exploration.mv.InitConsistentMaterializationContextHook;
+import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -1984,11 +1986,14 @@ public class StatementContext implements Closeable {
      * is held. The full external views are materialized only after every MV lock has been released.
      */
     private Set<BaseTableInfo> collectCandidateMtmvPctTables() {
-        ConnectContext connectContext = getConnectContext();
-        SessionVariable variables = connectContext == null ? null : connectContext.getSessionVariable();
-        boolean externalMvEligible = variables != null
-                && (variables.isEnableMaterializedViewRewriteWhenBaseTableUnawareness()
-                || variables.isEnableDmlMaterializedViewRewriteWhenBaseTableUnawareness());
+        boolean queryHook = plannerHooks.contains(InitMaterializationContextHook.INSTANCE);
+        boolean dmlHook = plannerHooks.contains(InitConsistentMaterializationContextHook.INSTANCE);
+        if (!queryHook && !dmlHook) {
+            return Collections.emptySet();
+        }
+        SessionVariable variables = getConnectContext().getSessionVariable();
+        boolean externalMvEligible = queryHook && variables.isEnableMaterializedViewRewriteWhenBaseTableUnawareness()
+                || dmlHook && variables.isEnableDmlMaterializedViewRewriteWhenBaseTableUnawareness();
         Set<BaseTableInfo> pctTables = new HashSet<>();
         for (MTMV mtmv : candidateMTMVs) {
             // Mirror the gates InitMaterializationContextHook / InitConsistentMaterializationContextHook apply

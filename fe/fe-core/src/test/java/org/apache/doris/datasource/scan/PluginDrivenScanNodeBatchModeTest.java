@@ -254,7 +254,9 @@ public class PluginDrivenScanNodeBatchModeTest {
             LogicalFileScan scan = new LogicalFileScan(new RelationId(1), table, List.of("hive", "db"),
                     Collections.emptyList(), Optional.empty(), Optional.empty(), Optional.empty(),
                     Optional.of(List.of(new SlotReference("id", IntegerType.INSTANCE))));
-            Assertions.assertTrue(scan.getSelectedPartitions().isDeferredPartitionPruning());
+            Assertions.assertEquals(!hasMalformedPartition,
+                    scan.getSelectedPartitions().isDeferredPartitionPruning());
+            Assertions.assertEquals(hasMalformedPartition, scan.getSelectedPartitions().isNotPruned());
             Assertions.assertFalse(scan.hasPartitionPredicate());
 
             TableIf internalTable = Mockito.mock(TableIf.class);

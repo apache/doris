@@ -25,6 +25,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.VariableAnnotation;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints.Action;
 import org.apache.doris.thrift.TQueryOptions;
@@ -268,15 +269,14 @@ public class SessionVariablesTest extends TestWithFeService {
     }
 
     @Test
-    public void testFileScannerV2RemainsEnabledInFuzzyMode() throws Exception {
+    public void testFileScannerOptionIsDeprecatedAndCannotSelectV1() throws Exception {
         SessionVariable sessionVar = new SessionVariable();
-        Assertions.assertTrue(sessionVar.enableFileScannerV2);
         sessionVar.enableFileScannerV2 = false;
-        sessionVar.initFuzzyModeVariables();
-        Assertions.assertTrue(sessionVar.enableFileScannerV2);
+        Assertions.assertTrue(sessionVar.toThrift().isEnableFileScannerV2());
 
         Field field = SessionVariable.class.getDeclaredField("enableFileScannerV2");
         VarAttrDef.VarAttr varAttr = field.getAnnotation(VarAttrDef.VarAttr.class);
+        Assertions.assertEquals(VariableAnnotation.DEPRECATED, varAttr.varType());
         Assertions.assertFalse(varAttr.fuzzy());
     }
 

@@ -78,6 +78,7 @@ public class HiveConnectorMetadataPartitionListTest {
     private HiveTableHandle partitionedHandle() {
         return new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
                 .partitionKeyNames(PART_KEYS)
+                .partitionKeyTypes(Map.of("year", "STRING", "month", "STRING"))
                 .build();
     }
 

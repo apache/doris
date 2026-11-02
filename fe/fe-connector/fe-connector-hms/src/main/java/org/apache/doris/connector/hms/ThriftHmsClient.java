@@ -66,9 +66,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -102,6 +104,7 @@ public class ThriftHmsClient implements HmsClient {
     private final MetaStoreClientProvider clientProvider;
     private final HmsTypeMapping.Options typeMappingOptions;
     private final int partitionBatchSize;
+    private final AtomicBoolean rawPartitionFilterUnavailableLogged = new AtomicBoolean();
     private volatile boolean closed;
 
     /**
@@ -246,7 +249,8 @@ public class ThriftHmsClient implements HmsClient {
     public List<HmsPartitionInfo> listPartitionsByFilter(String dbName, String tableName, String filter) {
         int threshold = filteredPartitionThreshold(partitionBatchSize);
         FilteredPartitionPage page = execute(client ->
-                fetchFilteredPartitionPage(client, dbName, tableName, filter, threshold));
+                fetchFilteredPartitionPage(client, dbName, tableName, filter, threshold))
+                .orElseThrow(() -> new HmsPartitionFilterSaturatedException(threshold));
         // The saturation decision MUST use the RAW metastore page size, not the hook-filtered list: the
         // metastore filter hook runs after the raw cap, so a hidden entry in a truncated first page would
         // otherwise make the response look complete and silently drop matching partitions.
@@ -256,19 +260,20 @@ public class ThriftHmsClient implements HmsClient {
         return page.partitions.stream().map(ThriftHmsClient::convertPartition).collect(Collectors.toList());
     }
 
-    private static FilteredPartitionPage fetchFilteredPartitionPage(IMetaStoreClient client, String dbName,
+    private Optional<FilteredPartitionPage> fetchFilteredPartitionPage(IMetaStoreClient client, String dbName,
             String tableName, String filter, int threshold) throws Exception {
         int pageLimit = threshold + 1;
         if (client instanceof HmsRawPartitionFilterPageSource) {
             HmsRawPartitionFilterPage page = ((HmsRawPartitionFilterPageSource) client)
                     .listPartitionsByFilterRawPage(dbName, tableName, filter, pageLimit);
-            return new FilteredPartitionPage(page.getPartitions(), page.getRawCount());
+            return Optional.of(new FilteredPartitionPage(page.getPartitions(), page.getRawCount()));
         }
-        // A client without the raw-page contract can only report its post-hook size; keep the previous
-        // best-effort behavior for it.
-        List<Partition> partitions = client.listPartitionsByFilter(
-                dbName, tableName, filter, (short) pageLimit);
-        return new FilteredPartitionPage(partitions, partitions.size());
+        if (rawPartitionFilterUnavailableLogged.compareAndSet(false, true)) {
+            LOG.warn("HMS client {} does not expose raw partition filter page sizes; "
+                            + "falling back to partition names for {}.{}",
+                    client.getClass().getName(), dbName, tableName);
+        }
+        return Optional.empty();
     }
 
     /** One raw partition-filter page: the hook-filtered partitions plus the raw (pre-hook) page size. */

@@ -510,7 +510,8 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
                 return this;
             }
             return new SelectedPartitions(totalPartitionNum, selectedPartitions, isPruned,
-                    hasPartitionPredicate, sortedPartitionRanges, state);
+                    hasPartitionPredicate, sortedPartitionRanges, state,
+                    connectorFilterResult, coveredConnectorFilter);
         }
 
         @Override
@@ -524,7 +525,6 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             SelectedPartitions that = (SelectedPartitions) o;
             return state == that.state && isPruned == that.isPruned
                     && hasPartitionPredicate == that.hasPartitionPredicate
-                    && state == that.state
                     && Objects.equals(
                     selectedPartitions.keySet(), that.selectedPartitions.keySet())
                     && Objects.equals(
