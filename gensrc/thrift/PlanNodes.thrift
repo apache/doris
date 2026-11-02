@@ -471,6 +471,12 @@ enum TVectorMetric {
     HAMMING
 }
 
+enum TVectorApproxMode {
+    FAST = 0,
+    NORMAL = 1,
+    ACCURATE = 2
+}
+
 struct TSearchVector {
     1: optional TVectorElementType element_type
     2: optional i32 dimension
@@ -558,6 +564,8 @@ struct TVectorSearchOptions {
     4: optional bool use_index
     // Lance: -1 uses available CPU parallelism, 0 selects automatically, positive values cap it.
     5: optional i32 query_parallelism
+    // Unset preserves the vector engine's default speed/recall tradeoff.
+    6: optional TVectorApproxMode approx_mode
 }
 
 // The active union field identifies the logical search kind. A future hybrid field can contain both
