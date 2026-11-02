@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.types.IntegerType;
 
 import com.google.common.collect.ImmutableList;
@@ -143,6 +144,7 @@ public class MaterializedViewUtilsAlignTest {
         Assertions.assertEquals(originExprId, normalized.getOutput().get(0).getExprId());
         Assertions.assertTrue(normalized.child(0) instanceof LogicalProject);
         assertSinkOutputsResolvable(normalized);
+        assertSinkOutputExpressionsResolvable(normalized);
     }
 
     @Test
@@ -160,6 +162,7 @@ public class MaterializedViewUtilsAlignTest {
         Assertions.assertNotNull(normalized);
         Assertions.assertSame(child, normalized.child(0));
         Assertions.assertFalse(normalized.getOutput().get(0).nullable());
+        assertSinkOutputExpressionsResolvable(normalized);
     }
 
     @Test
@@ -188,6 +191,7 @@ public class MaterializedViewUtilsAlignTest {
         // nullable property of the child, so merging the projects does not change the logical properties
         Assertions.assertTrue(project.getOutput().get(1).nullable());
         assertSinkOutputsResolvable(normalized);
+        assertSinkOutputExpressionsResolvable(normalized);
     }
 
     @Test
@@ -205,6 +209,27 @@ public class MaterializedViewUtilsAlignTest {
         Assertions.assertNotNull(aligned);
         Assertions.assertEquals(originExprId, aligned.getOutput().get(0).getExprId());
         assertSinkOutputsResolvable(aligned);
+        assertSinkOutputExpressionsResolvable(aligned);
+    }
+
+    @Test
+    public void testStaleSinkOutputUsesChildOutput() {
+        ExprId originExprId = new ExprId(11);
+        ExprId staleExprId = new ExprId(2);
+        SlotReference childOutput = slot(originExprId, ImmutableList.of("a"));
+        LogicalOneRowRelation child = new LogicalOneRowRelation(new RelationId(1), ImmutableList.of(childOutput));
+        // the sink still outputs the exprId from before a rule changed the child output, the child does
+        // not produce this exprId any more
+        LogicalFileSink<Plan> rewritten = fileSink(ImmutableList.of(slot(staleExprId, ImmutableList.of("a"))), child);
+        LogicalFileSink<Plan> origin = fileSink(ImmutableList.of(slot(originExprId, ImmutableList.of("a"))), oneRow());
+
+        Plan normalized = MaterializedViewUtils.normalizeSinkExpressions(rewritten, origin);
+
+        Assertions.assertNotNull(normalized);
+        Assertions.assertEquals(originExprId, normalized.getOutput().get(0).getExprId());
+        Assertions.assertSame(child, normalized.child(0));
+        assertSinkOutputsResolvable(normalized);
+        assertSinkOutputExpressionsResolvable(normalized);
     }
 
     private static void assertSinkOutputsResolvable(Plan sinkPlan) {
@@ -215,6 +240,17 @@ public class MaterializedViewUtilsAlignTest {
         for (Slot sinkOutput : sinkPlan.getOutput()) {
             Assertions.assertTrue(childOutputExprIds.contains(sinkOutput.getExprId()),
                     "the child must produce the sink output exprId " + sinkOutput.getExprId());
+        }
+    }
+
+    private static void assertSinkOutputExpressionsResolvable(Plan sinkPlan) {
+        Set<ExprId> childOutputExprIds = sinkPlan.child(0).getOutput().stream()
+                .map(Slot::getExprId).collect(Collectors.toSet());
+        for (NamedExpression output : ((LogicalSink<?>) sinkPlan).getOutputExprs()) {
+            for (Slot inputSlot : output.getInputSlots()) {
+                Assertions.assertTrue(childOutputExprIds.contains(inputSlot.getExprId()),
+                        "the sink output expression references a slot not produced by the child: " + inputSlot);
+            }
         }
     }
 

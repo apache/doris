@@ -456,17 +456,42 @@ public class MaterializedViewUtils {
                 if (rewrittenPlan.getOutput().size() != originPlan.getOutput().size()) {
                     return null;
                 }
-                if (rewrittenPlan.getLogicalProperties().equals(originPlan.getLogicalProperties())) {
-                    return rewrittenPlan;
-                }
                 List<NamedExpression> rewrittenPlanOutputExprList = rewrittenPlan.getOutputExprs();
                 List<? extends NamedExpression> originPlanOutputExprList = originPlan.getOutput();
                 if (rewrittenPlanOutputExprList.size() != originPlanOutputExprList.size()) {
                     return null;
                 }
+                List<Slot> childOutputs = rewrittenPlan.child().getOutput();
+                Map<ExprId, Slot> childOutputByExprId = Maps.newHashMap();
+                for (Slot childOutput : childOutputs) {
+                    childOutputByExprId.putIfAbsent(childOutput.getExprId(), childOutput);
+                }
+                boolean childOutputsPositional = childOutputs.size() == rewrittenPlanOutputExprList.size();
+                // a rule can change the exprIds of the child outputs without updating the sink outputs,
+                // e.g. when a group by key is eliminated by a uniform predicate. The stale sink outputs
+                // have to be replaced by the output which the child produces at the same position.
+                boolean outputsResolvable = true;
+                for (NamedExpression rewrittenExpression : rewrittenPlanOutputExprList) {
+                    if (!isExpressionResolvable(rewrittenExpression, childOutputByExprId)) {
+                        outputsResolvable = false;
+                        break;
+                    }
+                }
+                if (outputsResolvable
+                        && rewrittenPlan.getLogicalProperties().equals(originPlan.getLogicalProperties())) {
+                    return rewrittenPlan;
+                }
+                if (!outputsResolvable && !childOutputsPositional) {
+                    // the sink outputs reference slots which the child does not produce and they can not
+                    // be mapped to the child outputs by position, the rewritten plan is not usable
+                    return null;
+                }
                 List<NamedExpression> normalizedOutputExprList = new ArrayList<>();
                 for (int i = 0; i < rewrittenPlanOutputExprList.size(); i++) {
                     NamedExpression rewrittenExpression = rewrittenPlanOutputExprList.get(i);
+                    if (childOutputsPositional && !isExpressionResolvable(rewrittenExpression, childOutputByExprId)) {
+                        rewrittenExpression = childOutputs.get(i);
+                    }
                     NamedExpression originalExpression = originPlanOutputExprList.get(i);
                     normalizedOutputExprList.add(normalizeExpression(originalExpression,
                             rewrittenExpression, true));
@@ -512,8 +537,23 @@ public class MaterializedViewUtils {
         if (!needProject) {
             return sink.withOutputExprs(sinkOutputs);
         }
-        return sink.withOutputExprs(sinkOutputs)
+        // The sink outputs reference the outputs of the project, not the expressions below the project,
+        // otherwise a sink which validates its output expressions, e.g. a result sink, would still see a
+        // slot which the sink child does not produce.
+        List<NamedExpression> projectSinkOutputs = sinkOutputs.stream()
+                .map(output -> (NamedExpression) output.toSlot())
+                .collect(ImmutableList.toImmutableList());
+        return sink.withOutputExprs(projectSinkOutputs)
                 .withChildren(new LogicalProject<>(projectOutputs, child));
+    }
+
+    private static boolean isExpressionResolvable(Expression expression, Map<ExprId, Slot> childOutputs) {
+        for (Slot inputSlot : expression.getInputSlots()) {
+            if (!childOutputs.containsKey(inputSlot.getExprId())) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
