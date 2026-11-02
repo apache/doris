@@ -34,6 +34,8 @@ import org.apache.doris.datasource.ExternalScanTaskCacheKey;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.FileSplitter;
+import org.apache.doris.datasource.SplitAssignment;
+import org.apache.doris.datasource.SplitProducer;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.hive.AcidInfo;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
@@ -54,6 +56,7 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileAttributes;
@@ -74,19 +77,18 @@ import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Random;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
-import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 public class HiveScanNode extends FileQueryScanNode {
@@ -101,9 +103,10 @@ public class HiveScanNode extends FileQueryScanNode {
     private DirectoryLister directoryLister;
 
     private boolean partitionInit = false;
-    private final AtomicReference<UserException> batchException = new AtomicReference<>(null);
     private List<HivePartition> prunedPartitions;
-    private final Semaphore splittersOnFlight = new Semaphore(NUM_SPLITTERS_ON_FLIGHT);
+    private Boolean batchMode;
+    private boolean fileCountBatch;
+    private long estimatedFileCount;
     private final AtomicInteger numSplitsPerPartition = new AtomicInteger(NUM_SPLITS_PER_PARTITION);
 
     private boolean skipCheckingAcidVersionFile = false;
@@ -234,66 +237,140 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     @Override
+    protected SplitAssignment createSplitAssignment(Map<String, String> properties,
+            List<String> partitionKeys, boolean admission) {
+        return new SplitAssignment(backendPolicy, this, this::splitToScanRange, properties,
+                partitionKeys, admission, sessionVariable.getSplitBatchSize(),
+                sessionVariable.getSplitQueueCapacity());
+    }
+
+    @Override
     public void startSplit(int numBackends) {
+        ConnectContext context = ConnectContext.get();
+        StatementContext statement = context == null ? null : context.getStatementContext();
+        if (statement != null) {
+            StmtExecutor executor = context.getExecutor();
+            statement.getOrRegisterStatementResource(this, () -> (Closeable) () -> {
+                // A deferred Flight query still fetches splits after statement handling ends.
+                // Its coordinator owns cleanup; abandoned planning and EXPLAIN stop here.
+                if (executor == null || !executor.isDeferredForArrowFlight()) {
+                    stop();
+                }
+            });
+        }
         if (prunedPartitions.isEmpty()) {
             splitAssignment.finishSchedule();
             return;
         }
         HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .hive(hmsTable.getCatalog().getId());
-        Executor scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
-        String bindBrokerName = hmsTable.getCatalog().bindBrokerName();
-        AtomicInteger numFinishedPartitions = new AtomicInteger(0);
-        long startTime = System.currentTimeMillis();
-        CompletableFuture.runAsync(() -> {
-            for (HivePartition partition : prunedPartitions) {
-                if (batchException.get() != null || splitAssignment.isStop()) {
-                    break;
-                }
-                try {
-                    splittersOnFlight.acquire();
-                    CompletableFuture.runAsync(() -> {
+        Executor executor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
+        String broker = hmsTable.getCatalog().bindBrokerName();
+        // Without the file cache, the eager path listed partitions concurrently. Keep that overlap.
+        boolean parallelListing = !fileCountBatch || Config.max_external_file_cache_num <= 0;
+        int producers = parallelListing
+                ? Math.min(prunedPartitions.size(), Config.max_external_cache_loader_thread_pool_size) : 1;
+        AtomicInteger nextPartition = new AtomicInteger();
+        AtomicInteger remaining = new AtomicInteger(producers);
+        long started = System.currentTimeMillis();
+        for (int i = 0; i < producers; i++) {
+            new SplitProducer(splitAssignment, executor,
+                    createSplitBatchSource(cache, nextPartition, broker, numBackends), failure -> {
                         try {
-                            List<Split> allFiles = Lists.newArrayList();
-                            getFileSplitByPartitions(
-                                    cache, Collections.singletonList(partition), allFiles, bindBrokerName,
-                                    numBackends, true);
-                            if (allFiles.size() > numSplitsPerPartition.get()) {
-                                numSplitsPerPartition.set(allFiles.size());
+                            if (failure != null) {
+                                splitAssignment.setException(new UserException(failure.getMessage(), failure));
                             }
-                            if (splitAssignment.needMoreSplit()) {
-                                splitAssignment.addToQueue(allFiles);
-                            }
-                        } catch (Exception e) {
-                            batchException.set(new UserException(e.getMessage(), e));
                         } finally {
-                            splittersOnFlight.release();
-                            if (batchException.get() != null) {
-                                splitAssignment.setException(batchException.get());
-                            }
-                            if (numFinishedPartitions.incrementAndGet() == prunedPartitions.size()) {
+                            if (remaining.decrementAndGet() == 0) {
                                 if (getSummaryProfile() != null) {
                                     getSummaryProfile().addExternalTableGetPartitionFilesTime(
-                                            System.currentTimeMillis() - startTime);
+                                            System.currentTimeMillis() - started);
                                 }
                                 splitAssignment.finishSchedule();
                             }
                         }
-                    }, scheduleExecutor);
-                } catch (Exception e) {
-                    // When submitting a task, an exception will be thrown if the task pool(scheduleExecutor) is full
-                    batchException.set(new UserException(e.getMessage(), e));
-                    break;
+                    }).start();
+        }
+    }
+
+    SplitProducer.BatchSource createSplitBatchSource(HiveExternalMetaCache cache, AtomicInteger nextPartition,
+            String broker, int numBackends) {
+        return new SplitProducer.BatchSource() {
+            private Iterator<FileCacheValue> fileCaches = Collections.emptyIterator();
+            private Iterator<HiveExternalMetaCache.HiveFileStatus> files = Collections.emptyIterator();
+            private Iterator<Split> ranges = Collections.emptyIterator();
+            private FileCacheValue currentCache;
+            private long targetSize;
+            private boolean needSplit;
+
+            @Override
+            public List<Split> getNextBatch() throws IOException, UserException {
+                List<Split> batch = new ArrayList<>(splitAssignment.getSplitBatchSize());
+                while (batch.size() < splitAssignment.getSplitBatchSize() && splitAssignment.needMoreSplit()) {
+                    if (ranges.hasNext()) {
+                        batch.add(ranges.next());
+                        continue;
+                    }
+                    if (!loadNextFileRanges()) {
+                        break;
+                    }
                 }
+                numSplitsPerPartition.accumulateAndGet(batch.size(), Math::max);
+                return batch;
             }
-            if (batchException.get() != null) {
-                splitAssignment.setException(batchException.get());
+
+            private boolean loadNextFileRanges() throws IOException, UserException {
+                while (splitAssignment.needMoreSplit()) {
+                    if (files.hasNext()) {
+                        HiveExternalMetaCache.HiveFileStatus file = files.next();
+                        ranges = fileSplitter.splitFileIterator(file.getPath(), targetSize,
+                                file.getBlockLocations(), file.getLength(), file.getModificationTime(),
+                                currentCache.isSplittable() && needSplit, currentCache.getPartitionValues(),
+                                new HiveSplitCreator(currentCache.getAcidInfo()));
+                        return true;
+                    }
+                    if (fileCaches.hasNext()) {
+                        currentCache = fileCaches.next();
+                        files = currentCache.getFiles() == null ? Collections.emptyIterator()
+                                : currentCache.getFiles().iterator();
+                        continue;
+                    }
+                    int index = nextPartition.getAndIncrement();
+                    if (index >= prunedPartitions.size()) {
+                        return false;
+                    }
+                    List<FileCacheValue> loaded = getFileCachesByPartitions(cache,
+                            Collections.singletonList(prunedPartitions.get(index)), broker, true);
+                    targetSize = determineTargetFileSplitSize(loaded, true);
+                    needSplit = needSplitFiles(loaded, numBackends);
+                    fileCaches = loaded.iterator();
+                }
+                return false;
             }
-        });
+
+            @Override
+            public void close() {
+                ranges = Collections.emptyIterator();
+                files = Collections.emptyIterator();
+                fileCaches = Collections.emptyIterator();
+                currentCache = null;
+            }
+        };
     }
 
     @Override
     public boolean isBatchMode() {
+        if (batchMode == null) {
+            batchMode = selectBatchMode();
+        }
+        return batchMode;
+    }
+
+    private boolean selectBatchMode() {
+        if (!sessionVariable.getEnableExternalTableBatchMode() || tableSample != null
+                || hmsTable.isHiveTransactionalTable()) {
+            return false;
+        }
         if (!partitionInit) {
             try {
                 prunedPartitions = getPartitions();
@@ -302,18 +379,76 @@ public class HiveScanNode extends FileQueryScanNode {
             }
             partitionInit = true;
         }
-        int numPartitions = sessionVariable.getNumPartitionsInBatchMode();
-        return numPartitions >= 0 && prunedPartitions.size() >= numPartitions;
+        int partitionThreshold = sessionVariable.getNumPartitionsInBatchMode();
+        if (partitionThreshold >= 0 && prunedPartitions.size() >= partitionThreshold) {
+            return true;
+        }
+        int fileThreshold = sessionVariable.getNumFilesInBatchMode();
+        if (fileThreshold < 0) {
+            return false;
+        }
+        HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .hive(hmsTable.getCatalog().getId());
+        estimatedFileCount = cache.getCachedFileCount(prunedPartitions);
+        if (estimatedFileCount < 0 || estimatedFileCount >= fileThreshold) {
+            fileCountBatch = true;
+            estimatedFileCount = estimatedFileCount < 0 ? Math.max(1, fileThreshold) : estimatedFileCount;
+            return true;
+        }
+        return false;
     }
 
     @Override
     public int numApproximateSplits() {
-        return numSplitsPerPartition.get() * prunedPartitions.size();
+        long estimate = fileCountBatch ? estimatedFileCount
+                : (long) numSplitsPerPartition.get() * prunedPartitions.size();
+        return (int) Math.min(Integer.MAX_VALUE, estimate);
     }
 
     private void getFileSplitByPartitions(HiveExternalMetaCache cache, List<HivePartition> partitions,
             List<Split> allFiles, String bindBrokerName, int numBackends,
             boolean isBatchMode) throws IOException, UserException {
+        List<FileCacheValue> fileCaches = getFileCachesByPartitions(cache, partitions, bindBrokerName, isBatchMode);
+        long targetFileSplitSize = determineTargetFileSplitSize(fileCaches, isBatchMode);
+        if (tableSample != null) {
+            List<HiveExternalMetaCache.HiveFileStatus> hiveFileStatuses = selectFiles(fileCaches);
+            splitAllFiles(allFiles, hiveFileStatuses, targetFileSplitSize);
+            return;
+        }
+
+        /**
+         * If a table-level COUNT(*) is pushed down,
+         * we don't need to split the file because for parquet/orc format, only metadata is read.
+         * If we split the file, we will read metadata of a file multiple times, which is not efficient.
+         *
+         * - Hive Full Acid Transactional Table may need merge on read, so do not apply this optimization.
+         * - If the file format is not parquet/orc, eg, text, we need to split the file to increase the parallelism.
+         */
+        boolean needSplit = needSplitFiles(fileCaches, numBackends);
+
+        for (HiveExternalMetaCache.FileCacheValue fileCacheValue : fileCaches) {
+            if (fileCacheValue.getFiles() == null) {
+                continue;
+            }
+            boolean isSplittable = fileCacheValue.isSplittable();
+
+            for (HiveExternalMetaCache.HiveFileStatus status : fileCacheValue.getFiles()) {
+                allFiles.addAll(fileSplitter.splitFile(
+                        status.getPath(),
+                        targetFileSplitSize,
+                        status.getBlockLocations(),
+                        status.getLength(),
+                        status.getModificationTime(),
+                        isSplittable && needSplit,
+                        fileCacheValue.getPartitionValues(),
+                        new HiveSplitCreator(fileCacheValue.getAcidInfo())));
+            }
+        }
+    }
+
+    private List<FileCacheValue> getFileCachesByPartitions(HiveExternalMetaCache cache,
+            List<HivePartition> partitions, String bindBrokerName, boolean isBatchMode)
+            throws IOException, UserException {
         List<FileCacheValue> fileCaches;
         long startTime = System.currentTimeMillis();
         if (hiveTransaction != null) {
@@ -357,21 +492,10 @@ public class HiveScanNode extends FileQueryScanNode {
             getSummaryProfile().addExternalTableGetPartitionFilesTime(System.currentTimeMillis() - startTime);
         }
 
-        long targetFileSplitSize = determineTargetFileSplitSize(fileCaches, isBatchMode);
-        if (tableSample != null) {
-            List<HiveExternalMetaCache.HiveFileStatus> hiveFileStatuses = selectFiles(fileCaches);
-            splitAllFiles(allFiles, hiveFileStatuses, targetFileSplitSize);
-            return;
-        }
+        return fileCaches;
+    }
 
-        /**
-         * If a table-level COUNT(*) is pushed down,
-         * we don't need to split the file because for parquet/orc format, only metadata is read.
-         * If we split the file, we will read metadata of a file multiple times, which is not efficient.
-         *
-         * - Hive Full Acid Transactional Table may need merge on read, so do not apply this optimization.
-         * - If the file format is not parquet/orc, eg, text, we need to split the file to increase the parallelism.
-         */
+    private boolean needSplitFiles(List<FileCacheValue> fileCaches, int numBackends) throws UserException {
         boolean needSplit = true;
         if (isTableLevelCountStarPushdown()
                 && !(hmsTable.isHiveTransactionalTable() && hmsTable.isFullAcidTable())) {
@@ -384,25 +508,7 @@ public class HiveScanNode extends FileQueryScanNode {
             int parallelNum = sessionVariable.getParallelExecInstanceNum(scanContext.getClusterName());
             needSplit = FileSplitter.needSplitForCountPushdown(parallelNum, numBackends, totalFileNum);
         }
-
-        for (HiveExternalMetaCache.FileCacheValue fileCacheValue : fileCaches) {
-            if (fileCacheValue.getFiles() == null) {
-                continue;
-            }
-            boolean isSplittable = fileCacheValue.isSplittable();
-
-            for (HiveExternalMetaCache.HiveFileStatus status : fileCacheValue.getFiles()) {
-                allFiles.addAll(fileSplitter.splitFile(
-                        status.getPath(),
-                        targetFileSplitSize,
-                        status.getBlockLocations(),
-                        status.getLength(),
-                        status.getModificationTime(),
-                        isSplittable && needSplit,
-                        fileCacheValue.getPartitionValues(),
-                        new HiveSplitCreator(fileCacheValue.getAcidInfo())));
-            }
-        }
+        return needSplit;
     }
 
     private long retainedHiveFileCount(List<FileCacheValue> fileCaches) {

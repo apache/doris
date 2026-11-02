@@ -21,10 +21,12 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TScanRangeLocations;
 
-import com.google.common.collect.Lists;
+import com.google.common.base.Preconditions;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -50,6 +52,7 @@ public class SplitSource {
     private final SplitAssignment splitAssignment;
     private final AtomicBoolean isLastBatch;
     private final long maxWaitTime;
+    private Iterator<TScanRangeLocations> pendingSplits = Collections.emptyIterator();
 
     public SplitSource(Backend backend, SplitAssignment splitAssignment, long maxWaitTime) {
         this.uniqueId = UNIQUE_ID_GENERATOR.getAndIncrement();
@@ -67,39 +70,59 @@ public class SplitSource {
     /**
      * Get the next batch of file splits. If there's no more split, return empty list.
      */
-    public List<TScanRangeLocations> getNextBatch(int maxBatchSize) throws UserException {
+    public synchronized List<TScanRangeLocations> getNextBatch(int maxBatchSize) throws UserException {
+        Preconditions.checkArgument(maxBatchSize > 0, "Requested split batch size must be positive");
         if (isLastBatch.get()) {
             return Collections.emptyList();
         }
-        List<TScanRangeLocations> scanRanges = Lists.newArrayListWithExpectedSize(maxBatchSize);
-        long startTime = System.currentTimeMillis();
-        while (scanRanges.size() < maxBatchSize && System.currentTimeMillis() - startTime < maxWaitTime) {
+        List<TScanRangeLocations> scanRanges = new ArrayList<>(
+                Math.min(maxBatchSize, splitAssignment.getSplitBatchSize()));
+        long startTime = System.nanoTime();
+        long waitNanos = TimeUnit.MILLISECONDS.toNanos(maxWaitTime);
+        while (scanRanges.size() < maxBatchSize) {
+            // Check producer errors even while draining a previously fetched batch.
             BlockingQueue<Collection<TScanRangeLocations>> splits = splitAssignment.getAssignedSplits(backend);
+            if (splitAssignment.isStop()) {
+                pendingSplits = Collections.emptyIterator();
+                isLastBatch.set(true);
+                break;
+            }
+            while (pendingSplits.hasNext() && scanRanges.size() < maxBatchSize) {
+                scanRanges.add(pendingSplits.next());
+            }
+            if (scanRanges.size() == maxBatchSize) {
+                return scanRanges;
+            }
+            pendingSplits = Collections.emptyIterator();
+            // A finished, empty queue is EOF only after the pending batch has been drained.
             if (splits == null) {
                 isLastBatch.set(true);
                 break;
             }
-            while (scanRanges.size() < maxBatchSize) {
-                try {
-                    Collection<TScanRangeLocations> splitCollection = splits.poll(WAIT_TIME_OUT, TimeUnit.MILLISECONDS);
-                    if (splitCollection != null) {
-                        scanRanges.addAll(splitCollection);
-                    }
-                    if (!scanRanges.isEmpty() && System.currentTimeMillis() - startTime > maxWaitTime) {
-                        return scanRanges;
-                    }
-                    if (splitCollection == null) {
-                        break;
-                    }
-                } catch (InterruptedException e) {
-                    throw new UserException(e.getMessage(), e);
-                }
+            Collection<TScanRangeLocations> batch = splits.poll();
+            if (batch != null) {
+                splitAssignment.notifyQueueSpace(backend);
+                pendingSplits = batch.iterator();
+                continue;
             }
-        }
-
-        if (scanRanges.isEmpty() && !isLastBatch.get()) {
-            // This is timeout
-            throw new UserException("Timeout. Max wait time(ms): " + maxWaitTime);
+            if (!scanRanges.isEmpty()) {
+                break;
+            }
+            long remainingNanos = waitNanos - (System.nanoTime() - startTime);
+            if (remainingNanos <= 0) {
+                throw new UserException("Timeout. Max wait time(ms): " + maxWaitTime);
+            }
+            try {
+                batch = splits.poll(Math.min(remainingNanos, TimeUnit.MILLISECONDS.toNanos(WAIT_TIME_OUT)),
+                        TimeUnit.NANOSECONDS);
+                if (batch != null) {
+                    splitAssignment.notifyQueueSpace(backend);
+                    pendingSplits = batch.iterator();
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new UserException(e.getMessage(), e);
+            }
         }
         return scanRanges;
     }

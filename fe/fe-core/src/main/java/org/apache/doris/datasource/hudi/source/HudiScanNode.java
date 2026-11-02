@@ -697,6 +697,14 @@ public class HudiScanNode extends HiveScanNode {
     }
 
     @Override
+    protected SplitAssignment createSplitAssignment(Map<String, String> properties,
+            List<String> partitionKeys, boolean admission) {
+        // Hudi still submits eager partition batches and must not block on Hive's small queues.
+        return new SplitAssignment(backendPolicy, this, this::splitToScanRange,
+                properties, partitionKeys, admission);
+    }
+
+    @Override
     public void startSplit(int numBackends) {
         ensureHmsRuntimeGeneration();
         if (prunedPartitions.isEmpty()) {
