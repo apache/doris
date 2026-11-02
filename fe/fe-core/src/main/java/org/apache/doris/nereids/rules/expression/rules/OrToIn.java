@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteRule;
@@ -30,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -277,22 +279,68 @@ public class OrToIn {
     private static boolean isSlotCompareWithLiterals(Expression conjunct) {
         if (conjunct instanceof EqualTo) {
             EqualTo eq = (EqualTo) conjunct;
-            return (eq.left() instanceof Slot && eq.right() instanceof Literal)
-                    || (eq.right() instanceof Slot && eq.left() instanceof Literal);
+            return (eq.left() instanceof Slot && eq.right() instanceof Literal
+                            && isInferenceSafeScalarType(eq.left())
+                            && isInferenceSafeScalarType(eq.right()))
+                    || (eq.right() instanceof Slot && eq.left() instanceof Literal
+                            && isInferenceSafeScalarType(eq.right())
+                            && isInferenceSafeScalarType(eq.left()));
         }
         if (conjunct instanceof InPredicate) {
             InPredicate inPredicate = (InPredicate) conjunct;
-            if (!(inPredicate.getCompareExpr() instanceof Slot)) {
+            if (!(inPredicate.getCompareExpr() instanceof Slot)
+                    || !isInferenceSafeScalarType(inPredicate.getCompareExpr())) {
                 return false;
             }
             for (Expression option : inPredicate.getOptions()) {
-                if (!(option instanceof Literal)) {
+                if (!(option instanceof Literal) || !isInferenceSafeScalarType(option)) {
                     return false;
                 }
             }
             return true;
         }
         return false;
+    }
+
+    /**
+     * Whether the type of expr admits the relaxation.
+     *
+     * Both sides are inspected when possible: the slot decides how "=" is evaluated and the literal
+     * decides what IN puts into its hash set, so a type is only safe when neither side vetoes it.
+     */
+    private static boolean isInferenceSafeScalarType(Expression expr) {
+        if (expr instanceof Unbound) {
+            // UnboundSlot throws on getDataType(). Planning always binds slots before this rule
+            // runs, so an unknown type only shows up in unit tests; do not let it veto.
+            return true;
+        }
+        return isInferenceSafeScalarType(expr.getDataType());
+    }
+
+    /**
+     * Whether "X = c" and "X IN (c1, c2, ...)" agree for this type, which the three-valued
+     * argument above depends on.
+     *
+     * Only plain scalar types are accepted. Complex types (ARRAY/STRUCT/MAP) are excluded because
+     * their IN is executed by FunctionCollectionIn, which drops the null map of the left column
+     * instead of propagating it. "a IN ([1], [2])" then returns a non-null FALSE for a NULL row
+     * where "a = [1]" returns NULL, so "a IN (...) AND or" is no longer equivalent to "or" and a
+     * NULL-sensitive parent (IS NULL / NOT / CASE / ...) changes the query result. Equality on a
+     * nullable ARRAY is also legal in Doris, so the shape is reachable in practice.
+     *
+     * Floating point is excluded as a precaution: "X = c" and the hash-based IN may disagree on
+     * -0.0 and NaN, which would break the "or=TRUE implies X IN (union)=TRUE" direction.
+     *
+     * Rejecting a type is never a loss: the conjunct simply falls back to independentConjunct()
+     * and gets exactly the pre-change behavior.
+     */
+    private static boolean isInferenceSafeScalarType(DataType type) {
+        return type.isIntegralType() // TINYINT / SMALLINT / INT / BIGINT / LARGEINT
+                || type.isDecimalLikeType() // DECIMALV2 / DECIMALV3
+                || type.isDateLikeType() // DATE / DATETIME / DATEV2 / DATETIMEV2 / TIMESTAMP_NS / TIMESTAMPTZ
+                || type.isTimeType() // TIMEV2
+                || type.isStringLikeType() // CHAR / VARCHAR / STRING
+                || type.isBooleanType();
     }
 
     private Map<Expression, Set<Literal>> getCandidates(Expression disjunct) {

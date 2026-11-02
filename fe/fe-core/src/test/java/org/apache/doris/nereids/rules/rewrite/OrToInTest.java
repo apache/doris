@@ -20,11 +20,23 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.common.Config;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
 import org.apache.doris.nereids.rules.expression.rules.OrToIn;
+import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
@@ -300,6 +312,43 @@ class OrToInTest extends ExpressionRewriteTestHelper {
             }
         } finally {
             Config.enable_or_to_in_shared_slot_inference = origin;
+        }
+    }
+
+    @Test
+    void testArrayCompareKeepsIndependenceCheck() {
+        // "a = [1]" shares slot a with "size(a) > 0", so only the relaxed extract path could infer
+        // "a IN ([1], [2])". ARRAY is not inference-safe (FunctionCollectionIn drops the null map of
+        // the left column), so the OR must be left alone.
+        SlotReference a = new SlotReference("a", ArrayType.of(IntegerType.INSTANCE), true);
+        Expression eq1 = new EqualTo(a, new ArrayLiteral(ImmutableList.of(new IntegerLiteral(1))));
+        Expression eq2 = new EqualTo(a, new ArrayLiteral(ImmutableList.of(new IntegerLiteral(2))));
+        Expression or = new Or(new And(eq1, new Not(new IsNull(a))), eq2);
+        Expression rewritten = OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(or);
+        Assertions.assertTrue(rewritten instanceof Or, rewritten.toSql());
+        Assertions.assertEquals(0, ExpressionUtils.extractConjunction(rewritten).stream()
+                .filter(InPredicate.class::isInstance).count(), rewritten.toSql());
+    }
+
+    @Test
+    void testFloatCompareKeepsIndependenceCheck() {
+        // "X = c" and the hash-based IN may disagree on -0.0 / NaN, so floating point is not relaxed.
+        SlotReference d = new SlotReference("d", DoubleType.INSTANCE, true);
+        Expression or = new Or(
+                new And(new EqualTo(d, new DoubleLiteral(1.0)), new Not(new IsNull(d))),
+                new EqualTo(d, new DoubleLiteral(2.0)));
+        Expression rewritten = OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(or);
+        Assertions.assertTrue(rewritten instanceof Or, rewritten.toSql());
+    }
+
+    @Test
+    void testScalarTypesStillRelaxed() {
+        // 'S' -> STRING, 'I' -> INT, 'C' -> DATEV2, 'M' -> DECIMALV3, 'B' -> BOOLEAN.
+        // These keep the relaxation, so the target "spm IN (...)" inference is unaffected.
+        for (String expr : Lists.newArrayList("(Sa='x' and Sa>'a') or Sa='y'",
+                "(Ia=1 and Ia>0) or Ia=2", "(Ma=1 and Ma>0) or Ma=2")) {
+            Expression rewritten = OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(PARSER.parseExpression(expr));
+            Assertions.assertFalse(rewritten instanceof Or, expr + " -> " + rewritten.toSql());
         }
     }
 
