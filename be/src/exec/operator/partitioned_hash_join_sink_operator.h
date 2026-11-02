@@ -92,6 +92,7 @@ protected:
     bool _child_eos {false};
     // The probe side is released in close(), after the inner sink is closed.
     bool _release_probe_on_close {false};
+    std::shared_ptr<RuntimeFilterTimer> _release_probe_timer;
 
     std::unique_ptr<PartitionerBase> _partitioner;
 

@@ -21,15 +21,19 @@ import org.apache.doris.regression.action.ProfileAction
 // short-circuits. That probe must not finish before the build sink publishes its runtime filters:
 // otherwise the build task is woken up early, terminate() publishes its filters as DISABLED and
 // the merged global filter is disabled for every probe-side scan.
+//
+// The debug point makes a sink whose probe short-circuits sleep at eos. When every build instance
+// is empty, all probes short-circuit, so without the fix the probe pipeline closes during the sleep
+// and the filters are disabled on every run.
 suite("test_short_circuit_probe_runtime_filter", "nonConcurrent") {
     sql "set disable_join_reorder=true"
     sql "set parallel_pipeline_task_num=2"
     sql "set enable_runtime_filter_prune=false"
     sql "set runtime_filter_type='IN_OR_BLOOM_FILTER,MIN_MAX'"
     sql "set runtime_filter_max_in_num=1024"
-    // Let the probe-side scans stop waiting while the empty build sink sleeps, so that the
-    // other probe finishes and the probe pipeline closes.
-    sql "set runtime_filter_wait_time_ms=100"
+    // A probe held back is released after the runtime filter wait time at the latest, so keep it
+    // longer than the sleep of the debug point.
+    sql "set runtime_filter_wait_time_ms=10000"
     sql "set enable_profile=true"
     sql "set profile_level=2"
 

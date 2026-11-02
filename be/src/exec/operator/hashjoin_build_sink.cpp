@@ -32,8 +32,10 @@
 #include "exec/operator/hashjoin_probe_operator.h"
 #include "exec/operator/operator.h"
 #include "exec/pipeline/pipeline_task.h"
+#include "runtime/exec_env.h"
 #include "util/debug_points.h"
 #include "util/pretty_printer.h"
+#include "util/time.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -120,6 +122,14 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
             _runtime_filter_producer_helper->init(state, _build_expr_ctxs, p._runtime_filter_descs,
                                                   p._child->operator_row_desc_after_projection()));
     return Status::OK();
+}
+
+std::shared_ptr<RuntimeFilterTimer> start_probe_release_timer(
+        RuntimeState* state, std::shared_ptr<Dependency> probe_dependency) {
+    auto timer = std::make_shared<RuntimeFilterTimer>(
+            MonotonicMillis(), state->runtime_filter_wait_time_ms(), std::move(probe_dependency));
+    ExecEnv::GetInstance()->runtime_filter_timer_queue()->push_filter_timer({timer});
+    return timer;
 }
 
 Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
@@ -943,10 +953,14 @@ Status HashJoinBuildSinkOperatorX::sink_impl(RuntimeState* state, Block* in_bloc
         // sink publishes its runtime filters in close(), the probe pipeline closes and wakes up
         // this task early, and terminate() publishes the filters as DISABLED. A disabled input
         // disables the merged global filter, so the probe-side scans of all instances lose it.
-        // So release such a probe only after the runtime filters are published.
+        // So release such a probe only after the runtime filters are published, or after the
+        // runtime filter wait time at the latest.
         if (local_state._should_build_hash_table && !_runtime_filter_descs.empty() &&
             local_state._shared_state->short_circuit_for_probe) {
+            const auto channel = _use_shared_hash_table ? local_state._task_idx : 0;
             local_state._release_probe_on_close = true;
+            local_state._release_probe_timer = start_probe_release_timer(
+                    state, local_state._shared_state->source_deps[channel]);
         } else {
             // If a shared hash table is used, states are shared by all tasks.
             // Sink and source has n-n relationship If a shared hash table is used otherwise 1-1

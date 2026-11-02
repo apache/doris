@@ -27,8 +27,10 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <memory>
 #include <string>
+#include <thread>
 #include <variant>
 #include <vector>
 
@@ -46,6 +48,7 @@
 #include "exec/runtime_filter/runtime_filter_wrapper.h"
 #include "exprs/vexpr_context.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
@@ -552,8 +555,13 @@ TEST_F(HashJoinBuildSinkTest, ReleaseShortCircuitProbeOnClose) {
         bool with_runtime_filter = true;
         // Wake up the task after eos, as when the probe pipeline finished first.
         bool terminate_after_eos = false;
+        // Let the runtime filter wait time pass before close().
+        bool release_by_timer = false;
         bool expect_released_at_eos = false;
     };
+    if (ExecEnv::GetInstance()->runtime_filter_timer_queue() == nullptr) {
+        ExecEnv::GetInstance()->_init_runtime_filter_timer_queue();
+    }
     // All cases share one query context, so each one registers its own filter id.
     int next_filter_id = 0;
     auto run_case = [&](const Case& c) {
@@ -577,6 +585,11 @@ TEST_F(HashJoinBuildSinkTest, ReleaseShortCircuitProbeOnClose) {
         runtime_state->set_desc_tbl(_helper.desc_tbl);
         auto local_rf_mgr = std::make_unique<RuntimeFilterMgr>(false);
         runtime_state->set_runtime_filter_mgr(local_rf_mgr.get());
+        // The mock task execution context is not a PipelineFragmentContext, which registering a
+        // runtime filter producer would read.
+        runtime_state->_task_execution_context_inited = false;
+        runtime_state->_query_options.__set_runtime_filter_wait_time_ms(
+                c.release_by_timer ? 50 : 600000);
 
         auto st = sink_operator->init(tnode, runtime_state.get());
         ASSERT_TRUE(st.ok()) << "init failed: " << st.to_string();
@@ -622,6 +635,12 @@ TEST_F(HashJoinBuildSinkTest, ReleaseShortCircuitProbeOnClose) {
         ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
 
         ASSERT_EQ(source_dep->ready(), c.expect_released_at_eos) << "join op: " << c.op_type;
+        if (c.release_by_timer) {
+            for (int i = 0; i < 500 && !source_dep->ready(); i++) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+            ASSERT_TRUE(source_dep->ready()) << "join op: " << c.op_type;
+        }
 
         std::shared_ptr<RuntimeFilterWrapper> wrapper;
         if (c.with_runtime_filter) {
@@ -659,6 +678,9 @@ TEST_F(HashJoinBuildSinkTest, ReleaseShortCircuitProbeOnClose) {
     run_case({.op_type = TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN, .input = Input::ONE_NULL_KEY});
     // A sink terminated after eos must still release the probe in close().
     run_case({.op_type = TJoinOp::RIGHT_OUTER_JOIN, .terminate_after_eos = true});
+    // A probe held back is still released after the runtime filter wait time, e.g. when the
+    // filter size sync never completes.
+    run_case({.op_type = TJoinOp::RIGHT_OUTER_JOIN, .release_by_timer = true});
     // Without runtime filters there is nothing to wait for.
     run_case({.op_type = TJoinOp::RIGHT_OUTER_JOIN,
               .with_runtime_filter = false,

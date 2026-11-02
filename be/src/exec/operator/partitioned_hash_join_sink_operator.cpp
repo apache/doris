@@ -573,6 +573,8 @@ Status PartitionedHashJoinSinkOperatorX::sink_impl(RuntimeState* state, Block* i
         // The inner sink publishes its runtime filters when it is closed in close().
         if (local_state._inner_releases_probe_on_close()) {
             local_state._release_probe_on_close = true;
+            local_state._release_probe_timer = start_probe_release_timer(
+                    state, local_state._shared_state->source_deps.front());
         } else {
             local_state._dependency->set_ready_to_read();
         }
