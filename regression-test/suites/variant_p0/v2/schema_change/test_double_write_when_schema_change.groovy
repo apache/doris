@@ -113,15 +113,16 @@ suite("double_write_schema_change_with_variant", "nonConcurrent") {
         if (stage == "MODIFY COLUMN") {
             assertTrue(inserted > 0, "No rows inserted while MODIFY COLUMN was running")
         }
+        return inserted
     }
 
     qt_sql "select v['type'], v['id'], v['created_at'] from ${table_name} where cast(v['id'] as bigint) != 25061216922 order by k, cast(v['id'] as bigint), cast(v['payload']['commits'] as string) limit 10"
 
     sql """ ALTER TABLE ${table_name} modify COLUMN change_column text"""
-    double_write.call("MODIFY COLUMN")
+    def modifyInsertCount = double_write.call("MODIFY COLUMN")
 
     sql """ALTER TABLE ${table_name} drop index idx_var"""
-    double_write.call("DROP INDEX")
+    def dropIndexInsertCount = double_write.call("DROP INDEX")
     qt_sql "select v['type'], v['id'], v['created_at'] from ${table_name} where cast(v['id'] as bigint) != 25061216922 order by k, cast(v['id'] as bigint), cast(v['payload']['commits'] as string) limit 10"
 
     sql "set enable_two_phase_read_opt = false"
@@ -133,8 +134,12 @@ suite("double_write_schema_change_with_variant", "nonConcurrent") {
     order_qt_sql """select k, v['payload']['commits'] from github_events
         where length(cast(v['payload']['commits'] as text)) > 100 and k > 1
         order by k, length(cast(v['payload']['commits'] as text)) limit 10"""
+    // Every successful INSERT during either ALTER must still be visible after catch-up.
+    assertEquals(modifyInsertCount + dropIndexInsertCount,
+            sql("select count(*) from ${table_name} where k = 1 and change_column = '123111'")[0][0] as int)
     // DROP INDEX may finish before polling observes RUNNING; verify a post-DDL write separately.
     sql insert_sql("123112")
+    assertEquals(1, sql("select count(*) from ${table_name} where k = 1 and change_column = '123112'")[0][0] as int)
     qt_stage_markers "select distinct change_column from ${table_name} where k = 1 and change_column is not null order by change_column"
 
     // createMV("create materialized view xxx as select k, sum(k) from ${table_name} group by k order by k;")

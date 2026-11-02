@@ -42,3 +42,9 @@
 
 -- !not_search_with_other_search --
 6
+
+-- !search_cache_first_dsl --
+2048
+
+-- !search_cache_second_dsl --
+2048

@@ -202,8 +202,16 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
     }
     RETURN_IF_ERROR(_helper.acquire_runtime_filter(state, _conjuncts, p.row_descriptor()));
 
+    // SEARCH parameters are not part of VExpr::get_digest. A cached bitmap for one DSL
+    // must not prune rows before a different DSL is evaluated on the same segment.
+    const auto has_search_expr = [](const auto& conjunct) {
+        return conjunct->root() && contains_search_expr(*conjunct->root());
+    };
+    const bool contains_search = std::ranges::any_of(_conjuncts, has_search_expr) ||
+                                 std::ranges::any_of(_common_expr_ctxs_push_down, has_search_expr);
     // Disable condition cache in topn filter valid. TODO:: Try to support the topn filter in condition cache
-    if (state->query_options().condition_cache_digest && p._topn_filter_source_node_ids.empty()) {
+    if (state->query_options().condition_cache_digest && p._topn_filter_source_node_ids.empty() &&
+        !contains_search) {
         _condition_cache_digest = state->query_options().condition_cache_digest;
         for (auto& conjunct : _conjuncts) {
             _condition_cache_digest = conjunct->get_digest(_condition_cache_digest);

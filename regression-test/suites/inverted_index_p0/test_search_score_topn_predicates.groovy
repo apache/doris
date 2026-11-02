@@ -222,4 +222,30 @@ suite("test_search_score_topn_predicates", "p0,nonConcurrent") {
         """
         exception "limit + offset overflows the long range"
     }
+
+    // Keep the two terms in separate rowsets so a cached empty granule for one
+    // term would incorrectly hide all rows for the other term.
+    sql """
+        INSERT INTO test_search_score_topn_predicates
+        SELECT number + 10000, 'drop', 'drop', 'plain', 'apple', 'alpha'
+        FROM numbers("number" = "2048")
+    """
+    sql """
+        INSERT INTO test_search_score_topn_predicates
+        SELECT number + 12048, 'drop', 'drop', 'plain', 'banana', 'alpha'
+        FROM numbers("number" = "2048")
+    """
+    sql "sync"
+    sql "set enable_condition_cache = true"
+    sql "set enable_common_expr_pushdown = false"
+    sql "set enable_common_expr_pushdown_for_inverted_index = false"
+
+    qt_search_cache_first_dsl """
+        SELECT count(*) FROM test_search_score_topn_predicates
+        WHERE id >= 10000 AND (search('title:apple') OR plain_status = 'keep')
+    """
+    qt_search_cache_second_dsl """
+        SELECT count(*) FROM test_search_score_topn_predicates
+        WHERE id >= 10000 AND (search('title:banana') OR plain_status = 'keep')
+    """
 }
