@@ -46,6 +46,9 @@ namespace doris::io {
 // Only S3 clients apply these options today. Azure clients ignore them, although they still
 // tell cached Azure clients apart, as in the legacy conf.
 struct ObjStorageConnectionOptions {
+    // Sizes the connection pool of one cached S3 client on one BE; a request waits for a free
+    // connection when the pool is exhausted. One S3 client serves every bucket of its
+    // configuration, so with 50, two buckets share 50 connections, not 50 each.
     // Non-positive values keep the SDK/BE defaults, as in the legacy conf.
     int max_connections = -1;
     int request_timeout_ms = -1;
