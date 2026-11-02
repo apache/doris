@@ -919,7 +919,7 @@ jobs:
             --base-sha "$BASE_SHA" \
             --model "gpt-6.1-sol" \
             --fallback-model "gpt-6-sol" \
-            --capacity-fallback-model "gpt-6-astra" \
+            --capacity-fallback-model "gpt-6-sol" \
             --effort xhigh \
             --budget-seconds "$budget_seconds"
           status=$?
