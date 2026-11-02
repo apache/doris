@@ -149,14 +149,46 @@ fail immediately. For a focused rerun, set `deltalakeBenchmarkQueryPattern` to a
 regular expression matching `tpch/q7.sql` or `tpcds/query1.sql`, for example
 `"tpch/q[789][.]sql"`. Its default `".*"` runs the full inventory.
 
-Delta M1 does not supply CBO statistics. Doris can disable join reordering when
-row counts are unknown, which can yield expensive intermediate results for
-multi-table queries. Apart from the documented Q7/Q85 controls, the suite preserves
-those plans and reports failures. Do not present a controlled or rewritten query
-as default-plan performance.
+Delta M1 supplies basic versioned row/size statistics, collected asynchronously;
+column NDV/histograms remain unavailable. For a steady-state comparison after
+statistics are ready, optionally set `deltalakeBenchmarkStatisticsManifest` to the
+absolute path of the retained converter's `manifest.json`. Before timing each
+selected workload, the suite waits until every manifest table's Delta EXPLAIN
+cardinality equals its expected row count. It logs those values and Hive's current
+cardinality as `DELTA_BENCHMARK_STATISTICS`, without executing data queries. A
+missing workload or statistics that fail to become ready fails the suite. When
+unset, the original first-execution behavior is preserved. Record this warmup
+setting in reports; neither mode establishes a cold OS/object-store cache.
+
+Doris can disable join reordering when row counts are unknown, which can yield
+expensive intermediate results for multi-table queries. Apart from the documented
+Q7/Q85 controls, the suite preserves optimizer-selected plans and reports failures.
+Do not present a controlled or rewritten query as default-plan performance.
 
 Catalogs, HMS tables, Parquet files and Delta logs remain available after testing.
 For repeat runs, invoke the regression directly; no data regeneration is needed.
+
+### Local TPC-DS comparison after basic statistics
+
+On 2026-11-02, all 103 TPC-DS query files passed in one official suite using the
+retained SF1 data and production revision `cc12b56819`. The 24 Delta cardinalities
+were checked against the independent manifest before timing. The host, ASAN build,
+shared settings, Q85 join-order control and Q30 adaptation match the earlier run.
+Totals are sums of per-query medians from three alternating measured pairs:
+
+| Measurement | Queries | Hive (s) | Delta (s) | Delta / Hive |
+| --- | ---: | ---: | ---: | ---: |
+| Before statistics, 2026-10-31 | 103 | 232.545 | 293.214 | 1.2609 |
+| After statistics, 2026-11-02 | 103 | 225.408 | 262.556 | 1.1648 |
+| After, nonempty results only | 91 | 212.654 | 246.057 | 1.1571 |
+
+The overall difference narrows from 26.1% to 16.5%, but does not establish parity.
+Separate profiles confirm smaller build sides for Q43 and Q72; Q22 still has a
+large aggregation-related gap, and Q4/Q11/Q74 lost earlier Delta advantages. A
+separate Q4 rerun confirmed a 44.2% gap and is excluded from the full-run aggregate.
+These are local ASAN observations, not RELEASE/TPC certification or proof that
+statistics alone explain every change. TPC-H was not rerun. See tracking issue
+[#69884](https://github.com/apache/doris/issues/69884) for the evidence summary.
 
 ## Planning scale
 

@@ -16,6 +16,7 @@
 // under the License.
 
 import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
 import org.apache.doris.regression.util.ResultUtils
 import java.sql.SQLException
 
@@ -46,6 +47,13 @@ suite("test_deltalake_benchmark", "p2,external") {
     sql "set query_timeout=120"
     sql "set time_zone='UTC'"
     String queryPattern = context.config.otherConfigs.getOrDefault("deltalakeBenchmarkQueryPattern", ".*")
+    String manifestPath = context.config.otherConfigs.getOrDefault("deltalakeBenchmarkStatisticsManifest", "")
+    Map statisticsManifest = manifestPath.isEmpty() ? [:] : new JsonSlurper().parse(new File(manifestPath))
+    def cardinality = { String relation ->
+        String plan = sql("explain select * from ${relation}").collect { it[0] }.join("\n")
+        def matcher = plan =~ /cardinality=(\d+)/
+        return matcher.find() ? matcher.group(1).toLong() : -1L
+    }
     List<String> failedQueries = []
     int executedQueries = 0
     File repository = new File(context.config.suitePath).canonicalFile.parentFile.parentFile
@@ -54,6 +62,21 @@ suite("test_deltalake_benchmark", "p2,external") {
                 + (workload == "tpcds" ? "/sf100" : ""))
         List<File> queries = directory.listFiles().findAll { it.name.endsWith('.sql') }.sort { it.name }
         assertEquals(workload == "tpch" ? 22 : 103, queries.size(), "${workload} query inventory")
+        if (!manifestPath.isEmpty() && queries.any { "${workload}/${it.name}" ==~ queryPattern }) {
+            // Optional steady-state measurement: wait for asynchronous Delta statistics before timing.
+            // The immutable fixture manifest is the oracle; never derive it from the tested connector.
+            Map tables = statisticsManifest[workload]
+            assertTrue(tables != null && !tables.isEmpty(), "Missing ${workload} statistics manifest")
+            tables.sort().each { table, fixture ->
+                String delta = "test_deltalake_benchmark_delta.delta_${workload}.${table}"
+                long expectedRows = fixture.rows as long
+                awaitUntil(60, 0.1) { cardinality(delta) == expectedRows }
+                long hiveRows = cardinality("test_deltalake_benchmark_hive.delta_${workload}.${table}")
+                logger.info("DELTA_BENCHMARK_STATISTICS " + JsonOutput.toJson([
+                        workload: workload, table: table, expected_rows: expectedRows,
+                        delta_cardinality: cardinality(delta), hive_cardinality: hiveRows]))
+            }
+        }
         for (File file : queries) {
             String queryName = "${workload}/${file.name}"
             if (!(queryName ==~ queryPattern)) {
