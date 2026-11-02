@@ -128,7 +128,7 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
             // USE_MV forces the hinted materialized view, so the hinted materialized view is scanned
             // with zero cost and the other relations are charged with a tiny extra cost, which makes
             // the hinted materialized view the cheapest one during the whole optimization.
-            // NereidsPlanner.chooseBestPlanConsideringUseMv() validates the final plan afterwards.
+            // UseMvHintPlanner.chooseBestPlanConsideringUseMv() validates the final plan afterwards.
             if (isHintedMaterialization(useMvHint.get(), physicalOlapScan)) {
                 return Cost.ofCpu(context.getCostWeight(), 0);
             }

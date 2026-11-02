@@ -19,8 +19,8 @@ package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.UseMvHintPlanner;
 import org.apache.doris.nereids.jobs.executor.Optimizer;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.RuleType;
@@ -86,10 +86,10 @@ public class PreMaterializedViewRewriter {
         new Optimizer(cascadesContext).execute();
         // Choose the best physical plan considering USE_MV hard constraint
         Group root = cascadesContext.getMemo().getRoot();
-        PhysicalPlan physicalPlan = NereidsPlanner.chooseBestPlanConsideringUseMv(root,
+        PhysicalPlan physicalPlan = UseMvHintPlanner.chooseBestPlanConsideringUseMv(root,
                 cascadesContext.getCurrentJobContext().getRequiredProperties(), cascadesContext);
         // Finalize USE_MV hint status for pre-rewrite path
-        NereidsPlanner.finalizeUseMvHintStatus(cascadesContext.getStatementContext(), physicalPlan);
+        UseMvHintPlanner.finalizeUseMvHintStatus(cascadesContext.getStatementContext(), physicalPlan);
         Pair<Map<List<String>, MaterializationContext>, BitSet> chosenMaterializationAndUsedTable
                 = MaterializedViewUtils.getChosenMaterializationAndUsedTable(physicalPlan,
                 cascadesContext.getAllMaterializationContexts());

@@ -22,11 +22,15 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseMvHint;
+import org.apache.doris.nereids.properties.DistributionSpec;
+import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -35,6 +39,7 @@ import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -146,7 +151,7 @@ public class UseMvHintTest extends TestWithFeService {
         UseMvHint useMvHint = createUseMvHint(ImmutableList.of(ImmutableList.of("t", "m")));
         statementContext.addHint(useMvHint);
 
-        NereidsPlanner.finalizeUseMvHintStatus(statementContext, mockOlapScan(1L, 2L, "m"));
+        UseMvHintPlanner.finalizeUseMvHintStatus(statementContext, mockOlapScan(1L, 2L, "m"));
 
         Assertions.assertEquals(Hint.HintStatus.SUCCESS, useMvHint.getStatus());
         Assertions.assertTrue(useMvHint.getUseMvTableColumnMap().get(SYNC_M_IDENTIFIER));
@@ -159,9 +164,147 @@ public class UseMvHintTest extends TestWithFeService {
         UseMvHint useMvHint = createUseMvHint(ImmutableList.of(ImmutableList.of("t", "m")));
         statementContext.addHint(useMvHint);
 
-        NereidsPlanner.finalizeUseMvHintStatus(statementContext, mockOlapScan(1L, 1L, "t"));
+        UseMvHintPlanner.finalizeUseMvHintStatus(statementContext, mockOlapScan(1L, 1L, "t"));
 
         Assertions.assertEquals(Hint.HintStatus.UNUSED, useMvHint.getStatus());
         Assertions.assertFalse(useMvHint.getUseMvTableColumnMap().get(SYNC_M_IDENTIFIER));
+    }
+
+    /**
+     * Every parameter of the hint is registered, the hinted materializations are alternatives of each other
+     * and the second one can be the chosen one.
+     */
+    @Test
+    public void testAllHintedMvsAreRegistered() {
+        List<String> firstMv = ImmutableList.of("internal", "test", "m1");
+        List<String> secondMv = ImmutableList.of("internal", "test", "m2");
+        Map<List<String>, Boolean> useMvTableColumnMap = createUseMvHint(
+                ImmutableList.of(firstMv, secondMv)).getUseMvTableColumnMap();
+
+        Assertions.assertEquals(2, useMvTableColumnMap.size());
+        Assertions.assertTrue(useMvTableColumnMap.containsKey(firstMv));
+        Assertions.assertTrue(useMvTableColumnMap.containsKey(secondMv));
+    }
+
+    /**
+     * Several hinted materializations are alternatives of each other, so the hint is satisfied when only one
+     * of them is used, and the other ones are reported as not chosen.
+     */
+    @Test
+    public void testOneOfTheHintedMvsIsEnough() {
+        StatementContext statementContext = new StatementContext(connectContext,
+                new OriginStatement("select k from t", 0));
+        List<String> chosenMv = ImmutableList.of("internal", "test", "t", "m1");
+        List<String> alternativeMv = ImmutableList.of("internal", "test", "t", "m2");
+        UseMvHint useMvHint = createUseMvHint(ImmutableList.of(chosenMv, alternativeMv));
+        statementContext.addHint(useMvHint);
+
+        UseMvHintPlanner.finalizeUseMvHintStatus(statementContext, mockOlapScan(1L, 2L, "m1"));
+
+        Assertions.assertEquals(Hint.HintStatus.SUCCESS, useMvHint.getStatus());
+        Assertions.assertTrue(useMvHint.getUseMvTableColumnMap().get(chosenMv));
+        Assertions.assertFalse(useMvHint.getUseMvTableColumnMap().get(alternativeMv));
+    }
+
+    /**
+     * A hint which already reports a syntax error keeps its status, the finalization only decides whether the
+     * materializations of a well formed hint are used.
+     */
+    @Test
+    public void testSyntaxErrorHintIsNotOverridden() {
+        StatementContext statementContext = new StatementContext(connectContext,
+                new OriginStatement("select k from t", 0));
+        UseMvHint useMvHint = createUseMvHint(ImmutableList.of(ASYNC_M_IDENTIFIER));
+        statementContext.addHint(useMvHint);
+        useMvHint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
+
+        UseMvHintPlanner.finalizeUseMvHintStatus(statementContext, mockOlapScan(1L, 1L, "t"));
+
+        Assertions.assertEquals(Hint.HintStatus.SYNTAX_ERROR, useMvHint.getStatus());
+    }
+
+    /**
+     * A query without the USE_MV hint is not affected by the finalization.
+     */
+    @Test
+    public void testNoUseMvHintIsIgnored() {
+        StatementContext statementContext = new StatementContext(connectContext,
+                new OriginStatement("select k from t", 0));
+
+        UseMvHintPlanner.finalizeUseMvHintStatus(statementContext, mockOlapScan(1L, 1L, "t"));
+    }
+
+    /**
+     * The layout of a materialization is not the layout of the relation it replaces, even though the hash
+     * distribution of the two compares equal because the shuffle type and the shuffle columns are the same.
+     */
+    @Test
+    public void testLayoutIdentityIsCompared() {
+        ExprId key = StatementScopeIdGenerator.newExprId();
+        DistributionSpecHash relationLayout = new DistributionSpecHash(ImmutableList.of(key),
+                ShuffleType.NATURAL, 1L, 1L, ImmutableSet.of(10L));
+        DistributionSpecHash otherTableLayout = new DistributionSpecHash(ImmutableList.of(key),
+                ShuffleType.NATURAL, 2L, 2L, ImmutableSet.of(10L));
+
+        Assertions.assertTrue(UseMvHintPlanner.providesProperties(
+                new PhysicalProperties(relationLayout), new PhysicalProperties(relationLayout)));
+        Assertions.assertFalse(UseMvHintPlanner.providesProperties(
+                new PhysicalProperties(otherTableLayout), new PhysicalProperties(relationLayout)));
+    }
+
+    /**
+     * An input with another storage layout still delivers the shuffle columns of the requirement, so it can
+     * stay in a partitioned join after the other input was replaced by a materialization. Other shuffle
+     * columns are not delivered.
+     */
+    @Test
+    public void testShuffleColumnsOfAnotherLayout() {
+        ExprId key = StatementScopeIdGenerator.newExprId();
+        ExprId otherKey = StatementScopeIdGenerator.newExprId();
+        DistributionSpec required = new DistributionSpecHash(ImmutableList.of(key),
+                ShuffleType.NATURAL, 1L, 1L, ImmutableSet.of(10L));
+        DistributionSpec otherLayout = new DistributionSpecHash(ImmutableList.of(key),
+                ShuffleType.NATURAL, 2L, 2L, ImmutableSet.of(10L));
+        DistributionSpec otherColumns = new DistributionSpecHash(ImmutableList.of(otherKey),
+                ShuffleType.NATURAL, 2L, 2L, ImmutableSet.of(10L));
+
+        Assertions.assertTrue(UseMvHintPlanner.providesShuffleColumns(otherLayout, required));
+        Assertions.assertFalse(UseMvHintPlanner.providesShuffleColumns(otherColumns, required));
+    }
+
+    /**
+     * Only the distributions which are delivered by an exchange take part in the partitioned pairing of a
+     * join, the ones which keep the storage layout of a relation are co-located or bucket shuffled.
+     */
+    @Test
+    public void testGlobalHashExchangeDetection() {
+        ExprId key = StatementScopeIdGenerator.newExprId();
+        Assertions.assertFalse(UseMvHintPlanner.isGlobalHashExchange(
+                new DistributionSpecHash(ImmutableList.of(key), ShuffleType.NATURAL)));
+        Assertions.assertFalse(UseMvHintPlanner.isGlobalHashExchange(
+                new DistributionSpecHash(ImmutableList.of(key), ShuffleType.STORAGE_BUCKETED)));
+        Assertions.assertTrue(UseMvHintPlanner.isGlobalHashExchange(
+                new DistributionSpecHash(ImmutableList.of(key), ShuffleType.EXECUTION_BUCKETED)));
+        Assertions.assertTrue(UseMvHintPlanner.isGlobalHashExchange(
+                new DistributionSpecHash(ImmutableList.of(key), ShuffleType.REQUIRE)));
+        Assertions.assertFalse(UseMvHintPlanner.isGlobalHashExchange(DistributionSpecGather.INSTANCE));
+    }
+
+    /**
+     * The synthesized exchange delivers the shuffle columns of the requirement as a hash shuffle, the same way
+     * the enforcers of the cost based selection do it. A gather distribution is delivered as it is.
+     */
+    @Test
+    public void testEnforcedExchangeDistribution() {
+        ExprId key = StatementScopeIdGenerator.newExprId();
+        DistributionSpec exchange = UseMvHintPlanner.toExchangeDistribution(
+                new DistributionSpecHash(ImmutableList.of(key), ShuffleType.REQUIRE));
+
+        Assertions.assertEquals(ImmutableList.of(key),
+                ((DistributionSpecHash) exchange).getOrderedShuffledColumns());
+        Assertions.assertEquals(ShuffleType.EXECUTION_BUCKETED,
+                ((DistributionSpecHash) exchange).getShuffleType());
+        Assertions.assertSame(DistributionSpecGather.INSTANCE,
+                UseMvHintPlanner.toExchangeDistribution(DistributionSpecGather.INSTANCE));
     }
 }

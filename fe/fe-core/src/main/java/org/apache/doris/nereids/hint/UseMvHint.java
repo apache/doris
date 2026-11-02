@@ -110,7 +110,7 @@ public class UseMvHint extends Hint {
     /**
      * Check if a given MV qualifier is finally chosen in the physical plan.
      * This is only meaningful after plan selection has completed and
-     * {@link org.apache.doris.nereids.NereidsPlanner#finalizeUseMvHintStatus} has been called.
+     * {@link org.apache.doris.nereids.UseMvHintPlanner#finalizeUseMvHintStatus} has been called.
      */
     public boolean isQualifierChosen(List<String> mvQualifier) {
         return Boolean.TRUE.equals(useMvTableColumnMap.get(mvQualifier));
@@ -175,8 +175,10 @@ public class UseMvHint extends Hint {
             }
             List<String> dbQualifier = new ArrayList<>();
             if (table.size() == 3 || table.size() == 4) {
+                // the full qualified parameter is registered as it is, and the other parameters are
+                // registered as well: several hinted materializations are alternatives of each other
                 mvTableColumnMap.put(table, false);
-                return mvTableColumnMap;
+                continue;
             }
             CatalogIf catalogIf = ConnectContext.get().getCurrentCatalog();
             if (catalogIf == null) {

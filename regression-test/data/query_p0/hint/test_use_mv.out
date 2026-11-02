@@ -11,6 +11,9 @@
 1	1	1
 2	1	2
 
+-- !use_mv_join_input_hint --
+2	3
+
 -- !use_mv_gather_hint --
 1	1	1
 2	1	2

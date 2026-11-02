@@ -360,6 +360,20 @@ suite("test_use_mv") {
     }
     order_qt_use_mv_multi_hint """select /*+ use_mv(internal.${hardDb}.m1, internal.${hardDb}.m2) */ k, dt, v from A where dt = 1 order by k;"""
 
+    // the same materialization is reachable from both inputs of the join, but the hint only requires it
+    // once: only the responsible input is forced to the materialization, the other input keeps the cost
+    // based plan instead of being forced to the same materialization as well
+    explain {
+        sql """select /*+ use_mv(internal.${hardDb}.m1) */ a1.k, a2.v
+            from A a1 join A a2 on a1.k = a2.k where a1.dt = 1 and a2.dt = 2;"""
+        contains("Used: use_mv([internal, ${hardDb}, m1])")
+        contains("TABLE: ${hardDb}.m1(m1)")
+        contains("TABLE: ${hardDb}.A(A)")
+        notContains("HAS_COLO_PLAN_NODE: true")
+    }
+    order_qt_use_mv_join_input_hint """select /*+ use_mv(internal.${hardDb}.m1) */ a1.k, a2.v
+        from A a1 join A a2 on a1.k = a2.k where a1.dt = 1 and a2.dt = 2 order by a1.k;"""
+
     // the gather enforcer of the result sink must be rebuilt on the distribution which the
     // materialization provides, instead of requiring the storage hash of the replaced table
     sql """set enable_parallel_result_sink = false;"""
