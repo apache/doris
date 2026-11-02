@@ -21,6 +21,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <deque>
+#include <mutex>
 #include <unordered_set>
 
 #include "common/config.h"
@@ -193,7 +194,9 @@ private:
     int64_t _split_source_id;
     int _num_splits;
     const bool _supports_close;
-    std::atomic_bool _close_requested = false;
+    // Closing is independent of a possibly blocked fetch, and completes only after FE acknowledges.
+    std::mutex _close_lock;
+    bool _close_completed = false;
 
     DorisVector<TScanRangeLocations> _scan_ranges;
     bool _last_batch = false;

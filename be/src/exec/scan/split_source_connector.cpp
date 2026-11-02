@@ -19,6 +19,7 @@
 
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
+#include "util/thrift_rpc_helper.h"
 
 namespace doris {
 
@@ -205,6 +206,16 @@ Status RemoteSplitSourceConnector::get_next(bool* has_next, TFileRangeDesc* rang
 
 Status RemoteSplitSourceConnector::_fetch_batch(TFetchSplitBatchResult* result,
                                                 const TFetchSplitBatchRequest& request) {
+    if (request.__isset.close_source && request.close_source) {
+        // FE closure is idempotent, including when the first reply is lost. Reuse the standard
+        // reconnect/retry path only here: an ordinary split fetch consumes queue entries.
+        const auto& address = _state->get_query_ctx()->coord_addr;
+        return ThriftRpcHelper::rpc<FrontendServiceClient>(
+                address.hostname, address.port,
+                [&request, result](FrontendServiceConnection& coord) {
+                    coord->fetchSplitBatch(*result, request);
+                });
+    }
     Status status;
     FrontendServiceConnection coord(_state->exec_env()->frontend_client_cache(),
                                     _state->get_query_ctx()->coord_addr, &status);
@@ -220,21 +231,35 @@ Status RemoteSplitSourceConnector::_fetch_batch(TFetchSplitBatchResult* result,
 Status RemoteSplitSourceConnector::close() {
     stop();
     // Older FEs do not advertise support for the source-close request.
-    if (!_supports_close || _close_requested.exchange(true, std::memory_order_acq_rel)) {
+    if (!_supports_close) {
+        return Status::OK();
+    }
+    std::scoped_lock lock(_close_lock);
+    if (_close_completed) {
         return Status::OK();
     }
     TFetchSplitBatchRequest request;
     request.__set_split_source_id(_split_source_id);
     request.__set_max_num_splits(config::remote_split_source_batch_size);
     request.__set_close_source(true);
-    TFetchSplitBatchResult result;
-    RETURN_IF_ERROR(_fetch_batch(&result, request));
-    if (result.__isset.status && result.status.status_code != TStatusCode::OK) {
-        return Status::IOError<false>(
-                "Failed to close split source {}: {}", _split_source_id,
-                result.status.error_msgs.empty() ? "unknown error" : result.status.error_msgs[0]);
+    Status status;
+    // The owner normally closes once. Retry a failed close here, without latching an unacknowledged
+    // request. An exhausted error must cancel the query rather than strand other BEs behind a queue.
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        TFetchSplitBatchResult result;
+        status = _fetch_batch(&result, request);
+        if (status.ok() && result.__isset.status && result.status.status_code != TStatusCode::OK) {
+            status = Status::IOError<false>("Failed to close split source {}: {}", _split_source_id,
+                                            result.status.error_msgs.empty()
+                                                    ? "unknown error"
+                                                    : result.status.error_msgs[0]);
+        }
+        if (status.ok()) {
+            _close_completed = true;
+            return Status::OK();
+        }
     }
-    return Status::OK();
+    return status;
 }
 
 } // namespace doris

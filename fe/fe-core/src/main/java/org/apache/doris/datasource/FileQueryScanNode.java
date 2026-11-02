@@ -154,7 +154,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
     /** Freeze the planning mode before asynchronous split conversion loses the query thread context. */
     protected boolean isBatchModeEnabled() {
         if (batchModeEnabled == null) {
-            batchModeEnabled = sessionVariable.getEnableExternalTableBatchMode();
+            // TABLESAMPLE selects files once across the table: independent partition batches
+            // would reset the ROWS budget, percentage rounding and random selection.
+            batchModeEnabled = sessionVariable.getEnableExternalTableBatchMode() && tableSample == null;
             ConnectContext context = ConnectContext.get();
             if (batchModeEnabled && context != null) {
                 StatementContext statementContext = context.getStatementContext();

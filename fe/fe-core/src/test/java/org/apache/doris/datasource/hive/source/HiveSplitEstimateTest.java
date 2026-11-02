@@ -20,7 +20,10 @@ package org.apache.doris.datasource.hive.source;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.blockrule.SqlBlockRuleMgr;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.FileQueryScanNode;
@@ -35,6 +38,7 @@ import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TFileFormatType;
 
@@ -45,6 +49,7 @@ import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -83,7 +88,31 @@ public class HiveSplitEstimateTest {
         Assert.assertEquals(25, runBatchEstimate(16, false, 25));
     }
 
+    @Test
+    public void testRowsSampleIsSelectedOnceAcrossAllPartitions() throws Exception {
+        assertTableWideSample(new TableSample(false, 256L, 0L));
+    }
+
+    @Test
+    public void testPercentSampleIsSelectedOnceAcrossAllPartitions() throws Exception {
+        assertTableWideSample(new TableSample(true, 1L, 0L));
+    }
+
+    private void assertTableWideSample(TableSample sample) throws Exception {
+        int[] fileCounts = new int[32];
+        Arrays.fill(fileCounts, 1);
+        for (int batchSize : new int[] {16, 2, 1}) {
+            Assert.assertEquals(1, runSplitPlanning(batchSize, sample, true, fileCounts));
+        }
+    }
+
     private int runBatchEstimate(int batchSize, boolean sample, int... fileCounts) throws Exception {
+        return runSplitPlanning(batchSize, sample ? new TableSample(true, 100L, 0L) : null,
+                false, fileCounts);
+    }
+
+    private int runSplitPlanning(int batchSize, TableSample sample, boolean choosePlanningMode,
+            int... fileCounts) throws Exception {
         SessionVariable variables = new SessionVariable();
         variables.splitPartitionBatchSize = batchSize;
         HMSExternalTable table = Mockito.mock(HMSExternalTable.class);
@@ -99,9 +128,8 @@ public class HiveSplitEstimateTest {
         splitter.setAccessible(true);
         splitter.set(node, new FileSplitter(variables.maxInitialSplitSize,
                 variables.maxSplitSize, variables.maxInitialSplitNum));
-        if (sample) {
-            node.setTableSample(new TableSample(true, 100L, 0L));
-        }
+        node.setTableSample(sample);
+        Mockito.when(table.getFullSchema()).thenReturn(Collections.singletonList(new Column("v", Type.INT)));
         List<HivePartition> partitions = new ArrayList<>();
         Map<HivePartition, FileCacheValue> files = new HashMap<>();
         int totalFiles = 0;
@@ -126,6 +154,9 @@ public class HiveSplitEstimateTest {
         Field pruned = HiveScanNode.class.getDeclaredField("prunedPartitions");
         pruned.setAccessible(true);
         pruned.set(node, partitions);
+        Field initialized = HiveScanNode.class.getDeclaredField("partitionInit");
+        initialized.setAccessible(true);
+        initialized.set(node, true);
         SplitAssignment assignment = Mockito.mock(SplitAssignment.class);
         Mockito.when(assignment.needMoreSplit()).thenReturn(true);
         Field assignmentField = ScanNode.class.getDeclaredField("splitAssignment");
@@ -153,14 +184,29 @@ public class HiveSplitEstimateTest {
         ExternalMetaCacheMgr manager = Mockito.mock(ExternalMetaCacheMgr.class);
         ExecutorService executor = Executors.newFixedThreadPool(2);
         Mockito.when(env.getExtMetaCacheMgr()).thenReturn(manager);
+        Mockito.when(env.getSqlBlockRuleMgr()).thenReturn(Mockito.mock(SqlBlockRuleMgr.class));
         Mockito.when(manager.hive(Mockito.anyLong())).thenReturn(cache);
         Mockito.when(manager.getScheduleExecutor()).thenReturn(executor);
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            if (choosePlanningMode) {
+                ConnectContext context = new ConnectContext();
+                context.setThreadLocalInfo();
+                try {
+                    if (!node.isBatchMode()) {
+                        return node.getSplits(1).size();
+                    }
+                } finally {
+                    ConnectContext.remove();
+                }
+            }
             node.startSplit(1);
             finished.get(5, TimeUnit.SECONDS);
-            Assert.assertEquals(totalFiles, delivered.get());
             Mockito.verify(assignment, Mockito.never()).setException(Mockito.any());
+            if (choosePlanningMode) {
+                return delivered.get();
+            }
+            Assert.assertEquals(totalFiles, delivered.get());
             return node.numApproximateSplits();
         } finally {
             executor.shutdownNow();

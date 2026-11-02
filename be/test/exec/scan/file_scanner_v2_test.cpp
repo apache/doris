@@ -1732,4 +1732,75 @@ TEST(FileScannerV2Test, OwnerCloseDoesNotWaitForTheFetchLockOrSurfaceALateFetchE
     EXPECT_EQ(closed.load(), 1);
 }
 
+TEST(FileScannerV2Test, OwnerCloseRetriesAnUnacknowledgedRequest) {
+    for (bool lost_reply : {false, true}) {
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        ScriptedRemoteSplitSource source(&state);
+        int calls = 0;
+        int effects = 0;
+        bool released = false;
+        source.fetch = [&](TFetchSplitBatchResult* result, const TFetchSplitBatchRequest& request) {
+            EXPECT_TRUE(request.close_source);
+            ++calls;
+            if (!lost_reply && calls == 1) {
+                return Status::IOError("connection failed before FE received the close");
+            }
+            if (!released) {
+                released = true;
+                ++effects;
+            }
+            if (lost_reply && calls == 1) {
+                return Status::IOError("FE closed the source but the reply was lost");
+            }
+            TStatus thrift_status;
+            thrift_status.__set_status_code(TStatusCode::OK);
+            result->__set_status(thrift_status);
+            return Status::OK();
+        };
+        EXPECT_TRUE(source.close().ok());
+        EXPECT_EQ(calls, 2);
+        EXPECT_EQ(effects, 1);
+        EXPECT_TRUE(source.close().ok());
+        EXPECT_EQ(calls, 2);
+    }
+}
+
+namespace {
+
+void verify_failed_close_can_recover(bool transport_failure) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ScriptedRemoteSplitSource source(&state);
+    bool recovered = false;
+    int calls = 0;
+    source.fetch = [&](TFetchSplitBatchResult* result, const TFetchSplitBatchRequest& request) {
+        EXPECT_TRUE(request.close_source);
+        ++calls;
+        if (!recovered && transport_failure) {
+            return Status::IOError("FE unavailable");
+        }
+        TStatus thrift_status;
+        thrift_status.__set_status_code(recovered ? TStatusCode::OK : TStatusCode::INTERNAL_ERROR);
+        result->__set_status(thrift_status);
+        return Status::OK();
+    };
+    EXPECT_FALSE(source.close().ok());
+    EXPECT_EQ(calls, 2);
+    bool has_next = true;
+    TFileRangeDesc range;
+    EXPECT_TRUE(source.get_next(&has_next, &range).ok());
+    EXPECT_FALSE(has_next);
+    recovered = true;
+    EXPECT_TRUE(source.close().ok());
+    EXPECT_EQ(calls, 3);
+    EXPECT_TRUE(source.close().ok());
+    EXPECT_EQ(calls, 3);
+}
+
+} // namespace
+
+TEST(FileScannerV2Test, FailedOwnerCloseIsBoundedAndCanBeRetriedAfterRecovery) {
+    verify_failed_close_can_recover(false);
+    verify_failed_close_can_recover(true);
+}
+
 } // namespace doris
