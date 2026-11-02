@@ -762,6 +762,7 @@ message TabletMetaInfoPB { // For update tablet meta
     optional int32 vertical_compaction_num_columns_per_group = 15;
     optional string group_commit_mode = 16;
     optional doris.BinlogConfigPB binlog_config = 17;
+    optional doris.RowTtlConfigPB row_ttl_config = 18;
 }
 
 message TabletCompactionJobPB {
@@ -1430,6 +1431,7 @@ message UpdateTabletRequest {
 
 message UpdateTabletResponse {
     optional MetaServiceResponseStatus status = 1;
+    optional int64 row_ttl_config_version = 2;
 }
 
 message UpdateTabletSchemaRequest {

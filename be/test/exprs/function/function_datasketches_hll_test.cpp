@@ -214,14 +214,14 @@ protected:
         const auto args = block.get_columns_with_type_and_name();
         DataTypes types;
         ColumnNumbers indexes;
-        std::vector<std::shared_ptr<ColumnPtrWrapper>> constants;
+        std::vector<std::shared_ptr<ConstantExprResult>> constants;
         bool nullable = false;
         for (size_t i = 0; i < args.size(); ++i) {
             types.push_back(args[i].type);
             indexes.push_back(i);
             nullable |= args[i].type->is_nullable();
             constants.push_back(constants_in_open && is_column_const(*args[i].column)
-                                        ? std::make_shared<ColumnPtrWrapper>(args[i].column)
+                                        ? std::make_shared<ConstantExprResult>(args[i].column)
                                         : nullptr);
         }
         auto result_type = nullable ? make_nullable(remove_nullable(types[0])) : types[0];

@@ -30,6 +30,7 @@ class RuntimeState;
 class Block;
 class SpillDataDir;
 class SpillFileWriter;
+class SpillS3FileWriter;
 class SpillFileReader;
 using SpillFileWriterSPtr = std::shared_ptr<SpillFileWriter>;
 using SpillFileReaderSPtr = std::shared_ptr<SpillFileReader>;
@@ -91,6 +92,7 @@ public:
 
 private:
     friend class SpillFileWriter;
+    friend class SpillS3FileWriter;
     friend class SpillFileManager;
 
     /// Called by SpillFileWriter::close() to mark writing as complete.

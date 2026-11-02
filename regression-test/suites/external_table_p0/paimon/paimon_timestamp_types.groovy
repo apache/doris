@@ -25,7 +25,8 @@ suite("paimon_timestamp_types", "p0,external") {
 
     def originalTimeZone = sql("SELECT @@time_zone")[0][0]
     def originalSettings = ["enable_file_scanner_v2", "force_jni_scanner"].collectEntries { name ->
-        [(name): sql("show variables like '${name}'")[0][1]]
+        // Read session values directly because SHOW prefixes deprecated option names.
+        [(name): sql("SELECT @@${name}")[0][0]]
     }
     try {
         String catalog_name = "paimon_timestamp_types"
