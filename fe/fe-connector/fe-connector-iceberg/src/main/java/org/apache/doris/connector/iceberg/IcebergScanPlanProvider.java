@@ -159,7 +159,6 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     private static final long DEFAULT_MAX_INITIAL_FILE_SPLIT_NUM = 200L;
     private static final long DEFAULT_MAX_FILE_SPLIT_NUM = 100000L;
     private static final String FORCE_JNI_SCANNER = "force_jni_scanner";
-    private static final String ENABLE_FILE_SCANNER_V2 = "enable_file_scanner_v2";
     // FIX-M3 streaming (file-count) batch gate — keys byte-identical to fe-core SessionVariable.
     private static final String ENABLE_EXTERNAL_TABLE_BATCH_MODE = "enable_external_table_batch_mode";
     static final String SCAN_REUSE_NAMESPACE = "iceberg.scan-reuse";
@@ -2297,9 +2296,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             }
             // [D-065] narrowed: $position_deletes is the ONE system table BE reads with a NATIVE reader, so
             // the "schema rides inside the serialized FileScanTask" rationale above does not hold for it — no
-            // FileScanTask is serialized on this path. Both native readers resolve the `row` column through
-            // params.history_schema_info: without the dict, scanner v1 hard-errors ("Iceberg position delete
-            // system table row schema is missing") and scanner v2 SILENTLY degrades to name matching, which
+            // FileScanTask is serialized on this path. The native reader resolves the `row` column through
+            // params.history_schema_info: without the dict, it degrades to name matching, which
             // mis-reads a renamed column under schema evolution. Skipping the dict here would be silent wrong
             // data, so emit it.
             //
@@ -3582,10 +3580,6 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             throw new DorisConnectorException(
                     "Iceberg metadata columns are only supported by FileScannerV2 native Parquet/ORC reader; "
                             + "actual reader is JNI");
-        }
-        if (!sessionBool(session, ENABLE_FILE_SCANNER_V2, true)) {
-            throw new DorisConnectorException(
-                    "Iceberg metadata columns require FileScannerV2 native Parquet/ORC reader");
         }
     }
 

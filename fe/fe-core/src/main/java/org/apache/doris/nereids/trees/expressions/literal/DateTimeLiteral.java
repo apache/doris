@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.util.TimeZoneParser;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -222,7 +223,10 @@ public class DateTimeLiteral extends DateLiteral {
     }
 
     protected void init(String s) throws AnalysisException {
-        TemporalAccessor temporal = parseDateTime(s).get();
+        TemporalAccessor temporal = parseDateTime(s, 7,
+                this.dataType instanceof TimeStampTzType
+                        ? TimeZoneParser.Usage.TIMESTAMPTZ
+                        : TimeZoneParser.Usage.DATETIME).get();
 
         year = DateUtils.getOrDefault(temporal, ChronoField.YEAR);
         month = DateUtils.getOrDefault(temporal, ChronoField.MONTH_OF_YEAR);

@@ -140,7 +140,10 @@ public class PluginDrivenExternalTable extends ExternalTable {
             }
         });
         String dbName = db != null ? db.getRemoteName() : "";
-        Optional<ConnectorTableHandle> handle = metadata.getTableHandle(session, dbName, getRemoteName());
+        // Some catalogs reject table requests for views with non-404 errors. Classify views before
+        // probing the table endpoint so snapshot loading can continue to view expansion.
+        Optional<ConnectorTableHandle> handle = supportsView() && isView()
+                ? Optional.empty() : metadata.getTableHandle(session, dbName, getRemoteName());
         // A view has no table handle. Check live view existence before treating an empty handle as a
         // dropped table; the cached isView flag can outlive a remote view deletion.
         if (!handle.isPresent() && !metadata.viewExists(session, dbName, getRemoteName())) {
@@ -470,6 +473,17 @@ public class PluginDrivenExternalTable extends ExternalTable {
      */
     public boolean supportsSampleAnalyze() {
         return hasCapability(ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE);
+    }
+
+    /**
+     * Returns whether THIS table's column defaults apply to writes only, i.e. only the request-scoped writer
+     * schema ({@link #resolveWriteColumns}) carries them. {@code InsertUtils} and {@code RewriteDefaultExpression}
+     * then resolve {@code DEFAULT(column)} against the writer schema a write statement pinned, and reject it
+     * anywhere else instead of answering NULL from the read schema. Resolved per-table via {@link #hasCapability}
+     * so an iceberg-on-HMS table inherits it, mirroring {@link #supportsNestedColumnSchemaChange}.
+     */
+    public boolean hasWriteOnlyDefaults() {
+        return hasCapability(ConnectorCapability.SUPPORTS_WRITE_ONLY_DEFAULTS);
     }
 
     /**

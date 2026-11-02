@@ -375,10 +375,11 @@ suite("test_iceberg_initial_defaults", "p0,external") {
         CAST(default_timestamptz AS STRING)
     """
 
-    def enableFileScannerV2Rows = sql """SHOW VARIABLES LIKE 'enable_file_scanner_v2'"""
+    // Read the deprecated option by its stable name; SHOW VARIABLES prefixes its display name.
+    def enableFileScannerV2Rows = sql """SELECT @@enable_file_scanner_v2"""
     assertTrue(enableFileScannerV2Rows.size() > 0,
             "Session variable enable_file_scanner_v2 is not found")
-    String originalEnableFileScannerV2 = enableFileScannerV2Rows[0][1].toString()
+    String originalEnableFileScannerV2 = enableFileScannerV2Rows[0][0].toString()
 
     def tableNames = [parquet: parquetTable, orc: orcTable]
 
@@ -597,6 +598,45 @@ suite("test_iceberg_initial_defaults", "p0,external") {
         assertTrue(sparkUpdateMergeVerification.readLines().any { it.trim() == expectedRow },
                 "Spark did not read Doris UPDATE/MERGE default row: ${expectedRow}\n" +
                         sparkUpdateMergeVerification)
+    }
+
+    // DEFAULT(column) elsewhere in a write must also resolve to the pinned write-default (35); the read
+    // schema carries none. Rows 20-22 come from VALUES and INSERT ... SELECT with and without FROM, then the
+    // UPDATE and MERGE predicates must match all of them. A plain SELECT writes nothing and is rejected.
+    tableNames.each { String format, String currentTable ->
+        sql """INSERT INTO ${currentTable} (id, default_int) VALUES (20, DEFAULT(default_int))"""
+        sql """
+            INSERT INTO ${currentTable} (id, default_int)
+            SELECT 21, DEFAULT(default_int) FROM ${currentTable} WHERE id = 7
+        """
+        sql """INSERT INTO ${currentTable} (id, default_int) SELECT 22, DEFAULT(default_int)"""
+        sql """
+            UPDATE ${currentTable}
+            SET default_string = 'update-where-default'
+            WHERE id IN (20, 21, 22) AND default_int = DEFAULT(default_int)
+        """
+        sql """
+            MERGE INTO ${currentTable} t
+            USING (SELECT 22 AS id) s
+            ON t.id = s.id AND t.default_int = DEFAULT(t.default_int)
+            WHEN MATCHED THEN UPDATE SET default_string = 'merge-on-default'
+        """
+        "order_qt_${format}_default_references" """
+            SELECT id, default_int, default_string
+            FROM ${currentTable}
+            WHERE id IN (20, 21, 22)
+            ORDER BY id
+        """
+    }
+    test {
+        sql """SELECT DEFAULT(default_int) FROM ${parquetTable}"""
+        exception "must reference a column of the table that this statement writes"
+    }
+    // A DELETE writes no row values, so the write-default must not decide which rows it deletes: rows 20-22
+    // hold 35 and would all match.
+    test {
+        sql """DELETE FROM ${parquetTable} WHERE id IN (20, 21, 22) AND default_int = DEFAULT(default_int)"""
+        exception "cannot be used in a DELETE"
     }
 
     // Pin a branch while default_int still has write-default 35, then evolve the table-current

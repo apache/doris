@@ -24,7 +24,6 @@
 
 #include "agent/cgroup_cpu_ctl.h"
 #include "common/exception.h"
-#include "exec/operator/file_scan_operator.h"
 #include "exec/scan/file_scanner_v2.h"
 #include "exec/scan/scanner_scheduler.h"
 #include "format_v2/column_mapper.h"
@@ -93,67 +92,6 @@ protected:
         return access_path;
     }
 };
-
-TEST_F(RowIdStorageReaderTest, ExternalScannerSelectionRespectsRolloutOption) {
-    for (auto format : {TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_ORC}) {
-        TFileScanRangeParams params;
-        params.__set_format_type(format);
-        TFileRangeDesc range;
-        for (const auto& table_format : {"hive", "iceberg", "tvf"}) {
-            TTableFormatFileDesc table;
-            table.__set_table_format_type(table_format);
-            params.__set_table_format_params(table);
-            range.__set_table_format_params(table);
-            for (int option = 0; option < 3; ++option) {
-                TQueryOptions options;
-                if (option != 0) {
-                    options.__set_enable_file_scanner_v2(option == 2);
-                } else {
-                    // An absent Thrift field must not enable V2 even if its value defaults to true.
-                    options.enable_file_scanner_v2 = true;
-                    options.__isset.enable_file_scanner_v2 = false;
-                }
-                EXPECT_EQ(RowIdStorageReader::should_use_file_scanner_v2(options, params, range),
-                          FileScanLocalState::TEST_should_use_file_scanner_v2(options, false,
-                                                                              params));
-                EXPECT_EQ(RowIdStorageReader::should_use_file_scanner_v2(options, params, range),
-                          option == 2);
-            }
-        }
-    }
-}
-
-TEST_F(RowIdStorageReaderTest, IcebergOrcDefaultWithParquetRangeKeepsTimestampContract) {
-    TQueryOptions options;
-    options.__set_enable_file_scanner_v2(false);
-    TFileScanRangeParams params;
-    params.__set_format_type(TFileFormatType::FORMAT_ORC);
-    params.__set_iceberg_scan_semantics_version(2);
-    params.__set_parquet_timestamp_semantics_version(1);
-    TFileRangeDesc range;
-    range.__set_format_type(TFileFormatType::FORMAT_PARQUET);
-    TTableFormatFileDesc table;
-    table.__set_table_format_type("iceberg");
-    range.__set_table_format_params(table);
-    // Phase two must decode the retained Parquet range with phase one's wall-clock contract.
-    EXPECT_TRUE(RowIdStorageReader::should_use_file_scanner_v2(options, params, range));
-}
-
-TEST_F(RowIdStorageReaderTest, ExternalScannerSelectionKeepsUnsupportedFormatsOnV1) {
-    TQueryOptions options;
-    options.__set_enable_file_scanner_v2(true);
-    TFileScanRangeParams params;
-    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
-    TFileRangeDesc range;
-    range.__set_format_type(TFileFormatType::FORMAT_JNI);
-    EXPECT_FALSE(RowIdStorageReader::should_use_file_scanner_v2(options, params, range));
-    range.__set_format_type(TFileFormatType::FORMAT_ORC);
-    TTableFormatFileDesc table;
-    table.__set_table_format_type("transactional_hive");
-    params.__set_table_format_params(table);
-    range.__set_table_format_params(table);
-    EXPECT_FALSE(RowIdStorageReader::should_use_file_scanner_v2(options, params, range));
-}
 
 TEST_F(RowIdStorageReaderTest, ExternalFetchPreservesIcebergFileMetadata) {
     TFileRangeDesc range;
