@@ -622,6 +622,11 @@ TEST_F(ColumnArrayTest, SharedCreateValidatesOffsetsAndDataSize) {
 }
 
 TEST_F(ColumnArrayTest, CreateArrayTest) {
+    // Even a zero-row constant must not become an Array's nested column.
+    auto nested = ColumnInt32::create();
+    nested->insert_default();
+    EXPECT_THROW(ColumnArray::create(ColumnConst::create(std::move(nested), 0)), Exception);
+
     // Test ColumnArray constructor constraints: nested_column and offsets_column must not be ColumnConst.
     // The constructor enforces this via check_const_only_in_top_level(), preventing COW-related issues:
     // - ColumnConst is immutable and meant for repeated values across rows
