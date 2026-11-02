@@ -30,6 +30,7 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/packed_file_manager.h"
 #include "io/fs/packed_file_writer.h"
 #include "io/fs/path.h"
 #include "util/slice.h"
@@ -131,6 +132,7 @@ public:
     void set_file_size(int64_t size) { _file_size = size; }
 
     MockFileWriterForMerge* last_writer() const { return _last_writer; }
+    const std::string& last_opened_path() const { return _last_opened_path; }
 
 protected:
     Status create_file_impl(const Path& file, FileWriterPtr* writer,
@@ -149,6 +151,7 @@ protected:
         if (!_open_status.ok()) {
             return _open_status;
         }
+        _last_opened_path = file.native();
         // Create a mock reader with some content
         auto mock_reader = std::make_shared<MockFileReader>("mock_content");
         *reader = std::move(mock_reader);
@@ -196,6 +199,7 @@ private:
     bool _exists_result = true;
     int64_t _file_size = 0;
     MockFileWriterForMerge* _last_writer = nullptr;
+    std::string _last_opened_path;
 };
 
 // Test fixture for PackedFileSystem
@@ -378,6 +382,52 @@ TEST_F(PackedFileSystemTest, OpenFileInMergeFile) {
     EXPECT_TRUE(st.ok());
     EXPECT_NE(reader, nullptr);
     EXPECT_EQ(reader->size(), index.size);
+}
+
+// A file of the rowset being written is not in any index map yet, so the writer side file
+// system has to find its slice through the manager
+TEST_F(PackedFileSystemTest, OpenFileOfRowsetBeingWrittenUsesManagerLocation) {
+    PackedSliceLocation location;
+    location.packed_file_path = "packed_file_being_written";
+    location.offset = 4;
+    location.size = 6;
+    auto& global_locations = PackedFileManager::instance()->global_slice_locations_for_test();
+    global_locations["being_written"] = std::make_shared<PackedSliceHandle>(location);
+
+    PackedFileSystem merge_fs(_inner_fs, _append_info);
+
+    FileReaderSPtr reader;
+    Status st = merge_fs.open_file(Path("being_written"), &reader, nullptr);
+    global_locations.erase("being_written");
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(_inner_fs->last_opened_path(), location.packed_file_path);
+    EXPECT_EQ(reader->size(), location.size);
+}
+
+// The index map of a rowset opened from its meta holds every packed slice of the rowset, so a
+// file missing from it is a regular file, whatever the manager still remembers about the path
+TEST_F(PackedFileSystemTest, OpenRegularFileOfOpenedRowsetIgnoresManager) {
+    PackedSliceLocation stale_location;
+    stale_location.packed_file_path = "stale_packed_file";
+    stale_location.offset = 4;
+    stale_location.size = 6;
+    auto& global_locations = PackedFileManager::instance()->global_slice_locations_for_test();
+    global_locations["regular_file"] = std::make_shared<PackedSliceHandle>(stale_location);
+
+    std::unordered_map<std::string, PackedSliceLocation> index_map;
+    PackedSliceLocation index;
+    index.packed_file_path = "packed_file_path";
+    index.offset = 10;
+    index.size = 20;
+    index_map["packed_file"] = index;
+    PackedFileSystem merge_fs(_inner_fs, index_map, _append_info);
+
+    FileReaderSPtr reader;
+    Status st = merge_fs.open_file(Path("regular_file"), &reader, nullptr);
+    global_locations.erase("regular_file");
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(_inner_fs->last_opened_path(), "regular_file");
+    EXPECT_EQ(reader->size(), std::string("mock_content").size());
 }
 
 TEST_F(PackedFileSystemTest, ExistsForMergeFile) {

@@ -524,7 +524,9 @@ Status PackedFileManager::get_packed_slice_location(const std::string& path,
     std::lock_guard<std::mutex> lock(_global_index_mutex);
     auto it = _global_slice_locations.find(path);
     if (it == _global_slice_locations.end()) {
-        return Status::NotFound("File not found in global packed index: {}", path);
+        // Not an error for the caller: a file too large to be packed is never indexed here
+        return Status::Error<ErrorCode::NOT_FOUND, false>(
+                "File not found in global packed index: {}", path);
     }
 
     *location = it->second->location();
