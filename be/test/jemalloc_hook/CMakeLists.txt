@@ -32,7 +32,7 @@ get_filename_component(DORIS_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../.." A
 set(THIRDPARTY_DIR "$ENV{DORIS_THIRDPARTY}/installed")
 find_package(Threads REQUIRED)
 
-foreach (LIB_NAME gtest gtest_main jemalloc_doris unwind lzma)
+foreach (LIB_NAME gtest gtest_main jemalloc_doris unwind lzma z)
     find_library(${LIB_NAME}_LIBRARY NAMES ${LIB_NAME}
         PATHS "${THIRDPARTY_DIR}/lib" "${THIRDPARTY_DIR}/lib64"
         NO_DEFAULT_PATH REQUIRED)
@@ -49,7 +49,10 @@ target_compile_definitions(jemalloc_hook_test PRIVATE
     JEMALLOC_HOOK_TEST_DSO="$<TARGET_FILE:jemalloc_hook_test_dso>")
 # Do not enable ENABLE_EXPORTS: verify the hook also works with the production
 # executable's default symbol visibility.
+# libunwind's compressed .debug_frame reader needs zlib's uncompress.
+# Keep its compression archives after unwind in the static link order.
 target_link_libraries(jemalloc_hook_test PRIVATE
     "${gtest_main_LIBRARY}" "${gtest_LIBRARY}" "${jemalloc_doris_LIBRARY}"
-    "${unwind_LIBRARY}" "${lzma_LIBRARY}" Threads::Threads ${CMAKE_DL_LIBS})
+    "${unwind_LIBRARY}" "${lzma_LIBRARY}" "${z_LIBRARY}"
+    Threads::Threads ${CMAKE_DL_LIBS})
 add_dependencies(jemalloc_hook_test jemalloc_hook_test_dso)
