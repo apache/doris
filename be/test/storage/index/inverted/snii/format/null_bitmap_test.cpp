@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <limits>
+#include <numeric>
 #include <span>
 #include <string>
 #include <vector>
@@ -78,6 +79,36 @@ TEST(SniiNullBitmap, RoundTripPerDoc) {
     for (uint32_t docid = 0; docid < doc_count; ++docid) {
         EXPECT_EQ(reader.is_null(docid), expected[docid]) << "docid=" << docid;
     }
+}
+
+// A long run of NULL rows -- the usual shape of a path that is absent from most rows of a sparse
+// column -- must be written as run containers: a few bytes per 65536 rows instead of 8 KiB of
+// bitset. The size reported ahead of the write must be the size written.
+TEST(SniiNullBitmap, RunsOfNullsSerializeAsRuns) {
+    constexpr uint32_t kRows = 1'000'000;
+    std::vector<uint32_t> nulls(kRows);
+    std::iota(nulls.begin(), nulls.end(), 0U);
+    NullBitmapWriter writer;
+    writer.add_many(nulls);
+
+    doris::snii::format::NullBitmapSerializationSizes sizes;
+    ASSERT_TRUE(writer.serialization_sizes(kRows, &sizes).ok());
+    // 16 containers of one run each; as bitsets they would take 16 * 8 KiB.
+    EXPECT_LT(sizes.roaring_bytes, 256U);
+
+    ByteSink sink;
+    ASSERT_TRUE(writer.finish(kRows, &sink).ok());
+    EXPECT_EQ(sink.size(), sizes.framed_bytes);
+
+    NullBitmapReader reader;
+    ASSERT_TRUE(NullBitmapReader::open(sink.view(), &reader).ok());
+    EXPECT_EQ(reader.null_count(), kRows);
+    EXPECT_TRUE(reader.is_null(0));
+    EXPECT_TRUE(reader.is_null(kRows - 1));
+    EXPECT_FALSE(reader.is_null(kRows));
+    uint64_t decoded_bytes = 0;
+    ASSERT_TRUE(NullBitmapReader::decoded_memory_bytes(sink.view(), &decoded_bytes).ok());
+    EXPECT_GT(decoded_bytes, 0U);
 }
 
 // Writer null_count reflects the number of distinct null docids added.

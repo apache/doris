@@ -17,6 +17,9 @@
 
 #include "information_schema/schema_catalog_meta_cache_stats_scanner.h"
 
+#include <algorithm>
+#include <array>
+
 #include "core/block/block.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/string_ref.h"
@@ -57,9 +60,17 @@ std::vector<SchemaScanner::ColumnDesc> SchemaCatalogMetaCacheStatsScanner::_s_tb
         {"ESTIMATED_WEIGHT", TYPE_BIGINT, sizeof(int64_t), true},
         {"WEIGHT_REJECT_COUNT", TYPE_BIGINT, sizeof(int64_t), true},
         {"LAST_WEIGHT_REJECT_REASON", TYPE_STRING, sizeof(StringRef), true},
+        {"WEIGHT_BOUNDED", TYPE_BOOLEAN, sizeof(bool), true},
+        {"EVICTION_WEIGHT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"CATALOG_MAX_WEIGHT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"CATALOG_ESTIMATED_WEIGHT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"GLOBAL_MAX_WEIGHT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"GLOBAL_ESTIMATED_WEIGHT", TYPE_BIGINT, sizeof(int64_t), true},
 };
 
-static constexpr size_t kLegacyMetaCacheStatsColumnCount = 24;
+// The leading columns that older FE versions know, newest first: the first weight columns came before the
+// budget hierarchy columns, and the base columns before any weight column.
+static constexpr std::array<size_t, 2> kOlderFeMetaCacheStatsColumnCounts = {28, 24};
 
 SchemaCatalogMetaCacheStatsScanner::SchemaCatalogMetaCacheStatsScanner()
         : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_CATALOG_META_CACHE_STATISTICS) {}
@@ -111,8 +122,13 @@ Status SchemaCatalogMetaCacheStatsScanner::_get_meta_cache_from_fe() {
             return status;
         }
         Status first_status = status;
-        result = TFetchSchemaTableDataResult();
-        status = _fetch_from_fe(kLegacyMetaCacheStatsColumnCount, &result, &fe_rejected);
+        for (size_t column_count : kOlderFeMetaCacheStatsColumnCounts) {
+            result = TFetchSchemaTableDataResult();
+            status = _fetch_from_fe(column_count, &result, &fe_rejected);
+            if (status.ok() || !fe_rejected) {
+                break;
+            }
+        }
         if (!status.ok()) {
             LOG(WARNING) << "fetch catalog meta cache stats from FE(" << _fe_addr.hostname
                          << ") failed, errmsg=" << first_status;
@@ -134,7 +150,10 @@ Status SchemaCatalogMetaCacheStatsScanner::_get_meta_cache_from_fe() {
     size_t col_size = _s_tbls_columns.size();
     if (!result_data.empty()) {
         col_size = result_data[0].column_value.size();
-        if (col_size != _s_tbls_columns.size() && col_size != kLegacyMetaCacheStatsColumnCount) {
+        if (col_size != _s_tbls_columns.size() &&
+            std::find(kOlderFeMetaCacheStatsColumnCounts.begin(),
+                      kOlderFeMetaCacheStatsColumnCounts.end(),
+                      col_size) == kOlderFeMetaCacheStatsColumnCounts.end()) {
             return Status::InternalError<false>(
                     "catalog meta cache stats schema is not match for FE and BE");
         }

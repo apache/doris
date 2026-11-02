@@ -36,6 +36,12 @@ bool can_score_match(const TabletIndex* index_meta) {
 
 bool IndexReaderHelper::is_need_similarity_score(InvertedIndexQueryType query_type,
                                                  const TabletIndex* index_meta) {
+    // A regexp scores a constant 1 per matching row, as an Elasticsearch regexp query does in
+    // query context. The constant reads no statistics, norms or positions, so every index can
+    // score it: body MATCH 'apple' AND body MATCH_REGEXP 'ap.*' adds 1 to the apple score.
+    if (query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY) {
+        return true;
+    }
     return (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
             query_type == InvertedIndexQueryType::MATCH_ALL_QUERY ||
             query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY ||
@@ -45,6 +51,10 @@ bool IndexReaderHelper::is_need_similarity_score(InvertedIndexQueryType query_ty
 
 bool IndexReaderHelper::is_need_similarity_score(TExprOpcode::type query_type,
                                                  const TabletIndex* index_meta) {
+    // See the InvertedIndexQueryType overload: a regexp scores a constant on every index.
+    if (query_type == TExprOpcode::MATCH_REGEXP) {
+        return true;
+    }
     return (query_type == TExprOpcode::MATCH_ANY || query_type == TExprOpcode::MATCH_ALL ||
             query_type == TExprOpcode::MATCH_PHRASE ||
             query_type == TExprOpcode::MATCH_PHRASE_PREFIX) &&

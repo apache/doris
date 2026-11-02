@@ -57,9 +57,7 @@ struct Point {
     uint32_t doc_id = 0;
 };
 
-// The build-time point array of design 6.2: fixed-width
-// [value: bytes_per_dim][doc_id: 4 big-endian] records whose whole-record memcmp
-// IS (value, doc_id) order.
+// Build points as fixed-width [value][big-endian doc ID] records.
 std::vector<uint8_t> pack(const std::vector<Point>& points) {
     std::vector<uint8_t> records;
     records.reserve(points.size() * kRecordSize);
@@ -81,9 +79,7 @@ std::vector<uint8_t> encode(const std::vector<Point>& points) {
     return sink.take();
 }
 
-// Every rejection below must be a Status, never a crash and never an out-of-bounds
-// read -- that is the whole point of routing leaf bytes through ByteSource and
-// checking each field as it is decoded (design 8).
+// Malformed leaf bytes must return Status without reading past the buffer.
 ::testing::AssertionResult IsCorrupted(const Status& status) {
     if (status.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) {
         return ::testing::AssertionSuccess();
@@ -228,8 +224,7 @@ TEST(SniiBkdLeafCodec, AllEqualLeafRoundTrips) {
     DecodedLeafBlock leaf;
     const std::vector<uint8_t> block = encode(points);
     ASSERT_TRUE(decode_leaf_block(Slice(block), kBytesPerDim, 6, &leaf).ok());
-    // Design 5.2: the prefix IS the value and there is no suffix data, so the
-    // whole leaf is one run.
+    // A full-width prefix leaves no suffix data.
     EXPECT_EQ(leaf.common_prefix.size(), kBytesPerDim);
     EXPECT_EQ(leaf.suffix_width, 0U);
     ASSERT_EQ(leaf.runs.size(), 1U);
@@ -278,7 +273,7 @@ TEST(SniiBkdLeafCodec, SinglePointLeafIsAllEqual) {
     ExpectRoundTrip({{-7, 12345}}, LeafValueMode::kAllEqual);
 }
 
-// Design 6.4: only the last leaf is short, so a full leaf is the common case.
+// A full leaf contains points_per_leaf points.
 TEST(SniiBkdLeafCodec, FullLeafRoundTrips) {
     std::vector<Point> points;
     points.reserve(kDefaultPointsPerLeaf);
@@ -348,9 +343,7 @@ TEST(SniiBkdLeafCodec, LongRunPrefersRle) {
 // Format
 // ---------------------------------------------------------------------------
 
-// Pins the on-disk layout of design 5.2 byte for byte. Assembled from the
-// encoding primitives directly, so nothing here depends on leaf_codec's own
-// serialization; a silent format drift breaks this test and nothing else.
+// Assemble expected bytes independently of the leaf encoder.
 TEST(SniiBkdLeafCodec, EncoderMatchesDocumentedLayout) {
     const std::vector<Point> points = rle_points();
     const std::vector<uint8_t> first_value = sortable_bigint(1);
@@ -391,8 +384,7 @@ TEST(SniiBkdLeafCodec, EmptyBlockIsCorrupted) {
     EXPECT_TRUE(IsCorrupted(decode_leaf_doc_ids(Slice(), kBytesPerDim, 1, &doc_ids)));
 }
 
-// Design 5.2: a point_count that disagrees with the leaf directory is corruption.
-// It is also what bounds the decode allocation.
+// A point count differing from the directory is corruption.
 TEST(SniiBkdLeafCodec, PointCountDisagreeingWithTheDirectoryIsCorrupted) {
     const std::vector<uint8_t> block = encode(raw_points());
     DecodedLeafBlock leaf;

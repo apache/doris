@@ -110,6 +110,16 @@ class PaimonCacheSizeEstimatorTest {
     }
 
     @Test
+    void wideSchemasAreWeighedCompletely() throws Exception {
+        // A walk of the whole schema ran out of the 10,000-visit budget at about 2,500 INT or 900 ROW columns, so a
+        // wider table never entered a weighted cache. MUTATION: estimating the schema as one graph -> incomplete
+        // -> red.
+        assertGrownDelta("wide fields", table("wide_fields_2000", 2_000, 0, 0, 0, null),
+                table("wide_fields_4000", 4_000, 0, 0, 0, null));
+        weight(rowColumnsTable("wide_rows_4000", 4_000));
+    }
+
+    @Test
     void everyTableCarriesAnAllowanceForItsFileIo() throws Exception {
         // A REST catalog gives each table its own RESTTokenFileIO or ResolvingFileIO and a Hive catalog a FileIO
         // per table location; all of them grow after admission, and none can be told apart from a FileIO the
@@ -283,6 +293,19 @@ class PaimonCacheSizeEstimatorTest {
         for (int i = 0; i < optionCount; i++) {
             builder.option("option_" + i, "value_" + i);
         }
+        LocalFileIO fileIO = LocalFileIO.create();
+        Path path = new Path(warehouse.resolve(name).toUri());
+        new FileSystemSchemaManager(fileIO, path).createTable(builder.build());
+        return FileStoreTableFactory.create(fileIO, path);
+    }
+
+    private FileStoreTable rowColumnsTable(String name, int columns) throws Exception {
+        Schema.Builder builder = Schema.newBuilder().column("part", DataTypes.INT());
+        for (int i = 0; i < columns; i++) {
+            builder.column("row_" + i, DataTypes.ROW(DataTypes.FIELD(0, "a", DataTypes.INT()),
+                    DataTypes.FIELD(1, "b", DataTypes.STRING())));
+        }
+        builder.partitionKeys("part");
         LocalFileIO fileIO = LocalFileIO.create();
         Path path = new Path(warehouse.resolve(name).toUri());
         new FileSystemSchemaManager(fileIO, path).createTable(builder.build());

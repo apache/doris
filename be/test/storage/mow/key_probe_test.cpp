@@ -496,8 +496,7 @@ protected:
         RowCache::instance()->insert({tablet_id, Slice {key}}, Slice {"row"});
     }
 
-    // encode_mow_key_invalidate_cache the way the fill loops call it: the column accessors must
-    // outlive the call, so the convertor stays alive here.
+    // encode_mow_key_invalidate_cache the way the fill loops call it.
     std::string encode_and_invalidate(const TabletSchemaSPtr& schema, const RowKeyEncoder& encoder,
                                       int32_t k, bool row_has_seq, int32_t seq,
                                       DataWriteType write_type) {
@@ -506,25 +505,15 @@ protected:
                                   : schema->create_storage_block({0});
         block.get_by_position(0).column->assert_mutable()->insert_data(
                 reinterpret_cast<const char*>(&k), sizeof(int32_t));
-        OlapBlockDataConvertor convertor;
-        convertor.add_column_data_convertor(schema->column(0));
+        const IColumn* seq_column = nullptr;
         if (row_has_seq) {
             block.get_by_position(1).column->assert_mutable()->insert_data(
                     reinterpret_cast<const char*>(&seq), sizeof(int32_t));
-            convertor.add_column_data_convertor(schema->column(seq_idx));
+            seq_column = block.get_by_position(1).column.get();
         }
-        convertor.set_source_content(&block, 0, 1);
-        auto [key_st, key_accessor] = convertor.convert_column_data(0);
-        EXPECT_TRUE(key_st.ok()) << key_st;
-        IOlapColumnDataAccessor* seq_accessor = nullptr;
-        if (row_has_seq) {
-            auto [seq_st, accessor] = convertor.convert_column_data(1);
-            EXPECT_TRUE(seq_st.ok()) << seq_st;
-            seq_accessor = accessor;
-        }
-        std::vector<IOlapColumnDataAccessor*> key_columns {key_accessor};
+        std::vector<const IColumn*> key_columns {block.get_by_position(0).column.get()};
         return segment_v2::encode_mow_key_invalidate_cache(
-                encoder, key_columns, seq_accessor, 0, row_has_seq, kTabletId, *schema, write_type);
+                encoder, key_columns, seq_column, 0, row_has_seq, kTabletId, *schema, write_type);
     }
 
     RowCache* _cache = nullptr;

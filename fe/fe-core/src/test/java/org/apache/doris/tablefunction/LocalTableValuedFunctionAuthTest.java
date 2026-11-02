@@ -50,12 +50,15 @@ public class LocalTableValuedFunctionAuthTest {
     private final AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
     private final SystemInfoService systemInfo = Mockito.mock(SystemInfoService.class);
     private final BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
+    private MockedStatic<LocalTableValuedFunction> mockedLocal;
     private MockedStatic<Env> mockedEnv;
     private MockedStatic<ConnectContext> mockedContext;
     private MockedStatic<BackendServiceProxy> mockedProxy;
 
     @BeforeEach
     public void setUp() throws Exception {
+        // Isolate the retained authorization logic from the unconditional admission rejection.
+        mockedLocal = Mockito.mockStatic(LocalTableValuedFunction.class);
         mockedEnv = Mockito.mockStatic(Env.class);
         mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
         mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(systemInfo);
@@ -76,6 +79,7 @@ public class LocalTableValuedFunctionAuthTest {
 
     @AfterEach
     public void tearDown() {
+        mockedLocal.close();
         mockedProxy.close();
         mockedContext.close();
         mockedEnv.close();

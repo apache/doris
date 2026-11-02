@@ -31,122 +31,114 @@ suite("test_file_cache_features", "p0,external,nonConcurrent") {
         return;
     }
 
-    sql """set enable_file_cache=true"""
-    sql """set disable_file_cache=false"""
+    withStableFileCache {
 
-    // Check backend configuration prerequisites
-    // Note: This test case assumes a single backend scenario. Testing with single backend is logically equivalent 
-    // to testing with multiple backends having identical configurations, but simpler in logic.
-    def enableFileCacheResult = sql """show backend config like 'enable_file_cache';"""
-    logger.info("enable_file_cache configuration: " + enableFileCacheResult)
-    assertFalse(enableFileCacheResult.size() == 0 || !enableFileCacheResult[0][3].equalsIgnoreCase("true"),
-            ENABLE_FILE_CACHE_CHECK_FAILED_MSG)
-    
-    def fileCachePathResult = sql """show backend config like 'file_cache_path';"""
-    logger.info("file_cache_path configuration: " + fileCachePathResult)
-    assertFalse(fileCachePathResult.size() == 0 || fileCachePathResult[0][3] == null || fileCachePathResult[0][3].trim().isEmpty(),
-            FILE_CACHE_PATH_CHECK_FAILED_MSG)
+        // Check backend configuration prerequisites
+        // Note: This test case assumes a single backend scenario. Testing with single backend is logically equivalent
+        // to testing with multiple backends having identical configurations, but simpler in logic.
+        def enableFileCacheResult = sql """show backend config like 'enable_file_cache';"""
+        logger.info("enable_file_cache configuration: " + enableFileCacheResult)
+        assertFalse(enableFileCacheResult.size() == 0 || !enableFileCacheResult[0][3].equalsIgnoreCase("true"),
+                ENABLE_FILE_CACHE_CHECK_FAILED_MSG)
 
-    String catalog_name = "test_file_cache_features"
-    String ex_db_name = "`tpch1_parquet`"
-    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-    String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+        def fileCachePathResult = sql """show backend config like 'file_cache_path';"""
+        logger.info("file_cache_path configuration: " + fileCachePathResult)
+        assertFalse(fileCachePathResult.size() == 0 || fileCachePathResult[0][3] == null || fileCachePathResult[0][3].trim().isEmpty(),
+                FILE_CACHE_PATH_CHECK_FAILED_MSG)
 
-    def cacheMetricMax = { String metricName ->
-        def r = sql """select max(cast(METRIC_VALUE as double)) from information_schema.file_cache_statistics
-                where METRIC_NAME = '${metricName}';"""
-        return (r.size() == 0 || r[0][0] == null) ? null : Double.valueOf(r[0][0].toString())
-    }
+        String catalog_name = "test_file_cache_features"
+        String ex_db_name = "`tpch1_parquet`"
+        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+        String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
 
-    sql """drop catalog if exists ${catalog_name} """
+        def cacheMetricMax = { String metricName ->
+            def r = sql """select max(cast(METRIC_VALUE as double)) from information_schema.file_cache_statistics
+                    where METRIC_NAME = '${metricName}';"""
+            return (r.size() == 0 || r[0][0] == null) ? null : Double.valueOf(r[0][0].toString())
+        }
 
-    sql """CREATE CATALOG ${catalog_name} PROPERTIES (
-        'type'='hms',
-        'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
-        'hadoop.username' = 'hive'
-    );"""
+        sql """drop catalog if exists ${catalog_name} """
 
-    sql """switch ${catalog_name}"""
-    sql """select l_returnflag, l_linestatus, 
-        sum(l_quantity) as sum_qty, 
-        sum(l_extendedprice) as sum_base_price, 
-        sum(l_extendedprice * (1 - l_discount)) as sum_disc_price, 
-        sum(l_extendedprice * (1 - l_discount) * (1 + l_tax)) as sum_charge, 
-        avg(l_quantity) as avg_qty, 
-        avg(l_extendedprice) as avg_price, 
-        avg(l_discount) as avg_disc, 
-        count(*) as count_order 
-    from ${catalog_name}.${ex_db_name}.lineitem 
-    where l_shipdate <= date '1998-12-01' - interval '90' day 
-    group by l_returnflag, l_linestatus 
-    order by l_returnflag, l_linestatus;"""
-    
-    def fileCacheBackgroundMonitorIntervalMsResult = sql """show backend config like 'file_cache_background_monitor_interval_ms';"""
-    logger.info("file_cache_background_monitor_interval_ms configuration: " + fileCacheBackgroundMonitorIntervalMsResult)
-    assertFalse(fileCacheBackgroundMonitorIntervalMsResult.size() == 0 || fileCacheBackgroundMonitorIntervalMsResult[0][3] == null ||
-            fileCacheBackgroundMonitorIntervalMsResult[0][3].trim().isEmpty(), "file_cache_background_monitor_interval_ms is empty or not set to true")
+        sql """CREATE CATALOG ${catalog_name} PROPERTIES (
+            'type'='hms',
+            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
+            'hadoop.username' = 'hive'
+        );"""
 
-    def totalWaitTime = (fileCacheBackgroundMonitorIntervalMsResult[0][3].toInteger() / 1000) as int
-    int pollTimeoutSeconds = Math.max(30, totalWaitTime * 6)
+        sql """switch ${catalog_name}"""
+        sql """select l_returnflag, l_linestatus,
+            sum(l_quantity) as sum_qty,
+            sum(l_extendedprice) as sum_base_price,
+            sum(l_extendedprice * (1 - l_discount)) as sum_disc_price,
+            sum(l_extendedprice * (1 - l_discount) * (1 + l_tax)) as sum_charge,
+            avg(l_quantity) as avg_qty,
+            avg(l_extendedprice) as avg_price,
+            avg(l_discount) as avg_disc,
+            count(*) as count_order
+        from ${catalog_name}.${ex_db_name}.lineitem
+        where l_shipdate <= date '1998-12-01' - interval '90' day
+        group by l_returnflag, l_linestatus
+        order by l_returnflag, l_linestatus;"""
 
-    awaitUntil(pollTimeoutSeconds, 1) {
-        return cacheMetricMax('disk_resource_limit_mode') != null &&
-                cacheMetricMax('need_evict_cache_in_advance') != null &&
-                cacheMetricMax('disk_resource_limit_mode') == 0.0 &&
-                cacheMetricMax('need_evict_cache_in_advance') == 0.0
-    }
+        def fileCacheBackgroundMonitorIntervalMsResult = sql """show backend config like 'file_cache_background_monitor_interval_ms';"""
+        logger.info("file_cache_background_monitor_interval_ms configuration: " + fileCacheBackgroundMonitorIntervalMsResult)
+        assertFalse(fileCacheBackgroundMonitorIntervalMsResult.size() == 0 || fileCacheBackgroundMonitorIntervalMsResult[0][3] == null ||
+                fileCacheBackgroundMonitorIntervalMsResult[0][3].trim().isEmpty(), "file_cache_background_monitor_interval_ms is empty or not set to true")
 
-    double initialDiskResourceLimitMode = cacheMetricMax('disk_resource_limit_mode')
-    double initialNeedEvictCacheInAdvance = cacheMetricMax('need_evict_cache_in_advance')
-    logger.info("Initial file cache features values - disk_resource_limit_mode: ${initialDiskResourceLimitMode}, " +
-            "need_evict_cache_in_advance: ${initialNeedEvictCacheInAdvance}")
-    assertTrue(initialDiskResourceLimitMode == 0.0, INITIAL_DISK_RESOURCE_LIMIT_MODE_CHECK_FAILED_MSG)
-    assertTrue(initialNeedEvictCacheInAdvance == 0.0, INITIAL_NEED_EVICT_CACHE_IN_ADVANCE_CHECK_FAILED_MSG)
-
-    // Set backend configuration parameters for testing
-    setBeConfigTemporary([
-        "file_cache_enter_disk_resource_limit_mode_percent": "2",
-        "file_cache_exit_disk_resource_limit_mode_percent": "1"
-    ]) {
-        // Execute test logic with modified configuration
-        logger.info("Backend configuration set - file_cache_enter_disk_resource_limit_mode_percent: 2, " +
-            "file_cache_exit_disk_resource_limit_mode_percent: 1")
+        def totalWaitTime = (fileCacheBackgroundMonitorIntervalMsResult[0][3].toInteger() / 1000) as int
+        int pollTimeoutSeconds = Math.max(30, totalWaitTime * 6)
 
         awaitUntil(pollTimeoutSeconds, 1) {
             return cacheMetricMax('disk_resource_limit_mode') != null &&
-                    cacheMetricMax('disk_resource_limit_mode') == 1.0
+                    cacheMetricMax('need_evict_cache_in_advance') != null &&
+                    cacheMetricMax('disk_resource_limit_mode') == 0.0 &&
+                    cacheMetricMax('need_evict_cache_in_advance') == 0.0
         }
-        logger.info("Disk resource limit mode is now active (value = ${cacheMetricMax('disk_resource_limit_mode')})")
-    }
 
-    awaitUntil(pollTimeoutSeconds, 1) {
-        return cacheMetricMax('disk_resource_limit_mode') != null &&
-                cacheMetricMax('disk_resource_limit_mode') == 0.0
-    }
-    
-    // Set backend configuration parameters for need_evict_cache_in_advance testing
-    setBeConfigTemporary([
-        "enable_evict_file_cache_in_advance": "true",
-        "file_cache_enter_need_evict_cache_in_advance_percent": "2",
-        "file_cache_exit_need_evict_cache_in_advance_percent": "1"
-    ]) {
-        // Execute test logic with modified configuration for need_evict_cache_in_advance
-        logger.info("Backend configuration set for need_evict_cache_in_advance - " +
-            "enable_evict_file_cache_in_advance: true, " +
-            "file_cache_enter_need_evict_cache_in_advance_percent: 2, " +
-            "file_cache_exit_need_evict_cache_in_advance_percent: 1")
+        double initialDiskResourceLimitMode = cacheMetricMax('disk_resource_limit_mode')
+        double initialNeedEvictCacheInAdvance = cacheMetricMax('need_evict_cache_in_advance')
+        logger.info("Initial file cache features values - disk_resource_limit_mode: ${initialDiskResourceLimitMode}, " +
+                "need_evict_cache_in_advance: ${initialNeedEvictCacheInAdvance}")
+        assertTrue(initialDiskResourceLimitMode == 0.0, INITIAL_DISK_RESOURCE_LIMIT_MODE_CHECK_FAILED_MSG)
+        assertTrue(initialNeedEvictCacheInAdvance == 0.0, INITIAL_NEED_EVICT_CACHE_IN_ADVANCE_CHECK_FAILED_MSG)
+
+        // Zero thresholds enter on any filesystem. Nest updates to keep enter >= exit
+        // while applying and restoring settings, even if the monitor runs between calls.
+        setBeConfigTemporary(["file_cache_exit_disk_resource_limit_mode_percent": "0"]) {
+            setBeConfigTemporary(["file_cache_enter_disk_resource_limit_mode_percent": "0"]) {
+                awaitUntil(pollTimeoutSeconds, 1) {
+                    return cacheMetricMax('disk_resource_limit_mode') != null &&
+                            cacheMetricMax('disk_resource_limit_mode') == 1.0
+                }
+                logger.info("Disk resource limit mode is now active (value = ${cacheMetricMax('disk_resource_limit_mode')})")
+            }
+        }
+
+        awaitUntil(pollTimeoutSeconds, 1) {
+            return cacheMetricMax('disk_resource_limit_mode') != null &&
+                    cacheMetricMax('disk_resource_limit_mode') == 0.0
+        }
+
+        // The cache directory consumes an inode, whose used percentage rounds up to at
+        // least one. This triggers eviction without assuming a busy test-host disk.
+        setBeConfigTemporary(["file_cache_exit_need_evict_cache_in_advance_percent": "0"]) {
+            setBeConfigTemporary([
+                "file_cache_enter_need_evict_cache_in_advance_percent": "1",
+                "enable_evict_file_cache_in_advance": "true"
+            ]) {
+                awaitUntil(pollTimeoutSeconds, 1) {
+                    return cacheMetricMax('need_evict_cache_in_advance') != null &&
+                            cacheMetricMax('need_evict_cache_in_advance') == 1.0
+                }
+                logger.info("Need evict cache in advance mode is now active (value = ${cacheMetricMax('need_evict_cache_in_advance')})")
+            }
+        }
 
         awaitUntil(pollTimeoutSeconds, 1) {
             return cacheMetricMax('need_evict_cache_in_advance') != null &&
-                    cacheMetricMax('need_evict_cache_in_advance') == 1.0
+                    cacheMetricMax('need_evict_cache_in_advance') == 0.0
         }
-        logger.info("Need evict cache in advance mode is now active (value = ${cacheMetricMax('need_evict_cache_in_advance')})")
-    }
 
-    awaitUntil(pollTimeoutSeconds, 1) {
-        return cacheMetricMax('need_evict_cache_in_advance') != null &&
-                cacheMetricMax('need_evict_cache_in_advance') == 0.0
+        return true
     }
-
-    return true
 }

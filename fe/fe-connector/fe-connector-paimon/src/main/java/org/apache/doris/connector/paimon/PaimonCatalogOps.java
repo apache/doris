@@ -312,7 +312,7 @@ public interface PaimonCatalogOps {
             // so this must not invalidate: REFRESH, Doris writes and DDL invalidate through CatalogMetaCache.
             Table table = catalog.getTable(identifier);
             Map<String, String> optionsForCopy = PaimonTableOptions.forCopy(tableOptions);
-            return optionsForCopy.isEmpty() ? table : table.copy(optionsForCopy);
+            return optionsForCopy.isEmpty() ? table : PaimonScanParams.copyWithHistoricalSchema(table, optionsForCopy);
         }
 
         @Override

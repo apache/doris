@@ -58,7 +58,7 @@ suite("test_ai_profile", "p0") {
                     // String functions send a JSON array of inputs in the user message.
                     // Return one result per input even when several rows share a request.
                     def inputs = new JsonSlurper().parseText(request.messages.find { it.role == "user" }.content)
-                    content = JsonOutput.toJson(inputs.collect { "ok" })
+                    content = JsonOutput.toJson([results: inputs.collect { "ok" }])
                 }
                 response = [choices: [[message: [content: content]]]]
                 if (path != "/missing") {

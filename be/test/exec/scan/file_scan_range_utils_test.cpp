@@ -21,6 +21,31 @@
 
 namespace doris {
 
+TEST(FileScanRangeUtilsTest, RemovedFormatsCannotUseLegacyOrMetadataReads) {
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    TFileRangeDesc range;
+    range.__set_format_type(TFileFormatType::FORMAT_ORC);
+    EXPECT_TRUE(validate_file_scan_support(params, &range).ok());
+    for (const auto* format : {"transactional_hive", "lakesoul"}) {
+        TTableFormatFileDesc table;
+        table.__set_table_format_type(format);
+        table.__set_table_level_row_count(10);
+        range.__set_table_format_params(table);
+        EXPECT_FALSE(validate_file_scan_support(params, &range).ok());
+        range.__isset.table_format_params = false;
+        params.__set_table_format_params(table);
+        EXPECT_FALSE(validate_file_scan_support(params).ok());
+        EXPECT_FALSE(validate_file_scan_support(params, &range).ok());
+        params.__isset.table_format_params = false;
+    }
+    params.__set_format_type(TFileFormatType::FORMAT_AVRO);
+    EXPECT_FALSE(validate_file_scan_support(params).ok());
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    range.__set_format_type(TFileFormatType::FORMAT_AVRO);
+    EXPECT_FALSE(validate_file_scan_support(params, &range).ok());
+}
+
 TEST(FileScanRangeUtilsTest, IcebergFilesCannotBeIgnored) {
     TFileRangeDesc range;
     range.table_format_params.__set_table_format_type("iceberg");

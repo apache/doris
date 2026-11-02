@@ -56,7 +56,9 @@ TEST_F(FunctionCastTest, jsonb_source_skips_null_rows) {
                                                      {1, 0, 1, 0}),
                           from_type, "from"},
                          {nullptr, to_type, "to"}};
-            ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr).ok());
+            ASSERT_TRUE(fn(ctx.get(), block.get_by_position(0), block.get_by_position(1),
+                           block.rows(), nullptr)
+                                .ok());
             const auto& result =
                     assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
             ASSERT_EQ(result.size(), 4);
@@ -75,7 +77,8 @@ TEST_F(FunctionCastTest, jsonb_source_skips_null_rows) {
                                                        {1, 0, 0, 0}),
                             from_type, "from"},
                            {nullptr, to_type, "to"}};
-            auto st = fn(ctx.get(), invalid, {0}, 1, invalid.rows(), nullptr);
+            auto st = fn(ctx.get(), invalid.get_by_position(0), invalid.get_by_position(1),
+                         invalid.rows(), nullptr);
             if (strict) {
                 EXPECT_FALSE(st.ok());
             } else {
@@ -101,7 +104,9 @@ TEST_F(FunctionCastTest, jsonb_source_string_skips_null_rows) {
         Block block {
                 {make_nullable_jsonb_column({R"("bad")", R"("ok")"}, {1, 0}), from_type, "from"},
                 {nullptr, to_type, "to"}};
-        ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr).ok());
+        ASSERT_TRUE(fn(ctx.get(), block.get_by_position(0), block.get_by_position(1), block.rows(),
+                       nullptr)
+                            .ok());
         const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
         ASSERT_EQ(result.size(), 2);
         EXPECT_TRUE(result.is_null_at(0));
@@ -126,7 +131,9 @@ TEST_F(FunctionCastTest, jsonb_destination_skips_null_struct_rows) {
                                           ColumnHelper::create_column<DataTypeUInt8>(null_map));
         };
         Block block {{build_source({1, 1}), from_type, "from"}, {nullptr, to_type, "to"}};
-        ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr).ok());
+        ASSERT_TRUE(fn(ctx.get(), block.get_by_position(0), block.get_by_position(1), block.rows(),
+                       nullptr)
+                            .ok());
         const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
         ASSERT_EQ(result.size(), 2);
         EXPECT_TRUE(result.is_null_at(0));
@@ -137,7 +144,8 @@ TEST_F(FunctionCastTest, jsonb_destination_skips_null_struct_rows) {
         // The same field name must cause an error when its row is visible, in either mode.
         for (const auto& mask : {std::vector<UInt8> {1, 0}, std::vector<UInt8> {0, 0}}) {
             Block invalid {{build_source(mask), from_type, "from"}, {nullptr, to_type, "to"}};
-            auto st = fn(ctx.get(), invalid, {0}, 1, invalid.rows(), nullptr);
+            auto st = fn(ctx.get(), invalid.get_by_position(0), invalid.get_by_position(1),
+                         invalid.rows(), nullptr);
             EXPECT_FALSE(st.ok());
             EXPECT_NE(st.to_string().find("key size exceeds max limit"), std::string::npos);
         }
@@ -164,7 +172,9 @@ TEST_F(FunctionCastTest, jsonb_destination_skips_hidden_struct_and_keeps_visible
                                           ColumnHelper::create_column<DataTypeUInt8>(null_map));
         };
         Block block {{build_source({1, 0, 1, 0}), from_type, "from"}, {nullptr, to_type, "to"}};
-        ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr).ok());
+        ASSERT_TRUE(fn(ctx.get(), block.get_by_position(0), block.get_by_position(1), block.rows(),
+                       nullptr)
+                            .ok());
         const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
         ASSERT_EQ(result.size(), 4);
         for (size_t i = 0; i < 4; ++i) {
@@ -176,7 +186,8 @@ TEST_F(FunctionCastTest, jsonb_destination_skips_hidden_struct_and_keeps_visible
         EXPECT_EQ(result.get_nested_column().get_data_at(2).size, 0);
 
         Block invalid {{build_source({1, 0, 0, 0}), from_type, "from"}, {nullptr, to_type, "to"}};
-        auto st = fn(ctx.get(), invalid, {0}, 1, invalid.rows(), nullptr);
+        auto st = fn(ctx.get(), invalid.get_by_position(0), invalid.get_by_position(1),
+                     invalid.rows(), nullptr);
         EXPECT_FALSE(st.ok());
         EXPECT_NE(st.to_string().find("key size exceeds max limit"), std::string::npos);
     }
@@ -197,7 +208,9 @@ TEST_F(FunctionCastTest, jsonb_destination_numeric_skips_null_rows) {
             auto ctx = create_context(strict);
             auto fn = get_cast_wrapper(ctx.get(), from_type, to_type);
             Block block {{source, from_type, "from"}, {nullptr, to_type, "to"}};
-            ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr).ok());
+            ASSERT_TRUE(fn(ctx.get(), block.get_by_position(0), block.get_by_position(1),
+                           block.rows(), nullptr)
+                                .ok());
             const auto& result =
                     assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
             ASSERT_EQ(result.size(), 2);

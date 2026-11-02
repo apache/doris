@@ -103,11 +103,91 @@ char* DataTypeNullable::serialize(const IColumn& column, char* buf, int be_exec_
 
 const char* DataTypeNullable::deserialize(const char* buf, MutableColumnPtr* column,
                                           int be_exec_version) const {
+    return deserialize(buf, nullptr, column, be_exec_version);
+}
+
+const char* DataTypeNullable::deserialize(const char* buf, const char* end,
+                                          MutableColumnPtr* column, int be_exec_version) const {
     auto* origin_column = column->get();
+    constexpr size_t header_size = sizeof(bool) + 2 * sizeof(size_t);
+    if (end != nullptr) {
+        if (end < buf || static_cast<size_t>(end - buf) < header_size) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Malformed nullable column: missing serialized header");
+        }
+        uint8_t is_const_flag = unaligned_load<uint8_t>(buf);
+        if (is_const_flag > 1) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Malformed nullable column: invalid const flag {}", is_const_flag);
+        }
+        bool is_const = is_const_flag != 0;
+        size_t row_num = unaligned_load<size_t>(buf + sizeof(bool));
+        size_t saved_num = unaligned_load<size_t>(buf + sizeof(bool) + sizeof(size_t));
+        if (saved_num != (is_const ? 1 : row_num)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Malformed nullable column: inconsistent row count {}, saved count {}",
+                            row_num, saved_num);
+        }
+    }
+
     size_t real_have_saved_num = 0;
     buf = deserialize_const_flag_and_row_num(buf, column, &real_have_saved_num);
 
-    auto mem_size = real_have_saved_num * sizeof(bool);
+    if (end != nullptr) {
+        size_t remaining = static_cast<size_t>(end - buf);
+        size_t null_map_size = real_have_saved_num * sizeof(bool);
+        if (null_map_size <= SERIALIZED_MEM_SIZE_LIMIT) {
+            if (null_map_size > remaining) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Malformed nullable column: truncated null map");
+            }
+        } else {
+            if (remaining < sizeof(size_t)) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Malformed nullable column: missing null map length");
+            }
+            size_t encode_size = unaligned_load<size_t>(buf);
+            size_t payload_remaining = remaining - sizeof(size_t);
+            if (encode_size > payload_remaining ||
+                payload_remaining - encode_size < STREAMVBYTE_PADDING) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Malformed nullable column: encoded null map exceeds input");
+            }
+            const uint8_t* encoded_data = reinterpret_cast<const uint8_t*>(buf + sizeof(size_t));
+            uint32_t value_count = cast_set<UInt32>(upper_int32(null_map_size));
+            size_t control_bytes = (static_cast<size_t>(value_count) + 3) / 4;
+            if (control_bytes > encode_size) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Malformed nullable column: null map control bytes exceed input");
+            }
+
+            // StreamVByte stores one control byte per four integers, and each
+            // two-bit code selects one to four data bytes for its integer.
+            size_t expected_encode_size = control_bytes;
+            size_t remaining_values = value_count;
+            for (size_t i = 0; i < control_bytes; ++i) {
+                uint8_t control = encoded_data[i];
+                size_t values_in_group = std::min<size_t>(remaining_values, 4);
+                for (size_t j = 0; j < values_in_group; ++j) {
+                    size_t value_bytes = ((control >> (j * 2)) & 0x03) + 1;
+                    if (value_bytes > encode_size - expected_encode_size) {
+                        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                        "Malformed nullable column: null map data exceeds input");
+                    }
+                    expected_encode_size += value_bytes;
+                }
+                remaining_values -= values_in_group;
+            }
+            if (expected_encode_size != encode_size) {
+                throw Exception(
+                        ErrorCode::INVALID_ARGUMENT,
+                        "Malformed nullable column: encoded null map size mismatch: {} != {}",
+                        expected_encode_size, encode_size);
+            }
+        }
+    }
+
+    size_t mem_size = real_have_saved_num * sizeof(bool);
     auto* col = assert_cast<ColumnNullable*>(origin_column);
     // A nullable column can be exclusive while its subcolumns are still shared
     // after a shallow COW clone. Detach both owner slots before writing into them.
@@ -124,12 +204,18 @@ const char* DataTypeNullable::deserialize(const char* buf, MutableColumnPtr* col
         size_t encode_size = unaligned_load<size_t>(buf);
         buf += sizeof(size_t);
         // Throw exception if mem_size is large than UINT32_MAX
-        streamvbyte_decode((const uint8_t*)buf, (uint32_t*)(null_map_data.data()),
-                           cast_set<UInt32>(upper_int32(mem_size)));
+        uint32_t value_count = cast_set<UInt32>(upper_int32(mem_size));
+        size_t decoded_bytes = streamvbyte_decode((const uint8_t*)buf,
+                                                  (uint32_t*)(null_map_data.data()), value_count);
+        if (decoded_bytes != encode_size) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Malformed nullable column: decoded null map size mismatch: {} != {}",
+                            decoded_bytes, encode_size);
+        }
         buf += encode_size;
     }
 
-    buf = nested_data_type->deserialize(buf, &nested, be_exec_version);
+    buf = nested_data_type->deserialize(buf, end, &nested, be_exec_version);
     col->replace_columns(std::move(nested), std::move(null_map));
     return buf;
 }

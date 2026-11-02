@@ -29,7 +29,7 @@
 
 namespace doris {
 class BaseTablet;
-class IOlapColumnDataAccessor;
+class IColumn;
 class RowKeyEncoder;
 class TabletSchema;
 class SegmentCacheHandle;
@@ -181,10 +181,11 @@ private:
     Policy _policy;
 };
 
-std::string encode_mow_key_invalidate_cache(
-        const RowKeyEncoder& key_encoder, const std::vector<IOlapColumnDataAccessor*>& key_columns,
-        const IOlapColumnDataAccessor* seq_column, size_t pos, bool row_has_seq, int64_t tablet_id,
-        const TabletSchema& schema, DataWriteType write_type);
+std::string encode_mow_key_invalidate_cache(const RowKeyEncoder& key_encoder,
+                                            const std::vector<const IColumn*>& key_columns,
+                                            const IColumn* seq_column, size_t pos, bool row_has_seq,
+                                            int64_t tablet_id, const TabletSchema& schema,
+                                            DataWriteType write_type);
 
 } // namespace segment_v2
 } // namespace doris

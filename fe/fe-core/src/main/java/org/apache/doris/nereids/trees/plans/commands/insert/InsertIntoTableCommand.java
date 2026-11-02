@@ -462,6 +462,7 @@ public class InsertIntoTableCommand extends Command
             );
             InsertUtils.pinConnectorWriteSchema(
                     ctx.getStatementContext(), targetTableIf, originLogicalQuery, branchName);
+            InsertUtils.checkNormalizedWriteGeneration(ctx.getStatementContext(), targetTableIf, insertCtx);
             if (!(this instanceof InsertIntoDictionaryCommand)) {
                 // process inline table (default values, empty values)
                 if (needNormalizePlan) {

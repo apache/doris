@@ -25,6 +25,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.RowTtlConfig;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletBinlogConfig;
@@ -439,8 +440,22 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
         updateCloudPartitionMeta(table, partition, param);
     }
 
+    @Override
+    protected void updatePartitionProperties(Database db, OlapTable table, Partition partition,
+            long storagePolicyId, int isInMemory, TabletBinlogConfig binlogConfig, String compactionPolicy,
+            Map<String, Long> timeSeriesCompactionConfig, int skipWriteIndexOnLoad,
+            int disableAutoCompaction, int verticalCompactionNumColumnsPerGroup, RowTtlConfig rowTtlConfig)
+            throws UserException {
+        Preconditions.checkNotNull(rowTtlConfig);
+        UpdatePartitionMetaParam param = new UpdatePartitionMetaParam();
+        param.rowTtlConfig = rowTtlConfig;
+        param.type = UpdatePartitionMetaParam.TabletMetaType.ROW_TTL;
+        updateCloudPartitionMeta(table, partition, param);
+    }
+
     private static class UpdatePartitionMetaParam {
         public enum TabletMetaType {
+            ROW_TTL,
             INMEMORY,
             PERSISTENT,
             TTL_SECONDS,
@@ -476,6 +491,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
         boolean enableMowLightDelete = false;
         int verticalCompactionNumColumnsPerGroup = 5;
         TabletBinlogConfig binlogConfig;
+        RowTtlConfig rowTtlConfig;
     }
 
     public void updateCloudPartitionMeta(Database db,
@@ -502,7 +518,8 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
         List<Long> tabletIds = new ArrayList<>();
         olapTable.readLock();
         try {
-            boolean includeChangelog = param.type != UpdatePartitionMetaParam.TabletMetaType.COMPACTION_POLICY;
+            boolean includeChangelog = param.type != UpdatePartitionMetaParam.TabletMetaType.COMPACTION_POLICY
+                    && param.type != UpdatePartitionMetaParam.TabletMetaType.ROW_TTL;
             for (MaterializedIndex index
                     : partition.getMaterializedIndices(IndexExtState.VISIBLE, includeChangelog)) {
                 for (Tablet tablet : index.getTablets()) {
@@ -527,6 +544,9 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                 Cloud.TabletMetaInfoPB.Builder infoBuilder = Cloud.TabletMetaInfoPB.newBuilder();
                 infoBuilder.setTabletId(tabletIds.get(index));
                 switch (param.type) {
+                    case ROW_TTL:
+                        infoBuilder.setRowTtlConfig(param.rowTtlConfig.toPb());
+                        break;
                     case PERSISTENT:
                         infoBuilder.setIsPersistent(param.isPersistent);
                         break;
@@ -608,6 +628,10 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                 throw new UserException(response.getStatus().getMsg());
             }
 
+            if (param.rowTtlConfig != null && (!response.hasRowTtlConfigVersion()
+                    || response.getRowTtlConfigVersion() != param.rowTtlConfig.getConfigVersion())) {
+                throw new UserException("Meta service did not acknowledge the row TTL configuration version");
+            }
             notifyBackendsToSyncTabletMeta(tableName, updateTabletReq.getTabletMetaInfosList().stream()
                     .map(Cloud.TabletMetaInfoPB::getTabletId)
                     .collect(Collectors.toList()));

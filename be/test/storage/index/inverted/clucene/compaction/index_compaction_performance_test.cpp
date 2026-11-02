@@ -69,7 +69,7 @@ protected:
         config::enable_ordered_data_compaction = false;
         config::total_permits_for_compaction_score = 200000;
         config::inverted_index_ram_dir_enable = true;
-        config::string_type_length_soft_limit_bytes = 10485760;
+        _origin_string_soft_limit = config::string_type_length_soft_limit_bytes;
     }
     void TearDown() override {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
@@ -86,7 +86,7 @@ protected:
         config::enable_ordered_data_compaction = true;
         config::total_permits_for_compaction_score = 1000000;
         config::inverted_index_ram_dir_enable = true;
-        config::string_type_length_soft_limit_bytes = 1048576;
+        config::string_type_length_soft_limit_bytes = _origin_string_soft_limit;
     }
 
     DISABLED_IndexCompactionPerformanceTest() = default;
@@ -215,6 +215,7 @@ private:
     TabletSharedPtr _tablet = nullptr;
     std::string _absolute_dir;
     std::string _current_dir;
+    decltype(config::string_type_length_soft_limit_bytes) _origin_string_soft_limit = 0;
     int64_t _inc_id = 1000;
 };
 

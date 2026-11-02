@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.hms;
 
+import org.apache.doris.connector.spi.scan.ConnectorScanContext;
+
 import java.io.Closeable;
 import java.util.Collections;
 import java.util.List;
@@ -133,6 +135,14 @@ public interface HmsClient extends Closeable {
     List<String> listPartitionNames(String dbName, String tableName,
             int maxParts);
 
+    default List<String> listPartitionNames(String dbName, String tableName, int maxParts,
+            ConnectorScanContext scanContext) {
+        scanContext.checkCancelled();
+        List<String> names = listPartitionNames(dbName, tableName, maxParts);
+        scanContext.checkCancelled();
+        return names;
+    }
+
     /**
      * Lists partition names bypassing any decorator cache (a FRESH metastore listing). SHOW PARTITIONS and the
      * {@code partitions} metadata TVF need a fresh view (legacy read the raw pooled client, never the metadata
@@ -203,6 +213,19 @@ public interface HmsClient extends Closeable {
                 .logicalElapsedNanos(System.nanoTime() - startNanos)
                 .build();
         return new HmsPartitionBatchResult(partitions, stats);
+    }
+
+    /**
+     * Request-owned scan lookup. Implementations that split a lookup into physical requests check the context
+     * before each request. Caching decorators may share completed values, but must isolate cancellable loads
+     * from callers with a different context.
+     */
+    default HmsPartitionBatchResult getExistingPartitionsWithStats(String dbName, String tableName,
+            List<String> partNames, ConnectorScanContext scanContext) {
+        scanContext.checkCancelled();
+        HmsPartitionBatchResult result = getExistingPartitionsWithStats(dbName, tableName, partNames);
+        scanContext.checkCancelled();
+        return result;
     }
 
     /**
@@ -367,66 +390,6 @@ public interface HmsClient extends Closeable {
     default boolean partitionExists(String dbName, String tableName,
             List<String> partitionValues) {
         throw new UnsupportedOperationException("partitionExists is not supported by this client");
-    }
-
-    // ========== Phase 4: ACID transactions ==========
-    //
-    // Read-side ACID primitives for transactional Hive tables. Like the Phase 3 block, they default
-    // to throwing so read-only / non-transactional clients need not implement them.
-
-    /**
-     * Open a Hive ACID transaction.
-     *
-     * @param user the user opening the transaction
-     * @return the new transaction id
-     * @throws HmsClientException if the operation fails
-     */
-    default long openTxn(String user) {
-        throw new UnsupportedOperationException("openTxn is not supported by this client");
-    }
-
-    /**
-     * Commit a Hive ACID transaction (also releases the transaction's locks).
-     *
-     * @param txnId the transaction id
-     * @throws HmsClientException if the operation fails
-     */
-    default void commitTxn(long txnId) {
-        throw new UnsupportedOperationException("commitTxn is not supported by this client");
-    }
-
-    /**
-     * Get the valid-transaction / valid-write-id snapshot for a transactional table, as the two
-     * Hadoop-configuration entries ({@link HmsAcidConstants}) that BE consumes for ACID reads. On a
-     * metastore-incompatibility error the implementation degrades to a max watermark rather than
-     * failing the read.
-     *
-     * @param fullTableName        fully-qualified "db.table"
-     * @param currentTransactionId the reader's open transaction id
-     * @return map with {@link HmsAcidConstants#VALID_TXNS_KEY} and
-     *         {@link HmsAcidConstants#VALID_WRITEIDS_KEY}
-     * @throws HmsClientException if the operation fails
-     */
-    default Map<String, String> getValidWriteIds(String fullTableName, long currentTransactionId) {
-        throw new UnsupportedOperationException("getValidWriteIds is not supported by this client");
-    }
-
-    /**
-     * Acquire a shared (read) lock over a table and, if given, specific partitions, polling until the
-     * lock is granted or the timeout elapses.
-     *
-     * @param queryId        the query id (lock owner)
-     * @param txnId          the transaction id
-     * @param user           the requesting user
-     * @param dbName         database name
-     * @param tableName      table name
-     * @param partitionNames partitions to lock; empty locks the whole table
-     * @param timeoutMs      maximum time to wait for the lock, in milliseconds
-     * @throws HmsClientException if the lock cannot be acquired within the timeout
-     */
-    default void acquireSharedLock(String queryId, long txnId, String user, String dbName,
-            String tableName, List<String> partitionNames, long timeoutMs) {
-        throw new UnsupportedOperationException("acquireSharedLock is not supported by this client");
     }
 
     /**

@@ -204,9 +204,16 @@ suite("iceberg_and_internal_nested_namespace", "p0,external") {
     sql """refresh database `ns1.ns2`"""
     sql """refresh table ${catalog_name}.`ns1.ns2`.nested_tbl2"""
     sql """refresh table `ns1.ns2`.nested_tbl2"""
+    // Cache invalidation must succeed even when no table object exists on the executing FE.
+    sql """refresh table ${catalog_name}.`ns1.ns2`.nested_tbl2xxx"""
+    sql """refresh table `ns1.ns2`.nested_tbl2xxx"""
     test {
-        sql """refresh table `ns1.ns2`.nested_tbl2xxx"""
-        exception """Table nested_tbl2xxx does not exist in db ns1.ns2"""
+        sql """select * from `ns1.ns2`.nested_tbl2xxx"""
+        exception """Table [nested_tbl2xxx] does not exist in database [ns1.ns2]"""
+    }
+    test {
+        sql """refresh table ${catalog_name}.`ns1.ns2.missing`.nested_tbl2"""
+        exception """Database ns1.ns2.missing does not exist in catalog ${catalog_name}"""
     }
     // drop ns1.ns2 first, we can still see it after refresh, because ns1.ns2.ns3 still exists
     sql """drop database `ns1.ns2` force"""

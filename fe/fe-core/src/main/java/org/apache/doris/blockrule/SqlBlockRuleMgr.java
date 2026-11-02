@@ -268,6 +268,15 @@ public class SqlBlockRuleMgr implements Writable {
     }
 
     /**
+     * Partition-aware rules require the existing engine partition view. Conservatively include enabled
+     * user-bound rules too, so rebinding an existing rule during planning cannot bypass its checks.
+     */
+    public boolean hasPartitionMetadataRules() {
+        return nameToSqlBlockRuleMap.values().stream().anyMatch(rule -> rule.getEnable()
+                && (rule.getPartitionNum() > 0 || Boolean.TRUE.equals(rule.getRequirePartitionFilter())));
+    }
+
+    /**
      * Check number whether legal by user.
      **/
     public void checkLimitations(Long partitionNum, Long tabletNum, Long cardinality, String user)
@@ -311,6 +320,13 @@ public class SqlBlockRuleMgr implements Writable {
             throws AnalysisException {
         if (!rule.getEnable()) {
             return;
+        }
+        if (partitionNum < 0 && (rule.getPartitionNum() > 0
+                || Boolean.TRUE.equals(rule.getRequirePartitionFilter()))) {
+            // A partition-aware rule was created after the scan chose native planning. Do not treat an
+            // unknown partition count as zero; a retry plans with the newly installed rule's exact view.
+            throw new AnalysisException("Partition metadata rule changed during planning; retry the query: "
+                    + rule.getName());
         }
         if (Boolean.TRUE.equals(rule.getRequirePartitionFilter()) && isPartitionedTable && !hasPartitionPredicate) {
             MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);

@@ -20,7 +20,9 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.kerberos.HadoopAuthenticator;
+import org.apache.doris.kerberos.HadoopKerberosAuthenticator;
 
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DataFiles;
@@ -28,18 +30,28 @@ import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.aws.s3.S3FileIO;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.StorageCredential;
 import org.apache.iceberg.metrics.MetricsReporter;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.PrivilegedExceptionAction;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 /**
  * Guards the Kerberos scan-planning seam (the FOURTH plugin-side UGI doAs locus, after DDL /
@@ -83,6 +95,82 @@ public class IcebergScanPlanProviderKerberosScanIoTest {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.table = table;
         return ops;
+    }
+
+    private static Table tableWithFileIO(FileIO io) {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        BaseTable table = (BaseTable) catalog.createTable(TableIdentifier.of("db1", "t1"),
+                SCHEMA, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.DEFAULT_FILE_FORMAT, "parquet"));
+        return new BaseTable(new IcebergAuthenticatedTableOperations(table.operations(), io), table.name());
+    }
+
+    @Test
+    public void xmlKerberosScanKeepsRestStorageCredentials(@TempDir Path tmp) throws Exception {
+        Path resource = tmp.resolve("core-site.xml");
+        Files.writeString(resource, "<configuration>"
+                + "<property><name>hadoop.security.authentication</name><value>kerberos</value></property>"
+                + "<property><name>hadoop.kerberos.principal</name><value>storage@EXAMPLE.COM</value></property>"
+                + "<property><name>hadoop.kerberos.keytab</name><value>unused.keytab</value></property>"
+                + "</configuration>");
+        Configuration xml = new Configuration(false);
+        xml.addResource(new org.apache.hadoop.fs.Path(resource.toUri()));
+        Map<String, String> storageConfig = new HashMap<>();
+        xml.forEach(entry -> storageConfig.put(entry.getKey(), entry.getValue()));
+        Map<String, String> props = Map.of("iceberg.catalog.type", "rest",
+                "iceberg.rest.vended-credentials-enabled", "true", "hadoop.config.resources", resource.toString());
+        HadoopAuthenticator auth = IcebergConnector.buildPluginAuthenticator(props, storageConfig);
+        Assertions.assertInstanceOf(HadoopKerberosAuthenticator.class, auth);
+
+        try (S3FileIO io = new S3FileIO()) {
+            io.initialize(Collections.emptyMap());
+            Map<String, String> credentials = Map.of("s3.access-key-id", "temporary-ak",
+                    "s3.secret-access-key", "temporary-sk", "s3.session-token", "temporary-token");
+            io.setCredentials(Collections.singletonList(StorageCredential.create("s3://bucket", credentials)));
+            Assertions.assertTrue(io.properties().isEmpty(), "REST credentials live outside FileIO properties");
+            TcclPinningConnectorContext context = new TcclPinningConnectorContext(
+                    new RecordingConnectorContext(), getClass().getClassLoader(), () -> auth);
+            Table table = tableWithFileIO(io);
+            IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                    IcebergCatalogProperties.of(props), opsReturning(table), context);
+            Table wrapped = provider.wrapTableForScan(provider.wrapTableForScan(table));
+
+            Assertions.assertEquals(credentials, IcebergScanPlanProvider.extractVendedToken(wrapped, true));
+            Assertions.assertTrue(IcebergScanPlanProvider.extractVendedToken(wrapped, false).isEmpty());
+            Map<String, String> refreshed = Map.of("s3.access-key-id", "refreshed-ak",
+                    "s3.secret-access-key", "refreshed-sk", "s3.session-token", "refreshed-token");
+            io.setCredentials(Collections.singletonList(StorageCredential.create("s3://bucket", refreshed)));
+            Assertions.assertEquals(refreshed, IcebergScanPlanProvider.extractVendedToken(wrapped, true));
+        }
+    }
+
+    @Test
+    public void kerberosScanForwardsRestStorageCredentialsToBe() {
+        try (S3FileIO io = new S3FileIO()) {
+            io.initialize(Collections.emptyMap());
+            io.setCredentials(Collections.singletonList(StorageCredential.create("s3://bucket",
+                    Map.of("s3.access-key-id", "temporary-ak", "s3.secret-access-key", "temporary-sk",
+                            "s3.session-token", "temporary-token"))));
+            Table table = tableWithFileIO(io);
+            RecordingAuthenticator auth = new RecordingAuthenticator();
+            RecordingConnectorContext delegate = new RecordingConnectorContext();
+            delegate.vendedBeProps = Map.of("AWS_ACCESS_KEY", "temporary-ak", "AWS_SECRET_KEY", "temporary-sk",
+                    "AWS_TOKEN", "temporary-token");
+            TcclPinningConnectorContext context = new TcclPinningConnectorContext(
+                    delegate, getClass().getClassLoader(), () -> auth);
+            IcebergScanPlanProvider provider = new IcebergScanPlanProvider(IcebergCatalogProperties.of(
+                    Map.of("iceberg.catalog.type", "rest", "iceberg.rest.vended-credentials-enabled", "true")),
+                    opsReturning(table), context);
+
+            Map<String, String> props = provider.getScanNodeProperties(null,
+                    new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+
+            Assertions.assertEquals("temporary-ak", props.get("location.AWS_ACCESS_KEY"));
+            Assertions.assertEquals("temporary-sk", props.get("location.AWS_SECRET_KEY"));
+            Assertions.assertEquals("temporary-token", props.get("location.AWS_TOKEN"));
+        }
     }
 
     /** Counts plugin-side doAs invocations; runs the action inline (no real UGI/KDC involved). */

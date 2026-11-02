@@ -85,7 +85,8 @@ public:
     SniiPostingsCursor(const LogicalIndexReader& idx, format::DictEntry entry, uint64_t frq_base,
                        uint64_t prx_base, bool positions, bool scoring,
                        const format::NormsPodReader* norms, SniiReadWave* wave = nullptr,
-                       format::PrxDecodeStats* prx_stats = nullptr);
+                       format::PrxDecodeStats* prx_stats = nullptr,
+                       ZstdDecompressor* zstd = nullptr);
     ~SniiPostingsCursor() override;
 
     // A prelude the caller already read; call before the first read.
@@ -187,6 +188,8 @@ private:
     const format::NormsPodReader* _norms;
     SniiReadWave* _wave;
     format::PrxDecodeStats* _prx_stats;
+    // Decompresses the zstd .prx windows when given; each window decompresses on its own otherwise.
+    ZstdDecompressor* _zstd;
     Kind _kind;
     // The wave of a cursor given none.
     std::unique_ptr<SniiReadWave> _own_wave;

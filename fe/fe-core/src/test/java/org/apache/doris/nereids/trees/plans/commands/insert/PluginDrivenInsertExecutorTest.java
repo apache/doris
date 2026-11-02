@@ -32,6 +32,7 @@ import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.write.ConnectorSinkPlan;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.planner.PluginDrivenTableSink;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.transaction.PluginDrivenTransactionManager;
@@ -189,6 +190,33 @@ public class PluginDrivenInsertExecutorTest {
     }
 
     @Test
+    public void overwriteOfASourceProvenEmptyStillRunsItsTransaction() {
+        // A sink planned directly on an empty relation (a single-writer plan of a source folded away, such as
+        // LIMIT 0) makes the write an empty insert. An overwrite of nothing still replaces the table or the static
+        // partition with nothing, so it must reach the connector's commit instead of skipping it and reporting
+        // success. (Mutation: drop the requiresTransaction override -> both overwrites skip their transaction.)
+        PluginDrivenInsertCommandContext wholeTable = new PluginDrivenInsertCommandContext();
+        wholeTable.setOverwrite(true);
+        Assertions.assertTrue(emptyInsertExecutor(Optional.of(wholeTable)).requiresTransaction(),
+                "an empty overwrite of the whole table must still clear the table");
+
+        PluginDrivenInsertCommandContext staticPartition = new PluginDrivenInsertCommandContext();
+        staticPartition.setOverwrite(true);
+        staticPartition.setStaticPartitionSpecFromExpressions(
+                Collections.singletonMap("p", new StringLiteral("a")));
+        Assertions.assertTrue(emptyInsertExecutor(Optional.of(staticPartition)).requiresTransaction(),
+                "an empty overwrite of a static partition must still clear the partition");
+    }
+
+    @Test
+    public void insertOfASourceProvenEmptySkipsItsTransaction() {
+        // An INSERT of no rows has nothing to commit.
+        Assertions.assertFalse(emptyInsertExecutor(Optional.of(new PluginDrivenInsertCommandContext()))
+                .requiresTransaction());
+        Assertions.assertFalse(emptyInsertExecutor(Optional.empty()).requiresTransaction());
+    }
+
+    @Test
     public void doBeforeCommitBackfillsLoadedRowsWhenTransactionReportsCount() throws UserException {
         // Transaction model with a real row count (e.g. maxcompute): BE reports rows only through
         // the connector transaction's commit-data, so doBeforeCommit must backfill loadedRows from
@@ -237,6 +265,16 @@ public class PluginDrivenInsertExecutorTest {
      */
     private static PluginDrivenInsertExecutor newUnconstructedExecutor() {
         return Mockito.mock(PluginDrivenInsertExecutor.class, Mockito.CALLS_REAL_METHODS);
+    }
+
+    /** An executor whose sink sits directly on an empty relation, as initPlan builds it for such a plan. */
+    private static PluginDrivenInsertExecutor emptyInsertExecutor(Optional<InsertCommandContext> insertCtx) {
+        PluginDrivenInsertExecutor exec = newUnconstructedExecutor();
+        Deencapsulation.setField(exec, "emptyInsert", true);
+        // Field initializers do not run without the constructor.
+        Deencapsulation.setField(exec, "streamUpdateInfos", Collections.emptyList());
+        Deencapsulation.setField(exec, "insertCtx", insertCtx);
+        return exec;
     }
 
     /** Write ops that hand back a fixed connector transaction and record the handle the executor threads in. */

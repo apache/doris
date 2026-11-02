@@ -27,6 +27,7 @@
 #include "storage/index/inverted/snii/bkd/bkd_builder.h"
 #include "storage/index/inverted/snii/bkd/staged_blob_file.h"
 #include "storage/index/inverted/snii/encoding/byte_sink.h"
+#include "storage/index/inverted/snii/writer/memory_reporter.h"
 #include "storage/olap_common.h"
 
 namespace doris {
@@ -62,9 +63,9 @@ public:
     ~SniiBkdIndexColumnWriter() override;
 
     Status init() override;
-    Status add_values(const std::string name, const void* values, size_t count) override;
-    Status add_array_values(size_t field_size, const void* value_ptr, const uint8_t* null_map,
-                            const uint8_t* offsets_ptr, size_t count) override;
+    Status add_values(const uint8_t* values, size_t count) override;
+    Status add_array_values(size_t field_size, const uint8_t* value_ptr, const uint8_t* null_map,
+                            const uint64_t* offsets_ptr, size_t count) override;
     Status add_nulls(uint32_t count) override;
     Status add_array_nulls(const uint8_t* null_map, size_t num_rows) override;
     Status finish() override;
@@ -74,7 +75,7 @@ public:
 private:
     // Encodes one CppType-wide value at `value` through the index's own key
     // coder and appends it as a point for `docid`.
-    Status _add_value(const void* value, uint32_t docid);
+    Status _add_value(const uint8_t* value, uint32_t docid);
 
     IndexFileWriter* _index_file_writer = nullptr;
     const TabletIndex* _index_meta = nullptr;
@@ -84,9 +85,19 @@ private:
     uint32_t _value_size = 0;
     const KeyCoder* _value_key_coder = nullptr;
 
+    // Reserves room for `count` more NULL docids, charging the larger capacity to the reporter first.
+    Status _reserve_null_docids_for_append(size_t count);
+
+    // Build-time RAM accounting, shared with the builder: the NULL docids below and the builder's
+    // point buffer show up in the process-wide SNII build tracker while they are held. Declared
+    // before everything that holds a Reservation on it, so it is destroyed last.
+    std::unique_ptr<::doris::snii::writer::MemoryReporter> _memory_reporter;
+
     // Segment-local row id of the NEXT row to arrive. Advanced by both value
     // runs and null runs, so it is the row count once the column is exhausted.
     uint32_t _rid = 0;
+    // Declared before the vector it charges for, so the vector is freed before its charge is returned.
+    ::doris::snii::writer::MemoryReporter::Reservation _null_docids_reservation;
     std::vector<uint32_t> _null_docids;
 
     std::unique_ptr<::doris::snii::bkd::BkdBuilder> _builder;

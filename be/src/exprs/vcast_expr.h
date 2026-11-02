@@ -16,6 +16,7 @@
 // under the License.
 
 #pragma once
+#include <functional>
 #include <string>
 
 #include "common/object_pool.h"
@@ -24,7 +25,6 @@
 #include "core/data_type/data_type.h"
 #include "core/data_type/define_primitive_type.h"
 #include "exprs/aggregate/aggregate_function.h"
-#include "exprs/function/function.h"
 #include "exprs/function_context.h"
 #include "exprs/vexpr.h"
 
@@ -76,18 +76,21 @@ public:
     }
 
 protected:
-    FunctionBasePtr _function;
+    using CastExecutor =
+            std::function<Status(RuntimeState*, const ColumnWithTypeAndName&,
+                                 ColumnWithTypeAndName&, size_t, const NullMap::value_type*)>;
+    Status execute_cast(RuntimeState* state, const ColumnWithTypeAndName& source,
+                        const DataTypePtr& result_type, size_t rows,
+                        ColumnPtr& result_column) const;
+    CastExecutor _cast_executor;
     std::string _expr_name;
+    RuntimeState* _runtime_state = nullptr;
 
 private:
     DataTypePtr _target_data_type;
     std::string _target_data_type_name;
 
-    DataTypePtr _cast_param_data_type;
-
     bool _is_strict_cast = false;
-
-    static const constexpr char* function_name = "CAST";
 };
 
 class TryCastExpr final : public VCastExpr {

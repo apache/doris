@@ -31,9 +31,6 @@
 
 namespace doris {
 
-class OlapBlockDataConvertor;
-struct VariantColumnData;
-
 namespace segment_v2 {
 
 class VariantShredder;
@@ -52,13 +49,13 @@ Status make_variant_shredder_options(const TabletSchema& tablet_schema,
                                      VariantShredderPhysicalLayout physical_layout,
                                      VariantShredderOptions* options);
 
-Status classify_variant_writer_input(const VariantColumnData& column,
-                                     VariantWriterInputFormat current_format,
+Status classify_variant_writer_input(const IColumn& column, VariantWriterInputFormat current_format,
                                      std::string_view writer_description,
                                      VariantWriterInputFormat* input_format);
 
-Status append_variant_v2_to_shredder(VariantShredder* shredder, const VariantColumnData& column,
-                                     size_t num_rows, std::span<const uint8_t> outer_nulls);
+Status append_variant_v2_to_shredder(VariantShredder* shredder, const IColumn& column,
+                                     size_t row_pos, size_t num_rows,
+                                     std::span<const uint8_t> outer_nulls);
 
 void init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
                       const ColumnWriterOptions& opts);
@@ -70,12 +67,6 @@ Status create_column_writer(uint32_t cid, const TabletColumn& column,
                             ColumnWriterOptions* opt, int64_t none_null_value_size,
                             bool need_record_none_null_value_size);
 
-Status convert_and_write_column(OlapBlockDataConvertor* converter, const TabletColumn& column,
-                                DataTypePtr data_type, ColumnWriter* writer,
-                                const ColumnPtr& src_column, size_t num_rows, int column_id);
-
-// Converts only present values. Missing logical rows are appended as NULL; ARRAY uses a one-path
-// full-column fallback because its converted representation is not fixed-width/strided.
 #ifdef BE_TEST
 // Number of all-NULL ARRAY chunks written through the array path. The dispatch must never send
 // them to the scalar append_nulls fast path, which does not maintain the inverted index.
@@ -83,10 +74,11 @@ uint64_t array_all_null_chunks_for_test();
 void reset_array_all_null_chunks_for_test();
 #endif
 
-Status append_sparse_converted_column(const TabletColumn& tablet_column, ColumnWriter* writer,
-                                      OlapBlockDataConvertor* converter, int column_id,
-                                      const DataTypePtr& type, const ColumnPtr& values_column,
-                                      std::span<const uint32_t> rowids, size_t total_rows);
+// Writes `total_rows` rows: row rowids[i] takes values_column[i], every other row is NULL. ARRAY
+// takes a one-path full-column fallback because its NULL rows must reach the index writers too.
+Status append_sparse_column(const TabletColumn& tablet_column, ColumnWriter* writer,
+                            const DataTypePtr& type, const ColumnPtr& values_column,
+                            std::span<const uint32_t> rowids, size_t total_rows);
 
 void maybe_remove_root_jsonb_with_empty_defaults(MutableColumnPtr* root_column, size_t num_rows,
                                                  bool remove_root_jsonb);

@@ -21,11 +21,14 @@
 #include <gtest/gtest.h>
 #include <sys/resource.h>
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <memory>
 #include <roaring/roaring.hh>
 #include <set>
 #include <string>
+#include <vector>
 
 #include "io/fs/local_file_system.h"
 #include "runtime/runtime_state.h"
@@ -36,6 +39,7 @@
 #include "storage/index/inverted/common/string_helper.h"
 #include "storage/index/inverted/query/engine/expand_query/expand_weight.h"
 #include "storage/index/inverted/query/scoring/collection_similarity.h"
+#include "storage/index/inverted/query/spi/index_source.h"
 #include "storage/index/inverted/reader/collection_statistics.h"
 
 CL_NS_USE(store)
@@ -382,6 +386,269 @@ TEST_F(PhrasePrefixQueryV2Test, scorer_with_scoring) {
     EXPECT_GT(docs.size(), 0);
 
     _CLDECDELETE(dir);
+}
+
+// --- PhrasePrefixWeight scorer: the expanded terms count in the idf ---
+
+// "quick bro" expands to brother and brown, "quick brot" to brother alone: a document holding
+// "quick brother" scores on the idf of the phrase terms plus that of every term the prefix expands
+// to, all of them from the statistics of the tablet. Those statistics describe 1000 documents
+// where the segment holds 20, so an idf read from the segment would differ.
+TEST_F(PhrasePrefixQueryV2Test, prefix_expansions_add_their_idf_to_the_score) {
+    auto ctx = std::make_shared<IndexQueryContext>();
+    ctx->collection_statistics = std::make_shared<CollectionStatistics>();
+    ctx->collection_similarity = std::make_shared<CollectionSimilarity>();
+
+    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto reader = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    const std::wstring field = StringHelper::to_wstring("content");
+    auto& stats = *ctx->collection_statistics;
+    stats._total_num_docs = 1000;
+    stats._total_num_tokens[field] = 8000;
+    stats._term_doc_freqs[field][StringHelper::to_wstring("quick")] = 100;
+    stats._term_doc_freqs[field][StringHelper::to_wstring("brother")] = 3;
+    stats._term_doc_freqs[field][StringHelper::to_wstring("brown")] = 400;
+    auto& bro = stats._prefix_expansions[field]
+                        .try_emplace(StringHelper::to_wstring("bro"), 50)
+                        .first->second;
+    bro.insert(StringHelper::to_wstring("brother"));
+    bro.insert(StringHelper::to_wstring("brown"));
+    stats._prefix_expansions[field]
+            .try_emplace(StringHelper::to_wstring("brot"), 50)
+            .first->second.insert(StringHelper::to_wstring("brother"));
+
+    const auto score_of_brother = [&](const std::string& prefix) {
+        PhrasePrefixQuery q(ctx, field, make_term_infos({"quick", prefix}));
+        auto w = q.weight(true);
+        QueryExecutionContext exec_ctx;
+        exec_ctx.segment_num_rows = reader->maxDoc();
+        exec_ctx.field_sources.emplace(field, clucene_index_source(reader, field, nullptr));
+        auto scorer = w->scorer(exec_ctx, "");
+        EXPECT_EQ(scorer->seek(10), 10);
+        return scorer->score();
+    };
+    const auto idf = [&](const std::string& term) {
+        return stats.get_or_calculate_idf(field, StringHelper::to_wstring(term));
+    };
+    const float avgdl = stats.get_or_calculate_avg_dl(field);
+
+    BM25Similarity brother_only(idf("quick") + idf("brother"), avgdl);
+    BM25Similarity brother_and_brown(idf("quick") + idf("brother") + idf("brown"), avgdl);
+    // The document holds the phrase once and the source reports no norms.
+    EXPECT_FLOAT_EQ(score_of_brother("brot"), brother_only.score(1.0F, 1));
+    EXPECT_FLOAT_EQ(score_of_brother("bro"), brother_and_brown.score(1.0F, 1));
+    EXPECT_GT(score_of_brother("bro"), score_of_brother("brot"));
+
+    _CLDECDELETE(dir);
+}
+
+// A statistics object that collected no expansion of the prefix, as for a SEARCH predicate, scores
+// the phrase terms alone.
+TEST_F(PhrasePrefixQueryV2Test, prefix_without_collected_expansions_scores_the_phrase_terms) {
+    auto ctx = std::make_shared<IndexQueryContext>();
+    ctx->collection_statistics = std::make_shared<CollectionStatistics>();
+    ctx->collection_similarity = std::make_shared<CollectionSimilarity>();
+
+    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto reader = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    const std::wstring field = StringHelper::to_wstring("content");
+    auto& stats = *ctx->collection_statistics;
+    stats._total_num_docs = 1000;
+    stats._total_num_tokens[field] = 8000;
+    stats._term_doc_freqs[field][StringHelper::to_wstring("quick")] = 100;
+
+    PhrasePrefixQuery q(ctx, field, make_term_infos({"quick", "bro"}));
+    auto w = q.weight(true);
+    QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = reader->maxDoc();
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader, field, nullptr));
+    auto scorer = w->scorer(exec_ctx, "");
+    ASSERT_EQ(scorer->seek(10), 10);
+
+    BM25Similarity quick_only(stats.get_or_calculate_idf(field, StringHelper::to_wstring("quick")),
+                              stats.get_or_calculate_avg_dl(field));
+    EXPECT_FLOAT_EQ(scorer->score(), quick_only.score(1.0F, 1));
+
+    _CLDECDELETE(dir);
+}
+
+// --- segment statistics: the terms a prefix expands to ---
+
+// "quick bro" collects quick, then the terms of the segment starting with bro. A term the scoring
+// terms already hold is listed once, and each prefix keeps the terms it expanded to.
+TEST_F(PhrasePrefixQueryV2Test, segment_statistics_count_the_terms_a_prefix_expands_to) {
+    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto reader = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    const std::wstring field = StringHelper::to_wstring("content");
+    auto source = clucene_index_source(reader, field, nullptr);
+
+    CollectInfo collect_info;
+    TermInfo quick;
+    quick.term = std::string("quick");
+    ASSERT_TRUE(scoring_collection_detail::append_scoring_leaf(&collect_info, {quick}).ok());
+    TermInfo bro;
+    bro.term = std::string("bro");
+    scoring_collection_detail::append_scoring_prefix(&collect_info, bro, 50);
+    TermInfo quic;
+    quic.term = std::string("quic");
+    scoring_collection_detail::append_scoring_prefix(&collect_info, quic, 50);
+
+    FieldPrefixExpansions expansions;
+    std::vector<std::string> terms;
+    const collection_statistics_detail::VisibleDocFreq doc_freq = [&source](const std::string& term,
+                                                                            uint64_t* out) {
+        return source->doc_freq(term, out);
+    };
+    ASSERT_TRUE(collection_statistics_detail::segment_scoring_terms(*source, collect_info, doc_freq,
+                                                                    &expansions, &terms)
+                        .ok());
+    // quick is held twice, as a scoring term and as an expansion of quic, and listed once.
+    EXPECT_EQ(terms, (std::vector<std::string> {"quick", "brother", "brown", "quickly"}));
+    EXPECT_EQ(expansions.at(StringHelper::to_wstring("bro")).terms(),
+              (std::set<std::wstring> {StringHelper::to_wstring("brother"),
+                                       StringHelper::to_wstring("brown")}));
+    EXPECT_EQ(expansions.at(StringHelper::to_wstring("quic")).terms(),
+              (std::set<std::wstring> {StringHelper::to_wstring("quick"),
+                                       StringHelper::to_wstring("quickly")}));
+
+    // At most max_expansions terms of the dictionary, in order.
+    CollectInfo limited;
+    scoring_collection_detail::append_scoring_prefix(&limited, bro, 1);
+    expansions.clear();
+    ASSERT_TRUE(collection_statistics_detail::segment_scoring_terms(*source, limited, doc_freq,
+                                                                    &expansions, &terms)
+                        .ok());
+    EXPECT_EQ(terms, (std::vector<std::string> {"brother"}));
+
+    // A term held by hidden rows alone has no visible document and takes no place: with a limit
+    // of 1 the prefix expands to brown, the next term, and the same after the hidden rows are
+    // compacted away. All terms hidden leaves nothing, however far the dictionary is read.
+    const auto brother_hidden = [&source](const std::string& term, uint64_t* out) {
+        RETURN_IF_ERROR(source->doc_freq(term, out));
+        if (term == "brother") {
+            *out = 0;
+        }
+        return Status::OK();
+    };
+    expansions.clear();
+    ASSERT_TRUE(collection_statistics_detail::segment_scoring_terms(
+                        *source, limited, brother_hidden, &expansions, &terms)
+                        .ok());
+    EXPECT_EQ(terms, (std::vector<std::string> {"brown"}));
+    EXPECT_EQ(expansions.at(StringHelper::to_wstring("bro")).terms(),
+              std::set<std::wstring> {StringHelper::to_wstring("brown")});
+
+    const auto all_hidden = [](const std::string&, uint64_t* out) {
+        *out = 0;
+        return Status::OK();
+    };
+    expansions.clear();
+    ASSERT_TRUE(collection_statistics_detail::segment_scoring_terms(*source, limited, all_hidden,
+                                                                    &expansions, &terms)
+                        .ok());
+    EXPECT_TRUE(terms.empty());
+    EXPECT_TRUE(expansions.at(StringHelper::to_wstring("bro")).terms().empty());
+
+    _CLDECDELETE(dir);
+}
+
+namespace {
+
+// A dictionary alone: it lists the terms that start with a prefix, in byte order.
+class DictionaryOnlySource final : public index_query::IndexSource {
+public:
+    explicit DictionaryOnlySource(std::vector<std::string> terms) : _terms(std::move(terms)) {
+        std::ranges::sort(_terms);
+    }
+
+    uint32_t doc_count() const override { return 1; }
+
+    Status open_term(std::string_view, bool, bool,
+                     std::unique_ptr<index_query::PostingsCursor>* out) override {
+        out->reset();
+        return Status::OK();
+    }
+
+    // Every term is held by 3 documents; the calls are counted.
+    Status doc_freq(std::string_view, uint64_t* out) override {
+        ++doc_freq_calls;
+        *out = 3;
+        return Status::OK();
+    }
+
+    int doc_freq_calls = 0;
+
+    Status expand_terms(index_query::TermPattern&, int32_t max_expansions,
+                        std::vector<std::string>* out) override {
+        out->clear();
+        for (const auto& term : _terms) {
+            if (max_expansions > 0 && out->size() == static_cast<size_t>(max_expansions)) {
+                break;
+            }
+            out->push_back(term);
+        }
+        return Status::OK();
+    }
+
+private:
+    std::vector<std::string> _terms;
+};
+
+} // namespace
+
+// SNII keeps the bytes of a token as they are, so its dictionary can hold terms that are not valid
+// UTF-8. StringHelper::to_wstring drops those bytes, and "ra\xFF" and "ra\xFE" would both get the
+// key "ra" and add their document frequencies up, to more than the documents of the tablet. Such
+// terms are not scored and take no place: with a limit of 2 the prefix expands to rb and rc.
+TEST_F(PhrasePrefixQueryV2Test, segment_statistics_skip_terms_without_a_wide_string_key) {
+    DictionaryOnlySource source({"ra\xFF", "ra\xFE", "rb", "rc", "rd"});
+    CollectInfo collect_info;
+    TermInfo r;
+    r.term = std::string("r");
+    scoring_collection_detail::append_scoring_prefix(&collect_info, r, 2);
+
+    const collection_statistics_detail::VisibleDocFreq one_document = [](const std::string&,
+                                                                         uint64_t* out) {
+        *out = 1;
+        return Status::OK();
+    };
+    FieldPrefixExpansions expansions;
+    std::vector<std::string> terms;
+    ASSERT_TRUE(collection_statistics_detail::segment_scoring_terms(
+                        source, collect_info, one_document, &expansions, &terms)
+                        .ok());
+    EXPECT_EQ(terms, (std::vector<std::string> {"rb", "rc"}));
+    EXPECT_EQ(expansions.at(StringHelper::to_wstring("r")).terms(),
+              (std::set<std::wstring> {StringHelper::to_wstring("rb"),
+                                       StringHelper::to_wstring("rc")}));
+}
+
+// With hidden rows every document frequency costs an intersection of the term's postings with
+// them. The terms a prefix expands to are asked for twice, to choose the ones kept and to add up
+// their frequencies, and the intersection is made once.
+TEST_F(PhrasePrefixQueryV2Test, visible_document_frequencies_are_computed_once_per_term) {
+    DictionaryOnlySource source({"rb", "rc"});
+    const auto doc_freq = collection_statistics_detail::cached_visible_doc_freq(source, {});
+
+    CollectInfo collect_info;
+    TermInfo r;
+    r.term = std::string("r");
+    scoring_collection_detail::append_scoring_prefix(&collect_info, r, 2);
+    FieldPrefixExpansions expansions;
+    std::vector<std::string> terms;
+    ASSERT_TRUE(collection_statistics_detail::segment_scoring_terms(source, collect_info, doc_freq,
+                                                                    &expansions, &terms)
+                        .ok());
+    ASSERT_EQ(terms, (std::vector<std::string> {"rb", "rc"}));
+    EXPECT_EQ(source.doc_freq_calls, 2);
+
+    // The final count asks for the same terms again.
+    for (const auto& term : terms) {
+        uint64_t frequency = 0;
+        ASSERT_TRUE(doc_freq(term, &frequency).ok());
+        EXPECT_EQ(frequency, 3U);
+    }
+    EXPECT_EQ(source.doc_freq_calls, 2);
 }
 
 // --- PhrasePrefixWeight scorer: nullable branch ---

@@ -35,6 +35,7 @@ import org.apache.doris.connector.ConnectorStatementScopeImpl;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.mvcc.MvccReadSelector;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
@@ -83,6 +84,7 @@ import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.base.Throwables;
+import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
@@ -231,7 +233,7 @@ public class StatementContext implements Closeable {
     // NOT cleared on close()/releasePlannerResources -- it survives to statement GC. A reused
     // prepared-statement context drops it per execution via resetConnectorStatementScope() (see
     // ExecuteCommand) so one execution's cached tables never leak into the next.
-    private ConnectorStatementScope connectorStatementScope;
+    private ConnectorStatementScopeImpl connectorStatementScope;
 
     // table locks
     private final Stack<CloseableResource> plannerResources = new Stack<>();
@@ -291,6 +293,9 @@ public class StatementContext implements Closeable {
     // The identity is captured by the same provider call chain as connectorWriteSchemas. Keeping it alongside
     // the columns prevents bind-time expressions and the later sink fence from naming different generations.
     private final Map<Long, String> connectorWriteMetadataIdentities = new HashMap<>();
+    // Connector targets of a DELETE. Their writer schema is pinned for the delete sink, but the statement writes no
+    // row values, so a write-only default in that schema does not apply to DEFAULT(column) on them.
+    private final Set<Long> connectorDeleteTargets = new HashSet<>();
 
     // for create view support in nereids
     // key is the start and end position of the sql substring that needs to be
@@ -337,9 +342,10 @@ public class StatementContext implements Closeable {
     // if greater than 0 means the duration has used
     private long materializedViewRewriteDuration = 0L;
 
-    // Record used table and it's used partitions
+    // Records are consumed by iteration/union, not membership lookup. List values avoid hashing every
+    // partition name inside Pair when recording a scan; repeated records do not change the union.
     private final Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap =
-            HashMultimap.create();
+            ArrayListMultimap.create();
     // Record query common table id to relation id mapping, this is used for mv rewrite
     private final Multimap<Integer, Integer> commonTableIdToRelationIdToMap = HashMultimap.create();
 
@@ -586,6 +592,14 @@ public class StatementContext implements Closeable {
 
     public Optional<List<Column>> getConnectorWriteSchema(long tableId) {
         return Optional.ofNullable(connectorWriteSchemas.get(tableId));
+    }
+
+    public void addConnectorDeleteTarget(long tableId) {
+        connectorDeleteTargets.add(tableId);
+    }
+
+    public boolean isConnectorDeleteTarget(long tableId) {
+        return connectorDeleteTargets.contains(tableId);
     }
 
     public void setConnectorWriteMetadataIdentity(long tableId, String identity) {
@@ -869,6 +883,18 @@ public class StatementContext implements Closeable {
     }
 
     /**
+     * The scope a connector session built now captures: {@link #getOrCreateConnectorStatementScope}, or
+     * {@link ConnectorStatementScope#NONE} once that scope is closed. The statement has ended by then, and what
+     * still builds a session on its context (the lineage of an INSERT, say) runs as offline work does instead of
+     * failing in the closed scope. A session captured before the close keeps the closed scope, which refuses to
+     * load, so a split producer that outlives the statement stops.
+     */
+    public synchronized ConnectorStatementScope getConnectorStatementScopeForNewSession() {
+        getOrCreateConnectorStatementScope();
+        return connectorStatementScope.isClosed() ? ConnectorStatementScope.NONE : connectorStatementScope;
+    }
+
+    /**
      * Drops the values of this statement's connector scope that only planning reads (see
      * {@link ConnectorStatementScope#endPlanning}), when a connector has opened the scope; unlike
      * {@link #getOrCreateConnectorStatementScope}, it never creates one. {@link #releasePlannerResources} calls it.
@@ -879,22 +905,27 @@ public class StatementContext implements Closeable {
         }
     }
 
-    /**
-     * Closes (deterministically) then drops the connector scope so the next statement execution starts fresh.
-     * Prepared-statement EXECUTE reuses one StatementContext across executions (see
-     * {@link org.apache.doris.nereids.trees.plans.commands.ExecuteCommand}) and a retry reuses it across attempts;
-     * this is called at the start of each, so a prior execution's / attempt's cached tables, pinned connector
-     * writer schema, and closeable state are released (closeAll is idempotent — a no-op if the query-finish
-     * callback already closed it) and never leak into the next. Callers invoke this only after the prior
-     * execution/attempt has finished (no off-thread pump still running), so close-before-drop is safe.
-     */
-    public synchronized void resetConnectorStatementScope() {
+    /** Closes a scope created during this attempt even if no scan registered a query-finish callback. */
+    public synchronized void closeConnectorStatementScope() {
         if (this.connectorStatementScope != null) {
             this.connectorStatementScope.closeAll();
         }
+    }
+
+    /**
+     * Requests closure of the old connector scope and drops it so the next execution/attempt starts fresh.
+     * Prepared-statement EXECUTE reuses one StatementContext across executions (see
+     * {@link org.apache.doris.nereids.trees.plans.commands.ExecuteCommand}) and a retry reuses it across attempts.
+     * Old split producers and their cleanup retain the captured old scope until termination; closeAll defers
+     * disposal while those users remain. New sessions obtain a fresh scope, so cached tables, pinned writer
+     * schema, and closeable state cannot leak into the next attempt. Repeated close requests are idempotent.
+     */
+    public synchronized void resetConnectorStatementScope() {
+        closeConnectorStatementScope();
         this.connectorStatementScope = null;
         this.connectorWriteSchemas.clear();
         this.connectorWriteMetadataIdentities.clear();
+        this.connectorDeleteTargets.clear();
         changelogReferenceTsoRequired = false;
         changelogReferenceTso = null;
     }
@@ -1285,14 +1316,15 @@ public class StatementContext implements Closeable {
         // After the table locks: stopping a remote Doris scan's node sends a CloseSession to the other
         // frontend, which must not be waited for under a lock.
         stopScanNodesLeftBehind();
-        // Fallback deterministic close of the per-statement connector scope, for statements that never reach the
-        // query-finish callback: external DDL / SHOW / DESCRIBE / EXPLAIN / foreground ANALYZE run via Command.run
-        // with no coordinator, so PluginDrivenScanNode.getSplits never registers a primary close for them. close()
-        // runs in ConnectProcessor's per-statement finally (direct connection) and the forwarded-request finally
-        // (master side), so it covers them. Guarded by isReturnResultFromLocal so an arrow-flight statement (which
-        // returns results asynchronously and defers cleanup to its own query-finish close) is not closed early
-        // here. Idempotent (closeAll is close-once), so a coordinated statement whose scope the primary already
-        // closed is a no-op. Command statements have no off-thread scan pump, so close-after-use holds.
+        // Fallback deterministic close of the per-statement connector scope, for statements that open it without
+        // planning a scan, so no query-finish callback closes it: external DDL / SHOW / DESCRIBE run via
+        // Command.run and only read metadata. (Every scan registers that callback when it starts planning splits,
+        // also under EXPLAIN or a plan that fails later; StmtExecutor runs it when the attempt ends.) close() runs
+        // in ConnectProcessor's per-statement finally (direct connection) and the forwarded-request finally (master
+        // side), so it covers them. Guarded by isReturnResultFromLocal so an arrow-flight statement (which returns
+        // results asynchronously and defers cleanup to its own query-finish close) is not closed early here.
+        // Idempotent (closeAll is close-once), so a statement whose scope the callback already closed is a no-op;
+        // a split producer still running after the close is refused by the closed scope.
         if (connectorStatementScope != null && connectContext != null && connectContext.isReturnResultFromLocal()) {
             connectorStatementScope.closeAll();
         }
@@ -1456,40 +1488,7 @@ public class StatementContext implements Closeable {
      */
     private static String versionKeyOf(Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams) {
-        // Concatenate both selectors (rather than returning on the first) so the key stays injective even
-        // if a reference ever carried BOTH a snapshot and scan params. Today the two are mutually exclusive
-        // (e.g. IcebergUtils.getQuerySpecSnapshot rejects FOR-TIME together with @branch/@tag), so in every
-        // reachable case exactly one part is non-empty and the key is "v:...", "p:...", or "".
-        StringBuilder key = new StringBuilder();
-        if (tableSnapshot != null && tableSnapshot.isPresent()) {
-            TableSnapshot ts = tableSnapshot.get();
-            key.append('v');
-            appendVersionKeyPart(key, ts.getType());
-            appendVersionKeyPart(key, ts.getValue());
-        }
-        if (scanParams != null && scanParams.isPresent()) {
-            TableScanParams sp = scanParams.get();
-            key.append('p');
-            appendVersionKeyPart(key, sp.getParamType());
-            Map<String, String> sortedParams = new TreeMap<>(sp.getMapParams());
-            key.append('m').append(sortedParams.size()).append(':');
-            for (Map.Entry<String, String> entry : sortedParams.entrySet()) {
-                // Length prefixes preserve entry boundaries even when user values contain Map.toString()
-                // delimiters; sorting separately keeps semantically identical maps order-independent.
-                appendVersionKeyPart(key, entry.getKey());
-                appendVersionKeyPart(key, entry.getValue());
-            }
-            key.append('l').append(sp.getListParams().size()).append(':');
-            for (String value : sp.getListParams()) {
-                appendVersionKeyPart(key, value);
-            }
-        }
-        return key.toString();
-    }
-
-    private static void appendVersionKeyPart(StringBuilder key, Object value) {
-        String text = String.valueOf(value);
-        key.append(text.length()).append(':').append(text);
+        return MvccReadSelector.of(tableSnapshot, scanParams).getKey();
     }
 
     /**

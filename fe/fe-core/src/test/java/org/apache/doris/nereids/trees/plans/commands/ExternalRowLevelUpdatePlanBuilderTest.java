@@ -26,8 +26,10 @@ import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelMergeSink;
@@ -144,6 +146,42 @@ public class ExternalRowLevelUpdatePlanBuilderTest {
         InOrder metadataOrder = Mockito.inOrder(table);
         metadataOrder.verify(table).resolveWriteColumns(Optional.empty());
         metadataOrder.verify(table).getWriteSchemaSnapshot();
+    }
+
+    @Test
+    public void updateKeepsUnassignedTargetValuesInsteadOfInjectingWriteDefaults() {
+        // UPDATE rewrites only the assigned columns. An unassigned column keeps the target row's value even when the
+        // pinned writer schema gives it a write default; write defaults only fill values a write leaves out.
+        ConnectContext ctx = new ConnectContext();
+        ctx.setStatementContext(new StatementContext());
+        ctx.setThreadLocalInfo();
+        LogicalPlan basePlan = new LogicalOneRowRelation(new RelationId(0),
+                ImmutableList.of(new UnboundAlias(new IntegerLiteral(1), "dummy")));
+        ExternalRowLevelUpdatePlanBuilder builder = new ExternalRowLevelUpdatePlanBuilder(
+                ImmutableList.of("test_catalog", "test_db", "test_table"), null, ImmutableList.of(), basePlan);
+        Column assigned = new Column("c1", ScalarType.createType(PrimitiveType.INT));
+        assigned.setConnectorDefaultValueSql("4141");
+        Column unassigned = new Column("c2", ScalarType.createType(PrimitiveType.INT));
+        unassigned.setConnectorDefaultValueSql("4242");
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        PluginDrivenExternalTable.WriteSchemaSnapshot writeSchema =
+                Mockito.mock(PluginDrivenExternalTable.WriteSchemaSnapshot.class);
+        Mockito.when(table.getName()).thenReturn("test_table");
+        Mockito.doReturn(Mockito.mock(ExternalDatabase.class)).when(table).getDatabase();
+        Mockito.doReturn(writeSchema).when(table).getWriteSchemaSnapshot();
+        Mockito.doReturn(Optional.of(ImmutableList.of(assigned, unassigned)))
+                .when(table).resolveWriteColumns(Optional.empty());
+
+        LogicalPlan plan = builder.buildMergePlan(ctx, basePlan,
+                ImmutableList.of(new EqualTo(new UnboundSlot("c1"), new IntegerLiteral(1))), table);
+
+        List<NamedExpression> outputs = ((LogicalProject<?>) plan.child(0)).getProjects();
+        Assertions.assertTrue(outputs.stream().anyMatch(output -> output instanceof UnboundSlot
+                && "c2".equalsIgnoreCase(((UnboundSlot) output).getNameParts().get(
+                        ((UnboundSlot) output).getNameParts().size() - 1))), outputs.toString());
+        Assertions.assertFalse(outputs.stream().anyMatch(output -> output.anyMatch(expression ->
+                expression instanceof Literal && (((Literal) expression).getStringValue().equals("4141")
+                        || ((Literal) expression).getStringValue().equals("4242")))), outputs.toString());
     }
 
     @Test

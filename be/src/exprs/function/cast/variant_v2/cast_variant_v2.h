@@ -24,6 +24,7 @@ namespace doris::CastWrapper {
 // CAST kernels for ColumnVariantV2. Runtime type routing selects these kernels only for
 // DataTypeVariantV2 inputs and outputs.
 WrapperType create_cast_to_variant_v2_wrapper(const DataTypePtr& from_type);
-WrapperType create_cast_from_variant_v2_wrapper(const DataTypePtr& to_type);
+WrapperType create_cast_from_variant_v2_wrapper(const DataTypePtr& to_type,
+                                                const CastOptions& options);
 
 } // namespace doris::CastWrapper

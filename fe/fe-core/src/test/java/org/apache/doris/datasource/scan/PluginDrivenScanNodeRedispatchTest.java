@@ -19,6 +19,8 @@ package org.apache.doris.datasource.scan;
 
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.datasource.split.PluginDrivenSplit;
+import org.apache.doris.datasource.split.SplitAssignment;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -62,19 +64,27 @@ public class PluginDrivenScanNodeRedispatchTest {
     }
 
     @Test
+    public void consumedSplitEndpointsRequireReplanningForRetry() {
+        PluginDrivenScanNode node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
+        Deencapsulation.setField(node, "splitAssignment", Mockito.mock(SplitAssignment.class));
+        Assertions.assertTrue(node.cannotBeRedispatched());
+    }
+
+    @Test
     public void planWithSingleUseRangeCannotBeRedispatched() {
         PluginDrivenScanNode node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
         Assertions.assertFalse(node.cannotBeRedispatched());
+        PluginDrivenSplit.Factory splitFactory = new PluginDrivenSplit.Factory();
 
         // Ranges the source serves afresh on every read (a file, a statement run when it is read) keep the
         // same-plan retry.
-        Deencapsulation.invoke(node, "toSplit", range(false));
+        Deencapsulation.invoke(node, "toSplit", range(false), splitFactory);
         Assertions.assertFalse(node.cannotBeRedispatched());
 
         // One range that can be read only once is enough, wherever it comes in the plan.
-        Deencapsulation.invoke(node, "toSplit", range(true));
+        Deencapsulation.invoke(node, "toSplit", range(true), splitFactory);
         Assertions.assertTrue(node.cannotBeRedispatched());
-        Deencapsulation.invoke(node, "toSplit", range(false));
+        Deencapsulation.invoke(node, "toSplit", range(false), splitFactory);
         Assertions.assertTrue(node.cannotBeRedispatched());
     }
 }

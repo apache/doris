@@ -370,7 +370,7 @@ TEST_F(BinaryPlainPageV3Test, TestEncodeDecodeAggState) {
 // is stripped on read by BinaryPlainPageV3PreDecoder<true>.
 namespace {
 // Build a fixed-length CHAR slice payload: each logical value padded with '\0' to
-// padded_len, exactly as the convertor hands it to the page builder.
+// padded_len, exactly as the column writer hands it to the page builder.
 std::vector<std::string> make_padded_char_backing(const std::vector<std::string>& logical,
                                                   size_t padded_len) {
     std::vector<std::string> padded;

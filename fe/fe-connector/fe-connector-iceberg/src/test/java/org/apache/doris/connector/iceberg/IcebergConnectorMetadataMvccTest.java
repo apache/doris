@@ -18,6 +18,7 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
@@ -42,6 +43,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -108,6 +110,82 @@ public class IcebergConnectorMetadataMvccTest {
         return new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
     }
 
+    @Test
+    public void nativePartitionPlanningDoesNotOptInSystemTables() {
+        Fixture f = fixture();
+        IcebergConnectorMetadata md = metadataFor(f.table, new RecordingIcebergCatalogOps());
+        Assertions.assertTrue(md.supportsNativePartitionPlanning(null, handle()));
+        Assertions.assertFalse(md.supportsNativePartitionPlanning(null,
+                IcebergTableHandle.forSystemTable("db1", "t1", "snapshots", -1, null, -1)));
+    }
+
+    @Test
+    public void nativePartitionPlanningFollowsInternalPartitionPruningSwitch() {
+        Fixture f = fixture();
+        IcebergConnectorMetadata md = metadataFor(f.table, new RecordingIcebergCatalogOps());
+        String key = "enable_iceberg_internal_partition_pruning";
+        Assertions.assertTrue(md.supportsNativePartitionPlanning(session(Map.of(), Map.of()), handle()));
+        Assertions.assertTrue(md.supportsNativePartitionPlanning(session(Map.of(key, "false"), Map.of()), handle()));
+        Assertions.assertTrue(md.supportsNativePartitionPlanning(session(Map.of(), Map.of(key, "true")), handle()),
+                "catalog properties must not override the session switch");
+        for (String value : List.of("true", "TRUE")) {
+            ConnectorSession session = session(Map.of(key, value), Map.of());
+            Assertions.assertFalse(md.supportsNativePartitionPlanning(session, handle()));
+            Assertions.assertFalse(md.supportsNativePartitionPlanning(session,
+                    IcebergTableHandle.forSystemTable("db1", "t1", "snapshots", -1, null, -1)));
+        }
+    }
+
+    private static ConnectorSession session(Map<String, String> properties, Map<String, String> catalogProperties) {
+        return new ConnectorSession() {
+            @Override
+            public String getQueryId() {
+                return "q";
+            }
+
+            @Override
+            public String getUser() {
+                return "u";
+            }
+
+            @Override
+            public String getTimeZone() {
+                return "UTC";
+            }
+
+            @Override
+            public String getLocale() {
+                return "en_US";
+            }
+
+            @Override
+            public long getCatalogId() {
+                return 0;
+            }
+
+            @Override
+            public String getCatalogName() {
+                return "c";
+            }
+
+            @Override
+            public <T> T getProperty(String name, Class<T> type) {
+                String value = properties.getOrDefault(name, catalogProperties.get(name));
+                return value == null ? null : type.cast(value);
+            }
+
+            @Override
+            public Map<String, String> getCatalogProperties() {
+                return catalogProperties;
+            }
+
+            @Override
+            public Map<String, String> getSessionProperties() {
+                return properties;
+            }
+        };
+    }
+
     private static ConnectorTableHandle handle() {
         return new IcebergTableHandle("db1", "t1");
     }
@@ -129,6 +207,8 @@ public class IcebergConnectorMetadataMvccTest {
         // MUTATION: pinning currentSnapshot().schemaId() instead of table.schema().schemaId() would still be
         // schemaIdS2 here (same after the latest snapshot), so the load-bearing assertion is "current snapshot".
         Assertions.assertTrue(snap.isPresent());
+        Assertions.assertTrue(snap.get().isSchemaRetained(),
+                "SQL cache identity and column binding must use the same pinned schema");
         Assertions.assertEquals(f.s2, snap.get().getSnapshotId());
         Assertions.assertEquals(f.schemaIdS2, snap.get().getSchemaId());
         // The remote load goes through the seam (auth-wrapped).

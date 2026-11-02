@@ -17,15 +17,20 @@
 
 package org.apache.doris.common.cache;
 
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.mvcc.MvccReadSelector;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 import org.apache.doris.nereids.SqlCacheContext;
+import org.apache.doris.nereids.StatementContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -48,6 +53,81 @@ public class NereidsSqlCacheManagerPluginTableTest {
     private static final String DB = "hms_db";
     private static final String TBL = "t";
     private static final long TABLE_ID = 42L;
+
+    @Test
+    public void nativeVersionInvalidatesByIdentityWithoutOrderingOrPartitionFreshness() {
+        PluginDrivenMvccExternalTable stored = mockTable(123L);
+        Mockito.when(stored.getSqlCacheVersion(Optional.empty()))
+                .thenReturn(Optional.of(new ConnectorSqlCacheVersion("uuid:9:schema1:metadata1", 1000L)));
+        SqlCacheContext context = new SqlCacheContext(UserIdentity.ROOT);
+        context.addUsedTable(stored);
+        PluginDrivenMvccExternalTable live = mockTable(123L);
+        Env env = mockEnvResolvingTo(live);
+        for (String token : new String[] {"uuid:9:schema1:metadata1", "uuid:2:schema1:metadata2",
+                "uuid:9:schema2:metadata3", "new-uuid:9:schema1:metadata1"}) {
+            Mockito.when(live.getSqlCacheVersion(Optional.empty()))
+                    .thenReturn(Optional.of(new ConnectorSqlCacheVersion(token, 1000L)));
+            Object verdict = Deencapsulation.invoke(new NereidsSqlCacheManager(), "tablesOrDataChanged",
+                    env, context, new StatementContext());
+            Assertions.assertEquals(!token.equals("uuid:9:schema1:metadata1"), isChangedField(verdict, "changed"));
+        }
+        Mockito.when(live.getSqlCacheVersion(Optional.empty())).thenReturn(Optional.empty());
+        Object verdict = Deencapsulation.invoke(new NereidsSqlCacheManager(), "tablesOrDataChanged",
+                    env, context, new StatementContext());
+        Assertions.assertTrue(isChangedField(verdict, "invalidCache"));
+        Mockito.verify(stored, Mockito.never()).getNewestUpdateVersionOrTime();
+        Mockito.verify(live, Mockito.never()).getNewestUpdateVersionOrTime();
+    }
+
+    @Test
+    public void revalidationResolvesEachOriginalReferenceAndInvalidatesOnlyWhenItsVersionChanges() {
+        PluginDrivenMvccExternalTable table = mockTable(999L);
+        MvccSnapshot mainPin = Mockito.mock(MvccSnapshot.class);
+        MvccSnapshot devPin = Mockito.mock(MvccSnapshot.class);
+        ConnectorSqlCacheVersion main = new ConnectorSqlCacheVersion("uuid:100:schema3:metadata", 1000L);
+        ConnectorSqlCacheVersion dev = new ConnectorSqlCacheVersion("uuid:80:schema3:metadata", 800L);
+        Mockito.when(table.getSqlCacheVersion(Optional.of(mainPin))).thenReturn(Optional.of(main));
+        Mockito.when(table.getSqlCacheVersion(Optional.of(devPin))).thenReturn(Optional.of(dev));
+        Mockito.when(table.getSqlCacheVersion(Optional.empty())).thenReturn(Optional.of(main));
+        MvccReadSelector selector = MvccReadSelector.of(Optional.of(TableSnapshot.versionOf("dev")), Optional.empty());
+        SqlCacheContext context = new SqlCacheContext(UserIdentity.ROOT);
+        context.addUsedTable(table, Optional.of(mainPin));
+        context.addUsedTable(table, Optional.of(devPin), selector);
+        StatementContext statement = Mockito.mock(StatementContext.class);
+        Mockito.when(statement.getSnapshot(Mockito.eq(table), Mockito.any(), Mockito.any()))
+                .thenAnswer(call -> {
+                    Optional<TableSnapshot> requested = call.getArgument(1);
+                    Assertions.assertEquals("dev", requested.orElseThrow().getValue());
+                    return Optional.of(devPin);
+                });
+        Env env = mockEnvResolvingTo(table);
+        Object same = Deencapsulation.invoke(new NereidsSqlCacheManager(), "tablesOrDataChanged", env, context, statement);
+        Assertions.assertFalse(isChangedField(same, "changed"));
+        Mockito.verify(statement).loadSnapshots(Mockito.eq(table), Mockito.any(), Mockito.any());
+        Mockito.when(table.getSqlCacheVersion(Optional.of(devPin)))
+                .thenReturn(Optional.of(new ConnectorSqlCacheVersion("uuid:90:schema3:metadata", 800L)));
+        Object moved = Deencapsulation.invoke(new NereidsSqlCacheManager(), "tablesOrDataChanged", env, context, statement);
+        Assertions.assertTrue(isChangedField(moved, "invalidCache"));
+        Mockito.verify(table, Mockito.never()).getNewestUpdateVersionOrTime();
+    }
+
+    @Test
+    public void expiredSnapshotCannotPassVersionValidation() {
+        PluginDrivenMvccExternalTable table = mockTable(999L);
+        MvccSnapshot pin = Mockito.mock(MvccSnapshot.class);
+        Mockito.when(table.getSqlCacheVersion(Optional.of(pin)))
+                .thenReturn(Optional.of(new ConnectorSqlCacheVersion("uuid:80:schema3:metadata", 800L)));
+        SqlCacheContext context = new SqlCacheContext(UserIdentity.ROOT);
+        context.addUsedTable(table, Optional.of(pin),
+                MvccReadSelector.of(Optional.of(TableSnapshot.versionOf("80")), Optional.empty()));
+        StatementContext statement = Mockito.mock(StatementContext.class);
+        Mockito.doThrow(new IllegalStateException("can't find snapshot by id: 80"))
+                .when(statement).loadSnapshots(Mockito.eq(table), Mockito.any(), Mockito.any());
+        Env env = mockEnvResolvingTo(table);
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> Deencapsulation.invoke(new NereidsSqlCacheManager(), "tablesOrDataChanged", env, context, statement));
+        Mockito.verify(table, Mockito.never()).getSqlCacheVersion(Optional.empty());
+    }
 
     private PluginDrivenMvccExternalTable mockTable(long liveToken) {
         PluginDrivenMvccExternalTable table = Mockito.mock(PluginDrivenMvccExternalTable.class);
@@ -93,7 +173,8 @@ public class NereidsSqlCacheManagerPluginTableTest {
 
         Env env = mockEnvResolvingTo(mockTable(token));         // live token unchanged
         Object verdict = Deencapsulation.invoke(new NereidsSqlCacheManager(),
-                "tablesOrDataChanged", env, context);
+                "tablesOrDataChanged",
+                    env, context, new StatementContext());
 
         Assertions.assertFalse(isChangedField(verdict, "changed"),
                 "an unchanged token must keep the cache (NOT_CHANGED)");
@@ -108,7 +189,8 @@ public class NereidsSqlCacheManagerPluginTableTest {
 
         Env env = mockEnvResolvingTo(mockTable(storedToken + 1000L)); // data mutated: newer token
         Object verdict = Deencapsulation.invoke(new NereidsSqlCacheManager(),
-                "tablesOrDataChanged", env, context);
+                "tablesOrDataChanged",
+                    env, context, new StatementContext());
 
         Assertions.assertTrue(isChangedField(verdict, "changed"),
                 "a changed token must invalidate the cache");

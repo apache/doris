@@ -18,6 +18,9 @@ import org.junit.Assert
 // under the License.
 
 suite("test_file_tvf_local", "p0,external") {
+    logger.info("Skip: this suite requires FILE TVF local storage, which is disabled.")
+    return
+
     List<List<Object>> backends =  sql """ show backends """
     assertTrue(backends.size() > 0)
     def be_id = backends[0][0]

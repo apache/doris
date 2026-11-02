@@ -40,9 +40,17 @@ public interface ConnectorStatementScope {
     /**
      * Returns the value cached under {@code key}, computing it with {@code loader} on first access and
      * caching it for the rest of the statement. Within one statement the same key returns the same
-     * instance to every caller; under {@link #NONE} the loader runs on every call.
+     * instance to every caller; under {@link #NONE} the loader runs on every call. Once the engine has
+     * closed the scope ({@link #closeAll}) the statement is over: the engine's scope throws
+     * {@link java.util.concurrent.CancellationException} instead of loading, so work that outlives its
+     * statement stops rather than holding a value nobody closes.
      */
     <T> T computeIfAbsent(String key, Supplier<T> loader);
+
+    /** Returns an already loaded statement value without loading or retaining anything on a miss. */
+    default <T> T getIfPresent(String key) {
+        return null;
+    }
 
     /**
      * {@link #computeIfAbsent} for a value only planning reads, such as a memo that lets the identical scans of

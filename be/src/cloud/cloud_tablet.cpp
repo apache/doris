@@ -1584,6 +1584,9 @@ Status CloudTablet::sync_meta() {
 
     {
         std::unique_lock wlock(_meta_lock);
+        if (tablet_meta->row_ttl_config().duration_us() >= 0) {
+            RETURN_IF_ERROR(_tablet_meta->update_row_ttl_config(tablet_meta->row_ttl_config()));
+        }
         if (_tablet_meta->compaction_policy() != new_compaction_policy) {
             _tablet_meta->set_compaction_policy(new_compaction_policy);
         }

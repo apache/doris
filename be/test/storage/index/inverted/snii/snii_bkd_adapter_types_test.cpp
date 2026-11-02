@@ -15,32 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// The SNII BKD adapter across the WHOLE numeric type spread.
-//
-// bkd_differential_test already proves the CORE agrees with CLucene and with
-// brute force for every one of these types. What it cannot see is the ADAPTER,
-// which is where per-type breakage actually lives: SniiBkdIndexColumnWriter is
-// not a template, so it walks the caller's array by field_type_size(type) and
-// encodes with get_key_coder(type). If those two ever disagree for some type --
-// a CppType wider than the coder's output, a coder that is not length
-// preserving -- values land at the wrong offsets and every row's value is
-// silently shifted.
-//
-// The primary oracle is IDENTITY: for each distinct written value, an
-// exact-match lookup must return exactly the rows that value was written to. A
-// stride or width bug scrambles the value/row association and fails this
-// immediately, for any type, without the test needing to know how that type
-// compares.
-//
-// Identity alone is not enough, though, and this file used to stop there. An
-// exact-match answer only needs the encoding to be INJECTIVE, and its expected
-// sets are built with the same coder the writer used -- so a coder that lost its
-// sign flip would produce an oracle wrong in exactly the same way and every
-// assertion would still pass. The data made it worse: ranks started at 0, so no
-// value ever crossed zero and the sign flip could not be observed at all. Ranks
-// now straddle zero, and a second oracle taken from the NATIVE values checks a
-// RANGE -- the only query whose answer depends on the encoding being order
-// PRESERVING (INV-1).
+// Checks BKD adapter encoding across numeric types. Exact lookups verify value-to-row identity; native-value range queries verify encoded sort order.
 
 #include <gtest/gtest.h>
 
@@ -89,7 +64,7 @@ struct FieldTag {
 // correct way rather than reinvented here.
 template <FieldType FT>
 struct ValueOf {
-    using CppType = typename CppTypeTraits<FT>::CppType;
+    using CppType = typename StorageTypeTraits<FT>::StorageType;
     static CppType from_rank(int64_t rank) {
         if constexpr (std::is_same_v<CppType, decimal12_t>) {
             decimal12_t value;
@@ -150,7 +125,7 @@ TYPED_TEST_SUITE(SniiBkdAdapterTypesTest, FieldTypeTags);
 
 TYPED_TEST(SniiBkdAdapterTypesTest, AdapterPreservesValueToRowAssociation) {
     constexpr FieldType FT = TypeParam::kFieldType;
-    using CppType = typename CppTypeTraits<FT>::CppType;
+    using CppType = typename StorageTypeTraits<FT>::StorageType;
 
     // 240 rows over 60 distinct ranks, so most values own several rows and a
     // shifted-by-one stride cannot coincidentally reproduce the mapping.
@@ -179,7 +154,7 @@ TYPED_TEST(SniiBkdAdapterTypesTest, AdapterPreservesValueToRowAssociation) {
     assert_ok(writer.init());
     // ONE call over a contiguous CppType array: exactly how the segment writer
     // hands a run of rows over, and the shape the stride has to walk.
-    assert_ok(writer.add_values("c1", values.data(), values.size()));
+    assert_ok(writer.add_values(reinterpret_cast<const uint8_t*>(values.data()), values.size()));
     assert_ok(writer.finish());
     assert_ok(index_file_writer.begin_close());
     assert_ok(index_file_writer.finish_close());

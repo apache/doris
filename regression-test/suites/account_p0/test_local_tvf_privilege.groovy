@@ -36,7 +36,7 @@ suite("test_local_tvf_privilege", "p0") {
                         "backend_id" = "0",
                         "format" = "csv"
                     )"""
-                    exception "ADMIN/OPERATOR"
+                    exception "LOCAL TVF is disabled"
                 }
             }
         }

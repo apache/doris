@@ -70,6 +70,15 @@ suite("test_iceberg_write_default", "p0,external") {
         assertTrue(cRow != null, "column c must exist in DESC: " + descRows.toString())
         assertFalse(cRow.toString().contains("42"),
                 "DESC must not show connector write default 42, got: " + cRow.toString())
+        // information_schema reads the cached catalog Column too, so COLUMN_DEFAULT stays NULL.
+        qt_desc_write_default """
+            SELECT COLUMN_DEFAULT
+            FROM ${catalog_name}.information_schema.columns
+            WHERE TABLE_CATALOG = '${catalog_name}'
+              AND TABLE_SCHEMA = '${db}'
+              AND TABLE_NAME = '${tbl}'
+              AND COLUMN_NAME = 'c'
+        """
 
         // 2) INSERT with column c omitted must apply the write default.
         sql """ INSERT INTO ${tbl} (id) VALUES (1) """

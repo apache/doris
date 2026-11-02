@@ -152,10 +152,11 @@ void MowKeyProbe::maybe_invalidate_row_cache(int64_t tablet_id, const TabletSche
     }
 }
 
-std::string encode_mow_key_invalidate_cache(
-        const RowKeyEncoder& key_encoder, const std::vector<IOlapColumnDataAccessor*>& key_columns,
-        const IOlapColumnDataAccessor* seq_column, size_t pos, bool row_has_seq, int64_t tablet_id,
-        const TabletSchema& schema, DataWriteType write_type) {
+std::string encode_mow_key_invalidate_cache(const RowKeyEncoder& key_encoder,
+                                            const std::vector<const IColumn*>& key_columns,
+                                            const IColumn* seq_column, size_t pos, bool row_has_seq,
+                                            int64_t tablet_id, const TabletSchema& schema,
+                                            DataWriteType write_type) {
     std::string key = key_encoder.full_encode_primary_keys(key_columns, pos);
     // the row cache uses the key without the seq as its key, so invalidate before the suffix
     MowKeyProbe::maybe_invalidate_row_cache(tablet_id, schema, write_type, key);

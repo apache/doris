@@ -23,6 +23,8 @@ import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 
+import java.util.Map;
+
 /**
  * The one place that knows how Paimon stacks {@link DelegatedFileStoreTable} decorators on a loaded
  * table, and how far they may be peeled off.
@@ -43,6 +45,21 @@ final class PaimonTableDecorators {
             return new ChainGroupReadTable(wrapped, other);
         }
         return new FallbackReadFileStoreTable(wrapped, other, PaimonReaderOptions.isWrappedFirst(pair));
+    }
+
+    static Map<String, String> otherOptions(FallbackReadFileStoreTable pair, Map<String, String> options) {
+        return new FallbackOptions(pair).rewriteOtherOptions(options);
+    }
+
+    private static final class FallbackOptions extends FallbackReadFileStoreTable {
+        private FallbackOptions(FallbackReadFileStoreTable pair) {
+            super(pair.wrapped(), pair.other(), PaimonReaderOptions.isWrappedFirst(pair));
+        }
+
+        @Override
+        public Map<String, String> rewriteOtherOptions(Map<String, String> options) {
+            return super.rewriteOtherOptions(options);
+        }
     }
 
     /**

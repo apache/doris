@@ -56,12 +56,12 @@ static void check_array_remove_case(DataTypePtr array_type, DataTypePtr element_
 
     ColumnNumbers arguments = {0, 1};
     std::vector<DataTypePtr> arg_types = {array_type, element_type};
-    std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols = {nullptr, nullptr};
+    std::vector<std::shared_ptr<ConstantExprResult>> constant_cols = {nullptr, nullptr};
     if (const_array) {
-        constant_cols[0] = std::make_shared<ColumnPtrWrapper>(block.get_by_position(0).column);
+        constant_cols[0] = std::make_shared<ConstantExprResult>(block.get_by_position(0).column);
     }
     if (const_target) {
-        constant_cols[1] = std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column);
+        constant_cols[1] = std::make_shared<ConstantExprResult>(block.get_by_position(1).column);
     }
 
     FunctionUtils fn_utils(return_type, arg_types, false);

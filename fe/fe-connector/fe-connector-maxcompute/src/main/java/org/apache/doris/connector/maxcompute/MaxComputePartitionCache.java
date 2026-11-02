@@ -104,7 +104,8 @@ public class MaxComputePartitionCache {
                 .<PartitionKey, List<PartitionSpec>>builder("max-compute-partition", spec,
                         key -> ScopePath.table(key.dbName, key.tableName))
                 .budgetGroup(ENTRY_PARTITION)
-                .sizeEstimator(MetaCacheSizeEstimators.reflective())
+                // A long partition list would exhaust the visit budget of a whole-value walk.
+                .sizeEstimator(MetaCacheSizeEstimators.reflectiveEachElement())
                 .build());
         this.lister = Objects.requireNonNull(lister, "lister can not be null");
     }

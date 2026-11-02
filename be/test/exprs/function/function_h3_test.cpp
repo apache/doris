@@ -108,9 +108,9 @@ static void check_coordinates(bool boundary, bool constant, bool only_null, size
     ASSERT_NE(function, nullptr);
     FunctionUtils utils(output_type, {input_type}, false);
     auto* context = utils.get_fn_ctx();
-    std::vector<std::shared_ptr<ColumnPtrWrapper>> constants(1);
+    std::vector<std::shared_ptr<ConstantExprResult>> constants(1);
     if (constant) {
-        constants[0] = std::make_shared<ColumnPtrWrapper>(block.get_by_position(0).column);
+        constants[0] = std::make_shared<ConstantExprResult>(block.get_by_position(0).column);
     }
     context->set_constant_cols(constants);
     ASSERT_TRUE(function->open(context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());

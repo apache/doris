@@ -49,10 +49,8 @@
 namespace doris {
 
 VIcebergTableWriter::VIcebergTableWriter(const TDataSink& t_sink,
-                                         const VExprContextSPtrs& output_expr_ctxs,
-                                         std::shared_ptr<Dependency> dep,
-                                         std::shared_ptr<Dependency> fin_dep)
-        : AsyncResultWriter(output_expr_ctxs, dep, fin_dep), _t_sink(t_sink) {
+                                         const VExprContextSPtrs& output_expr_ctxs)
+        : _vec_output_expr_ctxs(output_expr_ctxs), _t_sink(t_sink) {
     DCHECK(_t_sink.__isset.iceberg_table_sink);
     _active_writers.store(std::make_shared<ActiveWriterSnapshot>());
 }
