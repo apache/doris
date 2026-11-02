@@ -17,7 +17,9 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <limits>
+#include <memory>
 #include <string>
 
 #include "cctz/time_zone.h"
@@ -1880,6 +1882,83 @@ TEST(VTimestampFunctionsTest, months_between_test) {
     check_function_all_arg_comb<DataTypeFloat64, true>(func_name, input_types, data_set);
 }
 
+namespace {
+
+void expect_invalid_relative_day_weekday(std::string_view weekday) {
+    const InputTypeSet input_types = {PrimitiveType::TYPE_DATEV2, PrimitiveType::TYPE_VARCHAR};
+    for (const std::string name : {"next_day", "previous_day"}) {
+        const auto status = check_function<DataTypeDateV2, true>(
+                name, input_types, {{{std::string("2024-01-01"), std::string(weekday)}, Null()}},
+                -1, -1, true);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("failed to parse weekday:"), std::string::npos);
+    }
+}
+
+} // namespace
+
+TEST(WeekdayParserTest, aliases_and_case) {
+    constexpr std::array<std::string_view, 21> aliases = {
+            "MO",     "MON",       "MONDAY", "TU",       "TUE",      "TUESDAY", "WE",
+            "WED",    "WEDNESDAY", "TH",     "THU",      "THURSDAY", "FR",      "FRI",
+            "FRIDAY", "SA",        "SAT",    "SATURDAY", "SU",       "SUN",     "SUNDAY"};
+    constexpr std::array<std::string_view, 7> next_dates = {
+            "2024-01-08", "2024-01-02", "2024-01-03", "2024-01-04",
+            "2024-01-05", "2024-01-06", "2024-01-07"};
+    constexpr std::array<std::string_view, 7> previous_dates = {
+            "2023-12-25", "2023-12-26", "2023-12-27", "2023-12-28",
+            "2023-12-29", "2023-12-30", "2023-12-31"};
+    DataSet next_cases;
+    DataSet previous_cases;
+    for (size_t i = 0; i < aliases.size(); ++i) {
+        // Exercise every ASCII case combination, including all 512 forms of WEDNESDAY.
+        for (size_t mask = 0; mask < (size_t {1} << aliases[i].size()); ++mask) {
+            std::string input(aliases[i]);
+            for (size_t j = 0; j < input.size(); ++j) {
+                if ((mask & (size_t {1} << j)) != 0) {
+                    input[j] += 'a' - 'A';
+                }
+            }
+            next_cases.push_back(
+                    {{std::string("2024-01-01"), input}, std::string(next_dates[i / 3])});
+            previous_cases.push_back(
+                    {{std::string("2024-01-01"), input}, std::string(previous_dates[i / 3])});
+        }
+    }
+    const InputTypeSet input_types = {PrimitiveType::TYPE_DATEV2, PrimitiveType::TYPE_VARCHAR};
+    EXPECT_TRUE((check_function<DataTypeDateV2, true>("next_day", input_types, next_cases).ok()));
+    EXPECT_TRUE((check_function<DataTypeDateV2, true>("previous_day", input_types, previous_cases)
+                         .ok()));
+}
+
+TEST(WeekdayParserTest, invalid_names) {
+    constexpr std::array<std::string_view, 16> invalid = {
+            "",     "M",    "MOND",     "MONDDY",   "MONDAYX", "MO ",     " MON", "SO",
+            "TUES", "THUR", "WEDNESDA", "SATURDAX", "SUNDAX",  "Sunday!", "123",  "1234567890"};
+    for (auto input : invalid) {
+        expect_invalid_relative_day_weekday(input);
+    }
+    expect_invalid_relative_day_weekday(std::string_view("MO\0", 3));
+    expect_invalid_relative_day_weekday(std::string_view("MON\0AY", 6));
+    expect_invalid_relative_day_weekday(std::string_view("\xCDON", 3));
+}
+
+TEST(WeekdayParserTest, binary_bytes_in_aliases) {
+    for (const std::string_view name : {"mo", "mon", "monday", "tuesday", "wednesday", "thursday",
+                                        "friday", "saturday", "sunday"}) {
+        for (size_t position = 0; position < name.size(); ++position) {
+            for (unsigned int byte = 128; byte < 256; ++byte) {
+                std::string input(name);
+                input[position] = static_cast<char>(byte);
+                expect_invalid_relative_day_weekday(input);
+            }
+            std::string input(name);
+            input[position] = '\0';
+            expect_invalid_relative_day_weekday(input);
+        }
+    }
+}
+
 TEST(VTimestampFunctionsTest, next_day_test) {
     std::string func_name = "next_day";
     InputTypeSet input_types = {PrimitiveType::TYPE_DATEV2, PrimitiveType::TYPE_VARCHAR};
@@ -1950,6 +2029,30 @@ TEST(VTimestampFunctionsTest, relative_day_nullable_test) {
              {{Null(), Null()}, Null()},
              {{std::string("2024-01-01"), Null()}, Null()},
              {{Null(), std::string("MON")}, Null()}}));
+}
+
+TEST(VTimestampFunctionsTest, relative_day_invalid_weekday_after_nulls) {
+    const InputTypeSet input_types = {PrimitiveType::TYPE_DATEV2, PrimitiveType::TYPE_VARCHAR};
+    for (const std::string name : {"next_day", "previous_day"}) {
+        const DataSet all_null_dates = {{{Null(), std::string("MONDDY")}, Null()},
+                                        {{Null(), std::string("MONDDY")}, Null()}};
+        check_function_all_arg_comb<DataTypeDateV2, true>(name, input_types, all_null_dates);
+
+        const auto status = check_function<DataTypeDateV2, true>(
+                name, input_types,
+                {{{Null(), std::string("MONDDY")}, Null()},
+                 {{std::string("2024-01-01"), std::string("MONDDY")}, Null()}},
+                -1, -1, true);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("failed to parse weekday: MONDDY"), std::string::npos);
+        const InputTypeSet constant_weekday = {PrimitiveType::TYPE_DATEV2,
+                                               Consted {PrimitiveType::TYPE_VARCHAR}};
+        EXPECT_FALSE((check_function<DataTypeDateV2, true>(
+                              name, constant_weekday,
+                              {{{std::string("2024-01-01"), std::string("MONDDY")}, Null()}}, -1,
+                              -1, true)
+                              .ok()));
+    }
 }
 
 TEST(VTimestampFunctionsTest, from_iso8601_date) {

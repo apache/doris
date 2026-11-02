@@ -580,6 +580,13 @@ message TabletSchemaPB {
     // cid of the base-table row lsn column (__DORIS_ROW_LSN_COL__).
     optional int32 row_lsn_col_idx = 40 [default = -1];
 
+    optional int64 row_ttl_duration_us = 44 [default = -1];
+    // Fixed UTC offset for temporal row TTL in [-43200, 50400].
+    // UTC is 0; direct-expiration and non-TTL schemas also use 0.
+    optional int32 row_ttl_time_zone_offset_seconds = 45 [default = 0];
+    // cid of the row TTL hidden column (__DORIS_TTL_COL__).
+    optional int32 ttl_col_idx = 46 [default = -1];
+
     optional SplitSchemaPB __split_schema = 1000;  // A special field, DO NOT change it.
 }
 
@@ -632,6 +639,13 @@ message TabletSchemaCloudPB {
 
     // cid of the base-table row lsn column (__DORIS_ROW_LSN_COL__).
     optional int32 row_lsn_col_idx = 41 [default = -1];
+
+    optional int64 row_ttl_duration_us = 45 [default = -1];
+    // Fixed UTC offset for temporal row TTL in [-43200, 50400].
+    // UTC is 0; direct-expiration and non-TTL schemas also use 0.
+    optional int32 row_ttl_time_zone_offset_seconds = 46 [default = 0];
+    // cid of the row TTL hidden column (__DORIS_TTL_COL__).
+    optional int32 ttl_col_idx = 47 [default = -1];
 
     optional bool is_dynamic_schema = 100 [default=false];
 
@@ -700,6 +714,11 @@ message BinlogConfigPB {
     optional int64 config_version = 7 [default = 0];
 }
 
+message RowTtlConfigPB {
+    optional int64 duration_us = 1 [default = -1];
+    optional int64 config_version = 2 [default = 0];
+}
+
 // ATTN: When adding or deleting fields, please update `message TabletMetaCloudPB`
 // simultaneously and modify the conversion function in the be/src/cloud/pb_convert.{h,cpp}.
 message TabletMetaPB {
@@ -750,6 +769,7 @@ message TabletMetaPB {
     // Used by a base tablet to find its paired changelog tablet.
     // ATTN(changelog-rename): formerly "binlog_tablet_id"
     optional int64 changelog_tablet_id = 37;
+    optional RowTtlConfigPB row_ttl_config = 38;
 
     // For cloud
     optional int64 index_id = 1000;
@@ -815,6 +835,7 @@ message TabletMetaCloudPB {
     // Used by a base tablet to find its paired changelog tablet.
     // ATTN(changelog-rename): formerly "binlog_tablet_id"
     optional int64 changelog_tablet_id = 42;
+    optional RowTtlConfigPB row_ttl_config = 43;
 
     // Use for selectdb-cloud
     optional string table_name = 101;
@@ -890,6 +911,9 @@ message PartialUpdateInfoPB {
     optional PartialUpdateNewRowPolicyPB partial_update_new_key_policy = 15 [default = APPEND];
     // Replica-stable seed for volatile defaults, retained through publish/recovery.
     optional PUniqueId load_id = 16;
+    // Unused: row TTL tables reject partial updates. Keep these field IDs for compatibility.
+    optional int32 row_ttl_source_column_cid = 17 [default = -1];
+    optional int32 row_ttl_source_column_uid = 18 [default = -1];
 }
 
 message FileEncryptionInfoPB {

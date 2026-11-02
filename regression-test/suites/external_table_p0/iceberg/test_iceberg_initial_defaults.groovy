@@ -375,10 +375,11 @@ suite("test_iceberg_initial_defaults", "p0,external") {
         CAST(default_timestamptz AS STRING)
     """
 
-    def enableFileScannerV2Rows = sql """SHOW VARIABLES LIKE 'enable_file_scanner_v2'"""
+    // Read the deprecated option by its stable name; SHOW VARIABLES prefixes its display name.
+    def enableFileScannerV2Rows = sql """SELECT @@enable_file_scanner_v2"""
     assertTrue(enableFileScannerV2Rows.size() > 0,
             "Session variable enable_file_scanner_v2 is not found")
-    String originalEnableFileScannerV2 = enableFileScannerV2Rows[0][1].toString()
+    String originalEnableFileScannerV2 = enableFileScannerV2Rows[0][0].toString()
 
     def tableNames = [parquet: parquetTable, orc: orcTable]
 

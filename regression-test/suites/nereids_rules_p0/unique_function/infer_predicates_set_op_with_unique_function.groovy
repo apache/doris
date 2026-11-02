@@ -23,6 +23,10 @@ suite('infer_predicates_set_op_with_unique_function') {
     sql "SET detail_shape_nodes='PhysicalProject'"
     sql 'SET disable_nereids_rules=PRUNE_EMPTY_PARTITION'
 
+    // The intersect/except will be rewritten to distinct aggregate + semi join when spill is enabled.
+    sql 'SET enable_spill = false'
+    sql 'SET enable_force_spill = false'
+
     // InferPredicates must NOT clone a predicate containing rand()/uuid()
     // from the left branch of EXCEPT/INTERSECT onto the right branch through
     // slot substitution, because it would re-evaluate the unique function on

@@ -956,6 +956,11 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
     // now uint8 for bool
     if constexpr (T == TYPE_BOOLEAN) {
         const auto* concrete_array = dynamic_cast<const arrow::BooleanArray*>(arrow_array);
+        // An Int32Array sent to a BOOLEAN column must fail even when buffer validation is off.
+        if (concrete_array == nullptr) {
+            return Status::InvalidArgument("Expected Arrow BooleanArray, got {}",
+                                           arrow_array->type()->ToString());
+        }
         if (config::enable_arrow_input_validation) {
             check_arrow_boolean_buffer(*concrete_array);
         }

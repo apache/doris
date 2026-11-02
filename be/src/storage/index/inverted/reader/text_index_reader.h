@@ -20,6 +20,7 @@
 #include <functional>
 #include <string_view>
 
+#include "storage/index/inverted/common/query_info.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 
 namespace doris::segment_v2 {
@@ -123,6 +124,10 @@ protected:
     virtual Status _term_document_frequency(const std::string& column_name, OpenedIndex& index,
                                             const std::string& term, uint64_t* df,
                                             uint64_t* document_count) = 0;
+    // The name of this index's statistics in the query's CollectionStatistics.
+    std::wstring _statistics_field(const std::wstring& field) const {
+        return match_statistics_field(field, _index_meta.index_id());
+    }
     // Runs `leaf` over the open index into `out`. With `candidates`, a phrase matches only those
     // rows; with `scoring`, the BM25 values reach the context's collection similarity.
     virtual Status _run_leaf(const IndexQueryContextPtr& context, const std::string& column_name,

@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <iterator>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -45,10 +46,12 @@
 #include "storage/iterator/vcollect_iterator.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
+#include "storage/row_ttl.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_reader_context.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/utils.h"
 
 namespace doris {
 class ColumnPredicate;
@@ -68,6 +71,14 @@ BlockReader::~BlockReader() {
 
 Status BlockReader::next_block_with_aggregation(Block* block, bool* eof) {
     auto res = (this->*_next_block_func)(block, eof);
+    if (res.ok() && (_filter_delete_sign || _filter_row_ttl) && block->rows() > 0) {
+        RowVisibilityFilter filter;
+        RETURN_IF_ERROR(build_row_visibility_filter(*block, *_tablet_schema, _filter_delete_sign,
+                                                    _filter_row_ttl, _row_ttl_now_us, &filter));
+        filter.record_filtered_rows(*block, _reader_context.rowid_conversion);
+        RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(block, filter.selection));
+        _stats.rows_del_filtered += filter.rows_deleted;
+    }
     if (!config::is_cloud_mode()) {
         if (!res.ok()) [[unlikely]] {
             static_cast<Tablet*>(_tablet.get())->report_error(res);
@@ -554,6 +565,12 @@ Status BlockReader::_init_agg_state(const ReaderParams& read_params) {
 Status BlockReader::init(const ReaderParams& read_params) {
     SCOPED_RAW_TIMER(&_stats.tablet_reader_init_timer_ns);
     RETURN_IF_ERROR(TabletReader::init(read_params));
+    _filter_row_ttl = should_gc_row_ttl(
+            *_tablet_schema, _tablet->enable_unique_key_merge_on_write(),
+            _tablet->is_changelog_tablet(), read_params.reader_type, read_params.version);
+    if (_filter_row_ttl) {
+        _row_ttl_now_us = UnixMicros();
+    }
 
     // A changelog scan maps the before-image columns; every other read of this reader, which is
     // the one that merges rows across rowsets, builds the sequence mapping instead.
@@ -618,9 +635,6 @@ Status BlockReader::init(const ReaderParams& read_params) {
             _next_block_func = &BlockReader::_replace_key_next_block;
         } else {
             _next_block_func = &BlockReader::_unique_key_next_block;
-            if (_filter_delete) {
-                _delete_filter_column = ColumnUInt8::create();
-            }
         }
         break;
     case KeysType::AGG_KEYS:
@@ -631,6 +645,8 @@ Status BlockReader::init(const ReaderParams& read_params) {
         DCHECK(false) << "No next row function for type:" << _tablet_schema->keys_type();
         break;
     }
+    _filter_delete_sign =
+            _next_block_func == &BlockReader::_unique_key_next_block && _delete_sign_available;
 
     return Status::OK();
 }
@@ -816,32 +832,6 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
         }
     } while (target_block_row < batch_max_rows());
 
-    if (_delete_sign_available) {
-        int delete_sign_idx = _read_schema->delete_sign_ordinal();
-        DORIS_CHECK_GT(delete_sign_idx, 0);
-        DORIS_CHECK_LT(delete_sign_idx, static_cast<int>(target_columns.size()));
-        auto delete_filter_column = IColumn::mutate(std::move(_delete_filter_column));
-        reinterpret_cast<ColumnUInt8*>(delete_filter_column.get())->resize(target_block_row);
-
-        auto* __restrict filter_data =
-                reinterpret_cast<ColumnUInt8*>(delete_filter_column.get())->get_data().data();
-        auto* __restrict delete_data =
-                reinterpret_cast<ColumnInt8*>(target_columns[delete_sign_idx].get())
-                        ->get_data()
-                        .data();
-        for (int i = 0; i < target_block_row; ++i) {
-            filter_data[i] = delete_data[i] == 0;
-        }
-        auto target_columns_size = target_columns.size();
-        _delete_filter_column = std::move(delete_filter_column);
-        ColumnWithTypeAndName column_with_type_and_name {_delete_filter_column,
-                                                         std::make_shared<DataTypeUInt8>(),
-                                                         "__DORIS_COMPACTION_FILTER__"};
-        target_columns_guard.restore();
-        block->insert(column_with_type_and_name);
-        RETURN_IF_ERROR(Block::filter_block(block, target_columns_size, target_columns_size));
-        _stats.rows_del_filtered += target_block_row - block->rows();
-    }
     return Status::OK();
 }
 

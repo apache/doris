@@ -32,6 +32,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.datasource.ExternalResourceReclaimer;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
@@ -337,6 +338,16 @@ public final class MetricRepo {
         // Each component is one base-100 digit: 26.0.1.0 becomes 26000100.
         return (((major * VERSION_METRIC_COMPONENT_BASE + minor) * VERSION_METRIC_COMPONENT_BASE + patch)
                 * VERSION_METRIC_COMPONENT_BASE + hotfix);
+    }
+
+    private static void addExternalResourceCleanupGauge(String name, MetricUnit unit, Supplier<Long> value) {
+        DORIS_METRIC_REGISTER.addMetrics(new GaugeMetric<Long>("external_resource_cleanup_" + name,
+                unit, "External resource cleanup " + name) {
+            @Override
+            public Long getValue() {
+                return value.get();
+            }
+        });
     }
 
     // init() should only be called after catalog is constructed.
@@ -886,6 +897,16 @@ public final class MetricRepo {
             }
         };
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_CATALOG_NUM);
+        addExternalResourceCleanupGauge("pending", MetricUnit.NOUNIT,
+                () -> ExternalResourceReclaimer.getInstance().pendingCount());
+        addExternalResourceCleanupGauge("running", MetricUnit.NOUNIT,
+                () -> ExternalResourceReclaimer.getInstance().runningCount());
+        addExternalResourceCleanupGauge("failures", MetricUnit.NOUNIT,
+                () -> ExternalResourceReclaimer.getInstance().failureCount());
+        addExternalResourceCleanupGauge("oldest_age_ms", MetricUnit.MILLISECONDS,
+                () -> ExternalResourceReclaimer.getInstance().oldestAgeMillis());
+        addExternalResourceCleanupGauge("last_duration_ms", MetricUnit.MILLISECONDS,
+                () -> ExternalResourceReclaimer.getInstance().lastDurationMillis());
 
         GAUGE_INTERNAL_DATABASE_NUM = new GaugeMetric<Integer>("internal_database_num",
                 MetricUnit.NOUNIT, "total internal database num") {

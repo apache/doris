@@ -226,6 +226,9 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
         sql """set runtime_filter_wait_infinitely=true"""
         // TRuntimeFilterType.IN == 1: force the IN runtime-filter shape.
         sql """set runtime_filter_type=1"""
+        // Fuzzing can disable the positive IN control or prune it before Rust sees it.
+        sql "set runtime_filter_max_in_num=1024"
+        sql "set enable_runtime_filter_prune=false"
 
         // Reuse the framework's profile readiness polling and configured HTTP credentials.
         def profileAction = new ProfileAction(context)
@@ -489,8 +492,6 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
         sql """INSERT INTO t_large_runtime_filter
             SELECT cast(number as int) FROM numbers('number'='65537')"""
         sql "set runtime_filter_max_in_num=70000"
-        // Preserve the large filter even when statistics predict low selectivity.
-        sql "set enable_runtime_filter_prune=false"
         // The probe child plus these distinct literals crosses the 16-bit expression
         // boundary. Pushing only the wrapped prefix would lose almost all matching rows.
         [65535, 65536, 65537].each { keyCount ->

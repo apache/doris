@@ -61,12 +61,15 @@
 #include "storage/rowset/rowset_reader.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/segment/column_reader.h"
+#include "storage/segment/rowid_read_ahead.h"
+#include "storage/segment/segment_read_ahead.h"
 #include "storage/tablet/tablet_fwd.h"
 #include "storage/txn/txn_manager.h"
 #include "util/bvar_helper.h"
 #include "util/debug_points.h"
 #include "util/jsonb/serialize.h"
 #include "util/string_util.h"
+#include "util/time.h"
 
 namespace doris {
 
@@ -146,6 +149,41 @@ Status _get_segment_column_iterator(const BetaRowsetSharedPtr& rowset, uint32_t 
                                          input_io_ctx);
 }
 
+Status _read_row_store_with_read_ahead(
+        const BetaRowsetSharedPtr& rowset, const RowLocation& row_location,
+        const segment_v2::SegmentSharedPtr& segment, const TabletColumn& column,
+        OlapReaderStatistics& stats, const io::IOContext* io_ctx,
+        const std::shared_ptr<io::FileRangeReadContext>& read_ahead_context,
+        MutableColumnPtr& result) {
+    DORIS_CHECK(read_ahead_context != nullptr);
+
+    StorageReadOptions read_options(stats);
+    read_options.version = rowset->version();
+    read_options.commit_tso = rowset->commit_tso();
+    read_options.use_page_cache = !config::disable_storage_page_cache;
+    if (io_ctx != nullptr) {
+        read_options.io_ctx = *io_ctx;
+    }
+    read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+    read_options.io_ctx.file_cache_stats = &stats.file_cache_stats;
+    std::unique_ptr<segment_v2::SegmentReadAhead> read_ahead;
+    RETURN_IF_ERROR(segment_v2::SegmentReadAhead::create_for_query(
+            segment->file_reader(), ExecEnv::GetInstance(), read_ahead_context, read_options,
+            &read_ahead));
+
+    std::vector<segment_v2::rowid_t> rowids {static_cast<segment_v2::rowid_t>(row_location.row_id)};
+    std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
+    // A switch can close after the point request creates its context. The factory then returns
+    // no read-ahead object; reuse the loaded segment with the original synchronous reader.
+    if (read_ahead == nullptr) {
+        RETURN_IF_ERROR(_init_segment_column_iterator(rowset, segment, column, &column_iterator,
+                                                      stats, io_ctx));
+        return column_iterator->read_by_rowids(rowids.data(), rowids.size(), result);
+    }
+    return segment_v2::read_column_by_rowids_with_read_ahead(
+            *segment, column, rowids, result, read_options, column_iterator, *read_ahead);
+}
+
 } // namespace
 
 extern MetricPrototype METRIC_query_scan_bytes;
@@ -163,6 +201,18 @@ BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta) : _tablet_meta(std::move
     INT_COUNTER_METRIC_REGISTER(_metric_entity, query_scan_count);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_bytes);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_finish_count);
+
+    // Seed the baselines from whatever the counters already hold -- they are NOT
+    // necessarily zero. The metric entity is keyed by tablet id, so register_metric() above
+    // hands back the EXISTING counters whenever another BaseTablet for this id is still
+    // alive: local migration constructs the replacement before dropping the original, and in
+    // cloud a background shared_ptr can outlive cache eviction while a replacement is loaded.
+    // Assuming zero there would make this object's first report bill the old object's entire
+    // history to a single window. Leaving the time at zero instead would make collect() skip
+    // the first round while commit() still advanced the baseline, discarding that activity.
+    last_reported_scan_count.store(query_scan_count->value(), std::memory_order_relaxed);
+    last_reported_flush_count.store(flush_finish_count->value(), std::memory_order_relaxed);
+    last_reported_mono_ms.store(MonotonicMillis(), std::memory_order_relaxed);
 
     // construct _timestamped_versioned_tracker from rs and stale rs meta
     _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(),
@@ -530,6 +580,39 @@ Status BaseTablet::_lookup_row_data(const Slice& encoded_key, const RowLocation&
     MutableColumnPtr column_ptr = ColumnString::create();
     std::vector<segment_v2::rowid_t> rowids {static_cast<segment_v2::rowid_t>(row_location.row_id)};
     RETURN_IF_ERROR(column_iterator->read_by_rowids(rowids.data(), 1, column_ptr));
+    assert(column_ptr->size() == 1);
+    auto* string_column = static_cast<ColumnString*>(column_ptr.get());
+    StringRef value = string_column->get_data_at(0);
+    values = value.to_string();
+    if (write_to_cache) {
+        RowCache::instance()->insert({tablet_id(), encoded_key}, Slice {value.data, value.size});
+    }
+    return Status::OK();
+}
+
+Status BaseTablet::lookup_row_data_with_read_ahead(
+        const Slice& encoded_key, const RowLocation& row_location,
+        const segment_v2::SegmentSharedPtr& segment, RowsetSharedPtr input_rowset,
+        OlapReaderStatistics& stats, std::string& values, bool write_to_cache,
+        const io::IOContext* io_ctx,
+        const std::shared_ptr<io::FileRangeReadContext>& read_ahead_context) {
+    DCHECK(segment != nullptr);
+    DCHECK_EQ(segment->id(), row_location.segment_id);
+    MonotonicStopWatch watch;
+    size_t row_size = 1;
+    watch.start();
+    Defer _defer([&]() {
+        LOG_EVERY_N(INFO, 500) << "get a single_row, cost(us):" << watch.elapsed_time() / 1000
+                               << ", row_size:" << row_size;
+    });
+
+    BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(input_rowset);
+    CHECK(rowset);
+    const TabletSchemaSPtr tablet_schema = rowset->tablet_schema();
+    const auto& column = *DORIS_TRY(tablet_schema->column(BeConsts::ROW_STORE_COL));
+    MutableColumnPtr column_ptr = ColumnString::create();
+    RETURN_IF_ERROR(_read_row_store_with_read_ahead(rowset, row_location, segment, column, stats,
+                                                    io_ctx, read_ahead_context, column_ptr));
     assert(column_ptr->size() == 1);
     auto* string_column = static_cast<ColumnString*>(column_ptr.get());
     StringRef value = string_column->get_data_at(0);
@@ -2039,7 +2122,7 @@ void BaseTablet::calc_compaction_output_rowset_delete_bitmap(
                                       << " src loaction: |" << src.rowset_id << "|"
                                       << src.segment_id << "|" << src.row_id
                                       << " version: " << cur_version;
-                        if (missed_rows) {
+                        if (missed_rows && !rowid_conversion.is_visibility_filtered(src)) {
                             missed_rows->insert(src);
                         }
                         continue;
@@ -2263,6 +2346,13 @@ void BaseTablet::check_agg_delete_bitmap_for_stale_rowsets(int64_t& useless_rows
             },
             true);
 
+    // Compaction holds the header lock while merging the delete bitmap. Read the schema
+    // before taking the bitmap lock so the traversal cannot acquire these locks in reverse.
+    const bool has_sequence_col = tablet_schema()->has_sequence_col();
+    TEST_SYNC_POINT_CALLBACK(
+            "BaseTablet::check_agg_delete_bitmap_for_stale_rowsets:before_traverse_delete_bitmap",
+            this);
+
     std::set<RowsetId> useless_rowsets;
     std::map<RowsetId, std::vector<int64_t>> useless_rowset_versions;
     {
@@ -2279,7 +2369,7 @@ void BaseTablet::check_agg_delete_bitmap_for_stale_rowsets(int64_t& useless_rows
                         return -1;
                     }
                     if (end_versions.find(version) == end_versions.end()) {
-                        if (tablet_schema()->has_sequence_col()) {
+                        if (has_sequence_col) {
                             auto rowset_version = rowset_it->second;
                             if (version >= rowset_version.first &&
                                 version <= rowset_version.second) {

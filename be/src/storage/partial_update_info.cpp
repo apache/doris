@@ -19,6 +19,7 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <optional>
 
@@ -62,6 +63,19 @@ Status PartialUpdateInfo::init(int64_t tablet_id, int64_t txn_id, const TabletSc
                                const std::string& auto_increment_column,
                                int32_t sequence_map_col_uid, int64_t cur_max_version,
                                const PUniqueId* load_id) {
+    if (unique_key_update_mode == UniqueKeyUpdateModePB::UPDATE_FLEXIBLE_COLUMNS &&
+        !tablet_schema.has_skip_bitmap_col()) {
+        return Status::InvalidArgument(
+                "Flexible partial update requires a skip bitmap column, tablet_id={}, txn_id={}",
+                tablet_id, txn_id);
+    }
+    // After TTL GC, a missing old row would supply defaults instead of stored missing columns.
+    // Reject the combination at the writer boundary too, including requests from an older FE.
+    if (tablet_schema.has_ttl_col() && unique_key_update_mode != UniqueKeyUpdateModePB::UPSERT) {
+        return Status::InvalidArgument(
+                "Partial update is not supported on tables with row TTL, tablet_id={}, txn_id={}",
+                tablet_id, txn_id);
+    }
     partial_update_mode = unique_key_update_mode;
     partial_update_new_key_policy = policy;
     partial_update_input_columns = partial_update_cols;
@@ -323,7 +337,9 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
                     int precision = std::stoi(default_value_expr.substr(pos + 1));
                     dtv.from_unixtime(timestamp_ms / 1000, nano_seconds, timezone, precision);
                     if (precision > 6) {
-                        const int64_t factor = static_cast<int64_t>(int_exp10(9 - precision));
+                        const auto factor = static_cast<int64_t>(int_exp10(9 - precision));
+                        // FE validates precision <= 9; this branch's factor is 1, 10 or 100.
+                        // NOLINTNEXTLINE(clang-analyzer-core.DivideZero)
                         const int64_t truncated_nanos = nano_seconds / factor * factor;
                         nanosecond_remainder = static_cast<uint16_t>(truncated_nanos % 1000);
                     }

@@ -45,12 +45,10 @@ import java.lang.reflect.Field;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -95,7 +93,7 @@ public class SplitSourceTest {
         }
         assignment = new SplitAssignment(policy, Mockito.mock(SplitGenerator.class),
                 (be, properties, split, keys, admission) -> locations.get(split),
-                Collections.emptyMap(), Collections.emptyList(), true, 3, 3);
+                Collections.emptyMap(), Collections.emptyList(), true, 3, 8);
     }
 
     private Object capacityMonitor() throws Exception {
@@ -112,8 +110,8 @@ public class SplitSourceTest {
             synchronized (capacityMonitor()) {
                 Future<?> task = executor.submit(() -> {
                     if (produce) {
-                        Assertions.assertTrue(assignment.offerBatch(backend,
-                                Collections.singletonList(ranges.get(0)), () -> {}));
+                        Assertions.assertEquals(1, assignment.offerBatch(backend,
+                                Collections.singletonList(ranges.get(0)), 0, () -> {}));
                     } else {
                         assignment.notifyQueueSpace(backend);
                     }
@@ -127,16 +125,16 @@ public class SplitSourceTest {
 
     @Test
     void capacityReleasedBeforeWaiterRegistrationIsRetried() throws Exception {
-        BlockingQueue<Collection<TScanRangeLocations>> queue = assignment.getAssignedSplits(backend);
+        SplitAssignment.AssignmentQueue queue = assignment.getAssignedSplits(backend);
         while (queue.remainingCapacity() > 0) {
-            queue.add(Collections.singletonList(ranges.get(0)));
+            Assertions.assertEquals(1, queue.offer(Collections.singletonList(ranges.get(0)), 0));
         }
         AtomicInteger resumed = new AtomicInteger();
         AtomicReference<Throwable> failure = new AtomicReference<>();
-        AtomicReference<Boolean> offered = new AtomicReference<>();
+        AtomicReference<Integer> offered = new AtomicReference<>();
         Thread producer = new Thread(() -> {
             try {
-                offered.set(assignment.offerBatch(backend, Collections.singletonList(ranges.get(1)),
+                offered.set(assignment.offerBatch(backend, Collections.singletonList(ranges.get(1)), 0,
                         resumed::incrementAndGet));
             } catch (Throwable t) {
                 failure.set(t);
@@ -157,25 +155,46 @@ public class SplitSourceTest {
         producer.join(5000);
         Assertions.assertFalse(producer.isAlive());
         Assertions.assertNull(failure.get());
-        Assertions.assertEquals(Boolean.TRUE, offered.get());
+        Assertions.assertEquals(1, offered.get());
         Assertions.assertEquals(0, queue.remainingCapacity());
         assignment.notifyQueueSpace(backend);
         Assertions.assertEquals(0, resumed.get(), "the successful retry must remove its capacity callback");
     }
 
     @Test
+    void partialOfferFillsRemainingCapacity() throws Exception {
+        SplitAssignment.AssignmentQueue queue = assignment.getAssignedSplits(backend);
+        AtomicInteger resumed = new AtomicInteger();
+        Runnable callback = resumed::incrementAndGet;
+        Assertions.assertEquals(3, assignment.offerBatch(backend, ranges.subList(0, 3), 0, callback));
+        Assertions.assertEquals(3, assignment.offerBatch(backend, ranges.subList(3, 6), 0, callback));
+        Assertions.assertEquals(6, queue.size());
+        Assertions.assertEquals(2, queue.remainingCapacity());
+        Assertions.assertEquals(2, assignment.offerBatch(backend, ranges.subList(0, 3), 0, callback));
+        Assertions.assertEquals(0, queue.remainingCapacity());
+        Assertions.assertEquals(0, assignment.offerBatch(backend, ranges.subList(0, 3), 2, callback));
+        Assertions.assertEquals(ranges.get(0), queue.poll());
+        assignment.notifyQueueSpace(backend);
+        Assertions.assertEquals(1, resumed.get());
+        Assertions.assertEquals(1, assignment.offerBatch(backend, ranges.subList(0, 3), 2, callback));
+        Assertions.assertEquals(0, queue.remainingCapacity());
+    }
+
+    @Test
     void backendChannelsUseStableIdsAcrossEndpointChanges() throws Exception {
         Backend first = new Backend(11L, "127.0.0.1", 9050);
         Backend second = new Backend(12L, "127.0.0.2", 9050);
-        BlockingQueue<Collection<TScanRangeLocations>> firstQueue = assignment.getAssignedSplits(first);
-        BlockingQueue<Collection<TScanRangeLocations>> secondQueue = assignment.getAssignedSplits(second);
+        SplitAssignment.AssignmentQueue firstQueue = assignment.getAssignedSplits(first);
+        SplitAssignment.AssignmentQueue secondQueue = assignment.getAssignedSplits(second);
         AtomicInteger resumed = new AtomicInteger();
         Runnable callback = resumed::incrementAndGet;
         int capacity = firstQueue.remainingCapacity();
         for (int i = 0; i < capacity; i++) {
-            Assertions.assertTrue(assignment.offerBatch(first, Collections.singletonList(ranges.get(0)), callback));
+            Assertions.assertEquals(1, assignment.offerBatch(first,
+                    Collections.singletonList(ranges.get(0)), 0, callback));
         }
-        Assertions.assertFalse(assignment.offerBatch(first, Collections.singletonList(ranges.get(0)), callback));
+        Assertions.assertEquals(0, assignment.offerBatch(first,
+                Collections.singletonList(ranges.get(0)), 0, callback));
         first.setAlive(true);
         first.setBePort(9061);
         Backend sameId = new Backend(11L, "127.0.0.3", 9150);
@@ -196,13 +215,13 @@ public class SplitSourceTest {
     void bulkDrainRespectsRequestAndResumesBackpressuredProducer() throws Exception {
         assignment.addToQueue(splits);
         AtomicInteger resumed = new AtomicInteger();
-        Assertions.assertFalse(assignment.offerBatch(backend, Collections.singletonList(ranges.get(0)),
+        Assertions.assertEquals(0, assignment.offerBatch(backend, Collections.singletonList(ranges.get(0)), 0,
                 resumed::incrementAndGet));
         SplitSource source = new SplitSource(backend, assignment, 1000);
         Assertions.assertEquals(ranges.subList(0, 6), source.getNextBatch(6));
         Assertions.assertEquals(1, resumed.get());
-        Assertions.assertEquals(1, assignment.getAssignedSplits(backend).size(),
-                "batches beyond the BE request must stay in the bounded queue");
+        Assertions.assertEquals(2, assignment.getAssignedSplits(backend).size(),
+                "splits beyond the BE request must stay in the bounded queue");
         assignment.finishSchedule();
         Assertions.assertEquals(ranges.subList(6, 8), source.getNextBatch(6));
         Assertions.assertTrue(source.getNextBatch(6).isEmpty());
@@ -212,7 +231,7 @@ public class SplitSourceTest {
     @ValueSource(booleans = {false, true})
     void bulkDrainObservesTerminalStatePublishedByCapacityCallback(boolean fail) throws Exception {
         assignment.addToQueue(splits);
-        Assertions.assertFalse(assignment.offerBatch(backend, Collections.singletonList(ranges.get(0)), () -> {
+        Assertions.assertEquals(0, assignment.offerBatch(backend, Collections.singletonList(ranges.get(0)), 0, () -> {
             if (fail) {
                 assignment.setException(new UserException("bulk drain failure"));
             } else {
@@ -226,6 +245,42 @@ public class SplitSourceTest {
         } else {
             Assertions.assertTrue(source.getNextBatch(6).isEmpty());
             Assertions.assertTrue(source.getNextBatch(6).isEmpty());
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void awaitedSingleSplitObservesTerminalStateBeforeReturning(boolean fail) throws Exception {
+        assignment = Mockito.spy(assignment);
+        CountDownLatch waiting = new CountDownLatch(1);
+        Mockito.doAnswer(invocation -> {
+            waiting.countDown();
+            TScanRangeLocations split = (TScanRangeLocations) invocation.callRealMethod();
+            if (fail) {
+                assignment.setException(new UserException("awaited split failure"));
+            } else {
+                assignment.stop();
+            }
+            return split;
+        }).when(assignment).awaitSplit(Mockito.eq(backend), Mockito.anyLong());
+        SplitSource source = new SplitSource(backend, assignment, 1000, 1);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<List<TScanRangeLocations>> fetch = executor.submit(() -> source.getNextBatch(1));
+            Assertions.assertTrue(waiting.await(5, TimeUnit.SECONDS));
+            Assertions.assertEquals(1, assignment.offerBatch(backend,
+                    Collections.singletonList(ranges.get(0)), 0, () -> {}));
+            if (fail) {
+                ExecutionException error = Assertions.assertThrows(ExecutionException.class,
+                        () -> fetch.get(5, TimeUnit.SECONDS));
+                Assertions.assertInstanceOf(UserException.class, error.getCause());
+                Assertions.assertTrue(error.getCause().getMessage().contains("awaited split failure"));
+            } else {
+                Assertions.assertTrue(fetch.get(5, TimeUnit.SECONDS).isEmpty());
+                Assertions.assertTrue(source.getNextBatch(1).isEmpty());
+            }
+        } finally {
+            executor.shutdownNow();
         }
     }
 
@@ -280,7 +335,7 @@ public class SplitSourceTest {
     }
 
     @Test
-    void drainPendingBatchBeforeFinishedQueueBecomesEof() throws Exception {
+    void finishedQueueDrainsRemainingSplitsBeforeEof() throws Exception {
         assignment.addToQueue(splits);
         assignment.finishSchedule();
         SplitSource source = new SplitSource(backend, assignment, 1000);
@@ -298,12 +353,13 @@ public class SplitSourceTest {
 
     @Test
     void producerBatchesAndConsumerCreatedQueueRespectConfiguredLimits() throws Exception {
-        BlockingQueue<Collection<TScanRangeLocations>> queue = assignment.getAssignedSplits(backend);
-        Assertions.assertEquals(3, queue.remainingCapacity());
+        SplitAssignment.AssignmentQueue queue = assignment.getAssignedSplits(backend);
+        Assertions.assertEquals(8, queue.remainingCapacity());
         assignment.addToQueue(splits);
-        Assertions.assertEquals(3, queue.size());
-        Assertions.assertEquals(Arrays.asList(3, 3, 2),
-                queue.stream().map(Collection::size).collect(java.util.stream.Collectors.toList()));
+        Assertions.assertEquals(8, queue.size());
+        Assertions.assertEquals(ranges, Arrays.asList(queue.poll(), queue.poll(), queue.poll(), queue.poll(),
+                queue.poll(), queue.poll(), queue.poll(), queue.poll()));
+        Assertions.assertEquals(8, queue.remainingCapacity());
     }
 
     @Test
@@ -322,7 +378,7 @@ public class SplitSourceTest {
             SplitSource source = new SplitSource(backend, assignment, 1000);
             Assertions.assertEquals(ranges.subList(0, 1), source.getNextBatch(1));
             producer.get(5, TimeUnit.SECONDS);
-            Assertions.assertEquals(3, assignment.getAssignedSplits(backend).size());
+            Assertions.assertEquals(8, assignment.getAssignedSplits(backend).size());
         } finally {
             executor.shutdownNow();
             Assertions.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
@@ -338,10 +394,59 @@ public class SplitSourceTest {
     }
 
     @Test
-    void timeoutIsAnErrorRatherThanEof() {
+    void waitWindowExpiryIsPendingRatherThanEof() {
         SplitSource source = new SplitSource(backend, assignment, 20);
-        UserException failure = Assertions.assertThrows(UserException.class, () -> source.getNextBatch(1));
+        UserException failure = Assertions.assertThrows(SplitSource.SplitPendingException.class,
+                () -> source.getNextBatch(1));
         Assertions.assertTrue(failure.getMessage().contains("Timeout"));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> new SplitSource(backend, assignment, 0));
+        SessionVariable variables = new SessionVariable();
+        Assertions.assertThrows(Exception.class, () -> variables.checkFetchSplitsMaxWaitTime("0"));
+    }
+
+    @Test
+    void unfinishedListingAfterFirstSplitIsPendingNotEof() throws Exception {
+        SplitSource source = new SplitSource(backend, assignment, 20, 1);
+        assignment.addToQueue(splits.subList(0, 1));
+        Assertions.assertEquals(ranges.subList(0, 1), source.getNextBatch(1));
+
+        // Another partition is still listing beyond one fetch wait window.
+        Assertions.assertThrows(SplitSource.SplitPendingException.class, () -> source.getNextBatch(1));
+        assignment.addToQueue(splits.subList(1, 2));
+        assignment.finishSchedule();
+        Assertions.assertEquals(ranges.subList(1, 2), source.getNextBatch(1));
+        Assertions.assertTrue(source.getNextBatch(1).isEmpty());
+    }
+
+    @Test
+    void completedListingReturnsEof() throws Exception {
+        SplitSource source = new SplitSource(backend, assignment, 20);
+        assignment.finishSchedule();
+        Assertions.assertTrue(source.getNextBatch(1).isEmpty());
+    }
+
+    @Test
+    void backendWithoutInitialAssignmentCanRetryUntilListingFinishes() throws Exception {
+        Backend otherBackend = new Backend(2L, "127.0.0.2", 9050);
+        SplitSource first = new SplitSource(backend, assignment, 20, 1);
+        SplitSource second = new SplitSource(otherBackend, assignment, 20, 1);
+        assignment.addToQueue(splits.subList(0, 1));
+        Assertions.assertEquals(ranges.subList(0, 1), first.getNextBatch(1));
+
+        Assertions.assertThrows(SplitSource.SplitPendingException.class, () -> second.getNextBatch(1));
+        Assertions.assertEquals(1, assignment.offerBatch(otherBackend, ranges.subList(1, 2), 0, () -> {}));
+        assignment.finishSchedule();
+        Assertions.assertEquals(ranges.subList(1, 2), second.getNextBatch(1));
+        Assertions.assertTrue(second.getNextBatch(1).isEmpty());
+    }
+
+    @Test
+    void producerFailureAfterPendingFetchIsStillAnError() throws Exception {
+        SplitSource source = new SplitSource(backend, assignment, 20);
+        Assertions.assertThrows(SplitSource.SplitPendingException.class, () -> source.getNextBatch(1));
+        UserException failure = new UserException("listing failed");
+        assignment.setException(failure);
+        Assertions.assertSame(failure, Assertions.assertThrows(UserException.class, () -> source.getNextBatch(1)));
     }
 
     @Test
@@ -468,7 +573,7 @@ public class SplitSourceTest {
             Assertions.assertTrue(started.await(5, TimeUnit.SECONDS));
             awaitConsumerWait(firstThread.get());
             awaitConsumerWait(secondThread.get());
-            Assertions.assertTrue(assignment.offerBatch(backend, ranges.subList(0, 1), () -> {}));
+            Assertions.assertEquals(1, assignment.offerBatch(backend, ranges.subList(0, 1), 0, () -> {}));
             Assertions.assertEquals(ranges.subList(0, 1), firstResult.get(5, TimeUnit.SECONDS));
             Assertions.assertFalse(secondResult.isDone());
             assignment.finishSchedule();

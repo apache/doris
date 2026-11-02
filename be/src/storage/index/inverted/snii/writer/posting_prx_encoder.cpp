@@ -176,8 +176,7 @@ Status encode_position_payloads(const PostingPositionView& positions,
 
 Status choose_position_codec(PostingByteBuffer* plain, PostingByteBuffer* pfor,
                              PostingByteBuffer* compressed, int level, bool singleton,
-                             uint32_t byte_limit, uint32_t zstd_min_saving_percent,
-                             format::PrxCodec* codec) {
+                             const format::PrxWindowLimits& limits, format::PrxCodec* codec) {
     if (level >= 0) {
         *codec = format::PrxCodec::kRaw;
         if (level > 0) {
@@ -187,6 +186,7 @@ Status choose_position_codec(PostingByteBuffer* plain, PostingByteBuffer* pfor,
         return Status::OK();
     }
     *codec = singleton ? format::PrxCodec::kRaw : format::PrxCodec::kPfor;
+    const uint32_t byte_limit = limits.max_uncomp_bytes;
     const bool use_zstd = plain->size() >= format::kPrxAutoZstdMinBytes;
     if (singleton || plain->size() > byte_limit || (!use_zstd && pfor->size() <= byte_limit)) {
         return Status::OK();
@@ -194,8 +194,8 @@ Status choose_position_codec(PostingByteBuffer* plain, PostingByteBuffer* pfor,
     if (use_zstd) {
         RETURN_IF_ERROR(compress_posting_bytes(plain, -level, compressed));
     }
-    *codec = format::select_auto_prx_codec(pfor->size(), plain->size(), compressed->size(),
-                                           use_zstd, byte_limit, zstd_min_saving_percent)
+    *codec = format::choose_auto_prx_codec(limits, pfor->size(), plain->size(), compressed->size(),
+                                           use_zstd)
                      .codec;
     return Status::OK();
 }
@@ -451,9 +451,8 @@ Status PostingPrxEncoder::build_replayable(const PostingPositionView& positions,
         return Status::OK();
     }
     format::PrxCodec codec = format::PrxCodec::kRaw;
-    RETURN_IF_ERROR(choose_position_codec(
-            &plain, &pfor, &compressed, level, freqs.size() == 1 && freqs.front() == 1,
-            limits.max_uncomp_bytes, limits.zstd_min_saving_percent, &codec));
+    RETURN_IF_ERROR(choose_position_codec(&plain, &pfor, &compressed, level,
+                                          freqs.size() == 1 && freqs.front() == 1, limits, &codec));
     ByteSink header;
     header.put_u8(static_cast<uint8_t>(codec));
     header.put_varint32(

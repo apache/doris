@@ -380,6 +380,9 @@ struct TOlapTableSchemaParam {
     16: optional TPartialUpdateNewRowPolicy partial_update_new_key_policy
     // ATTN(changelog-rename): formerly "row_binlog_index_schemas"
     17: optional list<TOlapTableIndexSchema> changelog_index_schemas
+    // Unused: row TTL tables reject partial updates. Keep these field IDs for compatibility.
+    18: optional i32 row_ttl_source_column_unique_id = -1
+    19: optional TColumn row_ttl_source_column
 }
 
 struct TTabletLocation {

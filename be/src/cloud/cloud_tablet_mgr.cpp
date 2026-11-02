@@ -32,6 +32,7 @@
 #include "common/status.h"
 #include "cpp/sync_point.h"
 #include "runtime/memory/cache_policy.h"
+#include "storage/active_tablet_stats.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "util/debug_points.h"
 #include "util/lru_cache.h"
@@ -361,7 +362,9 @@ void CloudTabletMgr::vacuum_stale_rowsets(const CountDownLatch& stop_latch) {
             int64_t max_useless_rowset_version_count = 0;
             int64_t tablet_id_with_max_useless_rowset_version_count = 0;
             OlapStopWatch watch;
-            _tablet_map->traverse([&](auto&& tablet) {
+            // Reuse the snapshot outside TabletMap's mutex: a check waiting on one tablet's
+            // header lock must not block loading or enumerating unrelated tablets.
+            for (const auto& tablet : tablets_to_remove_unused_rowsets) {
                 int64_t useless_rowset_count = 0;
                 int64_t useless_rowset_version_count = 0;
                 tablet->check_agg_delete_bitmap_for_stale_rowsets(useless_rowset_count,
@@ -374,7 +377,7 @@ void CloudTabletMgr::vacuum_stale_rowsets(const CountDownLatch& stop_latch) {
                     max_useless_rowset_version_count = useless_rowset_version_count;
                     tablet_id_with_max_useless_rowset_version_count = tablet->tablet_id();
                 }
-            });
+            }
             g_max_rowsets_with_useless_delete_bitmap.set_value(max_useless_rowset_count);
             g_max_rowsets_with_useless_delete_bitmap_version.set_value(
                     max_useless_rowset_version_count);
@@ -605,8 +608,12 @@ Status CloudTabletMgr::get_topn_tablets_to_compact(
 }
 
 void CloudTabletMgr::build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info,
-                                                   uint64_t* tablet_num) {
+                                                   uint64_t* tablet_num,
+                                                   ActiveTabletCollector* active) {
     DCHECK(tablets_info != nullptr);
+    if (active) {
+        active->start();
+    }
     VLOG_NOTICE << "begin to build all report cloud tablets info";
 
     HistogramStat tablet_version_num_hist;
@@ -615,6 +622,13 @@ void CloudTabletMgr::build_all_report_tablets_info(std::map<TTabletId, TTablet>*
         auto tablet = tablet_wk.lock();
         if (!tablet) return;
         (*tablet_num)++;
+        if (active) {
+            // Known limitation: the counters live on the cached CloudTablet, so a tablet
+            // evicted from the cache before its first report takes its activity with it and
+            // FE sees it as cold. Not fixed - keeping a sample independent of the metadata
+            // cache is a lifetime redesign, and this is a scheduling hint, not accounting.
+            active->collect(tablet);
+        }
         TTabletInfo tablet_info;
         tablet->build_tablet_report_info(&tablet_info);
         using namespace std::chrono;

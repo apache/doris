@@ -38,6 +38,10 @@
 #include "util/bthread_shared_mutex.h"
 
 namespace doris {
+namespace io {
+class FileRangeReadContext;
+}
+
 struct RowSetSplits;
 struct RowsetWriterContext;
 class RowsetWriter;
@@ -189,6 +193,15 @@ public:
                            const segment_v2::SegmentSharedPtr& segment, RowsetSharedPtr rowset,
                            OlapReaderStatistics& stats, std::string& values,
                            bool write_to_cache = false, const io::IOContext* io_ctx = nullptr);
+
+    // Read from the resolved segment with query-scoped range read-ahead admission. The caller
+    // keeps the segment and its acquired rowset alive as with lookup_row_data above.
+    Status lookup_row_data_with_read_ahead(
+            const Slice& encoded_key, const RowLocation& row_location,
+            const segment_v2::SegmentSharedPtr& segment, RowsetSharedPtr rowset,
+            OlapReaderStatistics& stats, std::string& values, bool write_to_cache,
+            const io::IOContext* io_ctx,
+            const std::shared_ptr<io::FileRangeReadContext>& read_ahead_context);
     // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
     // NOTE: the method only works in unique key model with primary key index, you will got a
     //       not supported error in other data model.
@@ -441,6 +454,32 @@ public:
     IntCounter* query_scan_count = nullptr;
     IntCounter* flush_bytes = nullptr;
     IntCounter* flush_finish_count = nullptr;
+    // Last time this tablet was scanned by a query / flushed by a load (ms since epoch),
+    // named after the counter each one accompanies (query_scan_count / flush_finish_count).
+    // Set only on the query scan path and the memtable flush path respectively, so they are
+    // NOT polluted by compaction / snapshot / agent tasks the way CloudTablet::
+    // last_access_time_ms is. Do NOT shorten to last_load_time_ms: CloudTablet already has
+    // a field by that name tracking load start for the compaction freeze check.
+    std::atomic<int64_t> last_query_scan_time_ms {0};
+    std::atomic<int64_t> last_load_flush_time_ms {0};
+    // Snapshots taken at the last SUCCESSFULLY DELIVERED report. Committed only after
+    // handle_report() returns true, never with exchange() during collection -- see
+    // ActiveTabletCollector::commit(). Seeded in the constructor from the counters' current
+    // values, which are shared with any other live BaseTablet for the same tablet id.
+    std::atomic<int64_t> last_reported_scan_count {0};
+    std::atomic<int64_t> last_reported_flush_count {0};
+    // Monotonic clock of that commit -- NOT wall clock. Its only use is the
+    // `now - last_reported_mono_ms` subtraction that yields the delta window; a backward
+    // NTP step on the wall clock would clamp that window to 1 ms and inflate every rate
+    // by orders of magnitude. The two last_*_time_ms fields above must stay wall clock:
+    // they are shipped to FE, which compares them against its own clock.
+    //
+    // Shared by every tablet in a round, because commit() is all-or-nothing: a dropped
+    // report (5 retries exhausted, or handle_report() returning false) advances no
+    // baseline at all, so the next round's delta spans several intervals. Backends also
+    // report on independent phases. FE compares entries across backends and across
+    // rounds, so it must normalise delta by this window rather than compare raw counts.
+    std::atomic<int64_t> last_reported_mono_ms {0};
     std::atomic<int64_t> published_count = 0;
     std::atomic<int64_t> read_block_count = 0;
     std::atomic<int64_t> write_count = 0;

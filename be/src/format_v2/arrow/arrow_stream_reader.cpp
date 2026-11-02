@@ -437,10 +437,16 @@ Status ArrowStreamReader::_prepare_arrays() {
             RETURN_IF_ERROR(normalize_arrow_array(array, _arrow_pool.get(), &array));
         }
         arrow::compute::ExecContext context(_arrow_pool.get());
-        std::shared_ptr<arrow::DataType> binding;
-        RETURN_DORIS_STATUS_IF_RESULT_ERROR(
-                binding, input_binding_type(array->type(), _arrow_types[id.value()],
-                                            _file_slots[id.value()]->type()));
+        auto binding_result = input_binding_type(array->type(), _arrow_types[id.value()],
+                                                 _file_slots[id.value()]->type());
+        // A STRUCT field-count mismatch needs the same column context as a failed value cast.
+        if (!binding_result.ok()) {
+            return Status::InvalidArgument(
+                    "Cannot decode Arrow column '{}' ({} -> {}): {}",
+                    _file_slots[id.value()]->col_name(), array->type()->ToString(),
+                    _arrow_types[id.value()]->ToString(), binding_result.status().ToString());
+        }
+        auto binding = std::move(binding_result).ValueUnsafe();
         // Bind differing numeric widths before concrete SerDe array casts. Timestamp units
         // stay on the wire even inside containers, so Doris retains its own rounding semantics.
         if (!array->type()->Equals(binding)) {
@@ -451,8 +457,9 @@ Status ArrowStreamReader::_prepare_arrays() {
             options.allow_invalid_utf8 = true;
             auto converted = arrow::compute::Cast(array, binding, options, &context);
             if (!converted.ok()) {
-                return Status::InvalidArgument("Cannot decode Arrow column '{}': {}",
+                return Status::InvalidArgument("Cannot decode Arrow column '{}' ({} -> {}): {}",
                                                _file_slots[id.value()]->col_name(),
+                                               array->type()->ToString(), binding->ToString(),
                                                converted.status().ToString());
             }
             array = converted->make_array();
@@ -509,12 +516,18 @@ Status ArrowStreamReader::get_block(Block* block, size_t* rows, bool* eof) {
         for (const auto& [id, position] : _request->local_positions) {
             // Preserve the original array and pass a row range: Arrow Slice creates nonzero
             // offsets, which nested Doris SerDes deliberately reject.
-            RETURN_IF_ERROR(guard.get_datatype_by_position(position.value())
-                                    ->get_serde()
-                                    ->read_column_from_arrow(*columns.at(position.value()),
-                                                             _arrays[id.value()].get(),
-                                                             _batch_offset, end,
-                                                             _state->timezone_obj()));
+            const auto& data_type = guard.get_datatype_by_position(position.value());
+            const auto& array = _arrays[id.value()];
+            auto status = data_type->get_serde()->read_column_from_arrow(
+                    *columns.at(position.value()), array.get(), _batch_offset, end,
+                    _state->timezone_obj());
+            // Keep load-validation error codes and identify the failing column, as the retired
+            // stream reader did; e.g. a Date64 outside Doris' range must remain INVALID_ARGUMENT.
+            if (!status.ok()) {
+                return status.prepend(fmt::format(
+                        "Arrow column '{}' ({} -> {}): ", _file_slots[id.value()]->col_name(),
+                        array->type()->ToString(), data_type->get_name()));
+            }
         }
     }
     *rows = cast_set<size_t>(end - _batch_offset);
