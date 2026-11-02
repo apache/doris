@@ -220,16 +220,23 @@ public class ThriftHmsClient implements HmsClient {
     @Override
     public List<String> listPartitionNames(String dbName, String tableName,
             int maxParts) {
-        return execute(
-                client -> client.listPartitionNames(dbName, tableName,
-                        toThriftMaxParts(maxParts)));
+        return execute(client -> listPartitionNames(client, dbName, tableName, maxParts));
     }
 
     @Override
     public List<String> listPartitionNames(String dbName, String tableName, int maxParts,
             ConnectorScanContext scanContext) {
-        return executeScanCall(scanContext, client -> client.listPartitionNames(
-                dbName, tableName, toThriftMaxParts(maxParts)));
+        return executeScanCall(scanContext, client -> listPartitionNames(client, dbName, tableName, maxParts));
+    }
+
+    private static List<String> listPartitionNames(IMetaStoreClient client, String dbName, String tableName,
+            int maxParts) throws Exception {
+        try {
+            return client.listPartitionNames(dbName, tableName, toThriftMaxParts(maxParts));
+        } catch (NoSuchObjectException | UnknownTableException failure) {
+            // This table-scoped listing RPC has no individual partition argument; absence identifies the table.
+            throw new ConnectorTableNotFoundException(dbName, tableName, failure);
+        }
     }
 
     /**

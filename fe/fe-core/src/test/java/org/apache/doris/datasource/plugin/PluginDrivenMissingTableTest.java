@@ -30,8 +30,15 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.hive.HiveCatalogProperties;
+import org.apache.doris.connector.hive.HiveConnectorMetadata;
+import org.apache.doris.connector.hms.CachingHmsClient;
+import org.apache.doris.connector.hms.HmsClientException;
+import org.apache.doris.connector.hms.TestThriftHmsClient;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorTableNotFoundException;
@@ -75,6 +82,11 @@ import org.apache.doris.tablefunction.MetadataGenerator;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.apache.hadoop.hive.metastore.IMetaStoreClient;
+import org.apache.hadoop.hive.metastore.api.FieldSchema;
+import org.apache.hadoop.hive.metastore.api.NoSuchObjectException;
+import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
+import org.apache.hadoop.hive.metastore.api.Table;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -1516,6 +1528,106 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
         } finally {
             finishRefresh.countDown();
             releaseMissing.countDown();
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"show-partitions", "partition-names"})
+    void nativeHivePartitionAbsenceRepairsLookup(String operation) throws Exception {
+        verifyNativeHivePartitionAbsence(operation, false);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"show-partitions", "partition-names"})
+    void delayedNativeHivePartitionAbsencePreservesRecreatedTable(String operation) throws Exception {
+        verifyNativeHivePartitionAbsence(operation, true);
+    }
+
+    private void verifyNativeHivePartitionAbsence(String operation, boolean recreate) throws Exception {
+        partitionedTables = true;
+        PluginDrivenExternalTable old = warmTarget();
+        IMetaStoreClient rpc = Mockito.mock(IMetaStoreClient.class);
+        Mockito.when(rpc.tableExists("db", "a")).thenAnswer(call -> remoteTables.containsKey("a"));
+        Mockito.when(rpc.getTable("db", "a")).thenAnswer(call -> {
+            String column = remoteTables.get("a");
+            if (column == null) {
+                throw new NoSuchObjectException("table a is gone");
+            }
+            Table table = new Table();
+            table.setDbName("db");
+            table.setTableName("a");
+            table.setTableType("EXTERNAL_TABLE");
+            table.setPartitionKeys(Collections.singletonList(
+                    new FieldSchema("p", "int", "")));
+            StorageDescriptor sd = new StorageDescriptor();
+            sd.setCols(Collections.singletonList(
+                    new FieldSchema(column, "int", "")));
+            sd.setInputFormat("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat");
+            sd.setLocation("file:///unused");
+            table.setSd(sd);
+            return table;
+        });
+        Mockito.when(rpc.listPartitionNames(Mockito.eq("db"), Mockito.eq("a"), Mockito.anyShort()))
+                .thenAnswer(call -> {
+                    remoteTables.remove("a");
+                    missingStarted.countDown();
+                    Assertions.assertTrue(releaseMissing.await(10, TimeUnit.SECONDS));
+                    throw new NoSuchObjectException("table a is gone");
+                });
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged();
+                CachingHmsClient cached = new CachingHmsClient(owner,
+                        new TestThriftHmsClient(rpc), Collections.emptyMap())) {
+            ConnectorMetadata hive = new HiveConnectorMetadata(cached,
+                    HiveCatalogProperties.of(
+                            Collections.singletonMap("hive.metastore.uris", "thrift://localhost:9083")),
+                    Mockito.mock(ConnectorContext.class));
+            Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(hive);
+            ConnectorSession warm = catalog.buildCrossStatementSession();
+            try {
+                Assertions.assertTrue(hive.getTableHandle(warm, "db", "a").isPresent());
+            } finally {
+                warm.getStatementScope().closeAll();
+            }
+            Mockito.doAnswer(call -> {
+                owner.invalidateTable("db", "a");
+                remoteCache.remove("a");
+                return null;
+            }).when(connector).invalidateTable("db", "a");
+            Future<?> missing = worker.submit(() -> Assertions.assertThrows(HmsClientException.class,
+                    () -> readPartitionNames(operation, old)));
+            try {
+                if (!missingStarted.await(10, TimeUnit.SECONDS)) {
+                    missing.get(1, TimeUnit.SECONDS);
+                    Assertions.fail("native listing did not start");
+                }
+                // The table is physically absent, but its hot cached handle still resolves.
+                cached.getTable("db", "a");
+                Mockito.verify(rpc, Mockito.times(1)).getTable("db", "a");
+                PluginDrivenExternalTable replacement = null;
+                List<Column> schema = null;
+                if (recreate) {
+                    remoteTables.put("a", "recreated_column");
+                    new RefreshManager().handleRefreshTable(catalog.getName(), "db", "a");
+                    replacement = database.getTableNullable("a");
+                    schema = replacement.getFullSchema();
+                    remoteCache.put("a", "recreated metadata");
+                }
+                releaseMissing.countDown();
+                missing.get(10, TimeUnit.SECONDS);
+                if (recreate) {
+                    Assertions.assertSame(replacement, database.getTableNullable(replacement.getId()));
+                    Assertions.assertSame(schema, replacement.getFullSchema());
+                    Assertions.assertEquals("recreated metadata", remoteCache.get("a"));
+                    Assertions.assertEquals("recreated_column", cached.getTable("db", "a").getColumns().get(0).getName());
+                } else {
+                    Assertions.assertNull(database.getTableNullable(old.getId()));
+                    Assertions.assertNull(remoteCache.get("a"));
+                    Assertions.assertThrows(HmsClientException.class,
+                            () -> cached.getTable("db", "a"));
+                }
+            } finally {
+                releaseMissing.countDown();
+            }
         }
     }
 
