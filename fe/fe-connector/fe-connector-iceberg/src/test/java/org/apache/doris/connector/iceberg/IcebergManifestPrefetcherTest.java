@@ -105,6 +105,37 @@ public class IcebergManifestPrefetcherTest {
     }
 
     @Test
+    public void cancellationLeavesIteratorClosureToItsOwner() throws Exception {
+        CloseableIterator<ManifestFile> delegate = manifests(2);
+        AtomicInteger closes = new AtomicInteger();
+        CloseableIterator<ManifestFile> iterator = new CloseableIterator<ManifestFile>() {
+            @Override
+            public boolean hasNext() {
+                return delegate.hasNext();
+            }
+
+            @Override
+            public ManifestFile next() {
+                return delegate.next();
+            }
+
+            @Override
+            public void close() {
+                closes.incrementAndGet();
+            }
+        };
+        IcebergManifestPrefetcher source = new IcebergManifestPrefetcher(iterator, 1,
+                manifest -> EMPTY, manifest -> EMPTY, null, new Semaphore(1));
+        source.next();
+        source.cancel();
+        Assertions.assertFalse(source.hasNext());
+        Assertions.assertEquals(0, closes.get(), "cancellation must only signal the active reader");
+        source.close();
+        source.close();
+        Assertions.assertEquals(1, closes.get());
+    }
+
+    @Test
     public void warmCacheAvoidsSubmissionAndSpeculativeTraversal() throws Exception {
         Context context = new Context(null);
         AtomicInteger probes = new AtomicInteger();

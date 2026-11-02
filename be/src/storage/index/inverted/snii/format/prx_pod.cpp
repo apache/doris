@@ -23,6 +23,7 @@
 #include <chrono>
 #include <cstddef>
 #include <limits>
+#include <numeric>
 #include <span>
 #include <vector>
 
@@ -819,6 +820,9 @@ bool should_decode_full_prx_positions(std::span<const SelectedRange> selected,
     return covered_runs * 4 >= total_runs * 3;
 }
 
+// The count of every document of the window is decoded to find where the selected documents' deltas
+// start, and a sparse candidate set selects none in most runs. So a run is added up whole, with no
+// branch per document, and then walked from one selected document to the next.
 Status decode_selected_pfor_count_ranges(ByteSource* src, uint32_t doc_count,
                                          std::span<const uint32_t> doc_ordinals,
                                          std::vector<SelectedRange>& selected,
@@ -832,7 +836,6 @@ Status decode_selected_pfor_count_ranges(ByteSource* src, uint32_t doc_count,
     pos_off.push_back(0);
 
     *selected_pos_count = 0;
-    uint32_t delta_begin = 0;
     size_t next_doc = 0;
     *total_pos_count = 0;
     *max_frequency = 0;
@@ -841,24 +844,34 @@ Status decode_selected_pfor_count_ranges(ByteSource* src, uint32_t doc_count,
     for (uint32_t run_begin = 0; run_begin < doc_count; run_begin += kFrqBaseUnit) {
         const uint32_t run_len = std::min<uint32_t>(kFrqBaseUnit, doc_count - run_begin);
         RETURN_IF_ERROR(pfor_decode(src, run_len, run_buf.data()));
+        uint64_t run_sum = 0;
+        uint32_t run_max = 0;
+        uint32_t run_min = std::numeric_limits<uint32_t>::max();
         for (uint32_t i = 0; i < run_len; ++i) {
-            const uint32_t d = run_begin + i;
-            const uint32_t count = run_buf[i];
-            *max_frequency = std::max(*max_frequency, count);
-            *has_zero_frequency |= count == 0;
-            *total_pos_count += count;
-            if (*total_pos_count > kMaxWindowPositions) {
-                return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                        "prx: pos_count sum exceeds sane cap");
-            }
-            if (next_doc < doc_ordinals.size() && doc_ordinals[next_doc] == d) {
-                selected.emplace_back(delta_begin, delta_begin + count, *selected_pos_count);
-                *selected_pos_count += count;
-                pos_off.push_back(*selected_pos_count);
-                ++next_doc;
-            }
-            delta_begin += count;
+            run_sum += run_buf[i];
+            run_max = std::max(run_max, run_buf[i]);
+            run_min = std::min(run_min, run_buf[i]);
         }
+        *max_frequency = std::max(*max_frequency, run_max);
+        *has_zero_frequency |= run_min == 0;
+        if (*total_pos_count + run_sum > kMaxWindowPositions) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "prx: pos_count sum exceeds sane cap");
+        }
+        // Under the cap, so every sum below fits 32 bits.
+        auto delta_begin = static_cast<uint32_t>(*total_pos_count);
+        const uint32_t* walked = run_buf.data();
+        for (; next_doc < doc_ordinals.size() && doc_ordinals[next_doc] - run_begin < run_len;
+             ++next_doc) {
+            const uint32_t* doc = run_buf.data() + (doc_ordinals[next_doc] - run_begin);
+            delta_begin = std::accumulate(walked, doc, delta_begin);
+            selected.emplace_back(delta_begin, delta_begin + *doc, *selected_pos_count);
+            *selected_pos_count += *doc;
+            pos_off.push_back(*selected_pos_count);
+            delta_begin += *doc;
+            walked = doc + 1;
+        }
+        *total_pos_count += run_sum;
     }
     if (next_doc != doc_ordinals.size()) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(

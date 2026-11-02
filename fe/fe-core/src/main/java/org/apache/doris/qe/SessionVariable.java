@@ -605,6 +605,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SPLIT_QUEUE_CAPACITY = "split_queue_capacity";
 
+    public static final String SPLIT_PRODUCER_PARALLELISM = "split_producer_parallelism";
+
+    public static final String FIRST_SPLIT_WAIT_TIMEOUT_MS = "first_split_wait_timeout_ms";
     public static final String FETCH_SPLITS_MAX_WAIT_TIME = "fetch_splits_max_wait_time_ms";
 
     /**
@@ -1198,8 +1201,9 @@ public class SessionVariable implements Serializable, Writable {
             + "read data of FileScanNode, default 16")
     public int maxFileScannersConcurrency = 16;
 
-    @VarAttrDef.VarAttr(name = ENABLE_FILE_SCANNER_V2, needForward = true, description = "When enabled, "
-            + "FileScanNode uses FileScannerV2 for supported query scans. Enabled by default.")
+    @VarAttrDef.VarAttr(name = ENABLE_FILE_SCANNER_V2, needForward = true,
+            varType = VariableAnnotation.DEPRECATED,
+            description = "Deprecated compatibility variable. File scans always use FileScannerV2.")
     public boolean enableFileScannerV2 = true;
 
     @VarAttrDef.VarAttr(name = LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT, needForward = true)
@@ -2655,6 +2659,23 @@ public class SessionVariable implements Serializable, Writable {
         checkFieldValue(SPLIT_INITIAL_BATCH_SIZE, 1, value);
     }
 
+    @VarAttrDef.VarAttr(name = SPLIT_PRODUCER_PARALLELISM, checker = "checkSplitProducerParallelism",
+            needForward = true, description = "Maximum partition-batch split producers per scan node. "
+                    + "Zero uses the FE external metadata loader pool size. Whole-scan streams use one producer.")
+    public int splitProducerParallelism = 0;
+
+    @VarAttrDef.VarAttr(name = FIRST_SPLIT_WAIT_TIMEOUT_MS, checker = "checkFirstSplitWaitTimeout",
+            needForward = true, description = "First split wait timeout in milliseconds.")
+    public long firstSplitWaitTimeoutMs = 30000;
+
+    public void checkFirstSplitWaitTimeout(String value) throws Exception {
+        checkFieldLongValue(FIRST_SPLIT_WAIT_TIMEOUT_MS, 1, value);
+    }
+
+    public long getFirstSplitWaitTimeoutMs() {
+        return firstSplitWaitTimeoutMs;
+    }
+
     public void checkSplitBatchSize(String value) throws Exception {
         checkFieldValue(SPLIT_BATCH_SIZE, 1, value);
     }
@@ -2665,6 +2686,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void checkSplitQueueCapacity(String value) throws Exception {
         checkFieldValue(SPLIT_QUEUE_CAPACITY, 1, value);
+    }
+
+    public void checkSplitProducerParallelism(String value) throws Exception {
+        checkFieldValue(SPLIT_PRODUCER_PARALLELISM, 0, value);
     }
 
     @VarAttrDef.VarAttr(
@@ -3809,9 +3834,6 @@ public class SessionVariable implements Serializable, Writable {
         this.enableLocalExchange = random.nextBoolean();
         this.enableSharedExchangeSinkBuffer = random.nextBoolean();
         this.useSerialExchange = random.nextBoolean();
-        // Fuzzy sessions must exercise the production-default V2 path consistently. Dedicated
-        // compatibility cases can still select the legacy scanner explicitly after initialization.
-        this.enableFileScannerV2 = true;
         this.disableStreamPreaggregations = random.nextBoolean();
         this.enableStreamingAggHashJoinForcePassthrough = random.nextBoolean();
         this.enableLocalExchangeBeforeAgg = random.nextBoolean();
@@ -5055,6 +5077,10 @@ public class SessionVariable implements Serializable, Writable {
         return splitQueueCapacity;
     }
 
+    public int getSplitProducerParallelism() {
+        return splitProducerParallelism;
+    }
+
     public long getFetchSplitsMaxWaitTime() {
         return fetchSplitsMaxWaitTime;
     }
@@ -5729,7 +5755,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setScanQueueMemLimit(maxScanQueueMemByte);
         tResult.setMaxScannersConcurrency(maxScannersConcurrency);
         tResult.setMaxFileScannersConcurrency(maxFileScannersConcurrency);
-        tResult.setEnableFileScannerV2(enableFileScannerV2);
+        // Older backends still inspect this field; the deprecated session value must not select V1.
+        tResult.setEnableFileScannerV2(true);
         tResult.setMaxColumnReaderNum(maxColumnReaderNum);
         tResult.setParallelPrepareThreshold(parallelPrepareThreshold);
         tResult.setMinScannersConcurrency(minScannersConcurrency);
