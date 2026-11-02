@@ -47,7 +47,9 @@
 
 namespace doris::io {
 
-// Throttling by the storage service, which every backend reports as HTTP 429.
+// HTTP 429 from the storage service, which this reader retries with backoff. AWS S3 reports
+// throttling as 503 SlowDown instead, and the SDK client retries that itself
+// (S3CustomRetryStrategy), so it does not take this branch.
 constexpr int OBJ_STORAGE_HTTP_TOO_MANY_REQUESTS = 429;
 
 bvar::Adder<uint64_t> s3_file_reader_read_counter("s3_file_reader", "read_at");

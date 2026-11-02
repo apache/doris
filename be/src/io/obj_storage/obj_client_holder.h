@@ -30,9 +30,11 @@
 namespace doris::io {
 
 // One immutable generation of an ObjClientHolder. The config and the client built from it
-// are published together, so a caller never pairs a new config with an old client. For
-// example, a reset from ak1 to ak2 that races with full_s3_path() and get() lets each
-// caller see either (ak1 config, ak1 client) or (ak2 config, ak2 client), never a mix.
+// are published together, so a caller that reads both from one state() snapshot never pairs
+// a new config with an old client. For example, during a reset from ak1 to ak2, a caller that
+// takes `auto state = holder->state();` and uses state->config and state->client sees either
+// (ak1 config, ak1 client) or (ak2 config, ak2 client), never a mix. Separate calls such as
+// get() and full_s3_path() each take their own snapshot and give no such guarantee.
 struct ObjClientState {
     ObjClientConfig config;
     // Null until init() succeeds.
@@ -60,9 +62,14 @@ public:
     // refreshes are the callers.
     //
     // The new client is built outside the lock and published only if no other reset or
-    // init published in between. Otherwise the update is rejected rather than applied on
-    // top of a state it was not merged with, so an older config cannot overwrite a newer
-    // one; the caller keeps the current state and retries with its next refresh.
+    // init published in between. Otherwise the update is rejected with Aborted rather than
+    // applied on top of a state it was not merged with, so overlapping resets cannot both
+    // win; the caller keeps the current state and retries with its next refresh.
+    //
+    // This detects overlap, not freshness: the holder cannot tell which caller fetched the
+    // newer configuration. A reset that starts after another one published still wins with
+    // whatever it carries, and of two overlapping resets the first to publish wins. Either
+    // way an older configuration may stay until the next refresh replaces it.
     Status reset(const ObjClientConfig& update);
 
     std::shared_ptr<const ObjClientState> state() const {

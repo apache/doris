@@ -99,6 +99,14 @@ TEST_F(ObjStorageUriS3RulesTest, QueryAndFragment) {
     ASSERT_TRUE(uri1.has_value()) << uri1.error();
     EXPECT_EQ("bucket", uri1->bucket);
     EXPECT_EQ("path/to/file", uri1->key);
+
+    // A fragment alone, or one before a `?`, also ends the key.
+    auto fragment_only = io::ObjStorageUri::parse_s3("s3://bucket/path#frag");
+    ASSERT_TRUE(fragment_only.has_value()) << fragment_only.error();
+    EXPECT_EQ("path", fragment_only->key);
+    auto fragment_first = io::ObjStorageUri::parse_s3("s3://bucket/a#b?c");
+    ASSERT_TRUE(fragment_first.has_value()) << fragment_first.error();
+    EXPECT_EQ("a", fragment_first->key);
 }
 
 TEST_F(ObjStorageUriS3RulesTest, BucketOnlyKeyOnlyAndOriginal) {

@@ -147,10 +147,6 @@ struct ObjStorageConfig {
     std::string to_string() const;
 };
 
-// Adapter from the storage-domain provider to the credential layer's own provider identity,
-// used where a provider-native credential is validated.
-ObjCredentialProvider to_obj_credential_provider(ObjStorageProvider provider);
-
 // Whether the configuration is valid for its backend. Every client request is checked with it
 // before anything is built or looked up (ObjClientFactory), and FE properties are checked with
 // it right after conversion (ObjStorageConfigResolver).

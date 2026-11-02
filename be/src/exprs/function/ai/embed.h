@@ -30,7 +30,6 @@
 #include "io/obj_storage/obj_storage_uri.h"
 #include "util/defer_op.h"
 #include "util/jsonb_utils.h"
-#include "util/s3_util.h"
 
 namespace doris {
 class FunctionEmbed : public AIFunction<FunctionEmbed> {
