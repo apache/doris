@@ -69,11 +69,28 @@ suite("test_trino_mongodb_json", "p0,external") {
     order_qt_null_nested_projection '''SELECT seq, json_array, json_row, json_map
         FROM json_records WHERE seq IN (3, 4)'''
     order_qt_serialization_round_trip '''SELECT seq,
-        json_extract_int(json_parse(cast(json_array AS STRING)), '$[0].x'),
-        json_extract_string(json_parse(cast(json_array AS STRING)), '$[1]'),
-        json_extract_int(json_parse(cast(json_row AS STRING)), '$.payload.x'),
-        json_extract_int(json_parse(cast(json_map AS STRING)), '$.a.x')
-        FROM json_records WHERE seq = 1'''
+        json_type(json_parse(cast(json_array AS STRING)), '$[0]'),
+        json_extract_string(json_parse(cast(json_array AS STRING)), '$[0]'),
+        json_extract_string(json_parse(cast(json_row AS STRING)), '$.payload'),
+        json_extract_string(json_parse(cast(json_map AS STRING)), '$.bool_string')
+        FROM json_records WHERE seq = 5'''
+    // Typed SQL text uses NULL for SQL nulls; JSON null retains its lowercase spelling.
+    for (String strict : ["false", "true"]) {
+        quickTest("typed_array_round_trip_${strict}", """SELECT /*+ SET_VAR(enable_strict_cast=${strict}) */
+            seq, a, json_type(a[2], '\$'), json_type(a[3], '\$'), a[3] IS NULL, a[4] IS NULL
+            FROM (SELECT seq, cast(cast(json_array AS STRING) AS ARRAY<JSON>) a
+                FROM json_records WHERE seq <= 5) t ORDER BY seq""")
+        quickTest("typed_map_round_trip_${strict}", """SELECT /*+ SET_VAR(enable_strict_cast=${strict}) */
+            seq, m, json_type(m['b'], '\$'), m['b'] IS NULL, m['c'] IS NULL,
+            json_type(m['number_string'], '\$'), json_type(m['null_string'], '\$'),
+            json_type(m['bool_string'], '\$'), hex(json_extract_string(m['escaped'], '\$'))
+            FROM (SELECT seq, cast(cast(json_map AS STRING) AS MAP<STRING, JSON>) m
+                FROM json_records WHERE seq <= 5) t ORDER BY seq""")
+        quickTest("typed_struct_round_trip_${strict}", """SELECT /*+ SET_VAR(enable_strict_cast=${strict}) */
+            seq, r, json_type(r.payload, '\$'), r IS NULL, r.payload IS NULL
+            FROM (SELECT seq, cast(cast(json_row AS STRING) AS STRUCT<payload:JSON>) r
+                FROM json_records WHERE seq <= 5) t ORDER BY seq""")
+    }
     order_qt_explode '''SELECT seq, json_type(item, '$'), cast(item AS STRING)
         FROM json_records LATERAL VIEW explode(json_array) t AS item'''
     order_qt_aggregate '''SELECT json_type(payload, '$'), count(*) FROM json_records GROUP BY json_type(payload, '$')'''

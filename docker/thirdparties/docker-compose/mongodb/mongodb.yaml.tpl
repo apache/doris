@@ -28,11 +28,18 @@ services:
       MONGO_INITDB_ROOT_PASSWORD: mongodb_test
     volumes:
       - ./init:/docker-entrypoint-initdb.d:ro
+    # Override both image-declared volumes so recreating this disposable fixture leaves no data volumes.
+    tmpfs:
+      - /data/db:size=1g
+      - /data/configdb:size=64m
     healthcheck:
       test:
         - CMD
         - mongosh
         - --quiet
+        # The init server binds only loopback; service DNS reaches only the final network-facing server.
+        - --host
+        - mongodb
         - --username
         - mongodb_test
         - --password

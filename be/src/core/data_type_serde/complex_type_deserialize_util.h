@@ -91,12 +91,16 @@ struct ComplexTypeDeserializeUtil {
     static Status process_column(const DataTypeSerDeSPtr& serde, IColumn& column, StringRef& str,
                                  const DataTypeSerDe::FormatOptions& options) {
         DCHECK(column.is_nullable()) << "Column must be nullable but got " << column.get_name();
-        if (is_null_string(str)) {
+        // JSON owns its quotes and lowercase null: trimming "123" changes its type,
+        // and treating null as SQL NULL loses a JSON value. Only uppercase NULL is
+        // the SQL-null marker for a JSON child, matching Nullable(JSONB)::to_string.
+        const bool is_jsonb = serde->is_jsonb();
+        if (is_jsonb ? str == StringRef("NULL", 4) : is_null_string(str)) {
             auto& column_nullable = assert_cast<ColumnNullable&>(column);
             column_nullable.insert_default();
             return Status::OK();
         }
-        auto str_without_quote = str.trim_quote();
+        auto str_without_quote = is_jsonb ? str : str.trim_quote();
         if constexpr (is_strict_mode) {
             return serde->from_string_strict_mode(str_without_quote, column, options);
         } else {

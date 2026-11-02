@@ -37,6 +37,8 @@ public:
 
     std::string get_name() const override { return "JSONB"; }
 
+    bool is_jsonb() const override { return true; }
+
     Status from_string(StringRef& str, IColumn& column,
                        const FormatOptions& options) const override;
 

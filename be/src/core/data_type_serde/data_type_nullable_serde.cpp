@@ -580,7 +580,9 @@ void DataTypeNullableSerDe::to_string(const IColumn& column, size_t row_num, Buf
                                       const FormatOptions& options) const {
     const auto& col_null = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(column);
     if (col_null.is_null_at(row_num)) {
-        if (_nesting_level > 1) {
+        // A JSON child uses lowercase null for the JSON value, so its SQL NULL
+        // must retain a distinct marker for typed complex-text round trips.
+        if (_nesting_level > 1 && !nested_serde->is_jsonb()) {
             bw.write("null", 4);
         } else {
             bw.write("NULL", 4);

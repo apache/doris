@@ -37,9 +37,13 @@
 #include "core/data_type/common_data_type_serder_test.h"
 #include "core/data_type/common_data_type_test.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_jsonb.h"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/string_buffer.hpp"
 #include "core/types.h"
 #include "storage/olap_common.h"
@@ -338,6 +342,47 @@ TEST(DataTypeJsonbNestedSerDeTest, JsonValuesKeepTheirOwnQuotesAtEveryNestingLev
             serde.to_string(*column, 0, writer, options);
             writer.commit();
             EXPECT_EQ(output->get_data_at(0).to_string(), text) << "nesting level " << level;
+        }
+    }
+}
+
+TEST(DataTypeJsonbNestedSerDeTest, TypedComplexRoundTripPreservesJsonAndSqlNull) {
+    auto json = make_nullable(std::make_shared<DataTypeJsonb>());
+    auto string = make_nullable(std::make_shared<DataTypeString>());
+    const std::array<DataTypePtr, 3> types {
+            std::make_shared<DataTypeArray>(json), std::make_shared<DataTypeMap>(string, json),
+            std::make_shared<DataTypeStruct>(DataTypes {json}, Strings {"payload"})};
+    const std::array<std::string, 11> values {R"({"a":[1,"two"]})",
+                                              R"("text")",
+                                              R"("123")",
+                                              R"("null")",
+                                              R"("true")",
+                                              R"("x\"y\\z")",
+                                              "null",
+                                              "NULL",
+                                              "[]",
+                                              "123.125",
+                                              "true"};
+    DataTypeSerDe::FormatOptions options;
+    for (size_t i = 0; i < types.size(); ++i) {
+        const auto serde = types[i]->get_serde();
+        for (const auto& value : values) {
+            const auto text = i == 0   ? "[" + value + "]"
+                              : i == 1 ? "{\"key\":" + value + "}"
+                                       : "{\"payload\":" + value + "}";
+            for (bool strict : {false, true}) {
+                auto column = types[i]->create_column();
+                StringRef input(text);
+                const auto status = strict ? serde->from_string_strict_mode(input, *column, options)
+                                           : serde->from_string(input, *column, options);
+                ASSERT_TRUE(status.ok()) << status << ": " << text << ", strict=" << strict;
+                auto output = ColumnString::create();
+                BufferWritable writer(*output);
+                serde->to_string(*column, 0, writer, options);
+                writer.commit();
+                EXPECT_EQ(output->get_data_at(0).to_string(), text)
+                        << types[i]->get_name() << ", strict=" << strict;
+            }
         }
     }
 }

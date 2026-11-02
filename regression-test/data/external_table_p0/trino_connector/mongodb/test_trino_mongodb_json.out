@@ -8,11 +8,11 @@ payload	json	Yes	true	\N
 seq	bigint	Yes	true	\N	
 
 -- !all_columns --
-0x000000000000000000000259	1	{"active":true,"city":"北京","empty_array":[],"empty_object":{},"items":[1,"two",null],"n":7,"nested":{"key":"value"},"owner":{"$oid":"000000000000000000000065"}}	[{"x":1}, "text", null, null, [1,2]]	{"payload":{"x":9}}	{"a":{"x":3}, "b":null, "c":null}
+0x000000000000000000000259	1	{"active":true,"city":"北京","empty_array":[],"empty_object":{},"items":[1,"two",null],"n":7,"nested":{"key":"value"},"owner":{"$oid":"000000000000000000000065"}}	[{"x":1}, "text", null, NULL, [1,2]]	{"payload":{"x":9}}	{"a":{"x":3}, "b":null, "c":NULL}
 0x00000000000000000000025A	2	[1,"two",null,{"ok":true}]	[]	\N	{}
-0x00000000000000000000025B	3	"中文-é\\"\\\\\\n\\u0000"	\N	{"payload":null}	\N
+0x00000000000000000000025B	3	"中文-é\\"\\\\\\n\\u0000"	\N	{"payload":NULL}	\N
 0x00000000000000000000025C	4	true	\N	\N	\N
-0x00000000000000000000025D	5	-9223372036854775808	\N	\N	\N
+0x00000000000000000000025D	5	-9223372036854775808	["123", "null", "true", "x\\"y\\\\z\\n中文", 123, true]	{"payload":"123"}	{"number_string":"123", "null_string":"null", "bool_string":"true", "escaped":"x\\"y\\\\z\\n中文"}
 0x00000000000000000000025E	6	123.125	\N	\N	\N
 0x00000000000000000000025F	7	null	\N	\N	\N
 0x000000000000000000000260	8	\N	\N	\N	\N
@@ -82,7 +82,7 @@ seq	bigint	Yes	true	\N
 11
 
 -- !nested_array --
-1	[{"x":1}, "text", null, null, [1,2]]	object	1	null	true
+1	[{"x":1}, "text", null, NULL, [1,2]]	object	1	null	true
 2	[]	\N	\N	\N	true
 3	\N	\N	\N	\N	true
 4	\N	\N	\N	\N	true
@@ -90,11 +90,11 @@ seq	bigint	Yes	true	\N
 -- !nested_row --
 1	{"payload":{"x":9}}	9	false	false
 2	\N	\N	true	true
-3	{"payload":null}	\N	false	true
+3	{"payload":NULL}	\N	false	true
 4	\N	\N	true	true
 
 -- !nested_map --
-1	{"a":{"x":3}, "b":null, "c":null}	3	null	true
+1	{"a":{"x":3}, "b":null, "c":NULL}	3	null	true
 2	{}	\N	\N	true
 3	\N	\N	\N	true
 4	\N	\N	\N	true
@@ -103,11 +103,53 @@ seq	bigint	Yes	true	\N
 2	[]	{}
 
 -- !null_nested_projection --
-3	\N	{"payload":null}	\N
+3	\N	{"payload":NULL}	\N
 4	\N	\N	\N
 
 -- !serialization_round_trip --
-1	1	text	9	3
+5	string	123	123	true
+
+-- !typed_array_round_trip_false --
+1	[{"x":1}, "text", null, NULL, [1,2]]	string	null	false	true
+2	[]	\N	\N	true	true
+3	\N	\N	\N	true	true
+4	\N	\N	\N	true	true
+5	["123", "null", "true", "x\\"y\\\\z\\n中文", 123, true]	string	string	false	false
+
+-- !typed_map_round_trip_false --
+1	{"a":{"x":3}, "b":null, "c":NULL}	null	false	true	\N	\N	\N	\N
+2	{}	\N	true	true	\N	\N	\N	\N
+3	\N	\N	true	true	\N	\N	\N	\N
+4	\N	\N	true	true	\N	\N	\N	\N
+5	{"number_string":"123", "null_string":"null", "bool_string":"true", "escaped":"x\\"y\\\\z\\n中文"}	\N	true	true	string	string	string	7822795C7A0AE4B8ADE69687
+
+-- !typed_struct_round_trip_false --
+1	{"payload":{"x":9}}	object	false	false
+2	\N	\N	true	true
+3	{"payload":NULL}	\N	false	true
+4	\N	\N	true	true
+5	{"payload":"123"}	string	false	false
+
+-- !typed_array_round_trip_true --
+1	[{"x":1}, "text", null, NULL, [1,2]]	string	null	false	true
+2	[]	\N	\N	true	true
+3	\N	\N	\N	true	true
+4	\N	\N	\N	true	true
+5	["123", "null", "true", "x\\"y\\\\z\\n中文", 123, true]	string	string	false	false
+
+-- !typed_map_round_trip_true --
+1	{"a":{"x":3}, "b":null, "c":NULL}	null	false	true	\N	\N	\N	\N
+2	{}	\N	true	true	\N	\N	\N	\N
+3	\N	\N	true	true	\N	\N	\N	\N
+4	\N	\N	true	true	\N	\N	\N	\N
+5	{"number_string":"123", "null_string":"null", "bool_string":"true", "escaped":"x\\"y\\\\z\\n中文"}	\N	true	true	string	string	string	7822795C7A0AE4B8ADE69687
+
+-- !typed_struct_round_trip_true --
+1	{"payload":{"x":9}}	object	false	false
+2	\N	\N	true	true
+3	{"payload":NULL}	\N	false	true
+4	\N	\N	true	true
+5	{"payload":"123"}	string	false	false
 
 -- !explode --
 1	\N	\N
@@ -115,6 +157,12 @@ seq	bigint	Yes	true	\N
 1	null	\N
 1	object	{"x":1}
 1	string	text
+5	bool	true
+5	int	123
+5	string	123
+5	string	null
+5	string	true
+5	string	x"y\\z\n中文
 
 -- !aggregate --
 \N	2

@@ -143,6 +143,9 @@ class DataTypeSerDe {
 public:
     // return type name , such as "BOOL", "BIGINT", "ARRAY<DATE>"
     virtual std::string get_name() const = 0;
+
+    // Includes Nullable(JSONB): complex SQL text must preserve JSON quotes and distinguish nulls.
+    virtual bool is_jsonb() const { return false; }
     // Text serialization/deserialization of data types depend on some settings witch we define
     // in formatOptions.
     struct FormatOptions {

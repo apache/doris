@@ -6,7 +6,7 @@ This optional standalone MongoDB 8.0.20 service supplies deterministic BSON data
 CONTAINER_UID=doris-mongodb-test- bash docker/thirdparties/run-thirdparties-docker.sh -c mongodb
 ```
 
-Set `MONGODB_PORT` to override the published port. Restarting this stack recreates the synthetic database `doris_mongodb_test`; do not point it at a production database. The image initializes its own disposable data volume and authenticates with the fixture account `mongodb_test` / `mongodb_test` in `admin`.
+Set `MONGODB_PORT` to override the published port. Restarting this stack recreates the synthetic database `doris_mongodb_test`; do not point it at a production database. Both MongoDB data directories use disposable tmpfs mounts, so recreating or stopping the stack leaves no anonymous data volumes. The service authenticates with the fixture account `mongodb_test` / `mongodb_test` in `admin`. Readiness requires the final network-facing MongoDB process and the completed fixtures.
 
 Install the complete MongoDB plugin ZIP (`io.trino:trino-mongodb:435:zip`, published on Maven Central), or its directory from the Trino 435 server distribution in the operator-controlled Trino plugin directory on every FE and BE. Use the same connector version on both sides; copying only `trino-mongodb-435.jar` omits its runtime dependencies and service-provider metadata. Configure `trino_connector_plugin_dir` before starting Doris, and restart the processes after changing plugins. These suites use the preinstalled plugin and do not download or replace the other Trino fixtures.
 
@@ -41,6 +41,8 @@ Most collections have explicit `_schema` records; `inferred_records` intentional
 ## JSON columns
 
 Fields explicitly declared as `json` in the connector's `_schema` collection map to native Doris `JSON`. This also applies to JSON fields inside Trino `array`, `map` and `row` types. JNI transfers the connector's UTF-8 JSON text and parses it into Doris JSONB; SQL NULL and the JSON value `null` remain distinct. Scalar JSON supports JSON functions and internal-table materialization. Nested JSON can be queried through the catalog; internal-table creation retains the engine's existing complex-type restrictions, including rejecting `ARRAY<JSON>`.
+
+Casting a complex value containing JSON to `STRING` preserves each JSON value's own quotes. JSON children use lowercase `null` for JSON null and uppercase `NULL` for SQL NULL, so a cast back to the original array, map or struct type preserves the distinction. This typed SQL text can contain `NULL` and is therefore not always a standalone JSON document.
 
 For example, the fixture declares `json_records.payload` as `json`. Its BSON document is queryable with:
 
