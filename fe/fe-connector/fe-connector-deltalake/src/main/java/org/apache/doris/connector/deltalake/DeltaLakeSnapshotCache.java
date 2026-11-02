@@ -85,13 +85,13 @@ final class DeltaLakeSnapshotCache {
     }
 
     static void validate(Map<String, String> properties) {
-        for (String entry : new String[] {LATEST, SNAPSHOT}) {
+        for (String entry : new String[] {LATEST, SNAPSHOT, DeltaLakeStatisticsCache.STATISTICS}) {
             String prefix = "meta.cache.deltalake." + entry;
             CacheSpec.checkBooleanProperty(properties.get(prefix + ".enable"), prefix + ".enable");
             CacheSpec.checkLongProperty(properties.get(prefix + ".ttl-second"), -1, prefix + ".ttl-second");
             CacheSpec.checkLongProperty(properties.get(prefix + ".capacity"), 0, prefix + ".capacity");
         }
-        CacheSpec.checkWeightProperties(properties, "deltalake", LATEST, SNAPSHOT);
+        CacheSpec.checkWeightProperties(properties, "deltalake", LATEST, SNAPSHOT, DeltaLakeStatisticsCache.STATISTICS);
     }
 
     Snapshot latest(ConnectorSession session, String database, String table, String path, Engine engine) {
@@ -184,18 +184,32 @@ final class DeltaLakeSnapshotCache {
         }
     }
 
-    private static final class SnapshotKey {
+    static final class SnapshotKey {
         private final TableKey table;
         private final String tableId;
         private final long version;
 
-        private SnapshotKey(TableKey table, String tableId, long version) {
+        SnapshotKey(TableKey table, String tableId, long version) {
             this.table = table;
             this.tableId = tableId;
             this.version = version;
         }
 
-        private long estimatedBytes() {
+        static SnapshotKey of(String user, DeltaLakeTableHandle handle) {
+            return new SnapshotKey(new TableKey(user, handle.getDatabase(), handle.getTable(), handle.getPath()),
+                    handle.getTableId(), handle.getVersion());
+        }
+
+        ScopePath scope() {
+            return ScopePath.table(table.database, table.table);
+        }
+
+        @Override
+        public String toString() {
+            return table.database + "." + table.table + " (" + tableId + ", version " + version + ")";
+        }
+
+        long estimatedBytes() {
             return table.estimatedBytes() + JvmSizeUtils.stringSize(tableId) + 64;
         }
 

@@ -23,6 +23,7 @@ import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
+import org.apache.doris.connector.spi.ConnectorTableStatistics;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
@@ -47,12 +48,14 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
     private final DeltaLakeRuntime runtime;
     private final DeltaLakeCatalogProperties properties;
     private final DeltaLakeSnapshotCache snapshots;
+    private final DeltaLakeStatisticsCache statistics;
 
     DeltaLakeConnectorMetadata(DeltaLakeRuntime runtime, DeltaLakeCatalogProperties properties,
-            DeltaLakeSnapshotCache snapshots) {
+            DeltaLakeSnapshotCache snapshots, DeltaLakeStatisticsCache statistics) {
         this.runtime = runtime;
         this.properties = properties;
         this.snapshots = snapshots;
+        this.statistics = statistics;
     }
 
     @Override
@@ -93,6 +96,18 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
     public ConnectorTableSchema getTableSchema(ConnectorSession session, ConnectorTableHandle handle,
             ConnectorMvccSnapshot snapshot) {
         return getTableSchema(session, applySnapshot(session, handle, snapshot));
+    }
+
+    @Override
+    public Optional<ConnectorTableStatistics> getTableStatistics(
+            ConnectorSession session, ConnectorTableHandle handle) {
+        return runtime.execute(() -> statistics.get(session, (DeltaLakeTableHandle) handle, runtime));
+    }
+
+    @Override
+    public Optional<ConnectorTableStatistics> getTableStatistics(ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorMvccSnapshot snapshot) {
+        return getTableStatistics(session, applySnapshot(session, handle, snapshot));
     }
 
     @Override

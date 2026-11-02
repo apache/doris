@@ -314,10 +314,9 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
                     Snapshot snapshot = handle.snapshot(runtime.engine);
                     DeltaLakeFeatureCheck.check(snapshot);
                     boolean partitioned = !snapshot.getPartitionColumnNames().isEmpty();
-                    long[] count = {0};
+                    DeltaLakeRowCount count = new DeltaLakeRowCount();
                     long[] fileCount = {0};
                     Set<Map<String, String>> partitions = new HashSet<>();
-                    boolean[] complete = {true};
                     DeltaLakeScanRange[] first = {null};
                     DeltaLakeScanFiles.forEach(snapshot, runtime.engine, true, row -> {
                         fileCount[0]++;
@@ -330,20 +329,10 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
                             first[0] = fileRange(row, handle, values, targetSplitSize(session),
                                     DeltaLakeSchemaBuilder.hasColumnMapping(snapshot));
                         }
-                        OptionalLong records = DeltaKernelCompat.numRecords(row);
-                        long deleted = DeltaKernelCompat.deletionCardinality(row);
-                        if (records.isEmpty()) {
-                            complete[0] = false;
-                        } else {
-                            if (deleted < 0 || records.getAsLong() < deleted) {
-                                throw new DorisConnectorException("Invalid Delta row count or deletion cardinality for "
-                                        + DeltaKernelCompat.fileStatus(row).getPath());
-                            }
-                            count[0] = Math.addExact(count[0], records.getAsLong() - deleted);
-                        }
+                        count.add(row);
                     });
                     observedCount.value = fileCount[0];
-                    return new CountSummary(complete[0] ? OptionalLong.of(count[0]) : OptionalLong.empty(), first[0],
+                    return new CountSummary(count.value(), first[0],
                             fileCount[0], partitions.size());
                 }));
     }

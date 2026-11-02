@@ -19,6 +19,7 @@ package org.apache.doris.connector.deltalake;
 
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorTableStatistics;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
@@ -33,10 +34,41 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 
 /** Opt-in scale acceptance; use the planning-only checkpoint fixture, never scan its absent data objects. */
 @EnabledIfSystemProperty(named = "deltalake.planning.table", matches = ".+")
 class DeltaLakePlanningScaleTest {
+    @Test
+    void collectsOneMillionFileStatisticsWithoutBlockingTheColdLookup() throws Exception {
+        Path table = Path.of(System.getProperty("deltalake.planning.table")).toAbsolutePath();
+        try (Connector connector = new DeltaLakeConnectorProvider().create(
+                Map.of("warehouse", table.getParent().getParent().toString()), new RecordingConnectorContext())) {
+            TestingConnectorSession session = new TestingConnectorSession("statistics-scale");
+            try (ConnectorMetadata metadata = connector.getMetadata(session)) {
+                ConnectorTableHandle handle = metadata.getTableHandle(session,
+                        table.getParent().getFileName().toString(), table.getFileName().toString()).orElseThrow();
+                long started = System.nanoTime();
+                Optional<ConnectorTableStatistics> result = metadata.getTableStatistics(session, handle);
+                long coldReturned = System.nanoTime();
+                long peakHeap = 0;
+                while (result.isEmpty() || result.get().getRowCount() < 0) {
+                    Assertions.assertTrue(System.nanoTime() - started < TimeUnit.SECONDS.toNanos(60),
+                            "million-file statistics did not complete");
+                    Thread.sleep(10);
+                    peakHeap = Math.max(peakHeap, ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getUsed());
+                    result = metadata.getTableStatistics(session, handle);
+                }
+                Assertions.assertEquals(1_000_000, result.get().getRowCount());
+                Assertions.assertEquals(527_000_000, result.get().getDataSize());
+                System.out.printf("DELTA_STATS_SCALE cold_ms=%.3f total_ms=%.3f rows=%d "
+                                + "peak_heap_bytes=%d max_heap_bytes=%d%n", (coldReturned - started) / 1e6,
+                        (System.nanoTime() - started) / 1e6, result.get().getRowCount(), peakHeap,
+                        ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getMax());
+            }
+        }
+    }
+
     @Test
     void streamsOneMillionRangesInABoundedHeap() throws Exception {
         Path table = Path.of(System.getProperty("deltalake.planning.table")).toAbsolutePath();

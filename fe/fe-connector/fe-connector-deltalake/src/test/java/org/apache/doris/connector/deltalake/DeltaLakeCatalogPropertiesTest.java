@@ -73,7 +73,7 @@ class DeltaLakeCatalogPropertiesTest {
 
     @Test
     void validatesCachePropertiesAndRetainsSharedDisableSemantics() {
-        for (String entry : new String[] {"latest", "snapshot"}) {
+        for (String entry : new String[] {"latest", "snapshot", "statistics"}) {
             String prefix = "meta.cache.deltalake." + entry;
             for (Map.Entry<String, String> invalid : Map.of(".enable", "maybe", ".ttl-second", "-2",
                     ".capacity", "-1", ".max-weight", "0").entrySet()) {

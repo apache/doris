@@ -18,6 +18,7 @@
 package org.apache.doris.connector.deltalake;
 
 import org.apache.doris.connector.cache.JvmSizeUtils;
+import org.apache.doris.connector.spi.ConnectorTableStatistics;
 import org.apache.doris.thrift.TDeltaLakeDeletionVectorDesc;
 
 import io.delta.kernel.Snapshot;
@@ -50,6 +51,12 @@ final class DeltaKernelCompat {
     static OptionalLong fileCount(Snapshot snapshot) {
         return snapshot.getCurrentCrcInfo().map(crc -> OptionalLong.of(crc.getNumFiles()))
                 .orElseGet(OptionalLong::empty);
+    }
+
+    static Optional<ConnectorTableStatistics> tableStatistics(Snapshot snapshot) {
+        // A version checksum has no total row count. Only an empty active-file set proves zero rows.
+        return snapshot.getCurrentCrcInfo().map(crc -> new ConnectorTableStatistics(
+                crc.getNumFiles() == 0 ? 0 : -1, crc.getTableSizeBytes()));
     }
 
     static long snapshotRetainedBytes(Snapshot snapshot) {

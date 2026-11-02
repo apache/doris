@@ -37,12 +37,22 @@ final class DeltaLakeTableHandle implements ConnectorTableHandle {
     private final transient Snapshot snapshot;
 
     DeltaLakeTableHandle(String database, String table, Snapshot snapshot) {
+        this(database, table, snapshot.getPath(), DeltaKernelCompat.tableId(snapshot), snapshot.getVersion(), snapshot);
+    }
+
+    private DeltaLakeTableHandle(String database, String table, String path, String tableId,
+            long version, Snapshot snapshot) {
         this.database = database;
         this.table = table;
-        this.path = snapshot.getPath();
-        this.tableId = DeltaKernelCompat.tableId(snapshot);
-        this.version = snapshot.getVersion();
+        this.path = path;
+        this.tableId = tableId;
+        this.version = version;
         this.snapshot = snapshot;
+    }
+
+    // Queued statistics work retains coordinates, not a potentially large cached snapshot.
+    DeltaLakeTableHandle withoutSnapshot() {
+        return new DeltaLakeTableHandle(database, table, path, tableId, version, null);
     }
 
     String getDatabase() {

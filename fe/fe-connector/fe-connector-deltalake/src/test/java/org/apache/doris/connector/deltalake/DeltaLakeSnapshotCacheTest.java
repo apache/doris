@@ -22,18 +22,24 @@ import org.apache.doris.connector.cache.CatalogMetaCache;
 
 import io.delta.kernel.Snapshot;
 import io.delta.kernel.TableManager;
+import io.delta.kernel.data.Row;
 import io.delta.kernel.defaults.engine.DefaultEngine;
 import io.delta.kernel.engine.Engine;
 import io.delta.kernel.types.LongType;
 import io.delta.kernel.types.StructType;
+import io.delta.kernel.utils.CloseableIterator;
 import org.apache.hadoop.conf.Configuration;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -173,6 +179,53 @@ class DeltaLakeSnapshotCacheTest {
             });
             Assertions.assertEquals(1, reloads.get());
             Assertions.assertEquals(1, owner.entries().get("deltalake-snapshot").size());
+        }
+    }
+
+    @Test
+    void concurrentScansOfOneCachedCheckpointSnapshotHaveIndependentIterators() throws Exception {
+        Path fixture = Path.of(getClass().getResource("/deltalake/dv-partitioned-with-checkpoint").toURI());
+        ExecutorService executor = Executors.newFixedThreadPool(8);
+        CyclicBarrier opened = new CyclicBarrier(8);
+        try (DeltaLakeFileIO io = new DeltaLakeFileIO(new Configuration(), new RecordingConnectorContext());
+                CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            Engine sharedEngine = DefaultEngine.create(io);
+            DeltaLakeSnapshotCache cache = new DeltaLakeSnapshotCache(owner, Map.of());
+            Snapshot cached = cache.latest(key, () -> TableManager.loadSnapshot(fixture.toString()).build(sharedEngine),
+                    version -> Assertions.fail("unexpected reload"));
+            List<Future<?>> scans = new ArrayList<>();
+            for (int worker = 0; worker < 8; worker++) {
+                boolean earlyClose = worker % 2 == 0;
+                scans.add(executor.submit(() -> {
+                    for (int iteration = 0; iteration < 3; iteration++) {
+                        Snapshot shared = cache.latest(key, () -> Assertions.fail("latest missed"),
+                                version -> Assertions.fail("snapshot missed"));
+                        Assertions.assertSame(cached, shared);
+                        try (CloseableIterator<Row> files = DeltaLakeScanFiles.open(
+                                shared, sharedEngine, !earlyClose, Optional.empty())) {
+                            Assertions.assertTrue(files.hasNext());
+                            files.next();
+                            // All scans have opened and consumed a row before half close their own iterators.
+                            opened.await(10, TimeUnit.SECONDS);
+                            if (!earlyClose) {
+                                int count = 1;
+                                while (files.hasNext()) {
+                                    files.next();
+                                    count++;
+                                }
+                                Assertions.assertEquals(15, count);
+                            }
+                        }
+                        Assertions.assertEquals(35, DeltaLakeStatisticsCache.collect(shared, sharedEngine).getRowCount());
+                    }
+                    return null;
+                }));
+            }
+            for (Future<?> scan : scans) {
+                scan.get(30, TimeUnit.SECONDS);
+            }
+        } finally {
+            executor.shutdownNow();
         }
     }
 
