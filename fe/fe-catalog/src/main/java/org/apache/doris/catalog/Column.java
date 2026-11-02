@@ -817,30 +817,7 @@ public class Column implements GsonPostProcessable {
         }
 
         if (type.isVariantType() && other.type.isVariantType()) {
-            if (this.getVariantMaxSubcolumnsCount() != other.getVariantMaxSubcolumnsCount()) {
-                throw new DdlException("Can not change variant max subcolumns count");
-            }
-            if (this.getVariantEnableTypedPathsToSparse() != other.getVariantEnableTypedPathsToSparse()) {
-                throw new DdlException("Can not change variant enable typed paths to sparse");
-            }
-            if (this.getVariantMaxSparseColumnStatisticsSize() != other.getVariantMaxSparseColumnStatisticsSize()) {
-                throw new DdlException("Can not change variant max sparse column statistics size");
-            }
-            if (this.getVariantSparseHashShardCount() != other.getVariantSparseHashShardCount()) {
-                throw new DdlException("Can not change variant sparse bucket num");
-            }
-            if (this.getVariantEnableDocMode() != other.getVariantEnableDocMode()) {
-                throw new DdlException("Can not change variant enable doc snapshot mode");
-            }
-            if (this.getVariantDocShardCount() != other.getVariantDocShardCount()) {
-                throw new DdlException("Can not change variant doc snapshot shard count");
-            }
-            if (this.getVariantEnableNestedGroup() != other.getVariantEnableNestedGroup()) {
-                throw new DdlException("Can not change variant enable nested group");
-            }
-            if (CollectionUtils.isNotEmpty(this.getChildren()) || CollectionUtils.isNotEmpty(other.getChildren())) {
-                throw new DdlException("Can not change variant schema templates");
-            }
+            VariantPropertyChangePolicy.checkColumnLevel(this, other);
         }
     }
 
