@@ -20,20 +20,28 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.IntegerType;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
+
 /**
- * Test for {@link MaterializedViewUtils#alignPlanOutputWithOrigin}.
+ * Test for {@link MaterializedViewUtils#alignPlanOutputWithOrigin} and
+ * {@link MaterializedViewUtils#normalizeSinkExpressions}.
  */
 public class MaterializedViewUtilsAlignTest {
 
@@ -99,12 +107,131 @@ public class MaterializedViewUtilsAlignTest {
         Assertions.assertNull(MaterializedViewUtils.alignPlanOutputWithOrigin(rewritten, origin));
     }
 
+    @Test
+    public void testSameNameColumnOfDifferentSubPathIsRejected() {
+        // variant['a'] and variant['b'] have the same name, type and qualifier but are different columns.
+        Plan origin = project(slot(new ExprId(10), ImmutableList.of("a")).withSubPath(ImmutableList.of("a")));
+        Plan rewritten = project(slot(new ExprId(11), ImmutableList.of("a")).withSubPath(ImmutableList.of("b")));
+
+        Assertions.assertNull(MaterializedViewUtils.alignPlanOutputWithOrigin(rewritten, origin));
+    }
+
+    @Test
+    public void testSameNameColumnOfSameSubPathIsAccepted() {
+        ExprId originExprId = new ExprId(10);
+        Plan origin = project(slot(originExprId, ImmutableList.of("a")).withSubPath(ImmutableList.of("b")));
+        Plan rewritten = project(slot(new ExprId(11), ImmutableList.of("a")).withSubPath(ImmutableList.of("b")));
+
+        Plan aligned = MaterializedViewUtils.alignPlanOutputWithOrigin(rewritten, origin);
+
+        Assertions.assertNotNull(aligned);
+        Assertions.assertEquals(originExprId, aligned.getOutput().get(0).getExprId());
+    }
+
+    @Test
+    public void testFileSinkOutputWithFreshExprIdIsMaterialized() {
+        ExprId originExprId = new ExprId(10);
+        ExprId rewrittenExprId = new ExprId(11);
+        SlotReference rewrittenSlot = slot(rewrittenExprId, ImmutableList.of("a"));
+        LogicalFileSink<Plan> rewritten = fileSink(ImmutableList.of(rewrittenSlot), project(rewrittenSlot));
+        LogicalFileSink<Plan> origin = fileSink(ImmutableList.of(slot(originExprId, ImmutableList.of("a"))),
+                oneRow());
+
+        Plan normalized = MaterializedViewUtils.normalizeSinkExpressions(rewritten, origin);
+
+        Assertions.assertNotNull(normalized);
+        Assertions.assertEquals(originExprId, normalized.getOutput().get(0).getExprId());
+        Assertions.assertTrue(normalized.child(0) instanceof LogicalProject);
+        assertSinkOutputsResolvable(normalized);
+    }
+
+    @Test
+    public void testSinkWithOnlyNullablePropertyChangedDoesNotAddProject() {
+        ExprId exprId = new ExprId(10);
+        SlotReference childOutput = new SlotReference(exprId, "k1", IntegerType.INSTANCE, true,
+                ImmutableList.of("a"));
+        LogicalOneRowRelation child = new LogicalOneRowRelation(new RelationId(1), ImmutableList.of(childOutput));
+        LogicalFileSink<Plan> rewritten = fileSink(ImmutableList.of(childOutput), child);
+        LogicalFileSink<Plan> origin = fileSink(ImmutableList.of(
+                new SlotReference(exprId, "k1", IntegerType.INSTANCE, false, ImmutableList.of("a"))), oneRow());
+
+        Plan normalized = MaterializedViewUtils.normalizeSinkExpressions(rewritten, origin);
+
+        Assertions.assertNotNull(normalized);
+        Assertions.assertSame(child, normalized.child(0));
+        Assertions.assertFalse(normalized.getOutput().get(0).nullable());
+    }
+
+    @Test
+    public void testMaterializedProjectKeepsChildNullableForPassThroughOutput() {
+        ExprId originFirst = new ExprId(10);
+        ExprId rewrittenFirst = new ExprId(11);
+        ExprId shared = new ExprId(12);
+        SlotReference childFirst = slot(rewrittenFirst, ImmutableList.of("a"));
+        SlotReference childShared = new SlotReference(shared, "k2", IntegerType.INSTANCE, true,
+                ImmutableList.of("a"));
+        LogicalOneRowRelation child = new LogicalOneRowRelation(new RelationId(1),
+                ImmutableList.of(childFirst, childShared));
+        LogicalFileSink<Plan> rewritten = fileSink(ImmutableList.of(childFirst, childShared), child);
+        LogicalFileSink<Plan> origin = fileSink(ImmutableList.of(
+                slot(originFirst, ImmutableList.of("a")),
+                new SlotReference(shared, "k2", IntegerType.INSTANCE, false, ImmutableList.of("a"))), oneRow());
+
+        Plan normalized = MaterializedViewUtils.normalizeSinkExpressions(rewritten, origin);
+
+        Assertions.assertNotNull(normalized);
+        Assertions.assertEquals(originFirst, normalized.getOutput().get(0).getExprId());
+        Assertions.assertFalse(normalized.getOutput().get(1).nullable());
+        Plan project = normalized.child(0);
+        Assertions.assertTrue(project instanceof LogicalProject);
+        // the materialized project passes the output which the child already produces through with the
+        // nullable property of the child, so merging the projects does not change the logical properties
+        Assertions.assertTrue(project.getOutput().get(1).nullable());
+        assertSinkOutputsResolvable(normalized);
+    }
+
+    @Test
+    public void testAlignSinkMaterializesOutputOfFreshExprId() {
+        ExprId originExprId = new ExprId(10);
+        ExprId rewrittenExprId = new ExprId(11);
+        SlotReference rewrittenSlot = slot(rewrittenExprId, ImmutableList.of("a"));
+        LogicalFileSink<Plan> rewritten = fileSink(ImmutableList.of(rewrittenSlot),
+                new LogicalOneRowRelation(new RelationId(1), ImmutableList.of(rewrittenSlot)));
+        LogicalFileSink<Plan> origin = fileSink(ImmutableList.of(slot(originExprId, ImmutableList.of("a"))),
+                oneRow());
+
+        Plan aligned = MaterializedViewUtils.alignPlanOutputWithOrigin(rewritten, origin);
+
+        Assertions.assertNotNull(aligned);
+        Assertions.assertEquals(originExprId, aligned.getOutput().get(0).getExprId());
+        assertSinkOutputsResolvable(aligned);
+    }
+
+    private static void assertSinkOutputsResolvable(Plan sinkPlan) {
+        // PhysicalFileSink resolves every output exprId in the child, see
+        // PhysicalPlanTranslator.visitPhysicalFileSink and translateOutputExprs
+        Set<ExprId> childOutputExprIds = sinkPlan.child(0).getOutput().stream()
+                .map(Slot::getExprId).collect(Collectors.toSet());
+        for (Slot sinkOutput : sinkPlan.getOutput()) {
+            Assertions.assertTrue(childOutputExprIds.contains(sinkOutput.getExprId()),
+                    "the child must produce the sink output exprId " + sinkOutput.getExprId());
+        }
+    }
+
     private static SlotReference slot(ExprId exprId, ImmutableList<String> qualifier) {
         return new SlotReference(exprId, "k1", IntegerType.INSTANCE, false, qualifier);
     }
 
+    private static LogicalFileSink<Plan> fileSink(List<NamedExpression> outputs, Plan child) {
+        return new LogicalFileSink<>("file:///tmp/materialized_view_align_test", "csv",
+                ImmutableMap.of(), outputs, child);
+    }
+
+    private static LogicalOneRowRelation oneRow() {
+        return new LogicalOneRowRelation(new RelationId(1), ImmutableList.of());
+    }
+
     private static Plan project(NamedExpression... projects) {
-        return new LogicalProject<>(ImmutableList.copyOf(projects),
-                new LogicalOneRowRelation(new RelationId(1), ImmutableList.of()));
+        return new LogicalProject<>(ImmutableList.copyOf(projects), oneRow());
     }
 }
