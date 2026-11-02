@@ -254,6 +254,38 @@ TEST_F(RuntimeFilterWrapperTest, TestInAssign) {
 #undef APPLY_FOR_PRIMITIVE_BASE_TYPE
 }
 
+TEST_F(RuntimeFilterWrapperTest, TestDateInAssign) {
+    for (auto [column_type, value, expected_time_type] :
+         {std::tuple {TYPE_DATE, "2020-01-01", TimeType::TIME_DATE},
+          std::tuple {TYPE_DATETIME, "2020-01-01 01:02:03", TimeType::TIME_DATETIME}}) {
+        RuntimeFilterParams params {.filter_id = 0,
+                                    .filter_type = RuntimeFilterType::IN_FILTER,
+                                    .column_return_type = column_type,
+                                    .null_aware = false,
+                                    .max_in_num = 2};
+        RuntimeFilterWrapper producer(&params);
+        VecDateTimeValue probe = column_type == TYPE_DATE
+                                         ? VecDateTimeValue(0, 2, 0, 0, 0, 2020, 1, 1)
+                                         : VecDateTimeValue(0, 3, 1, 2, 3, 2020, 1, 1);
+        producer.hybrid_set()->insert(&probe);
+
+        PMergeFilterRequest request;
+        request.set_filter_type(PFilterType::IN_FILTER);
+        ASSERT_TRUE(producer.to_protobuf(request.mutable_in_filter()).ok());
+        ASSERT_EQ(request.in_filter().values_size(), 1);
+        EXPECT_EQ(request.in_filter().values(0).stringval(), value);
+
+        RuntimeFilterWrapper consumer(&params);
+        ASSERT_TRUE(consumer.assign(request, nullptr).ok());
+        EXPECT_EQ(probe.type(), expected_time_type);
+        EXPECT_TRUE(consumer.hybrid_set()->find(&probe));
+        VecDateTimeValue missing = column_type == TYPE_DATE
+                                           ? VecDateTimeValue(0, 2, 0, 0, 0, 2020, 1, 2)
+                                           : VecDateTimeValue(0, 3, 1, 2, 3, 2020, 1, 2);
+        EXPECT_FALSE(consumer.hybrid_set()->find(&missing));
+    }
+}
+
 TEST_F(RuntimeFilterWrapperTest, TestMinMaxAssign) {
     int32_t filter_id = 0;
     RuntimeFilterType filter_type = RuntimeFilterType::MINMAX_FILTER;

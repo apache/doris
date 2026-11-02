@@ -89,10 +89,11 @@ suite("double_write_schema_change_with_variant", "nonConcurrent") {
     // "123111", while a "123111.0" literal that is written after the column has
     // become text would stay "123111.0". Mixing both would make the whole row
     // checks below depend on the schema change timing.
-    def insert_sql = """ insert into ${table_name} values(1, ${variantV2Function}('{"id":"25061216922","type":"PushEvent","actor":{"id":100067519,"login":"savorfamily","display_login":"savorfamily","gravatar_id":"123","url":"https://api.github.com/users/savorfamily","avatar_url":"https://avatars.githubusercontent.com/u/100067519?"},"repo":{"id":461434218,"name":"savorfamily/upptime","url":"https://api.github.com/repos/savorfamily/upptime"},"payload":{"push_id":11572320522,"size":1,"distinct_size":1,"ref":"refs/heads/master","head":"81106d369f763cb729d9d77610ace252c9db53f0","before":"2bf823a4febcf809da126828ecef7617c8cc48ea","commits":[{"sha":"81106d369f763cb729d9d77610ace252c9db53f0","author":{"email":"73812536+upptime-bot@users.noreply.github.com","name":"Upptime Bot"},"message":":bento: Update graphs [skip ci]","distinct":true,"url":"https://api.github.com/repos/savorfamily/upptime/commits/81106d369f763cb729d9d77610ace252c9db53f0"}]},"public":true,"created_at":"2022-11-07T02:00:00Z"}'), "123111") """
+    def insert_sql = { value -> """ insert into ${table_name} values(1, ${variantV2Function}('{"id":"25061216922","type":"PushEvent","actor":{"id":100067519,"login":"savorfamily","display_login":"savorfamily","gravatar_id":"123","url":"https://api.github.com/users/savorfamily","avatar_url":"https://avatars.githubusercontent.com/u/100067519?"},"repo":{"id":461434218,"name":"savorfamily/upptime","url":"https://api.github.com/repos/savorfamily/upptime"},"payload":{"push_id":11572320522,"size":1,"distinct_size":1,"ref":"refs/heads/master","head":"81106d369f763cb729d9d77610ace252c9db53f0","before":"2bf823a4febcf809da126828ecef7617c8cc48ea","commits":[{"sha":"81106d369f763cb729d9d77610ace252c9db53f0","author":{"email":"73812536+upptime-bot@users.noreply.github.com","name":"Upptime Bot"},"message":":bento: Update graphs [skip ci]","distinct":true,"url":"https://api.github.com/repos/savorfamily/upptime/commits/81106d369f763cb729d9d77610ace252c9db53f0"}]},"public":true,"created_at":"2022-11-07T02:00:00Z"}'), "${value}") """ }
 
-    def double_write = { ->
+    def double_write = { stage ->
         int max_try_time = 3000
+        int inserted = 0
         while (max_try_time--){
             String result = getJobState(table_name)
             if (result == "FINISHED") {
@@ -100,7 +101,8 @@ suite("double_write_schema_change_with_variant", "nonConcurrent") {
                 break
             } else {
                 if (result == "RUNNING") {
-                    sql insert_sql
+                    sql insert_sql("123111")
+                    inserted++
                 }
                 sleep(200)
                 if (max_try_time < 1){
@@ -108,15 +110,18 @@ suite("double_write_schema_change_with_variant", "nonConcurrent") {
                 }
             }
         }
+        if (stage == "MODIFY COLUMN") {
+            assertTrue(inserted > 0, "No rows inserted while MODIFY COLUMN was running")
+        }
     }
 
     qt_sql "select v['type'], v['id'], v['created_at'] from ${table_name} where cast(v['id'] as bigint) != 25061216922 order by k, cast(v['id'] as bigint), cast(v['payload']['commits'] as string) limit 10"
 
     sql """ ALTER TABLE ${table_name} modify COLUMN change_column text"""
-    double_write.call()
+    double_write.call("MODIFY COLUMN")
 
     sql """ALTER TABLE ${table_name} drop index idx_var"""
-    double_write.call()
+    double_write.call("DROP INDEX")
     qt_sql "select v['type'], v['id'], v['created_at'] from ${table_name} where cast(v['id'] as bigint) != 25061216922 order by k, cast(v['id'] as bigint), cast(v['payload']['commits'] as string) limit 10"
 
     sql "set enable_two_phase_read_opt = false"
@@ -128,6 +133,9 @@ suite("double_write_schema_change_with_variant", "nonConcurrent") {
     order_qt_sql """select k, v['payload']['commits'] from github_events
         where length(cast(v['payload']['commits'] as text)) > 100 and k > 1
         order by k, length(cast(v['payload']['commits'] as text)) limit 10"""
+    // DROP INDEX may finish before polling observes RUNNING; verify a post-DDL write separately.
+    sql insert_sql("123112")
+    qt_stage_markers "select distinct change_column from ${table_name} where k = 1 and change_column is not null order by change_column"
 
     // createMV("create materialized view xxx as select k, sum(k) from ${table_name} group by k order by k;")
     // qt_sql "select v['type'], v['id'], v['created_at'] from ${table_name} where cast(v['id'] as bigint) != 25061216922 order by k,  cast(v['id'] as bigint) limit 10"
