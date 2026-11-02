@@ -263,8 +263,10 @@ FormattedScalar format_json_int(int64_t value) {
 
 FormattedScalar format_json_float(float value) {
     FormattedScalar result;
-    char* end = fmt::format_to(result.bytes.data(), FMT_COMPILE("{:.{}g}"), value,
-                               std::numeric_limits<float>::digits10 + 1);
+    // Shortest round-trip form, like the double below: digits10 + 1 = 7 significant digits is up
+    // to two short of what a binary32 can need, and that precision also moved the exponent
+    // threshold, so 3.1415927f rendered as 3.141593 and 12345678f as 1.234568e+07.
+    char* end = fmt::format_to(result.bytes.data(), FMT_COMPILE("{}"), value);
     result.size = end - result.bytes.data();
     return result;
 }
