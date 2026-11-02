@@ -5634,10 +5634,21 @@ public class Env {
         if (isMaster()) {
             return true;
         }
-        String masterHost = getMasterHost();
-        int masterRpcPort = getMasterRpcPort();
+        return frontendRunsSameBuild(getMasterHost(), getMasterRpcPort());
+    }
+
+    /**
+     * Whether the FE at this RPC address is this FE itself or reports the same build as this FE.
+     * Every FE sees every other FE's build: the master heartbeats all of them and journals the
+     * responses (HbPackage, FrontendHbResponse.version), which the other FEs replay. An FE this FE
+     * does not know, or a dead one, counts as a different build.
+     */
+    public boolean frontendRunsSameBuild(String host, int rpcPort) {
+        if (host.equals(selfNode.getHost()) && rpcPort == Config.rpc_port) {
+            return true;
+        }
         for (Frontend fe : frontends.values()) {
-            if (fe.getHost().equals(masterHost) && fe.getRpcPort() == masterRpcPort) {
+            if (fe.getHost().equals(host) && fe.getRpcPort() == rpcPort) {
                 return fe.isAlive() && Frontend.localBuildVersion().equals(fe.getVersion());
             }
         }

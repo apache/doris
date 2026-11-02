@@ -196,9 +196,21 @@ public class FEOpExecutor {
         params.setStmtId(ctx.getStmtId());
         params.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
         if (ctx.isSessionRoleNarrowed()) {
+            // A session-narrowed (SU) session carries its active role subset in the request
+            // (is_su_user / current_roles) and the receiving FE installs it before executing. An
+            // older FE silently ignores those fields and would authorize the statement against the
+            // target's FULL role union, so every SQL forward from a narrowed session -- to the master
+            // or, for KILL QUERY, to any other FE -- fails closed unless the receiver is known to run
+            // this same build (a rolling upgrade upgrades the master last).
+            if (!Env.getCurrentEnv().frontendRunsSameBuild(feAddr.getHostname(), feAddr.getPort())) {
+                throw new AnalysisException("This statement would be forwarded to FE " + feAddr.getHostname()
+                        + ":" + feAddr.getPort() + ", which runs a different build than this FE; a "
+                        + "session-narrowed (SU) session forwards only to an FE known to apply the narrowing. "
+                        + "Retry once the rolling upgrade completes, or run it in a non-narrowed session.");
+            }
             Set<String> sessionRoleOverride = ctx.getSessionRoleOverride();
-            // Session-narrowed (SU) session: carry the active role subset so the master authorizes
-            // the forwarded statement against exactly this set, never the target's full role union.
+            // carry the active role subset so the receiving FE authorizes the forwarded statement
+            // against exactly this set, never the target's full role union
             params.setIsSuUser(true);
             params.setCurrentRoles(new HashSet<>(sessionRoleOverride));
             if (ctx.getAuthenticatedIdentity() != null) {

@@ -40,6 +40,9 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
     private int arrowFlightSqlPort;
     @SerializedName(value = "replayedJournalId")
     private long replayedJournalId;
+    // Journaled: a non-master FE learns the build every FE runs only through the master's
+    // HbPackage replay, and Env.frontendRunsSameBuild compares its own build against it.
+    @SerializedName(value = "version")
     private String version;
     private long feStartTime;
     private long processUUID;

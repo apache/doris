@@ -20,9 +20,15 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.persist.HbPackage;
+import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.system.Frontend;
+import org.apache.doris.system.FrontendHbResponse;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.utframe.TestWithFeService;
@@ -59,13 +65,18 @@ public class ForwardedSessionNarrowingTest extends TestWithFeService {
     }
 
     private static TMasterOpRequest forwardRequestOf(ConnectContext ctx) throws AnalysisException {
-        return new ForwardParamsProbe(ctx).build();
+        return new ForwardParamsProbe(ctx, selfAddress()).build();
     }
 
-    /** Exposes the request the origin FE would send for this session. */
+    /** The single test FE, as an FE address: the one receiver that is known to run this build. */
+    private static TNetworkAddress selfAddress() {
+        return new TNetworkAddress(Env.getCurrentEnv().getSelfNode().getHost(), Config.rpc_port);
+    }
+
+    /** Exposes the request the origin FE would send for this session to the FE at the address. */
     private static class ForwardParamsProbe extends FEOpExecutor {
-        private ForwardParamsProbe(ConnectContext ctx) {
-            super(new TNetworkAddress("127.0.0.1", 9020), new OriginStatement("show frontends", 0), ctx, true);
+        private ForwardParamsProbe(ConnectContext ctx, TNetworkAddress receiver) {
+            super(receiver, new OriginStatement("show frontends", 0), ctx, true);
         }
 
         private TMasterOpRequest build() throws AnalysisException {
@@ -160,5 +171,60 @@ public class ForwardedSessionNarrowingTest extends TestWithFeService {
         // the single-FE test environment is its own master: nothing to forward, nothing to refuse
         Assertions.assertTrue(Env.getCurrentEnv().isMaster());
         Assertions.assertTrue(Env.getCurrentEnv().masterRunsSameBuild());
+        TNetworkAddress self = selfAddress();
+        Assertions.assertTrue(Env.getCurrentEnv().frontendRunsSameBuild(self.getHostname(), self.getPort()));
+        // an FE this FE does not know counts as a different build
+        Assertions.assertFalse(Env.getCurrentEnv().frontendRunsSameBuild("203.0.113.9", 9020));
+    }
+
+    /**
+     * The same-build gate sits at the single place that sets is_su_user, so every SQL forward of a
+     * narrowed session -- to the master, or for KILL QUERY to any other FE -- fails closed unless the
+     * receiving FE is known to run this build. A plain session forwards anywhere.
+     */
+    @Test
+    public void testNarrowedForwardToAnFeOfUnknownBuildIsRefused() throws Exception {
+        TNetworkAddress unknown = new TNetworkAddress("203.0.113.9", 9020);
+        ConnectContext ctx = new ConnectContext();
+        ctx.setCurrentUserIdentity(ident("alice"));
+        ctx.setRemoteIP("127.0.0.1");
+        ctx.setCapability(MysqlCapability.DEFAULT_CAPABILITY);
+        Assertions.assertFalse(new ForwardParamsProbe(ctx, unknown).build().isSetIsSuUser());
+
+        ctx.setAuthenticatedIdentity(ident("svc"));
+        ctx.setSessionRoleOverride(Collections.singleton("tenant_a"));
+        AnalysisException refused = Assertions.assertThrows(AnalysisException.class,
+                () -> new ForwardParamsProbe(ctx, unknown).build());
+        Assertions.assertTrue(refused.getMessage().contains("different build"), refused.getMessage());
+        // the FE known to run this build still takes the narrowed forward
+        Assertions.assertTrue(forwardRequestOf(ctx).isIsSuUser());
+    }
+
+    /**
+     * A non-master FE learns the master's build only from the HbPackage journal the master writes
+     * after every heartbeat round: the version must survive the Gson round trip of that journal and
+     * land on the replayed Frontend, or masterRunsSameBuild() is false off-master forever.
+     */
+    @Test
+    public void testHeartbeatJournalCarriesTheBuildToReplayingFrontends() {
+        String build = Frontend.localBuildVersion();
+        FrontendHbResponse hb = new FrontendHbResponse("fe_probe", 9030, 9020, 0, 7L, System.currentTimeMillis(),
+                build, 0L, Collections.emptyList(), 1L, "");
+        FrontendHbResponse roundTripped = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(hb),
+                FrontendHbResponse.class);
+        Assertions.assertEquals(build, roundTripped.getVersion());
+
+        HbPackage hbPackage = new HbPackage();
+        hbPackage.addHbResponse(hb);
+        HbPackage replayed = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(hbPackage), HbPackage.class);
+        Assertions.assertEquals(1, replayed.getHbResults().size());
+        FrontendHbResponse fromJournal = (FrontendHbResponse) replayed.getHbResults().get(0);
+
+        // what a follower's HeartbeatMgr.replayHearbeat does with the journaled response
+        Frontend fe = new Frontend(FrontendNodeType.FOLLOWER, "fe_probe", "203.0.113.9", 9010);
+        Assertions.assertTrue(fe.handleHbResponse(fromJournal, true));
+        Assertions.assertTrue(fe.isAlive());
+        Assertions.assertEquals(build, fe.getVersion());
+        Assertions.assertEquals(9020, fe.getRpcPort());
     }
 }
