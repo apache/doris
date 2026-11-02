@@ -1829,7 +1829,7 @@ double geography_area(const GeoShape& shape, StringRef wkb, bool square_meters) 
     // small polygon into an apparent full-sphere area. Reject that unresolved cancellation
     // instead of returning a value with the wrong order of magnitude.
     using std::abs;
-    if (abs(steradians) <= error) {
+    if (polygon->num_loops() > 1 && abs(steradians) <= error) {
         throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                         "Geography area does not support unresolved shell/hole cancellation");
     }

@@ -1639,6 +1639,19 @@ TEST(VGeoFunctionsTest, GeographyStabilizesShellBeforeAdmittingHole) {
     EXPECT_EQ(GeoShape::from_wkb(hex.data(), hex.size(), status), nullptr);
 }
 
+TEST(VGeoFunctionsTest, GeographyKeepsSmallSingleShellArea) {
+    const std::string polygon =
+            "POLYGON ((0 0,0.000001 0,0.000001 0.000001,"
+            "0 0.000001,0 0))";
+    double square_meters = 0;
+    double square_km = 0;
+    geography_measurement("st_area_square_meters", {polygon}, &square_meters);
+    geography_measurement("st_area_square_km", {polygon}, &square_km);
+    EXPECT_GT(square_meters, 0.01);
+    EXPECT_LT(square_meters, 0.02);
+    EXPECT_NEAR(square_meters, square_km * 1e6, square_meters * 1e-12);
+}
+
 TEST(VGeoFunctionsTest, GeographyStableAdmissionKeepsInvalidRingsAndNestedDepths) {
     for (const auto* invalid :
          {"POLYGON ((0 0,4 4,0 4,4 0,0 0))", "POLYGON ((0 0,4 0,4 4,0 4,0 0),(5 1,6 1,6 2,5 1))",
