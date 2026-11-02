@@ -605,6 +605,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SPLIT_QUEUE_CAPACITY = "split_queue_capacity";
 
+    public static final String SPLIT_PRODUCER_PARALLELISM = "split_producer_parallelism";
+
+    public static final String FIRST_SPLIT_WAIT_TIMEOUT_MS = "first_split_wait_timeout_ms";
     public static final String FETCH_SPLITS_MAX_WAIT_TIME = "fetch_splits_max_wait_time_ms";
 
     /**
@@ -2655,6 +2658,23 @@ public class SessionVariable implements Serializable, Writable {
         checkFieldValue(SPLIT_INITIAL_BATCH_SIZE, 1, value);
     }
 
+    @VarAttrDef.VarAttr(name = SPLIT_PRODUCER_PARALLELISM, checker = "checkSplitProducerParallelism",
+            needForward = true, description = "Maximum partition-batch split producers per scan node. "
+                    + "Zero uses the FE external metadata loader pool size. Whole-scan streams use one producer.")
+    public int splitProducerParallelism = 0;
+
+    @VarAttrDef.VarAttr(name = FIRST_SPLIT_WAIT_TIMEOUT_MS, checker = "checkFirstSplitWaitTimeout",
+            needForward = true, description = "First split wait timeout in milliseconds.")
+    public long firstSplitWaitTimeoutMs = 30000;
+
+    public void checkFirstSplitWaitTimeout(String value) throws Exception {
+        checkFieldLongValue(FIRST_SPLIT_WAIT_TIMEOUT_MS, 1, value);
+    }
+
+    public long getFirstSplitWaitTimeoutMs() {
+        return firstSplitWaitTimeoutMs;
+    }
+
     public void checkSplitBatchSize(String value) throws Exception {
         checkFieldValue(SPLIT_BATCH_SIZE, 1, value);
     }
@@ -2665,6 +2685,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void checkSplitQueueCapacity(String value) throws Exception {
         checkFieldValue(SPLIT_QUEUE_CAPACITY, 1, value);
+    }
+
+    public void checkSplitProducerParallelism(String value) throws Exception {
+        checkFieldValue(SPLIT_PRODUCER_PARALLELISM, 0, value);
     }
 
     @VarAttrDef.VarAttr(
@@ -5053,6 +5077,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getSplitQueueCapacity() {
         return splitQueueCapacity;
+    }
+
+    public int getSplitProducerParallelism() {
+        return splitProducerParallelism;
     }
 
     public long getFetchSplitsMaxWaitTime() {

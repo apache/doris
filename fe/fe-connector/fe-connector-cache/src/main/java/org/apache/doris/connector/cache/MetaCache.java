@@ -53,6 +53,16 @@ public final class MetaCache<K, V> {
     }
 
     /**
+     * Share completed values, but coalesce in-flight loads only within this identity-scoped owner.
+     * The cache must have automatic refresh disabled: a request-owned loader cannot outlive its request.
+     */
+    public V getForLoadScope(K key, Object loadScope, Function<K, V> loader) {
+        K nonNullKey = Objects.requireNonNull(key, "key can not be null");
+        return delegate.getForLoadScope(nonNullKey, definition.scope(nonNullKey),
+                Objects.requireNonNull(loadScope, "loadScope can not be null"), loader);
+    }
+
+    /**
      * Loads on the caller when elected, or observes an existing load without blocking this caller.
      * Cancelling or completing a future obtained from the stage does not affect the shared load.
      * Callbacks run on the completing thread and must not perform blocking work.

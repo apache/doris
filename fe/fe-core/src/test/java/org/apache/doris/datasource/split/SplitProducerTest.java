@@ -48,15 +48,18 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongSupplier;
 
 class SplitProducerTest {
@@ -77,6 +80,11 @@ class SplitProducerTest {
             @Override
             public void removeSpaceListener(Runnable onSpace) {
                 group.removeSpaceListener(onSpace);
+            }
+
+            @Override
+            public void remove(Runnable task) {
+                group.remove(task);
             }
 
             @Override
@@ -155,6 +163,119 @@ class SplitProducerTest {
                 Assertions.assertEquals(1, fixture.completions.get());
             } finally {
                 release.countDown();
+                pool.close();
+                Assertions.assertTrue(pool.awaitTermination(5, TimeUnit.SECONDS));
+            }
+        }
+    }
+
+    @Test
+    void assignmentStopReleasesFairAdmissionsWithoutClosingTheQueryGroup() throws Exception {
+        for (boolean waitingForCapacity : new boolean[] {false, true}) {
+            Fixture fixture = new Fixture(1, 1);
+            RecordingSource source = new RecordingSource(1, 0);
+            CountDownLatch entered = new CountDownLatch(1);
+            CountDownLatch release = new CountDownLatch(1);
+            try (FairTaskExecutor pool = new FairTaskExecutor(1, Thread::new)) {
+                FairTaskExecutor.Group group = pool.newGroup(1);
+                group.execute(() -> {
+                    entered.countDown();
+                    try {
+                        release.await();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException(e);
+                    }
+                });
+                try {
+                    Assertions.assertTrue(entered.await(5, TimeUnit.SECONDS));
+                    if (waitingForCapacity) {
+                        group.execute(() -> { });
+                    }
+                    fixture.start(scheduler(group), source);
+                    fixture.assignment.stop();
+                    fixture.assignment.getTerminationFuture().get(5, TimeUnit.SECONDS);
+                    Assertions.assertEquals(waitingForCapacity ? 1 : 0, group.queuedTasks());
+                    Assertions.assertFalse(group.isClosed());
+                    Assertions.assertEquals(0, source.next, "a stopped source must never be read");
+                    Assertions.assertEquals(1, source.closeCalls.get());
+                    Assertions.assertEquals(1, fixture.completions.get());
+                } finally {
+                    release.countDown();
+                    pool.close();
+                    Assertions.assertTrue(pool.awaitTermination(5, TimeUnit.SECONDS));
+                }
+            }
+        }
+    }
+
+    @Test
+    void sourceErrorClosesOnItsWorkerAndCompletesTermination() throws Exception {
+        for (boolean failRead : new boolean[] {true, false}) {
+            Fixture fixture = new Fixture(1, 1);
+            AssertionError expected = new AssertionError("SDK worker failed");
+            AtomicReference<Thread> reader = new AtomicReference<>();
+            AtomicReference<Thread> closer = new AtomicReference<>();
+            CountDownLatch entered = new CountDownLatch(1);
+            RecordingSource source = new RecordingSource(1) {
+                @Override
+                public List<Split> getNextBatch() {
+                    reader.set(Thread.currentThread());
+                    entered.countDown();
+                    if (failRead) {
+                        throw expected;
+                    }
+                    return Collections.emptyList();
+                }
+
+                @Override
+                public void close() {
+                    closer.set(Thread.currentThread());
+                    super.close();
+                    if (!failRead) {
+                        throw expected;
+                    }
+                }
+            };
+            try (FairTaskExecutor pool = new FairTaskExecutor(1, Thread::new)) {
+                try {
+                    fixture.start(scheduler(pool.newGroup(1)), source);
+                    Assertions.assertTrue(entered.await(5, TimeUnit.SECONDS));
+                    fixture.assignment.getTerminationFuture().get(5, TimeUnit.SECONDS);
+                    UserException failure = Assertions.assertThrows(UserException.class,
+                            () -> fixture.assignment.getAssignedSplits(fixture.backend));
+                    Assertions.assertSame(expected, failure.getCause());
+                    Assertions.assertSame(reader.get(), closer.get());
+                    Assertions.assertEquals(1, source.closeCalls.get());
+                    Assertions.assertEquals(1, fixture.completions.get());
+                } finally {
+                    fixture.assignment.stop();
+                    pool.close();
+                    Assertions.assertTrue(pool.awaitTermination(5, TimeUnit.SECONDS));
+                }
+            }
+        }
+    }
+
+    @Test
+    void completionErrorPublishesFailureAndStillCompletesTermination() throws Exception {
+        Fixture fixture = new Fixture(1, 1);
+        RecordingSource source = new RecordingSource(1);
+        AssertionError expected = new AssertionError("Completion failed");
+        try (FairTaskExecutor pool = new FairTaskExecutor(1, Thread::new)) {
+            try {
+                new SplitProducer(fixture.assignment, scheduler(pool.newGroup(1)), source, failure -> {
+                    fixture.completions.incrementAndGet();
+                    throw expected;
+                }).start();
+                fixture.assignment.getTerminationFuture().get(5, TimeUnit.SECONDS);
+                UserException failure = Assertions.assertThrows(UserException.class,
+                        () -> fixture.assignment.getAssignedSplits(fixture.backend));
+                Assertions.assertSame(expected, failure.getCause());
+                Assertions.assertEquals(1, source.closeCalls.get());
+                Assertions.assertEquals(1, fixture.completions.get());
+            } finally {
+                fixture.assignment.stop();
                 pool.close();
                 Assertions.assertTrue(pool.awaitTermination(5, TimeUnit.SECONDS));
             }
@@ -329,6 +450,139 @@ class SplitProducerTest {
     }
 
     @Test
+    void producerFailureIsPublishedBeforeSlowSourceClosure() throws Exception {
+        Fixture fixture = new Fixture(1, 1);
+        CountDownLatch closing = new CountDownLatch(1);
+        CountDownLatch releaseClose = new CountDownLatch(1);
+        IOException original = new IOException("file listing failed");
+        RecordingSource source = new RecordingSource(1, 0) {
+            @Override
+            public List<Split> getNextBatch() throws IOException {
+                throw original;
+            }
+
+            @Override
+            public void close() {
+                closing.countDown();
+                try {
+                    Assertions.assertTrue(releaseClose.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException(e);
+                }
+                super.close();
+            }
+        };
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            fixture.start(executor, source);
+            Assertions.assertTrue(closing.await(5, TimeUnit.SECONDS));
+            UserException failure = Assertions.assertThrows(UserException.class,
+                    () -> fixture.assignment.getAssignedSplits(fixture.backend));
+            Assertions.assertSame(original, failure.getCause());
+            Assertions.assertFalse(fixture.assignment.getTerminationFuture().isDone());
+            releaseClose.countDown();
+            fixture.assignment.getTerminationFuture().get(5, TimeUnit.SECONDS);
+            Assertions.assertEquals(1, source.closeCalls.get());
+        } finally {
+            releaseClose.countDown();
+            executor.shutdownNow();
+            Assertions.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    void cancellationRacingSubmissionRemovesTheLateQueuedTask() throws Exception {
+        Fixture fixture = new Fixture(1, 1);
+        CountDownLatch submitting = new CountDownLatch(1);
+        CountDownLatch admit = new CountDownLatch(1);
+        CountDownLatch releaseWorker = new CountDownLatch(1);
+        ThreadPoolExecutor enumeration = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS,
+                new ArrayBlockingQueue<>(1)) {
+            @Override
+            public void execute(Runnable task) {
+                if (task instanceof SplitProducer) {
+                    submitting.countDown();
+                    try {
+                        Assertions.assertTrue(admit.await(5, TimeUnit.SECONDS));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new RejectedExecutionException(e);
+                    }
+                }
+                super.execute(task);
+            }
+        };
+        ExecutorService planner = Executors.newSingleThreadExecutor();
+        RecordingSource source = new RecordingSource(1, 0);
+        try {
+            enumeration.submit(() -> {
+                try {
+                    Assertions.assertTrue(releaseWorker.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+            Future<?> submission = planner.submit(() -> fixture.start(enumeration, source));
+            Assertions.assertTrue(submitting.await(5, TimeUnit.SECONDS));
+            fixture.assignment.stop();
+            fixture.assignment.getTerminationFuture().get(5, TimeUnit.SECONDS);
+            admit.countDown();
+            submission.get(5, TimeUnit.SECONDS);
+            Assertions.assertTrue(enumeration.getQueue().isEmpty(), "the stopped scan must not remain queued");
+            Assertions.assertEquals(1, source.closeCalls.get());
+        } finally {
+            admit.countDown();
+            releaseWorker.countDown();
+            planner.shutdownNow();
+            enumeration.shutdownNow();
+            Assertions.assertTrue(planner.awaitTermination(5, TimeUnit.SECONDS));
+            Assertions.assertTrue(enumeration.awaitTermination(5, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    void firstSplitDeadlineIncludesEnumerationExecutorQueueing() throws Exception {
+        Fixture fixture = new Fixture(1, 1);
+        ManualExecutor enumeration = new ManualExecutor();
+        RecordingSource source = new RecordingSource(1, 0);
+        Mockito.doAnswer(call -> {
+            fixture.assignment.startEnumeration();
+            fixture.start(enumeration, source);
+            return null;
+        }).when(fixture.generator).startSplit(Mockito.anyInt());
+        UserException failure = Assertions.assertThrows(UserException.class, () -> fixture.assignment.init(50));
+        Assertions.assertTrue(failure.getMessage().contains("active_producers=1"), failure.getMessage());
+        Assertions.assertTrue(fixture.assignment.getTerminationFuture().isDone());
+        Assertions.assertEquals(1, source.closeCalls.get());
+        enumeration.runUntilIdle();
+        Assertions.assertEquals(1, source.closeCalls.get());
+    }
+
+    @Test
+    void queuedProducerClosesWithoutRunningTheEnumerationExecutor() throws Exception {
+        Fixture fixture = new Fixture(1, 1);
+        ManualExecutor enumeration = new ManualExecutor();
+        ManualExecutor cleanup = new ManualExecutor();
+        RecordingSource source = new RecordingSource(1, 0);
+        new SplitProducer(fixture.assignment, enumeration, source, failure -> {
+            Assertions.assertNull(failure);
+            fixture.completions.incrementAndGet();
+        }, cleanup).start();
+        fixture.assignment.stop();
+        Assertions.assertFalse(fixture.assignment.getTerminationFuture().isDone());
+        cleanup.runUntilIdle();
+        Assertions.assertEquals(1, source.closeCalls.get());
+        Assertions.assertEquals(1, fixture.completions.get());
+        Assertions.assertTrue(fixture.assignment.getTerminationFuture().isDone());
+        // The stale queued task must neither reopen the source nor complete it twice.
+        enumeration.runUntilIdle();
+        Assertions.assertEquals(1, source.closeCalls.get());
+        Assertions.assertEquals(1, fixture.completions.get());
+        Assertions.assertTrue(fixture.source().getNextBatch(1).isEmpty());
+    }
+
+    @Test
     void cancellationClosesASuspendedProducerWithoutAConsumer() throws Exception {
         Fixture fixture = new Fixture(1, 1);
         fixture.assignment.addToQueue(Collections.singletonList(split(0)));
@@ -371,7 +625,9 @@ class SplitProducerTest {
             Assertions.assertTrue(reading.await(5, TimeUnit.SECONDS));
             fixture.assignment.stop();
             Assertions.assertEquals(0, source.closeCalls.get());
+            Assertions.assertFalse(fixture.assignment.getTerminationFuture().isDone());
             release.countDown();
+            fixture.assignment.getTerminationFuture().get(5, TimeUnit.SECONDS);
             Assertions.assertTrue(source.closed.await(5, TimeUnit.SECONDS));
             Assertions.assertEquals(1, source.closeCalls.get());
             Assertions.assertEquals(1, fixture.completions.get());
@@ -708,7 +964,7 @@ class SplitProducerTest {
                 }
                 completions.incrementAndGet();
                 assignment.finishSchedule();
-            }, nanoTime).start();
+            }, Runnable::run, nanoTime).start();
         }
 
         SplitSource source() {

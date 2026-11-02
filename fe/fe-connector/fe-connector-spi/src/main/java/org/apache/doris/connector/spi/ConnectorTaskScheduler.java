@@ -51,6 +51,10 @@ public interface ConnectorTaskScheduler extends Executor {
 
     void removeSpaceListener(Runnable onSpace);
 
+    /** Removes an accepted task that has not started. The caller owns its cancellation cleanup. */
+    default void remove(Runnable task) {
+    }
+
     /** Offline sessions have no shared worker pool, and execute directly. */
     ConnectorTaskScheduler DIRECT = new ConnectorTaskScheduler() {
         @Override

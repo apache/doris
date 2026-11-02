@@ -902,14 +902,12 @@ public class StatementContext implements Closeable {
     }
 
     /**
-     * Closes (deterministically) then drops the connector scope so the next statement execution starts fresh.
+     * Requests closure of the old connector scope and drops it so the next execution/attempt starts fresh.
      * Prepared-statement EXECUTE reuses one StatementContext across executions (see
-     * {@link org.apache.doris.nereids.trees.plans.commands.ExecuteCommand}) and a retry reuses it across attempts;
-     * this is called at the start of each, so a prior execution's / attempt's cached tables, pinned connector
-     * writer schema, and closeable state are released (closeAll is idempotent — a no-op if the query-finish
-     * callback already closed it) and never leak into the next. Callers invoke this only after the prior
-     * execution/attempt has finished; a split producer of it still running is refused by the closed scope, so
-     * close-before-drop is safe.
+     * {@link org.apache.doris.nereids.trees.plans.commands.ExecuteCommand}) and a retry reuses it across attempts.
+     * Old split producers and their cleanup retain the captured old scope until termination; closeAll defers
+     * disposal while those users remain. New sessions obtain a fresh scope, so cached tables, pinned writer
+     * schema, and closeable state cannot leak into the next attempt. Repeated close requests are idempotent.
      */
     public synchronized void resetConnectorStatementScope() {
         closeConnectorStatementScope();

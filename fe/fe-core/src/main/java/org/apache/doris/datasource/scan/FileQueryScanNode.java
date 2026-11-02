@@ -419,14 +419,13 @@ public abstract class FileQueryScanNode extends FileScanNode {
             splitAssignment = new SplitAssignment(backendPolicy, this, this::splitToScanRange,
                     locationProperties, pathPartitionKeys, admissionResult,
                     sessionVariable.getSplitBatchSize(), sessionVariable.getSplitQueueCapacity());
+            SplitAssignment assignment = splitAssignment;
             if (executor != null) {
-                // Cancellation can arrive before a coordinator exists, while the first producer is in
-                // remote IO. Closing the task group alone does not wake the first-split planning wait.
-                executor.registerQueryCancellationCallback(splitAssignment::stop);
+                executor.registerSplitAssignment(assignment, () -> unregisterSplitSources(assignment));
+                executor.registerQueryCancellationCallback(assignment::stop);
             }
-            // The first split can require a remote read session (for example, MaxCompute). Keep
-            // the planning wait bounded by the query's effective timeout instead of a fixed 30 seconds.
-            splitAssignment.init(ConnectContext.get().getExecTimeoutS() * 1000L);
+            splitAssignment.init(Math.min(sessionVariable.getFirstSplitWaitTimeoutMs(),
+                    ConnectContext.get().getExecTimeoutS() * 1000L));
             Status cancelReason = executor == null ? null : executor.getPendingCancelReason();
             if (cancelReason != null) {
                 throw new UserException(cancelReason.getErrorMsg());
@@ -434,10 +433,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
             if (executor != null) {
                 executor.getSummaryProfile().setGetSplitsFinishTime();
             }
-            if (splitAssignment.getSampleSplit() == null && !isFileStreamType()) {
+            FileSplit fileSplit = (FileSplit) splitAssignment.getSampleSplit();
+            if (fileSplit == null && !isFileStreamType()) {
                 return;
             }
-            FileSplit fileSplit = (FileSplit) splitAssignment.getSampleSplit();
             TFileType locationType = fileSplit.getLocationType();
             selectedSplitNum = numApproximateSplits();
             if (selectedSplitNum < 0) {
@@ -454,7 +453,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 SplitSource splitSource = new SplitSource(backend, splitAssignment, maxWaitTime,
                         sessionVariable.getSplitInitialBatchSize());
                 splitSources.add(splitSource);
-                Env.getCurrentEnv().getSplitSourceManager().registerSplitSource(splitSource);
+                splitAssignment.publishSource(splitSource, Env.getCurrentEnv().getSplitSourceManager());
                 TScanRangeLocations curLocations = newLocations();
                 TSplitSource tSource = new TSplitSource();
                 tSource.setSplitSourceId(splitSource.getUniqueId());
@@ -756,17 +755,29 @@ public abstract class FileQueryScanNode extends FileScanNode {
     // the new structure of storage parameters expected from MS.
     protected abstract Map<String, String> getLocationProperties() throws UserException;
 
+    /** LIMIT is successful EOF. Keep the lightweight sources reachable for already-issued BE requests. */
+    @Override
+    public void stopSplitGeneration() {
+        if (splitAssignment != null) {
+            splitAssignment.stop();
+        }
+    }
+
     @Override
     public void stop() {
         if (splitAssignment != null) {
             try {
                 splitAssignment.stop();
             } finally {
-                SplitSourceManager manager = Env.getCurrentEnv().getSplitSourceManager();
-                for (Long sourceId : splitAssignment.getSources()) {
-                    manager.removeSplitSource(sourceId);
-                }
+                unregisterSplitSources(splitAssignment);
             }
+        }
+    }
+
+    private static void unregisterSplitSources(SplitAssignment assignment) {
+        SplitSourceManager manager = Env.getCurrentEnv().getSplitSourceManager();
+        for (Long sourceId : assignment.getSources()) {
+            manager.removeSplitSource(sourceId);
         }
     }
 

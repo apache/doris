@@ -752,9 +752,9 @@ TEST_F(CsvV2ReaderTest, ProfileCountersTrackReadParseDeserializeAndFilter) {
 
     EXPECT_NE(_profile.get_counter("OpenFileTime"), nullptr);
     EXPECT_NE(_profile.get_counter("CreateLineReaderTime"), nullptr);
-    EXPECT_NE(_profile.get_counter("ReadLineTime"), nullptr);
-    EXPECT_NE(_profile.get_counter("SplitLineTime"), nullptr);
-    EXPECT_NE(_profile.get_counter("DeserializeTime"), nullptr);
+    EXPECT_NE(_profile.get_counter("SampledReadLineTime"), nullptr);
+    EXPECT_NE(_profile.get_counter("SampledSplitLineTime"), nullptr);
+    EXPECT_NE(_profile.get_counter("SampledDeserializeTime"), nullptr);
     EXPECT_NE(_profile.get_counter("ConjunctFilterTime"), nullptr);
     EXPECT_NE(_profile.get_counter("DeleteConjunctFilterTime"), nullptr);
     EXPECT_EQ(counter_value(&_profile, "RawLinesRead"), 3);
@@ -767,6 +767,162 @@ TEST_F(CsvV2ReaderTest, ProfileCountersTrackReadParseDeserializeAndFilter) {
     EXPECT_EQ(counter_value(&_profile, "EmptyLinesRead"), 1);
     EXPECT_EQ(counter_value(&_profile, "SkippedLines"), 1);
     EXPECT_EQ(counter_value(&_profile, "CellsDeserialized"), 6);
+}
+
+// A row cap can change between calls. It must override the runtime default without dropping
+// records, and a zero prediction must still make progress.
+TEST_F(CsvV2ReaderTest, HonorsChangingBatchSizeAndZeroPrediction) {
+    std::ofstream output(_file_path, std::ios::binary);
+    output << "id,name,score\n";
+    for (int i = 1; i <= 7; ++i) {
+        output << i << ",name,10\n";
+    }
+    output.close();
+    _state._batch_size = 2;
+    auto reader = create_reader(_file_path, &_params, _slots, &_state, &_profile);
+    reader->set_batch_size(1);
+    auto request = std::make_shared<FileScanRequest>();
+    request->local_positions.emplace(LocalColumnId(0), LocalIndex(0));
+    request->local_positions.emplace(LocalColumnId(1), LocalIndex(1));
+    ASSERT_TRUE(reader->open(request).ok());
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    int next_id = 1;
+    const std::vector<size_t> caps {1, 3, 0, 2, 2};
+    const std::vector<size_t> expected {1, 3, 1, 2, 0};
+    for (size_t i = 0; i < caps.size(); ++i) {
+        reader->set_batch_size(caps[i]);
+        auto block = make_block(schema, {0, 1});
+        size_t rows = 0;
+        bool eof = false;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        ASSERT_EQ(rows, expected[i]);
+        EXPECT_EQ(eof, rows == 0);
+        for (size_t row = 0; row < rows; ++row) {
+            EXPECT_EQ(nullable_int_at(*block.get_by_position(0).column, row), next_id++);
+            EXPECT_EQ(nullable_string_at(*block.get_by_position(1).column, row), "name");
+        }
+        EXPECT_EQ(counter_value(&_profile, "CellsDeserialized"), (next_id - 1) * 2);
+        EXPECT_EQ(counter_value(&_profile, "RawLinesRead"), next_id - 1);
+    }
+    EXPECT_EQ(next_id, 8);
+    EXPECT_EQ(counter_value(&_profile, "SkippedLines"), 1);
+}
+
+TEST_F(CsvV2ReaderTest, BatchPredictionStillHonorsByteBudget) {
+    const bool saved = config::enable_adaptive_batch_size;
+    Defer restore {[&] { config::enable_adaptive_batch_size = saved; }};
+    config::enable_adaptive_batch_size = true;
+    _state._query_options.__set_preferred_block_size_bytes(1);
+    auto reader = create_reader(_file_path, &_params, _slots, &_state, &_profile);
+    reader->set_batch_size(100);
+    auto request = std::make_shared<FileScanRequest>();
+    request->local_positions.emplace(LocalColumnId(1), LocalIndex(0));
+    ASSERT_TRUE(reader->open(request).ok());
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    for (const std::string expected : {"alice", "bob"}) {
+        auto block = make_block(schema, {1});
+        size_t rows = 0;
+        bool eof = false;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        ASSERT_EQ(rows, 1);
+        EXPECT_EQ(nullable_string_at(*block.get_by_position(0).column, 0), expected);
+    }
+}
+
+// Sampling spans batch boundaries; exact work counts are published before every return.
+TEST_F(CsvV2ReaderTest, ProfileSamplingSpansBatchesWithExactCounts) {
+    std::ofstream output(_file_path, std::ios::binary);
+    for (int i = 0; i < 2050; ++i) {
+        output << "1,name,10\n";
+    }
+    output.close();
+    _params.file_attributes.__set_header_type("");
+    auto reader = create_reader(_file_path, &_params, _slots, &_state, &_profile);
+    reader->set_batch_size(300);
+    auto request = std::make_shared<FileScanRequest>();
+    request->local_positions.emplace(LocalColumnId(1), LocalIndex(0));
+    ASSERT_TRUE(reader->open(request).ok());
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    size_t total = 0;
+    bool eof = false;
+    while (!eof) {
+        auto block = make_block(schema, {1});
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        total += rows;
+        EXPECT_EQ(counter_value(&_profile, "RawLinesRead"), total);
+        EXPECT_EQ(counter_value(&_profile, "CellsDeserialized"), total);
+    }
+    EXPECT_EQ(total, 2050);
+    EXPECT_EQ(counter_value(&_profile, "SampledReadLineCalls"), 3);
+    EXPECT_EQ(counter_value(&_profile, "SampledParsedRows"), 3);
+}
+
+// The single-byte split and direct string insertion must preserve NULL, quoted literals,
+// escaping, trailing empty fields, missing fields and reordered projections across batches.
+TEST_F(CsvV2ReaderTest, StringFastPathPreservesValuesForSingleAndMultiByteSeparators) {
+    auto type = make_nullable(std::make_shared<DataTypeString>());
+    std::vector<SlotDescriptor*> slots;
+    for (int i = 0; i < 3; ++i) {
+        slots.push_back(make_test_slot(&_pool, i, i, type, "s" + std::to_string(i)));
+    }
+    for (const std::string separator : {"|", "||"}) {
+        for (bool empty_as_null : {false, true}) {
+            SCOPED_TRACE(testing::Message() << separator << ", empty_as_null=" << empty_as_null);
+            std::ofstream output(_file_path, std::ios::binary);
+            output << "NULL" << separator << "\"NULL\"" << separator << "\n";
+            output << "left" << separator << "a\\b" << separator << "tail\n";
+            output << "only\n";
+            output.close();
+            auto params = _params;
+            params.file_attributes.__set_header_type("");
+            params.file_attributes.__set_trim_double_quotes(true);
+            params.file_attributes.text_params.__set_column_separator(separator);
+            params.file_attributes.text_params.__set_null_format("NULL");
+            params.file_attributes.text_params.__set_empty_field_as_null(empty_as_null);
+            params.file_attributes.text_params.__set_escape('\\');
+            auto reader = create_reader(_file_path, &params, slots, &_state, &_profile);
+            reader->set_batch_size(1);
+            auto request = std::make_shared<FileScanRequest>();
+            request->local_positions.emplace(LocalColumnId(2), LocalIndex(0));
+            request->local_positions.emplace(LocalColumnId(0), LocalIndex(1));
+            request->local_positions.emplace(LocalColumnId(1), LocalIndex(2));
+            ASSERT_TRUE(reader->open(request).ok());
+            std::vector<ColumnDefinition> schema;
+            ASSERT_TRUE(reader->get_schema(&schema).ok());
+            for (int row = 0; row < 3; ++row) {
+                auto block = make_block(schema, {2, 0, 1});
+                // Hold shared columns while the reader acquires its mutable batch.
+                auto shared = block.get_by_position(0).column;
+                size_t rows = 0;
+                bool eof = false;
+                ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+                ASSERT_EQ(rows, 1);
+                EXPECT_EQ(shared->size(), 0);
+                const auto& c0 = *block.get_by_position(0).column;
+                const auto& c1 = *block.get_by_position(1).column;
+                const auto& c2 = *block.get_by_position(2).column;
+                if (row == 0) {
+                    EXPECT_EQ(is_null_at(c0, 0), empty_as_null);
+                    EXPECT_EQ(nullable_string_at(c0, 0), "");
+                    EXPECT_TRUE(is_null_at(c1, 0));
+                    EXPECT_FALSE(is_null_at(c2, 0));
+                    EXPECT_EQ(nullable_string_at(c2, 0), "NULL");
+                } else if (row == 1) {
+                    EXPECT_EQ(nullable_string_at(c0, 0), "tail");
+                    EXPECT_EQ(nullable_string_at(c1, 0), "left");
+                    EXPECT_EQ(nullable_string_at(c2, 0), "ab");
+                } else {
+                    EXPECT_TRUE(is_null_at(c0, 0));
+                    EXPECT_EQ(nullable_string_at(c1, 0), "only");
+                    EXPECT_TRUE(is_null_at(c2, 0));
+                }
+            }
+        }
+    }
 }
 
 // Scenario: CSV has no embedded nested schema, but TableColumnMapper still needs semantic children
@@ -828,6 +984,8 @@ TEST_F(CsvV2ReaderTest, LoadRejectsWrongFieldCountsWithoutShiftingFollowingRows)
     EXPECT_EQ(nullable_int_at(*block.get_by_position(0).column, 0), 1);
     EXPECT_EQ(nullable_int_at(*block.get_by_position(0).column, 1), 4);
     EXPECT_EQ(io_ctx->load_filtered_rows, 2);
+    EXPECT_EQ(counter_value(&_profile, "RawLinesRead"), 4);
+    EXPECT_EQ(counter_value(&_profile, "CellsDeserialized"), 6);
 }
 
 // Scenario: CSV v2 honors FileScanRequest local positions, so TableReader can request a subset of
@@ -880,6 +1038,9 @@ TEST_F(CsvV2ReaderTest, InvalidUtf8FailsWhenValidationEnabled) {
     bool eof = false;
     const auto status = reader->get_block(&block, &rows, &eof);
     EXPECT_FALSE(status.ok());
+    EXPECT_EQ(counter_value(&_profile, "RawLinesRead"), 1);
+    EXPECT_EQ(counter_value(&_profile, "SkippedLines"), 1);
+    EXPECT_EQ(counter_value(&_profile, "CellsDeserialized"), 0);
     EXPECT_TRUE(status.to_string().find("Only support csv data in utf8 codec") != std::string::npos)
             << status;
 }
@@ -1103,6 +1264,10 @@ TEST_F(CsvV2ReaderTest, CountAggregateScansRows) {
     FileAggregateResult aggregate_result;
     ASSERT_TRUE(reader->get_aggregate_result(aggregate_request, &aggregate_result).ok());
     EXPECT_EQ(aggregate_result.count, 2);
+    EXPECT_EQ(counter_value(&_profile, "RawLinesRead"), 2);
+    EXPECT_EQ(counter_value(&_profile, "SkippedLines"), 1);
+    EXPECT_EQ(counter_value(&_profile, "CellsDeserialized"), 0);
+    EXPECT_EQ(counter_value(&_profile, "SampledParsedRows"), 0);
 }
 
 TEST_F(CsvV2ReaderTest, CountNullableColumnFallsBackToRowMaterialization) {

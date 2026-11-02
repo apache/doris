@@ -67,6 +67,8 @@ struct LogicalScoringPrefix {
 };
 
 struct CollectInfo {
+    // The field as indexed; the key of a CollectInfoMap may also name the index.
+    std::wstring lucene_field;
     std::vector<std::string> unique_terms;
     std::unordered_map<std::string, uint32_t> unique_term_slots;
     std::vector<LogicalScoringPrefix> scoring_prefixes;
