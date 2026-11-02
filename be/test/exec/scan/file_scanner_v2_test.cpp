@@ -1671,6 +1671,32 @@ TEST(FileScannerV2Test, OldFrontendDescriptorDoesNotSendAnUnsupportedCloseReques
     EXPECT_TRUE(source.close().ok());
 }
 
+TEST(FileScannerV2Test, OldFrontendTimeoutRemainsAnErrorWithoutRetry) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ScriptedRemoteSplitSource source(&state, false);
+    int fetched = 0;
+    source.fetch = [&](TFetchSplitBatchResult* result, const TFetchSplitBatchRequest& request) {
+        EXPECT_FALSE(request.__isset.close_source);
+        if (++fetched > 1) {
+            return Status::InternalError("the old FE timeout must not be retried");
+        }
+        TStatus thrift_status;
+        thrift_status.__set_status_code(TStatusCode::INTERNAL_ERROR);
+        thrift_status.__set_error_msgs({"Timeout. Max wait time(ms): 1000"});
+        result->__set_status(thrift_status);
+        return Status::OK();
+    };
+    bool has_next = true;
+    TFileRangeDesc range;
+    Status status = source.get_next(&has_next, &range);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Timeout. Max wait time(ms): 1000"), std::string::npos);
+    EXPECT_FALSE(has_next);
+    EXPECT_EQ(fetched, 1);
+    EXPECT_TRUE(source.close().ok());
+    EXPECT_EQ(fetched, 1);
+}
+
 TEST(FileScannerV2Test, OwnerCloseDoesNotWaitForTheFetchLockOrSurfaceALateFetchError) {
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     ScriptedRemoteSplitSource source(&state);

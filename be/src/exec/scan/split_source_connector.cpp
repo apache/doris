@@ -219,7 +219,7 @@ Status RemoteSplitSourceConnector::_fetch_batch(TFetchSplitBatchResult* result,
 
 Status RemoteSplitSourceConnector::close() {
     stop();
-    // Older FEs have no bounded-queue release dependency and do not understand this request.
+    // Older FEs do not advertise support for the source-close request.
     if (!_supports_close || _close_requested.exchange(true, std::memory_order_acq_rel)) {
         return Status::OK();
     }

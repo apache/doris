@@ -263,9 +263,7 @@ public class HiveScanNode extends FileQueryScanNode {
                             getFileSplitByPartitions(
                                     cache, partitions, allFiles, bindBrokerName,
                                     numBackends, true);
-                            if (allFiles.size() > numSplitsPerPartition.get()) {
-                                numSplitsPerPartition.set(allFiles.size());
-                            }
+                            updateNumSplitsPerPartition(allFiles);
                             if (splitAssignment.needMoreSplit()) {
                                 splitAssignment.addToQueue(allFiles);
                             }
@@ -317,6 +315,17 @@ public class HiveScanNode extends FileQueryScanNode {
     @Override
     public int numApproximateSplits() {
         return numSplitsPerPartition.get() * prunedPartitions.size();
+    }
+
+    private void updateNumSplitsPerPartition(List<Split> splits) {
+        // Scheduling batches contain several partitions; extrapolate the largest single partition.
+        Map<List<String>, Integer> partitionSplitCounts = Maps.newHashMap();
+        int maxSplitCount = 0;
+        for (Split split : splits) {
+            int count = partitionSplitCounts.merge(((FileSplit) split).getPartitionValues(), 1, Integer::sum);
+            maxSplitCount = Math.max(maxSplitCount, count);
+        }
+        numSplitsPerPartition.accumulateAndGet(maxSplitCount, Math::max);
     }
 
     private void getFileSplitByPartitions(HiveExternalMetaCache cache, List<HivePartition> partitions,
