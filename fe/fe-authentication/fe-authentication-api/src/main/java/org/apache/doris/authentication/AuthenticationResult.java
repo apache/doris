@@ -21,6 +21,7 @@ import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 
 /**
@@ -52,6 +53,7 @@ import java.util.Set;
  * }</pre>
  */
 public final class AuthenticationResult {
+    public static final long NO_CREDENTIAL_EXPIRATION = -1L;
 
     /**
      * Authentication result status.
@@ -82,6 +84,7 @@ public final class AuthenticationResult {
     private final byte[] challengeData;
     private final AuthenticationException exception;
     private final Set<String> grantedRoles;
+    private final Long credentialExpiresAtMillis;
 
     private AuthenticationResult(
             Status status,
@@ -89,13 +92,15 @@ public final class AuthenticationResult {
             Object nextState,
             byte[] challengeData,
             AuthenticationException exception,
-            Set<String> grantedRoles) {
+            Set<String> grantedRoles,
+            Long credentialExpiresAtMillis) {
         this.status = Objects.requireNonNull(status, "status is required");
         this.principal = principal;
         this.nextState = nextState;
         this.challengeData = challengeData;
         this.exception = exception;
         this.grantedRoles = immutableGrantedRoles(grantedRoles);
+        this.credentialExpiresAtMillis = credentialExpiresAtMillis;
     }
 
     /**
@@ -119,7 +124,37 @@ public final class AuthenticationResult {
      */
     public static AuthenticationResult success(Principal principal, Set<String> grantedRoles) {
         Objects.requireNonNull(principal, "principal is required for success");
-        return new AuthenticationResult(Status.SUCCESS, principal, null, null, null, grantedRoles);
+        return new AuthenticationResult(Status.SUCCESS, principal, null, null, null, grantedRoles, null);
+    }
+
+    /**
+     * Creates a successful authentication result with credential expiration.
+     *
+     * @param principal the authenticated principal
+     * @param credentialExpiresAtMillis credential expiration time in milliseconds since epoch,
+     *        or {@link #NO_CREDENTIAL_EXPIRATION} when no expiration is available
+     * @return success result
+     * @throws NullPointerException if principal is null
+     */
+    public static AuthenticationResult success(Principal principal, long credentialExpiresAtMillis) {
+        return success(principal, Collections.emptySet(), credentialExpiresAtMillis);
+    }
+
+    /**
+     * Creates a successful authentication result with granted roles and credential expiration.
+     *
+     * @param principal the authenticated principal
+     * @param grantedRoles the roles granted during authentication handling
+     * @param credentialExpiresAtMillis credential expiration time in milliseconds since epoch,
+     *        or {@link #NO_CREDENTIAL_EXPIRATION} when no expiration is available
+     * @return success result
+     * @throws NullPointerException if principal or grantedRoles is null
+     */
+    public static AuthenticationResult success(Principal principal, Set<String> grantedRoles,
+            long credentialExpiresAtMillis) {
+        Objects.requireNonNull(principal, "principal is required for success");
+        return new AuthenticationResult(Status.SUCCESS, principal, null, null, null, grantedRoles,
+                normalizeCredentialExpiresAtMillis(credentialExpiresAtMillis));
     }
 
     /**
@@ -130,7 +165,7 @@ public final class AuthenticationResult {
      * @return continue result
      */
     public static AuthenticationResult continueWith(Object state, byte[] challenge) {
-        return new AuthenticationResult(Status.CONTINUE, null, state, challenge, null, Collections.emptySet());
+        return new AuthenticationResult(Status.CONTINUE, null, state, challenge, null, Collections.emptySet(), null);
     }
 
     /**
@@ -142,7 +177,7 @@ public final class AuthenticationResult {
      */
     public static AuthenticationResult failure(AuthenticationException exception) {
         Objects.requireNonNull(exception, "exception is required for failure");
-        return new AuthenticationResult(Status.FAILURE, null, null, null, exception, Collections.emptySet());
+        return new AuthenticationResult(Status.FAILURE, null, null, null, exception, Collections.emptySet(), null);
     }
 
     /**
@@ -221,6 +256,17 @@ public final class AuthenticationResult {
     }
 
     /**
+     * Returns when the credential used for this authentication expires.
+     *
+     * @return expiration time in milliseconds since epoch, or empty if the plugin does not expose one
+     */
+    public OptionalLong getCredentialExpiresAtMillis() {
+        return credentialExpiresAtMillis == null
+                ? OptionalLong.empty()
+                : OptionalLong.of(credentialExpiresAtMillis);
+    }
+
+    /**
      * Returns the exception if authentication failed.
      *
      * @return the exception, or null if not FAILURE
@@ -268,6 +314,10 @@ public final class AuthenticationResult {
     private static Set<String> immutableGrantedRoles(Set<String> grantedRoles) {
         Objects.requireNonNull(grantedRoles, "grantedRoles is required");
         return Collections.unmodifiableSet(new LinkedHashSet<>(grantedRoles));
+    }
+
+    private static Long normalizeCredentialExpiresAtMillis(long credentialExpiresAtMillis) {
+        return credentialExpiresAtMillis == NO_CREDENTIAL_EXPIRATION ? null : credentialExpiresAtMillis;
     }
 
     @Override

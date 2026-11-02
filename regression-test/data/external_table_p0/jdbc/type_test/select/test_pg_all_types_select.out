@@ -24,7 +24,7 @@ jsonb_val	text	Yes	true	\N
 point_val	text	Yes	true	\N	
 line_val	text	Yes	true	\N	
 circle_val	text	Yes	true	\N	
-uuid_val	text	Yes	true	\N	
+uuid_val	uuid	Yes	true	\N	
 
 -- !select_all_types_null --
 1	32767	2147483647	9223372036854775807	9999999999999999999.9999999999	3.4028235e+38	1.7976931348623157e+308	X	65535	1000000			\N	1 years 2 mons 3 days 4 hours 5 mins 6.0 secs	true	0xDEADBEEF	192.168.0.1/24	192.168.0.0/16	08:00:2b:01:02:03	{"key": "max", "array": [1, 2, 3]}	{"key": "max", "array": [1, 2, 3]}	(10.0,20.0)	{1.0,-2.0,3.0}	<(0.0,0.0),1.0>	a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
@@ -61,4 +61,3 @@ ts_ntz	datetime(6)	Yes	true	\N
 2	\N	\N
 3	1999-10-10 04:00:00.000000+00:00	1999-10-10T12:00
 4	\N	\N
-

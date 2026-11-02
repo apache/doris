@@ -677,6 +677,14 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         return data.getNumRows();
     }
 
+    protected void setUuid(int parameterIndex, java.util.UUID value) throws SQLException {
+        preparedStatement.setObject(parameterIndex, value);
+    }
+
+    protected void setUuidNull(int parameterIndex) throws SQLException {
+        preparedStatement.setNull(parameterIndex, Types.OTHER);
+    }
+
     protected void setTimestampTz(int parameterIndex, java.time.LocalDateTime value) throws SQLException {
         // JNI supplies UTC components; valueOf would reinterpret them in the JVM timezone.
         preparedStatement.setObject(parameterIndex, Timestamp.from(value.toInstant(java.time.ZoneOffset.UTC)));
@@ -711,6 +719,9 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 break;
             case LARGEINT:
                 preparedStatement.setObject(parameterIndex, column.getBigInteger(rowIdx));
+                break;
+            case UUID:
+                setUuid(parameterIndex, column.getUuid(rowIdx));
                 break;
             case FLOAT:
                 preparedStatement.setFloat(parameterIndex, column.getFloat(rowIdx));
@@ -765,6 +776,9 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 break;
             case BIGINT:
                 preparedStatement.setNull(parameterIndex, Types.BIGINT);
+                break;
+            case UUID:
+                setUuidNull(parameterIndex);
                 break;
             case LARGEINT:
                 preparedStatement.setNull(parameterIndex, Types.JAVA_OBJECT);

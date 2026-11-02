@@ -651,6 +651,32 @@ TEST_F(CsvV2ReaderTest, SchemaSynthesizesComplexChildrenForColumnMapper) {
     EXPECT_EQ(schema[2].children[1].children[1].name, "b");
 }
 
+TEST_F(CsvV2ReaderTest, LoadRejectsWrongFieldCountsWithoutShiftingFollowingRows) {
+    std::ofstream output(_file_path, std::ios::binary);
+    output << "id,name,score\n1,alice,10\n2,bob\n3,carol,30,extra\n4,dave,40\n";
+    output.close();
+    _params.__set_num_of_columns_from_file(3);
+    auto io_ctx = std::make_shared<io::IOContext>();
+    auto reader = create_reader(_file_path, &_params, _slots, &_state, &_profile, 0, -1,
+                                TFileCompressType::UNKNOWN, io_ctx);
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<FileScanRequest>();
+    request->reject_invalid_rows = true;
+    for (int i = 0; i < 3; ++i) {
+        request->local_positions.emplace(LocalColumnId(i), LocalIndex(i));
+    }
+    ASSERT_TRUE(reader->open(request).ok());
+    auto block = make_block(schema, {0, 1, 2});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 2);
+    EXPECT_EQ(nullable_int_at(*block.get_by_position(0).column, 0), 1);
+    EXPECT_EQ(nullable_int_at(*block.get_by_position(0).column, 1), 4);
+    EXPECT_EQ(io_ctx->load_filtered_rows, 2);
+}
+
 // Scenario: CSV v2 honors FileScanRequest local positions, so TableReader can request a subset of
 // CSV fields in an order different from the physical CSV field order.
 TEST_F(CsvV2ReaderTest, ReadsRequestedColumnsInFileLocalBlockOrder) {

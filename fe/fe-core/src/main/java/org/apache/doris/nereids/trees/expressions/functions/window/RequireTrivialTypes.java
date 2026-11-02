@@ -36,6 +36,7 @@ import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.UuidType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.collect.ImmutableList;
@@ -65,6 +66,7 @@ public interface RequireTrivialTypes {
             TimeStampNsType.INSTANCE,
             TimeV2Type.WILDCARD,
             TimeStampTzType.WILDCARD,
+            UuidType.INSTANCE,
             VarcharType.SYSTEM_DEFAULT,
             StringType.INSTANCE
     );

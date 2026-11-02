@@ -418,16 +418,25 @@ struct leg_info {
     ///type: 0 is member 1 is array
     unsigned int type;
 
+    ///true only for an unquoted `*` member leg or a `[*]` array leg; a quoted "*" member leg
+    ///is the literal key `*`
+    bool is_wildcard = false;
+
     // NOLINTNEXTLINE(readability-non-const-parameter): str is an output parameter.
     bool to_string(std::string* str) const {
         if (type == MEMBER_CODE) {
             str->push_back(BEGIN_MEMBER);
-            bool contains_space = false;
+            // JsonbPath::parse_member reads an unquoted member leg until the next '.' or '[',
+            // rejects unquoted whitespace, treats a leading '*' as a wildcard and rejects an
+            // unquoted empty leg. A key that would not read back as this same single leg must be
+            // double-quoted so the emitted path can be parsed again (for example by
+            // JSON_EXTRACT on the result of JSON_SEARCH). A parsed wildcard leg stays `*`.
+            bool needs_quotes = leg_len == 0 || (!is_wildcard && *leg_ptr == WILDCARD);
             std::string tmp;
             for (auto* it = leg_ptr; it != (leg_ptr + leg_len); ++it) {
                 auto c = static_cast<unsigned char>(*it);
-                if (std::isspace(c)) {
-                    contains_space = true;
+                if (std::isspace(c) || *it == BEGIN_MEMBER || *it == BEGIN_ARRAY) {
+                    needs_quotes = true;
                 }
 
                 switch (*it) {
@@ -464,18 +473,21 @@ struct leg_info {
                     break;
                 }
             }
-            if (contains_space) {
+            if (needs_quotes) {
                 str->push_back(DOUBLE_QUOTE);
             }
             str->append(tmp);
-            if (contains_space) {
+            if (needs_quotes) {
                 str->push_back(DOUBLE_QUOTE);
             }
             return true;
         } else if (type == ARRAY_CODE) {
             str->push_back(BEGIN_ARRAY);
-            std::string int_str = std::to_string(array_index);
-            str->append(int_str);
+            if (is_wildcard) {
+                str->push_back(WILDCARD);
+            } else {
+                str->append(std::to_string(array_index));
+            }
             str->push_back(END_ARRAY);
             return true;
         } else {
@@ -979,7 +991,8 @@ struct ObjectVal : public ContainerVal {
     }
 
     const_iterator search(const char* key, unsigned int klen) const {
-        if (!key || !klen) {
+        // An empty key is a valid object key, so klen == 0 is still searched.
+        if (!key) {
             return end();
         }
         return internalSearch(key, klen);
@@ -1019,6 +1032,16 @@ struct ObjectVal : public ContainerVal {
         return kv->value();
     }
 
+    // find the JSONB value by a key id, as stored when klen() == 0 (sMaxKeyId is the empty key)
+    const JsonbValue* find_by_key_id(JsonbKeyValue::keyid_type key_id) const {
+        for (auto it = begin(); it != end(); ++it) {
+            if (it->klen() == 0 && it->getKeyId() == key_id) {
+                return it->value();
+            }
+        }
+        return nullptr;
+    }
+
     const_iterator begin() const { return const_iterator((pointer)payload); }
 
     const_iterator end() const { return const_iterator((pointer)(payload + size)); }
@@ -1032,7 +1055,10 @@ private:
 
         while (pch < fence) {
             const auto* pkey = (const JsonbKeyValue*)(pch);
-            if (klen == pkey->klen() && strncmp(key, pkey->getKeyStr(), klen) == 0) {
+            // A key id entry is also stored with klen() == 0, so an empty name only matches
+            // the sMaxKeyId sentinel that JsonbWriter writes for an empty key.
+            if (klen == 0 ? pkey->klen() == 0 && pkey->getKeyId() == JsonbKeyValue::sMaxKeyId
+                          : klen == pkey->klen() && strncmp(key, pkey->getKeyStr(), klen) == 0) {
                 return const_iterator(pkey);
             }
             pch += pkey->numPackedBytes();
@@ -1463,7 +1489,11 @@ inline bool JsonbValue::contains(const JsonbValue* rhs) const {
             const auto* obj_value1 = unpack<ObjectVal>();
             const auto* obj_value2 = rhs->unpack<ObjectVal>();
             for (auto it = obj_value2->begin(); it != obj_value2->end(); ++it) {
-                const JsonbValue* value = obj_value1->find(it->getKeyStr(), it->klen());
+                // A key stored as an id (including the empty key sentinel) has klen() == 0 and
+                // must be matched by id, not looked up as an empty key name.
+                const JsonbValue* value = it->klen() == 0
+                                                  ? obj_value1->find_by_key_id(it->getKeyId())
+                                                  : obj_value1->find(it->getKeyStr(), it->klen());
                 if (value == nullptr || !value->contains(it->value())) {
                     return false;
                 }
@@ -1602,6 +1632,7 @@ inline bool JsonbPath::parse_array(Stream* stream, JsonbPath* path) {
         if (stream->peek() == END_ARRAY) {
             std::unique_ptr<leg_info> leg(
                     new leg_info(stream->get_leg_ptr(), stream->get_leg_len(), 0, ARRAY_CODE));
+            leg->is_wildcard = true;
             path->add_leg_to_leg_vector(std::move(leg));
             stream->skip(1);
             path->_is_wildcard = true;
@@ -1690,6 +1721,7 @@ inline bool JsonbPath::parse_member(Stream* stream, JsonbPath* path) {
         stream->skip(1);
         std::unique_ptr<leg_info> leg(
                 new leg_info(stream->get_leg_ptr(), stream->get_leg_len(), 0, MEMBER_CODE));
+        leg->is_wildcard = true;
         path->add_leg_to_leg_vector(std::move(leg));
         path->_is_wildcard = true;
         return true;
@@ -1736,8 +1768,10 @@ inline bool JsonbPath::parse_member(Stream* stream, JsonbPath* path) {
         stream->add_leg_len();
     }
 
+    // An empty member name is only valid when it is written explicitly as `""`.
     if ((left_quotation_marks != nullptr && right_quotation_marks == nullptr) ||
-        stream->get_leg_ptr() == nullptr || stream->get_leg_len() == 0) {
+        stream->get_leg_ptr() == nullptr ||
+        (left_quotation_marks == nullptr && stream->get_leg_len() == 0)) {
         return false; //invalid json path
     }
 

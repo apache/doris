@@ -122,6 +122,10 @@ std::shared_ptr<ColumnPredicate> create_comparison_predicate(const uint32_t cid,
         return ComparisonPredicateBase<TYPE_IPV6, PT>::create_shared(cid, col_name, value,
                                                                      opposite);
     }
+    case TYPE_UUID: {
+        return ComparisonPredicateBase<TYPE_UUID, PT>::create_shared(cid, col_name, value,
+                                                                     opposite);
+    }
     default:
         throw Exception(Status::InternalError("Unsupported type {} for comparison_predicate",
                                               type_to_string(data_type->get_primitive_type())));

@@ -34,6 +34,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 public class ClickHouseJdbcExecutor extends BaseJdbcExecutor {
 
@@ -99,6 +100,8 @@ public class ClickHouseJdbcExecutor extends BaseJdbcExecutor {
             case VARCHAR:
             case STRING:
                 return resultSet.getObject(columnIndex + 1, String.class);
+            case UUID:
+                return resultSet.getObject(columnIndex + 1, UUID.class);
             case ARRAY: {
                 java.sql.Array value = resultSet.getArray(columnIndex + 1);
                 return value == null ? null : convertArrayToList(value.getArray());

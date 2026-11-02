@@ -45,6 +45,7 @@
 #include "format_v2/parquet/reader/native/level_decoder.h"
 #include "io/fs/tracing_file_reader.h"
 #include "runtime/runtime_profile.h"
+#include "runtime/runtime_state.h"
 
 namespace doris::format::parquet::native {
 namespace {

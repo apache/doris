@@ -84,7 +84,9 @@ public class VarBinarySqlSupportTest extends TestWithFeService {
                 "cast(encoded as varbinary) not in (X'01', X'02')",
                 "cast(encoded as varbinary(2)) in (cast(encoded as varbinary(2)), cast(encoded as varbinary(2)))",
                 "cast(encoded as varbinary) in ('first', 'second')",
-                "encoded in (X'01', X'02')",
+                "encoded in (X'01', X'02')"
+        });
+        assertExpressionsRejected("in predicate could not contains complex type", new String[] {
                 "array(cast(encoded as varbinary)) in (array(X'01'), array(X'02'))",
                 "struct(cast(encoded as varbinary)) in (struct(X'01'), struct(X'02'))"
         });
@@ -125,6 +127,10 @@ public class VarBinarySqlSupportTest extends TestWithFeService {
     }
 
     private void assertBinaryExpressionsRejected(String[] expressions) {
+        assertExpressionsRejected("does not support VARBINARY", expressions);
+    }
+
+    private void assertExpressionsRejected(String expectedMessage, String[] expressions) {
         boolean oldBehavior = GlobalVariable.enableNewTypeCoercionBehavior;
         try {
             for (boolean newBehavior : new boolean[] {false, true}) {
@@ -134,7 +140,7 @@ public class VarBinarySqlSupportTest extends TestWithFeService {
                             org.apache.doris.nereids.exceptions.AnalysisException.class,
                             () -> PlanChecker.from(connectContext).analyze("select " + expression + " from source_bytes"),
                             expression);
-                    Assertions.assertTrue(error.getMessage().contains("does not support VARBINARY"), error.getMessage());
+                    Assertions.assertTrue(error.getMessage().contains(expectedMessage), error.getMessage());
                 }));
             }
         } finally {

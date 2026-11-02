@@ -217,8 +217,10 @@ public:
                                       const std::string& encoded_max, const cctz::time_zone& ctz,
                                       Field* min_field, Field* max_field) {
         auto logical_data_type = remove_nullable(col_schema->data_type);
+        // UUID statistics are used only with Iceberg's binary carrier. Ordinary UUID text
+        // scans reject these predicates in ParquetReader::_type_matches.
         auto converter = parquet::PhysicalToLogicalConverter::get_converter(
-                col_schema, logical_data_type, logical_data_type, &ctz);
+                col_schema, logical_data_type, logical_data_type, &ctz, false, true);
         ColumnPtr physical_column;
         switch (col_schema->parquet_schema.type) {
         case tparquet::Type::type::BOOLEAN: {

@@ -18,21 +18,38 @@
 #include <aws/core/auth/AWSCredentialsProviderChain.h>
 #include <aws/core/auth/GeneralHTTPCredentialsProvider.h>
 #include <aws/core/auth/STSCredentialsProvider.h>
+#include <aws/core/auth/signer/AWSAuthV4Signer.h>
+#include <aws/core/client/ClientConfiguration.h>
+#include <aws/core/http/HttpClientFactory.h>
+#include <aws/core/utils/stream/ResponseStream.h>
 #include <aws/identity-management/auth/STSAssumeRoleCredentialsProvider.h>
+#include <aws/s3/model/GetObjectRequest.h>
+#include <aws/s3/model/HeadObjectResult.h>
 #include <gtest/gtest.h>
+#include <unistd.h>
 
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
 #include "cloud/config.h"
+#include "common/config.h"
+#include "cpp/aws_common.h"
 #include "cpp/custom_aws_credentials_provider_chain.h"
-#include "io/fs/rate_limited_obj_storage_client.h"
-#include "io/fs/s3_obj_storage_client.h"
+#include "cpp/obj-client/auth/gcp/gcp_auth.h"
+#include "cpp/obj-client/auth/gcp/gcp_s3_client.h"
+#include "cpp/obj-client/rate_limited_obj_storage_client.h"
+#include "cpp/obj-client/s3_obj_storage_client.h"
+#include "cpp/sync_point.h"
+#include "io/fs/s3_file_system.h"
 #include "testutil/container_credentials_endpoint.h"
+#include "util/s3_rate_limiter_manager.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
 
@@ -46,6 +63,23 @@ protected:
 };
 
 namespace {
+
+constexpr size_t kNoThrottleBytesPerSecond = 1ULL << 40;
+
+S3ClientConf make_factory_conf(std::string endpoint, bool is_internal_bucket) {
+    S3ClientConf conf;
+    conf.endpoint = std::move(endpoint);
+    conf.region = "us-east-1";
+    conf.cred_provider_type = CredProviderType::Anonymous;
+    conf.is_internal_bucket = is_internal_bucket;
+    return conf;
+}
+
+S3ClientConf make_hash_collision_conf(std::string endpoint, bool is_internal_bucket) {
+    auto conf = make_factory_conf(std::move(endpoint), is_internal_bucket);
+    conf.use_virtual_addressing = !is_internal_bucket;
+    return conf;
+}
 
 class CloudModeConfigGuard {
 public:
@@ -65,40 +99,82 @@ private:
     std::string _cloud_unique_id;
 };
 
-S3ClientConf make_factory_conf(std::string endpoint, bool is_internal_bucket) {
-    S3ClientConf conf;
-    conf.endpoint = std::move(endpoint);
-    conf.region = "us-east-1";
-    conf.cred_provider_type = CredProviderType::Anonymous;
-    conf.is_internal_bucket = is_internal_bucket;
+class RateLimiterConfigGuard {
+public:
+    RateLimiterConfigGuard()
+            : _enabled(config::enable_s3_rate_limiter),
+              _qps_max_speed(_qps()->get_max_speed()),
+              _qps_max_burst(_qps()->get_max_burst()),
+              _qps_limit(_qps()->get_limit()),
+              _bytes_max_speed(_bytes()->get_max_speed()),
+              _bytes_max_burst(_bytes()->get_max_burst()),
+              _bytes_limit(_bytes()->get_limit()) {}
+
+    ~RateLimiterConfigGuard() {
+        config::enable_s3_rate_limiter = _enabled;
+        _qps()->reset(_qps_max_speed, _qps_max_burst, _qps_limit);
+        _bytes()->reset(_bytes_max_speed, _bytes_max_burst, _bytes_limit);
+    }
+
+private:
+    static S3RateLimiterHolder* _qps() {
+        return S3RateLimiterManager::instance().qps_limiter(S3RateLimitType::GET);
+    }
+    static S3RateLimiterHolder* _bytes() {
+        return S3RateLimiterManager::instance().bytes_limiter(S3RateLimitType::GET);
+    }
+
+    bool _enabled;
+    size_t _qps_max_speed;
+    size_t _qps_max_burst;
+    size_t _qps_limit;
+    size_t _bytes_max_speed;
+    size_t _bytes_max_burst;
+    size_t _bytes_limit;
+};
+
+class SyncPointProcessingGuard {
+public:
+    SyncPointProcessingGuard() : _was_enabled(SyncPoint::get_instance()->get_enable()) {
+        SyncPoint::get_instance()->enable_processing();
+    }
+    ~SyncPointProcessingGuard() {
+        if (!_was_enabled) {
+            SyncPoint::get_instance()->disable_processing();
+        }
+    }
+
+private:
+    bool _was_enabled;
+};
+
+S3ClientConf make_gcp_native_conf(std::string impersonation_service_account = {}) {
+    auto conf = make_factory_conf("storage.googleapis.com", true);
+    conf.provider = io::ObjStorageProvider::GCP;
+    conf.region = "us-east1";
+    conf.cred_provider_type = CredProviderType::Default;
+    conf.credential = GcpCredentialConfig {
+            .provider_type = GcpCredentialProviderType::Default,
+            .impersonation_service_account = std::move(impersonation_service_account),
+    };
     return conf;
 }
 
-S3ClientConf make_hash_collision_conf(std::string endpoint, bool is_internal_bucket) {
-    auto conf = make_factory_conf(std::move(endpoint), is_internal_bucket);
-    conf.use_virtual_addressing = !is_internal_bucket;
-    return conf;
-}
+class FixedTokenGcpS3Client final : public GcpS3Client {
+public:
+    FixedTokenGcpS3Client()
+            : GcpS3Client(GcpCredentialConfig {}, "", Aws::Client::ClientConfiguration {},
+                          Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, true) {}
+
+    using GcpS3Client::BuildHttpRequest;
+
+protected:
+    std::optional<std::string> fetch_token() const override { return "test-gcp-token"; }
+};
 
 } // namespace
 
-TEST_F(S3ClientFactoryTest, WrapsAllClientsInNonCloudMode) {
-    CloudModeConfigGuard guard(false);
-    auto& factory = S3ClientFactory::instance();
-
-    auto external_client =
-            factory.create(make_factory_conf("non-cloud-external-rate-limit.example.com", false));
-    auto internal_client =
-            factory.create(make_factory_conf("non-cloud-internal-rate-limit.example.com", true));
-
-    ASSERT_NE(external_client, nullptr);
-    ASSERT_NE(internal_client, nullptr);
-    EXPECT_NE(std::dynamic_pointer_cast<io::RateLimitedObjStorageClient>(external_client), nullptr);
-    EXPECT_NE(std::dynamic_pointer_cast<io::RateLimitedObjStorageClient>(internal_client), nullptr);
-}
-
-TEST_F(S3ClientFactoryTest, WrapsOnlyInternalClientsInCloudModeAndDistinguishesHashCollisions) {
-    CloudModeConfigGuard guard(true);
+TEST_F(S3ClientFactoryTest, DistinguishesHashCollisions) {
     auto external_conf =
             make_hash_collision_conf("cloud-rate-limit-hash-collision.example.com", false);
     auto internal_conf =
@@ -107,16 +183,20 @@ TEST_F(S3ClientFactoryTest, WrapsOnlyInternalClientsInCloudModeAndDistinguishesH
     ASSERT_NE(external_conf, internal_conf);
 
     auto& factory = S3ClientFactory::instance();
-    auto external_client = factory.create(external_conf);
-    auto internal_client = factory.create(internal_conf);
+    auto external_result = factory.create(external_conf);
+    auto internal_result = factory.create(internal_conf);
+    ASSERT_TRUE(external_result.has_value()) << external_result.error();
+    ASSERT_TRUE(internal_result.has_value()) << internal_result.error();
+    auto external_client = std::move(external_result).value();
+    auto internal_client = std::move(internal_result).value();
 
-    ASSERT_NE(external_client, nullptr);
-    ASSERT_NE(internal_client, nullptr);
-    EXPECT_EQ(std::dynamic_pointer_cast<io::RateLimitedObjStorageClient>(external_client), nullptr);
-    EXPECT_NE(std::dynamic_pointer_cast<io::RateLimitedObjStorageClient>(internal_client), nullptr);
     EXPECT_NE(external_client, internal_client);
-    EXPECT_EQ(factory.create(external_conf), external_client);
-    EXPECT_EQ(factory.create(internal_conf), internal_client);
+    auto cached_external = factory.create(external_conf);
+    auto cached_internal = factory.create(internal_conf);
+    ASSERT_TRUE(cached_external.has_value()) << cached_external.error();
+    ASSERT_TRUE(cached_internal.has_value()) << cached_internal.error();
+    EXPECT_EQ(cached_external.value(), external_client);
+    EXPECT_EQ(cached_internal.value(), internal_client);
 }
 
 TEST_F(S3ClientFactoryTest, ObjClientHolderResetDistinguishesHashCollisions) {
@@ -148,6 +228,204 @@ TEST_F(S3ClientFactoryTest, ObjClientHolderResetDistinguishesHashCollisions) {
     EXPECT_EQ(holder.s3_client_conf(), internal_conf);
 }
 
+TEST_F(S3ClientFactoryTest, ObjClientHolderResetRefreshesNativeCredential) {
+    auto initial_conf = make_gcp_native_conf();
+    auto rotated_conf = make_gcp_native_conf("rotated@my-project.iam.gserviceaccount.com");
+    std::vector<S3ClientConf> created_confs;
+    auto client = std::make_shared<io::S3ObjStorageClient>(std::shared_ptr<Aws::S3::S3Client> {});
+    S3ClientFactory::instance().set_client_creator_for_test(
+            [&](const S3ClientConf& conf) -> std::shared_ptr<io::ObjStorageClient> {
+                created_confs.push_back(conf);
+                return client;
+            });
+
+    io::ObjClientHolder holder(initial_conf);
+    ASSERT_TRUE(holder.init().ok());
+    ASSERT_TRUE(holder.reset(rotated_conf).ok());
+
+    ASSERT_EQ(created_confs.size(), 2);
+    EXPECT_EQ(created_confs.back(), rotated_conf);
+    EXPECT_EQ(holder.s3_client_conf(), rotated_conf);
+}
+
+TEST_F(S3ClientFactoryTest, ObjClientHolderResetSwitchesNativeAndStaticCredentials) {
+    auto native_conf = make_gcp_native_conf();
+    auto static_conf = native_conf;
+    static_conf.credential = std::monostate {};
+    static_conf.ak = "access-key";
+    static_conf.sk = "secret-key";
+
+    std::vector<S3ClientConf> created_confs;
+    auto client = std::make_shared<io::S3ObjStorageClient>(std::shared_ptr<Aws::S3::S3Client> {});
+    S3ClientFactory::instance().set_client_creator_for_test(
+            [&](const S3ClientConf& conf) -> std::shared_ptr<io::ObjStorageClient> {
+                created_confs.push_back(conf);
+                return client;
+            });
+
+    io::ObjClientHolder holder(native_conf);
+    ASSERT_TRUE(holder.init().ok());
+    ASSERT_TRUE(holder.reset(static_conf).ok());
+    ASSERT_TRUE(std::holds_alternative<std::monostate>(holder.s3_client_conf().credential));
+    EXPECT_EQ(holder.s3_client_conf().ak, "access-key");
+
+    ASSERT_TRUE(holder.reset(native_conf).ok());
+    ASSERT_EQ(created_confs.size(), 3);
+    EXPECT_EQ(created_confs[1], static_conf);
+    EXPECT_EQ(created_confs[2], native_conf);
+    EXPECT_EQ(holder.s3_client_conf(), native_conf);
+}
+
+TEST_F(S3ClientFactoryTest, CredentialTypeNamesAreExplicit) {
+    CredentialConfig none;
+    CredentialConfig gcp = GcpCredentialConfig {};
+
+    EXPECT_EQ(credential_type_name(none), "none");
+    EXPECT_EQ(credential_type_name(gcp), "gcp");
+}
+
+TEST_F(S3ClientFactoryTest, GcpBearerHeaderSurvivesAnonymousAwsSigning) {
+    FixedTokenGcpS3Client client;
+    Aws::S3::Model::GetObjectRequest request;
+    request.SetBucket("bucket");
+    request.SetKey("key");
+    auto http_request = Aws::Http::CreateHttpRequest(
+            Aws::Http::URI("https://storage.googleapis.com/bucket/key"),
+            Aws::Http::HttpMethod::HTTP_GET,
+            Aws::Utils::Stream::DefaultResponseStreamFactoryMethod);
+
+    client.BuildHttpRequest(request, http_request);
+    EXPECT_EQ(http_request->GetHeaderValue("Authorization"), "Bearer test-gcp-token");
+
+    // AWSAuthV4Signer reads this before it checks for anonymous credentials.
+    http_request->SetServiceSpecificParameters(
+            std::make_shared<Aws::Http::ServiceSpecificParameters>());
+    Aws::Client::AWSAuthV4Signer signer(
+            std::make_shared<Aws::Auth::AnonymousAWSCredentialsProvider>(), "s3", "us-east-1");
+    EXPECT_TRUE(signer.SignRequest(*http_request));
+    EXPECT_EQ(http_request->GetHeaderValue("Authorization"), "Bearer test-gcp-token");
+}
+
+TEST_F(S3ClientFactoryTest, UnauthorizedObjectStoreResponseIsPermissionDenied) {
+    Aws::S3::S3Error error;
+    error.SetResponseCode(Aws::Http::HttpResponseCode::UNAUTHORIZED);
+    error.SetExceptionName("InvalidAuthenticationCredentials");
+    error.SetMessage("missing or invalid bearer token");
+
+    auto status = s3fs_error(error, "GCS request failed");
+    EXPECT_EQ(status.code, ErrorCode::PERMISSION_DENIED);
+}
+
+TEST_F(S3ClientFactoryTest, GcpServiceAccountEmailValidation) {
+    const std::vector<std::string_view> valid_emails = {
+            "target@my-project.iam.gserviceaccount.com",
+            "123456789-compute@developer.gserviceaccount.com",
+            "my-project@appspot.gserviceaccount.com",
+    };
+    for (auto email : valid_emails) {
+        EXPECT_TRUE(is_valid_gcp_service_account_email(email)) << email;
+    }
+
+    const std::vector<std::string_view> invalid_emails = {
+            "",
+            "@my-project.iam.gserviceaccount.com",
+            "target@.iam.gserviceaccount.com",
+            "target@@my-project.iam.gserviceaccount.com",
+            "target@evil.developer.gserviceaccount.com",
+            "target@evil.appspot.gserviceaccount.com",
+            "target@my-project.iam.gserviceaccount.com.evil.example",
+            "target account@my-project.iam.gserviceaccount.com",
+    };
+    for (auto email : invalid_emails) {
+        EXPECT_FALSE(is_valid_gcp_service_account_email(email)) << email;
+    }
+}
+
+TEST_F(S3ClientFactoryTest, SelectsRateLimiterByDeploymentAndBucketType) {
+    RateLimiterConfigGuard rate_limiter_guard;
+    SyncPointProcessingGuard sync_point_guard;
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard create_client_callback;
+    sync_point->set_call_back(
+            "s3_client_factory::create",
+            [](auto&& args) {
+                auto result = try_any_cast_ret<std::shared_ptr<io::S3ObjStorageClient>>(args);
+                result->second = true;
+            },
+            &create_client_callback);
+    SyncPoint::CallbackGuard head_object_callback;
+    sync_point->set_call_back(
+            "s3_file_system::head_object",
+            [](auto&& args) {
+                auto result = try_any_cast_ret<Aws::S3::Model::HeadObjectOutcome>(args);
+                result->first =
+                        Aws::S3::Model::HeadObjectOutcome(Aws::S3::Model::HeadObjectResult {});
+                result->second = true;
+            },
+            &head_object_callback);
+
+    config::enable_s3_rate_limiter = true;
+    auto check_selection = [&](bool cloud_mode, bool internal_bucket, bool expect_limited,
+                               std::string endpoint) {
+        CloudModeConfigGuard cloud_mode_guard(cloud_mode);
+        auto& manager = S3RateLimiterManager::instance();
+        manager.qps_limiter(S3RateLimitType::GET)->reset(0, 0, 1);
+        manager.bytes_limiter(S3RateLimitType::GET)->reset(0, 0, 0);
+
+        auto result = S3ClientFactory::instance().create(
+                make_factory_conf(std::move(endpoint), internal_bucket));
+        ASSERT_TRUE(result.has_value()) << result.error();
+        auto client = std::move(result).value();
+        EXPECT_TRUE(client->head_object({.bucket = "bucket", .key = "key"}).resp.ok());
+        auto second = client->head_object({.bucket = "bucket", .key = "key"});
+        if (expect_limited) {
+            EXPECT_EQ(second.resp.status.code, static_cast<int>(ErrorCode::EXCEEDED_LIMIT));
+            EXPECT_EQ(second.resp.http_code, 0);
+            EXPECT_NE(second.resp.status.msg.find("s3 get request exceeds QPS limit"),
+                      std::string::npos);
+        } else {
+            EXPECT_TRUE(second.resp.ok());
+        }
+    };
+
+    check_selection(false, false, true, "non-cloud-external-rate-limit.example.com");
+    check_selection(true, true, true, "cloud-internal-rate-limit.example.com");
+    check_selection(true, false, false, "cloud-external-no-rate-limit.example.com");
+}
+
+TEST_F(S3ClientFactoryTest, RateLimitResponseDistinguishesBytesFromProviderThrottling) {
+    RateLimiterConfigGuard rate_limiter_guard;
+    SyncPointProcessingGuard sync_point_guard;
+    SyncPoint::CallbackGuard create_client_callback;
+    SyncPoint::get_instance()->set_call_back(
+            "s3_client_factory::create",
+            [](auto&& args) {
+                auto result = try_any_cast_ret<std::shared_ptr<io::S3ObjStorageClient>>(args);
+                result->second = true;
+            },
+            &create_client_callback);
+
+    CloudModeConfigGuard cloud_mode_guard(false);
+    config::enable_s3_rate_limiter = true;
+    auto& manager = S3RateLimiterManager::instance();
+    manager.qps_limiter(S3RateLimitType::GET)->reset(0, 0, 0);
+    manager.bytes_limiter(S3RateLimitType::GET)
+            ->reset(kNoThrottleBytesPerSecond, kNoThrottleBytesPerSecond, 1);
+
+    auto result = S3ClientFactory::instance().create(
+            make_factory_conf("be-bytes-rate-limit-response.example.com", false));
+    ASSERT_TRUE(result.has_value()) << result.error();
+    auto client = std::move(result).value();
+    char buffer[2];
+    size_t size_return = 0;
+    auto response = client->get_object({.bucket = "bucket", .key = "key"}, buffer, 0,
+                                       sizeof(buffer), &size_return);
+
+    EXPECT_EQ(response.status.code, static_cast<int>(ErrorCode::EXCEEDED_LIMIT));
+    EXPECT_EQ(response.http_code, 0);
+    EXPECT_NE(response.status.msg.find("s3 get request exceeds bytes limit"), std::string::npos);
+}
+
 TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
     S3ClientFactory& factory = S3ClientFactory::instance();
     S3ClientConf anonymous_conf;
@@ -168,20 +446,20 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
 
     config::aws_credentials_provider_version = "v2";
     {
-        auto provider_v2 = factory.get_aws_credentials_provider(anonymous_conf);
+        auto provider_v2 = factory.create_aws_credentials_provider(anonymous_conf).provider;
         auto custom_chain_v2 =
                 std::dynamic_pointer_cast<CustomAwsCredentialsProviderChain>(provider_v2);
         ASSERT_NE(custom_chain_v2, nullptr);
     }
     {
-        auto provider_v2 = factory.get_aws_credentials_provider(ak_sk_conf);
+        auto provider_v2 = factory.create_aws_credentials_provider(ak_sk_conf).provider;
         auto custom_chain_v2 =
                 std::dynamic_pointer_cast<Aws::Auth::SimpleAWSCredentialsProvider>(provider_v2);
         ASSERT_NE(custom_chain_v2, nullptr);
     }
 
     {
-        auto provider_v2 = factory.get_aws_credentials_provider(role_conf1);
+        auto provider_v2 = factory.create_aws_credentials_provider(role_conf1).provider;
         auto instance_profile_v2 =
                 std::dynamic_pointer_cast<Aws::Auth::InstanceProfileCredentialsProvider>(
                         provider_v2);
@@ -189,14 +467,14 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
     }
 
     {
-        auto provider_v2 = factory.get_aws_credentials_provider(role_conf2);
+        auto provider_v2 = factory.create_aws_credentials_provider(role_conf2).provider;
         auto custom_chain_v2 =
                 std::dynamic_pointer_cast<Aws::Auth::STSAssumeRoleCredentialsProvider>(provider_v2);
         ASSERT_NE(custom_chain_v2, nullptr);
     }
 
     {
-        auto provider_v2 = factory.get_aws_credentials_provider(web_identity_conf);
+        auto provider_v2 = factory.create_aws_credentials_provider(web_identity_conf).provider;
         auto web_identity_v2 =
                 std::dynamic_pointer_cast<Aws::Auth::STSAssumeRoleWebIdentityCredentialsProvider>(
                         provider_v2);
@@ -205,21 +483,21 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
 
     config::aws_credentials_provider_version = "v1";
     {
-        auto provider_v1 = factory.get_aws_credentials_provider(anonymous_conf);
+        auto provider_v1 = factory.create_aws_credentials_provider(anonymous_conf).provider;
         auto default_chain_v1 =
                 std::dynamic_pointer_cast<Aws::Auth::AnonymousAWSCredentialsProvider>(provider_v1);
         ASSERT_NE(default_chain_v1, nullptr);
     }
 
     {
-        auto provider_v1 = factory.get_aws_credentials_provider(ak_sk_conf);
+        auto provider_v1 = factory.create_aws_credentials_provider(ak_sk_conf).provider;
         auto default_chain_v1 =
                 std::dynamic_pointer_cast<Aws::Auth::SimpleAWSCredentialsProvider>(provider_v1);
         ASSERT_NE(default_chain_v1, nullptr);
     }
 
     {
-        auto provider_v1 = factory.get_aws_credentials_provider(role_conf1);
+        auto provider_v1 = factory.create_aws_credentials_provider(role_conf1).provider;
         auto default_chain_v1 =
                 std::dynamic_pointer_cast<Aws::Auth::InstanceProfileCredentialsProvider>(
                         provider_v1);
@@ -227,13 +505,78 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
     }
 
     {
-        auto provider_v1 = factory.get_aws_credentials_provider(role_conf2);
+        auto provider_v1 = factory.create_aws_credentials_provider(role_conf2).provider;
         auto default_chain_v1 =
                 std::dynamic_pointer_cast<Aws::Auth::STSAssumeRoleCredentialsProvider>(provider_v1);
         ASSERT_NE(default_chain_v1, nullptr);
     }
 
     config::aws_credentials_provider_version = "v2";
+}
+
+TEST_F(S3ClientFactoryTest, RefreshCaCertForCredentialsProvider) {
+    auto& factory = S3ClientFactory::instance();
+    auto old_ca_cert_file_paths = config::ca_cert_file_paths;
+    std::string old_ca_cert_file_path;
+    {
+        std::lock_guard lock(factory._ca_cert_lock);
+        old_ca_cert_file_path = std::exchange(factory._ca_cert_file_path, "");
+    }
+
+    auto ca_cert_file_path = std::filesystem::temp_directory_path() /
+                             ("doris_s3_client_factory_ca_" + std::to_string(getpid()) + ".pem");
+    std::filesystem::remove(ca_cert_file_path);
+    config::ca_cert_file_paths = ca_cert_file_path.string();
+
+    S3ClientConf role_conf;
+    role_conf.cred_provider_type = CredProviderType::InstanceProfile;
+    role_conf.role_arn = "role_arn";
+    auto provider_without_ca = factory.create_aws_credentials_provider(role_conf).provider;
+
+    {
+        std::ofstream ca_cert_file(ca_cert_file_path);
+        ca_cert_file << "test CA bundle";
+    }
+    auto provider_with_ca = factory.create_aws_credentials_provider(role_conf).provider;
+
+    std::string refreshed_ca_cert_file_path;
+    {
+        std::lock_guard lock(factory._ca_cert_lock);
+        refreshed_ca_cert_file_path = factory._ca_cert_file_path;
+        factory._ca_cert_file_path = std::move(old_ca_cert_file_path);
+    }
+    config::ca_cert_file_paths = std::move(old_ca_cert_file_paths);
+    std::filesystem::remove(ca_cert_file_path);
+
+    EXPECT_NE(provider_without_ca, nullptr);
+    EXPECT_NE(provider_with_ca, nullptr);
+    EXPECT_EQ(refreshed_ca_cert_file_path, ca_cert_file_path.string());
+}
+
+TEST_F(S3ClientFactoryTest, SetS3ClientDefaultHttpScheme) {
+    S3ClientFactory::instance();
+    Aws::Client::ClientConfiguration client_config;
+    client_config.endpointOverride = "example.com:9000";
+
+    set_s3_client_default_http_scheme(client_config, "http");
+    EXPECT_EQ(client_config.endpointOverride, "example.com:9000");
+    EXPECT_EQ(client_config.scheme, Aws::Http::Scheme::HTTP);
+
+    set_s3_client_default_http_scheme(client_config, "https");
+    EXPECT_EQ(client_config.endpointOverride, "example.com:9000");
+    EXPECT_EQ(client_config.scheme, Aws::Http::Scheme::HTTPS);
+
+    client_config.endpointOverride = "http://example.com:9000";
+    client_config.scheme = Aws::Http::Scheme::HTTP;
+    set_s3_client_default_http_scheme(client_config, "https");
+    EXPECT_EQ(client_config.endpointOverride, "http://example.com:9000");
+    EXPECT_EQ(client_config.scheme, Aws::Http::Scheme::HTTP);
+
+    client_config.endpointOverride = "https://example.com:9000";
+    client_config.scheme = Aws::Http::Scheme::HTTPS;
+    set_s3_client_default_http_scheme(client_config, "http");
+    EXPECT_EQ(client_config.endpointOverride, "https://example.com:9000");
+    EXPECT_EQ(client_config.scheme, Aws::Http::Scheme::HTTPS);
 }
 
 TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfRoleArnProviderType) {
@@ -248,6 +591,7 @@ TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfRoleArnProviderType) {
 
     S3Conf s3_conf;
     ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
+    ASSERT_EQ(s3_conf.client_conf.endpoint, properties.at("AWS_ENDPOINT"));
     ASSERT_EQ(s3_conf.client_conf.cred_provider_type, CredProviderType::Default);
 
     properties["AWS_CREDENTIALS_PROVIDER_TYPE"] = "WEB_IDENTITY";
@@ -288,6 +632,156 @@ TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfProviderTypeMatrix) {
                 << "provider_type=" << test_case.provider_type;
         ASSERT_EQ(s3_conf.client_conf.cred_provider_type, test_case.expected)
                 << "provider_type=" << test_case.provider_type;
+    }
+}
+
+TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfGcpCredentialModes) {
+    S3URI s3_uri("s3://test-bucket/test-prefix");
+    ASSERT_TRUE(s3_uri.parse().ok());
+
+    std::map<std::string, std::string> base_properties {
+            {"AWS_ENDPOINT", "storage.googleapis.com"},
+            {"AWS_REGION", "us-east1"},
+            {"provider", "GCP"},
+    };
+
+    struct TestCase {
+        const char* provider_type;
+        const char* impersonation_service_account;
+        GcpCredentialProviderType expected_provider_type;
+    };
+
+    // Both ADC and Compute Engine metadata credentials may be used directly or
+    // as the source credential for service-account impersonation.
+    std::vector<TestCase> cases = {
+            {"DEFAULT", "", GcpCredentialProviderType::Default},
+            {"default", "", GcpCredentialProviderType::Default},
+            {"DEFAULT", "target@my-project.iam.gserviceaccount.com",
+             GcpCredentialProviderType::Default},
+            {"COMPUTE_ENGINE", "", GcpCredentialProviderType::ComputeEngine},
+            {" compute_engine ", "", GcpCredentialProviderType::ComputeEngine},
+            {"COMPUTE_ENGINE", "target@my-project.iam.gserviceaccount.com",
+             GcpCredentialProviderType::ComputeEngine},
+    };
+
+    for (const auto& test_case : cases) {
+        auto properties = base_properties;
+        properties["gs.credential_provider_type"] = test_case.provider_type;
+        if (test_case.impersonation_service_account[0] != '\0') {
+            properties["gs.impersonation_service_account"] =
+                    test_case.impersonation_service_account;
+        }
+
+        S3Conf s3_conf;
+        ASSERT_TRUE(
+                S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok())
+                << "provider_type=" << test_case.provider_type;
+        ASSERT_EQ(s3_conf.client_conf.provider, io::ObjStorageProvider::GCP);
+        ASSERT_TRUE(std::holds_alternative<GcpCredentialConfig>(s3_conf.client_conf.credential));
+        const auto& credential = std::get<GcpCredentialConfig>(s3_conf.client_conf.credential);
+        EXPECT_EQ(credential.provider_type, test_case.expected_provider_type);
+        EXPECT_EQ(credential.impersonation_service_account,
+                  test_case.impersonation_service_account);
+    }
+}
+
+TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfGcpDefaultImpersonation) {
+    S3URI s3_uri("s3://test-bucket/test-prefix");
+    ASSERT_TRUE(s3_uri.parse().ok());
+    std::map<std::string, std::string> properties {
+            {"AWS_ENDPOINT", "storage.googleapis.com"},
+            {"AWS_REGION", "us-east1"},
+            {"provider", "GCP"},
+            {"gs.impersonation_service_account", "target@my-project.iam.gserviceaccount.com"},
+    };
+    S3Conf s3_conf;
+    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
+    const auto& credential = std::get<GcpCredentialConfig>(s3_conf.client_conf.credential);
+    EXPECT_EQ(credential.provider_type, GcpCredentialProviderType::Default);
+    EXPECT_EQ(credential.impersonation_service_account,
+              "target@my-project.iam.gserviceaccount.com");
+
+    properties["gs.impersonation_service_account"] = "";
+    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
+    const auto& direct_credential = std::get<GcpCredentialConfig>(s3_conf.client_conf.credential);
+    EXPECT_EQ(direct_credential.provider_type, GcpCredentialProviderType::Default);
+    EXPECT_TRUE(direct_credential.impersonation_service_account.empty());
+}
+
+TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfRejectsConflictingGcpCredentials) {
+    S3URI s3_uri("s3://test-bucket/test-prefix");
+    ASSERT_TRUE(s3_uri.parse().ok());
+
+    std::map<std::string, std::string> base_properties {
+            {"AWS_ENDPOINT", "storage.googleapis.com"},
+            {"AWS_REGION", "us-east1"},
+            {"provider", "GCP"},
+            {"gs.credential_provider_type", "DEFAULT"},
+    };
+
+    const std::vector<std::pair<std::string, std::string>> conflicts = {
+            {"AWS_ACCESS_KEY", "ak"},
+            {"AWS_SECRET_KEY", "sk"},
+            {"AWS_TOKEN", "token"},
+            {"AWS_ROLE_ARN", "arn:aws:iam::123456789012:role/test-role"},
+            {"AWS_EXTERNAL_ID", "external-id"},
+            {"AWS_CREDENTIALS_PROVIDER_TYPE", "INSTANCE_PROFILE"},
+    };
+    for (const auto& [key, value] : conflicts) {
+        auto properties = base_properties;
+        properties[key] = value;
+        S3Conf s3_conf;
+        auto status = S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf);
+        ASSERT_FALSE(status.ok()) << key;
+        EXPECT_NE(status.to_string().find("cannot be combined"), std::string::npos) << key;
+    }
+}
+
+TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfRejectsInvalidGcpCredentialModes) {
+    S3URI s3_uri("s3://test-bucket/test-prefix");
+    ASSERT_TRUE(s3_uri.parse().ok());
+
+    std::map<std::string, std::string> base_properties {
+            {"AWS_ENDPOINT", "storage.googleapis.com"},
+            {"AWS_REGION", "us-east1"},
+            {"provider", "GCP"},
+    };
+    for (const auto& provider_type : {"ADC", "", "unknown"}) {
+        auto properties = base_properties;
+        properties["gs.credential_provider_type"] = provider_type;
+        S3Conf s3_conf;
+        auto status = S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf);
+        ASSERT_FALSE(status.ok()) << provider_type;
+        EXPECT_NE(status.to_string().find("gs.credential_provider_type"), std::string::npos)
+                << provider_type;
+        EXPECT_NE(status.to_string().find("DEFAULT"), std::string::npos) << provider_type;
+        EXPECT_NE(status.to_string().find("COMPUTE_ENGINE"), std::string::npos) << provider_type;
+    }
+
+    for (const auto& account : {" ", "invalid-account"}) {
+        auto properties = base_properties;
+        properties["gs.impersonation_service_account"] = account;
+        S3Conf s3_conf;
+        ASSERT_FALSE(
+                S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
+    }
+}
+
+TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfRejectsGcpCredentialWithAwsProvider) {
+    S3URI s3_uri("s3://test-bucket/test-prefix");
+    ASSERT_TRUE(s3_uri.parse().ok());
+
+    for (const auto& provider : {"S3", "AWS"}) {
+        std::map<std::string, std::string> properties {
+                {"AWS_ENDPOINT", "storage.googleapis.com"},
+                {"AWS_REGION", "us-east1"},
+                {"provider", provider},
+                {"gs.credential_provider_type", "DEFAULT"},
+        };
+        S3Conf s3_conf;
+        auto status = S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf);
+        ASSERT_FALSE(status.ok()) << provider;
+        EXPECT_NE(status.to_string().find("provider=GCP"), std::string::npos) << provider;
     }
 }
 
@@ -355,25 +849,25 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV2ProviderTypeWithoutRoleArn) 
 
     S3ClientConf default_conf;
     default_conf.cred_provider_type = CredProviderType::Default;
-    auto provider = factory.get_aws_credentials_provider(default_conf);
+    auto provider = factory.create_aws_credentials_provider(default_conf).provider;
     ASSERT_NE(std::dynamic_pointer_cast<CustomAwsCredentialsProviderChain>(provider), nullptr);
 
     S3ClientConf env_conf;
     env_conf.cred_provider_type = CredProviderType::Env;
-    provider = factory.get_aws_credentials_provider(env_conf);
+    provider = factory.create_aws_credentials_provider(env_conf).provider;
     ASSERT_NE(std::dynamic_pointer_cast<Aws::Auth::EnvironmentAWSCredentialsProvider>(provider),
               nullptr);
 
     S3ClientConf sys_conf;
     sys_conf.cred_provider_type = CredProviderType::SystemProperties;
-    provider = factory.get_aws_credentials_provider(sys_conf);
+    provider = factory.create_aws_credentials_provider(sys_conf).provider;
     ASSERT_NE(
             std::dynamic_pointer_cast<Aws::Auth::ProfileConfigFileAWSCredentialsProvider>(provider),
             nullptr);
 
     S3ClientConf web_identity_conf;
     web_identity_conf.cred_provider_type = CredProviderType::WebIdentity;
-    provider = factory.get_aws_credentials_provider(web_identity_conf);
+    provider = factory.create_aws_credentials_provider(web_identity_conf).provider;
     ASSERT_NE(std::dynamic_pointer_cast<Aws::Auth::STSAssumeRoleWebIdentityCredentialsProvider>(
                       provider),
               nullptr);
@@ -385,19 +879,19 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV2ProviderTypeWithoutRoleArn) 
         env.set_ecs_task_role("/v2/credentials/mock");
         S3ClientConf container_conf;
         container_conf.cred_provider_type = CredProviderType::Container;
-        provider = factory.get_aws_credentials_provider(container_conf);
+        provider = factory.create_aws_credentials_provider(container_conf).provider;
         ASSERT_NE(as_valid_http_provider(provider), nullptr);
     }
 
     S3ClientConf instance_profile_conf;
     instance_profile_conf.cred_provider_type = CredProviderType::InstanceProfile;
-    provider = factory.get_aws_credentials_provider(instance_profile_conf);
+    provider = factory.create_aws_credentials_provider(instance_profile_conf).provider;
     ASSERT_NE(std::dynamic_pointer_cast<Aws::Auth::InstanceProfileCredentialsProvider>(provider),
               nullptr);
 
     S3ClientConf anonymous_conf;
     anonymous_conf.cred_provider_type = CredProviderType::Anonymous;
-    provider = factory.get_aws_credentials_provider(anonymous_conf);
+    provider = factory.create_aws_credentials_provider(anonymous_conf).provider;
     ASSERT_NE(std::dynamic_pointer_cast<Aws::Auth::AnonymousAWSCredentialsProvider>(provider),
               nullptr);
 }
@@ -410,7 +904,7 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV2WithRoleArnAlwaysAssumeRole)
             CredProviderType::Default,          CredProviderType::Env,
             CredProviderType::SystemProperties, CredProviderType::WebIdentity,
             CredProviderType::Container,        CredProviderType::InstanceProfile,
-            CredProviderType::Anonymous,
+            CredProviderType::Anonymous,        CredProviderType::Simple,
     };
 
     for (auto provider_type : provider_types) {
@@ -418,10 +912,23 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV2WithRoleArnAlwaysAssumeRole)
         conf.cred_provider_type = provider_type;
         conf.role_arn = "arn:aws:iam::123456789012:role/test-role";
         conf.external_id = "external-id";
-        auto provider = factory.get_aws_credentials_provider(conf);
+        auto provider = factory.create_aws_credentials_provider(conf).provider;
         ASSERT_NE(std::dynamic_pointer_cast<Aws::Auth::STSAssumeRoleCredentialsProvider>(provider),
                   nullptr);
     }
+}
+
+TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV2SimpleWithoutAkSkUsesDefaultChain) {
+    S3ClientFactory& factory = S3ClientFactory::instance();
+    config::aws_credentials_provider_version = "v2";
+
+    S3ClientConf conf;
+    conf.cred_provider_type = CredProviderType::Simple;
+    auto result = factory.create_aws_credentials_provider(conf);
+
+    ASSERT_TRUE(result);
+    EXPECT_NE(std::dynamic_pointer_cast<CustomAwsCredentialsProviderChain>(result.provider),
+              nullptr);
 }
 
 TEST_F(S3ClientFactoryTest, AwsCredentialsProviderAkSkTakePrecedenceOverRoleArn) {
@@ -434,12 +941,12 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProviderAkSkTakePrecedenceOverRoleArn)
     conf.cred_provider_type = CredProviderType::InstanceProfile;
 
     config::aws_credentials_provider_version = "v2";
-    auto provider_v2 = factory.get_aws_credentials_provider(conf);
+    auto provider_v2 = factory.create_aws_credentials_provider(conf).provider;
     ASSERT_NE(std::dynamic_pointer_cast<Aws::Auth::SimpleAWSCredentialsProvider>(provider_v2),
               nullptr);
 
     config::aws_credentials_provider_version = "v1";
-    auto provider_v1 = factory.get_aws_credentials_provider(conf);
+    auto provider_v1 = factory.create_aws_credentials_provider(conf).provider;
     ASSERT_NE(std::dynamic_pointer_cast<Aws::Auth::SimpleAWSCredentialsProvider>(provider_v1),
               nullptr);
 
@@ -453,7 +960,7 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV1RoleArnDefaultFallback) {
     S3ClientConf conf;
     conf.cred_provider_type = CredProviderType::Default;
     conf.role_arn = "arn:aws:iam::123456789012:role/test-role";
-    auto provider = factory.get_aws_credentials_provider(conf);
+    auto provider = factory.create_aws_credentials_provider(conf).provider;
     ASSERT_NE(std::dynamic_pointer_cast<Aws::Auth::AnonymousAWSCredentialsProvider>(provider),
               nullptr);
 
@@ -538,7 +1045,7 @@ TEST_F(S3ClientFactoryTest, ContainerProviderTypeReadsRotatedTokenFileForPodIden
 
     S3ClientConf conf;
     conf.cred_provider_type = CredProviderType::Container;
-    auto provider = as_valid_http_provider(factory.get_aws_credentials_provider(conf));
+    auto provider = as_valid_http_provider(factory.create_aws_credentials_provider(conf).provider);
     ASSERT_NE(provider, nullptr) << "CONTAINER did not yield a usable container credentials "
                                     "provider for AWS_CONTAINER_CREDENTIALS_FULL_URI";
 
@@ -567,7 +1074,7 @@ TEST_F(S3ClientFactoryTest, ContainerProviderTypeForwardsInlineAuthorizationToke
 
     S3ClientConf conf;
     conf.cred_provider_type = CredProviderType::Container;
-    auto provider = as_valid_http_provider(factory.get_aws_credentials_provider(conf));
+    auto provider = as_valid_http_provider(factory.create_aws_credentials_provider(conf).provider);
     ASSERT_NE(provider, nullptr) << "CONTAINER did not yield a usable container credentials "
                                     "provider for an inline authorization token";
 
@@ -587,7 +1094,8 @@ TEST_F(S3ClientFactoryTest, ContainerProviderTypeStillHonoursEcsRelativeUri) {
 
     S3ClientConf conf;
     conf.cred_provider_type = CredProviderType::Container;
-    EXPECT_NE(as_valid_http_provider(factory.get_aws_credentials_provider(conf)), nullptr)
+    EXPECT_NE(as_valid_http_provider(factory.create_aws_credentials_provider(conf).provider),
+              nullptr)
             << "CONTAINER did not yield a usable container credentials provider for "
                "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI";
 }
@@ -605,10 +1113,30 @@ TEST_F(S3ClientFactoryTest, ContainerProviderTypeIsUnusableWithoutAnyUri) {
 
     S3ClientConf conf;
     conf.cred_provider_type = CredProviderType::Container;
-    auto provider = factory.get_aws_credentials_provider(conf);
+    auto provider = factory.create_aws_credentials_provider(conf).provider;
     ASSERT_NE(std::dynamic_pointer_cast<Aws::Auth::GeneralHTTPCredentialsProvider>(provider),
               nullptr);
     EXPECT_EQ(as_valid_http_provider(provider), nullptr);
+}
+
+TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV1PartialCredentialsUseDefaultChain) {
+    S3ClientFactory& factory = S3ClientFactory::instance();
+    config::aws_credentials_provider_version = "v1";
+
+    for (bool provide_access_key : {false, true}) {
+        S3ClientConf conf;
+        conf.cred_provider_type = CredProviderType::Default;
+        conf.role_arn = "arn:aws:iam::123456789012:role/test-role";
+        conf.ak = provide_access_key ? "ak" : "";
+        conf.sk = provide_access_key ? "" : "sk";
+
+        auto provider = factory.create_aws_credentials_provider(conf).provider;
+        EXPECT_NE(
+                std::dynamic_pointer_cast<Aws::Auth::DefaultAWSCredentialsProviderChain>(provider),
+                nullptr);
+    }
+
+    config::aws_credentials_provider_version = "v2";
 }
 
 } // namespace doris

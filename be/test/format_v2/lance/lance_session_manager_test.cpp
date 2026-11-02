@@ -54,12 +54,34 @@ TEST(LanceSessionManagerTest, SessionAndDataCacheConfigurationsAreIndependent) {
             .lance_data_cache_path = "",
             .lance_data_cache_disk_capacity_bytes = -1,
             .lance_data_cache_read_block_size_bytes = -1,
+            .lance_data_cache_memory_capacity_bytes = -1,
     };
     LanceSessionManager manager(std::move(config));
     LanceDataset* raw_dataset = nullptr;
     ASSERT_TRUE(manager.open_dataset(lance_fixture_path().c_str(), nullptr, 0, &raw_dataset).ok());
     LanceDatasetPtr dataset(raw_dataset, lance_dataset_close);
     ASSERT_NE(dataset, nullptr);
+}
+
+TEST(LanceSessionManagerTest, MemoryCapacityDefaultsToOneConfiguredBlock) {
+    LanceSessionManager::Config config;
+    config.lance_data_cache_read_block_size_bytes = 64 * 1024;
+    EXPECT_EQ(config.resolved_data_cache_memory_capacity_bytes(), 64 * 1024);
+    config.lance_data_cache_memory_capacity_bytes = 8 * 1024 * 1024;
+    EXPECT_EQ(config.resolved_data_cache_memory_capacity_bytes(), 8 * 1024 * 1024);
+    EXPECT_EQ(config.lance_data_cache_read_block_size_bytes, 64 * 1024);
+}
+
+TEST(LanceSessionManagerTest, RejectsNegativeMemoryCapacityBeforeUnsignedConversion) {
+    LanceSessionManager::Config config;
+    config.enable_lance_data_cache = true;
+    config.lance_data_cache_memory_capacity_bytes = -1;
+    LanceSessionManager manager(std::move(config));
+    LanceDataset* dataset = nullptr;
+    const auto status = manager.open_dataset(lance_fixture_path().c_str(), nullptr, 0, &dataset);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("lance_data_cache_memory_capacity_bytes"), std::string::npos);
+    EXPECT_EQ(dataset, nullptr);
 }
 
 TEST(LanceSessionManagerTest, PublishesSessionCacheMetrics) {
@@ -114,6 +136,7 @@ TEST(LanceSessionManagerTest, CreatesFoyerBackedSession) {
             .lance_data_cache_path = cache_path.string(),
             .lance_data_cache_disk_capacity_bytes = 32 * 1024 * 1024,
             .lance_data_cache_read_block_size_bytes = 64 * 1024,
+            .lance_data_cache_memory_capacity_bytes = 8 * 1024 * 1024,
     };
     {
         LanceSessionManager manager(std::move(config));

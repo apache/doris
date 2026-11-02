@@ -127,6 +127,10 @@ public:
     static Status read_by_rowids(const PMultiGetRequest& request, PMultiGetResponse* response);
     static Status read_by_rowids(const PMultiGetRequestV2& request, PMultiGetResponseV2* response);
 
+    // ThreadPool scan workers have no exception boundary; keep RPC failures in the response.
+    static void read_by_rowids_for_rpc(const PMultiGetRequestV2& request,
+                                       PMultiGetResponseV2* response);
+
     static bool should_use_file_scanner_v2(const TQueryOptions& query_options,
                                            const TFileScanRangeParams& scan_params,
                                            const TFileRangeDesc& range);

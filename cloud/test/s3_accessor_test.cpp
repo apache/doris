@@ -27,6 +27,7 @@
 #include <chrono>
 #include <unordered_set>
 
+#include "common/auth/obj_credential.h"
 #include "common/config.h"
 #include "common/configbase.h"
 #include "common/logging.h"
@@ -219,9 +220,10 @@ TEST_F(S3AccessorTest, s3) {
     auto* sp = SyncPoint::get_instance();
     std::vector<SyncPoint::CallbackGuard> guards;
     sp->set_call_back(
-            "S3ObjListIterator",
+            "S3ObjStorageClient::list_objects",
             [](auto&& args) {
                 auto* req = try_any_cast<Aws::S3::Model::ListObjectsV2Request*>(args[0]);
+                EXPECT_EQ(req->GetMaxKeys(), 1000);
                 req->SetMaxKeys(7);
             },
             &guards.emplace_back());
@@ -261,9 +263,11 @@ TEST_F(S3AccessorTest, azure) {
     auto* sp = SyncPoint::get_instance();
     std::vector<SyncPoint::CallbackGuard> guards;
     sp->set_call_back(
-            "AzureListIterator",
+            "AzureObjStorageClient::list_objects",
             [](auto&& args) {
                 auto* req = try_any_cast<Azure::Storage::Blobs::ListBlobsOptions*>(args[0]);
+                ASSERT_TRUE(req->PageSizeHint.HasValue());
+                EXPECT_EQ(req->PageSizeHint.Value(), 5000);
                 req->PageSizeHint = 7;
             },
             &guards.emplace_back());
@@ -303,7 +307,7 @@ TEST_F(S3AccessorTest, gcs) {
     auto* sp = SyncPoint::get_instance();
     std::vector<SyncPoint::CallbackGuard> guards;
     sp->set_call_back(
-            "S3ObjListIterator",
+            "S3ObjStorageClient::list_objects",
             [](auto&& args) {
                 auto* req = try_any_cast<Aws::S3::Model::ListObjectsV2Request*>(args[0]);
                 req->SetMaxKeys(7);
@@ -393,6 +397,44 @@ TEST_F(S3AccessorTest, path_style_test) {
     }
 }
 
+TEST(S3AccessorConfigTest, GcpCredentialFromObjectStoreInfo) {
+    ObjectStoreInfoPB obj_info;
+    obj_info.set_provider(ObjectStoreInfoPB::GCP);
+    obj_info.set_endpoint("storage.googleapis.com");
+    obj_info.set_region("us-east1");
+    obj_info.set_bucket("test-bucket");
+    auto* gcp_credential = obj_info.mutable_credential()->mutable_gcp_credential();
+    gcp_credential->set_credential_provider_type(GcpCredentialPB::COMPUTE_ENGINE);
+    gcp_credential->set_impersonation_service_account("target@my-project.iam.gserviceaccount.com");
+
+    auto s3_conf = S3Conf::from_obj_store_info(obj_info);
+    ASSERT_TRUE(s3_conf.has_value());
+    EXPECT_EQ(s3_conf->provider, S3Conf::GCS);
+    ASSERT_TRUE(std::holds_alternative<doris::GcpCredentialConfig>(s3_conf->credential));
+    const auto& credential = std::get<doris::GcpCredentialConfig>(s3_conf->credential);
+    EXPECT_EQ(credential.provider_type, doris::GcpCredentialProviderType::ComputeEngine);
+    EXPECT_EQ(credential.impersonation_service_account,
+              "target@my-project.iam.gserviceaccount.com");
+}
+
+TEST(S3AccessorConfigTest, ValidateGcpStorageVaultCredential) {
+    ObjectStoreInfoPB obj_info;
+    obj_info.set_provider(ObjectStoreInfoPB::GCP);
+    obj_info.set_endpoint("storage.googleapis.com");
+    obj_info.set_region("us-east1");
+    obj_info.set_bucket("test-bucket");
+    obj_info.mutable_credential()->mutable_gcp_credential()->set_credential_provider_type(
+            GcpCredentialPB::DEFAULT);
+
+    EXPECT_FALSE(validate_obj_credential(obj_info).has_value());
+
+    obj_info.set_ak("ak");
+    obj_info.set_sk("sk");
+    auto error = validate_obj_credential(obj_info);
+    ASSERT_TRUE(error.has_value());
+    EXPECT_NE(error->find("cannot be combined"), std::string::npos);
+}
+
 class S3AccessorRoleTest : public testing::Test {
     static void SetUpTestSuite() {
         if (!std::getenv("AWS_ROLE_ARN") || !std::getenv("AWS_EXTERNAL_ID") ||
@@ -449,7 +491,7 @@ TEST_F(S3AccessorRoleTest, s3) {
     auto* sp = SyncPoint::get_instance();
     std::vector<SyncPoint::CallbackGuard> guards;
     sp->set_call_back(
-            "S3ObjListIterator",
+            "S3ObjStorageClient::list_objects",
             [](auto&& args) {
                 auto* req = try_any_cast<Aws::S3::Model::ListObjectsV2Request*>(args[0]);
                 req->SetMaxKeys(7);

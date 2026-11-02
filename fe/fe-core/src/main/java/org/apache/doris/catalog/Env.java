@@ -111,6 +111,7 @@ import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
+import org.apache.doris.datasource.lance.LanceExternalTable;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
 import org.apache.doris.deploy.DeployManager;
@@ -3647,8 +3648,18 @@ public class Env {
                                              boolean writeEditLog,
                                              List<Pair<PartitionPersistInfo, Partition>> batchPartitions)
             throws DdlException {
+        addPartition(db, tableName, addPartitionClause, isCreateTable, generatedPartitionId,
+                writeEditLog, batchPartitions, false);
+    }
+
+    public void addPartition(Database db, String tableName, AddPartitionClause addPartitionClause,
+                                             boolean isCreateTable, long generatedPartitionId,
+                                             boolean writeEditLog,
+                                             List<Pair<PartitionPersistInfo, Partition>> batchPartitions,
+                                             boolean enforceAutoPartitionLimit)
+            throws DdlException {
         getInternalCatalog().addPartition(db, tableName, addPartitionClause,
-                isCreateTable, generatedPartitionId, writeEditLog, batchPartitions);
+                isCreateTable, generatedPartitionId, writeEditLog, batchPartitions, enforceAutoPartitionLimit);
     }
 
     public void addMultiPartitions(Database db, String tableName, AlterMultiPartitionClause multiPartitionClause)
@@ -3872,6 +3883,13 @@ public class Env {
         // inverted index storage type
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT).append("\" = \"");
         sb.append(olapTable.getInvertedIndexFileStorageFormat()).append("\"");
+        if (olapTable.getTableProperty() != null
+                && olapTable.getTableProperty().getPartitionInvertedIndexFileStorageFormat() != null) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT)
+                    .append("\" = \"")
+                    .append(olapTable.getTableProperty().getPartitionInvertedIndexFileStorageFormat())
+                    .append("\"");
+        }
 
         // compression type
         if (olapTable.getCompressionType() != TCompressionType.valueOf(Config.default_compression_type)) {
@@ -4572,7 +4590,9 @@ public class Env {
             }
         }
         sb.append("\n) ENGINE=");
-        sb.append(table.getType().name());
+        sb.append(table.getType() == TableType.LANCE_EXTERNAL_TABLE
+                ? "LANCE"
+                : table.getType().name());
 
         if (table instanceof OlapTable) {
             OlapTable olapTable = (OlapTable) table;
@@ -4876,6 +4896,28 @@ public class Env {
                 }
             }
             sb.append("\n)");
+        } else if (table.getType() == TableType.LANCE_EXTERNAL_TABLE) {
+            Map<String, String> properties = new TreeMap<>(
+                    ((LanceExternalTable) table).getTableProperties());
+            String tableComment = properties.remove("comment");
+            if (StringUtils.isNotBlank(tableComment)) {
+                sb.append("\nCOMMENT ").append(SqlLiteralUtils.quoteStringLiteral(tableComment));
+            }
+            if (!properties.isEmpty()) {
+                sb.append("\nPROPERTIES (\n");
+                Iterator<Entry<String, String>> iterator = properties.entrySet().iterator();
+                while (iterator.hasNext()) {
+                    Entry<String, String> property = iterator.next();
+                    String value = hidePassword && PrintableMap.SENSITIVE_KEY.contains(property.getKey())
+                            ? PrintableMap.PASSWORD_MASK : String.valueOf(property.getValue());
+                    sb.append("  ").append(SqlLiteralUtils.quoteStringLiteral(property.getKey()))
+                            .append(" = ").append(SqlLiteralUtils.quoteStringLiteral(value));
+                    if (iterator.hasNext()) {
+                        sb.append(",\n");
+                    }
+                }
+                sb.append("\n)");
+            }
         }
 
         createTableStmt.add(sb + ";");
@@ -6100,6 +6142,14 @@ public class Env {
         try {
             String colName = renameClause.getColName();
             String newColName = renameClause.getNewColName();
+            Column column = table.getColumn(colName);
+            if (column == null) {
+                throw new DdlException("Column[" + colName + "] does not exists");
+            }
+            if (column.getType().isVariantType() && newColName.indexOf('.') != -1) {
+                throw new DdlException(
+                        "Cannot use `VARIANT` type column named with a `.` character: " + newColName);
+            }
             Map<Long, Integer> indexIdToSchemaVersion = new HashMap<Long, Integer>();
             renameColumn(db, table, colName, newColName, indexIdToSchemaVersion, false);
         } finally {

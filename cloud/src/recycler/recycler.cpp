@@ -770,6 +770,7 @@ int InstanceRecycler::init_storage_vault_accessors() {
                        << "but HDFS storage vaults were detected";
 #endif
         } else if (vault.has_obj_info()) {
+            // TODO: Propagate object storage session tokens to Recycler in a follow-up PR.
             auto s3_conf = S3Conf::from_obj_store_info(vault.obj_info());
             if (!s3_conf) {
                 LOG(WARNING) << "failed to init object accessor, invalid conf, instance_id="
@@ -3636,8 +3637,9 @@ int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb) {
 
     // Process inverted indexes
     std::vector<std::pair<int64_t, std::string>> index_ids;
-    // default format as v1.
-    InvertedIndexStorageFormatPB index_format = InvertedIndexStorageFormatPB::V1;
+    InvertedIndexStorageFormatPB index_format = rs_meta_pb.has_inverted_index_storage_format()
+                                                        ? rs_meta_pb.inverted_index_storage_format()
+                                                        : InvertedIndexStorageFormatPB::V1;
     bool delete_rowset_data_by_prefix = false;
     if (rs_meta_pb.rowset_state() == RowsetStatePB::BEGIN_PARTIAL_UPDATE) {
         // if rowset state is RowsetStatePB::BEGIN_PARTIAL_UPDATE, the number of segments data
@@ -3649,7 +3651,8 @@ int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb) {
                 index_ids.emplace_back(index.index_id(), index.index_suffix_name());
             }
         }
-        if (rs_meta_pb.tablet_schema().has_inverted_index_storage_format()) {
+        if (!rs_meta_pb.has_inverted_index_storage_format() &&
+            rs_meta_pb.tablet_schema().has_inverted_index_storage_format()) {
             index_format = rs_meta_pb.tablet_schema().inverted_index_storage_format();
         }
     } else if (!rs_meta_pb.has_index_id() || !rs_meta_pb.has_schema_version()) {
@@ -3663,7 +3666,9 @@ int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb) {
         TEST_SYNC_POINT_CALLBACK("InstanceRecycler::delete_rowset_data.tmp_rowset",
                                  &inverted_index_get_ret);
         if (inverted_index_get_ret == 0) {
-            index_format = index_info.first;
+            if (!rs_meta_pb.has_inverted_index_storage_format()) {
+                index_format = index_info.first;
+            }
             index_ids = index_info.second;
         } else if (inverted_index_get_ret == 1) {
             // 1. Schema kv not found means tablet has been recycled
@@ -3723,18 +3728,23 @@ int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb) {
         }
     }
 
-    // Process delete bitmap - check where it's stored.
-    DeleteBitmapStorageType delete_bitmap_storage_type = DeleteBitmapStorageType::NOT_FOUND;
-    if (decrement_delete_bitmap_packed_file_ref_counts(tablet_id, rowset_id,
-                                                       &delete_bitmap_storage_type) != 0) {
-        LOG_WARNING("failed to decrement delete bitmap packed file ref count")
-                .tag("instance_id", instance_id_)
-                .tag("tablet_id", tablet_id)
-                .tag("rowset_id", rowset_id);
+    int should_delete_dbm = may_have_versioned_delete_bitmap(rs_meta_pb.partition_id(), tablet_id);
+    if (should_delete_dbm == 1) {
+        DeleteBitmapStorageType delete_bitmap_storage_type = DeleteBitmapStorageType::NOT_FOUND;
+        std::vector<std::string> rowset_dbm_keys;
+        if (decrement_delete_bitmap_packed_file_ref_counts(
+                    tablet_id, rowset_id, &delete_bitmap_storage_type, nullptr) != 0) {
+            LOG_WARNING("failed to decrement delete bitmap packed file ref count")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id);
+            return -1;
+        }
+        if (delete_bitmap_storage_type == DeleteBitmapStorageType::STANDALONE_FILE) {
+            file_paths.push_back(delete_bitmap_path(tablet_id, rowset_id));
+        }
+    } else if (should_delete_dbm != 0) {
         return -1;
-    }
-    if (delete_bitmap_storage_type == DeleteBitmapStorageType::STANDALONE_FILE) {
-        file_paths.push_back(delete_bitmap_path(tablet_id, rowset_id));
     }
     // TODO(AlexYue): seems could do do batch
     return accessor->delete_files(file_paths);
@@ -3982,6 +3992,7 @@ int InstanceRecycler::decrement_packed_file_ref_counts(const doris::RowsetMetaCl
 int InstanceRecycler::decrement_delete_bitmap_packed_file_ref_counts(
         int64_t tablet_id, const std::string& rowset_id, DeleteBitmapStorageType* out_storage_type,
         std::vector<std::string>* keys) {
+    TEST_SYNC_POINT("InstanceRecycler::decrement_delete_bitmap_packed_file_ref_counts");
     if (out_storage_type) {
         *out_storage_type = DeleteBitmapStorageType::NOT_FOUND;
     }
@@ -4389,29 +4400,38 @@ int InstanceRecycler::delete_rowset_data(
             continue;
         }
 
-        DeleteBitmapStorageType delete_bitmap_storage_type = DeleteBitmapStorageType::NOT_FOUND;
-        std::vector<std::string> rowset_dbm_keys;
-        if (decrement_delete_bitmap_packed_file_ref_counts(
-                    tablet_id, rowset_id, &delete_bitmap_storage_type,
-                    delete_bitmap_key_groups ? &rowset_dbm_keys : nullptr) != 0) {
-            LOG_WARNING("failed to decrement delete bitmap packed file ref count")
-                    .tag("instance_id", instance_id_)
-                    .tag("tablet_id", tablet_id)
-                    .tag("rowset_id", rowset_id);
+        int should_delete_dbm = may_have_versioned_delete_bitmap(rs.partition_id(), tablet_id);
+        if (should_delete_dbm == 1) {
+            DeleteBitmapStorageType delete_bitmap_storage_type = DeleteBitmapStorageType::NOT_FOUND;
+            std::vector<std::string> rowset_dbm_keys;
+            if (decrement_delete_bitmap_packed_file_ref_counts(
+                        tablet_id, rowset_id, &delete_bitmap_storage_type,
+                        delete_bitmap_key_groups ? &rowset_dbm_keys : nullptr) != 0) {
+                LOG_WARNING("failed to decrement delete bitmap packed file ref count")
+                        .tag("instance_id", instance_id_)
+                        .tag("tablet_id", tablet_id)
+                        .tag("rowset_id", rowset_id)
+                        .tag("task_type", metrics_context.operation_type);
+                ret = -1;
+                continue;
+            }
+            if (!rowset_dbm_keys.empty() && delete_bitmap_key_groups) {
+                delete_bitmap_key_groups->emplace_back(std::move(rowset_dbm_keys));
+            }
+            if (delete_bitmap_storage_type == DeleteBitmapStorageType::STANDALONE_FILE) {
+                file_paths.push_back(delete_bitmap_path(tablet_id, rowset_id));
+            }
+        } else if (should_delete_dbm != 0) {
             ret = -1;
             continue;
-        }
-        if (!rowset_dbm_keys.empty() && delete_bitmap_key_groups) {
-            delete_bitmap_key_groups->emplace_back(std::move(rowset_dbm_keys));
-        }
-        if (delete_bitmap_storage_type == DeleteBitmapStorageType::STANDALONE_FILE) {
-            file_paths.push_back(delete_bitmap_path(tablet_id, rowset_id));
         }
 
         // Process inverted indexes
         std::vector<std::pair<int64_t, std::string>> index_ids;
         // default format as v1.
-        InvertedIndexStorageFormatPB index_format = InvertedIndexStorageFormatPB::V1;
+        InvertedIndexStorageFormatPB index_format = rs.has_inverted_index_storage_format()
+                                                            ? rs.inverted_index_storage_format()
+                                                            : InvertedIndexStorageFormatPB::V1;
         int inverted_index_get_ret = 0;
         if (rs.has_tablet_schema()) {
             for (const auto& index : rs.tablet_schema().index()) {
@@ -4419,7 +4439,8 @@ int InstanceRecycler::delete_rowset_data(
                     index_ids.emplace_back(index.index_id(), index.index_suffix_name());
                 }
             }
-            if (rs.tablet_schema().has_inverted_index_storage_format()) {
+            if (!rs.has_inverted_index_storage_format() &&
+                rs.tablet_schema().has_inverted_index_storage_format()) {
                 index_format = rs.tablet_schema().inverted_index_storage_format();
             }
         } else {
@@ -4437,7 +4458,9 @@ int InstanceRecycler::delete_rowset_data(
             TEST_SYNC_POINT_CALLBACK("InstanceRecycler::delete_rowset_data.tmp_rowset",
                                      &inverted_index_get_ret);
             if (inverted_index_get_ret == 0) {
-                index_format = index_info.first;
+                if (!rs.has_inverted_index_storage_format()) {
+                    index_format = index_info.first;
+                }
                 index_ids = index_info.second;
             } else if (inverted_index_get_ret == 1) {
                 // 1. Schema kv not found means tablet has been recycled
@@ -4605,8 +4628,7 @@ bool InstanceRecycler::is_tablet_recycled(int64_t tablet_id) {
     return recycled_tablets_.contains(tablet_id);
 }
 
-int InstanceRecycler::should_delete_versioned_delete_bitmap_kvs(int64_t partition_id,
-                                                                int64_t tablet_id) {
+int InstanceRecycler::may_have_versioned_delete_bitmap(int64_t partition_id, int64_t tablet_id) {
     bool is_mow = true;
     if (partition_id != -1) {
         std::lock_guard lock(partition_mow_cache_mutex);
@@ -4669,7 +4691,7 @@ int InstanceRecycler::should_delete_versioned_delete_bitmap_kvs(int64_t partitio
 
 int InstanceRecycler::delete_versioned_delete_bitmap_kvs(int64_t partition_id, int64_t tablet_id,
                                                          const std::string& rowset_id) {
-    int ret = should_delete_versioned_delete_bitmap_kvs(partition_id, tablet_id);
+    int ret = may_have_versioned_delete_bitmap(partition_id, tablet_id);
     if (ret <= 0) {
         return ret;
     }
@@ -5021,12 +5043,21 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
                     .tag("rowset_id", rs_meta.rowset_id_v2());
             return -1;
         }
-        if (decrement_delete_bitmap_packed_file_ref_counts(tablet_id, rs_meta.rowset_id_v2(),
-                                                           nullptr) != 0) {
-            LOG_WARNING("failed to decrement delete bitmap packed file ref count")
-                    .tag("instance_id", instance_id_)
-                    .tag("tablet_id", tablet_id)
-                    .tag("rowset_id", rs_meta.rowset_id_v2());
+        int should_delete_dbm = may_have_versioned_delete_bitmap(rs_meta.partition_id(), tablet_id);
+        if (should_delete_dbm == 1) {
+            DeleteBitmapStorageType delete_bitmap_storage_type = DeleteBitmapStorageType::NOT_FOUND;
+            std::vector<std::string> rowset_dbm_keys;
+            if (decrement_delete_bitmap_packed_file_ref_counts(tablet_id, rs_meta.rowset_id_v2(),
+                                                               &delete_bitmap_storage_type,
+                                                               nullptr) != 0) {
+                LOG_WARNING("failed to decrement delete bitmap packed file ref count")
+                        .tag("instance_id", instance_id_)
+                        .tag("tablet_id", tablet_id)
+                        .tag("rowset_id", rs_meta.rowset_id_v2())
+                        .tag("task_type", metrics_context.operation_type);
+                return -1;
+            }
+        } else if (should_delete_dbm != 0) {
             return -1;
         }
         recycle_rowsets_number += 1;

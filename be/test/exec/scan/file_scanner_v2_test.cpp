@@ -355,6 +355,10 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
             {"hive", TFileFormatType::FORMAT_ARROW, std::nullopt, false},
             {"", TFileFormatType::FORMAT_ARROW, std::nullopt, false},
             {"", TFileFormatType::FORMAT_WAL, std::nullopt, true},
+            {.table_format = "es",
+             .params_format = TFileFormatType::FORMAT_ES_HTTP,
+             .range_format = std::nullopt,
+             .expected = true},
             {"", TFileFormatType::FORMAT_ES_HTTP, std::nullopt, false},
             {"", TFileFormatType::FORMAT_LANCE, std::nullopt, false},
     };
@@ -428,16 +432,33 @@ TEST(FileScannerV2Test, IcebergPositionDeletesSupportNativeFormats) {
     EXPECT_FALSE(FileScannerV2::is_supported(params, avro_position_delete));
 }
 
-TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
+TEST(FileScannerV2Test, ArrowStreamLoadsSelectV2) {
+    TQueryOptions options;
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_ARROW);
+    params.__set_file_type(TFileType::FILE_STREAM);
+    params.__set_src_tuple_id(0);
+    TFileRangeDesc range;
+    range.__set_format_type(TFileFormatType::FORMAT_ARROW);
+    range.__set_file_type(TFileType::FILE_STREAM);
+    range.__set_load_id(TUniqueId());
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, true, params));
+    EXPECT_TRUE(FileScannerV2::is_supported(params, range));
+}
+
+TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesAndLoads) {
     TQueryOptions query_options;
     TFileScanRangeParams params;
     params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
 
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+
+    query_options.__set_enable_file_scanner_v2(false);
     EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
 
     query_options.__set_enable_file_scanner_v2(true);
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, true, params));
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, true, params));
 
     params.__set_format_type(TFileFormatType::FORMAT_WAL);
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
@@ -446,12 +467,12 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
     params.__set_format_type(TFileFormatType::FORMAT_LANCE);
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
 
-    const std::vector<TFileFormatType::type> unsupported_formats {TFileFormatType::FORMAT_ES_HTTP};
-    for (const auto format : unsupported_formats) {
-        params.__set_format_type(format);
-        EXPECT_FALSE(
-                FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-    }
+    params.__set_format_type(TFileFormatType::FORMAT_ES_HTTP);
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, true, params));
+    query_options.__set_enable_file_scanner_v2(false);
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    query_options.__set_enable_file_scanner_v2(true);
 
     params.__set_format_type(TFileFormatType::FORMAT_ORC);
     TTableFormatFileDesc table_format_params;
@@ -472,7 +493,7 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
     params.__isset.hive_parquet_time_zone = false;
     params.__set_parquet_timestamp_semantics_version(1);
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, true, params));
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, true, params));
     // Paimon keeps FORMAT_JNI at scan level even when its ranges are native Parquet files.
     params.format_type = TFileFormatType::FORMAT_JNI;
     params.__set_paimon_predicate("encoded-predicate");
@@ -502,7 +523,8 @@ TEST(FileScannerV2Test, IcebergOrcDefaultCannotHideDeferredParquetRanges) {
     // Scanner construction precedes remote split delivery; the default says nothing about
     // retained Parquet files after changing write.format.default to ORC.
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, false, params));
-    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, true, params));
+    // ORC loads select V2 independently of the external-query session option.
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, true, params));
     params.__isset.parquet_timestamp_semantics_version = false;
     EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, false, params));
     params.__set_hive_parquet_time_zone("");

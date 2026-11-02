@@ -86,4 +86,38 @@ suite("test_arrow_stream_load_uppercase_column", "p0") {
         FROM test_arrow_stream_load_uppercase_column_auto
         ORDER BY id
     """
+
+    sql "DROP TABLE IF EXISTS test_arrow_stream_load_v2_expressions"
+    sql """
+        CREATE TABLE test_arrow_stream_load_v2_expressions (
+            id INT,
+            EV DOUBLE,
+            doubled INT,
+            tag VARCHAR(16) DEFAULT "loaded"
+        ) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_num" = "1")
+    """
+    streamLoad {
+        table 'test_arrow_stream_load_v2_expressions'
+        set 'format', 'arrow'
+        set 'columns', 'id,EV,doubled=id*2'
+        set 'strict_mode', 'true'
+        set 'where', 'id > 1'
+        file 'arrow_uppercase_column.arrow'
+        time 10000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            def response = parseJson(result)
+            assertEquals("success", response.Status.toLowerCase())
+            assertEquals(1, response.NumberLoadedRows)
+            assertEquals(1, response.NumberUnselectedRows)
+            assertEquals(0, response.NumberFilteredRows)
+        }
+    }
+    sql "sync"
+    order_qt_expressions "SELECT * FROM test_arrow_stream_load_v2_expressions ORDER BY id"
+
 }

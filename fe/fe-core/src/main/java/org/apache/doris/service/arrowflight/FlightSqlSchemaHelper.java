@@ -49,6 +49,7 @@ import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ZeroVector;
 import org.apache.arrow.vector.complex.BaseRepeatedValueVector;
 import org.apache.arrow.vector.complex.MapVector;
+import org.apache.arrow.vector.extension.UuidType;
 import org.apache.arrow.vector.ipc.WriteChannel;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
 import org.apache.arrow.vector.types.DateUnit;
@@ -126,6 +127,8 @@ public class FlightSqlSchemaHelper {
             case IPV6:
             case VARIANT:
                 return new ArrowType.Utf8();
+            case UUID:
+                return UuidType.INSTANCE;
             case DATEV2:
                 // DAY, not MILLISECOND: BE writes a DATEV2 column as arrow::Date32Type (a day number),
                 // so a MILLISECOND unit here describes the metadata as date64 while the data that
@@ -204,6 +207,7 @@ public class FlightSqlSchemaHelper {
             case LARGEINT:
             case IPV4:
             case IPV6:
+            case UUID:
             case VARIANT:
                 marker = type.getPrimitiveType().name();
                 break;

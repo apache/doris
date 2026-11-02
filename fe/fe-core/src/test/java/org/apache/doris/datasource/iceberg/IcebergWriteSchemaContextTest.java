@@ -177,15 +177,10 @@ public class IcebergWriteSchemaContextTest {
                 stringValue(context.resolveWriteDefault(columns.get("timestamp_col"))));
         Assertions.assertEquals("2025-01-18 01:02:03.654321+00:00",
                 stringValue(context.resolveWriteDefault(columns.get("timestamptz_col"))));
-        Assertions.assertArrayEquals(
-                ByteBuffer.allocate(16)
-                        .putLong(UUID.fromString("123e4567-e89b-12d3-a456-426614174001")
-                                .getMostSignificantBits())
-                        .putLong(UUID.fromString("123e4567-e89b-12d3-a456-426614174001")
-                                .getLeastSignificantBits())
-                        .array(),
-                (byte[]) ((VarBinaryLiteral) context.resolveWriteDefault(
-                        columns.get("uuid_col"))).getValue());
+        Assertions.assertEquals(
+                new org.apache.doris.nereids.trees.expressions.literal.UuidLiteral(
+                        "123e4567-e89b-12d3-a456-426614174001"),
+                context.resolveWriteDefault(columns.get("uuid_col")));
         Assertions.assertArrayEquals(new byte[] {0x0a, 0x0b, 0x0c, 0x0d},
                 (byte[]) ((VarBinaryLiteral) context.resolveWriteDefault(
                         columns.get("fixed_col"))).getValue());
@@ -248,10 +243,8 @@ public class IcebergWriteSchemaContextTest {
         Expression uuid = IcebergWriteSchemaContext.toDorisExpression(
                 Types.UUIDType.get(), UUID.fromString("123e4567-e89b-12d3-a456-426614174000"),
                 uuidTarget, false, false);
-        UUID uuidValue = UUID.fromString("123e4567-e89b-12d3-a456-426614174000");
-        byte[] uuidBytes = ByteBuffer.allocate(16).putLong(uuidValue.getMostSignificantBits())
-                .putLong(uuidValue.getLeastSignificantBits()).array();
-        Assertions.assertArrayEquals(uuidBytes, (byte[]) ((VarBinaryLiteral) uuid).getValue());
+        Assertions.assertEquals(new org.apache.doris.nereids.trees.expressions.literal.UuidLiteral(
+                "123e4567-e89b-12d3-a456-426614174000"), uuid);
     }
 
     @Test

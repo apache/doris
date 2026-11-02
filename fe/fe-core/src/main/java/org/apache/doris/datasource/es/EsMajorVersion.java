@@ -17,11 +17,9 @@
 
 package org.apache.doris.datasource.es;
 
-
 /**
- * Elasticsearch major version information, useful to check client's query compatibility with the Rest API.
- * <p>
- * reference es-hadoop:
+ * Elasticsearch major version information.
+ * Adapted from fe-core's EsMajorVersion — no fe-core dependencies.
  */
 public class EsMajorVersion {
 
@@ -32,7 +30,8 @@ public class EsMajorVersion {
     public static final EsMajorVersion V_6_X = new EsMajorVersion((byte) 6, "6.x");
     public static final EsMajorVersion V_7_X = new EsMajorVersion((byte) 7, "7.x");
     public static final EsMajorVersion V_8_X = new EsMajorVersion((byte) 8, "8.x");
-    public static final EsMajorVersion LATEST = V_8_X;
+    public static final EsMajorVersion V_9_X = new EsMajorVersion((byte) 9, "9.x");
+    public static final EsMajorVersion LATEST = V_9_X;
 
     public final byte major;
     private final String version;
@@ -66,7 +65,7 @@ public class EsMajorVersion {
         return version.major >= major;
     }
 
-    public static EsMajorVersion parse(String version) throws DorisEsException {
+    public static EsMajorVersion parse(String version) {
         if (version.startsWith("0.")) {
             return new EsMajorVersion((byte) 0, version);
         }
@@ -85,13 +84,17 @@ public class EsMajorVersion {
         if (version.startsWith("7.")) {
             return new EsMajorVersion((byte) 7, version);
         }
-        // used for the next released ES version
         if (version.startsWith("8.")) {
             return new EsMajorVersion((byte) 8, version);
         }
+        // Node discovery parses every node during rolling upgrades; ES 9 uses the same typeless
+        // mapping and HTTP scan APIs as ES 8. Keep future, unverified majors explicitly rejected.
+        if (version.startsWith("9.")) {
+            return new EsMajorVersion((byte) 9, version);
+        }
         throw new DorisEsException(
-                "Unsupported/Unknown ES Cluster version [" + version + "]." + "Highest supported version is ["
-                        + LATEST.version + "].");
+                "Unsupported/Unknown ES Cluster version [" + version + "]. "
+                        + "Highest supported version is [" + LATEST.version + "].");
     }
 
     @Override
@@ -102,10 +105,8 @@ public class EsMajorVersion {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-
-        EsMajorVersion version = (EsMajorVersion) o;
-
-        return major == version.major && version.equals(version.version);
+        EsMajorVersion that = (EsMajorVersion) o;
+        return major == that.major;
     }
 
     @Override

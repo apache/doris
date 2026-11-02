@@ -451,7 +451,8 @@ final class FlightSqlQuerySchema {
         Map<String, String> metadata = null;
         // Execution preserves logical type markers at every depth; Prepare must match them exactly.
         if (primitive == PrimitiveType.LARGEINT || primitive == PrimitiveType.IPV4
-                || primitive == PrimitiveType.IPV6 || primitive == PrimitiveType.VARIANT
+                || primitive == PrimitiveType.IPV6 || primitive == PrimitiveType.UUID
+                || primitive == PrimitiveType.VARIANT
                 || primitive == PrimitiveType.JSONB) {
             metadata = Collections.singletonMap("doris_type",
                     primitive == PrimitiveType.JSONB ? "JSON" : primitive.toString());

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -25,6 +26,7 @@ import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class BindFunctionTest extends TestWithFeService implements MemoPatternMatchSupported {
@@ -42,6 +44,8 @@ public class BindFunctionTest extends TestWithFeService implements MemoPatternMa
                 "CREATE TABLE t2 (col1 date, col2 int) DISTRIBUTED BY HASH(col2)\n" + "BUCKETS 1\n" + "PROPERTIES(\n"
                         + "    \"replication_num\"=\"1\"\n" + ");"
         );
+        createTable("CREATE TABLE t_arr (id INT, arr2 ARRAY<INT>) DISTRIBUTED BY HASH(id) BUCKETS 1"
+                + " PROPERTIES (\"replication_num\"=\"1\")");
     }
 
     @Test
@@ -73,5 +77,18 @@ public class BindFunctionTest extends TestWithFeService implements MemoPatternMa
                                 logicalProject(logicalOlapScan())
                         ).when(join -> join.getHashJoinConjuncts().size() == 1)
                 );
+    }
+
+    @Test
+    void testArraySortComparatorMustReturnInteger() {
+        // The comparator returns -1, 0 or 1 for less than, equal to or greater than.
+        String sql = "SELECT array_sort((x, y) -> x < y, arr2) FROM t_arr";
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(sql));
+        Assertions.assertTrue(exception.getMessage().contains("the lambda must return -1, 0 or 1 for less than,"
+                + " equal to or greater than, but it returns BOOLEAN"), exception.getMessage());
+
+        // Any integer type passes analysis. BE checks that the value is -1, 0 or 1.
+        PlanChecker.from(connectContext).analyze("SELECT array_sort((x, y) -> x - y, arr2) FROM t_arr");
     }
 }

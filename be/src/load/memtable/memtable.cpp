@@ -49,6 +49,21 @@ bvar::Adder<uint64_t> g_flush_cuz_memtable_full("flush_cuz_memtable_full");
 
 using namespace ErrorCode;
 
+namespace {
+
+// Share one tracked allocation across a batch. Allocating each row separately also
+// retains an address record and a stack trace per row when memory diagnostics are enabled.
+template <typename RowFactory>
+std::shared_ptr<RowInBlock[]> make_row_batch(size_t num_rows, RowFactory&& make_row) {
+    auto rows = std::allocate_shared<RowInBlock[]>(CustomStdAllocator<RowInBlock>(), num_rows);
+    for (size_t i = 0; i < num_rows; ++i) {
+        rows[i] = make_row(i);
+    }
+    return rows;
+}
+
+} // namespace
+
 MemTable::MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schema,
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
                    bool enable_unique_key_mow, PartialUpdateInfo* partial_update_info,
@@ -242,8 +257,11 @@ Status MemTable::insert(const Block* input_block, const DorisVector<uint32_t>& r
     size_t cursor_in_mutableblock = _input_mutable_block.rows();
     RETURN_IF_ERROR(_input_mutable_block.add_rows(input_block, row_idxs.data(),
                                                   row_idxs.data() + num_rows, &_column_offset));
-    for (int i = 0; i < num_rows; i++) {
-        _row_in_blocks->emplace_back(std::make_shared<RowInBlock>(cursor_in_mutableblock + i));
+    DBUG_EXECUTE_IF("MemTable.insert.row_batch_allocation", DBUG_RUN_CALLBACK(this));
+    auto row_batch = make_row_batch(
+            num_rows, [&](size_t i) { return RowInBlock(cursor_in_mutableblock + i); });
+    for (size_t i = 0; i < num_rows; ++i) {
+        _row_in_blocks->emplace_back(row_batch, &row_batch[i]);
     }
 
     _stat.raw_rows += num_rows;
@@ -361,8 +379,9 @@ Status MemTable::_sort_by_cluster_keys() {
 
     DorisVector<std::shared_ptr<RowInBlock>> row_in_blocks;
     row_in_blocks.reserve(mutable_block.rows());
-    for (size_t i = 0; i < mutable_block.rows(); i++) {
-        row_in_blocks.emplace_back(std::make_shared<RowInBlock>(i));
+    auto rows = make_row_batch(mutable_block.rows(), [&](size_t i) { return RowInBlock(i); });
+    for (size_t i = 0; i < mutable_block.rows(); ++i) {
+        row_in_blocks.emplace_back(rows, &rows[i]);
     }
     Tie tie = Tie(0, mutable_block.rows());
 
@@ -463,12 +482,26 @@ void MemTable::_finalize_one_row(RowInBlock* row, MutableBlock& mutable_block, i
 }
 
 void MemTable::_init_row_for_agg(RowInBlock* row, MutableBlock& mutable_block) {
-    row->init_agg_places(_arena.aligned_alloc(_total_size_of_aggregate_states, 16),
-                         _offsets_of_aggregate_states.data());
-    for (auto cid = _tablet_schema->num_key_columns(); cid < _num_columns; cid++) {
+    auto* agg_mem = _arena.aligned_alloc(_total_size_of_aggregate_states, 16);
+    auto first_value_column = _tablet_schema->num_key_columns();
+    auto cid = first_value_column;
+    try {
+        for (; cid < _num_columns; ++cid) {
+            _agg_functions[cid]->create(agg_mem + _offsets_of_aggregate_states[cid]);
+        }
+    } catch (...) {
+        // A failed constructor leaves only the completed prefix available for destruction.
+        while (cid > first_value_column) {
+            --cid;
+            _agg_functions[cid]->destroy(agg_mem + _offsets_of_aggregate_states[cid]);
+        }
+        throw;
+    }
+    // add() can allocate. Publish the row only after all states can be safely destroyed.
+    row->init_agg_places(agg_mem, _offsets_of_aggregate_states.data());
+    for (cid = first_value_column; cid < _num_columns; ++cid) {
         auto* col_ptr = mutable_block.mutable_columns()[cid].get();
         auto* data = row->agg_places(cid);
-        _agg_functions[cid]->create(data);
         _agg_functions[cid]->add(data, const_cast<const doris::IColumn**>(&col_ptr), row->_row_pos,
                                  _arena);
     }
@@ -541,6 +574,14 @@ void MemTable::_aggregate() {
         //TODO(weixang):opt here.
         _output_mutable_block = MutableBlock::build_mutable_block(std::move(*empty_input_block));
         _output_mutable_block.clear_column_data();
+        // Repack surviving rows so they do not retain batches of merged-away rows.
+        // Aggregation states belong to the memtable; preserve their pointers and flags.
+        DBUG_EXECUTE_IF("MemTable.aggregate.row_batch_allocation", DBUG_RUN_CALLBACK(this));
+        auto rows = make_row_batch(temp_row_in_blocks.size(),
+                                   [&](size_t i) { return *temp_row_in_blocks[i]; });
+        for (size_t i = 0; i < temp_row_in_blocks.size(); ++i) {
+            temp_row_in_blocks[i] = {rows, &rows[i]};
+        }
         *_row_in_blocks = temp_row_in_blocks;
         _last_sorted_pos = _row_in_blocks->size();
     }

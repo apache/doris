@@ -29,6 +29,7 @@ import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
@@ -499,6 +500,11 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
                     throw new AnalysisException(
                             String.format("Static partition value must be a literal, but got: %s", expr));
                 }
+            }
+            if (sink.getWriteSchemaContext().isPresent()) {
+                IcebergWriteSchemaContext context = sink.getWriteSchemaContext().get();
+                staticPartitionValues = IcebergUtils.toPartitionFieldKeys(
+                        staticPartitionValues, context.getSchema(), context.getPartitionSpec());
             }
             insertCtx.setStaticPartitionValues(staticPartitionValues);
         }

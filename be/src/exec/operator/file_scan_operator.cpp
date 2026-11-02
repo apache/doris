@@ -34,6 +34,7 @@
 #include "exec/scan/scanner_context.h"
 #include "format/format_common.h"
 #include "format/table/iceberg_scan_semantics.h"
+#include "format_v2/parquet/parquet_profile.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_manager.h"
 
@@ -62,6 +63,11 @@ bool contains_variant_type(const DataTypePtr& input) {
 }
 
 } // namespace
+
+FileScanLocalState::FileScanLocalState(RuntimeState* state, OperatorXBase* parent)
+        : ScanLocalState<FileScanLocalState>(state, parent) {}
+
+FileScanLocalState::~FileScanLocalState() = default;
 
 PushDownType FileScanLocalState::_should_push_down_binary_predicate(
         VectorizedFnCall* fn_call, VExprContext* expr_ctx, Field& constant_val,
@@ -145,6 +151,37 @@ bool FileScanLocalState::TEST_should_use_file_scanner_v2(const TQueryOptions& qu
 bool FileScanLocalState::should_use_file_scanner_v2(const TQueryOptions& query_options,
                                                     bool is_load,
                                                     const TFileScanRangeParams& scan_params) {
+    if (is_load) {
+        // ADBC and Fluss are query-only connectors. Their default Parquet format must not
+        // admit them to the ordinary file-load conversion path.
+        if (scan_params.__isset.table_format_params &&
+            (scan_params.table_format_params.table_format_type == "adbc" ||
+             scan_params.table_format_params.table_format_type == "fluss")) {
+            return false;
+        }
+        // Load planners omit query session options. Thrift's default makes an omitted V2
+        // option indistinguishable from false, so ingestion selects by format instead.
+        switch (scan_params.format_type) {
+        case TFileFormatType::FORMAT_PARQUET:
+        case TFileFormatType::FORMAT_ORC:
+        case TFileFormatType::FORMAT_JSON:
+        case TFileFormatType::FORMAT_CSV_PLAIN:
+        case TFileFormatType::FORMAT_CSV_GZ:
+        case TFileFormatType::FORMAT_CSV_BZ2:
+        case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+        case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
+        case TFileFormatType::FORMAT_CSV_LZOP:
+        case TFileFormatType::FORMAT_CSV_DEFLATE:
+        case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
+        case TFileFormatType::FORMAT_PROTO:
+        case TFileFormatType::FORMAT_TEXT:
+        case TFileFormatType::FORMAT_WAL:
+        case TFileFormatType::FORMAT_ARROW:
+            return true;
+        default:
+            return false;
+        }
+    }
     const bool is_transactional_hive =
             scan_params.__isset.table_format_params &&
             scan_params.table_format_params.table_format_type == "transactional_hive";
@@ -166,15 +203,14 @@ bool FileScanLocalState::should_use_file_scanner_v2(const TQueryOptions& query_o
     // Iceberg's default write format does not describe retained files, and remote splits arrive
     // after scanner construction. Keep versioned Iceberg scans on V2 without eagerly listing
     // every file.
-    return scanner_v2_requested && !is_load &&
-           scan_params.format_type != TFileFormatType::FORMAT_ES_HTTP && !is_transactional_hive;
+    return scanner_v2_requested && !is_load && !is_transactional_hive;
 }
 
 bool FileScanLocalState::_can_generate_physical_splits(const TQueryOptions& query_options,
                                                        bool is_load,
                                                        const TFileScanRangeParams& scan_params,
                                                        const TFileRangeDesc& range) {
-    if (!should_use_file_scanner_v2(query_options, is_load, scan_params)) {
+    if (is_load || !should_use_file_scanner_v2(query_options, is_load, scan_params)) {
         return false;
     }
     const auto format = range.__isset.format_type ? range.format_type : scan_params.format_type;
@@ -243,6 +279,10 @@ Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
         return Status::NotSupported(
                 "External VARIANT columns require FileScannerV2; the legacy file scanner does "
                 "not support VARIANT");
+    }
+    if (use_file_scanner_v2) {
+        _parquet_profile_cache =
+                std::make_unique<format::parquet::ParquetProfileCache>(_scanner_profile.get());
     }
     for (int i = 0; i < _max_scanners; ++i) {
         ScannerSPtr scanner;

@@ -118,6 +118,9 @@ public class JdbcPostgreSQLClient extends JdbcClient {
     protected Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
         String pgType = fieldSchema.getDataTypeName().orElse("unknown");
         switch (pgType) {
+            // Preserve the external logical UUID independently of binary mapping options.
+            case "uuid":
+                return Type.UUID;
             case "int2":
             case "smallserial":
                 return Type.SMALLINT;
@@ -184,7 +187,6 @@ public class JdbcPostgreSQLClient extends JdbcClient {
             case "macaddr":
             case "macaddr8":
             case "varbit":
-            case "uuid":
             case "xml":
             case "hstore":
             case "json":

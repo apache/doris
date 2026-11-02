@@ -27,6 +27,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.thrift.TColumnDesc;
 import org.apache.doris.thrift.TPrimitiveType;
 
+import org.apache.arrow.vector.extension.UuidType;
 import org.apache.arrow.vector.ipc.ReadChannel;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
 import org.apache.arrow.vector.types.pojo.ArrowType;
@@ -62,6 +63,26 @@ public class FlightSqlNativeVariantTest {
         Config.enable_variant_v2 = false;
         Assert.assertThrows(org.apache.arrow.flight.FlightRuntimeException.class,
                 () -> FlightSqlSchemaHelper.nativeVariantField("v", true, Collections.emptyMap()));
+    }
+
+    @Test
+    public void preparedUuidMetadataMatchesBackendAtEveryDepth() {
+        Type nested = new StructType(new ArrayList<>(Arrays.asList(
+                new StructField("scalar", Type.UUID),
+                new StructField("array", new ArrayType(Type.UUID, true)),
+                new StructField("map", new MapType(Type.UUID, Type.UUID)))));
+        Field prepared = Deencapsulation.invoke(FlightSqlQuerySchema.class, "field",
+                "s", nested, true, true, "UTC");
+        Field scalar = prepared.getChildren().get(0);
+        Field item = prepared.getChildren().get(1).getChildren().get(0);
+        Field entries = prepared.getChildren().get(2).getChildren().get(0);
+        for (Field leaf : Arrays.asList(scalar, item, entries.getChildren().get(0), entries.getChildren().get(1))) {
+            Assert.assertEquals(UuidType.INSTANCE, leaf.getType());
+            Assert.assertEquals("UUID", leaf.getMetadata().get("doris_type"));
+        }
+        Field execution = FlightSqlSchemaHelper.withDorisTypeMetadata(
+                Field.nullable("scalar", UuidType.INSTANCE), Type.UUID);
+        Assert.assertEquals(scalar, execution);
     }
 
     @Test

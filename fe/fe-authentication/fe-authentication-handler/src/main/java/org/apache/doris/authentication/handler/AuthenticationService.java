@@ -31,6 +31,7 @@ import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.OptionalLong;
 import java.util.Set;
 
 /**
@@ -232,7 +233,11 @@ public class AuthenticationService {
         Principal principal = Objects.requireNonNull(result.getPrincipal(), "principal is required for success");
         Set<String> grantedRoles = mergeGrantedRoles(
                 result.getGrantedRoles(), roleMappingEvaluator.evaluate(integration, principal));
-        return AuthenticationOutcome.of(integration, AuthenticationResult.success(principal, grantedRoles));
+        OptionalLong credentialExpiresAtMillis = result.getCredentialExpiresAtMillis();
+        AuthenticationResult mappedResult = credentialExpiresAtMillis.isPresent()
+                ? AuthenticationResult.success(principal, grantedRoles, credentialExpiresAtMillis.getAsLong())
+                : AuthenticationResult.success(principal, grantedRoles);
+        return AuthenticationOutcome.of(integration, mappedResult);
     }
 
     private static Set<String> mergeGrantedRoles(Set<String> existingGrantedRoles, Set<String> evaluatedGrantedRoles) {

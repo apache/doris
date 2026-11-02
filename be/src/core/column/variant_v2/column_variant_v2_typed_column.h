@@ -33,6 +33,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/value/large_int_value.h"
+#include "core/value/uuid_value.h"
 #include "core/value/variant/variant_parquet_encoding.h"
 #include "core/value/variant/variant_scalar.h"
 #include "exec/common/format_ip.h"
@@ -139,6 +140,8 @@ void with_variant_typed_scalar(const Column& column, size_t row, uint8_t scale,
         format_ipv6(reinterpret_cast<unsigned char*>(&address), end);
         const StringRef text(buffer.data(), end - buffer.data());
         callback(VariantScalarRef::string(text));
+    } else if constexpr (Type == TYPE_UUID) {
+        callback(VariantScalarRef::uuid(UUIDValue::to_big_endian(column.get_data()[row])));
     }
 }
 

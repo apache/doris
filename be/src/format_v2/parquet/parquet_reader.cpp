@@ -531,8 +531,14 @@ DataTypePtr apply_projection_timestamp_semantics(ParquetColumnSchema* column_sch
         const bool physical_timestamp =
                 descriptor.physical_type == tparquet::Type::INT96 || descriptor.is_timestamp;
         if (physical_timestamp && projection.timestamp_is_adjusted_to_utc.has_value()) {
-            const auto target =
-                    *projection.timestamp_is_adjusted_to_utc ? TYPE_TIMESTAMPTZ : TYPE_DATETIMEV2;
+            // A table's wall-clock annotation must not narrow a nanosecond physical column.
+            auto target = TYPE_DATETIMEV2;
+            if (*projection.timestamp_is_adjusted_to_utc) {
+                target = TYPE_TIMESTAMPTZ;
+            } else if (column_schema->type != nullptr &&
+                       column_schema->type->get_primitive_type() == TYPE_TIMESTAMP_NS) {
+                target = TYPE_TIMESTAMP_NS;
+            }
             column_schema->type = DataTypeFactory::instance().create_data_type(
                     target, column_schema->type != nullptr && column_schema->type->is_nullable(), 0,
                     timestamp_tz_scale(descriptor));
@@ -677,14 +683,17 @@ ParquetReader::ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_p
                              bool enable_mapping_timestamp_tz, bool enable_mapping_varbinary,
                              std::shared_ptr<const FileContext> file_context,
                              int64_t format_split_id, int64_t format_split_id_end,
-                             std::optional<std::string> hive_parquet_time_zone)
+                             std::optional<std::string> hive_parquet_time_zone,
+                             bool preserve_binary_uuid, ParquetProfileCache* profile_cache)
         : FileReader(system_properties, file_description, io_ctx, profile),
+          _profile_cache(profile_cache),
           _global_rowid_context(global_rowid_context),
           _enable_mapping_timestamp_tz(enable_mapping_timestamp_tz),
           _enable_mapping_varbinary(enable_mapping_varbinary),
           _file_context(std::move(file_context)),
           _format_split_id(format_split_id),
           _format_split_id_end(format_split_id_end),
+          _preserve_binary_uuid(preserve_binary_uuid),
           _hive_parquet_time_zone(std::move(hive_parquet_time_zone)) {}
 
 ParquetReader::~ParquetReader() = default;
@@ -739,7 +748,8 @@ Status ParquetReader::init(RuntimeState* state) {
         SCOPED_TIMER(_parquet_profile.parse_footer_time);
         file_context_status = _state->file_context.open(
                 _tracing_file_reader, _io_ctx.get(), _state->enable_page_cache, *_file_description,
-                _enable_mapping_timestamp_tz, _enable_mapping_varbinary, _file_context);
+                _enable_mapping_timestamp_tz, _enable_mapping_varbinary, _file_context,
+                _preserve_binary_uuid);
     }
     // Publish physical-footer outcomes even when opening the file fails so a failing footer path
     // remains visible in the profile that must diagnose it.
@@ -1364,7 +1374,12 @@ Status ParquetReader::close() {
 }
 
 void ParquetReader::_init_profile() {
-    _parquet_profile.init(_profile);
+    if (_profile_cache != nullptr) {
+        _parquet_profile = _profile_cache->get();
+    } else {
+        // Standalone readers do not have a scan instance to own a shared counter set.
+        _parquet_profile.init(_profile);
+    }
 }
 
 } // namespace doris::format::parquet

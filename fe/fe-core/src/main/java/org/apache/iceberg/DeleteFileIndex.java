@@ -290,6 +290,9 @@ public class DeleteFileIndex {
       T deleteLower,
       T deleteUpper) {
     Type.PrimitiveType type = field.type().asPrimitiveType();
+    if (isHistoricalDateBound(type, dataLowerBuf) || isHistoricalDateBound(type, dataUpperBuf)) {
+      return true;
+    }
     Comparator<T> comparator = Comparators.forType(type);
 
     T dataLower = Conversions.fromByteBuffer(type, dataLowerBuf);
@@ -303,6 +306,13 @@ public class DeleteFileIndex {
     }
 
     return true;
+  }
+
+  private static boolean isHistoricalDateBound(Type type, ByteBuffer bound) {
+    // DATE-to-nanos promotion preserves four-byte day bounds in both data and delete manifests.
+    // Widening them to long does not convert their units, even after the key leaves the scan schema.
+    return type.typeId() == Type.TypeID.TIMESTAMP_NANO
+        && bound != null && bound.remaining() == Integer.BYTES;
   }
 
   private static boolean allNonNull(Map<Integer, Long> nullValueCounts, Types.NestedField field) {
@@ -929,7 +939,7 @@ public class DeleteFileIndex {
           Type type = field.type();
           if (type.isPrimitiveType()) {
             ByteBuffer bound = bounds.get(id);
-            if (bound != null) {
+            if (bound != null && !isHistoricalDateBound(type, bound)) {
               converted.put(id, Conversions.fromByteBuffer(type, bound));
             }
           }

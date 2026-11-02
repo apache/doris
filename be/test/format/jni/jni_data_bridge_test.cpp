@@ -25,7 +25,9 @@
 #include "core/column/column_nullable.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_uuid.h"
 #include "core/data_type/data_type_variant_v2.h"
+#include "exec/connector/jni_connector.h"
 
 namespace doris {
 namespace {
@@ -33,6 +35,31 @@ namespace {
 template <typename T>
 long address_of(T* pointer) {
     return reinterpret_cast<long>(pointer);
+}
+
+TEST(JniDataBridgeTest, LegacyConnectorTransfersNullableUuidValues) {
+    auto type = make_nullable(std::make_shared<DataTypeUUID>());
+    std::array<UInt8, 3> nulls {0, 1, 0};
+    std::array<UUIDValueType, 3> values {UUIDValue::from_parts(0x0011223344556677LL, -1),
+                                         UUIDValue::from_parts(0, 0),
+                                         UUIDValue::from_parts(-1, -1)};
+    std::array<long, 3> java_meta {3, address_of(nulls.data()), address_of(values.data())};
+    Block block;
+    block.insert({type->create_column(), type, "u"});
+    const auto status = JniConnector::fill_block(&block, {0}, address_of(java_meta.data()));
+    ASSERT_TRUE(status.ok()) << status;
+    const auto& column = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    const auto& uuids = assert_cast<const ColumnUUID&>(column.get_nested_column());
+    EXPECT_EQ(column.get_null_map_data(), NullMap({0, 1, 0}));
+    EXPECT_EQ(uuids.get_element(0), values[0]);
+    EXPECT_EQ(uuids.get_element(2), values[2]);
+    std::unique_ptr<long[]> exported;
+    ASSERT_TRUE(JniConnector::to_java_table(&block, exported).ok());
+    EXPECT_EQ(exported[0], 3);
+    EXPECT_EQ(exported[1], 0); // Non-constant column.
+    const auto* exported_values = reinterpret_cast<const UUIDValueType*>(exported[3]);
+    EXPECT_EQ(exported_values[0], values[0]);
+    EXPECT_EQ(exported_values[2], values[2]);
 }
 
 TEST(JniDataBridgeTest, VariantTypeUsesVariantJniName) {

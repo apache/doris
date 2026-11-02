@@ -130,6 +130,35 @@ public class S3SourceOffsetProviderTest {
     }
 
     @Test
+    public void testListingRefreshesFileSizeAndModificationTime() throws Exception {
+        RemoteFileSystem fs = Mockito.mock(RemoteFileSystem.class);
+        try (MockedStatic<FileSystemFactory> factory = Mockito.mockStatic(FileSystemFactory.class)) {
+            factory.when(() -> FileSystemFactory.get(Mockito.any(StorageProperties.class))).thenReturn(fs);
+            for (S3SourceOffsetProvider provider : ImmutableList.of(
+                    new S3SourceOffsetProvider(), new S3SourceOffsetProvider(ONCE_PROPS))) {
+                Mockito.when(fs.globListWithLimit(Mockito.anyString(), Mockito.anyList(), Mockito.isNull(),
+                        Mockito.anyLong(), Mockito.anyLong())).thenAnswer(invocation -> {
+                            List<RemoteFile> files = invocation.getArgument(1);
+                            files.add(new RemoteFile("s3://bucket/data/a.csv", true, 19, 0, 1767225600000L));
+                            return new GlobListResult(Status.OK, "data/a.csv", "bucket", "data/");
+                        }).thenAnswer(invocation -> {
+                            List<RemoteFile> files = invocation.getArgument(1);
+                            files.add(new RemoteFile("s3://bucket/data/a.csv", true, 170, 0, 1767225601000L));
+                            return new GlobListResult(Status.OK, "data/a.csv", "bucket", "data/");
+                        });
+
+                TBrokerFileStatus first = provider.getNextOffset(ONCE_PROPS, TVF_PROPS).getFileStatuses().get(0);
+                Assertions.assertEquals(19, first.getSize());
+                Assertions.assertEquals(1767225600000L, first.getModificationTime());
+                // An uncommitted batch must pick up an overwrite on the next attempt.
+                TBrokerFileStatus retried = provider.getNextOffset(ONCE_PROPS, TVF_PROPS).getFileStatuses().get(0);
+                Assertions.assertEquals(170, retried.getSize());
+                Assertions.assertEquals(1767225601000L, retried.getModificationTime());
+            }
+        }
+    }
+
+    @Test
     public void testEmptyAndListingErrorRemainDistinct() throws Exception {
         RemoteFileSystem fs = Mockito.mock(RemoteFileSystem.class);
         try (MockedStatic<FileSystemFactory> factory = Mockito.mockStatic(FileSystemFactory.class)) {

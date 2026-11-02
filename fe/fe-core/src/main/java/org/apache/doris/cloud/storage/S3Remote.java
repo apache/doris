@@ -45,6 +45,10 @@ public class S3Remote extends DefaultRemote {
 
     @Override
     public String getPresignedUrl(String fileName) {
+        if (!obj.supportsPresignedUrl()) {
+            throw new UnsupportedOperationException("Presigned URLs are not supported for native GCP OAuth "
+                    + "credentials; GCS V4 signing with IAM signBlob is required");
+        }
         try {
             PutObjectRequest objectRequest = PutObjectRequest.builder()
                     .bucket(obj.getBucket())

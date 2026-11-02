@@ -54,7 +54,7 @@ public final class TimeStampNsLiteral extends DateLiteral {
     private final long nanosecond;
 
     public TimeStampNsLiteral(String value) {
-        this(parse(value));
+        this(parseDateTime(value, DateUtils.getTimeZone()));
     }
 
     /** Construct a TIMESTAMP_NS literal from civil datetime fields. */
@@ -76,7 +76,8 @@ public final class TimeStampNsLiteral extends DateLiteral {
                 value.getHour(), value.getMinute(), value.getSecond(), value.getNano());
     }
 
-    private static LocalDateTime parse(String value) {
+    /** Parse civil fields using Doris literal rules and an explicit destination timezone. */
+    public static LocalDateTime parseDateTime(String value, ZoneId targetZone) {
         TemporalAccessor temporal = parseDateTime(value, DateUtils.NANOSECOND_SCALE + 1).get();
         long year = DateUtils.getOrDefault(temporal, ChronoField.YEAR);
         long month = DateUtils.getOrDefault(temporal, ChronoField.MONTH_OF_YEAR);
@@ -95,7 +96,7 @@ public final class TimeStampNsLiteral extends DateLiteral {
         ZoneId zoneId = temporal.query(TemporalQueries.zone());
         if (zoneId != null) {
             Instant instant = DateTimeLiteral.convertLocalToInstantPreservingFraction(result, zoneId);
-            result = LocalDateTime.ofInstant(instant, DateUtils.getTimeZone());
+            result = LocalDateTime.ofInstant(instant, targetZone);
         }
         return result;
     }

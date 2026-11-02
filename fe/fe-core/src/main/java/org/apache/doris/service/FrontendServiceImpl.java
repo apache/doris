@@ -2265,6 +2265,26 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return Math.floorMod(GROUP_COMMIT_FOLLOWER_INDEX.getAndIncrement(), followerCount);
     }
 
+    private void checkGroupCommitStreamLoadAuth(TStreamLoadPutRequest request) throws AuthenticationException {
+        // Explicit group commit skips loadTxnBegin, so authenticate and authorize the standard Stream Load
+        // request here before it can be forwarded or planned. Requests with load_sql use the separate HTTP
+        // Stream path, whose planner performs its own authorization and whose internal caller uses a token.
+        if (!Strings.isNullOrEmpty(request.getLoadSql()) || !request.isSetGroupCommitMode()
+                || request.getGroupCommitMode().equalsIgnoreCase("off_mode")) {
+            return;
+        }
+
+        if (request.isSetAuthCode()) {
+            // TODO: deprecated, removed in 3.1, use token instead.
+        } else if (Strings.isNullOrEmpty(request.getToken())) {
+            checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
+                    request.getTbl(), request.getUserIp(), PrivPredicate.LOAD,
+                    toForwardedCertificateInfo(request.getCertBasedAuth()));
+        } else {
+            checkTokenOrThrow(request.getToken());
+        }
+    }
+
     private TStreamLoadPutResult forwardGroupCommitStreamLoad(TStreamLoadPutRequest request) {
         HostInfo selfNode = Env.getCurrentEnv().getSelfNode();
         List<Frontend> followers = Env.getCurrentEnv().getFrontends(FrontendNodeType.FOLLOWER).stream()
@@ -2334,14 +2354,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         String groupCommitMode = request.getGroupCommitMode();
-        if (groupCommitMode != null && !groupCommitMode.equals("off_mode") && Env.getCurrentEnv().isMaster()
-                && Config.enable_forward_group_commit_stream_load_to_follower) {
-            TStreamLoadPutResult result = forwardGroupCommitStreamLoad(request);
-            if (result != null) {
-                return result;
-            }
-        }
-
         TStreamLoadPutResult result = new TStreamLoadPutResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
@@ -2349,6 +2361,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         StreamLoadHandler streamLoadHandler = new StreamLoadHandler(request, null, result, clientAddr);
 
         try {
+            checkGroupCommitStreamLoadAuth(request);
+            if (groupCommitMode != null && !groupCommitMode.equals("off_mode") && Env.getCurrentEnv().isMaster()
+                    && Config.enable_forward_group_commit_stream_load_to_follower) {
+                TStreamLoadPutResult forwardedResult = forwardGroupCommitStreamLoad(request);
+                if (forwardedResult != null) {
+                    return forwardedResult;
+                }
+            }
+
             streamLoadHandler.setCloudCluster();
 
             List<TPipelineWorkloadGroup> tWorkloadGroupList = null;
@@ -3093,12 +3114,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         // This allows the BE to discover peer candidates across warehouses.
                         backends = cloudReplica.getAllPrimaryBes();
                         // Also collect secondary backends (may have cached data during primary failover)
-                        for (String computeGroupId : cloudReplica.getPrimaryComputeGroupIds()) {
-                            Backend secondaryBe = cloudReplica.getSecondaryBackend(computeGroupId);
-                            if (secondaryBe != null) {
-                                backends.add(secondaryBe);
-                            }
-                        }
+                        backends.addAll(cloudReplica.getAllSecondaryBes());
                     } else {
                         // On the cloud, the PrimaryBackend of a tablet
                         // indicates the BE where the tablet is stably located,
@@ -3225,9 +3241,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     public TGetBinlogResult getBinlog(TGetBinlogRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("receive get binlog request: {}", request);
-        }
 
         TGetBinlogResult result = new TGetBinlogResult();
         TStatus status = new TStatus(TStatusCode.OK);
@@ -3344,7 +3357,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     // getSnapshot
     public TGetSnapshotResult getSnapshot(TGetSnapshotRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        LOG.trace("receive get snapshot info request: {}", request);
 
         TGetSnapshotResult result = new TGetSnapshotResult();
         TStatus status = checkMaster();
@@ -3458,7 +3470,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     // Restore Snapshot
     public TRestoreSnapshotResult restoreSnapshot(TRestoreSnapshotRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        LOG.trace("receive restore snapshot info request: {}", request);
 
         TRestoreSnapshotResult result = new TRestoreSnapshotResult();
         TStatus status = checkMaster();
@@ -3718,9 +3729,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     public TGetMasterTokenResult getMasterToken(TGetMasterTokenRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("receive get master token request: {}", request);
-        }
 
         TGetMasterTokenResult result = new TGetMasterTokenResult();
         TStatus status = checkMaster();
@@ -3748,9 +3756,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     // getBinlogLag
     public TGetBinlogLagResult getBinlogLag(TGetBinlogRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("receive get binlog lag request: {}", request);
-        }
 
         TGetBinlogLagResult result = new TGetBinlogLagResult();
         TStatus status = checkMaster();
@@ -3850,9 +3855,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     public TLockBinlogResult lockBinlog(TLockBinlogRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("receive lock binlog request: {}", request);
-        }
 
         TLockBinlogResult result = new TLockBinlogResult();
         TStatus status = checkMaster();
@@ -4104,10 +4106,35 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
+        olapTable.readLock();
+        try {
+            int partitionNum = olapTable.getPartitionNum();
+            int newPartitionNum = 0;
+            for (String partitionName : addPartitionClauseMap.keySet()) {
+                if (!olapTable.checkPartitionNameExist(partitionName)) {
+                    newPartitionNum++;
+                }
+            }
+            long expectedPartitionNum = (long) partitionNum + newPartitionNum;
+            int autoPartitionLimit = Config.max_auto_partition_num;
+            if (expectedPartitionNum > autoPartitionLimit) {
+                String errorMessage = String.format(
+                        "partition numbers %d exceeded limit of variable max_auto_partition_num %d",
+                        expectedPartitionNum, autoPartitionLimit);
+                LOG.warn(errorMessage);
+                errorStatus.setErrorMsgs(Lists.newArrayList(errorMessage));
+                result.setStatus(errorStatus);
+                LOG.warn("send create partition error status: {}", result);
+                return result;
+            }
+        } finally {
+            olapTable.readUnlock();
+        }
+
         for (AddPartitionClause addPartitionClause : addPartitionClauseMap.values()) {
             try {
-                // here maybe check and limit created partitions num
-                Env.getCurrentEnv().addPartition(db, olapTable.getName(), addPartitionClause, false, 0, true, null);
+                Env.getCurrentEnv().addPartition(db, olapTable.getName(), addPartitionClause, false, 0, true,
+                        null, true);
             } catch (DdlException e) {
                 LOG.warn(e);
                 errorStatus.setErrorMsgs(
@@ -4133,9 +4160,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         olapTable.readLock();
         try {
-            // check partition's number limit. because partitions in addPartitionClauseMap may be duplicated with
-            // existing partitions, which would lead to false positive. so we should check the partition number AFTER
-            // adding new partitions using its ACTUAL NUMBER, rather than the sum of existing and requested partitions.
+            // Retain the actual-count check for concurrent changes and configuration updates during creation.
             int partitionNum = olapTable.getPartitionNum();
             int autoPartitionLimit = Config.max_auto_partition_num;
             if (partitionNum > autoPartitionLimit) {

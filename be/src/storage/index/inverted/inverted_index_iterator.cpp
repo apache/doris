@@ -21,9 +21,10 @@
 
 #include "common/cast_set.h"
 #include "common/logging.h"
+#include "runtime/runtime_state.h"
 #include "storage/index/index_reader_helper.h"
-#include "storage/index/inverted/inverted_index_cache.h"
-#include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
+#include "storage/index/inverted/common/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/utils.h"
 
@@ -136,7 +137,7 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
 
 Status InvertedIndexIterator::read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle) {
     auto reader = DORIS_TRY(select_any_reader());
-    return reader->read_null_bitmap(_context, cache_handle, nullptr);
+    return reader->read_null_bitmap(_context, cache_handle);
 }
 
 Result<bool> InvertedIndexIterator::has_null() {

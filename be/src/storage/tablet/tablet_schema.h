@@ -43,7 +43,7 @@
 #include "exprs/aggregate/aggregate_function.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/lru_cache_policy.h"
-#include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "storage/metadata_adder.h"
 #include "storage/olap_common.h"
 #include "storage/segment/options.h"
@@ -780,6 +780,10 @@ public:
     void clear_pruned_columns_data_type() { _pruned_columns_data_type.clear(); }
 
     bool has_pruned_columns() const { return !_pruned_columns_data_type.empty(); }
+
+    const std::map<int32_t, DataTypePtr>& pruned_columns_data_type() const {
+        return _pruned_columns_data_type;
+    }
 
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);

@@ -22,11 +22,13 @@ import java.math.BigInteger;
 import java.math.RoundingMode;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.nio.ByteBuffer;
 import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.Arrays;
+import java.util.UUID;
 
 public class TypeNativeBytes {
     private static final long NANOSECONDS_PER_SECOND = 1_000_000_000L;
@@ -75,6 +77,18 @@ public class TypeNativeBytes {
 
     public static byte[] getInetAddressBytes(InetAddress v) {
         return convertByteOrder(v.getAddress());
+    }
+
+    public static UUID getUuid(byte[] bytes) {
+        ByteBuffer buffer = ByteBuffer.wrap(convertByteOrder(bytes));
+        return new UUID(buffer.getLong(), buffer.getLong());
+    }
+
+    public static byte[] getUuidBytes(UUID value) {
+        ByteBuffer buffer = ByteBuffer.allocate(16);
+        buffer.putLong(value.getMostSignificantBits());
+        buffer.putLong(value.getLeastSignificantBits());
+        return convertByteOrder(buffer.array());
     }
 
     public static byte[] getDecimalBytes(BigDecimal v, int scale, int size) {

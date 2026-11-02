@@ -53,6 +53,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
@@ -82,6 +83,7 @@ import java.util.stream.Collectors;
 @Log4j2
 public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     public static final String SPLIT_ID = "splitId";
+    private static final String TABLE_SCHEMAS_FIELD = "ts";
     private static final ObjectMapper objectMapper = new ObjectMapper();
     protected int snapshotParallelism = 1;
     protected Long jobId;
@@ -100,8 +102,9 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     @SerializedName("bop")
     Map<String, String> binlogOffsetPersist;
 
-    @SerializedName("ts")
+    @SerializedName(TABLE_SCHEMAS_FIELD)
     String tableSchemas;
+    private transient boolean tableSchemasDirty;
 
     /** Split progress (task-commit view). */
     @SerializedName("csp")
@@ -294,7 +297,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     public boolean shouldPersistOffset(long lastPersistTimeMs, long currentTimeMs) {
         synchronized (splitsLock) {
-            if (currentOffset == null || !currentOffset.snapshotSplit()) {
+            if (tableSchemasDirty || currentOffset == null || !currentOffset.snapshotSplit()) {
                 return true;
             }
         }
@@ -758,7 +761,44 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public String getPersistInfo() {
-        return GsonUtils.GSON.toJson(this);
+        synchronized (splitsLock) {
+            return GsonUtils.GSON.toJson(this);
+        }
+    }
+
+    public String getPersistInfoWithoutTableSchemas() {
+        synchronized (splitsLock) {
+            JsonObject persisted = GsonUtils.GSON.toJsonTree(this).getAsJsonObject();
+            persisted.remove(TABLE_SCHEMAS_FIELD);
+            return GsonUtils.GSON.toJson(persisted);
+        }
+    }
+
+    public void setTableSchemas(String tableSchemas) {
+        synchronized (splitsLock) {
+            this.tableSchemas = tableSchemas;
+            tableSchemasDirty = true;
+        }
+    }
+
+    // The job write lock spans payload creation, journal acknowledgement and this call.
+    public void markTableSchemasPersisted() {
+        synchronized (splitsLock) {
+            tableSchemasDirty = false;
+        }
+    }
+
+    @Override
+    public String mergePersistInfo(String previousPersistInfo, String incomingPersistInfo) {
+        JsonObject incoming = GsonUtils.GSON.fromJson(incomingPersistInfo, JsonObject.class);
+        if (previousPersistInfo == null
+                || (incoming.has(TABLE_SCHEMAS_FIELD) && !incoming.get(TABLE_SCHEMAS_FIELD).isJsonNull())) {
+            return incomingPersistInfo;
+        }
+        // Missing schema means no update, just as in a CDC offset commit request.
+        JsonObject previous = GsonUtils.GSON.fromJson(previousPersistInfo, JsonObject.class);
+        incoming.add(TABLE_SCHEMAS_FIELD, previous.get(TABLE_SCHEMAS_FIELD));
+        return GsonUtils.GSON.toJson(incoming);
     }
 
     // ============ Async split progress (driven by scheduler each tick) ============

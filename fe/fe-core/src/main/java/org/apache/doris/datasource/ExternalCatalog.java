@@ -29,6 +29,8 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
@@ -344,6 +346,19 @@ public abstract class ExternalCatalog
      * @return names of tables in the specified database from the remote source
      */
     protected abstract List<String> listTableNamesFromRemote(SessionContext ctx, String dbName);
+
+    /**
+     * Returns whether the shared table-name cache should be skipped for the current session.
+     *
+     * Catalogs whose remote list result depends on session credentials should bypass the cache so one user's
+     * visible table set is not reused for another user.
+     *
+     * @param ctx session context for the current request
+     * @return true if table names must be fetched from the remote source for this session
+     */
+    protected boolean shouldBypassTableNameCache(SessionContext ctx) {
+        return false;
+    }
 
     /**
      * check if the specified table exist.
@@ -1176,7 +1191,7 @@ public abstract class ExternalCatalog
 
     public void replayCreateDb(String dbName) {
         if (metadataOps != null) {
-            metadataOps.afterCreateDb();
+            metadataOps.afterCreateDb(dbName);
         }
     }
 
@@ -1189,13 +1204,16 @@ public abstract class ExternalCatalog
         try {
             Optional<String> resolvedDbName = metadataOps.dropDbWithResolvedName(dbName, ifExists, force);
             if (!resolvedDbName.isPresent()) {
-                // No remote drop happened (for example DROP DATABASE IF EXISTS on a missing
-                // database). Do not journal the no-op, otherwise every follower would replay a
-                // post-drop hook that retires caches for a database that was never touched.
-                LOG.info("skip drop database {}.{} because the database does not exist", getName(), dbName);
-                return;
+                if (!metadataOps.shouldJournalDropDbNoOp()) {
+                    // No remote drop happened (for example DROP DATABASE IF EXISTS on a missing
+                    // database). Do not journal the no-op unless the connector needs follower FEs
+                    // to replay cache reconciliation.
+                    LOG.info("skip drop database {}.{} because the database does not exist", getName(), dbName);
+                    return;
+                }
             }
-            DropDbInfo info = new DropDbInfo(getName(), resolvedDbName.get(), resolvedDbName.get());
+            String journalDbName = resolvedDbName.orElse(dbName);
+            DropDbInfo info = new DropDbInfo(getName(), journalDbName, journalDbName);
             Env.getCurrentEnv().getEditLog().logDropDb(info);
         } catch (Exception e) {
             LOG.warn("Failed to drop database {} in catalog {}", dbName, getName(), e);
@@ -1289,6 +1307,24 @@ public abstract class ExternalCatalog
                 return;
             }
             throw new DdlException("Failed to get table: '" + tableName + "' in database: " + dbName);
+        }
+        // The metadata API receives no kind/lifetime flags and may purge an ordinary table.
+        // External catalogs have no temporary tables or MTMVs; reject mismatches before dispatch.
+        if (mustTemporary) {
+            if (ifExists) {
+                return;
+            }
+            ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
+        }
+        if (isMtmv) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "MTMV",
+                    "External catalogs do not support materialized views");
+        }
+        boolean actualIsView = dorisTable.isView();
+        if (isView != actualIsView) {
+            // IF EXISTS must not relax the type check for an existing object.
+            ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, isView ? "VIEW" : "TABLE",
+                    "Use DROP " + (actualIsView ? "VIEW" : "TABLE") + " instead");
         }
         try {
             metadataOps.dropTable(dorisTable, ifExists);

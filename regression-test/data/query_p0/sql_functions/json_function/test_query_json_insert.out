@@ -47,6 +47,9 @@
 -- !sql_json --
 {"data":{"json":{"a":1.1}}}
 
+-- !sql_escape --
+["a\\b", "line\\nfeed"]	{"name":"a\\b", "note":"line\\nfeed"}
+
 -- !sql2 --
 {"data":{"array":null,"struct":null,"json":null}}
 {"data":{"array":["a","b"],"struct":{"name":"a","age":1},"json":{"a":"b"}}}

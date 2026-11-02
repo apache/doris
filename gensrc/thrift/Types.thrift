@@ -103,7 +103,8 @@ enum TPrimitiveType {
   FIXED_LENGTH_OBJECT = 42 // only used in BE to represent fixed-length object
   VARBINARY = 43, // represent varbinary type
   TIMESTAMPTZ = 44, // timestamp with time zone
-  TIMESTAMP_NS = 45 // signed nanoseconds since the Unix epoch
+  TIMESTAMP_NS = 45, // signed nanoseconds since the Unix epoch
+  UUID = 46
 }
 
 enum TTypeNodeType {
@@ -769,6 +770,7 @@ enum TMetadataType {
   // 14 is STREAMS on master. Reserved to keep enum values wire-compatible
   // across maintained branches. Do not reuse this value on branch-4.1.
   LANCE_INDEX_ENTRIES = 15,
+  INDEX_DISK_USAGE = 16,
 }
 
 // deprecated

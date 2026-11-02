@@ -234,6 +234,8 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
         Mockito.doReturn(mockedTableScan).when(mockedTableScan).useRef(ArgumentMatchers.any());
         Mockito.doReturn(mockedTableScan).when(mockedTableScan).filter(ArgumentMatchers.<org.apache.iceberg.expressions.Expression>any());
         Mockito.doReturn(mockedTableScan).when(mockedTableScan).planWith(ArgumentMatchers.any());
+        // Projection must retain a real schema; deep stubs manufacture an empty Schema mock.
+        Mockito.doReturn(mockedTableScan).when(mockedTableScan).project(ArgumentMatchers.any(Schema.class));
         Mockito.doReturn(null).when(mockedTableScan).snapshot();
         // Keep the scan schema aligned with the mocked table schema. IcebergScanNode reads the
         // selected scan schema when serializing initial defaults, and several tests temporarily

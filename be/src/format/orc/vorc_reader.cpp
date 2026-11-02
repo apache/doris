@@ -886,7 +886,8 @@ std::tuple<bool, orc::Literal, orc::PredicateDataType> OrcReader::_make_orc_lite
     M(DECIMALV2)                    \
     M(BOOLEAN)                      \
     M(IPV4)                         \
-    M(IPV6)
+    M(IPV6)                         \
+    M(UUID)
         APPLY_FOR_PRIMITIVE_TYPE(M)
 #undef M
     default: {
@@ -1735,8 +1736,12 @@ DataTypePtr OrcReader::convert_to_doris_type(const orc::Type* orc_type) {
     case orc::TypeKind::STRING:
         return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_STRING, true);
     case orc::TypeKind::BINARY:
-        if (_scan_params.__isset.enable_mapping_varbinary &&
-            _scan_params.enable_mapping_varbinary) {
+        // Logical UUID annotations take precedence over the default for raw binary fields.
+        if (orc_type->hasAttributeKey("doris.logical_type") &&
+            orc_type->getAttributeValue("doris.logical_type") == "uuid") {
+            return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_UUID, true);
+        } else if (_scan_params.__isset.enable_mapping_varbinary &&
+                   _scan_params.enable_mapping_varbinary) {
             return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_VARBINARY,
                                                                 true);
         } else {
@@ -2129,6 +2134,14 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
 #undef DISPATCH
     case PrimitiveType::TYPE_INT:
         return _decode_int32_column<is_filter>(col_name, data_column, cvb, num_values);
+    case PrimitiveType::TYPE_UUID: {
+        OrcDecodedColumnView view;
+        view.file_type = orc_column_type;
+        view.selected_type = orc_column_type;
+        view.batch = cvb;
+        view.rows = num_values;
+        return data_type->get_serde()->read_column_from_orc(*data_column, view);
+    }
     case PrimitiveType::TYPE_DECIMAL32:
         return _decode_decimal_column<TYPE_DECIMAL32, is_filter>(col_name, data_column, data_type,
                                                                  cvb, num_values);
@@ -2402,6 +2415,12 @@ Status OrcReader::_orc_column_to_doris_column(
     MutableColumnPtr data_column;
     if (orc_column_type != nullptr) {
         auto src_type = convert_to_doris_type(orc_column_type);
+        if (src_type->get_primitive_type() == TYPE_UUID &&
+            data_type->get_primitive_type() == TYPE_VARBINARY) {
+            // Hive BINARY keeps the file bytes even when the ORC carrier has a UUID annotation.
+            // Decode that carrier directly, including recursively visited complex-type children.
+            src_type = DataTypeFactory::instance().create_data_type(TYPE_VARBINARY, true);
+        }
         bool is_dict_filter_col = false;
         for (const std::pair<std::string, int>& dict_col : _dict_filter_cols) {
             if (col_name == dict_col.first) {

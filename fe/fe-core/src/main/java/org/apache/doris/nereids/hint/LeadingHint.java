@@ -416,13 +416,20 @@ public class LeadingHint extends Hint {
                 continue;
             }
 
-            if (joinConstraint.getJoinType().isSemiJoin()) {
-                if (LongBitmap.isSubset(joinConstraint.getRightHand(), leftTableBitmap)
-                        && !LongBitmap.isSubset(joinConstraint.getRightHand(), leftTableBitmap)) {
+            if (joinConstraint.getJoinType().isSemiOrAntiJoin()) {
+                if (!LongBitmap.isSubset(joinConstraint.getMinLeftHand(), joinTableBitmap)
+                        || !LongBitmap.isSubset(joinConstraint.getMinRightHand(), joinTableBitmap)) {
                     continue;
                 }
-                if (LongBitmap.isSubset(joinConstraint.getRightHand(), rightTableBitmap)
-                        && !joinConstraint.getRightHand().equals(rightTableBitmap)) {
+
+                Long constrainedSide = joinConstraint.getJoinType().isRightSemiOrAntiJoin()
+                        ? joinConstraint.getLeftHand() : joinConstraint.getRightHand();
+                if (LongBitmap.isOverlap(constrainedSide, leftTableBitmap)
+                        && !constrainedSide.equals(leftTableBitmap)) {
+                    continue;
+                }
+                if (LongBitmap.isOverlap(constrainedSide, rightTableBitmap)
+                        && !constrainedSide.equals(rightTableBitmap)) {
                     continue;
                 }
             }

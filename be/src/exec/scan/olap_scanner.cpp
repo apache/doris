@@ -43,6 +43,7 @@
 #include "exec/common/variant_util.h"
 #include "exec/operator/olap_scan_operator.h"
 #include "exec/scan/scan_node.h"
+#include "exprs/function/search/search_predicate_collector.h"
 #include "exprs/function_filter.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -55,8 +56,8 @@
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 #include "storage/id_manager.h"
-#include "storage/index/inverted/inverted_index_profile.h"
-#include "storage/index/inverted/similarity/collection_statistics.h"
+#include "storage/index/inverted/common/inverted_index_profile.h"
+#include "storage/index/inverted/reader/collection_statistics.h"
 #include "storage/iterator/block_reader.h"
 #include "storage/olap_common.h"
 #include "storage/olap_tuple.h"
@@ -98,6 +99,7 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .collection_statistics {},
                                  .ann_topn_runtime {},
                                  .condition_cache_digest = parent->get_condition_cache_digest()}),
+          _tablet_collection_statistics(std::move(params.tablet_collection_statistics)),
           _initial_file_cache_stats(std::move(params.initial_file_cache_stats)) {
     _tablet_reader_params.set_read_source(std::move(params.read_source),
                                           _state->skip_delete_bitmap());
@@ -171,6 +173,14 @@ io::IOContext build_score_runtime_collection_io_context(RuntimeState* state, Rea
     };
     if (auto* query_ctx = state->get_query_ctx(); query_ctx != nullptr) {
         io_ctx.remote_scan_cache_write_limiter = query_ctx->remote_scan_cache_write_limiter();
+    }
+    // The statistics read the index before the scan does, so they follow the query's file cache
+    // choices as the scan's reads do.
+    if (reader_type == ReaderType::READER_QUERY) {
+        const auto& query_options = state->query_options();
+        io_ctx.is_disposable = query_options.disable_file_cache;
+        io_ctx.inverted_index_snii_read_no_write_file_cache =
+                query_options.inverted_index_snii_read_no_write_file_cache;
     }
     return io_ctx;
 }
@@ -292,15 +302,36 @@ Status OlapScanner::prepare() {
 
     if (_tablet_reader_params.score_runtime) {
         SCOPED_TIMER(local_state->_statistics_collect_timer);
-        _tablet_reader_params.collection_statistics = std::make_shared<CollectionStatistics>();
+        _tablet_reader_params.collection_statistics = std::make_shared<CollectionStatistics>(
+                std::make_unique<SearchPredicateCollector>());
 
         auto io_ctx = build_score_runtime_collection_io_context(
                 _state, ReaderType::READER_QUERY, tablet->file_cache_ttl_expiration_time(),
                 &_tablet_reader->mutable_stats()->file_cache_stats);
 
-        RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
-                _state, _tablet_reader_params.rs_splits, _tablet_reader_params.tablet_schema,
-                _tablet_reader_params.common_expr_ctxs_push_down, &io_ctx));
+        // A merge-on-write scan leaves out rows its segments still hold, which replicas drop
+        // at different times, so the statistics count only the rows the scan returns.
+        std::optional<MowHiddenRows> hidden_rows;
+        if (_tablet_reader_params.delete_bitmap != nullptr) {
+            const auto& query_options = _state->query_options();
+            hidden_rows = MowHiddenRows {
+                    .delete_bitmap = _tablet_reader_params.delete_bitmap,
+                    .version = _tablet_reader_params.version.second,
+                    .use_segment_cache = !query_options.__isset.enable_segment_cache ||
+                                         query_options.enable_segment_cache,
+                    .use_page_cache = _state->enable_page_cache()};
+        }
+        const MowHiddenRows* hidden_rows_ptr = hidden_rows ? &*hidden_rows : nullptr;
+        if (_tablet_collection_statistics != nullptr) {
+            RETURN_IF_ERROR(_tablet_collection_statistics->copy_to(
+                    _state, _tablet_reader_params.tablet_schema,
+                    _tablet_reader_params.common_expr_ctxs_push_down, &io_ctx, hidden_rows_ptr,
+                    _tablet_reader_params.collection_statistics.get()));
+        } else {
+            RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
+                    _state, _tablet_reader_params.rs_splits, _tablet_reader_params.tablet_schema,
+                    _tablet_reader_params.common_expr_ctxs_push_down, &io_ctx, hidden_rows_ptr));
+        }
     }
 
     _has_prepared = true;
@@ -874,7 +905,6 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.inverted_index_analyzer_timer);
     COUNTER_UPDATE(local_state->_inverted_index_lookup_timer, stats.inverted_index_lookup_timer);
     local_state->_snii_prx_profile_counters.update(stats);
-    local_state->_snii_phrase_profile_counters.update(stats);
     COUNTER_UPDATE(local_state->_variant_scan_sparse_column_timer,
                    stats.variant_scan_sparse_column_timer_ns);
     COUNTER_UPDATE(local_state->_variant_scan_sparse_column_bytes,

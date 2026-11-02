@@ -65,7 +65,7 @@ public:
               std::unique_ptr<io::FileDescription>& file_description,
               std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
               std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
-              bool enable_mapping_timestamp_tz = false,
+              bool enable_mapping_timestamp_tz = false, bool enable_mapping_varbinary = false,
               std::shared_ptr<const FileContext> file_context = nullptr);
     ~OrcReader() override;
 
@@ -92,6 +92,8 @@ public:
 
 private:
     struct OrcProfile {
+        RuntimeProfile::Counter* row_readers_created = nullptr;
+        RuntimeProfile::Counter* timestamp_stripe_footers_read = nullptr;
         RuntimeProfile::Counter* total_time = nullptr;
         RuntimeProfile::Counter* reader_call = nullptr;                 // ReaderCall
         RuntimeProfile::Counter* reader_inclusive_latency_us = nullptr; // ReaderInclusiveLatencyUs
@@ -150,7 +152,8 @@ private:
     // stripes. Skips the call for a whole-file window to keep ORC library defaults.
     void _apply_split_range();
     Status _select_stripe_ranges_by_statistics();
-    void _apply_current_stripe_range();
+    Status _prepare_timestamp_stripe_ranges();
+    Status _apply_current_stripe_range();
     Status _advance_to_next_stripe_range(bool* advanced);
     Status _create_row_reader();
 

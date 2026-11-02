@@ -78,6 +78,8 @@ public class OracleJdbcExecutor extends BaseJdbcExecutor {
     @Override
     protected void setValidationQuery(HikariDataSource ds) {
         ds.setConnectionTestQuery("SELECT 1 FROM dual");
+        // NUMBER binding rejects finite IEEE values outside NUMBER's exponent range.
+        ds.addDataSourceProperty("SetFloatAndDoubleUseBinary", "true");
     }
 
     @Override

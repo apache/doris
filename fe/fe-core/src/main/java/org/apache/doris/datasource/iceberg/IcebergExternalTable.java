@@ -30,6 +30,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.mvcc.EmptyMvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
@@ -96,7 +97,8 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         super.makeSureInitialized();
         if (!objectCreated) {
             objectCreated = true;
-            isView = catalog.viewExists(getRemoteDbName(), getRemoteName());
+            isView = ((IcebergExternalCatalog) catalog)
+                    .viewExists(SessionContext.current(), getRemoteDbName(), getRemoteName());
         }
     }
 
@@ -108,9 +110,11 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public Optional<SchemaCacheValue> getSchemaCacheValue() {
-        return Optional.of(IcebergUtils.withSnapshotCacheValue(
-                MvccUtil.getSnapshotFromContext(this), this,
-                snapshotValue -> IcebergUtils.getSchemaCacheValue(this, snapshotValue)));
+        return withMissingTableRepair(() -> {
+            return Optional.of(IcebergUtils.withSnapshotCacheValue(
+                    MvccUtil.getSnapshotFromContext(this), this,
+                    snapshotValue -> IcebergUtils.getSchemaCacheValue(this, snapshotValue)));
+        });
     }
 
     @Override
@@ -258,12 +262,15 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public MvccSnapshot loadSnapshot(Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams) {
-        if (isView()) {
-            return new EmptyMvccSnapshot();
-        } else {
-            return new IcebergMvccSnapshot(IcebergUtils.getSnapshotCacheValue(
-                    tableSnapshot, this, scanParams));
-        }
+        return withMissingTableRepair(() -> {
+            if (isView()) {
+                return new EmptyMvccSnapshot();
+            } else {
+                return new IcebergMvccSnapshot(IcebergUtils.getSnapshotCacheValue(
+                        tableSnapshot, this, scanParams));
+            }
+
+        });
     }
 
     @Override
@@ -274,12 +281,18 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public List<Column> getFullSchema() {
-        return getFullSchema(MvccUtil.getSnapshotFromContext(this));
+        return withMissingTableRepair(() -> {
+            return getFullSchema(MvccUtil.getSnapshotFromContext(this));
+
+        });
     }
 
     @Override
     public List<Column> getFullSchema(Optional<MvccSnapshot> snapshot) {
-        return IcebergUtils.withSnapshotCacheValue(snapshot, this, this::projectFullSchema);
+        return withMissingTableRepair(() -> {
+            return IcebergUtils.withSnapshotCacheValue(snapshot, this, this::projectFullSchema);
+
+        });
     }
 
     private List<Column> projectFullSchema(IcebergSnapshotCacheValue snapshotValue) {
@@ -297,25 +310,27 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     /** Schema display uses declared nullability, independently of scan nullability. */
     public List<Column> getBaseSchemaForDisplay(boolean full) {
-        if (isView()) {
-            return getBaseSchema(full);
-        }
-        try {
-            return IcebergUtils.withIcebergTableGeneration(this,
-                    (table, enableMappingVarbinary, enableMappingTimestampTz) -> {
-                        // Schema-only changes need not advance the current snapshot. Resolve the current
-                        // table schema and hidden columns from one retained metadata generation.
-                        Table retainedTable = IcebergSnapshotCacheValue.retainTableGeneration(table);
-                        List<Column> schema = IcebergUtils.parseSchemaForDisplay(retainedTable.schema(),
-                                enableMappingVarbinary, enableMappingTimestampTz);
-                        new SchemaCacheValue(schema).validateSchema();
-                        schema = appendHiddenColumns(schema, retainedTable);
-                        return full ? schema
-                                : schema.stream().filter(Column::isVisible).collect(Collectors.toList());
-                    });
-        } catch (Exception e) {
-            throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
-        }
+        return withMissingTableRepair(() -> {
+            if (isView()) {
+                return getBaseSchema(full);
+            }
+            try {
+                return IcebergUtils.withIcebergTableGeneration(this,
+                        (table, enableMappingVarbinary, enableMappingTimestampTz) -> {
+                            // Schema-only changes need not advance the current snapshot. Resolve the current
+                            // table schema and hidden columns from one retained metadata generation.
+                            Table retainedTable = IcebergSnapshotCacheValue.retainTableGeneration(table);
+                            List<Column> schema = IcebergUtils.parseSchemaForDisplay(retainedTable.schema(),
+                                    enableMappingVarbinary, enableMappingTimestampTz);
+                            new SchemaCacheValue(schema).validateSchema();
+                            schema = appendHiddenColumns(schema, retainedTable);
+                            return full ? schema
+                                    : schema.stream().filter(Column::isVisible).collect(Collectors.toList());
+                        });
+            } catch (Exception e) {
+                throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
+            }
+        });
     }
 
     private List<Column> appendHiddenColumns(List<Column> schema, Table table) {
@@ -366,14 +381,16 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public boolean isView() {
-        makeSureInitialized();
-        return isView;
+        return withMissingTableRepair(() -> {
+            makeSureInitialized();
+            return isView;
+        });
     }
 
     public String getViewText() {
         try {
             return catalog.getExecutionAuthenticator().execute(() -> {
-                View icebergView = IcebergUtils.getIcebergView(this);
+                View icebergView = getIcebergView();
                 ViewVersion viewVersion = icebergView.currentVersion();
                 if (viewVersion == null) {
                     throw new RuntimeException(String.format("Cannot get view version for view '%s'", icebergView));
@@ -400,7 +417,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     public String getSqlDialect() {
         try {
             return catalog.getExecutionAuthenticator().execute(() -> {
-                View icebergView = IcebergUtils.getIcebergView(this);
+                View icebergView = getIcebergView();
                 ViewVersion viewVersion = icebergView.currentVersion();
                 if (viewVersion == null) {
                     throw new RuntimeException(String.format("Cannot get view version for view '%s'", icebergView));
@@ -421,7 +438,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     }
 
     public View getIcebergView() {
-        return IcebergUtils.getIcebergView(this);
+        return withMissingTableRepair(() -> IcebergUtils.getIcebergView(this));
     }
 
     /**
@@ -442,12 +459,14 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
      * @return
      */
     public Map<String, String> properties() {
-        if (isView()) {
-            View icebergView = getIcebergView();
-            return icebergView.properties();
-        } else {
-            return IcebergUtils.withIcebergTable(this, table -> new HashMap<>(table.properties()));
-        }
+        return withMissingTableRepair(() -> {
+            if (isView()) {
+                View icebergView = getIcebergView();
+                return icebergView.properties();
+            } else {
+                return IcebergUtils.withIcebergTable(this, table -> new HashMap<>(table.properties()));
+            }
+        });
     }
 
     @Override

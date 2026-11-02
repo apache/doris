@@ -46,11 +46,13 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type/data_type_uuid.h"
 #include "core/data_type/get_least_supertype.h"
 #include "core/data_type/primitive_type.h"
 #include "core/typeid_cast.h"
 #include "core/value/timestamp_ns_value.h"
 #include "core/value/timestamptz_value.h"
+#include "core/value/uuid_value.h"
 #include "core/value/vdatetime_value.h"
 #include "exec/common/variant_util.h"
 #include "exprs/function/parse/variant_jsonb_parse.h"
@@ -73,6 +75,7 @@ enum class ValueKind : uint8_t {
     TIMESTAMP_NTZ_NANOS,
     TIMESTAMP_TZ,
     STRING,
+    UUID,
     JSONB_REF,
     ARRAY,
 };
@@ -201,8 +204,9 @@ ValueKind value_kind(VariantRef value) {
     case VariantPrimitiveId::BINARY:
     case VariantPrimitiveId::TIME_NTZ_MICROS:
     case VariantPrimitiveId::TIMESTAMP_NANOS:
-    case VariantPrimitiveId::UUID:
         return ValueKind::JSONB_REF;
+    case VariantPrimitiveId::UUID:
+        return ValueKind::UUID;
     }
     throw Exception(ErrorCode::CORRUPTION, "Unknown Variant primitive id");
 }
@@ -281,6 +285,10 @@ const DataTypePtr& infer_scalar_type(VariantRef value, ValueKind kind) {
     }
     case ValueKind::STRING: {
         static const DataTypePtr type = std::make_shared<DataTypeString>();
+        return type;
+    }
+    case ValueKind::UUID: {
+        static const DataTypePtr type = std::make_shared<DataTypeUUID>();
         return type;
     }
     case ValueKind::JSONB_REF:
@@ -362,6 +370,11 @@ size_t array_dimensions(const DataTypePtr& type) {
 DataTypePtr path_least_common_type(const DataTypePtr& left, const DataTypePtr& right) {
     if (left.get() == right.get() || left->equals(*right)) {
         return left;
+    }
+    // Chunk builders expose Nullable(Array(...)). Unwrap before dispatching so decimal array
+    // elements use the scale-aware rules below instead of the generic first-primitive match.
+    if (left->is_nullable() || right->is_nullable()) {
+        return make_nullable(path_least_common_type(remove_nullable(left), remove_nullable(right)));
     }
     const auto* left_array = typeid_cast<const DataTypeArray*>(left.get());
     const auto* right_array = typeid_cast<const DataTypeArray*>(right.get());
@@ -495,6 +508,8 @@ bool value_is_representable(VariantRef value, const DataTypePtr& target_type) {
                timestamp_fits_doris_range(value.get_timestamp_micros());
     case TYPE_STRING:
         return kind == ValueKind::STRING;
+    case TYPE_UUID:
+        return kind == ValueKind::UUID;
     case TYPE_JSONB:
         return true;
     case TYPE_ARRAY: {
@@ -564,6 +579,7 @@ void write_path_jsonb(VariantRef value, JsonbWriter* writer) {
     case ValueKind::TIMESTAMP_NTZ_NANOS:
     case ValueKind::TIMESTAMP_TZ:
     case ValueKind::STRING:
+    case ValueKind::UUID:
     case ValueKind::JSONB_REF: {
         JsonbWriter nested;
         variant_to_jsonb(value, nested);
@@ -585,6 +601,7 @@ void append_jsonb(VariantRef value, ColumnString* column) {
     case ValueKind::TIMESTAMP_NTZ_NANOS:
     case ValueKind::TIMESTAMP_TZ:
     case ValueKind::STRING:
+    case ValueKind::UUID:
     case ValueKind::JSONB_REF:
         // For a complete subtree the canonical converter can write directly into the output
         // document. ARRAY uses write_path_jsonb() because the legacy path-builder fallback
@@ -813,8 +830,9 @@ bool stable_scalar_matches_type(const Value& value, const ScalarPhysical& physic
     case VariantPrimitiveId::TIME_NTZ_MICROS:
     case VariantPrimitiveId::TIMESTAMP_NANOS:
     case VariantPrimitiveId::TIMESTAMP_NTZ_NANOS:
-    case VariantPrimitiveId::UUID:
         return false;
+    case VariantPrimitiveId::UUID:
+        return target_primitive == TYPE_UUID;
     }
     throw Exception(ErrorCode::CORRUPTION, "Unknown Variant primitive id");
 }
@@ -880,6 +898,11 @@ void append_value(VariantRef value, const DataTypePtr& target_type, IColumn* tar
     case TYPE_TIMESTAMPTZ:
         append_timestamp(value, target_type->get_primitive_type(), target);
         return;
+    case TYPE_UUID: {
+        const auto bytes = value.get_uuid();
+        assert_cast<ColumnUUID&>(*target).insert_value(UUIDValue::from_big_endian(bytes.data()));
+        return;
+    }
     case TYPE_STRING: {
         if (kind != ValueKind::STRING) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
@@ -1024,6 +1047,10 @@ bool cast_introduced_null(const IColumn& source, const IColumn& target) {
 
 } // namespace
 
+DataTypePtr variant_path_least_common_type(const DataTypePtr& left, const DataTypePtr& right) {
+    return path_least_common_type(left, right);
+}
+
 DataTypePtr normalize_variant_path_integer_widths(const DataTypePtr& type) {
     const DataTypePtr base = remove_nullable(type);
     if (const auto* array = typeid_cast<const DataTypeArray*>(base.get())) {
@@ -1064,38 +1091,53 @@ struct VariantPathBuilder::Impl {
         return Status::OK();
     }
 
-    Status promote(const DataTypePtr& target_type, bool filter_cast_nulls) {
-        DataTypePtr target = remove_nullable(target_type);
-        if (target->equals(*type)) {
-            return Status::OK();
-        }
-        ColumnPtr promoted;
+    Status cast_to_type(const DataTypePtr& target, ColumnPtr* promoted) const {
         if (target->get_primitive_type() == TYPE_STRING &&
             type->get_primitive_type() == TYPE_ARRAY) {
             RETURN_IF_ERROR(stringify_complex_column(
-                    type, assert_cast<const ColumnNullable&>(*column), &promoted));
+                    type, assert_cast<const ColumnNullable&>(*column), promoted));
         } else if (type->get_primitive_type() == TYPE_ARRAY &&
                    target->get_primitive_type() == TYPE_ARRAY &&
                    variant_path_type_contains_nothing(type)) {
             MutableColumnPtr materialized;
             RETURN_IF_ERROR(replace_array_nothing(nullable_type, *column, make_nullable(target),
                                                   &materialized));
-            promoted = std::move(materialized);
+            *promoted = std::move(materialized);
         } else {
             RETURN_IF_ERROR(
                     variant_util::cast_column({column->get_ptr(), nullable_type, path.get_path()},
-                                              make_nullable(target), &promoted));
+                                              make_nullable(target), promoted));
         }
+        return Status::OK();
+    }
+
+    Status promote(const DataTypePtr& target_type, bool filter_cast_nulls,
+                   const InferredPromotion& on_promotion = {}) {
+        DataTypePtr target = remove_nullable(target_type);
+        if (target->equals(*type)) {
+            return Status::OK();
+        }
+        ColumnPtr promoted;
+        RETURN_IF_ERROR(cast_to_type(target, &promoted));
         // Inferred widening is only a storage representation choice. If CAST loses a valid value
         // at any array depth, preserve the whole path as JSONB instead. Forced typed-path
         // conversion intentionally retains its existing cast-null filtering below.
         if (!filter_cast_nulls && target->get_primitive_type() != TYPE_JSONB &&
             cast_introduced_null(*column, *promoted)) {
             target = jsonb_type();
-            RETURN_IF_ERROR(
-                    variant_util::cast_column({column->get_ptr(), nullable_type, path.get_path()},
-                                              make_nullable(target), &promoted));
+            RETURN_IF_ERROR(cast_to_type(target, &promoted));
             DORIS_CHECK(!assert_cast<const ColumnNullable&>(*promoted).has_null());
+        }
+        if (on_promotion) {
+            const DataTypePtr proposed = target;
+            RETURN_IF_ERROR(on_promotion(&target));
+            target = remove_nullable(target);
+            if (!target->equals(*proposed)) {
+                // For example, the active chunk's 0.1 fits scale 38, but a sealed large Decimal
+                // does not. Recast the original active values to JSONB, preserving 0.1's scale.
+                DORIS_CHECK_EQ(target->get_primitive_type(), TYPE_JSONB);
+                RETURN_IF_ERROR(cast_to_type(target, &promoted));
+            }
         }
         const auto& nullable = assert_cast<const ColumnNullable&>(*promoted);
         if (nullable.has_null()) {
@@ -1146,7 +1188,8 @@ VariantPathBuilder::~VariantPathBuilder() = default;
 VariantPathBuilder::VariantPathBuilder(VariantPathBuilder&&) noexcept = default;
 VariantPathBuilder& VariantPathBuilder::operator=(VariantPathBuilder&&) noexcept = default;
 
-Status VariantPathBuilder::append(VariantRef value, size_t row) {
+Status VariantPathBuilder::append(VariantRef value, size_t row,
+                                  const InferredPromotion& on_promotion) {
     try {
         const ScalarPhysical physical = scalar_physical(value);
         if (physical.kind == ScalarPhysicalKind::NULL_VALUE) {
@@ -1175,14 +1218,14 @@ Status VariantPathBuilder::append(VariantRef value, size_t row) {
                     DataTypePtr common_type = path_least_common_type(_impl->type, inferred_type);
                     if (_impl->type.get() != common_type.get() &&
                         !_impl->type->equals(*common_type)) {
-                        RETURN_IF_ERROR(_impl->promote(common_type, false));
+                        RETURN_IF_ERROR(_impl->promote(common_type, false, on_promotion));
                     }
                 }
             }
         }
         const bool is_array = !stable_scalar && value_kind(value) == ValueKind::ARRAY;
         if (is_array && !value_is_representable(value, _impl->type)) {
-            RETURN_IF_ERROR(_impl->promote(jsonb_type(), false));
+            RETURN_IF_ERROR(_impl->promote(jsonb_type(), false, on_promotion));
         }
 
         try {
@@ -1193,7 +1236,7 @@ Status VariantPathBuilder::append(VariantRef value, size_t row) {
             if (is_array || _impl->type->get_primitive_type() == TYPE_JSONB) {
                 throw;
             }
-            RETURN_IF_ERROR(_impl->promote(jsonb_type(), false));
+            RETURN_IF_ERROR(_impl->promote(jsonb_type(), false, on_promotion));
             auto& nullable = assert_cast<ColumnNullable&>(*_impl->column);
             append_value(value, _impl->type, &nullable.get_nested_column());
             nullable.get_null_map_data().push_back(0);
@@ -1218,11 +1261,25 @@ Status VariantPathBuilder::complete_rows(size_t rows) {
     return Status::OK();
 }
 
-Status VariantPathBuilder::convert_to(const DataTypePtr& storage_type) {
+Status VariantPathBuilder::convert_to(const DataTypePtr& storage_type, bool filter_cast_nulls) {
     if (!_impl->column) {
         return _impl->initialize(storage_type);
     }
-    return _impl->promote(storage_type, true);
+    return _impl->promote(storage_type, filter_cast_nulls);
+}
+
+Status VariantPathBuilder::check_inferred_promotion(const DataTypePtr& target_type,
+                                                    bool* needs_jsonb) const {
+    const DataTypePtr target = remove_nullable(target_type);
+    *needs_jsonb = false;
+    if (!_impl->column || target->equals(*_impl->type) ||
+        target->get_primitive_type() == TYPE_JSONB) {
+        return Status::OK();
+    }
+    ColumnPtr promoted;
+    RETURN_IF_ERROR(_impl->cast_to_type(target, &promoted));
+    *needs_jsonb = cast_introduced_null(*_impl->column, *promoted);
+    return Status::OK();
 }
 
 const PathInData& VariantPathBuilder::path() const {

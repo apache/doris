@@ -23,6 +23,7 @@
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
+#include "cpp/sync_point.h"
 #include "io/fs/file_system.h"
 #include "storage/storage_policy.h"
 
@@ -37,6 +38,8 @@ CloudRowsetBuilder::CloudRowsetBuilder(CloudStorageEngine& engine, const WriteRe
 CloudRowsetBuilder::~CloudRowsetBuilder() {
     // Clear file cache immediately when load fails
     if (_is_init && _rowset != nullptr && _rowset->rowset_meta()->rowset_state() == PREPARED) {
+        TEST_SYNC_POINT_CALLBACK("CloudRowsetBuilder::~CloudRowsetBuilder:before_clear_cache",
+                                 this);
         _rowset->clear_cache();
     }
 }
@@ -69,6 +72,7 @@ Status CloudRowsetBuilder::init() {
     context.txn_id = _req.txn_id;
     context.txn_expiration = _req.txn_expiration;
     context.load_id = _req.load_id;
+    context.load_cancel_status = _req.load_cancel_status;
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
     context.tablet_schema = _tablet_schema;
@@ -89,7 +93,8 @@ Status CloudRowsetBuilder::init() {
 
     _rowset_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
 
-    _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor()->create_token();
+    _calc_delete_bitmap_token =
+            _engine.calc_delete_bitmap_executor()->create_token(_req.load_cancel_status);
 
     if (!_skip_writing_rowset_metadata) {
         RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_rowset_writer->rowset_meta(), "",

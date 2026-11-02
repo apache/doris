@@ -128,7 +128,7 @@ class IcebergSchemaDisplayTest {
         Assertions.assertEquals("Yes", rows.get(2).get(2));
         Assertions.assertEquals("No", rows.get(3).get(2));
         Assertions.assertEquals("value doc", rows.get(1).get(6));
-        Assertions.assertTrue(rows.get(3).get(1).contains("child:int not null comment 'nested doc'"));
+        Assertions.assertEquals("struct<child:int not null comment \"nested doc\">", rows.get(3).get(1));
         Assertions.assertEquals("WITH_TIMEZONE", rows.get(4).get(5));
         Assertions.assertTrue(rows.get(5).get(1).startsWith("varbinary"));
 

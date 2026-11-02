@@ -17,7 +17,7 @@
 
 #include <gtest/gtest.h>
 
-#include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris {

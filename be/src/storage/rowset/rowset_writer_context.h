@@ -61,6 +61,11 @@ struct RowsetWriterContext {
     RowsetTypePB rowset_type {BETA_ROWSET};
 
     TabletSchemaSPtr tablet_schema;
+    // Immutable inverted-index file format inherited from the owner tablet.
+    std::optional<InvertedIndexStorageFormatPB> inverted_index_storage_format;
+    // Whether the owner tablet persists the format in its top-level metadata.
+    // This is derived from TabletMeta and keeps rowset metadata consistent with it.
+    bool persist_inverted_index_storage_format = false;
     // PREPARED/COMMITTED for pending rowset
     // VISIBLE for non-pending rowset
     RowsetStatePB rowset_state {PREPARED};
@@ -71,6 +76,7 @@ struct RowsetWriterContext {
     int64_t txn_id {0};
     int64_t txn_expiration {0}; // For cloud mode
     PUniqueId load_id;
+    std::shared_ptr<AtomicStatus> load_cancel_status;
     TabletUid tablet_uid {0, 0};
     // indicate whether the data among segments is overlapping.
     // default is OVERLAP_UNKNOWN.

@@ -102,8 +102,8 @@ suite("test_complex_or_null_semantics") {
     logger.info("Test 1 PASSED: Cross-field OR with NULL - MATCH and SEARCH consistent")
 
     // Test 2: Complex nested query similar to original bug report
-    // Standard mode should match MATCH behavior (SQL three-valued logic)
-    // Lucene mode uses two-valued logic (different NULL handling)
+    // SEARCH is two-valued in both modes; MATCH retains three-valued logic.
+    // This fixture matches every row except id=19 in either semantic layer.
     def test2_match = sql """
         SELECT COUNT(*) FROM ${tableName}
         WHERE content MATCH_ANY 'President of the United States'
@@ -136,15 +136,15 @@ suite("test_complex_or_null_semantics") {
         ', '{"mode":"standard"}')
     """
 
-    assertEquals(test2_match[0][0], test2_search_standard[0][0],
-        "Standard mode: Complex nested query MATCH and SEARCH should return same count")
+    assertEquals(29, test2_match[0][0], "MATCH keeps its existing NULL semantics")
+    assertEquals(29, test2_search_standard[0][0], "Standard SEARCH excludes only the Braveheart row")
 
-    // Lucene mode: different NULL semantics, just verify it returns a valid result
+    // Group NOT as an OR child so Lucene builds the equivalent Boolean query.
     def test2_search_lucene = sql """
         SELECT COUNT(*) FROM ${tableName}
         WHERE SEARCH('
             content:ANY("President of the United States")
-            OR NOT (
+            OR (NOT (
                 content:Braveheart
                 AND (
                     NOT content:ALL("List of presidents of India")
@@ -153,12 +153,12 @@ suite("test_complex_or_null_semantics") {
                         OR content:ALL("Disney+ Hotstar")
                     )
                 )
-            )
-        ')
+            ))
+        ', '{"mode":"lucene"}')
     """
-    assertTrue(test2_search_lucene[0][0] >= 0, "Lucene mode: Complex nested query should return valid result")
+    assertEquals(29, test2_search_lucene[0][0], "Grouped Lucene SEARCH matches the same Boolean set")
 
-    logger.info("Test 2 PASSED: Complex nested query - standard mode consistent with MATCH (count: ${test2_match[0][0]}), lucene mode: ${test2_search_lucene[0][0]}")
+    logger.info("Test 2 PASSED: Complex nested query - equivalent SEARCH modes (count: ${test2_match[0][0]}), lucene mode: ${test2_search_lucene[0][0]}")
 
     // Test 3: Verify the 15 critical rows are included
     def test3 = sql """

@@ -2107,6 +2107,10 @@ public class EditLog {
         logEdit(OperationType.OP_UPDATE_SCHEDULER_JOB, job);
     }
 
+    public void logUpdateJob(String serializedJob) {
+        logEdit(OperationType.OP_UPDATE_SCHEDULER_JOB, out -> Text.writeString(out, serializedJob));
+    }
+
     public void logDeleteJob(AbstractJob job) {
         logEdit(OperationType.OP_DELETE_SCHEDULER_JOB, job);
     }

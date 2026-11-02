@@ -50,6 +50,7 @@
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/function_context.h"
 #include "exprs/string_functions.h"
+#include "runtime/runtime_state.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

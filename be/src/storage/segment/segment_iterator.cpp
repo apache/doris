@@ -84,13 +84,13 @@
 #include "storage/index/ann/ann_index_iterator.h"
 #include "storage/index/ann/ann_index_reader.h"
 #include "storage/index/ann/ann_topn_runtime.h"
-#include "storage/index/collection_similarity.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_iterator.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/index_reader_helper.h"
 #include "storage/index/indexed_column_reader.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/index/inverted/query/scoring/collection_similarity.h"
 #include "storage/index/ordinal_page_index.h"
 #include "storage/index/primary_key_index.h"
 #include "storage/index/short_key_index.h"
@@ -1305,15 +1305,26 @@ Status SegmentIterator::_extract_common_expr_columns(const VExprSPtr& expr) {
     auto node_type = expr->node_type();
     if (node_type == TExprNodeType::SLOT_REF) {
         auto slot_expr = std::dynamic_pointer_cast<doris::VSlotRef>(expr);
-        _is_common_expr_column[_schema->column_id(slot_expr->column_id())] = true;
-        _common_expr_columns.insert(_schema->column_id(slot_expr->column_id()));
+        _mark_common_expr_column(_schema->column_id(slot_expr->column_id()));
     } else if (node_type == TExprNodeType::VIRTUAL_SLOT_REF) {
         std::shared_ptr<VirtualSlotRef> virtual_slot_ref =
                 std::dynamic_pointer_cast<VirtualSlotRef>(expr);
+        // The score of every row is prepared before the first batch is read, and Score() itself has
+        // no value, so an expression on the score reads the score column like a stored column.
+        if (_score_runtime != nullptr && cast_set<size_t>(virtual_slot_ref->column_id()) ==
+                                                 _score_runtime->get_dest_column_idx()) {
+            _mark_common_expr_column(_schema->column_id(virtual_slot_ref->column_id()));
+            return Status::OK();
+        }
         RETURN_IF_ERROR(_extract_common_expr_columns(virtual_slot_ref->get_virtual_column_expr()));
     }
 
     return Status::OK();
+}
+
+void SegmentIterator::_mark_common_expr_column(ColumnId cid) {
+    _is_common_expr_column[cid] = true;
+    _common_expr_columns.insert(cid);
 }
 
 bool SegmentIterator::_check_apply_by_inverted_index(std::shared_ptr<ColumnPredicate> pred) {
@@ -1474,24 +1485,36 @@ Status SegmentIterator::_apply_index_expr() {
 
     // Evaluate inverted index for virtual column MATCH expressions (projections).
     // Unlike common exprs which filter rows, these only compute index result bitmaps
-    // for later materialization via fast_execute().
-    for (auto& [cid, expr_ctx] : _virtual_column_exprs) {
-        if (_row_bitmap.isEmpty()) {
-            // Zero surviving rows: the projection column is never materialized,
-            // so its whole-segment index evaluation would be pure waste.
-            break;
-        }
-        if (expr_ctx->get_index_context() == nullptr) {
-            continue;
-        }
-        if (Status st = evaluate_with_candidate_policy(expr_ctx); !st.ok()) {
-            if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
+    // for later materialization via fast_execute(). They must not add BM25 scores
+    // either: score() and its range filter only reflect the filtering conjuncts.
+    {
+        CollectionSimilarityPtr filter_similarity =
+                _index_query_context != nullptr
+                        ? std::exchange(_index_query_context->collection_similarity, nullptr)
+                        : nullptr;
+        DEFER({
+            if (_index_query_context != nullptr) {
+                _index_query_context->collection_similarity = filter_similarity;
+            }
+        });
+        for (auto& [cid, expr_ctx] : _virtual_column_exprs) {
+            if (_row_bitmap.isEmpty()) {
+                // Zero surviving rows: the projection column is never materialized,
+                // so its whole-segment index evaluation would be pure waste.
+                break;
+            }
+            if (expr_ctx->get_index_context() == nullptr) {
                 continue;
-            } else {
-                LOG(WARNING) << "failed to evaluate inverted index for virtual column expr: "
-                             << expr_ctx->root()->debug_string()
-                             << ", error msg: " << st.to_string();
-                return st;
+            }
+            if (Status st = evaluate_with_candidate_policy(expr_ctx); !st.ok()) {
+                if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
+                    continue;
+                } else {
+                    LOG(WARNING) << "failed to evaluate inverted index for virtual column expr: "
+                                 << expr_ctx->root()->debug_string()
+                                 << ", error msg: " << st.to_string();
+                    return st;
+                }
             }
         }
     }
@@ -1997,6 +2020,9 @@ Status SegmentIterator::_init_index_iterators() {
     _index_query_context->io_ctx = &_opts.io_ctx;
     _index_query_context->stats = _opts.stats;
     _index_query_context->runtime_state = _opts.runtime_state;
+    if (auto it = _opts.delete_bitmap.find(segment_id()); it != _opts.delete_bitmap.end()) {
+        _index_query_context->delete_bitmap = it->second;
+    }
 
     if (_score_runtime) {
         _index_query_context->collection_statistics = _opts.collection_statistics;
@@ -3095,7 +3121,8 @@ Status SegmentIterator::next_batch(Block* block) {
                     block->replace_by_position(idx, type->create_column());
                 }
 
-                if (_opts.condition_cache_digest && !_find_condition_cache) {
+                if (_opts.condition_cache_digest && !_find_condition_cache &&
+                    !(_opts.read_limit > 0 && _rows_returned >= _opts.read_limit)) {
                     auto* condition_cache = ConditionCache::instance();
                     ConditionCache::CacheKey cache_key(_opts.rowset_id, _segment->id(),
                                                        _opts.condition_cache_digest);
@@ -3641,7 +3668,7 @@ Status SegmentIterator::_construct_compound_expr_context() {
     };
     auto inverted_index_context = std::make_shared<IndexExecContext>(
             _schema->column_ids(), _index_iterators, _storage_name_and_type,
-            _common_expr_index_exec_status, _score_runtime, _segment.get(), iter_opts);
+            _common_expr_index_exec_status, _score_runtime, _segment.get(), iter_opts, _schema);
     inverted_index_context->set_index_query_context(_index_query_context);
     for (const auto& expr_ctx : _opts.common_expr_ctxs_push_down) {
         VExprContextSPtr context;
@@ -3696,6 +3723,12 @@ Status SegmentIterator::_apply_expr_zonemap_to_row_ranges(const VExprContextSPtr
             continue;
         }
         const auto cid = _schema->column_id(cast_set<size_t>(slot_index));
+        // Match the segment-level exclusion: the version is substituted after the storage read,
+        // while page zone maps still describe the placeholder stored on disk.
+        if (_opts.version.first == _opts.version.second &&
+            cast_set<int32_t>(cid) == _schema->version_col_idx()) {
+            continue;
+        }
         if (!_segment->can_apply_predicate_safely(cid, *_schema,
                                                   _opts.target_cast_type_for_variants, _opts)) {
             continue;

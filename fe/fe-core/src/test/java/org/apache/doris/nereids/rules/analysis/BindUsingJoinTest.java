@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.pattern.GeneratedPlanPatterns;
 import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -24,9 +25,12 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
+import org.apache.doris.nereids.trees.plans.ComputeResultSet;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -120,13 +124,12 @@ class BindUsingJoinTest extends TestWithFeService implements GeneratedPlanPatter
     // ---- 3. Merge key expression checks ----
 
     @Test
-    void testInnerJoinUsingMergeKeyIsLeftAlias() {
-        String sql = "SELECT * FROM t1 JOIN t2 USING(a)";
-        PlanChecker.from(connectContext)
-                .analyze(sql)
-                .matches(logicalProject().when(project -> project.getProjects().stream()
-                        .filter(p -> p instanceof Alias && p.getName().equals("a"))
-                        .anyMatch(alias -> alias.child(0) instanceof Slot)));
+    void testInnerJoinUsingMergeKeyKeepsLeftExprId() {
+        List<Slot> output = PlanChecker.from(connectContext)
+                .analyze("SELECT a, t1.a FROM t1 JOIN t2 USING(a)").getPlan().getOutput();
+        Assertions.assertEquals(output.get(1).getExprId(), output.get(0).getExprId());
+        Assertions.assertTrue(output.get(0).getQualifier().isEmpty());
+        Assertions.assertTrue(output.get(1).getQualifier().contains("t1"));
     }
 
     @Test
@@ -188,19 +191,11 @@ class BindUsingJoinTest extends TestWithFeService implements GeneratedPlanPatter
 
     @Test
     void testRightJoinMergeKeyFromRightSide() {
-        String sql = "SELECT * FROM t1 RIGHT JOIN t2 USING(a)";
-        PlanChecker.from(connectContext)
-                .analyze(sql)
-                .matches(logicalProject().when(project -> project.getProjects().stream()
-                        .filter(p -> p instanceof Alias && p.getName().equals("a"))
-                        .map(alias -> alias.child(0))
-                        .filter(Slot.class::isInstance)
-                        .map(Slot.class::cast)
-                        .anyMatch(slot -> {
-                            // Merge key should come from right table (t2)
-                            return slot.getQualifier().stream()
-                                    .anyMatch(q -> q.contains("t2"));
-                        })));
+        List<Slot> output = PlanChecker.from(connectContext)
+                .analyze("SELECT a, t2.a FROM t1 RIGHT JOIN t2 USING(a)").getPlan().getOutput();
+        Assertions.assertEquals(output.get(1).getExprId(), output.get(0).getExprId());
+        Assertions.assertTrue(output.get(0).getQualifier().isEmpty());
+        Assertions.assertTrue(output.get(1).getQualifier().contains("t2"));
     }
 
     // ---- 6. RIGHT SEMI JOIN merge key is visible ----
@@ -405,4 +400,84 @@ class BindUsingJoinTest extends TestWithFeService implements GeneratedPlanPatter
                     return outputNames.equals(Arrays.asList("ak", "pk", "lv", "rv", "nv"));
                 }));
     }
+
+    @Test
+    void testUsingJoinGroupByPreservedKey() {
+        String[] joinTypes = {
+            "JOIN", "LEFT JOIN", "LEFT SEMI JOIN", "LEFT ANTI JOIN",
+            "RIGHT JOIN", "RIGHT SEMI JOIN", "RIGHT ANTI JOIN"
+        };
+        for (String joinType : joinTypes) {
+            String key = joinType.startsWith("RIGHT") ? "t2.a" : "t1.a";
+            String from = " FROM t1 " + joinType + " t2 USING(a)";
+            PlanChecker.from(connectContext).checkPlannerResult(
+                    "SELECT " + key + ", COUNT(*)" + from + " GROUP BY a");
+            PlanChecker.from(connectContext).checkPlannerResult(
+                    "SELECT a, COUNT(*)" + from + " GROUP BY " + key);
+            PlanChecker.from(connectContext).checkPlannerResult(
+                    "SELECT COUNT(*)" + from + " GROUP BY a HAVING " + key + " > 0 ORDER BY " + key);
+            PlanChecker.from(connectContext).checkPlannerResult(
+                    "SELECT " + key + " + 1, COUNT(*)" + from + " GROUP BY a + 1");
+        }
+    }
+
+    @Test
+    void testUsingJoinGroupByMultipleKeys() {
+        PlanChecker.from(connectContext).checkPlannerResult(
+                "SELECT l.a, l.b, COUNT(*) FROM t1 l LEFT JOIN t1 r USING(a,b) GROUP BY a,b");
+        PlanChecker.from(connectContext).checkPlannerResult(
+                "SELECT a, b, COUNT(*) FROM t1 l LEFT JOIN t1 r USING(a,b) GROUP BY l.a,l.b");
+    }
+
+    @Test
+    void testUsingJoinGroupByDoesNotMergeNullableSide() {
+        String[] queries = {
+            "SELECT t2.a, COUNT(*) FROM t1 LEFT JOIN t2 USING(a) GROUP BY a",
+            "SELECT t1.a, COUNT(*) FROM t1 RIGHT JOIN t2 USING(a) GROUP BY a",
+            "SELECT t1.a, COUNT(*) FROM t1 FULL JOIN t2 USING(a) GROUP BY a",
+            "SELECT a, COUNT(*) FROM t1 FULL JOIN t2 USING(a) GROUP BY t1.a"
+        };
+        for (String sql : queries) {
+            AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                    () -> PlanChecker.from(connectContext).analyze(sql), sql);
+            Assertions.assertTrue(error.getMessage().contains("must appear in the GROUP BY"), error.getMessage());
+        }
+    }
+
+    @Test
+    void testUsingJoinGroupByDerivedInput() {
+        PlanChecker.from(connectContext).checkPlannerResult(
+                "WITH l AS (SELECT 1 AS k, 10 AS v UNION ALL SELECT 2, 20), "
+                        + "r AS (SELECT 1 AS k UNION ALL SELECT 3) "
+                        + "SELECT l.k, SUM(l.v) FROM l LEFT JOIN r USING(k) "
+                        + "GROUP BY k HAVING l.k > 0 ORDER BY l.k");
+    }
+
+    @Test
+    void testUsingJoinCteColumnOrder() {
+        String[] joins = {"JOIN", "LEFT JOIN", "RIGHT JOIN"};
+        for (String join : joins) {
+            String source = join.startsWith("RIGHT") ? "t2.a" : "t1.a";
+            String payload = join.startsWith("RIGHT") ? "t2.c" : "t1.b";
+            String sql = "WITH q(x,y,z) AS (SELECT a," + payload + "," + source
+                    + " FROM t1 " + join + " t2 USING(a)) SELECT * FROM q";
+            List<Slot> output = PlanChecker.from(connectContext).analyze(sql).getPlan().getOutput();
+            Assertions.assertEquals(ImmutableList.of("x", "y", "z"), output.stream()
+                    .map(Slot::getName).collect(Collectors.toList()), sql);
+            PlanChecker.from(connectContext).checkPlannerResult(sql);
+        }
+    }
+
+    @Test
+    void testCteRepeatedColumnResults() {
+        String sql = "WITH q(x,y,z) AS (SELECT a,b,a FROM (SELECT 1 AS a,10 AS b) t) SELECT * FROM q";
+        PlanChecker.from(connectContext).checkPlannerResult(sql, planner -> {
+            PhysicalPlan plan = planner.getPhysicalPlan();
+            Assertions.assertTrue(plan instanceof ComputeResultSet);
+            Assertions.assertEquals(ImmutableList.of(ImmutableList.of("1", "10", "1")),
+                    ((ComputeResultSet) plan).computeResultInFe(planner.getCascadesContext(), plan.getOutput())
+                            .orElseThrow(() -> new AssertionError("Expected FE-computed CTE result")).getResultRows());
+        });
+    }
+
 }

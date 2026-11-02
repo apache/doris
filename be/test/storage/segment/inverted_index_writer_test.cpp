@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/index/inverted/inverted_index_writer.h"
+#include "storage/index/inverted/clucene/inverted_index_writer.h"
 
 #include <CLucene.h>
 #include <CLucene/config/repl_wchar.h>
@@ -44,15 +44,16 @@
 #include "runtime/runtime_state.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
-#include "storage/index/inverted/analyzer/analyzer.h"
-#include "storage/index/inverted/analyzer/custom_analyzer.h"
-#include "storage/index/inverted/inverted_index_desc.h"
-#include "storage/index/inverted/inverted_index_fs_directory.h"
+#include "storage/index/index_fs_directory.h"
+#include "storage/index/inverted/analysis/analyzer/analyzer.h"
+#include "storage/index/inverted/analysis/analyzer/custom_analyzer.h"
+#include "storage/index/inverted/clucene/clucene_index_reader.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_reader.h"
-#include "storage/index/snii/query/bm25_scorer.h"
-#include "storage/index/snii/query/term_query.h"
-#include "storage/index/snii/snii_index_writer.h"
-#include "storage/index/snii/stats/snii_stats_provider.h"
+#include "storage/index/inverted/snii/query/bm25_scorer.h"
+#include "storage/index/inverted/snii/snii_index_writer.h"
+#include "storage/index/inverted/snii/snii_query_oracle.h"
+#include "storage/index/inverted/snii/stats/snii_stats_provider.h"
 #include "storage/iterator/olap_data_convertor.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
@@ -356,7 +357,7 @@ public:
         context->stats = &stats;
         context->runtime_state = &runtime_state;
         InvertedIndexQueryCacheHandle cache_handle;
-        ASSERT_TRUE(bkd_reader->read_null_bitmap(context, &cache_handle, nullptr).ok());
+        ASSERT_TRUE(bkd_reader->read_null_bitmap(context, &cache_handle).ok());
 
         const auto null_bitmap = cache_handle.get_bitmap();
         ASSERT_NE(null_bitmap, nullptr);
@@ -854,7 +855,7 @@ public:
         EXPECT_TRUE(status.ok()) << status;
 
         // Add string values with Unicode characters above 0xFFFF
-        // U+10000 (𐀀) LINEAR B SYLLABLE B008 A
+        // U+10000 (U+10000) LINEAR B SYLLABLE B008 A
         // U+1F600 (😀) GRINNING FACE
         // U+1F914 (🤔) THINKING FACE
         std::vector<Slice> values = {
@@ -1093,7 +1094,7 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     EXPECT_TRUE(status.ok()) << status;
 
     // Add string values with Unicode characters above 0xFFFF
-    // U+10000 (𐀀) LINEAR B SYLLABLE B008 A
+    // U+10000 (U+10000) LINEAR B SYLLABLE B008 A
     // U+1F600 (😀) GRINNING FACE
     // U+1F914 (🤔) THINKING FACE
     std::vector<Slice> values = {

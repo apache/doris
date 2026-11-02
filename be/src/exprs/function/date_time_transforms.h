@@ -47,6 +47,7 @@
 #include "exec/common/util.hpp"
 #include "exprs/function/date_format_type.h"
 #include "exprs/function_context.h"
+#include "runtime/runtime_state.h"
 
 // FIXME: This file contains widespread UB due to unsafe type-punning casts.
 //        These must be properly refactored to eliminate reliance on reinterpret-style behavior.

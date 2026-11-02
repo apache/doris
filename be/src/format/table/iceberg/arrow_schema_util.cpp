@@ -18,6 +18,7 @@
 #include "format/table/iceberg/arrow_schema_util.h"
 
 #include <arrow/extension/parquet_variant.h>
+#include <arrow/extension/uuid.h>
 #include <arrow/type.h>
 #include <arrow/util/key_value_metadata.h>
 
@@ -83,12 +84,21 @@ Status IcebergArrowSchemaConvertor::convert_to_arrow_field(
         arrow_type = arrow::date32();
         break;
 
-    case iceberg::TypeID::TIMESTAMP: {
-        iceberg::TimestampType* t_type = static_cast<iceberg::TimestampType*>(field.field_type());
-        std::string real_tz = t_type->should_adjust_to_utc() ? _timezone : "";
-        arrow_type = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::MICRO, real_tz);
+    case iceberg::TypeID::TIMESTAMP:
+        arrow_type = arrow::timestamp(arrow::TimeUnit::MICRO);
         break;
-    }
+
+    case iceberg::TypeID::TIMESTAMPTZ:
+        arrow_type = arrow::timestamp(arrow::TimeUnit::MICRO, _timezone);
+        break;
+
+    case iceberg::TypeID::TIMESTAMP_NS:
+        arrow_type = arrow::timestamp(arrow::TimeUnit::NANO);
+        break;
+
+    case iceberg::TypeID::TIMESTAMPTZ_NS:
+        arrow_type = arrow::timestamp(arrow::TimeUnit::NANO, _timezone);
+        break;
 
     case iceberg::TypeID::STRING:
         arrow_type = arrow::utf8();
@@ -107,7 +117,7 @@ Status IcebergArrowSchemaConvertor::convert_to_arrow_field(
 
     case iceberg::TypeID::UUID:
         metadata[ORIGINAL_TYPE] = UUID_TYPE_VALUE;
-        arrow_type = arrow::fixed_size_binary(16);
+        arrow_type = _use_uuid_extension ? arrow::extension::uuid() : arrow::fixed_size_binary(16);
         break;
 
     case iceberg::TypeID::FIXED: {

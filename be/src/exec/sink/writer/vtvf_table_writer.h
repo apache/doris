@@ -72,6 +72,7 @@ private:
     int64_t _current_written_bytes = 0;
     int64_t _max_file_size_bytes = 0;
     int _file_idx = 0;
+    int _file_name_padding = 0;
     std::string _file_path;
 
     // profile counters

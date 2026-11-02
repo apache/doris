@@ -97,7 +97,8 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
                 String beginFile = rfiles.get(0).getName().replace(bucketBase, "");
                 String lastFile = rfiles.get(rfiles.size() - 1).getName().replace(bucketBase, "");
                 offset.setFileStatuses(rfiles.stream().map(file -> new TBrokerFileStatus(
-                        file.getName(), file.isDirectory(), file.getSize(), !file.isDirectory()))
+                        file.getName(), file.isDirectory(), file.getSize(), !file.isDirectory())
+                        .setModificationTime(file.getModificationTime()))
                         .collect(Collectors.toList()));
                 offset.setStartFile(beginFile);
                 offset.setEndFile(lastFile);

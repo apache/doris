@@ -80,6 +80,7 @@ public class HadoopHudiJniScanner extends JniScanner {
     private final String[] requiredFields;
     private List<Integer> requiredColumnIds;
     private ColumnType[] requiredTypes;
+    private final String[] requiredTypeNames;
 
     // Hadoop info
     private RecordReader<NullWritable, ArrayWritable> reader;
@@ -111,6 +112,7 @@ public class HadoopHudiJniScanner extends JniScanner {
 
         this.hudiColumnNames = params.get("hudi_column_names");
         this.hudiColumnTypes = params.get("hudi_column_types").split("#");
+        this.requiredTypeNames = params.get("columns_types").split("#");
         // Required fields will be empty when only partition fields are selected
         // This is because partition fields are not stored in the data files
         if (!params.get("required_fields").equals("")) {
@@ -121,12 +123,13 @@ public class HadoopHudiJniScanner extends JniScanner {
         this.fieldInspectors = new ObjectInspector[requiredFields.length];
         this.structFields = new StructField[requiredFields.length];
         this.fsOptionsProps = Maps.newHashMap();
+        LOG.debug("initialize hudi scanner for query {}", params.get("query_id"));
         for (Map.Entry<String, String> entry : params.entrySet()) {
             if (entry.getKey().startsWith(HADOOP_CONF_PREFIX)) {
                 fsOptionsProps.put(entry.getKey().substring(HADOOP_CONF_PREFIX.length()), entry.getValue());
             }
             if (LOG.isDebugEnabled()) {
-                LOG.debug("get hudi params {}: {}", entry.getKey(), entry.getValue());
+                LOG.debug("get hudi parameter: {}", entry.getKey());
             }
         }
         this.preExecutionAuthenticator = PreExecutionAuthenticatorCache.getAuthenticator(fsOptionsProps);
@@ -216,19 +219,15 @@ public class HadoopHudiJniScanner extends JniScanner {
                         .boxed()
                         .collect(Collectors.toMap(i -> splitHudiColumnNames[i], i -> i));
 
-        Map<String, String> hudiColNameToType =
-                IntStream.range(0, splitHudiColumnNames.length)
-                        .boxed()
-                        .collect(Collectors.toMap(i -> splitHudiColumnNames[i], i -> hudiColumnTypes[i]));
-
         requiredTypes = new ColumnType[requiredFields.length];
         for (int i = 0; i < requiredFields.length; i++) {
             String requiredField = requiredFields[i];
-            if (!hudiColNameToType.containsKey(requiredField)) {
+            if (!hudiColNameToIdx.containsKey(requiredField)) {
                 throw new IllegalArgumentException(
                         "Required field " + requiredField + " not found in Hudi column names: " + splitHudiColumnNames);
             }
-            requiredTypes[i] = ColumnType.parseType(requiredField, hudiColNameToType.get(requiredField));
+            // JNI buffers must match BE's requested types; Hive carriers lose UUID logical metadata.
+            requiredTypes[i] = ColumnType.parseType(requiredField, requiredTypeNames[i]);
         }
 
         requiredColumnIds = Arrays.stream(requiredFields)

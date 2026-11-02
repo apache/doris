@@ -282,6 +282,8 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, MutableColumnPtr& dst) {
     *n = max_fetch;
 
     if (_options.only_read_offsets) {
+        // ColumnDictI32 cannot insert lengths; materialize it as ColumnString first.
+        dst = dst->convert_to_predicate_column_if_dictionary();
         // OFFSET_ONLY mode: resolve dict codes to get real string lengths
         // without copying actual char data. This allows length() to work.
         const auto* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->get_data(0));
@@ -326,6 +328,8 @@ Status BinaryDictPageDecoder::read_by_rowids(const rowid_t* rowids, ordinal_t pa
     auto total = *n;
 
     if (_options.only_read_offsets) {
+        // ColumnDictI32 cannot insert lengths; materialize it as ColumnString first.
+        dst = dst->convert_to_predicate_column_if_dictionary();
         // OFFSET_ONLY mode: resolve dict codes to get real string lengths
         // without copying actual char data. This allows length() to work correctly.
         const auto* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->get_data(0));

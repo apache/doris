@@ -605,6 +605,7 @@ USE: 'USE';
 USER: 'USER';
 USE_MV: 'USE_MV';
 USING: 'USING';
+UUID: 'UUID';
 VALUE: 'VALUE';
 VALUES: 'VALUES';
 VARBINARY: 'VARBINARY';
@@ -667,8 +668,14 @@ ATSIGN: '@';
 DOUBLEATSIGN: '@@';
 
 STRING_LITERAL
-    :  '\'' ( {!isNoBackslashEscapes}? '\\'. | '\'\'' | {!isNoBackslashEscapes}? ~('\'' | '\\') | {isNoBackslashEscapes}? ~('\''))* '\''
-    | '"' ( {!isNoBackslashEscapes}? '\\'. | '""' | {!isNoBackslashEscapes}? ~('"'| '\\') | {isNoBackslashEscapes}? ~('"'))* '"'
+    : '\'' (
+          {!isNoBackslashEscapes}? ('\\' . | '\'\'' | ~('\'' | '\\'))*
+        | {isNoBackslashEscapes}? ('\'\'' | ~('\''))*
+      ) '\''
+    | '"' (
+          {!isNoBackslashEscapes}? ('\\' . | '""' | ~('"' | '\\'))*
+        | {isNoBackslashEscapes}? ('""' | ~('"'))*
+      ) '"'
     ;
 
 VARBINARY_LITERAL

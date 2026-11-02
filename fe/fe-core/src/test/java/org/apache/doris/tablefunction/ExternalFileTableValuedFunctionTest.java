@@ -19,14 +19,17 @@ package org.apache.doris.tablefunction;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.datasource.lance.metadata.LanceTableAccess;
 import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.LanceFileFormatProperties;
+import org.apache.doris.datasource.property.storage.GCSProperties;
 import org.apache.doris.thrift.TFileFormatType;
 
 import com.google.common.collect.Lists;
@@ -38,6 +41,7 @@ import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
 import org.mockito.Mockito;
 
 import java.util.Arrays;
@@ -59,6 +63,53 @@ public class ExternalFileTableValuedFunctionTest {
             Map<String, String> storageProperties = tvf.parseCommonProperties(properties);
             Assert.assertTrue(tvf.fileFormatProperties.enableMappingTimestampTz);
             Assert.assertFalse(storageProperties.containsKey(FileFormatConstants.PROP_ENABLE_MAPPING_TIMESTAMP_TZ));
+        }
+    }
+
+    @Test
+    public void testGcpNativeCredentialForS3Tvf() throws AnalysisException {
+        boolean previousRunningUnitTest = FeConstants.runningUnitTest;
+        FeConstants.runningUnitTest = true;
+        try {
+            Map<String, String> properties = Maps.newHashMap();
+            properties.put("uri", "gs://tvf-bucket/path/file.parquet");
+            properties.put("format", "parquet");
+            properties.put("provider", "GCP");
+            properties.put("gs.endpoint", "https://storage.googleapis.com");
+            properties.put(GCSProperties.CREDENTIAL_PROVIDER_TYPE, "COMPUTE_ENGINE");
+            properties.put(GCSProperties.IMPERSONATION_SERVICE_ACCOUNT,
+                    "target@my-project.iam.gserviceaccount.com");
+
+            S3TableValuedFunction tvf = new S3TableValuedFunction(properties);
+            Assert.assertEquals("s3://tvf-bucket/path/file.parquet", tvf.getFilePath());
+            Assert.assertEquals("us-east1", tvf.getBackendConnectProperties().get("AWS_REGION"));
+            Assert.assertEquals("GCP", tvf.getBackendConnectProperties().get("provider"));
+            Assert.assertEquals("COMPUTE_ENGINE", tvf.getBackendConnectProperties()
+                    .get(GCSProperties.CREDENTIAL_PROVIDER_TYPE));
+            Assert.assertEquals("target@my-project.iam.gserviceaccount.com",
+                    tvf.getBackendConnectProperties().get(GCSProperties.IMPERSONATION_SERVICE_ACCOUNT));
+        } finally {
+            FeConstants.runningUnitTest = previousRunningUnitTest;
+        }
+    }
+
+    @Test
+    public void testGcpNativeCredentialValidationHappensBeforeTvfAccess() {
+        boolean previousRunningUnitTest = FeConstants.runningUnitTest;
+        FeConstants.runningUnitTest = true;
+        try {
+            Map<String, String> properties = Maps.newHashMap();
+            properties.put("uri", "gs://tvf-bucket/path/file.parquet");
+            properties.put("format", "parquet");
+            properties.put("provider", "GCP");
+            properties.put(GCSProperties.CREDENTIAL_PROVIDER_TYPE, "DEFAULT");
+            properties.put("s3.session_token", "session-token");
+
+            IllegalArgumentException exception = Assert.assertThrows(IllegalArgumentException.class,
+                    () -> new S3TableValuedFunction(properties));
+            Assert.assertTrue(exception.getMessage().contains("session token"));
+        } finally {
+            FeConstants.runningUnitTest = previousRunningUnitTest;
         }
     }
 
@@ -99,24 +150,36 @@ public class ExternalFileTableValuedFunctionTest {
     }
 
     @Test
-    public void testTvfVarbinaryMappingRemainsExplicit() throws AnalysisException {
-        ExternalFileTableValuedFunction defaultTvf = Mockito.mock(
-                ExternalFileTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
-        Map<String, String> defaultProperties = Maps.newHashMap();
-        defaultProperties.put(FileFormatConstants.PROP_FORMAT, FileFormatConstants.FORMAT_PARQUET);
+    public void testTvfVarbinaryMappingCannotBeDisabled() throws AnalysisException {
+        for (String format : new String[] {FileFormatConstants.FORMAT_PARQUET, FileFormatConstants.FORMAT_ORC}) {
+            for (String legacyValue : new String[] {null, "false", "true"}) {
+                ExternalFileTableValuedFunction tvf = Mockito.mock(
+                        ExternalFileTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
+                Map<String, String> properties = Maps.newHashMap();
+                properties.put(FileFormatConstants.PROP_FORMAT, format);
+                if (legacyValue != null) {
+                    properties.put(FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY, legacyValue);
+                }
+                Map<String, String> remaining = tvf.parseCommonProperties(properties);
+                Assert.assertTrue(tvf.fileFormatProperties.enableMappingVarbinary);
+                Assert.assertFalse(remaining.containsKey(FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY));
+            }
+        }
+    }
 
-        defaultTvf.parseCommonProperties(defaultProperties);
+    @Test
+    public void testCsvSchemaUuid() throws Exception {
+        List<Column> columns = Lists.newArrayList();
+        FileFormatUtils.parseCsvSchema(columns, "id:int;u: UUID ;v:uuid");
+        Assertions.assertEquals(3, columns.size());
+        Assertions.assertEquals(Type.UUID, columns.get(1).getType());
+        Assertions.assertEquals(Type.UUID, columns.get(2).getType());
+        Assertions.assertTrue(columns.get(1).isAllowNull());
+        Assertions.assertEquals("u", columns.get(1).getName());
 
-        Assert.assertFalse(defaultTvf.fileFormatProperties.enableMappingVarbinary);
-
-        ExternalFileTableValuedFunction enabledTvf = Mockito.mock(
-                ExternalFileTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
-        Map<String, String> enabledProperties = Maps.newHashMap(defaultProperties);
-        enabledProperties.put(FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY, "true");
-
-        enabledTvf.parseCommonProperties(enabledProperties);
-
-        Assert.assertTrue(enabledTvf.fileFormatProperties.enableMappingVarbinary);
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> FileFormatUtils.parseCsvSchema(Lists.newArrayList(), "u:uuid(16)"));
+        Assertions.assertTrue(exception.getMessage().contains("unsupported column type: uuid(16)"));
     }
 
     @Test

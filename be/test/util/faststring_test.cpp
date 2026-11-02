@@ -135,4 +135,28 @@ TEST_F(FaststringTest, TestAppend_ExponentiallyExpand) {
     }
 }
 
+// reserve() must grow geometrically. BitWriter reserves a handful of bytes at a
+// time, so reallocating to the exact requested size made appending n bytes cost
+// O(n^2) in memcpy -- enough to stall a thread outright once the buffer reached
+// hundreds of megabytes.
+TEST_F(FaststringTest, TestReserve_ExponentiallyExpand) {
+    constexpr size_t kTargetSize = 1 * 1024 * 1024;
+
+    faststring s;
+    size_t last_capacity = s.capacity();
+    int reallocations = 0;
+    for (size_t i = 0; i < kTargetSize; ++i) {
+        s.reserve(i + 1);
+        if (s.capacity() != last_capacity) {
+            ++reallocations;
+            last_capacity = s.capacity();
+        }
+    }
+
+    EXPECT_GE(s.capacity(), kTargetSize);
+    // Growing 1.5x at a time from kInitialCapacity needs ~26 steps to pass 1 MiB.
+    // Exact growth would instead reallocate on (almost) every one of the 1M calls.
+    EXPECT_LT(reallocations, 64);
+}
+
 } // namespace doris

@@ -45,7 +45,7 @@ public:
         MutableColumnPtr column_to;
 
         DataTypeSerDe::FormatOptions options;
-        options.timezone = &context->state()->timezone_obj();
+        options.timezone = context->time_zone();
 
         if constexpr (Mode == CastModeType::NonStrictMode) {
             auto to_nullable_type = make_nullable(to_type);
@@ -76,7 +76,7 @@ public:
 
         auto col_to = ColumnTimeStampTz::create(input_rows_count);
         auto& col_to_data = col_to->get_data();
-        const auto& local_time_zone = context->state()->timezone_obj();
+        const auto& local_time_zone = *context->time_zone();
 
         const auto dt_scale = block.get_by_position(arguments[0]).type->get_scale();
         const auto tz_scale = block.get_by_position(result).type->get_scale();
@@ -92,7 +92,7 @@ public:
             if (!tz_value.from_datetime(from_dt, local_time_zone, dt_scale, tz_scale)) {
                 return Status::InvalidArgument(
                         "can not cast from  datetime : {} to timestamptz in timezone : {}",
-                        from_dt.to_string(), context->state()->timezone());
+                        from_dt.to_string(), context->time_zone_name());
             }
 
             col_to_data[i] = tz_value;
@@ -117,7 +117,7 @@ public:
         auto& col_to_data = col_to->get_data();
         auto col_null = ColumnBool::create(input_rows_count, 0);
         auto& col_null_map = col_null->get_data();
-        const auto& local_time_zone = context->state()->timezone_obj();
+        const auto& local_time_zone = *context->time_zone();
 
         const auto dt_scale = block.get_by_position(arguments[0]).type->get_scale();
         const auto tz_scale = block.get_by_position(result).type->get_scale();
@@ -150,7 +150,7 @@ public:
                         .get_data();
         auto col_to = ColumnTimeStampTz::create(input_rows_count);
         auto col_null = ColumnBool::create(input_rows_count, 0);
-        const auto& local_time_zone = context->state()->timezone_obj();
+        const auto& local_time_zone = *context->time_zone();
         const auto target_scale = block.get_by_position(result).type->get_scale();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
@@ -168,7 +168,7 @@ public:
                 if constexpr (CastMode == CastModeType::StrictMode) {
                     return Status::InvalidArgument(
                             "can not cast TIMESTAMP_NS {} to timestamptz in timezone {}",
-                            col_from[i].to_string(), context->state()->timezone());
+                            col_from[i].to_string(), context->time_zone_name());
                 }
                 col_null->get_data()[i] = true;
                 continue;
@@ -216,7 +216,7 @@ public:
                 // timezone whose local year may itself be outside the supported range.
                 return Status::InvalidArgument(
                         "can not cast from  timestamptz : {} UTC to timestamptz in timezone : {}",
-                        from_tz.utc_dt().to_string(from_scale), context->state()->timezone());
+                        from_tz.utc_dt().to_string(from_scale), context->time_zone_name());
             }
         }
         block.get_by_position(result).column = std::move(col_to);

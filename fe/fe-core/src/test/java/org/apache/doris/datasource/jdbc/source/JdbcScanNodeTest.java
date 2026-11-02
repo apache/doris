@@ -136,6 +136,24 @@ public class JdbcScanNodeTest {
                 new InPredicate(slot, Arrays.asList(new VarBinaryLiteral(new byte[] {0, (byte) 0xff})), false)));
     }
 
+    @Test
+    public void testUuidOrderingStaysLocal() throws Exception {
+        Method method = JdbcScanNode.class.getDeclaredMethod("shouldPushDownConjunct",
+                TOdbcTableType.class, Expr.class);
+        method.setAccessible(true);
+        SlotRef slot = new SlotRef(null, "u");
+        slot.setType(Type.UUID);
+        Expr literal = new org.apache.doris.analysis.UuidLiteral("80000000-0000-0000-0000-000000000000");
+        for (TOdbcTableType dialect : Arrays.asList(TOdbcTableType.SQLSERVER, TOdbcTableType.CLICKHOUSE)) {
+            for (Operator operator : Arrays.asList(Operator.LT, Operator.LE, Operator.GT, Operator.GE)) {
+                Assert.assertEquals(false, method.invoke(null, dialect,
+                        new BinaryPredicate(operator, slot, literal)));
+            }
+            Assert.assertEquals(true, method.invoke(null, dialect, new BinaryPredicate(Operator.EQ, slot, literal)));
+            Assert.assertEquals(true, method.invoke(null, dialect, new BinaryPredicate(Operator.NE, slot, literal)));
+        }
+    }
+
     @Mocked
     private JdbcTable mockTable;
 

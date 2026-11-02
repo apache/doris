@@ -68,8 +68,14 @@ public final class IcebergConflictDetectionFilterUtils {
             return Optional.empty();
         }
         Schema schema = targetTable.getIcebergTable().schema();
+        Set<Integer> unsafeNanosFields = IcebergTimestampUtils.unsafeNanosFields(
+                targetTable.getIcebergTable(), schema);
         org.apache.iceberg.expressions.Expression combined = null;
         for (Expression predicate : targetConjuncts) {
+            // A widened conflict filter is safe; retained DATE bounds must not hide conflicts.
+            if (IcebergTimestampUtils.referencesUnsafe(predicate, schema, unsafeNanosFields)) {
+                continue;
+            }
             Optional<org.apache.iceberg.expressions.Expression> icebergExpr =
                     convertPredicateToIcebergExpression(predicate, schema);
             if (!icebergExpr.isPresent()) {

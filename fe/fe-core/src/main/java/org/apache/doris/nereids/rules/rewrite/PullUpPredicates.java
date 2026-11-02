@@ -364,7 +364,7 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
         });
     }
 
-    private ImmutableSet<Expression> cacheOrElse(Plan plan, Supplier<ImmutableSet<Expression>> predicatesSupplier) {
+    protected ImmutableSet<Expression> cacheOrElse(Plan plan, Supplier<ImmutableSet<Expression>> predicatesSupplier) {
         ImmutableSet<Expression> predicates = cache.get(plan);
         if (predicates != null) {
             return predicates;

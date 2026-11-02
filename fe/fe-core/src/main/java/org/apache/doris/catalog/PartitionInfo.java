@@ -28,6 +28,7 @@ import org.apache.doris.analysis.TimeStampNsLiteral;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTabletType;
 
@@ -70,6 +71,9 @@ public class PartitionInfo {
     // partition id -> storage policy
     @SerializedName("IdToStoragePolicy")
     protected Map<Long, String> idToStoragePolicy;
+    // partition id -> resolved base inverted-index storage format
+    @SerializedName("IdToInvertedIndexFileStorageFormat")
+    protected Map<Long, TInvertedIndexFileStorageFormat> idToInvertedIndexFileStorageFormat;
     // partition id -> replication allocation
     @SerializedName("IdToReplicaAllocation")
     protected Map<Long, ReplicaAllocation> idToReplicaAllocation;
@@ -99,6 +103,7 @@ public class PartitionInfo {
         this.idToInMemory = new HashMap<>();
         this.idToTabletType = new HashMap<>();
         this.idToStoragePolicy = new HashMap<>();
+        this.idToInvertedIndexFileStorageFormat = new HashMap<>();
         this.partitionExprs = new ArrayList<>();
     }
 
@@ -109,6 +114,7 @@ public class PartitionInfo {
         this.idToInMemory = new HashMap<>();
         this.idToTabletType = new HashMap<>();
         this.idToStoragePolicy = new HashMap<>();
+        this.idToInvertedIndexFileStorageFormat = new HashMap<>();
         this.partitionExprs = new ArrayList<>();
     }
 
@@ -313,6 +319,19 @@ public class PartitionInfo {
         idToStoragePolicy.put(partitionId, storagePolicy);
     }
 
+    public TInvertedIndexFileStorageFormat getInvertedIndexFileStorageFormat(long partitionId) {
+        return idToInvertedIndexFileStorageFormat == null
+                ? null : idToInvertedIndexFileStorageFormat.get(partitionId);
+    }
+
+    public void setInvertedIndexFileStorageFormat(long partitionId,
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) {
+        if (idToInvertedIndexFileStorageFormat == null) {
+            idToInvertedIndexFileStorageFormat = new HashMap<>();
+        }
+        idToInvertedIndexFileStorageFormat.put(partitionId, invertedIndexFileStorageFormat);
+    }
+
     public Map<Long, ReplicaAllocation> getPartitionReplicaAllocations() {
         return idToReplicaAllocation;
     }
@@ -364,6 +383,9 @@ public class PartitionInfo {
         idToReplicaAllocation.remove(partitionId);
         idToInMemory.remove(partitionId);
         idToTabletType.remove(partitionId);
+        if (idToInvertedIndexFileStorageFormat != null) {
+            idToInvertedIndexFileStorageFormat.remove(partitionId);
+        }
         idToItem.remove(partitionId);
         idToTempItem.remove(partitionId);
     }
@@ -424,11 +446,14 @@ public class PartitionInfo {
         Map<Long, PartitionItem> origIdToItem = idToItem;
         Map<Long, Boolean> origIdToInMemory = idToInMemory;
         Map<Long, String> origIdToStoragePolicy = idToStoragePolicy;
+        Map<Long, TInvertedIndexFileStorageFormat> origIdToInvertedIndexFileStorageFormat =
+                idToInvertedIndexFileStorageFormat;
         idToDataProperty = Maps.newHashMap();
         idToReplicaAllocation = Maps.newHashMap();
         idToItem = Maps.newHashMap();
         idToInMemory = Maps.newHashMap();
         idToStoragePolicy = Maps.newHashMap();
+        idToInvertedIndexFileStorageFormat = Maps.newHashMap();
 
         for (Map.Entry<Long, Long> entry : partitionIdMap.entrySet()) {
             long newPartId = entry.getKey();
@@ -457,6 +482,13 @@ public class PartitionInfo {
                             : restoreReplicaAlloc);
             if (!isSinglePartitioned) {
                 idToItem.put(newPartId, origIdToItem.get(origPartId));
+            }
+            if (origIdToInvertedIndexFileStorageFormat != null) {
+                TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat =
+                        origIdToInvertedIndexFileStorageFormat.get(origPartId);
+                if (invertedIndexFileStorageFormat != null) {
+                    idToInvertedIndexFileStorageFormat.put(newPartId, invertedIndexFileStorageFormat);
+                }
             }
         }
     }

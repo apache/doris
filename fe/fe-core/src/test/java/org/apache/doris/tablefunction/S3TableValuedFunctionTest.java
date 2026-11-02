@@ -17,6 +17,7 @@
 
 package org.apache.doris.tablefunction;
 
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.S3Util;
@@ -24,19 +25,28 @@ import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
+import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
 import org.apache.doris.proto.InternalService.PFetchTableSchemaResult;
+import org.apache.doris.proto.Types.PScalarType;
 import org.apache.doris.proto.Types.PStatus;
+import org.apache.doris.proto.Types.PTypeDesc;
+import org.apache.doris.proto.Types.PTypeNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TBrokerFileStatus;
+import org.apache.doris.thrift.TFileScanRange;
+import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TTypeNodeType;
 
 import com.google.common.collect.ImmutableMap;
+import org.apache.thrift.TDeserializer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -85,9 +95,38 @@ public class S3TableValuedFunctionTest {
     }
 
     @Test
-    public void testSchemaFailureDoesNotSkipFiles() throws Exception {
+    public void testSchemaFailurePreservesFilesAndAllowsRetry() throws Exception {
         assertSchemaFailure(TStatusCode.NOT_FOUND);
         assertSchemaFailure(TStatusCode.INTERNAL_ERROR);
+    }
+
+    @Test
+    public void testSchemaInferenceUsesNextFileAfterNotFound() throws Exception {
+        S3TableValuedFunction tvf = tvf();
+        BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
+        PFetchTableSchemaResult schema = PFetchTableSchemaResult.newBuilder()
+                .setStatus(PStatus.newBuilder().setStatusCode(TStatusCode.OK.getValue()))
+                .setColumnNums(1).addColumnNames("id")
+                .addColumnTypes(PTypeDesc.newBuilder().addTypes(PTypeNode.newBuilder()
+                        .setType(TTypeNodeType.SCALAR.getValue())
+                        .setScalarType(PScalarType.newBuilder().setType(TPrimitiveType.INT.getValue())))).build();
+        Mockito.when(proxy.fetchTableStructureAsync(Mockito.any(), Mockito.any()))
+                .thenReturn(CompletableFuture.completedFuture(result(TStatusCode.NOT_FOUND)),
+                        CompletableFuture.completedFuture(schema));
+        try (MockedStatic<BackendServiceProxy> service = Mockito.mockStatic(BackendServiceProxy.class)) {
+            service.when(BackendServiceProxy::getInstance).thenReturn(proxy);
+            Assertions.assertEquals("id", tvf.getTableColumns().get(0).getName());
+            Assertions.assertEquals(PrimitiveType.INT, tvf.getTableColumns().get(0).getType().getPrimitiveType());
+            ArgumentCaptor<PFetchTableSchemaRequest> requests =
+                    ArgumentCaptor.forClass(PFetchTableSchemaRequest.class);
+            Mockito.verify(proxy, Mockito.times(2)).fetchTableStructureAsync(Mockito.any(), requests.capture());
+            for (int i = 0; i < 2; i++) {
+                TFileScanRange range = new TFileScanRange();
+                new TDeserializer().deserialize(range, requests.getAllValues().get(i).getFileScanRange().toByteArray());
+                Assertions.assertEquals(tvf.getFileStatuses().get(i).getPath(), range.getRanges().get(0).getPath());
+            }
+            Assertions.assertEquals(2, tvf.getFileStatuses().size());
+        }
     }
 
     @Test
@@ -120,7 +159,12 @@ public class S3TableValuedFunctionTest {
         try (MockedStatic<BackendServiceProxy> service = Mockito.mockStatic(BackendServiceProxy.class)) {
             service.when(BackendServiceProxy::getInstance).thenReturn(proxy);
             Assertions.assertThrows(AnalysisException.class, tvf::getTableColumns);
-            Mockito.verify(proxy).fetchTableStructureAsync(Mockito.any(), Mockito.any());
+            int attempts = code == TStatusCode.NOT_FOUND ? 2 : 1;
+            Mockito.verify(proxy, Mockito.times(attempts))
+                    .fetchTableStructureAsync(Mockito.any(), Mockito.any());
+            Assertions.assertThrows(AnalysisException.class, tvf::getTableColumns);
+            Mockito.verify(proxy, Mockito.times(attempts * 2))
+                    .fetchTableStructureAsync(Mockito.any(), Mockito.any());
             Assertions.assertEquals(2, tvf.getFileStatuses().size());
         }
     }

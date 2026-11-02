@@ -118,6 +118,12 @@ Status build_segment_zonemap_context(Segment* segment, const Schema& schema,
             continue;
         }
         const auto column_id = schema.column_id(cast_set<size_t>(slot_index));
+        // Single-version rowsets substitute the version after reading in 4.2. Its on-disk zone
+        // map holds only a placeholder, so it cannot prove that the expression will not match.
+        if (read_options.version.first == read_options.version.second &&
+            cast_set<int32_t>(column_id) == schema.version_col_idx()) {
+            continue;
+        }
         const auto* tablet_column = schema.column(column_id);
         DORIS_CHECK(tablet_column != nullptr);
         if (!segment->can_apply_predicate_safely(
@@ -730,7 +736,11 @@ Status Segment::load_index(OlapReaderStatistics* stats, const io::IOContext* sou
             _pk_index_reader = std::make_unique<PrimaryKeyIndexReader>();
             RETURN_IF_ERROR(_pk_index_reader->parse_index(_file_reader, *_pk_index_meta, stats,
                                                           source_io_ctx));
-            // _meta_mem_usage += _pk_index_reader->get_memory_size();
+            _pk_index_cache_bytes.store(_pk_index_reader->get_memory_size(),
+                                        std::memory_order_relaxed);
+            if (_cache_charge_callback) {
+                _cache_charge_callback(cache_charge());
+            }
             return Status::OK();
         } else {
             // read and parse short key index page
@@ -1203,9 +1213,17 @@ Status Segment::read_key_by_rowid(uint32_t row_id, std::string* key) {
 }
 
 Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescriptor* slot,
-                                       uint32_t row_id, MutableColumnPtr& result,
+                                       const std::vector<uint32_t>& row_ids,
+                                       MutableColumnPtr& result,
                                        StorageReadOptions& storage_read_options,
                                        std::unique_ptr<ColumnIterator>& iterator_hint) {
+    if (row_ids.empty()) {
+        return Status::OK();
+    }
+    DORIS_CHECK(std::is_sorted(row_ids.begin(), row_ids.end()));
+    DORIS_CHECK(std::adjacent_find(row_ids.begin(), row_ids.end()) == row_ids.end());
+    // ColumnIterator::seek_and_read expects monotonically increasing row_ids without
+    // duplicates for correct ordinal scanning. Enforce this contract at the entry point.
     auto io_ctx = storage_read_options.io_ctx;
     io_ctx.reader_type = ReaderType::READER_QUERY;
     io_ctx.file_cache_stats = &storage_read_options.stats->file_cache_stats;
@@ -1216,7 +1234,6 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
             .io_ctx = io_ctx,
     };
 
-    std::vector<segment_v2::rowid_t> single_row_loc {row_id};
     const auto runtime_type = remove_nullable(slot->type());
     const auto* variant_type = typeid_cast<const DataTypeVariant*>(runtime_type.get());
     const auto* variant_v2_type = typeid_cast<const DataTypeVariantV2*>(runtime_type.get());
@@ -1243,7 +1260,7 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
             RETURN_IF_ERROR(iterator_hint->init(opt));
         }
         RETURN_IF_ERROR(
-                iterator_hint->read_by_rowids(single_row_loc.data(), 1, file_storage_column));
+                iterator_hint->read_by_rowids(row_ids.data(), row_ids.size(), file_storage_column));
         ColumnPtr source_ptr;
         // storage may have different type with schema, so we need to cast the column
         RETURN_IF_ERROR(variant_util::cast_column(
@@ -1256,7 +1273,7 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
             result = IColumn::mutate(std::move(source_ptr));
             return Status::OK();
         }
-        RETURN_IF_CATCH_EXCEPTION(result->insert_range_from(*source_ptr, 0, 1));
+        RETURN_IF_CATCH_EXCEPTION(result->insert_range_from(*source_ptr, 0, row_ids.size()));
     } else {
         int index = (slot->col_unique_id() >= 0) ? schema.field_index(slot->col_unique_id())
                                                  : schema.field_index(slot->col_name());
@@ -1275,7 +1292,7 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
             RETURN_IF_ERROR(new_column_iterator(column, &iterator_hint, &storage_read_options));
             RETURN_IF_ERROR(iterator_hint->init(opt));
         }
-        RETURN_IF_ERROR(iterator_hint->read_by_rowids(single_row_loc.data(), 1, result));
+        RETURN_IF_ERROR(iterator_hint->read_by_rowids(row_ids.data(), row_ids.size(), result));
     }
     return Status::OK();
 }

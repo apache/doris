@@ -62,21 +62,23 @@ suite("initial_join_order") {
         contains "RIGHT_OUTER_JOIN"
     }
 
+    // do not swap left semi
     explain {
         sql """
             shape plan
             select * from t1 left semi join t2 on t1.k = t2.k
             """
-        contains "RIGHT_SEMI_JOIN"
+        contains "LEFT_SEMI_JOIN"
     }
 
 
+    // do not swap left anti
     explain {
         sql """
             shape plan
             select * from t1 left anti join t2 on t1.k = t2.k
             """
-        contains "RIGHT_ANTI_JOIN"
+        contains "LEFT_ANTI_JOIN"
     }
 
     explain {

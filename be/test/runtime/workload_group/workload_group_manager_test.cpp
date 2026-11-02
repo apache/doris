@@ -36,6 +36,7 @@
 #include "cpp/sync_point.h"
 #include "exec/pipeline/dependency.h"
 #include "exec/pipeline/pipeline_tracing.h"
+#include "exec/scan/scanner_scheduler.h"
 #include "exec/spill/spill_file_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
@@ -1358,6 +1359,62 @@ TEST_F(WorkloadGroupManagerTest, AdaptiveFlushRegistrationSurvivesIdChangeAndReu
     EXPECT_EQ(controller->get_current_threads(reused_key), 0);
     config::enable_adaptive_flush_threads = true;
     controller->adjust_once();
+}
+
+TEST_F(WorkloadGroupManagerTest, DefaultScanSchedulersUseThreadPool) {
+    // Check the registered defaults, which do not depend on the be.conf loaded by the UT runner.
+    const auto& fields = *config::Register::_s_field_map;
+    EXPECT_STREQ("false", fields.at("enable_task_executor_in_internal_table").defval);
+    EXPECT_STREQ("false", fields.at("enable_task_executor_in_external_table").defval);
+
+    const auto saved_config = std::make_tuple(
+            config::enable_adaptive_flush_threads, config::enable_task_executor_in_internal_table,
+            config::enable_task_executor_in_external_table, config::pipeline_executor_size,
+            config::blocking_pipeline_executor_size, config::doris_scanner_thread_pool_thread_num,
+            config::doris_max_remote_scanner_thread_pool_thread_num,
+            config::doris_scanner_min_thread_pool_thread_num, config::min_active_scan_threads,
+            config::min_active_file_scan_threads, config::flush_thread_num_per_store);
+    Defer restore {[&] {
+        std::tie(config::enable_adaptive_flush_threads,
+                 config::enable_task_executor_in_internal_table,
+                 config::enable_task_executor_in_external_table, config::pipeline_executor_size,
+                 config::blocking_pipeline_executor_size,
+                 config::doris_scanner_thread_pool_thread_num,
+                 config::doris_max_remote_scanner_thread_pool_thread_num,
+                 config::doris_scanner_min_thread_pool_thread_num, config::min_active_scan_threads,
+                 config::min_active_file_scan_threads, config::flush_thread_num_per_store) =
+                saved_config;
+    }};
+    config::enable_adaptive_flush_threads = false;
+    config::enable_task_executor_in_internal_table = false;
+    config::enable_task_executor_in_external_table = false;
+    config::pipeline_executor_size = 1;
+    config::blocking_pipeline_executor_size = 1;
+    config::doris_scanner_thread_pool_thread_num = 1;
+    config::doris_max_remote_scanner_thread_pool_thread_num = 1;
+    config::doris_scanner_min_thread_pool_thread_num = 1;
+    config::min_active_scan_threads = 1;
+    config::min_active_file_scan_threads = 1;
+    config::flush_thread_num_per_store = 1;
+
+    ASSERT_TRUE(_wg_manager->create_internal_wg().ok());
+    Defer stop_schedulers {[&] {
+        for (auto& entry : _wg_manager->_workload_groups) {
+            entry.second->try_stop_schedulers();
+            entry.second->destroy_schedulers();
+        }
+    }};
+    ASSERT_EQ(_wg_manager->_workload_groups.size(), 1);
+    auto wg = _wg_manager->_workload_groups.begin()->second;
+
+    TaskScheduler* exec_sched = nullptr;
+    ScannerScheduler* scan_sched = nullptr;
+    ScannerScheduler* remote_scan_sched = nullptr;
+    wg->get_query_scheduler(&exec_sched, &scan_sched, &remote_scan_sched);
+    ASSERT_NE(scan_sched, nullptr);
+    ASSERT_NE(remote_scan_sched, nullptr);
+    EXPECT_NE(dynamic_cast<ThreadPoolSimplifiedScanScheduler*>(scan_sched), nullptr);
+    EXPECT_NE(dynamic_cast<ThreadPoolSimplifiedScanScheduler*>(remote_scan_sched), nullptr);
 }
 
 } // namespace doris

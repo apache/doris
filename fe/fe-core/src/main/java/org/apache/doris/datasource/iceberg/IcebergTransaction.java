@@ -78,6 +78,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.BooleanSupplier;
 
 public class IcebergTransaction implements Transaction {
@@ -974,6 +975,7 @@ public class IcebergTransaction implements Transaction {
         }
 
         Schema schema = icebergTable.schema();
+        Set<Integer> unsafeNanosFields = IcebergTimestampUtils.unsafeNanosFields(icebergTable, schema);
         int currentSpecId = spec.specId();
 
         Expression combined = null;
@@ -991,7 +993,8 @@ public class IcebergTransaction implements Transaction {
                 return Optional.empty();
             }
 
-            Expression partitionExpr = buildIdentityPartitionExpression(spec, schema, partitionValues);
+            Expression partitionExpr = buildIdentityPartitionExpression(
+                    spec, schema, partitionValues, unsafeNanosFields);
             if (partitionExpr == null) {
                 return Optional.empty();
             }
@@ -1010,7 +1013,7 @@ public class IcebergTransaction implements Transaction {
     }
 
     private Expression buildIdentityPartitionExpression(PartitionSpec spec, Schema schema,
-            List<String> partitionValues) {
+            List<String> partitionValues, Set<Integer> unsafeNanosFields) {
         Expression expression = null;
         List<PartitionField> fields = spec.fields();
         for (int i = 0; i < fields.size(); i++) {
@@ -1028,6 +1031,13 @@ public class IcebergTransaction implements Transaction {
                 valueStr = null;
             }
             Object value = IcebergUtils.parsePartitionValueFromString(valueStr, sourceField.type());
+            // Conflict detection may widen but must not miss retained DATE files.
+            if (value != null && unsafeNanosFields.contains(sourceField.fieldId())) {
+                continue;
+            }
+            if (value != null && sourceField.type().typeId() == org.apache.iceberg.types.Type.TypeID.TIMESTAMP_NANO) {
+                value = Expressions.nanos((Long) value);
+            }
             Expression predicate = value == null
                     ? Expressions.isNull(sourceColumnName)
                     : Expressions.equal(sourceColumnName, value);
@@ -1245,6 +1255,16 @@ public class IcebergTransaction implements Transaction {
                 // Convert partition value string to appropriate type
                 Object partitionValue = IcebergUtils.parsePartitionValueFromString(
                         partitionValueStr, sourceField.type());
+
+                if (partitionValue != null
+                        && sourceField.type().typeId() == org.apache.iceberg.types.Type.TypeID.TIMESTAMP_NANO) {
+                    // Dropping a deletion predicate would widen a static overwrite to unrelated data.
+                    if (IcebergTimestampUtils.unsafeNanosFields(table, schema).contains(sourceField.fieldId())) {
+                        throw new IllegalArgumentException(
+                                "Cannot overwrite timestamp_ns partition with historical DATE bounds");
+                    }
+                    partitionValue = Expressions.nanos((Long) partitionValue);
+                }
 
                 // Build equality expression using the source column path (not partition field name).
                 // For identity partitions, Iceberg requires the source column in expressions.

@@ -17,12 +17,48 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
+
+import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
+import java.util.Collections;
 import java.util.concurrent.atomic.AtomicInteger;
 
 class IcebergCatalogResourceTrackerTest {
+
+    @Test
+    void restClientCloseWaitsForRetainedCatalogGeneration() throws Exception {
+        IcebergRestExternalCatalog catalog = new IcebergRestExternalCatalog(
+                1L, "rest", null, Collections.emptyMap(), "");
+        IcebergRestProperties properties = Mockito.mock(IcebergRestProperties.class);
+        RESTSessionCatalog retiredClient = Mockito.mock(RESTSessionCatalog.class);
+        RESTSessionCatalog replacementClient = Mockito.mock(RESTSessionCatalog.class);
+        Mockito.when(properties.getRestSessionCatalog()).thenReturn(retiredClient);
+        Deencapsulation.setField(catalog, "msProperties", properties);
+        IcebergCatalogResourceTracker tracker = Deencapsulation.getField(catalog, "resourceTracker");
+        IcebergCatalogResourceTracker.ResourceLease lease;
+        try (IcebergCatalogResourceTracker.LoadGuard guard = tracker.beginLoad()) {
+            lease = guard.promote();
+        }
+        Env env = Mockito.mock(Env.class, Mockito.RETURNS_DEEP_STUBS);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            catalog.onClose();
+            Mockito.verify(retiredClient, Mockito.never()).close();
+            Mockito.when(properties.getRestSessionCatalog()).thenReturn(replacementClient);
+            lease.close();
+            Mockito.verify(retiredClient).close();
+            Mockito.verify(replacementClient, Mockito.never()).close();
+            lease.close();
+            Mockito.verify(retiredClient).close();
+        }
+    }
 
     @Test
     void catalogRetirementWaitsForLoadedTableOwner() {

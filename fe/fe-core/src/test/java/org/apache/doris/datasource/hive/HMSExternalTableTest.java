@@ -60,6 +60,31 @@ import java.util.function.Function;
  */
 public class HMSExternalTableTest {
     @Test
+    public void testPreloadInitializationAndShowCreateRepairOutsideTableMonitor() throws Exception {
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        HMSExternalDatabase database = Mockito.mock(HMSExternalDatabase.class);
+        HMSCachedClient client = Mockito.mock(HMSCachedClient.class);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getRemoteName()).thenReturn("db");
+        Mockito.doReturn(database).when(catalog).getDbOrAnalysisException("db");
+        Mockito.when(catalog.getClient()).thenReturn(client);
+        HMSExternalTable table = new HMSExternalTable(2L, "t", "t", catalog, database);
+        java.util.concurrent.atomic.AtomicInteger repairs = new java.util.concurrent.atomic.AtomicInteger();
+        Mockito.when(database.observeTableLookup(table)).thenReturn(Optional.of(() -> {
+            Assertions.assertFalse(Thread.holdsLock(table));
+            repairs.incrementAndGet();
+        }));
+        RuntimeException missing = new RuntimeException(
+                new org.apache.hadoop.hive.metastore.api.NoSuchObjectException("missing"));
+        Mockito.when(client.getTable("db", "t")).thenThrow(missing);
+        Assertions.assertSame(missing, Assertions.assertThrows(RuntimeException.class,
+                table::supportsLatestSnapshotPreload));
+        Assertions.assertEquals(1, repairs.get());
+        Assertions.assertSame(missing, Assertions.assertThrows(RuntimeException.class, table::getCreateTableSql));
+        Assertions.assertEquals(2, repairs.get());
+    }
+
+    @Test
     public void testBinaryPartitionKeepsLegacyTextMapping() throws Exception {
         HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
         HMSCachedClient client = Mockito.mock(HMSCachedClient.class);

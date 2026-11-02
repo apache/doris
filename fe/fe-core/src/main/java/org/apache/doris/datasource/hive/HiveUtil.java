@@ -68,7 +68,7 @@ public final class HiveUtil {
     public static final Set<String> SUPPORTED_ORC_COMPRESSIONS =
             ImmutableSet.of("plain", "zlib", "snappy", "zstd", "lz4");
     public static final Set<String> SUPPORTED_PARQUET_COMPRESSIONS =
-            ImmutableSet.of("plain", "snappy", "zstd", "lz4");
+            ImmutableSet.of("plain", "snappy", "gzip", "zstd", "lz4");
     public static final Set<String> SUPPORTED_TEXT_COMPRESSIONS =
             ImmutableSet.of("plain", "gzip", "zstd", "bzip2", "lz4", "snappy");
 

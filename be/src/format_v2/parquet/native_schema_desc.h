@@ -91,8 +91,7 @@ struct NativeFieldSchema {
 };
 
 Status validate_variant_layout(const NativeFieldSchema& group_field,
-                               std::optional<int8_t> specification_version = std::nullopt,
-                               bool allow_paimon_shredded_layout = false);
+                               std::optional<int8_t> specification_version = std::nullopt);
 
 // V2 owns this schema tree and parser so footer/schema planning never invokes the V1 reader path.
 class NativeFieldDescriptor {
@@ -105,9 +104,10 @@ private:
     std::unordered_map<std::string, NativeFieldSchema*> _name_to_field;
     // Used in from_thrift, marking the next schema position that should be parsed
     size_t _next_schema_pos;
-    // useful for parse_node_field to decide whether to convert byte_array to VARBINARY type
-    bool _enable_mapping_varbinary = false;
     bool _enable_mapping_timestamp_tz = false;
+    bool _enable_mapping_varbinary =
+            false; // Legacy input; native binary and UUID mapping is unconditional.
+    bool _preserve_binary_uuid = false;
 
 private:
     void parse_physical_field(const tparquet::SchemaElement& physical_schema, bool is_nullable,
@@ -188,8 +188,10 @@ public:
     void assign_ids();
 
     const NativeFieldSchema* find_column_by_id(uint64_t column_id) const;
+    // Ordinary binary leaves ignore this option; UUID retains its explicit binary override.
     void set_enable_mapping_varbinary(bool enable) { _enable_mapping_varbinary = enable; }
     void set_enable_mapping_timestamp_tz(bool enable) { _enable_mapping_timestamp_tz = enable; }
+    void set_preserve_binary_uuid(bool preserve) { _preserve_binary_uuid = preserve; }
 };
 
 } // namespace doris::format::parquet

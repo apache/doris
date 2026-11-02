@@ -26,6 +26,7 @@
 
 #include "common/status.h"
 #include "format_v2/lance/lance_record_batch_converter.h"
+#include "format_v2/lance/lance_session_cache_profile.h"
 #include "format_v2/table_reader.h"
 #include "runtime/runtime_profile.h"
 
@@ -101,6 +102,7 @@ private:
     Status _dataset_key(const TFileRangeDesc& range, DatasetKey* key) const;
 
     LanceDataset* _dataset = nullptr;
+    std::unique_ptr<LanceSessionCacheProfile> _session_cache_profile;
     std::shared_ptr<arrow::Schema> _dataset_schema;
     LanceScanner* _scanner = nullptr;
     ShardedKVCache* _runtime_filter_cache = nullptr;

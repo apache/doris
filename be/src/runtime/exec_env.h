@@ -36,7 +36,6 @@
 #include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/cluster_info.h"
 #include "runtime/frontend_info.h" // TODO(zhiqiang): find a way to remove this include header
-#include "storage/index/inverted/inverted_index_writer.h"
 #include "storage/options.h"
 #include "storage/tablet/tablet_fwd.h"
 #include "util/threadpool.h"
@@ -318,9 +317,7 @@ public:
     }
 
 #ifdef BE_TEST
-    void set_tmp_file_dir(std::unique_ptr<segment_v2::TmpFileDirs> tmp_file_dirs) {
-        this->_tmp_file_dirs = std::move(tmp_file_dirs);
-    }
+    void set_tmp_file_dir(std::unique_ptr<segment_v2::TmpFileDirs> tmp_file_dirs);
     void set_ready() { this->_s_ready = true; }
     void set_not_ready() { this->_s_ready = false; }
     void set_memtable_memory_limiter(MemTableMemoryLimiter* limiter) {
@@ -342,6 +339,7 @@ public:
     void set_cache_manager(CacheManager* cm) { this->_cache_manager = cm; }
     void set_process_profile(ProcessProfile* pp) { this->_process_profile = pp; }
     void set_tablet_schema_cache(TabletSchemaCache* c) { this->_tablet_schema_cache = c; }
+    void set_id_manager(IdManager* id_manager) { this->_id_manager = id_manager; }
     void set_delete_bitmap_agg_cache(DeleteBitmapAggCache* c) { _delete_bitmap_agg_cache = c; }
     void set_tablet_column_object_pool(TabletColumnObjectPool* c) {
         this->_tablet_column_object_pool = c;

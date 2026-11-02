@@ -22,7 +22,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 
 namespace doris::segment_v2 {

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_paimon_write_variant_errors", "p0,external,paimon,nonConcurrent") {
+suite("test_paimon_write_variant_errors", "p0,external,paimon") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable paimon test.")
@@ -215,8 +215,7 @@ suite("test_paimon_write_variant_errors", "p0,external,paimon,nonConcurrent") {
                 row.collect { value -> value == null ? null : value.toString() }
             })
 
-            // Invalid JSON is preserved as a Variant string unless the global
-            // throw-on-invalid-JSON option is enabled.
+            // try_parse_to_variant returns NULL for text that is not a JSON document.
             order_qt_variant_after_errors """
                 SELECT id, payload IS NULL,
                        CAST(payload['recovered'] AS BOOLEAN),

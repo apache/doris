@@ -136,6 +136,10 @@ public:
         return nested_function->get_serialized_type();
     }
 
+    void set_ai_statistics(std::shared_ptr<AIExecutionStatistics> statistics) override {
+        nested_function->set_ai_statistics(std::move(statistics));
+    }
+
     void set_query_context(QueryContext* ctx) override {
         return nested_function->set_query_context(ctx);
     }

@@ -95,11 +95,53 @@ suite("paimon_timestamp_types", "p0,external,doris,external_docker,external_dock
             qt_ltz_ntz_simple15 """ select element_at(crow, 'crow2') from ${table} """
         }
 
-        def test_scale = {
+        def test_scale = { ->
             def ts_scale_orc = """select * from ts_scale_orc"""
             def ts_scale_parquet = """select * from ts_scale_parquet"""
             qt_c1 ts_scale_orc
             qt_c2 ts_scale_parquet
+
+            // Preserve all nine digits for both formats and scanner selections.
+            order_qt_ts9_eq_orc """
+                select id from ts_scale_orc
+                where ts9 = '2024-01-02 10:04:05.123456789'
+                order by id
+            """
+            order_qt_ts9_eq_parquet """
+                select id from ts_scale_parquet
+                where ts9 = '2024-01-02 10:04:05.123456'
+                order by id
+            """
+            order_qt_ts9_lt_orc """
+                select id from ts_scale_orc
+                where ts9 < '2024-01-02 10:04:05.123456789'
+                order by id
+            """
+            order_qt_ts9_le_orc """
+                select id from ts_scale_orc
+                where ts9 <= '2024-01-02 10:04:05.123456789'
+                order by id
+            """
+            order_qt_ts9_gt_parquet """
+                select id from ts_scale_parquet
+                where ts9 > '2024-01-02 10:04:05.123456'
+                order by id
+            """
+            order_qt_ts9_ge_parquet """
+                select id from ts_scale_parquet
+                where ts9 >= '2024-01-02 10:04:05.123456'
+                order by id
+            """
+            order_qt_ts9_in_orc """
+                select id from ts_scale_orc
+                where ts9 in ('2024-01-02 10:04:05.123457', '2024-01-02 10:04:05.123456')
+                order by id
+            """
+            order_qt_ts9_ne_parquet """
+                select id from ts_scale_parquet
+                where ts9 != '2024-01-02 10:04:05.123457'
+                order by id
+            """
 
         }
 
@@ -110,13 +152,16 @@ suite("paimon_timestamp_types", "p0,external,doris,external_docker,external_dock
         test_ltz_ntz_simple("test_timestamp_ntz_ltz_simple_orc", "2024-01-02 10:12:34.123456+08:00")
         // test_ltz_ntz_simple("test_timestamp_ntz_ltz_simple_parquet")
 
-        // Native ORC rounds scales 7-9 to microseconds; JNI truncates. Native Parquet uses
-        // Paimon history semantics for high-precision INT96 instead of the session timezone.
+        // Automatic reader selection must preserve the same nanosecond values as forced JNI.
         sql """set force_jni_scanner=false"""
-        // Legacy ORC LTZ needs the SDK's compatibility conversion even when JNI is not forced.
-        // Native Parquet continues to use V2 independently of this session preference.
-        sql """set enable_file_scanner_v2=false"""
+        sql """set enable_file_scanner_v2=true"""
         test_scale()
+        // Keep testing legacy LTZ fallback with V2 disabled independently of the NTZ predicate tests.
+        sql """set enable_file_scanner_v2=false"""
+        // High-precision NTZ columns require JNI even with V2 disabled; the fallback must
+        // preserve all nine digits instead of retaining the old microsecond expectations.
+        order_qt_c1_v1 """select * from ts_scale_orc"""
+        order_qt_c2_v1 """select * from ts_scale_parquet"""
         // test_ltz_ntz("test_timestamp_ntz_ltz_orc")
         // test_ltz_ntz("test_timestamp_ntz_ltz_parquet")
         test_ltz_ntz_simple("test_timestamp_ntz_ltz_simple_orc", "2024-01-02 10:12:34.123456+08:00")

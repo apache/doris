@@ -76,6 +76,13 @@ Status convert_and_write_column(OlapBlockDataConvertor* converter, const TabletC
 
 // Converts only present values. Missing logical rows are appended as NULL; ARRAY uses a one-path
 // full-column fallback because its converted representation is not fixed-width/strided.
+#ifdef BE_TEST
+// Number of all-NULL ARRAY chunks written through the array path. The dispatch must never send
+// them to the scalar append_nulls fast path, which does not maintain the inverted index.
+uint64_t array_all_null_chunks_for_test();
+void reset_array_all_null_chunks_for_test();
+#endif
+
 Status append_sparse_converted_column(const TabletColumn& tablet_column, ColumnWriter* writer,
                                       OlapBlockDataConvertor* converter, int column_id,
                                       const DataTypePtr& type, const ColumnPtr& values_column,

@@ -25,7 +25,7 @@
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"
-#include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/olap_common.h"
 
 namespace doris {

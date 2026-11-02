@@ -390,6 +390,10 @@ add_definitions(-DHAVE_INTTYPES_H -DHAVE_NETINET_IN_H)
 # Mac specific definitions - needed for system headers and third-party libs
 if (OS_MACOSX)
     add_definitions(-D_DARWIN_C_SOURCE)
+    # macOS 27's math.h requests only INFINITY/NAN from float.h. libc++'s
+    # float.h include guard then hides the remaining macros on later includes
+    # (e.g. DBL_EPSILON in S2). Load the full header before any source or PCH.
+    add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include float.h>")
 endif()
 
 if (RECORD_COMPILER_SWITCHES)
@@ -576,7 +580,7 @@ set(DORIS_LINK_LIBS
 )
 
 set(absl_DIR ${THIRDPARTY_DIR}/lib/cmake/absl)
-find_package(absl)
+find_package(absl CONFIG REQUIRED)
 
 # COMMON_THIRDPARTY are thirdparty dependencies that can run on all platform
 # When adding new dependencies, If you don’t know if it can run on all platforms,
@@ -614,6 +618,14 @@ endif()
 if (absl_FOUND)
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}
+        # Public dependencies of the statically linked google-cloud-cpp common library.
+        absl::base
+        absl::memory
+        absl::optional
+        absl::span
+        absl::str_format
+        absl::time
+        absl::variant
         absl::cord
         absl::cord_internal
         absl::cordz_functions

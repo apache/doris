@@ -26,6 +26,7 @@ import org.apache.doris.common.credentials.CloudCredential;
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
@@ -42,10 +43,13 @@ import software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsPr
 import software.amazon.awssdk.auth.signer.AwsS3V4Signer;
 import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
 import software.amazon.awssdk.core.client.config.SdkAdvancedClientOption;
+import software.amazon.awssdk.core.interceptor.ExecutionInterceptor;
 import software.amazon.awssdk.core.retry.RetryPolicy;
 import software.amazon.awssdk.core.retry.backoff.EqualJitterBackoffStrategy;
+import software.amazon.awssdk.core.signer.NoOpSigner;
 import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
 import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.sts.StsClient;
@@ -94,7 +98,7 @@ public class S3Util {
     }
 
     @Deprecated
-    public static S3Client buildS3Client(URI endpoint, String region, CloudCredential credential,
+    public static S3Client buildS3Client(String endpoint, String region, CloudCredential credential,
             boolean isUsePathStyle) {
         EqualJitterBackoffStrategy backoffStrategy = EqualJitterBackoffStrategy
                 .builder()
@@ -117,7 +121,7 @@ public class S3Util {
         return S3Client.builder()
                 .httpClient(UrlConnectionHttpClient.builder().socketTimeout(Duration.ofSeconds(30))
                         .connectionTimeout(Duration.ofSeconds(30)).build())
-                .endpointOverride(endpoint)
+                .endpointOverride(URI.create(buildEndpointUrl(endpoint)))
                 .credentialsProvider(getAwsCredencialsProvider(credential))
                 .region(Region.of(region))
                 .overrideConfiguration(clientConf)
@@ -220,7 +224,7 @@ public class S3Util {
                 sessionToken, roleArn, externalId);
     }
 
-    public static S3Client buildS3Client(URI endpoint, String region, boolean isUsePathStyle,
+    public static S3Client buildS3Client(String endpoint, String region, boolean isUsePathStyle,
                                          AwsCredentialsProvider credential) {
         EqualJitterBackoffStrategy backoffStrategy = EqualJitterBackoffStrategy
                 .builder()
@@ -243,7 +247,7 @@ public class S3Util {
         return S3Client.builder()
                 .httpClient(UrlConnectionHttpClient.builder().socketTimeout(Duration.ofSeconds(30))
                         .connectionTimeout(Duration.ofSeconds(30)).build())
-                .endpointOverride(endpoint)
+                .endpointOverride(URI.create(buildEndpointUrl(endpoint)))
                 .credentialsProvider(credential)
                 .region(Region.of(region))
                 .overrideConfiguration(clientConf)
@@ -255,7 +259,54 @@ public class S3Util {
                 .build();
     }
 
-    public static S3Client buildS3Client(URI endpoint, String region, boolean isUsePathStyle, String accessKey,
+    public static S3Client buildBearerTokenS3Client(String endpoint, String region, boolean isUsePathStyle,
+            ExecutionInterceptor bearerTokenInterceptor) {
+        ClientOverrideConfiguration clientConf = buildBearerTokenClientConfiguration(bearerTokenInterceptor);
+        return S3Client.builder()
+                .httpClient(UrlConnectionHttpClient.builder().socketTimeout(Duration.ofSeconds(30))
+                        .connectionTimeout(Duration.ofSeconds(30)).build())
+                .endpointOverride(URI.create(buildEndpointUrl(endpoint)))
+                .credentialsProvider(AnonymousCredentialsProvider.create())
+                .region(Region.of(region))
+                .overrideConfiguration(clientConf)
+                .serviceConfiguration(bearerTokenS3ServiceConfiguration(isUsePathStyle))
+                .build();
+    }
+
+    public static S3AsyncClient buildBearerTokenS3AsyncClient(String endpoint, String region,
+            boolean isUsePathStyle,
+            ExecutionInterceptor bearerTokenInterceptor) {
+        return S3AsyncClient.builder()
+                .endpointOverride(URI.create(buildEndpointUrl(endpoint)))
+                .credentialsProvider(AnonymousCredentialsProvider.create())
+                .region(Region.of(region))
+                .overrideConfiguration(buildBearerTokenClientConfiguration(bearerTokenInterceptor))
+                .serviceConfiguration(bearerTokenS3ServiceConfiguration(isUsePathStyle))
+                .build();
+    }
+
+    private static ClientOverrideConfiguration buildBearerTokenClientConfiguration(
+            ExecutionInterceptor bearerTokenInterceptor) {
+        RetryPolicy retryPolicy = RetryPolicy.builder()
+                .numRetries(3)
+                .backoffStrategy(EqualJitterBackoffStrategy.builder()
+                        .baseDelay(Duration.ofSeconds(1)).maxBackoffTime(Duration.ofMinutes(1)).build())
+                .build();
+        return ClientOverrideConfiguration.builder()
+                .retryPolicy(retryPolicy)
+                .putAdvancedOption(SdkAdvancedClientOption.SIGNER, new NoOpSigner())
+                .addExecutionInterceptor(bearerTokenInterceptor)
+                .build();
+    }
+
+    private static S3Configuration bearerTokenS3ServiceConfiguration(boolean isUsePathStyle) {
+        return S3Configuration.builder()
+                .chunkedEncodingEnabled(false)
+                .pathStyleAccessEnabled(isUsePathStyle)
+                .build();
+    }
+
+    public static S3Client buildS3Client(String endpoint, String region, boolean isUsePathStyle, String accessKey,
             String secretKey, String sessionToken, String roleArn, String externalId) {
         EqualJitterBackoffStrategy backoffStrategy = EqualJitterBackoffStrategy
                 .builder()
@@ -275,11 +326,12 @@ public class S3Util {
                 // using AwsS3V4Signer
                 .putAdvancedOption(SdkAdvancedClientOption.SIGNER, AwsS3V4Signer.create())
                 .build();
+        URI endpointUri = URI.create(buildEndpointUrl(endpoint));
         return S3Client.builder()
                 .httpClient(UrlConnectionHttpClient.builder().socketTimeout(Duration.ofSeconds(30))
                         .connectionTimeout(Duration.ofSeconds(30)).build())
-                .endpointOverride(endpoint)
-                .credentialsProvider(getAwsCredencialsProvider(endpoint, region, accessKey, secretKey,
+                .endpointOverride(endpointUri)
+                .credentialsProvider(getAwsCredencialsProvider(endpointUri, region, accessKey, secretKey,
                         sessionToken, roleArn, externalId))
                 .region(Region.of(region))
                 .overrideConfiguration(clientConf)
@@ -695,6 +747,13 @@ public class S3Util {
             }
             SecurityChecker.getInstance().stopSSRFChecking();
         }
+    }
+
+    public static String buildEndpointUrl(String endpoint) {
+        if (endpoint.startsWith("http://") || endpoint.startsWith("https://")) {
+            return endpoint;
+        }
+        return Config.s3_client_http_scheme + "://" + endpoint;
     }
 
     /**

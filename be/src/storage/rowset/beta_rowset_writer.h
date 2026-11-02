@@ -118,6 +118,8 @@ public:
 
     ~BaseBetaRowsetWriter() override;
 
+    void cancel_calc_delete_bitmap(const Status& st) override;
+
     Status init(const RowsetWriterContext& rowset_writer_context) override;
 
     Status add_block(const Block* block) override;

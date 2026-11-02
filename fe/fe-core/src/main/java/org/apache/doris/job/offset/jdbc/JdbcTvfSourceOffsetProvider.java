@@ -436,6 +436,12 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
         return remapped;
     }
 
+    @Override
+    public String mergePersistInfo(String previousPersistInfo, String incomingPersistInfo) {
+        // TVF records contain complete state rather than schema-omitting CDC updates.
+        return incomingPersistInfo;
+    }
+
     /**
      * Restore chw/bop/ts from image or job update journal JSON; preserves cumulative snapshot progress.
      */

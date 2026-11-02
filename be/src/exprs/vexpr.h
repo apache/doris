@@ -161,26 +161,12 @@ public:
     // In the future this interface will add an additional parameter, Selector, which specifies
     // which rows in the block should be evaluated.
     // If expr is executing constant expressions, then block should be nullptr.
-    virtual Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                                  size_t count, ColumnPtr& result_column) const {
-        return execute_column_impl(context, block, selector, count, result_column);
-    }
-
-    template <typename SelectorType, std::enable_if_t<std::is_const_v<SelectorType>, int> = 0>
-    Status execute_column(VExprContext* context, const Block* block, SelectorType* selector,
-                          size_t count, ColumnPtr& result_column) const {
-        // format_v2 treats selectors as read-only; the branch-4.1 expression API still exposes
-        // a mutable pointer even though implementations must not modify it.
-        return execute_column(context, block, const_cast<Selector*>(selector), count,
-                              result_column);
-    }
+    Status execute_column(VExprContext* context, const Block* block, const Selector* selector,
+                          size_t count, ColumnPtr& result_column) const;
 
     virtual Status execute_column_impl(VExprContext* context, const Block* block,
                                        const Selector* selector, size_t count,
-                                       ColumnPtr& result_column) const {
-        return execute_column(context, block, const_cast<Selector*>(selector), count,
-                              result_column);
-    }
+                                       ColumnPtr& result_column) const = 0;
 
     // Currently, due to fe planning issues, for slot-ref expressions the type of the returned Column may not match data_type.
     // Therefore we need a function like this to return the actual type produced by execution.
@@ -434,7 +420,7 @@ public:
     virtual std::shared_ptr<HybridSetBase> get_set_func() const { return nullptr; }
 
     // fast_execute can direct copy expr filter result which build by apply index in segment_iterator
-    bool fast_execute(VExprContext* context, Selector* selector, size_t count,
+    bool fast_execute(VExprContext* context, const Selector* selector, size_t count,
                       ColumnPtr& result_column) const;
 
     virtual bool can_push_down_to_index() const { return false; }
@@ -725,6 +711,14 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         literal.__set_value(CastToString::from_ip(*origin_value));
         (*node).__set_ipv6_literal(literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_IPV6));
+    } else if constexpr (T == TYPE_UUID) {
+        const auto* value = reinterpret_cast<const UUIDValueType*>(data);
+        (*node).__set_node_type(TExprNodeType::UUID_LITERAL);
+        TUUIDLiteral literal;
+        literal.__set_hi(static_cast<int64_t>(static_cast<uint64_t>(*value >> 64)));
+        literal.__set_lo(static_cast<int64_t>(static_cast<uint64_t>(*value)));
+        (*node).__set_uuid_literal(literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_UUID));
     } else if constexpr (T == TYPE_TIMEV2) {
         // Runtime filters preserve TIMEV2's microsecond carrier and scale in the literal node.
         const auto* origin_value = reinterpret_cast<const double*>(data);

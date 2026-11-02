@@ -53,6 +53,7 @@ import org.apache.doris.datasource.iceberg.IcebergRuntimeContext;
 import org.apache.doris.datasource.iceberg.IcebergSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergTimestampUtils;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.iceberg.cache.IcebergManifestCacheLoader;
 import org.apache.doris.datasource.iceberg.cache.ManifestCacheValue;
@@ -323,6 +324,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             icebergTable = source.getIcebergTable();
             icebergTable = useFrozenTableGeneration(icebergTable);
             partitionMapInfos = new HashMap<>();
+            getQuerySchema();
             initializePartitionMetadata();
             isPartitionedTable = icebergTable.spec().isPartitioned();
             hasPartitionedSpec = IcebergUtils.hasPartitionedSpec(icebergTable);
@@ -516,6 +518,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             orderedPartitionMetadataKeys = Collections.emptyList();
             return;
         }
+        Schema scanSchema = getPartitionMetadataScanSchema();
         enableMappingVarbinaryForPartitionMetadata = getEnableMappingVarbinary();
         enableMappingTimestampTzForPartitionMetadata = getEnableMappingTimestampTz();
         if (sessionVariable.enableFileScannerV2) {
@@ -526,18 +529,29 @@ public class IcebergScanNode extends FileQueryScanNode {
             // for the column (a spec without it) are unaffected: the v2 column mapper falls back to the
             // physical field when the split has no partition value for a partition key.
             orderedPathPartitionKeys = Collections.unmodifiableList(
-                    IcebergUtils.getIdentityPartitionColumns(icebergTable,
+                    IcebergUtils.getIdentityPartitionColumns(icebergTable, scanSchema,
                             enableMappingVarbinaryForPartitionMetadata,
                             enableMappingTimestampTzForPartitionMetadata));
         } else {
             // v1 has no such per-file fallback: a partition key it cannot fill from the split is not read
             // from the file either. Keep the columns common to all specs so those files stay readable.
             orderedPathPartitionKeys = Collections.unmodifiableList(
-                    IcebergUtils.getCommonIdentityPartitionColumns(icebergTable,
+                    IcebergUtils.getCommonIdentityPartitionColumns(icebergTable, scanSchema,
                             enableMappingVarbinaryForPartitionMetadata,
                             enableMappingTimestampTzForPartitionMetadata));
         }
         orderedPartitionMetadataKeys = orderedPathPartitionKeys;
+    }
+
+    private Schema getPartitionMetadataScanSchema() {
+        if (plannedScanSchema != null) {
+            return plannedScanSchema;
+        }
+        if (querySchema != null) {
+            return querySchema;
+        }
+        return Preconditions.checkNotNull(
+                icebergTable.schema(), "Schema for Iceberg scan is null");
     }
 
     @VisibleForTesting
@@ -1916,13 +1930,14 @@ public class IcebergScanNode extends FileQueryScanNode {
             scan = DorisDataTableScan.wrap(scan);
         }
         Schema scanSchema = scan.schema();
+        Set<Integer> unsafeNanosFields = IcebergTimestampUtils.unsafeNanosFields(icebergTable, scanSchema);
 
         // set filter
         List<Expression> expressions = new ArrayList<>();
         for (Expr conjunct : conjuncts) {
             // Ref/snapshot selection can change field IDs and names, so every pruning expression
             // must be bound against the schema selected by this scan rather than the current table.
-            Expression expression = IcebergUtils.convertToIcebergExpr(conjunct, scanSchema);
+            Expression expression = IcebergUtils.convertToIcebergExpr(conjunct, scanSchema, unsafeNanosFields);
             if (expression != null) {
                 expressions.add(expression);
             }
@@ -2407,11 +2422,12 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
         ExternalTable targetExternalTable = (ExternalTable) source.getTargetTable();
         Schema scanSchema = scan.schema();
+        Set<Integer> unsafeNanosFields = IcebergTimestampUtils.unsafeNanosFields(icebergTable, scanSchema);
 
         // Convert query conjuncts to Iceberg filter expression
         // This combines all predicates with AND logic for partition/file pruning
         Expression filterExpr = conjuncts.stream()
-                .map(conjunct -> IcebergUtils.convertToIcebergExpr(conjunct, scanSchema))
+                .map(conjunct -> IcebergUtils.convertToIcebergExpr(conjunct, scanSchema, unsafeNanosFields))
                 .filter(Objects::nonNull)
                 .reduce(Expressions.alwaysTrue(), Expressions::and);
 
@@ -2595,6 +2611,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     private Split createIcebergSplit(FileScanTask fileScanTask) throws UserException {
         DataFile dataFile = fileScanTask.file();
+        Schema scanSchema = getPartitionMetadataScanSchema();
         String originalPath = dataFile.path().toString();
         LocationPath locationPath = createLocationPathWithCache(originalPath);
         IcebergSplit split = new IcebergSplit(
@@ -2656,7 +2673,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                     .anyMatch(field -> field.transform().isIdentity())) {
                 Map<String, String> partitionInfoMap = partitionMapInfos.computeIfAbsent(
                         Pair.of(specId, partitionData), k -> IcebergUtils.getIdentityPartitionInfoMap(
-                                partitionData, partitionSpec, icebergTable, sessionVariable.getTimeZone(),
+                                partitionData, partitionSpec, scanSchema, sessionVariable.getTimeZone(),
                                 enableMappingVarbinaryForPartitionMetadata,
                                 enableMappingTimestampTzForPartitionMetadata));
                 // A spec may mix identity and transformed fields. Keep its identity values so a
@@ -2801,6 +2818,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             case UUID:
             case DATE:
             case TIME:
+            case TIMESTAMP_NANO:
             case TIMESTAMP:
                 return partitionValue;
             default:
@@ -2926,10 +2944,11 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
         }
         Schema scanSchema = scan.schema();
+        Set<Integer> unsafeNanosFields = IcebergTimestampUtils.unsafeNanosFields(icebergTable, scanSchema);
 
         List<Expression> expressions = new ArrayList<>();
         for (Expr conjunct : conjuncts) {
-            Expression expression = IcebergUtils.convertToIcebergExpr(conjunct, scanSchema);
+            Expression expression = IcebergUtils.convertToIcebergExpr(conjunct, scanSchema, unsafeNanosFields);
             if (expression != null) {
                 expressions.add(expression);
             }

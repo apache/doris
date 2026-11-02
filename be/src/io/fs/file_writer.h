@@ -25,6 +25,7 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/file_cache_common.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/packed_slice_location.h"
 #include "io/fs/path.h"
 #include "util/slice.h"
 
@@ -93,9 +94,14 @@ public:
 
     virtual State state() const = 0;
 
-    // Returns true if this file's data was written to a packed file.
-    // Used to determine whether to collect packed slice location from PackedFileManager.
-    virtual bool is_in_packed_file() const { return false; }
+    // Gets the location of this file's slice in the packed file. Must be called after the writer
+    // is closed. An empty packed_file_path means the file is not in a packed file. Writers that
+    // wrap another writer must forward this call, so callers never need to downcast to
+    // PackedFileWriter.
+    virtual Status get_packed_slice_location(PackedSliceLocation* location) const {
+        *location = PackedSliceLocation {};
+        return Status::OK();
+    }
 
     FileCacheAllocatorBuilder* cache_builder() const {
         return _cache_builder == nullptr ? nullptr : _cache_builder.get();

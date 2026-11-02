@@ -93,6 +93,14 @@ public class RewriteDataFilePlanner {
 
         // Apply WHERE condition if specified
         if (parameters.hasWhereCondition()) {
+            // Rewrite selects whole files, so unsafe nanos pruning must be rejected, not widened.
+            if (org.apache.doris.datasource.iceberg.IcebergTimestampUtils.referencesUnsafe(
+                    parameters.getWhereCondition().get(), icebergTable.schema(),
+                    org.apache.doris.datasource.iceberg.IcebergTimestampUtils.unsafeNanosFields(
+                            icebergTable, icebergTable.schema()))) {
+                throw new org.apache.doris.common.UserException(
+                        "WHERE condition for rewrite_data_files cannot prune historical DATE bounds");
+            }
             org.apache.iceberg.expressions.Expression icebergExpression = IcebergNereidsUtils
                     .convertNereidsToIcebergExpression(parameters.getWhereCondition().get(), icebergTable.schema());
             tableScan = tableScan.filter(icebergExpression);

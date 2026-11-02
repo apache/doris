@@ -22,6 +22,8 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
 #include "format/table/iceberg_scan_semantics.h"
+#include "format_v2/parquet/parquet_profile.h"
+#include "format_v2/parquet/parquet_reader.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 
@@ -60,6 +62,49 @@ TEST(IcebergPositionDeleteSysTableV2ProfileTest, UsesDistinctProfileForNestedPos
     EXPECT_NE(reader._position_reader_profile, &profile);
     EXPECT_EQ(profile.get_child("IcebergPositionDeleteFileReader"),
               reader._position_reader_profile);
+}
+
+TEST(IcebergPositionDeleteSysTableV2ProfileTest, ReusesChildCountersAcrossSplitsAndScanners) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("position_delete_system_table_profile");
+    parquet::ParquetProfileCache outer_cache(&profile);
+    TFileScanRangeParams params;
+    std::vector<SlotDescriptor*> file_slot_descs;
+    TIcebergDeleteFileDesc delete_file;
+    delete_file.__set_content(1);
+    delete_file.__set_file_format(TFileFormatType::FORMAT_PARQUET);
+    delete_file.__set_path("/not-opened-during-prepare.parquet");
+    parquet::ParquetProfileCache* shared_child = nullptr;
+    for (int scanner = 0; scanner < 2; ++scanner) {
+        IcebergPositionDeleteSysTableV2Reader reader;
+        reader._runtime_state = &state;
+        reader._scanner_profile = &profile;
+        reader._parquet_profile_cache = &outer_cache;
+        reader._scan_params = &params;
+        reader._file_slot_descs = &file_slot_descs;
+        for (int split = 0; split < 2; ++split) {
+            reader._current_range = range_with_delete_file(delete_file);
+            ASSERT_TRUE(reader._init_split().ok());
+            auto* cache = reader._position_reader->_parquet_profile_cache;
+            ASSERT_NE(cache, nullptr);
+            ASSERT_NE(cache, &outer_cache);
+            if (shared_child == nullptr) {
+                shared_child = cache;
+            }
+            EXPECT_EQ(cache, shared_child);
+            std::unique_ptr<format::FileReader> file;
+            ASSERT_TRUE(reader._position_reader->create_file_reader(&file).ok());
+            auto* parquet_reader = dynamic_cast<parquet::ParquetReader*>(file.get());
+            ASSERT_NE(parquet_reader, nullptr);
+            EXPECT_EQ(parquet_reader->_profile_cache, shared_child);
+            parquet_reader->_init_profile();
+            EXPECT_EQ(parquet_reader->_parquet_profile.total_time, shared_child->get().total_time);
+        }
+    }
+    EXPECT_EQ(profile.get_counter("FileFooterReadCalls"), nullptr);
+    EXPECT_NE(profile.get_child("IcebergPositionDeleteFileReader")
+                      ->get_counter("FileFooterReadCalls"),
+              nullptr);
 }
 
 TEST(IcebergPositionDeleteSysTableV2ProfileTest, PreparesNestedRowInitialDefaults) {

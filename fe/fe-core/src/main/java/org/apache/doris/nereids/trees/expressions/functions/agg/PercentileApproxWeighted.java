@@ -125,4 +125,9 @@ public class PercentileApproxWeighted extends NullableAggregateFunction
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
     }
+
+    @Override
+    public List<Expression> getDistinctArguments() {
+        return distinct ? ImmutableList.of(getArgument(0), getArgument(1)) : ImmutableList.of();
+    }
 }

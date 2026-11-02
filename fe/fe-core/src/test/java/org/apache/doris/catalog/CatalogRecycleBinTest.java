@@ -28,6 +28,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.thrift.TFunctionBinaryType;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -493,12 +494,15 @@ public class CatalogRecycleBinTest {
                 new DataProperty(TStorageMedium.HDD),
                 new ReplicaAllocation((short) 3),
                 false,
-                false
+                false,
+                TInvertedIndexFileStorageFormat.SNII
         );
 
         recycleBin.recoverPartition(CatalogTestUtil.testDbId1, olapTable, CatalogTestUtil.testPartition1, -1, null);
         Assert.assertFalse(recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1, CatalogTestUtil.testPartitionId1));
         Assert.assertNotNull(olapTable.getPartition(CatalogTestUtil.testPartition1));
+        Assert.assertEquals(TInvertedIndexFileStorageFormat.SNII, olapTable.getPartitionInfo()
+                .getInvertedIndexFileStorageFormat(CatalogTestUtil.testPartitionId1));
     }
 
     @Test

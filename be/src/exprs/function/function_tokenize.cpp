@@ -34,8 +34,8 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/string_ref.h"
-#include "storage/index/inverted/analyzer/analyzer.h"
-#include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/inverted/analysis/analyzer/analyzer.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 
 namespace doris {

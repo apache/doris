@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.Backend;
 
@@ -352,6 +353,94 @@ public class CloudReplicaTest {
     private void stubBackend(long id, Backend be) {
         Mockito.when(mockInfoService.getBackend(id)).thenReturn(be);
         Mockito.when(mockInfoService.getBackendByIdWithBoxedId(id)).thenReturn(be);
+    }
+
+    // Tests for removeInvalidRoutes: routes of dropped compute groups
+    // ---------------------------------------------------------------
+
+    @Test
+    public void testRemoveInvalidRoutes() {
+        boolean savedClean = Config.enable_cloud_replica_stale_route_clean;
+        boolean savedUnitTest = FeConstants.runningUnitTest;
+        try {
+            Config.enable_cloud_replica_stale_route_clean = true;
+            FeConstants.runningUnitTest = false;
+            Backend liveBe = createBackend(1001L, true, false);
+            stubBackend(1001L, liveBe);
+            // 2001 belongs to a compute group that has been dropped, so it no longer resolves
+            stubBackend(2001L, null);
+
+            CloudReplica replica = createReplica();
+            replica.updateClusterToPrimaryBe(CLUSTER_ID_1, 1001L);
+            replica.updateClusterToPrimaryBe(CLUSTER_ID_2, 2001L);
+            replica.updateClusterToSecondaryBe(CLUSTER_ID_2, 2001L);
+
+            // one primary entry plus one secondary entry, both pointing at the dropped backend
+            Assertions.assertEquals(2, replica.removeInvalidRoutes(mockInfoService));
+
+            Assertions.assertEquals(1, replica.getPrimaryComputeGroupIds().size());
+            Assertions.assertTrue(replica.getPrimaryComputeGroupIds().contains(CLUSTER_ID_1));
+            // if the compute group id is reused later, the stale entry must not come back to life
+            Backend revivedBe = createBackend(2001L, true, false);
+            stubBackend(2001L, revivedBe);
+            Assertions.assertNull(replica.getSecondaryBackend(CLUSTER_ID_2));
+        } finally {
+            Config.enable_cloud_replica_stale_route_clean = savedClean;
+            FeConstants.runningUnitTest = savedUnitTest;
+        }
+    }
+
+    @Test
+    public void testRemoveInvalidRoutes_disabled() {
+        boolean savedClean = Config.enable_cloud_replica_stale_route_clean;
+        boolean savedUnitTest = FeConstants.runningUnitTest;
+        try {
+            Config.enable_cloud_replica_stale_route_clean = false;
+            FeConstants.runningUnitTest = false;
+            stubBackend(2001L, null);
+
+            CloudReplica replica = createReplica();
+            replica.updateClusterToPrimaryBe(CLUSTER_ID_2, 2001L);
+            replica.updateClusterToSecondaryBe(CLUSTER_ID_2, 2001L);
+
+            Assertions.assertEquals(0, replica.removeInvalidRoutes(mockInfoService));
+
+            Assertions.assertTrue(replica.getPrimaryComputeGroupIds().contains(CLUSTER_ID_2));
+            Backend revivedBe = createBackend(2001L, true, false);
+            stubBackend(2001L, revivedBe);
+            Assertions.assertNotNull(replica.getSecondaryBackend(CLUSTER_ID_2));
+        } finally {
+            Config.enable_cloud_replica_stale_route_clean = savedClean;
+            FeConstants.runningUnitTest = savedUnitTest;
+        }
+    }
+
+    @Test
+    public void testRemoveInvalidRoutes_keepsDeadPrimaryWithLiveSecondary() {
+        boolean savedClean = Config.enable_cloud_replica_stale_route_clean;
+        boolean savedUnitTest = FeConstants.runningUnitTest;
+        try {
+            Config.enable_cloud_replica_stale_route_clean = true;
+            FeConstants.runningUnitTest = false;
+            Backend liveBe = createBackend(1001L, true, false);
+            stubBackend(1001L, liveBe);
+            stubBackend(2001L, null);
+
+            // the normal failover state with enable_immediate_be_assign=false: primary still points at the
+            // old backend while the secondary holds the rehashed live one
+            CloudReplica replica = createReplica();
+            replica.updateClusterToPrimaryBe(CLUSTER_ID_1, 2001L);
+            replica.updateClusterToSecondaryBe(CLUSTER_ID_1, 1001L);
+
+            Assertions.assertEquals(0, replica.removeInvalidRoutes(mockInfoService));
+
+            // FrontendServiceImpl's lazy fetch reaches the secondary through the primary key set
+            Assertions.assertTrue(replica.getPrimaryComputeGroupIds().contains(CLUSTER_ID_1));
+            Assertions.assertNotNull(replica.getSecondaryBackend(CLUSTER_ID_1));
+        } finally {
+            Config.enable_cloud_replica_stale_route_clean = savedClean;
+            FeConstants.runningUnitTest = savedUnitTest;
+        }
     }
 
     private CloudReplica gsonRoundTrip(CloudReplica replica, boolean legacyBesFormat) {

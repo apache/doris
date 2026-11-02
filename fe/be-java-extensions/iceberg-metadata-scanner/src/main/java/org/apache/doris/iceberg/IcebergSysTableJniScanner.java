@@ -109,7 +109,7 @@ public class IcebergSysTableJniScanner extends JniScanner {
                 for (int i = 0; i < fields.size(); i++) {
                     SelectedField field = fields.get(i);
                     Object value = row.get(field.sourceIndex, field.field.type().typeId().javaClass());
-                    ColumnValue columnValue = new IcebergSysTableColumnValue(value, timezone);
+                    ColumnValue columnValue = new IcebergSysTableColumnValue(value, timezone, field.field.type());
                     appendData(i, columnValue);
                 }
                 rows++;

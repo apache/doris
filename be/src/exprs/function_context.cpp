@@ -31,6 +31,14 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 
+const cctz::time_zone* FunctionContext::time_zone() const {
+    return _state ? &_state->timezone_obj() : nullptr;
+}
+
+const std::string& FunctionContext::time_zone_name() const {
+    return _state->timezone();
+}
+
 static const int MAX_WARNINGS = 1000;
 
 std::unique_ptr<doris::FunctionContext> FunctionContext::create_context(

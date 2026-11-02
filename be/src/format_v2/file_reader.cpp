@@ -100,7 +100,7 @@ std::string FileScanRequest::debug_string() const {
 }
 
 Status FileReader::init(RuntimeState* state) {
-    _init_profile();
+    // Concrete readers initialize their counters before starting their lifecycle timers.
     SCOPED_RAW_TIMER(&_reader_statistics.file_reader_create_time);
     ++_reader_statistics.open_file_num;
     io::FileReaderOptions reader_options =

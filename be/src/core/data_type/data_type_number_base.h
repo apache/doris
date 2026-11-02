@@ -50,7 +50,7 @@ template <PrimitiveType T>
 class DataTypeNumberBase : public IDataType {
     static_assert(is_int_or_bool(T) || is_ip(T) || is_date_type(T) || is_float_or_double(T) ||
                   T == TYPE_TIME || T == TYPE_TIMEV2 || T == TYPE_TIMESTAMPTZ ||
-                  is_timestamp_ns_type(T));
+                  is_timestamp_ns_type(T) || T == TYPE_UUID);
 
 public:
     static constexpr bool is_parametric = false;

@@ -1707,7 +1707,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         LogicalPlan logicalPlan = new UnboundResultSink<>(visitQuery(ctx.query()));
         Map<String, String> properties = ctx.propertyClause() != null
                 ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
-        return new CreateMaterializedViewCommand(new TableNameInfo(nameParts), logicalPlan, properties);
+        return new CreateMaterializedViewCommand(ctx.EXISTS() != null, new TableNameInfo(nameParts),
+                logicalPlan, properties);
     }
 
     /**
@@ -4245,6 +4246,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 defaultValue = Optional.of(DefaultValue.E_NUM_DEFAULT_VALUE);
             } else if (ctx.BITMAP_EMPTY() != null) {
                 defaultValue = Optional.of(DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE);
+            } else if (ctx.defaultFunction != null) {
+                defaultValue = Optional.of(DefaultValue.uuidDefaultValue(ctx.defaultFunction.getText()));
             }
         }
         if (ctx.UPDATE() != null) {
@@ -5484,13 +5487,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public VariantField visitVariantSubColType(VariantSubColTypeContext ctx) {
-        String comment;
-        if (ctx.commentSpec() != null) {
-            comment = ctx.commentSpec().STRING_LITERAL().getText();
-            comment = LogicalPlanBuilderAssistant.escapeBackSlash(comment.substring(1, comment.length() - 1));
-        } else {
-            comment = "";
-        }
+        String comment = ctx.commentSpec() == null ? ""
+                : SqlLiteralUtils.parseStringLiteral(ctx.commentSpec().STRING_LITERAL().getText());
         String pattern = ctx.STRING_LITERAL().getText();
         pattern = pattern.substring(1, pattern.length() - 1);
         if (ctx.variantSubColMatchType() != null) {

@@ -166,14 +166,22 @@ TEST(DataTypeInsertDefaultTest, AllTypeFamilies) {
         SCOPED_TRACE("date");
         auto actual = get_default_field(make_simple_type(TYPE_DATE));
         ASSERT_EQ(actual.get_type(), TYPE_DATE);
-        EXPECT_EQ(actual.get<TYPE_DATE>(), VecDateTimeValue::DEFAULT_VALUE);
+        EXPECT_EQ(actual.get<TYPE_DATE>(), VecDateTimeValue::DATE_DEFAULT_VALUE);
+        EXPECT_EQ(actual.get<TYPE_DATE>().type(), TIME_DATE);
+        char buffer[64];
+        actual.get<TYPE_DATE>().to_string(buffer);
+        EXPECT_STREQ(buffer, "1970-01-01");
     }
 
     {
         SCOPED_TRACE("datetime");
         auto actual = get_default_field(make_simple_type(TYPE_DATETIME));
         ASSERT_EQ(actual.get_type(), TYPE_DATETIME);
-        EXPECT_EQ(actual.get<TYPE_DATETIME>(), VecDateTimeValue::DEFAULT_VALUE);
+        EXPECT_EQ(actual.get<TYPE_DATETIME>(), VecDateTimeValue::DATETIME_DEFAULT_VALUE);
+        EXPECT_EQ(actual.get<TYPE_DATETIME>().type(), TIME_DATETIME);
+        char buffer[64];
+        actual.get<TYPE_DATETIME>().to_string(buffer);
+        EXPECT_STREQ(buffer, "1970-01-01 00:00:00");
     }
 
     {

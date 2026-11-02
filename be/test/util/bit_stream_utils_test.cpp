@@ -218,4 +218,29 @@ TEST(TestBitStreamUtil, TestUint64) {
     reader.GetValue(16, &v4);
     EXPECT_EQ(v4, 126);
 }
+// PutVlqInt() must terminate for every uint32_t. It used to take an int32_t and
+// shift it right arithmetically, so any value with the sign bit set (>= 2^31)
+// made the loop spin forever appending 0xFF.
+TEST(TestBitStreamUtil, TestPutVlqIntRoundTrip) {
+    const int max_vlq_byte_len = BitReader::MAX_VLQ_BYTE_LEN;
+    const std::vector<uint32_t> values = {
+            0,          1,          0x7F,       0x80,       0x3FFF,     0x4000,
+            0x1FFFFF,   0x200000,   0xFFFFFFF,  0x10000000, 0x7FFFFFFE, 0x7FFFFFFF,
+            0x80000000, 0x80000001, 0xFFFFFFFE, 0xFFFFFFFF,
+    };
+
+    for (uint32_t value : values) {
+        faststring buffer;
+        BitWriter writer(&buffer);
+        writer.PutVlqInt(value);
+        writer.Flush();
+        EXPECT_LE(writer.bytes_written(), max_vlq_byte_len) << "value=" << value;
+
+        BitReader reader(buffer.data(), buffer.size());
+        uint32_t decoded = 0;
+        ASSERT_TRUE(reader.GetVlqInt(&decoded)) << "value=" << value;
+        EXPECT_EQ(value, decoded) << "value=" << value;
+    }
+}
+
 } // namespace doris

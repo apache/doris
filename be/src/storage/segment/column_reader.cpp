@@ -56,10 +56,11 @@
 #include "storage/index/bloom_filter/bloom_filter_index_reader.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_reader.h"
-#include "storage/index/inverted/analyzer/analyzer.h"
+#include "storage/index/inverted/analysis/analyzer/analyzer.h"
+#include "storage/index/inverted/clucene/clucene_index_reader.h"
 #include "storage/index/inverted/inverted_index_reader.h"
-#include "storage/index/snii/snii_bkd_index_reader.h"
-#include "storage/index/snii/snii_index_reader.h"
+#include "storage/index/inverted/snii/snii_bkd_index_reader.h"
+#include "storage/index/inverted/snii/snii_index_reader.h"
 #include "storage/index/zone_map/zone_map_index.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
@@ -958,15 +959,18 @@ Status ColumnReader::_load_index(const std::shared_ptr<IndexFileReader>& index_f
     if (is_string_type(type)) {
         if (should_analyzer) {
             try {
-                index_reader = FullTextIndexReader::create_shared(index_meta, index_file_reader);
+                index_reader = FullTextIndexReader::create_shared(
+                        index_meta, index_file_reader, _num_rows,
+                        _meta_type == FieldType::OLAP_FIELD_TYPE_ARRAY);
             } catch (const CLuceneError& e) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                         "create FullTextIndexReader error: {}", e.what());
             }
         } else {
             try {
-                index_reader =
-                        StringTypeInvertedIndexReader::create_shared(index_meta, index_file_reader);
+                index_reader = StringTypeInvertedIndexReader::create_shared(
+                        index_meta, index_file_reader, _num_rows,
+                        _meta_type == FieldType::OLAP_FIELD_TYPE_ARRAY);
             } catch (const CLuceneError& e) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                         "create StringTypeInvertedIndexReader error: {}", e.what());
@@ -1489,12 +1493,22 @@ Status MapFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool*
             key_ptr->insert_many_defaults(num_items);
             val_ptr->insert_many_defaults(num_items);
         } else {
-            size_t num_read = num_items;
-            bool key_has_null = false;
-            bool val_has_null = false;
-            RETURN_IF_ERROR(_key_iterator->next_batch(&num_read, key_ptr, &key_has_null));
-            RETURN_IF_ERROR(_val_iterator->next_batch(&num_read, val_ptr, &val_has_null));
-            DCHECK(num_read == num_items);
+            auto read_or_fill_child = [&](ColumnIterator* iterator,
+                                          MutableColumnPtr& column) -> Status {
+                if (_read_phase == ReadPhase::LAZY && read_meta_columns &&
+                    iterator->read_requirement() == ReadRequirement::SKIP) {
+                    column->insert_many_defaults(num_items);
+                    return Status::OK();
+                }
+
+                bool dummy_has_null = false;
+                size_t num_read = num_items;
+                RETURN_IF_ERROR(iterator->next_batch(&num_read, column, &dummy_has_null));
+                DCHECK(num_read == num_items);
+                return Status::OK();
+            };
+            RETURN_IF_ERROR(read_or_fill_child(_key_iterator.get(), key_ptr));
+            RETURN_IF_ERROR(read_or_fill_child(_val_iterator.get(), val_ptr));
         }
     }
 
@@ -1688,6 +1702,35 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
     auto vals_ptr = IColumn::mutate(std::move(column_map.get_values_ptr()));
     Defer defer_keys {[&] { column_map.get_keys_ptr() = std::move(keys_ptr); }};
     Defer defer_values {[&] { column_map.get_values_ptr() = std::move(vals_ptr); }};
+    // In lazy phase with read_meta_columns=true, this map was only a placeholder during
+    // predicate evaluation and is cleared before the lazy read. If only KEYS or VALUES is
+    // requested, fill the skipped counterpart with defaults to keep ColumnMap's
+    // key/value/offset sizes consistent without reading unnecessary data pages.
+    const bool fill_lazy_skipped_keys = _read_phase == ReadPhase::LAZY && read_meta_columns &&
+                                        _key_iterator->read_requirement() == ReadRequirement::SKIP;
+    const bool fill_lazy_skipped_values =
+            _read_phase == ReadPhase::LAZY && read_meta_columns &&
+            _val_iterator->read_requirement() == ReadRequirement::SKIP;
+    auto read_or_fill_range = [&](ColumnIterator* iterator, MutableColumnPtr& column,
+                                  ordinal_t start_idx, size_t num_items,
+                                  bool fill_lazy_skipped_child) -> Status {
+        if (num_items == 0) {
+            return Status::OK();
+        }
+        if (fill_lazy_skipped_child) {
+            column->insert_many_defaults(num_items);
+            return Status::OK();
+        }
+        if (_read_phase == ReadPhase::LAZY && !iterator->need_to_read()) {
+            return Status::OK();
+        }
+        size_t n = num_items;
+        bool dummy_has_null = false;
+        RETURN_IF_ERROR(iterator->seek_to_ordinal(start_idx));
+        RETURN_IF_ERROR(iterator->next_batch(&n, column, &dummy_has_null));
+        DCHECK(n == num_items);
+        return Status::OK();
+    };
 
     size_t this_run = sizes[0];
     auto start_idx = starts_data[0];
@@ -1699,19 +1742,10 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
         }
         auto start = static_cast<ordinal_t>(starts_data[i]);
         if (start != last_idx) {
-            size_t n = this_run;
-            bool dummy_has_null = false;
-
-            if (this_run != 0) {
-                RETURN_IF_ERROR(_key_iterator->seek_to_ordinal(start_idx));
-                RETURN_IF_ERROR(_key_iterator->next_batch(&n, keys_ptr, &dummy_has_null));
-                DCHECK(n == this_run);
-
-                n = this_run;
-                RETURN_IF_ERROR(_val_iterator->seek_to_ordinal(start_idx));
-                RETURN_IF_ERROR(_val_iterator->next_batch(&n, vals_ptr, &dummy_has_null));
-                DCHECK(n == this_run);
-            }
+            RETURN_IF_ERROR(read_or_fill_range(_key_iterator.get(), keys_ptr, start_idx, this_run,
+                                               fill_lazy_skipped_keys));
+            RETURN_IF_ERROR(read_or_fill_range(_val_iterator.get(), vals_ptr, start_idx, this_run,
+                                               fill_lazy_skipped_values));
             start_idx = start;
             this_run = sz;
             last_idx = start + sz;
@@ -1722,18 +1756,10 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
         last_idx += sz;
     }
 
-    size_t n = this_run;
-    bool dummy_has_null = false;
-    if (this_run != 0) {
-        RETURN_IF_ERROR(_key_iterator->seek_to_ordinal(start_idx));
-        RETURN_IF_ERROR(_key_iterator->next_batch(&n, keys_ptr, &dummy_has_null));
-        DCHECK(n == this_run);
-
-        n = this_run;
-        RETURN_IF_ERROR(_val_iterator->seek_to_ordinal(start_idx));
-        RETURN_IF_ERROR(_val_iterator->next_batch(&n, vals_ptr, &dummy_has_null));
-        DCHECK(n == this_run);
-    }
+    RETURN_IF_ERROR(read_or_fill_range(_key_iterator.get(), keys_ptr, start_idx, this_run,
+                                       fill_lazy_skipped_keys));
+    RETURN_IF_ERROR(read_or_fill_range(_val_iterator.get(), vals_ptr, start_idx, this_run,
+                                       fill_lazy_skipped_values));
     return Status::OK();
 }
 
@@ -3133,6 +3159,12 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
 }
 
 Status DefaultValueColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) {
+    if (!need_to_read()) {
+        _convert_to_place_holder_column(dst, *n);
+        return Status::OK();
+    }
+
+    _recovery_from_place_holder_column(dst);
     *has_null = _default_value_field.is_null();
     _insert_many_default(dst, *n);
     return Status::OK();
@@ -3140,6 +3172,12 @@ Status DefaultValueColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, 
 
 Status DefaultValueColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
                                                   MutableColumnPtr& dst) {
+    if (!need_to_read()) {
+        _convert_to_place_holder_column(dst, count);
+        return Status::OK();
+    }
+
+    _recovery_from_place_holder_column(dst);
     _insert_many_default(dst, count);
     return Status::OK();
 }

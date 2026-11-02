@@ -378,7 +378,7 @@ void get_column_by_type(const DataTypePtr& data_type, const std::string& name, T
     PrimitiveType type = data_type->get_primitive_type();
     if (is_int_or_bool(type) || is_string_type(type) || is_float_or_double(type) || is_ip(type) ||
         is_date_or_datetime(type) || type == PrimitiveType::TYPE_DATEV2 ||
-        type == PrimitiveType::TYPE_TIMESTAMP_NS) {
+        type == PrimitiveType::TYPE_TIMESTAMP_NS || type == PrimitiveType::TYPE_UUID) {
         column.set_length(cast_set<int32_t>(data_type->get_size_of_value_in_memory()));
         return;
     }
@@ -578,6 +578,7 @@ bool is_bf_supported_by_fe_for_variant_subcolumn(FieldType type) {
     case FieldType::OLAP_FIELD_TYPE_DECIMAL256:
     case FieldType::OLAP_FIELD_TYPE_IPV4:
     case FieldType::OLAP_FIELD_TYPE_IPV6:
+    case FieldType::OLAP_FIELD_TYPE_UUID:
         return true;
     default:
         return false;
@@ -1867,7 +1868,7 @@ void parse_json_to_variant_impl(IColumn& column, const char* src, size_t length,
     }
     if (!result) {
         VLOG_DEBUG << "failed to parse " << std::string_view(src, length) << ", length= " << length;
-        if (config::variant_throw_exeception_on_invalid_json) {
+        if (config.throw_on_invalid_json) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Failed to parse object {}",
                                    std::string_view(src, length));
         }
@@ -2265,7 +2266,6 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
         // Deprecated legacy flatten-nested switch. Distinct from variant_enable_nested_group.
         configs[i].deprecated_enable_flatten_nested =
                 tablet_schema.deprecated_variant_flatten_nested();
-        configs[i].check_duplicate_json_path = config::variant_enable_duplicate_json_path_check;
         const auto& column = tablet_schema.column(variant_schema_pos[i]);
         if (!column.is_variant_type()) {
             return Status::InternalError("column is not variant type, column name: {}",

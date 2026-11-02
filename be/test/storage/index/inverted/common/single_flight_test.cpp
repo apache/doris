@@ -35,6 +35,8 @@ namespace doris::segment_v2::inverted_index {
 struct BlockingMoveState {
     std::mutex mutex;
     std::condition_variable condition;
+    size_t moves = 0;
+    size_t block_on = 1;
     bool move_started = false;
     bool release_move = false;
 };
@@ -48,6 +50,9 @@ struct BlockingMoveResult {
 
     BlockingMoveResult(BlockingMoveResult&& other) noexcept : state(std::move(other.state)) {
         std::unique_lock lock(state->mutex);
+        if (++state->moves != state->block_on) {
+            return;
+        }
         state->move_started = true;
         state->condition.notify_all();
         state->condition.wait(lock, [&] { return state->release_move; });
@@ -121,6 +126,46 @@ TEST(SingleFlight, JoinDuringPublicationStillFollowsPublishedFlight) {
 
     ASSERT_TRUE(follower.has_value());
     EXPECT_EQ(follower->get().state, state);
+    EXPECT_EQ(sf.inflight_size(), 0U);
+}
+
+TEST(SingleFlight, ShardGrowthDuringPublicationPreservesFollowers) {
+    SingleFlight<BlockingMoveResult> sf;
+    ASSERT_FALSE(sf.join_or_lead("k").has_value());
+    auto first = sf.join_or_lead("k");
+    ASSERT_TRUE(first.has_value());
+    auto state = std::make_shared<BlockingMoveState>();
+    state->block_on = 2;
+    BlockingMoveResult result(state);
+    std::thread publisher([&] { sf.publish("k", result); });
+    {
+        std::unique_lock lock(state->mutex);
+        state->condition.wait(lock, [&] { return state->move_started; });
+    }
+
+    std::vector<std::string> keys;
+    for (size_t i = 0; keys.size() < 128; ++i) {
+        const std::string key = "growing-" + std::to_string(i);
+        if (&sf._shard_for(key) == &sf._shard_for("k")) {
+            EXPECT_FALSE(sf.join_or_lead(key).has_value());
+            keys.push_back(key);
+        }
+    }
+    auto late = sf.join_or_lead("k");
+    EXPECT_TRUE(late.has_value());
+    {
+        std::lock_guard lock(state->mutex);
+        state->release_move = true;
+    }
+    state->condition.notify_all();
+    publisher.join();
+
+    EXPECT_EQ(first->get().state, state);
+    ASSERT_TRUE(late.has_value());
+    EXPECT_EQ(late->get().state, state);
+    for (const std::string& key : keys) {
+        sf.publish(key, result);
+    }
     EXPECT_EQ(sf.inflight_size(), 0U);
 }
 

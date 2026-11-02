@@ -26,6 +26,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.cache.ManifestCacheValue;
 import org.apache.doris.datasource.metacache.AbstractExternalMetaCache;
@@ -219,8 +220,10 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         if (expectedOps != null && ops != expectedOps) {
             throw catalogGenerationMoved(nameMapping);
         }
-        Table table = execute(authenticator, () -> ops.loadTable(
-                nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName()));
+        SessionContext sessionContext = SessionContext.current();
+        Table table = execute(authenticator, () -> sessionContext.getDelegatedCredential().isPresent()
+                ? ops.loadTable(sessionContext, nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName())
+                : ops.loadTable(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName()));
         ensureCatalogGenerationStable(catalog, ops, authenticator, nameMapping);
         return table;
     }
@@ -248,7 +251,11 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                 }
                 Table table;
                 try {
-                    table = context.loadTable(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName());
+                    SessionContext sessionContext = SessionContext.current();
+                    table = sessionContext.getDelegatedCredential().isPresent()
+                            ? context.loadTable(sessionContext,
+                                    nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName())
+                            : context.loadTable(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName());
                 } catch (Exception e) {
                     throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
                 }
@@ -379,7 +386,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         Table retainedTable = tableValue.getRetainedIcebergTable();
         java.util.Optional<IcebergSnapshotEntryKey> optionalKey =
                 IcebergSnapshotEntryKey.tryCreate(nameMapping, retainedTable);
-        if (!optionalKey.isPresent()) {
+        if (IcebergUtils.useSessionCatalog(dorisTable) || !optionalKey.isPresent()) {
             boolean isolateForQueries = tableValue.isQueryIsolationPrepared();
             return executeForGeneration(tableValue, nameMapping.getCtlId(),
                     authenticator -> loadSnapshotProjection(
@@ -603,6 +610,10 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
     }
 
     private IcebergTableCacheValue loadTableCacheValue(NameMapping nameMapping) {
+        return loadTableCacheValue(nameMapping, SessionContext.empty());
+    }
+
+    private IcebergTableCacheValue loadTableCacheValue(NameMapping nameMapping, SessionContext sessionContext) {
         MetaCacheEntry<IcebergManifestEntryKey, ManifestCacheValue> retainedManifestEntry =
                 manifestEntry.get(nameMapping.getCtlId());
         CatalogIf catalog = getCatalog(nameMapping.getCtlId());
@@ -619,7 +630,10 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                 boolean enableMappingTimestampTz = context.isEnableMappingTimestampTz();
                 Table table;
                 try {
-                    table = context.loadTable(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName());
+                    table = sessionContext.getDelegatedCredential().isPresent()
+                            ? context.loadTable(sessionContext,
+                                    nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName())
+                            : context.loadTable(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName());
                 } catch (Exception e) {
                     throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
                 }
@@ -747,6 +761,20 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
     }
 
     private IcebergTableCacheValue.Lease borrow(NameMapping nameMapping) {
+        SessionContext sessionContext = SessionContext.current();
+        if (sessionContext.getDelegatedCredential().isPresent()) {
+            CatalogIf<?> catalog = getCatalog(nameMapping.getCtlId());
+            if (catalog instanceof IcebergUserSessionCatalog
+                    && ((IcebergUserSessionCatalog) catalog).useSessionCatalog(sessionContext)) {
+                // A user's REST table must never enter the catalog-wide table cache. Keep the
+                // existing statement/generation lease lifetime for this privately loaded value.
+                IcebergTableCacheValue value = loadTableCacheValue(nameMapping, sessionContext);
+                IcebergTableCacheValue.Lease lease = value.tryAcquire();
+                value.releaseCacheReference();
+                value.releaseLoaderReference();
+                return java.util.Objects.requireNonNull(lease);
+            }
+        }
         MetaCacheEntry<NameMapping, IcebergTableCacheValue> entry = tableEntry.get(nameMapping.getCtlId());
         while (true) {
             IcebergTableCacheValue value = entry.get(nameMapping);

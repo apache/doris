@@ -22,6 +22,7 @@
 #include <memory>
 #include <numeric>
 #include <optional>
+#include <set>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
@@ -343,7 +344,6 @@ Status OlapScanLocalState::_init_profile() {
     _index_filter_profile = std::make_unique<RuntimeProfile>("IndexFilter");
     _scanner_profile->add_child(_index_filter_profile.get(), true, nullptr);
     _snii_prx_profile_counters.initialize(_index_filter_profile.get());
-    _snii_phrase_profile_counters.initialize(_index_filter_profile.get());
     /*
     SegmentIterator:
         - AnnIndexLoadCosts: 102.262us
@@ -476,13 +476,18 @@ static Status validate_residual_scan_conjuncts(RuntimeState* state,
         }
     }
 
-    if (push_down_agg_type == TPushAggOp::COUNT_ON_INDEX && !conjuncts.empty()) {
+    // Reject only residual predicates that reference columns: COUNT_ON_INDEX fills columns with
+    // defaults, while a predicate such as random() < 2 still filters each row correctly.
+    if (push_down_agg_type == TPushAggOp::COUNT_ON_INDEX &&
+        std::ranges::any_of(conjuncts, [](const VExprContextSPtr& conjunct) {
+            std::set<int> column_ids;
+            conjunct->root()->collect_slot_column_ids(column_ids);
+            return !column_ids.empty();
+        })) {
         return Status::InvalidArgument(
-                "COUNT_ON_INDEX pushdown cannot be used with residual scan predicates. "
-                "Residual predicates must be evaluated before COUNT_ON_INDEX counts rows; "
-                "otherwise the query may return incorrect results. "
-                "enable_segment_limit_pushdown only controls SegmentIterator LIMIT pushdown and "
-                "does not make COUNT_ON_INDEX safe with residual predicates. Set "
+                "COUNT_ON_INDEX pushdown cannot be used with residual scan predicates that "
+                "reference columns. Residual predicates must be evaluated before COUNT_ON_INDEX "
+                "counts rows; otherwise the query may return incorrect results. Set "
                 "enable_count_on_index_pushdown=false to disable COUNT_ON_INDEX pushdown.");
     }
     return Status::OK();
@@ -636,6 +641,8 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
                 std::max<int64_t>(1024, state()->parallel_scan_min_rows_per_scanner());
         scanner_builder.set_max_scanners_count(max_scanners_count);
         scanner_builder.set_min_rows_per_scanner(min_rows_per_scanner);
+        // BM25 statistics must not depend on how a tablet is split into scanners.
+        scanner_builder.set_share_tablet_collection_statistics(_score_runtime != nullptr);
         // If the session variable is set, force one scanner per segment.
         if (state()->query_options().__isset.optimize_index_scan_parallelism &&
             state()->query_options().optimize_index_scan_parallelism) {
@@ -709,6 +716,9 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
                                                              {},
                                                              p._limit,
                                                              p._olap_scan_node.is_preaggregation,
+                                                             // Each scanner reads the tablet's
+                                                             // entire read source.
+                                                             nullptr,
                                                      });
             RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
             scanners->push_back(std::move(scanner));

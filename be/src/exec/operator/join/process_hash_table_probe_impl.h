@@ -261,9 +261,10 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_sid
 // data sequentially without interleaving hash chain walks.
 template <int JoinOpType>
 template <typename HashTableType>
-uint32_t ProcessHashTableProbe<JoinOpType>::
+Status ProcessHashTableProbe<JoinOpType>::
         _find_batch_asof_optimized( // NOLINT(readability-function-cognitive-complexity)
-                HashTableType& hash_table_ctx, const uint8_t* null_map, uint32_t probe_rows) {
+                HashTableType& hash_table_ctx, const uint8_t* null_map, uint32_t probe_rows,
+                uint32_t& matched_rows) {
     auto* shared_state = _parent->_shared_state;
     constexpr bool is_outer_join = is_asof_outer_join_op_v<JoinOpType>;
     auto& probe_index = _parent->_probe_index;
@@ -277,10 +278,12 @@ uint32_t ProcessHashTableProbe<JoinOpType>::
                 _build_indexs.get_element(matched_cnt) = 0;
                 matched_cnt++;
             }
-            return matched_cnt;
+            matched_rows = matched_cnt;
+            return Status::OK();
         }
         probe_index = probe_rows;
-        return 0;
+        matched_rows = 0;
+        return Status::OK();
     }
 
     // Get ASOF probe expression from operator and execute on probe block.
@@ -291,8 +294,9 @@ uint32_t ProcessHashTableProbe<JoinOpType>::
     ColumnPtr probe_col_ptr;
     {
         SCOPED_TIMER(_asof_probe_expr_timer);
-        auto st = asof_probe_expr->execute(&probe_block, probe_col_ptr);
-        DORIS_CHECK(st.ok());
+        // A strict CAST of an out-of-range DATETIMEV2 match key can fail on ordinary input.
+        // Preserve its conversion error instead of treating it as a BE invariant violation.
+        RETURN_IF_ERROR(asof_probe_expr->execute(&probe_block, probe_col_ptr));
     }
     probe_col_ptr = probe_col_ptr->convert_to_full_column_if_const();
 
@@ -492,29 +496,11 @@ uint32_t ProcessHashTableProbe<JoinOpType>::
                           return probe_with_index(
                                   groups, assert_cast<const ColumnTimeStampNs*>(probe_col),
                                   [](const auto& value) { return value.to_date_int_val(); });
-                      },
-                      [&](std::vector<AsofIndexGroup<AsofMixedDateTimeKey>>& groups) -> uint32_t {
-                          return asof_column_dispatch(
-                                  probe_col, [&](const auto* typed_col) -> uint32_t {
-                                      using ColType = std::remove_const_t<
-                                              std::remove_pointer_t<decltype(typed_col)>>;
-                                      if constexpr (std::is_same_v<ColType, ColumnDateTimeV2> ||
-                                                    std::is_same_v<ColType, ColumnTimeStampNs>) {
-                                          return probe_with_index(
-                                                  groups, typed_col, [](const auto& value) {
-                                                      return asof_mixed_datetime_key(value);
-                                                  });
-                                      } else {
-                                          throw Exception(ErrorCode::INTERNAL_ERROR,
-                                                          "Mixed TIMESTAMP_NS/DATETIMEV2 ASOF "
-                                                          "index received {}",
-                                                          probe_col->get_name());
-                                      }
-                                  });
                       }},
             shared_state->asof_index_groups);
 
-    return matched_cnt;
+    matched_rows = matched_cnt;
+    return Status::OK();
 }
 
 template <int JoinOpType>
@@ -559,7 +545,8 @@ Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
     constexpr bool is_asof_join = is_asof_join_op_v<JoinOpType>;
     if constexpr (is_asof_join) {
         SCOPED_TIMER(_search_hashtable_timer);
-        current_offset = _find_batch_asof_optimized(hash_table_ctx, null_map, probe_rows);
+        RETURN_IF_ERROR(
+                _find_batch_asof_optimized(hash_table_ctx, null_map, probe_rows, current_offset));
     } else if ((JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
                 JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) &&
                _have_other_join_conjunct) {

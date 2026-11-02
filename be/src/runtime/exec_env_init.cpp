@@ -105,7 +105,8 @@
 #include "storage/cache/ann_index_ivf_list_cache.h"
 #include "storage/cache/page_cache.h"
 #include "storage/id_manager.h"
-#include "storage/index/inverted/inverted_index_cache.h"
+#include "storage/index/index_writer.h"
+#include "storage/index/inverted/common/inverted_index_cache.h"
 #include "storage/olap_define.h"
 #include "storage/options.h"
 #include "storage/segment/condition_cache.h"
@@ -808,6 +809,10 @@ Status ExecEnv::_check_deploy_mode() {
 }
 
 #ifdef BE_TEST
+void ExecEnv::set_tmp_file_dir(std::unique_ptr<segment_v2::TmpFileDirs> tmp_file_dirs) {
+    _tmp_file_dirs = std::move(tmp_file_dirs);
+}
+
 void ExecEnv::set_new_load_stream_mgr(std::unique_ptr<NewLoadStreamMgr>&& new_load_stream_mgr) {
     this->_new_load_stream_mgr = std::move(new_load_stream_mgr);
 }

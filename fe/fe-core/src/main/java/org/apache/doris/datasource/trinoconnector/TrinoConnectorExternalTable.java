@@ -180,6 +180,8 @@ public class TrinoConnectorExternalTable extends ExternalTable {
             return Type.DOUBLE;
         } else if (type instanceof CharType) {
             return Type.CHAR;
+        } else if (type instanceof io.trino.spi.type.UuidType) {
+            return Type.UUID;
         } else if (type instanceof VarcharType) {
             return Type.STRING;
             // } else if (type instanceof BinaryType) {

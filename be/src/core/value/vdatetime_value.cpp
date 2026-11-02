@@ -180,12 +180,12 @@ bool VecDateTimeValue::from_date_int64(int64_t value) {
     return check_range_and_set_time(year, month, day, hour, minute, second, _type);
 }
 
-void VecDateTimeValue::set_zero(int type) {
+void VecDateTimeValue::set_zero(TimeType type) {
     memset(this, 0, sizeof(*this));
     _type = type;
 }
 
-void VecDateTimeValue::set_type(int type) {
+void VecDateTimeValue::set_type(TimeType type) {
     _type = type;
     if (type == TIME_DATE) {
         _hour = 0;

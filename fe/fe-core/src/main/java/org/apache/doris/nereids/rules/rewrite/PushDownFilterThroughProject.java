@@ -82,7 +82,7 @@ public class PushDownFilterThroughProject implements RewriteRuleFactory {
         // splitConjuncts.first -> conjuncts having outer query slots which should NOT be pushed down
         // splitConjuncts.second -> conjuncts without any outer query slots which should be pushed down
         Pair<Set<Expression>, Set<Expression>> splitConjuncts =
-                splitConjunctsByChildOutput(filter.getConjuncts(), childOutputs, childAlias);
+                splitConjunctsByChildOutput(filter.getConjuncts(), childOutputs, childAlias, project.child(), true);
         Set<Expression> remainPredicates = splitConjuncts.first;
         Set<Expression> pushDownPredicates = splitConjuncts.second;
         if (pushDownPredicates.isEmpty()) {
@@ -99,9 +99,10 @@ public class PushDownFilterThroughProject implements RewriteRuleFactory {
         LogicalProject<Plan> project = limit.child();
         Set<Slot> childOutputs = project.getOutputSet();
         Map<Slot, Expression> childAlias = project.getAliasToProducer();
-        // split the conjuncts by child's output
+        // Restore evaluation above the enclosing Limit. The expanded filter stays above
+        // that Limit and every lower rejecting boundary, so date arithmetic is safe here.
         Pair<Set<Expression>, Set<Expression>> splitConjuncts =
-                splitConjunctsByChildOutput(filter.getConjuncts(), childOutputs, childAlias);
+                splitConjunctsByChildOutput(filter.getConjuncts(), childOutputs, childAlias, limit, false);
         Set<Expression> remainPredicates = splitConjuncts.first;
         Set<Expression> pushDownPredicates = splitConjuncts.second;
         if (pushDownPredicates.isEmpty()) {
@@ -113,7 +114,8 @@ public class PushDownFilterThroughProject implements RewriteRuleFactory {
     }
 
     private static Pair<Set<Expression>, Set<Expression>> splitConjunctsByChildOutput(
-            Set<Expression> conjuncts, Set<Slot> childOutputs, Map<Slot, Expression> childAlias) {
+            Set<Expression> conjuncts, Set<Slot> childOutputs, Map<Slot, Expression> childAlias, Plan input,
+            boolean protectDateArithmetic) {
         Set<Expression> pushDownPredicates = Sets.newLinkedHashSet();
         Set<Expression> remainPredicates = Sets.newLinkedHashSet();
         for (Expression conjunct : conjuncts) {
@@ -125,7 +127,9 @@ public class PushDownFilterThroughProject implements RewriteRuleFactory {
             // `project(b + random(1, 10) as a) -> filter(b + random(1, 10) > 1)`, it contains two distinct RANDOM.
             if (childOutputs.containsAll(conjunctSlots)
                     && conjunctSlots.stream().map(childAlias::get).filter(Objects::nonNull)
-                            .noneMatch(Expression::containsVolatileExpression)) {
+                            .noneMatch(expression -> expression.containsVolatileExpression()
+                                    || (protectDateArithmetic
+                                            && ExpressionUtils.requiresDateArithmeticProtection(expression, input)))) {
                 pushDownPredicates.add(conjunct);
             } else {
                 remainPredicates.add(conjunct);

@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -47,10 +48,15 @@ import java.util.List;
 
 /** InsertIntoValuesAnalyzer */
 public class InsertIntoValuesAnalyzer extends AbstractBatchJobExecutor {
-    public static final List<RewriteJob> INSERT_JOBS = jobs(
+    private static final List<RewriteJob> BINDING_JOBS = jobs(
             bottomUp(
                     new InlineTableToUnionOrOneRowRelation(),
-                    new BindSink(),
+                    new BindSink()
+            )
+    );
+
+    private static final List<RewriteJob> POST_BIND_JOBS = jobs(
+            bottomUp(
                     new MergeProjectable(),
                     // after bind olap table sink, the LogicalProject will be generated under LogicalOlapTableSink,
                     // we should convert the agg state function in the project, and evaluate some env parameters
@@ -63,10 +69,8 @@ public class InsertIntoValuesAnalyzer extends AbstractBatchJobExecutor {
             )
     );
 
-    public static final List<RewriteJob> BATCH_INSERT_JOBS = jobs(
+    private static final List<RewriteJob> BATCH_INSERT_POST_BIND_JOBS = jobs(
             bottomUp(
-                    new InlineTableToUnionOrOneRowRelation(),
-                    new BindSink(),
                     new MergeProjectable(),
 
                     // the BatchInsertIntoTableCommand need send StringLiteral to backend,
@@ -84,6 +88,12 @@ public class InsertIntoValuesAnalyzer extends AbstractBatchJobExecutor {
             )
     );
 
+    public static final List<RewriteJob> INSERT_JOBS = ImmutableList.<RewriteJob>builder()
+            .addAll(BINDING_JOBS).addAll(POST_BIND_JOBS).build();
+
+    public static final List<RewriteJob> BATCH_INSERT_JOBS = ImmutableList.<RewriteJob>builder()
+            .addAll(BINDING_JOBS).addAll(BATCH_INSERT_POST_BIND_JOBS).build();
+
     private final boolean batchInsert;
 
     public InsertIntoValuesAnalyzer(CascadesContext cascadesContext, boolean batchInsert) {
@@ -94,6 +104,22 @@ public class InsertIntoValuesAnalyzer extends AbstractBatchJobExecutor {
     @Override
     public List<RewriteJob> getJobs() {
         return batchInsert ? BATCH_INSERT_JOBS : INSERT_JOBS;
+    }
+
+    @Override
+    public void execute() {
+        MoreFieldsThread.keepFunctionSignature(false, () -> {
+            executeJobs(BINDING_JOBS);
+            return null;
+        });
+        MoreFieldsThread.keepFunctionSignature(() -> {
+            executeJobs(getPostBindJobs());
+            return null;
+        });
+    }
+
+    private List<RewriteJob> getPostBindJobs() {
+        return batchInsert ? BATCH_INSERT_POST_BIND_JOBS : POST_BIND_JOBS;
     }
 
     private static class RewriteInsertIntoExpressions extends ExpressionRewrite {

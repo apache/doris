@@ -181,9 +181,6 @@ public class LakeSoulScanNode extends FileQueryScanNode {
             options.put(LakeSoulUtils.SUBSTRAIT_PREDICATE, SubstraitUtil.encodeBase64String(predicate));
         }
         Map<String, String> catalogProps = getCatalog().getProperties();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("{}", catalogProps);
-        }
 
         if (catalogProps.get("AWS_ENDPOINT") != null) {
             options.put(LakeSoulUtils.FS_S3A_ENDPOINT, catalogProps.get("AWS_ENDPOINT"));

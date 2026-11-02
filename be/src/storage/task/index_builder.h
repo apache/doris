@@ -20,8 +20,8 @@
 #include <functional>
 
 #include "storage/index/index_file_writer.h"
-#include "storage/index/inverted/inverted_index_desc.h"
-#include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
+#include "storage/index/inverted/snii/reader/snii_segment_reader.h"
 #include "storage/iterator/olap_data_convertor.h"
 #include "storage/merger.h"
 #include "storage/olap_common.h"

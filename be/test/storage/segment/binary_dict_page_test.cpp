@@ -26,6 +26,8 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "core/column/column_dictionary.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "runtime/exec_env.h"
 #include "storage/olap_common.h"
@@ -559,6 +561,78 @@ public:
 private:
     std::unique_ptr<segment_v2::EncodingInfoResolver> _resolver;
 };
+
+// Both decoder entry points must accept low-cardinality destinations in OFFSET_ONLY mode.
+TEST_F(BinaryDictPageTest, TestOffsetOnlyDictionaryColumn) {
+    const std::vector<Slice> slices = {Slice(""), Slice("x"), Slice("abcd"), Slice("x")};
+    for (bool use_v2 : {false, true}) {
+        SCOPED_TRACE(use_v2);
+        PageBuilderOptions builder_options;
+        builder_options.data_page_size = 256 * 1024;
+        builder_options.dict_page_size = 256 * 1024;
+        builder_options.dict_binary_plain_encoding =
+                use_v2 ? BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2
+                       : BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V1;
+        auto builder = create_and_add_data(slices, builder_options);
+        ASSERT_NE(nullptr, builder);
+        OwnedSlice data;
+        ASSERT_TRUE(builder->finish(&data).ok());
+        OwnedSlice dictionary;
+        ASSERT_TRUE(builder->get_dictionary_page(&dictionary).ok());
+        EncodingTypePB encoding;
+        ASSERT_TRUE(builder->get_dictionary_page_encoding(&encoding).ok());
+        Slice dictionary_slice = dictionary.slice();
+        std::unique_ptr<DataPage> decoded_dictionary;
+        auto dictionary_decoder =
+                create_dict_page_decoder(dictionary_slice, encoding, decoded_dictionary);
+        ASSERT_NE(nullptr, dictionary_decoder);
+        std::vector<StringRef> words(dictionary_decoder->count());
+        ASSERT_TRUE(dictionary_decoder->get_dict_word_info(words.data()).ok());
+        Slice data_slice = data.slice();
+        std::unique_ptr<DataPage> decoded_data;
+        ASSERT_TRUE(apply_pre_decode(data_slice, decoded_data).ok());
+
+        for (bool nullable : {false, true}) {
+            SCOPED_TRACE(nullable);
+            for (bool use_rowids : {false, true}) {
+                SCOPED_TRACE(use_rowids);
+                PageDecoderOptions options;
+                options.only_read_offsets = true;
+                BinaryDictPageDecoder decoder(data_slice, options);
+                ASSERT_TRUE(decoder.init().ok());
+                ASSERT_TRUE(decoder.is_dict_encoding());
+                decoder.set_dict_decoder(words.size(), words.data());
+                MutableColumnPtr column = ColumnDictI32::create();
+                if (nullable) {
+                    column = ColumnNullable::create(std::move(column), ColumnUInt8::create());
+                }
+                const rowid_t rowids[] = {17, 19, 20};
+                if (use_rowids) {
+                    size_t count = 3;
+                    ASSERT_TRUE(decoder.read_by_rowids(rowids, 17, &count, column).ok());
+                    ASSERT_EQ(3, count);
+                } else {
+                    // Append a second batch after the dictionary destination has been converted.
+                    size_t count = 2;
+                    ASSERT_TRUE(decoder.next_batch(&count, column).ok());
+                    ASSERT_EQ(2, count);
+                    count = 2;
+                    ASSERT_TRUE(decoder.next_batch(&count, column).ok());
+                    ASSERT_EQ(2, count);
+                }
+                const size_t expected_rows = use_rowids ? 3 : slices.size();
+                ASSERT_EQ(expected_rows, column->size());
+                for (size_t i = 0; i < expected_rows; ++i) {
+                    size_t source_row = use_rowids ? rowids[i] - 17 : i;
+                    EXPECT_EQ(slices[source_row].size, column->get_data_at(i).size);
+                    if (nullable) {
+                        EXPECT_FALSE(column->is_null_at(i));
+                    }
+                }
+            }
+        }
+    }
+}
 
 // Local behavior tests - test specific config behavior
 TEST_F(BinaryDictPageTest, TestConfigUsePlainBinaryV2False) {

@@ -21,8 +21,8 @@
 #include <roaring/roaring.hh>
 #include <string>
 
-#include "storage/index/inverted/inverted_index_cache.h"
-#include "storage/index/inverted/inverted_index_query_type.h"
+#include "storage/index/inverted/common/inverted_index_cache.h"
+#include "storage/index/inverted/common/inverted_index_query_type.h"
 
 namespace doris::segment_v2 {
 

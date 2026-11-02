@@ -113,24 +113,13 @@ public:
 
     // This intentionally compares integral civil seconds and ignores fractional seconds. It is
     // the contract used by sequence_match's second-based pattern conditions.
-    template <typename RHS>
-    int64_t datetime_diff_in_seconds(const RHS& rhs) const {
-        if constexpr (std::is_same_v<std::remove_cvref_t<RHS>, TimeStampNsValue>) {
-            return epoch_seconds() - rhs.epoch_seconds();
-        } else {
-            return (daynr() - rhs.daynr()) * SECOND_PER_HOUR * HOUR_PER_DAY +
-                   time_part_to_seconds() - rhs.time_part_to_seconds();
-        }
+    int64_t datetime_diff_in_seconds(const TimeStampNsValue& rhs) const {
+        return epoch_seconds() - rhs.epoch_seconds();
     }
 
-    template <typename RHS>
-    int64_t datetime_diff_in_microseconds(const RHS& rhs) const {
-        if constexpr (std::is_same_v<std::remove_cvref_t<RHS>, TimeStampNsValue>) {
-            return static_cast<int64_t>((static_cast<__int128>(_epoch_nanos) - rhs._epoch_nanos) /
-                                        NANOS_PER_MICROSECOND);
-        }
-        return (daynr() - rhs.daynr()) * HOUR_PER_DAY * SECOND_PER_HOUR * MS_PER_SECOND +
-               time_part_diff_in_ms(rhs);
+    int64_t datetime_diff_in_microseconds(const TimeStampNsValue& rhs) const {
+        return static_cast<int64_t>((static_cast<__int128>(_epoch_nanos) - rhs._epoch_nanos) /
+                                    NANOS_PER_MICROSECOND);
     }
 
     const char* day_name_with_locale(const char* const* day_names) const {
@@ -187,11 +176,6 @@ public:
     auto operator<=>(const TimeStampNsValue&) const = default;
 
 private:
-    template <typename RHS>
-    int64_t time_part_diff_in_ms(const RHS& rhs) const {
-        return time_part_to_microsecond() - rhs.time_part_to_microsecond();
-    }
-
     int64_t epoch_days() const {
         int64_t days = _epoch_nanos / NANOS_PER_DAY;
         if (_epoch_nanos % NANOS_PER_DAY < 0) {
@@ -297,20 +281,6 @@ int64_t datetime_diff_with_nanoseconds(const DateV2Value<DateTimeV2ValueType>& d
 template <TimeUnit UNIT>
 int64_t datetime_diff(const TimeStampNsValue& ts_value1, const TimeStampNsValue& ts_value2) {
     return datetime_diff_with_nanoseconds<UNIT>(ts_value1.to_datetime(), ts_value1.nanosecond(),
-                                                ts_value2.to_datetime(), ts_value2.nanosecond());
-}
-
-template <TimeUnit UNIT>
-int64_t datetime_diff(const TimeStampNsValue& ts_value1,
-                      const DateV2Value<DateTimeV2ValueType>& ts_value2) {
-    return datetime_diff_with_nanoseconds<UNIT>(ts_value1.to_datetime(), ts_value1.nanosecond(),
-                                                ts_value2, ts_value2.microsecond() * 1000);
-}
-
-template <TimeUnit UNIT>
-int64_t datetime_diff(const DateV2Value<DateTimeV2ValueType>& ts_value1,
-                      const TimeStampNsValue& ts_value2) {
-    return datetime_diff_with_nanoseconds<UNIT>(ts_value1, ts_value1.microsecond() * 1000,
                                                 ts_value2.to_datetime(), ts_value2.nanosecond());
 }
 

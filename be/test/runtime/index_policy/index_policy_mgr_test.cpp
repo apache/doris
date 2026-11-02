@@ -26,9 +26,9 @@
 
 #include "common/config.h"
 #include "runtime/exec_env.h"
-#include "storage/index/inverted/analysis_factory_mgr.h"
-#include "storage/index/inverted/analyzer/analyzer.h"
-#include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/inverted/analysis/analysis_factory_mgr.h"
+#include "storage/index/inverted/analysis/analyzer/analyzer.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "util/defer_op.h"
 
 namespace doris {

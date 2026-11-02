@@ -38,3 +38,12 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------PhysicalOlapScan[t1000_2]
 
+-- !agg_phase3 --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[DISTINCT_GLOBAL]
+------hashAgg[GLOBAL]
+--------PhysicalDistribute[DistributionSpecHash]
+----------hashAgg[LOCAL]
+------------PhysicalTVFRelation
+

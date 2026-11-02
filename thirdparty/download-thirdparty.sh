@@ -719,7 +719,7 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " AZURE " ]]; then
 fi
 
 # Foyer remains a local patch until its cache interface is accepted upstream.
-# All search fixes are supplied by the immutable lance-c dependency revision.
+# Runtime selection and its memory guards come from the pinned upstream revision.
 if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
     foyer_patch_checksum="$(cksum < "${TP_PATCH_DIR}/lance-c-foyer.patch")"
     foyer_patch_marker="${TP_SOURCE_DIR}/${LANCE_C_SOURCE}/${PATCHED_MARK}_foyer"
@@ -751,6 +751,18 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " CCTZ " ]] ; then
     fi
     cd -
     echo "Finished patching ${CCTZ_SOURCE}"
+fi
+
+# Clang on AArch64 supports __int128. Enable phmap's multiply-based hash mixer
+# instead of falling back to the longer shift/xor implementation.
+if [[ " ${TP_ARCHIVES[*]} " =~ " PARALLEL_HASHMAP " ]]; then
+    cd "${TP_SOURCE_DIR}/${PARALLEL_HASHMAP_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}_aarch64_int128" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/parallel-hashmap-1.3.8-aarch64-int128.patch"
+        touch "${PATCHED_MARK}_aarch64_int128"
+    fi
+    cd -
+    echo "Finished patching ${PARALLEL_HASHMAP_SOURCE} for AArch64 int128"
 fi
 
 # vim: ts=4 sw=4 ts=4 tw=100:

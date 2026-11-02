@@ -1556,6 +1556,7 @@ Status IcebergParquetReader::init_reader(
     _col_name_to_block_idx = col_name_to_block_idx;
     _physical_equality_delete_root_columns.clear();
     auto* parquet_reader = static_cast<ParquetReader*>(_file_format_reader.get());
+    parquet_reader->set_preserve_binary_uuid(true);
     RETURN_IF_ERROR(parquet_reader->get_file_metadata_schema(&_data_file_field_desc));
     DCHECK(_data_file_field_desc != nullptr);
     if (_row_lineage_columns != nullptr) {
@@ -2173,6 +2174,7 @@ Status IcebergParquetReader::_process_equality_delete(
                 _profile, _params, delete_desc, READ_DELETE_FILE_BATCH_SIZE,
                 const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx, _state,
                 _meta_cache);
+        delete_reader->set_preserve_binary_uuid(true);
         RETURN_IF_ERROR(delete_reader->init_schema_reader());
         const FieldDescriptor* delete_field_desc = nullptr;
         RETURN_IF_ERROR(delete_reader->get_file_metadata_schema(&delete_field_desc));

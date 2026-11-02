@@ -23,8 +23,11 @@
 #include <tuple>
 
 #include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type/data_type_uuid.h"
 #include "core/data_type/data_type_varbinary.h"
+#include "core/value/uuid_value.h"
 #include "format/table/iceberg/partition_spec.h"
 
 namespace doris {
@@ -146,17 +149,24 @@ TEST_F(PartitionTransformersTest, binary_truncate_counts_bytes_and_preserves_typ
 
 TEST_F(PartitionTransformersTest, timestamp_transforms_use_utc_calendar_and_microseconds) {
     for (const auto& type : std::vector<DataTypePtr> {std::make_shared<DataTypeDateTimeV2>(6),
-                                                      std::make_shared<DataTypeTimeStampTz>(6)}) {
+                                                      std::make_shared<DataTypeTimeStampTz>(6),
+                                                      std::make_shared<DataTypeTimeStampNs>()}) {
         auto column = type->create_column();
         // The first two UTC values represent the repeated New York 01:30 with different offsets.
         const std::vector<std::array<int, 7>> fields = {{2021, 11, 7, 5, 30, 0, 123456},
                                                         {2021, 11, 7, 6, 30, 0, 123456},
                                                         {1969, 12, 31, 23, 59, 59, 999999}};
         const std::vector<Int64> micros = {1636263000123456, 1636266600123456, -1};
+        size_t index = 0;
         for (const auto& f : fields) {
             DateV2Value<DateTimeV2ValueType> dt;
             ASSERT_TRUE(dt.check_range_and_set_time(f[0], f[1], f[2], f[3], f[4], f[5], f[6]));
             auto packed = dt.to_date_int_val();
+            if (type->get_primitive_type() == TYPE_TIMESTAMP_NS) {
+                // All sub-microsecond fractions must bucket using the floor microsecond.
+                packed = static_cast<uint64_t>(micros[index] * 1000 + 999);
+            }
+            ++index;
             column->insert_data(reinterpret_cast<const char*>(&packed), sizeof(packed));
         }
         column->insert_default();
@@ -746,6 +756,25 @@ TEST_F(PartitionTransformersTest, DatePartitionsMatchYearZeroFileOrdinals) {
         EXPECT_EQ((hash & INT32_MAX) % 16,
                   assert_cast<const ColumnInt32&>(*buckets.column).get_data()[i]);
     }
+}
+
+TEST_F(PartitionTransformersTest, uuid_identity_and_bucket_preserve_logical_value) {
+    auto type = std::make_shared<DataTypeUUID>();
+    auto column = ColumnUUID::create();
+    UUIDValueType value;
+    ASSERT_TRUE(UUIDValue::from_string(value, "00112233-4455-6677-8899-aabbccddeeff"));
+    column->insert_value(value);
+    Block block({{std::move(column), type, "u"}});
+    iceberg::PartitionField field(1, 1000, "u_bucket", "bucket[17]");
+    auto transform = PartitionColumnTransforms::create(field, type);
+    auto result = transform->apply(block, 0);
+    const auto bytes = UUIDValue::to_big_endian(value);
+    EXPECT_EQ(assert_cast<const ColumnInt32&>(*result.column).get_data()[0],
+              (HashUtil::murmur_hash3_32(bytes.data(), bytes.size(), 0) & INT32_MAX) % 17);
+    IdentityPartitionColumnTransform identity(type);
+    EXPECT_EQ(
+            identity.get_partition_value(type, std::string("00112233-4455-6677-8899-aabbccddeeff")),
+            "00112233-4455-6677-8899-aabbccddeeff");
 }
 
 } // namespace doris

@@ -34,7 +34,7 @@ class VExprContext;
 
 namespace doris::format {
 
-class Cast final : public VExpr {
+class Cast : public VExpr {
     ENABLE_FACTORY_CREATOR(Cast);
 
 public:

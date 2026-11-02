@@ -48,6 +48,27 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
                     "driver_url" = "${driver_url}",
                     "driver_class" = "oracle.jdbc.driver.OracleDriver"
         );"""
+        // NUMBER binding cannot represent 1e200, although it is a finite BINARY_DOUBLE.
+        String binaryTable = "DORIS_BINARY_FLOAT_" + UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase()
+        def executeOracle = { statement ->
+            sql """CALL EXECUTE_STMT("${catalog_name}", "${statement}")"""
+        }
+        executeOracle("CREATE TABLE ${binaryTable} (id INT, f BINARY_FLOAT, d BINARY_DOUBLE)")
+        try {
+            sql """INSERT INTO ${catalog_name}.${ex_db_name}.${binaryTable}
+                   VALUES (1, CAST(1.25 AS FLOAT), CAST(1e200 AS DOUBLE)),
+                          (2, CAST(-1.25 AS FLOAT), CAST(-1e200 AS DOUBLE)),
+                          (3, CAST(0 AS FLOAT), CAST(1e-200 AS DOUBLE)),
+                          (4, NULL, NULL)"""
+            def binaryRows = sql """SELECT id, f, d FROM ${catalog_name}.${ex_db_name}.${binaryTable} ORDER BY id"""
+            assertEquals(4, binaryRows.size())
+            assertEquals([1.25d, -1.25d, 0.0d], binaryRows.take(3).collect { it[1].doubleValue() })
+            assertEquals([1e200d, -1e200d, 1e-200d], binaryRows.take(3).collect { it[2].doubleValue() })
+            assertNull(binaryRows[3][1])
+            assertNull(binaryRows[3][2])
+        } finally {
+            executeOracle("DROP TABLE ${binaryTable}")
+        }
         order_qt_show_db """ show databases from ${catalog_name}; """
         sql """use ${internal_db_name}"""
         sql  """ drop table if exists ${internal_db_name}.${inDorisTable} """

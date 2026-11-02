@@ -526,7 +526,7 @@ public class PaimonUtilTest {
     @Test
     public void testGeneratePartitionInfoSupportsTimestampWithoutTimeZone() {
         List<Column> partitionColumns = Collections.singletonList(
-                new Column("part", org.apache.doris.catalog.ScalarType.createDatetimeV2Type(6)));
+                new Column("part", org.apache.doris.catalog.Type.TIMESTAMP_NS));
         DataField partitionField = DataTypes.FIELD(0, "part", DataTypes.TIMESTAMP(9));
         Table table = mockPartitionTable(Collections.emptyMap(), partitionField);
         BinaryRow partitionRow = new BinaryRow(1);
@@ -543,7 +543,7 @@ public class PaimonUtilTest {
                 partitionInfo.getPruningStatus());
         PartitionItem partitionItem =
                 partitionInfo.getNameToPartitionItem().values().iterator().next();
-        Assert.assertEquals(Collections.singletonList("2026-07-29 12:34:56.123456"),
+        Assert.assertEquals(Collections.singletonList("2026-07-29 12:34:56.123456789"),
                 ((ListPartitionItem) partitionItem).getItems().get(0)
                         .getPartitionValuesAsStringList());
     }

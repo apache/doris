@@ -35,6 +35,7 @@
 #include "cpp/sync_point.h"
 #include "storage/tablet/tablet_meta.h"
 #include "util/countdown_latch.h"
+#include "util/defer_op.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -55,6 +56,41 @@ protected:
     TabletMetaSharedPtr _tablet_meta;
     CloudStorageEngine _engine;
 };
+
+TEST_F(CloudTabletMgrTest, VacuumReclaimsWarmupStatesWithoutStaleOrUnusedRowsets) {
+    auto sp = SyncPoint::get_instance();
+    sp->clear_all_call_backs();
+    Defer cleanup([sp] {
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+    });
+    sp->set_call_back("CloudMetaMgr::get_tablet_meta", [this](auto&& args) {
+        *try_any_cast<TabletMetaSharedPtr*>(args[1]) = _tablet_meta;
+        try_any_cast_ret<Status>(args)->second = true;
+    });
+    sp->set_call_back("CloudMetaMgr::sync_tablet_rowsets",
+                      [](auto&& args) { try_any_cast_ret<Status>(args)->second = true; });
+    sp->enable_processing();
+
+    CloudTabletMgr mgr(_engine);
+    auto result = mgr.get_tablet(_tablet_meta->tablet_id());
+    ASSERT_TRUE(result.has_value()) << result.error();
+    auto tablet = result.value();
+    RowsetMeta rowset;
+    rowset.set_rowset_id(_engine.next_rowset_id());
+    rowset.set_num_segments(0);
+    ASSERT_TRUE(tablet->add_rowset_warmup_state(
+            rowset, WarmUpTriggerSource::EVENT_DRIVEN,
+            std::chrono::steady_clock::now() -
+                    std::chrono::seconds(config::warm_up_rowset_state_gc_grace_period_seconds +
+                                         1)));
+    ASSERT_FALSE(tablet->has_stale_rowsets());
+    ASSERT_FALSE(tablet->need_remove_unused_rowsets());
+
+    CountDownLatch stop_latch(1);
+    mgr.vacuum_stale_rowsets(stop_latch);
+    EXPECT_EQ(tablet->get_rowset_warmup_state(rowset.rowset_id()).progress, WarmUpProgress::NONE);
+}
 
 // Test concurrent get_tablet calls for the same tablet_id.
 // Reproduces bug where tablet ends up in cache but not in _tablet_map.
@@ -274,6 +310,38 @@ TEST_F(CloudTabletMgrTest, SyncTabletsRefreshesMetaOfContinuouslyIngestedTablet)
 
     EXPECT_EQ(0, meta_syncs[kFresh]);
     EXPECT_EQ(0, rowset_syncs[kFresh]);
+
+    sp->disable_processing();
+    sp->clear_all_call_backs();
+}
+
+TEST_F(CloudTabletMgrTest, TestGetTabletIfCachedOnlyReturnsCachedTablet) {
+    auto sp = SyncPoint::get_instance();
+    sp->clear_all_call_backs();
+    sp->enable_processing();
+
+    sp->set_call_back("CloudMetaMgr::get_tablet_meta", [this](auto&& args) {
+        auto* tablet_meta_ptr = try_any_cast<TabletMetaSharedPtr*>(args[1]);
+        *tablet_meta_ptr = _tablet_meta;
+        try_any_cast_ret<Status>(args)->second = true;
+    });
+    sp->set_call_back("CloudMetaMgr::sync_tablet_rowsets",
+                      [](auto&& args) { try_any_cast_ret<Status>(args)->second = true; });
+
+    CloudTabletMgr mgr(_engine);
+    const int64_t cached_tablet_id = 99999;
+    const int64_t uncached_tablet_id = 100000;
+
+    EXPECT_EQ(nullptr, mgr.get_tablet_if_cached(cached_tablet_id));
+
+    auto res = mgr.get_tablet(cached_tablet_id);
+    ASSERT_TRUE(res.has_value()) << res.error();
+
+    auto cached_tablet = mgr.get_tablet_if_cached(cached_tablet_id);
+    ASSERT_NE(nullptr, cached_tablet);
+    EXPECT_EQ(cached_tablet_id, cached_tablet->tablet_id());
+
+    EXPECT_EQ(nullptr, mgr.get_tablet_if_cached(uncached_tablet_id));
 
     sp->disable_processing();
     sp->clear_all_call_backs();

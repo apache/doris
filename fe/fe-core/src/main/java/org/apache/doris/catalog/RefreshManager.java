@@ -189,9 +189,9 @@ public class RefreshManager {
             return;
         }
         long updateTime = System.currentTimeMillis();
-        refreshTableInternal((ExternalDatabase) db, (ExternalTable) table, updateTime);
+        refreshTableInternal((ExternalDatabase) db, (ExternalTable) table, updateTime, true);
         ExternalObjectLog log = ExternalObjectLog.createForRefreshTable(catalog.getId(), db.getFullName(),
-                table.getName(), updateTime);
+                table.getName(), updateTime, true);
         Env.getCurrentEnv().getEditLog().logRefreshExternalTable(log);
     }
 
@@ -231,11 +231,38 @@ public class RefreshManager {
                 invalidateColdReplayDatabase(catalog, log);
                 return;
             }
+            if (!Strings.isNullOrEmpty(log.getNewTableName())) {
+                // this is a rename table op
+                db.get().unregisterTableForReplay(log.getTableName());
+                if (db.get().getTableForReplay(log.getNewTableName()).isPresent()
+                        || db.get().hasLocalTableName(log.getNewTableName())) {
+                    db.get().unregisterTableForReplay(log.getNewTableName());
+                }
+                db.get().resetMetaCacheNames();
+                return;
+            }
             Optional<? extends ExternalTable> table;
             if (!Strings.isNullOrEmpty(log.getTableName())) {
                 table = db.get().getTableForReplay(log.getTableName());
             } else {
                 table = db.get().getTableForReplay(log.getTableId());
+            }
+            if (log.isInvalidateTableLookup()) {
+                if (table.isPresent()) {
+                    refreshTableInternal(db.get(), table.get(), log.getLastUpdateTime(), true);
+                } else {
+                    try {
+                        db.get().invalidateTableLookup(log.getTableName());
+                    } finally {
+                        if (catalog.getLowerCaseTableNames() != 0) {
+                            db.get().invalidateTableLookupDependencies();
+                        } else {
+                            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableByNameOrWider(
+                                    catalog.getId(), db.get().getFullName(), log.getTableName());
+                        }
+                    }
+                }
+                return;
             }
             if (!table.isPresent()) {
                 LOG.warn("failed to find table when replaying refresh table: {}", log.debugForRefreshTable());
@@ -261,55 +288,49 @@ public class RefreshManager {
                 invalidatePaimonCatalogForReplay(catalog);
                 return;
             }
-            if (!Strings.isNullOrEmpty(log.getNewTableName())) {
-                // this is a rename table op
-                db.get().unregisterTable(log.getTableName());
-                db.get().resetMetaCacheNames();
-            } else {
-                List<String> modifiedPartNames = log.getPartitionNames();
-                List<String> newPartNames = log.getNewPartitionNames();
-                if (catalog instanceof HMSExternalCatalog
-                        && ((modifiedPartNames != null && !modifiedPartNames.isEmpty())
-                        || (newPartNames != null && !newPartNames.isEmpty()))) {
-                    // Partition-level cache invalidation, only for hive catalog. Fence the held table
-                    // before the hive(...) lookup can lazily initialize the group and throw; otherwise
-                    // a failed acquisition skips the row-count fence and the full-table fallback.
+            List<String> modifiedPartNames = log.getPartitionNames();
+            List<String> newPartNames = log.getNewPartitionNames();
+            if (catalog instanceof HMSExternalCatalog
+                    && ((modifiedPartNames != null && !modifiedPartNames.isEmpty())
+                    || (newPartNames != null && !newPartNames.isEmpty()))) {
+                // Partition-level cache invalidation, only for hive catalog. Fence the held table
+                // before the hive(...) lookup can lazily initialize the group and throw; otherwise
+                // a failed acquisition skips the row-count fence and the full-table fallback.
+                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(table.get());
+                try {
+                    HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                            .hive(catalog.getId());
+                    cache.refreshAffectedPartitionsCache((HMSExternalTable) table.get(), modifiedPartNames,
+                            newPartNames);
+                    // The held HMS table also caches the pre-insert table parameters.
+                    table.get().unsetObjectCreated();
+                    // Close the admission window the opening fence left open: a load admitted after
+                    // it can publish the pre-insert value from the still-resident file list.
                     Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(table.get());
+                } catch (RuntimeException e) {
+                    // The insert is already committed. A partial or failed selective refresh must not
+                    // leave stale Hive partition/file entries, so fall back to the same conservative
+                    // full-table invalidation the leader uses.
+                    LOG.warn("failed to refresh affected partitions when replaying refresh table for {}",
+                            table.get().getNameWithFullQualifiers(), e);
                     try {
-                        HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                                .hive(catalog.getId());
-                        cache.refreshAffectedPartitionsCache((HMSExternalTable) table.get(), modifiedPartNames,
-                                newPartNames);
-                        // The held HMS table also caches the pre-insert table parameters.
+                        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(table.get());
+                    } finally {
                         table.get().unsetObjectCreated();
-                        // Close the admission window the opening fence left open: a load admitted after
-                        // it can publish the pre-insert value from the still-resident file list.
                         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(table.get());
-                    } catch (RuntimeException e) {
-                        // The insert is already committed. A partial or failed selective refresh must not
-                        // leave stale Hive partition/file entries, so fall back to the same conservative
-                        // full-table invalidation the leader uses.
-                        LOG.warn("failed to refresh affected partitions when replaying refresh table for {}",
-                                table.get().getNameWithFullQualifiers(), e);
-                        try {
-                            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(table.get());
-                        } finally {
-                            table.get().unsetObjectCreated();
-                            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(table.get());
-                        }
                     }
-                    if (table.get() instanceof HMSExternalTable && log.getLastUpdateTime() > 0) {
-                        ((HMSExternalTable) table.get()).setUpdateTime(log.getLastUpdateTime());
-                    }
-                    LOG.info("replay refresh partitions for table {}, "
-                                    + "modified partitions count: {}, "
-                                    + "new partitions count: {}",
-                            table.get().getName(), modifiedPartNames == null ? 0 : modifiedPartNames.size(),
-                            newPartNames == null ? 0 : newPartNames.size());
-                } else {
-                    // Full table cache invalidation
-                    refreshTableInternal(db.get(), table.get(), log.getLastUpdateTime());
                 }
+                if (table.get() instanceof HMSExternalTable && log.getLastUpdateTime() > 0) {
+                    ((HMSExternalTable) table.get()).setUpdateTime(log.getLastUpdateTime());
+                }
+                LOG.info("replay refresh partitions for table {}, "
+                                + "modified partitions count: {}, "
+                                + "new partitions count: {}",
+                        table.get().getName(), modifiedPartNames == null ? 0 : modifiedPartNames.size(),
+                        newPartNames == null ? 0 : newPartNames.size());
+            } else {
+                // Full table cache invalidation
+                refreshTableInternal(db.get(), table.get(), log.getLastUpdateTime());
             }
         });
     }
@@ -349,20 +370,42 @@ public class RefreshManager {
     }
 
     public void refreshTableInternal(ExternalDatabase db, ExternalTable table, long updateTime) {
-        // The table's metadata can become visible to a new load as soon as it is reset.
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(table);
-        table.unsetObjectCreated();
-        // Iceberg partition evolution can change partition specs across FEs.
-        // Clear related-table validation cache to avoid stale partitioned/unpartitioned judgment.
-        if (table instanceof IcebergExternalTable) {
-            ((IcebergExternalTable) table).setIsValidRelatedTableCached(false);
+        refreshTableInternal(db, table, updateTime, false);
+    }
+
+    private void refreshTableInternal(ExternalDatabase db, ExternalTable table, long updateTime,
+            boolean invalidateTableLookup) {
+        Optional<Runnable> finished = db.beginTableMetadataRefresh();
+        try {
+            // The table's metadata can become visible to a new load as soon as it is reset.
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(table);
+            table.unsetObjectCreated();
+            // Iceberg partition evolution can change partition specs across FEs.
+            // Clear related-table validation cache to avoid stale partitioned/unpartitioned judgment.
+            if (table instanceof IcebergExternalTable) {
+                ((IcebergExternalTable) table).setIsValidRelatedTableCached(false);
+            }
+            if (updateTime > 0) {
+                table.setUpdateTime(updateTime);
+            }
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(table);
+            LOG.info("refresh table {}, id {} from db {} in catalog {}, update time: {}",
+                    table.getName(), table.getId(), db.getFullName(), db.getCatalog().getName(), updateTime);
+        } finally {
+            try {
+                if (invalidateTableLookup) {
+                    try {
+                        db.invalidateTableLookup(table.getName());
+                    } finally {
+                        if (table.getCatalog().getLowerCaseTableNames() != 0) {
+                            db.invalidateTableLookupDependencies();
+                        }
+                    }
+                }
+            } finally {
+                finished.ifPresent(Runnable::run);
+            }
         }
-        if (updateTime > 0) {
-            table.setUpdateTime(updateTime);
-        }
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(table);
-        LOG.info("refresh table {}, id {} from db {} in catalog {}, update time: {}",
-                table.getName(), table.getId(), db.getFullName(), db.getCatalog().getName(), updateTime);
     }
 
     /**

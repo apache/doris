@@ -21,6 +21,10 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.planner.GroupCommitPlanner;
 
+import java.io.ByteArrayOutputStream;
+import java.nio.ByteBuffer;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 
 public class PreparedStatementContext {
@@ -30,6 +34,10 @@ public class PreparedStatementContext {
     public String stmtString;
     public Optional<ShortCircuitQueryContext> shortCircuitQueryContext = Optional.empty();
     public Optional<GroupCommitPlanner> groupCommitPlanner = Optional.empty();
+    // Long data belongs to a prepared statement and survives individual upload commands.
+    private final Map<Integer, ByteArrayOutputStream> longData = new HashMap<>();
+    private String longDataError;
+    private boolean emptyCursorOpen;
 
     // Timestamp in millisecond last command starts at
     protected volatile long startTime;
@@ -40,6 +48,14 @@ public class PreparedStatementContext {
         this.ctx = ctx;
         this.statementContext = statementContext;
         this.stmtString = stmtString;
+    }
+
+    public boolean isEmptyCursorOpen() {
+        return emptyCursorOpen;
+    }
+
+    public void setEmptyCursorOpen(boolean emptyCursorOpen) {
+        this.emptyCursorOpen = emptyCursorOpen;
     }
 
     public long getStartTime() {
@@ -73,5 +89,51 @@ public class PreparedStatementContext {
 
     public void setStartTime() {
         startTime = System.currentTimeMillis();
+    }
+
+    public void appendLongData(int parameter, ByteBuffer data, int maxAllowedPacket) {
+        if (longDataError != null) {
+            return;
+        }
+        if (parameter >= command.placeholderCount()) {
+            setLongDataError("Invalid parameter index " + parameter + " in COM_STMT_SEND_LONG_DATA");
+            return;
+        }
+        ByteArrayOutputStream value = longData.computeIfAbsent(parameter, key -> new ByteArrayOutputStream());
+        if ((long) value.size() + data.remaining() > maxAllowedPacket) {
+            setLongDataError("Parameter data in COM_STMT_SEND_LONG_DATA exceeds max_allowed_packet ("
+                    + maxAllowedPacket + ")");
+            return;
+        }
+        byte[] chunk = new byte[data.remaining()];
+        data.get(chunk);
+        value.write(chunk, 0, chunk.length);
+    }
+
+    public boolean hasLongData() {
+        return !longData.isEmpty();
+    }
+
+    public boolean hasLongData(int parameter) {
+        return longData.containsKey(parameter);
+    }
+
+    public byte[] getLongData(int parameter) {
+        ByteArrayOutputStream value = longData.get(parameter);
+        return value == null ? null : value.toByteArray();
+    }
+
+    public String getLongDataError() {
+        return longDataError;
+    }
+
+    public void setLongDataError(String error) {
+        longData.clear();
+        longDataError = error;
+    }
+
+    public void clearLongData() {
+        longData.clear();
+        longDataError = null;
     }
 }

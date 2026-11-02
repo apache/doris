@@ -18,14 +18,18 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.fileio.GcpS3FileIOAwsClientFactory;
 import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.metacache.ExternalMetaCacheBudgetManager;
 import org.apache.doris.datasource.property.common.IcebergAwsAssumeRoleProperties;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
+import org.apache.doris.datasource.property.storage.GCSProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.property.storage.auth.GcpCredential;
 import org.apache.doris.foundation.property.ConnectorProperty;
 
 import com.google.common.base.Preconditions;
@@ -36,8 +40,10 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.aws.AwsClientProperties;
+import org.apache.iceberg.aws.s3.S3FileIO;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.catalog.Catalog;
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 
 import java.util.HashMap;
 import java.util.List;
@@ -134,6 +140,12 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
      */
     public final Catalog initializeCatalog(String catalogName,
                                            List<StorageProperties> storagePropertiesList) {
+        return initializeCatalog(catalogName, storagePropertiesList, SessionContext.empty());
+    }
+
+    public final Catalog initializeCatalog(String catalogName,
+                                           List<StorageProperties> storagePropertiesList,
+                                           SessionContext sessionContext) {
         Map<String, String> catalogProps = new HashMap<>(getOrigProps());
         if (StringUtils.isNotBlank(warehouse)) {
             catalogProps.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
@@ -142,7 +154,7 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
         // Add manifest cache properties if configured
         addManifestCacheProperties(catalogProps);
 
-        Catalog catalog = initCatalog(catalogName, catalogProps, storagePropertiesList);
+        Catalog catalog = initCatalog(catalogName, catalogProps, storagePropertiesList, sessionContext);
 
         if (catalog == null) {
             throw new IllegalStateException("Catalog must not be null after initialization.");
@@ -204,6 +216,15 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
             List<StorageProperties> storagePropertiesList
     );
 
+    protected Catalog initCatalog(
+            String catalogName,
+            Map<String, String> catalogProps,
+            List<StorageProperties> storagePropertiesList,
+            SessionContext sessionContext
+    ) {
+        return initCatalog(catalogName, catalogProps, storagePropertiesList);
+    }
+
     /**
      * Unified method to configure FileIO properties for Iceberg catalog.
      * This method handles all storage types (HDFS, S3, MinIO, etc.) by:
@@ -228,6 +249,7 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
         }
         if (s3Target != null) {
             toS3FileIOProperties(s3Target, fileIOProperties);
+            configureProviderSpecificFileIO(s3Target, fileIOProperties);
         } else {
             String region = AbstractS3CompatibleProperties.getRegionFromProperties(fileIOProperties);
             if (!Strings.isNullOrEmpty(region)) {
@@ -266,6 +288,41 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
         if (s3Properties instanceof S3Properties) {
             S3Properties awsProperties = (S3Properties) s3Properties;
             IcebergAwsAssumeRoleProperties.putAssumeRoleProperties(options, awsProperties);
+        }
+    }
+
+    /**
+     * Selects a provider-aware FileIO when the generic Iceberg S3FileIO cannot represent the
+     * provider's native authentication model.
+     *
+     * <p>GCP OAuth is implemented by Doris' object-storage client. Iceberg S3FileIO supplies the
+     * complete streaming implementation (including seek and multipart writes), while the custom
+     * client factory injects the same refreshable bearer authentication used by FE object storage.
+     * When OSS or Azure passwordless credentials are added to {@code ObjCredential}, add their
+     * provider-specific client factory in this method.</p>
+     */
+    private void configureProviderSpecificFileIO(AbstractS3CompatibleProperties storageProperties,
+            Map<String, String> options) {
+        if (storageProperties instanceof GCSProperties && ((GCSProperties) storageProperties).isAnonymous()) {
+            // S3FileIO builds its own clients and does not consume the Hadoop credential provider.
+            options.put(AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER,
+                    AnonymousCredentialsProvider.class.getName());
+        }
+        if (storageProperties instanceof GCSProperties
+                && ((GCSProperties) storageProperties).hasGcpCredential()) {
+            // The client factory reconstructs GCSProperties from this map. Forward
+            // only the provider-native credential fields; copying the entire catalog
+            // property map can expose unrelated secrets to FileIO implementations.
+            GcpCredential credential = ((GCSProperties) storageProperties).getGcpCredential();
+            options.put(GCSProperties.CREDENTIAL_PROVIDER_TYPE,
+                    credential.getCredentialProviderType().name());
+            if (StringUtils.isNotBlank(credential.getImpersonationServiceAccount())) {
+                options.put(GCSProperties.IMPERSONATION_SERVICE_ACCOUNT,
+                        credential.getImpersonationServiceAccount());
+            }
+            options.put(StorageProperties.FS_PROVIDER_KEY, "GCP");
+            options.put(CatalogProperties.FILE_IO_IMPL, S3FileIO.class.getName());
+            options.put(S3FileIOProperties.CLIENT_FACTORY, GcpS3FileIOAwsClientFactory.class.getName());
         }
     }
 

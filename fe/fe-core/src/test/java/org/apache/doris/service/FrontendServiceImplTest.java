@@ -73,7 +73,10 @@ import org.apache.doris.thrift.TSchemaTableRequestParams;
 import org.apache.doris.thrift.TShowUserRequest;
 import org.apache.doris.thrift.TShowUserResult;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TStreamLoadPutRequest;
+import org.apache.doris.thrift.TStreamLoadPutResult;
 import org.apache.doris.thrift.TTableStatus;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.utframe.UtFrameUtils;
@@ -410,6 +413,108 @@ public class FrontendServiceImplTest {
         Assert.assertEquals(partition.getStatus().getStatusCode(), TStatusCode.OK);
         Partition p20230807 = table.getPartition("p20230807000000");
         Assert.assertNotNull(p20230807);
+    }
+
+    @Test
+    public void testCreatePartitionRangeLimitDoesNotLeavePartitions() throws Exception {
+        createTable("CREATE TABLE test.partition_range_limit (event_day DATETIME NOT NULL, id INT) "
+                + "DUPLICATE KEY(event_day, id) "
+                + "AUTO PARTITION BY RANGE (date_trunc(event_day, 'day')) () "
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num' = '1')");
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_range_limit");
+        int oldLimit = Config.max_auto_partition_num;
+        try {
+            Config.max_auto_partition_num = 1;
+            TCreatePartitionResult result = new FrontendServiceImpl(exeEnv).createPartition(
+                    createPartitionRequest(db, table, "2023-08-07 00:00:00", "2023-08-08 00:00:00"));
+            Assert.assertEquals(TStatusCode.RUNTIME_ERROR, result.getStatus().getStatusCode());
+            Assert.assertTrue(result.getStatus().getErrorMsgs().get(0).contains("max_auto_partition_num"));
+            Assert.assertEquals(0, table.getPartitionNum());
+        } finally {
+            Config.max_auto_partition_num = oldLimit;
+        }
+    }
+
+    @Test
+    public void testCreatePartitionListLimitCountsOnlyNewPartitions() throws Exception {
+        createTable("CREATE TABLE test.partition_list_limit (city_code VARCHAR(100) NOT NULL, id INT) "
+                + "DUPLICATE KEY(city_code, id) "
+                + "AUTO PARTITION BY LIST (city_code) () "
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num' = '1')");
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_list_limit");
+        int oldLimit = Config.max_auto_partition_num;
+        try {
+            Config.max_auto_partition_num = 1;
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TCreatePartitionResult first = impl.createPartition(createPartitionRequest(db, table, "BEIJING"));
+            Assert.assertEquals(TStatusCode.OK, first.getStatus().getStatusCode());
+            Assert.assertEquals(1, table.getPartitionNum());
+
+            TCreatePartitionResult existing = impl.createPartition(createPartitionRequest(db, table, "BEIJING"));
+            Assert.assertEquals(TStatusCode.OK, existing.getStatus().getStatusCode());
+            Assert.assertEquals(1, table.getPartitionNum());
+
+            TCreatePartitionResult overflow = impl.createPartition(
+                    createPartitionRequest(db, table, "BEIJING", "SHANGHAI"));
+            Assert.assertEquals(TStatusCode.RUNTIME_ERROR, overflow.getStatus().getStatusCode());
+            Assert.assertTrue(overflow.getStatus().getErrorMsgs().get(0).contains("max_auto_partition_num"));
+            Assert.assertEquals(1, table.getPartitionNum());
+        } finally {
+            Config.max_auto_partition_num = oldLimit;
+        }
+    }
+
+    @Test
+    public void testCreatePartitionLimitIsRecheckedAtPublication() throws Exception {
+        createTable("CREATE TABLE test.partition_list_concurrent_limit (city_code VARCHAR(100) NOT NULL, id INT) "
+                + "DUPLICATE KEY(city_code, id) "
+                + "AUTO PARTITION BY LIST (city_code) () "
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num' = '1')");
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_list_concurrent_limit");
+        int oldLimit = Config.max_auto_partition_num;
+        try {
+            Config.max_auto_partition_num = 1;
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TCreatePartitionResult first = impl.createPartition(createPartitionRequest(db, table, "BEIJING"));
+            Assert.assertEquals(TStatusCode.OK, first.getStatus().getStatusCode());
+
+            // Model a concurrent publication after the request's read-lock precheck.
+            OlapTable spyTable = Mockito.spy(table);
+            AtomicBoolean stalePrecheck = new AtomicBoolean(true);
+            db.unregisterTable(table.getName());
+            db.registerTable(spyTable);
+            try {
+                Mockito.doAnswer(invocation -> stalePrecheck.compareAndSet(true, false)
+                        ? 0 : invocation.callRealMethod()).when(spyTable).getPartitionNum();
+                TCreatePartitionResult result = impl.createPartition(createPartitionRequest(db, spyTable, "SHANGHAI"));
+                Assert.assertEquals(TStatusCode.RUNTIME_ERROR, result.getStatus().getStatusCode());
+                Assert.assertTrue(result.getStatus().getErrorMsgs().get(0).contains("max_auto_partition_num"));
+                Assert.assertFalse(stalePrecheck.get());
+                Assert.assertEquals(1, spyTable.getPartitionNum());
+            } finally {
+                db.unregisterTable(spyTable.getName());
+                db.registerTable(table);
+            }
+        } finally {
+            Config.max_auto_partition_num = oldLimit;
+        }
+    }
+
+    private static TCreatePartitionRequest createPartitionRequest(Database db, OlapTable table, String... values) {
+        List<List<TNullableStringLiteral>> partitionValues = new ArrayList<>();
+        for (String value : values) {
+            TNullableStringLiteral literal = new TNullableStringLiteral();
+            literal.setValue(value);
+            partitionValues.add(Collections.singletonList(literal));
+        }
+        TCreatePartitionRequest request = new TCreatePartitionRequest();
+        request.setDbId(db.getId());
+        request.setTableId(table.getId());
+        request.setPartitionValues(partitionValues);
+        return request;
     }
 
     @Test
@@ -849,6 +954,61 @@ public class FrontendServiceImplTest {
         } finally {
             closeTransactionValidationMock();
         }
+    }
+
+    @Test
+    public void testGroupCommitStreamLoadPutChecksAuthenticationAndLoadPrivilege() throws Exception {
+        String noLoadUser = "group_commit_no_load_user";
+        String noLoadPassword = "group_commit_test_password";
+        boolean originalForwardSetting = Config.enable_forward_group_commit_stream_load_to_follower;
+        Config.enable_forward_group_commit_stream_load_to_follower = false;
+        executeCommand("DROP USER IF EXISTS " + noLoadUser);
+        executeCommand("CREATE USER " + noLoadUser + " IDENTIFIED BY '" + noLoadPassword + "'");
+
+        try {
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+
+            TStreamLoadPutResult badPassword = impl.streamLoadPut(
+                    groupCommitStreamLoadRequest("root", "wrong_password", "missing_table"));
+            Assert.assertEquals(TStatusCode.ANALYSIS_ERROR, badPassword.getStatus().getStatusCode());
+            Assert.assertTrue(badPassword.getStatus().getErrorMsgs().get(0).contains("Access denied"));
+
+            TStreamLoadPutResult missingLoad = impl.streamLoadPut(
+                    groupCommitStreamLoadRequest(noLoadUser, noLoadPassword, "missing_table"));
+            Assert.assertEquals(TStatusCode.ANALYSIS_ERROR, missingLoad.getStatus().getStatusCode());
+            String missingLoadError = missingLoad.getStatus().getErrorMsgs().get(0);
+            Assert.assertTrue(missingLoadError, missingLoadError.contains("Load_priv"));
+
+            FrontendServiceImpl tokenCheckingImpl = Mockito.spy(new FrontendServiceImpl(exeEnv));
+            TStreamLoadPutRequest badTokenRequest = groupCommitStreamLoadRequest("", "", "missing_table");
+            badTokenRequest.setToken("bad-token");
+            Mockito.doReturn(false).when(tokenCheckingImpl).checkToken("bad-token");
+            TStreamLoadPutResult badToken = tokenCheckingImpl.streamLoadPut(badTokenRequest);
+            Assert.assertEquals(TStatusCode.ANALYSIS_ERROR, badToken.getStatus().getStatusCode());
+            Assert.assertTrue(badToken.getStatus().getErrorMsgs().get(0).contains("Invalid token"));
+
+            TStreamLoadPutResult authorized = impl.streamLoadPut(
+                    groupCommitStreamLoadRequest("root", "", "missing_table"));
+            TStatusCode authorizedStatus = authorized.getStatus().getStatusCode();
+            Assert.assertTrue("authorized request should reach the missing-table check, but got " + authorizedStatus,
+                    authorizedStatus == TStatusCode.NOT_FOUND || authorizedStatus == TStatusCode.ANALYSIS_ERROR);
+            Assert.assertTrue(authorized.getStatus().getErrorMsgs().get(0).contains("missing_table"));
+        } finally {
+            connectContext.setThreadLocalInfo();
+            executeCommand("DROP USER IF EXISTS " + noLoadUser);
+            Config.enable_forward_group_commit_stream_load_to_follower = originalForwardSetting;
+        }
+    }
+
+    private static TStreamLoadPutRequest groupCommitStreamLoadRequest(String user, String password, String table) {
+        return new TStreamLoadPutRequest()
+                .setUser(user)
+                .setPasswd(password)
+                .setDb("test")
+                .setTbl(table)
+                .setUserIp("127.0.0.1")
+                .setLoadId(new TUniqueId(1L, 1L))
+                .setGroupCommitMode("async_mode");
     }
 
     private MockedStatic<Env> transactionValidationEnvMock;

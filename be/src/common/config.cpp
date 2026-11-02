@@ -330,9 +330,9 @@ DEFINE_Int32(task_executor_max_concurrency_per_task, "-1");
 DEFINE_Int32(task_executor_initial_max_concurrency_per_task, "-1");
 
 // Enable task executor in internal table scan.
-DEFINE_Bool(enable_task_executor_in_internal_table, "true");
+DEFINE_Bool(enable_task_executor_in_internal_table, "false");
 // Enable task executor in external table scan.
-DEFINE_Bool(enable_task_executor_in_external_table, "true");
+DEFINE_Bool(enable_task_executor_in_external_table, "false");
 
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool
@@ -508,10 +508,10 @@ DEFINE_mDouble(compaction_promotion_ratio, "0.05");
 DEFINE_mInt64(compaction_promotion_min_size_mbytes, "128");
 
 // When output rowset of cumulative compaction total version count (end_version - start_version)
-// exceed this config count, the rowset will be moved to base compaction
-// NOTE: this config will work for unique key merge-on-write table only, to reduce version count
-// related cost on delete bitmap more effectively.
-DEFINE_mInt64(compaction_promotion_version_count, "1000");
+// exceed this config count, the rowset will be moved to base compaction.
+// NOTE: this config only works for unique key merge-on-write tables. The default maximum value
+// disables version-count-based promotion while retaining the option to enable it when needed.
+DEFINE_mInt64(compaction_promotion_version_count, "9223372036854775807");
 
 // The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than
 // this size, size_based policy may not do to cumulative compaction. The unit is m byte.
@@ -641,6 +641,15 @@ DEFINE_Int64(load_data_reserve_hours, "4");
 DEFINE_mInt64(load_error_log_reserve_hours, "48");
 // error log size limit, default 200MB
 DEFINE_mInt64(load_error_log_limit_bytes, "209715200");
+
+// Dedicated load cancellation workers. Requires a restart.
+DEFINE_Int32(brpc_load_light_work_pool_threads, "32");
+DEFINE_Validator(brpc_load_light_work_pool_threads,
+                 [](const int config) -> bool { return config > 0; });
+// Queue capacity: -1 selects a CPU-scaled default. Requires a restart.
+DEFINE_Int32(brpc_load_light_work_pool_max_queue_size, "-1");
+DEFINE_Validator(brpc_load_light_work_pool_max_queue_size,
+                 [](const int config) -> bool { return config == -1 || config > 0; });
 
 DEFINE_Int32(brpc_heavy_work_pool_threads, "-1");
 DEFINE_Int32(brpc_peer_fetch_pool_threads, "-1");
@@ -1198,8 +1207,6 @@ DEFINE_mInt64(workload_group_scan_task_wait_timeout_ms, "10000");
 DEFINE_mBool(variant_use_cloud_schema_dict_cache, "true");
 DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "2048");
 DEFINE_mInt32(variant_max_json_key_length, "255");
-DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
-DEFINE_mBool(variant_enable_duplicate_json_path_check, "false");
 // Controls storage-layer parse target for plain non-doc VARIANT columns:
 // 0 = auto, 1 = force parse-time subcolumns, 2 = force doc-value KV staging.
 // NestedGroup, deprecated flatten-nested, and persistent doc mode keep their required paths.
@@ -1221,10 +1228,13 @@ DEFINE_Validator(variant_storage_parse_mode,
 // can be shared by all Lance dataset readers.
 DEFINE_Int64(lance_index_cache_size_bytes, "10737418240");   // 10 GiB
 DEFINE_Int64(lance_metadata_cache_size_bytes, "1073741824"); // 1GB
+DEFINE_Bool(enable_lance_scalar_index_auto_selection, "true");
 DEFINE_Bool(enable_lance_data_cache, "true");
 DEFINE_String(lance_data_cache_path, "${DORIS_HOME}/lance_data_cache");
 DEFINE_Int64(lance_data_cache_disk_capacity_bytes, "107374182400"); // 100GB
 DEFINE_Int64(lance_data_cache_read_block_size_bytes, "1048576");    // 1MB
+// Zero preserves the existing one-block Foyer memory tier, including custom block sizes.
+DEFINE_Int64(lance_data_cache_memory_capacity_bytes, "0");
 
 // I/O buffering budget per Lance scanner, not a cap on its total memory usage.
 // Runtime changes apply to newly created scanners.
@@ -1431,8 +1441,20 @@ DEFINE_mInt32(inverted_index_max_buffered_docs, "-1");
 // Zstd levels for SNII DICT blocks and .prx windows. These affect writes; each segment records its compression mode.
 DEFINE_mInt32(snii_dict_block_zstd_level, "3");
 DEFINE_mInt32(snii_prx_zstd_level, "3");
+// A .prx window is stored zstd-compressed only if that frame is smaller than the PFOR one by at
+// least this percentage; 0 picks the smaller frame. Every read of a zstd window pays a
+// decompression that PFOR does not, but how much zstd saves depends on the data, so no one
+// percentage fits all data. The default (negative) lets each index choose: it stores in their
+// faster frame the windows zstd shrinks least, spending at most 8% of the smallest size of the
+// windows that get a zstd frame (see format::PrxZstdBudget). Readers handle every codec, so
+// changing this never affects existing segments.
+DEFINE_mInt32(snii_prx_zstd_min_saving_percent, "-1");
 // Zstd level for direct-load .prx regions. Compaction rewrites them using snii_prx_zstd_level.
 DEFINE_mInt32(snii_prx_zstd_level_direct_load, "3");
+// Handing a few small page-cache reads to the shared prefetch pool costs more than the reads: a
+// query that issues thousands of them queues on the pool lock. Remote, larger and slow (cold)
+// batches still fan out, so overlapping disk reads keep their parallelism.
+DEFINE_mInt32(snii_inline_read_max_segments, "4");
 // G16-d: target SNII dict block size in bytes; 0 uses the format default
 // (64 KiB). Larger blocks compress better under the per-block zstd (the dict
 // is the dominant physical section on high-cardinality corpora) at the cost
@@ -1805,8 +1827,8 @@ DEFINE_mInt32(thrift_client_open_num_tries, "1");
 
 DEFINE_Bool(enable_index_compaction, "false");
 
-// http scheme in S3Client to use. E.g. http or https
-DEFINE_String(s3_client_http_scheme, "http");
+// Default HTTP scheme used by S3Client when the endpoint has no scheme.
+DEFINE_String(s3_client_http_scheme, "https");
 DEFINE_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
     return config == "http" || config == "https";
 });

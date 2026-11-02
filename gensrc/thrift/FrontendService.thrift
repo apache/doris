@@ -437,6 +437,13 @@ struct TMasterOpRequest {
     1008: optional bool cursor_fetch_requested
     // Capabilities negotiated with the original MySQL client.
     1009: optional i32 mysql_capability
+    // delegated credential for datasource user-session requests
+    1004: optional string delegated_credential_type
+    1005: optional string delegated_credential_token
+    1006: optional i64 delegated_credential_expires_at_millis
+    1007: optional string delegated_credential_session_id
+    // Whether the client-facing FE can complete an empty cursor with COM_STMT_FETCH.
+    1010: optional bool empty_cursor_supported
 }
 
 struct TColumnDefinition {

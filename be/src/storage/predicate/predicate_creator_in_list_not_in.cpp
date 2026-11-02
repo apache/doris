@@ -159,6 +159,10 @@ std::shared_ptr<ColumnPredicate> create_in_list_predicate<PredicateType::NOT_IN_
         return create_in_list_predicate_impl<TYPE_IPV6, PredicateType::NOT_IN_LIST>(
                 cid, col_name, set, is_opposite);
     }
+    case TYPE_UUID: {
+        return create_in_list_predicate_impl<TYPE_UUID, PredicateType::NOT_IN_LIST>(
+                cid, col_name, set, is_opposite);
+    }
     default:
         throw Exception(Status::InternalError("Unsupported type {} for in_predicate",
                                               type_to_string(data_type->get_primitive_type())));

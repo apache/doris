@@ -2505,7 +2505,8 @@ public class Config extends ConfigBase {
 
     // Enable manual miss load for external meta cache to avoid blocking replayer on slow loaders.
     @ConfField(mutable = true, masterOnly = false,
-            description = {"Whether external meta cache uses manual miss load instead of Caffeine sync load."})
+            description = {"Whether external meta cache uses manual miss load instead of Caffeine sync load. "
+                    + "Engine entries always use manual miss loading to preserve catalog/cache lock order."})
     public static boolean enable_external_meta_cache_manual_miss_load = true;
 
     /**
@@ -3327,6 +3328,12 @@ public class Config extends ConfigBase {
             })
     public static String inverted_index_storage_format = "V3";
 
+    @ConfField(mutable = true, masterOnly = true,
+            callback = PartitionInvertedIndexStorageFormatRolloutConfHandler.class, description = "Whether to "
+            + "enable partition inverted-index storage format rollout, the "
+            + "default value is false.")
+    public static boolean enable_partition_inverted_index_storage_format_rollout = false;
+
     @ConfField(mutable = true, masterOnly = true, description = {
             "是否在 unique 表 mow 上开启 delete 语句写 delete predicate。若开启，会提升 delete 语句的性能，"
                     + "但 delete 后进行部分列更新可能会出现部分数据错误的情况。若关闭，会降低 delete 语句的性能来保证正确性。",
@@ -3682,6 +3689,11 @@ public class Config extends ConfigBase {
                     + "it is intentionally not modifiable at runtime via ADMIN SET FRONTEND CONFIG."})
     public static String[] s3_load_endpoint_white_list = {};
 
+    @ConfField(description = {
+            "The default scheme for S3 endpoints without an explicit scheme. Valid values are http and https."},
+            options = {"http", "https"})
+    public static String s3_client_http_scheme = "https";
+
     @ConfField(mutable = true, description = {
             "对于确定性的 S3 路径（无通配符如 *, ?），使用 HEAD 请求代替 ListObjects 来避免需要 ListBucket 权限。"
             + "花括号模式 {1,2,3} 和非否定方括号模式 [abc] 会展开为具体路径。"
@@ -3878,10 +3890,25 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = false,
             description = "Whether to drop the primary/secondary route entries of a CloudReplica whose backend no "
-                    + "longer exists, when loading the image and in the tablet rebalancer round. Those entries are "
-                    + "already ignored at query time (the replica is rehashed), so they only waste FE memory and "
-                    + "image size. Set to false to keep the legacy leaking behavior. Default is true.")
+                    + "longer exists, when loading the image, in the tablet rebalancer round, and once per replayed "
+                    + "batch of backend-removal journals (on Followers too, since each FE applies this locally). "
+                    + "Those entries are already ignored at query time (the replica is rehashed), so they only "
+                    + "waste FE memory and image size. Set to false to keep the legacy leaking behavior. "
+                    + "Default is true.")
     public static boolean enable_cloud_replica_stale_route_clean = true;
+
+    @ConfField(mutable = true, masterOnly = true, description = "Start time of the window in which the cloud "
+            + "tablet rebalancer is allowed to sweep stale CloudReplica routes, in HH:mm format. Used with "
+            + "`cloud_tablet_rebalancer_stale_route_clean_end_time` to decide the window. Only gates the "
+            + "rebalancer's own sweep -- image loading and replayed backend-removal batches always clean "
+            + "regardless of this window. If set to the same value as the end time (the default), the "
+            + "rebalancer sweeps any time it would otherwise sweep, i.e. the window is unrestricted.")
+    public static String cloud_tablet_rebalancer_stale_route_clean_start_time = "00:00";
+
+    @ConfField(mutable = true, masterOnly = true, description = "End time of the window in which the cloud "
+            + "tablet rebalancer is allowed to sweep stale CloudReplica routes, in HH:mm format. See "
+            + "`cloud_tablet_rebalancer_stale_route_clean_start_time`.")
+    public static String cloud_tablet_rebalancer_stale_route_clean_end_time = "00:00";
 
     @ConfField(mutable = false, masterOnly = true,
             description = {

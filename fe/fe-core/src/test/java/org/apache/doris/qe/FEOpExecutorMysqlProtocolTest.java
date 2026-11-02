@@ -62,6 +62,7 @@ public class FEOpExecutorMysqlProtocolTest {
             Assertions.assertTrue(request.isClientDeprecatedEOF());
             Assertions.assertEquals(context.getCapability().getFlags(), request.getMysqlCapability());
             Assertions.assertTrue(request.isCursorFetchRequested());
+            Assertions.assertTrue(request.isEmptyCursorSupported());
             Assertions.assertEquals("8.2.0", request.getConnectAttributes().get("_client_version"));
 
             for (byte[] payload : Arrays.asList(new byte[0], new byte[] {0, 1, 3, 0, 42, 0, 0, 0})) {
@@ -73,6 +74,7 @@ public class FEOpExecutorMysqlProtocolTest {
                 Assertions.assertTrue(restored.isSetPrepareExecuteBuffer());
                 Assertions.assertArrayEquals(payload, restored.getPrepareExecuteBuffer());
                 Assertions.assertTrue(restored.isCursorFetchRequested());
+                Assertions.assertTrue(restored.isEmptyCursorSupported());
             }
         }
     }

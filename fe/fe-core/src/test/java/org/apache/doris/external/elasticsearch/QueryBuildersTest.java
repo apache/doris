@@ -61,6 +61,22 @@ public class QueryBuildersTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
+    public void nestedResidualOrAndNotRemainLocal() {
+        Expr supported = new BinaryPredicate(Operator.EQ, new SlotRef(null, "name"), new StringLiteral("one"));
+        Expr local = new FunctionCallExpr("unsupported_predicate", Lists.newArrayList(new SlotRef(null, "name")));
+        Expr partial = new CompoundPredicate(CompoundPredicate.Operator.AND, supported, local);
+        Expr other = new BinaryPredicate(Operator.EQ, new SlotRef(null, "name"), new StringLiteral("two"));
+        Assertions.assertNull(QueryBuilders.toEsDsl(
+                new CompoundPredicate(CompoundPredicate.Operator.OR, partial, other), Collections.emptyMap()));
+        Assertions.assertNull(QueryBuilders.toEsDsl(
+                new CompoundPredicate(CompoundPredicate.Operator.NOT, partial, null), Collections.emptyMap()));
+        Assertions.assertNotNull(QueryBuilders.toEsDsl(
+                new CompoundPredicate(CompoundPredicate.Operator.OR, supported, other), Collections.emptyMap()));
+        Assertions.assertNotNull(QueryBuilders.toEsDsl(
+                new CompoundPredicate(CompoundPredicate.Operator.NOT, supported, null), Collections.emptyMap()));
+    }
+
+    @Test
     public void testBinaryPredicateConvertEsDsl() {
         SlotRef k1 = new SlotRef(null, "k1");
         IntLiteral intLiteral = new IntLiteral(3);

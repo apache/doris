@@ -94,6 +94,33 @@ public class CloudEnv extends Env {
 
     private String clusterSnapshotFile;
 
+    private boolean replayRoutesCleaned;
+    private long cleanedBackendRemovalVersion;
+
+    @Override
+    public synchronized boolean replayJournal(long toJournalId) {
+        boolean hasLog = super.replayJournal(toJournalId);
+        // Checkpoint sweeps after postProcessCloudMetadata(), immediately before saving its image.
+        if (Env.isCheckpointThread()) {
+            return hasLog;
+        }
+        if (!Config.enable_cloud_replica_stale_route_clean) {
+            replayRoutesCleaned = false;
+            return hasLog;
+        }
+        CloudSystemInfoService systemInfo = (CloudSystemInfoService) getClusterInfo();
+        long removalVersion = systemInfo.getReplayBackendRemovalVersion();
+        if (!replayRoutesCleaned || removalVersion != cleanedBackendRemovalVersion) {
+            // ponytail: one synchronous scan per affected batch; budgeted cleanup belongs in a follow-up.
+            // Pass this CloudEnv's own catalog and backend set together so the sweep can never judge one
+            // Env's replicas against another Env's backends, regardless of which thread calls replayJournal.
+            ((CloudInternalCatalog) getInternalCatalog()).removeInvalidCloudReplicaRoutes(systemInfo);
+            cleanedBackendRemovalVersion = removalVersion;
+            replayRoutesCleaned = true;
+        }
+        return hasLog;
+    }
+
     public CloudEnv(boolean isCheckpointCatalog) {
         super(isCheckpointCatalog);
         this.cleanCopyJobScheduler = new CleanCopyJobScheduler();

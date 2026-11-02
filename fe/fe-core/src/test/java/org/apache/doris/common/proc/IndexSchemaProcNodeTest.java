@@ -27,10 +27,13 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.collect.Lists;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.List;
 
@@ -83,9 +86,9 @@ public class IndexSchemaProcNodeTest {
                 Lists.newArrayList(IndexSchemaProcNode.COMMENT_COLUMN_TITLE))
                 .getRows().get(0).get(1);
         Assert.assertTrue(typeWithComments.contains(
-                "required_value:int not null comment 'required-comment'"));
+                "required_value:int not null comment \"required-comment\""));
         Assert.assertTrue(typeWithComments.contains(
-                "optional_value:int comment 'optional-comment'"));
+                "optional_value:int comment \"optional-comment\""));
 
         String typeWithoutComments = IndexSchemaProcNode.createResult(
                 Lists.newArrayList(column), null, Lists.newArrayList())
@@ -93,5 +96,22 @@ public class IndexSchemaProcNodeTest {
         Assert.assertTrue(typeWithoutComments.contains("required_value:int not null"));
         Assert.assertFalse(typeWithoutComments.contains("required-comment"));
         Assert.assertFalse(typeWithoutComments.contains("optional-comment"));
+    }
+
+    @Test
+    public void testCreateResultQuotesNestedCommentsAsSqlLiterals() {
+        StructType structType = new StructType(
+                new StructField("value", Type.INT, "owner's \\path", true));
+        Column column = new Column("info", structType, true, null, true, "", "top-level-comment");
+
+        try (MockedStatic<SqlModeHelper> mockedSqlMode = Mockito.mockStatic(SqlModeHelper.class)) {
+            mockedSqlMode.when(SqlModeHelper::hasNoBackSlashEscapes).thenReturn(false);
+            String displayedType = IndexSchemaProcNode.createResult(
+                    Lists.newArrayList(column), null,
+                    Lists.newArrayList(IndexSchemaProcNode.COMMENT_COLUMN_TITLE))
+                    .getRows().get(0).get(1);
+
+            Assert.assertTrue(displayedType.contains("comment \"owner's \\\\path\""));
+        }
     }
 }
