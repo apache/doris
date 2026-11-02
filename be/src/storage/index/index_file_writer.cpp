@@ -204,6 +204,11 @@ Status IndexFileWriter::_insert_directory_into_map(int64_t index_id,
 }
 
 Result<std::shared_ptr<DorisFSDirectory>> IndexFileWriter::open(const TabletIndex* index_meta) {
+    // A directory opened now would never reach the sealed file, and the index would be lost.
+    if (_closed) {
+        return ResultError(Status::InternalError("open index {} on closed index file writer {}",
+                                                 index_meta->index_id(), debug_string()));
+    }
     // No index under SNII writes through a CLucene filesystem directory: text
     // postings go through the SPIMI writer, and an ANN index uses self-cleaning
     // per-file staging (see open_ann_directory).

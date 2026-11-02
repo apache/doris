@@ -177,6 +177,19 @@ TEST_F(IndexFileWriterTest, OpenTest) {
     ASSERT_TRUE(writer._indices_dirs.find(key)->second.get() == dir.get());
 }
 
+TEST_F(IndexFileWriterTest, OpenAfterCloseFails) {
+    IndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
+                           InvertedIndexStorageFormatPB::V2);
+    auto index_meta = create_mock_tablet_index(1, "suffix1");
+    ASSERT_NE(index_meta, nullptr);
+
+    ASSERT_TRUE(writer.begin_close().ok());
+
+    auto open_result = writer.open(index_meta.get());
+    ASSERT_FALSE(open_result.has_value());
+    EXPECT_TRUE(open_result.error().is<ErrorCode::INTERNAL_ERROR>());
+}
+
 TEST_F(IndexFileWriterTest, OpenWithoutRamDirTest) {
     // This test verifies that when _can_use_ram_dir is set to false,
     // the directory created by IndexFileWriter::open is not a RAM directory
