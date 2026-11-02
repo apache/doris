@@ -87,7 +87,29 @@ public class UnboundInlineTable extends LogicalLeaf implements InlineTable, Bloc
 
     @Override
     public String toDigest() {
-        // TODO handle exprList?
-        return "VALUES ?";
+        if (!Plan.spmDigestMode()) {
+            // TODO handle exprList?
+            return "VALUES ?";
+        }
+        // SPM identity of one VALUES relation (see Plan#toSpmDigest): the generic digest
+        // reduces every shape to "VALUES ?", so two statements differing only in the ROW
+        // structure (two 2-cell rows against four 1-cell rows) would share it although
+        // their row counts differ. Render one "?" per cell, rows and cells in parse order.
+        StringBuilder digest = new StringBuilder("VALUES ");
+        for (int i = 0; i < constantExprsList.size(); i++) {
+            List<NamedExpression> row = constantExprsList.get(i);
+            if (i > 0) {
+                digest.append(',');
+            }
+            digest.append('(');
+            for (int j = 0; j < row.size(); j++) {
+                if (j > 0) {
+                    digest.append(',');
+                }
+                digest.append('?');
+            }
+            digest.append(')');
+        }
+        return digest.toString();
     }
 }

@@ -129,6 +129,11 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
     }
 
     @Override
+    public String getDbName() {
+        return dbName;
+    }
+
+    @Override
     public VolatileIdentity getVolatileIdentity() {
         return volatileIdentity;
     }

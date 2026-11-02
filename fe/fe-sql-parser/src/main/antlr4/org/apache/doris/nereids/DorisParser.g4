@@ -150,6 +150,7 @@ statementBase
     | analyzeStatsStatement
     | transactionStatement
     | grantRevokeStatement
+    | spmStatement
     | hboStatement
     ;
 
@@ -195,6 +196,21 @@ hboSetParam
 hboWord
     : IDENTIFIER
     | quotedIdentifier
+    ;
+
+// ==================== SPM (SQL Plan Management) statements (Phase 1, design doc 6.8) ====================
+// CREATE [GLOBAL | SESSION] BASELINE PLAN 'bindSql' [WITH 'planSql']
+//   (the WITH clause is optional: when omitted the bindSql is also used as the planSql)
+// SHOW BASELINE PLANS [LIKE 'pattern' | WHERE expression]
+// ALTER BASELINE PLAN <id> [ENABLE | DISABLE]
+// DROP BASELINE PLAN [IF EXISTS] <id>
+spmStatement
+    : CREATE (GLOBAL | SESSION)? BASELINE PLAN
+        bindSql=STRING_LITERAL
+        (WITH planSql=STRING_LITERAL)?                                   #createBaselinePlan
+    | SHOW BASELINE PLANS wildWhere?                                     #showBaselinePlans
+    | ALTER BASELINE PLAN id=INTEGER_VALUE (ENABLE | DISABLE)            #alterBaselinePlan
+    | DROP BASELINE PLAN (IF EXISTS)? id=INTEGER_VALUE                   #dropBaselinePlan
     ;
 
 queryOrDmlStatement
@@ -1630,11 +1646,31 @@ relation
     ;
 
 joinRelation
-    : (joinType) JOIN distributeType? right=relationPrimary matchCondition? joinCriteria?
+    : (joinType) JOIN distributeType? right=relationPrimary matchCondition? markJoinSpec* joinCriteria?
     ;
 
 matchCondition
     : MATCH_CONDITION LEFT_PAREN valueExpression RIGHT_PAREN
+    ;
+
+// MARK join specifiers: MARK_CONDITION(<equality conjuncts>) and MARK_SLOT <name>.
+// MARK_CONDITION may be empty (then the mark is the plain semi/anti match); when
+// present every conjunct must be an equality. MARK_SLOT names the output mark slot,
+// a three-valued boolean column (true / false / null). Both are only valid on a
+// SEMI/ANTI MARK join or a CROSS MARK join (a mark with no hash/other/mark conjunct
+// at all - the folded uncorrelated EXISTS boolean output); validated in the parser
+// builder.
+markJoinSpec
+    : markJoinCondition
+    | markJoinSlot
+    ;
+
+markJoinCondition
+    : MARK_CONDITION LEFT_PAREN valueExpression RIGHT_PAREN
+    ;
+
+markJoinSlot
+    : MARK_SLOT identifier
     ;
 
 // Just like `opt_plan_hints` in legacy CUP parser.
@@ -1751,14 +1787,15 @@ partitionClause
 
 joinType
     : INNER?
-    | CROSS
+    | CROSS MARK?
     | LEFT OUTER?
     | RIGHT OUTER?
     | FULL OUTER?
-    | LEFT SEMI
-    | RIGHT SEMI
-    | LEFT ANTI
-    | RIGHT ANTI
+    | LEFT SEMI MARK?
+    | RIGHT SEMI MARK?
+    | LEFT ANTI MARK?
+    | RIGHT ANTI MARK?
+    | LEFT NULL_AWARE ANTI
     | ASOF LEFT?
     | ASOF INNER
     ;
@@ -1783,8 +1820,10 @@ optScanParams
 relationPrimary
     : multipartIdentifier optScanParams? materializedViewName? tableSnapshot? specifiedPartition?
        tabletList? tableAlias {validateQuotedTableSuffix($multipartIdentifier.stop, $tableAlias.ctx);}
-       sample? relationHint? lateralView*                                                 #tableName
-    | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                                 #aliasedQuery
+       sample? relationHint? lateralView*
+          #tableName
+    | ASSERT_ROWS? LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*
+           #aliasedQuery
     | tvfName=identifier LEFT_PAREN
       (properties=propertyItemList)?
       RIGHT_PAREN tableAlias                                                               #tableValuedFunction
@@ -2331,12 +2370,14 @@ nonReserved
     | ANALYZED
     | ANN
     | ARRAY
+    | ASSERT_ROWS
     | AT
     | AUTHORS
     | AUTHENTICATION
     | AUTO_INCREMENT
     | BACKENDS
     | BACKUP
+    | BASELINE
     | BEGIN
     | BELONG
     | BIN
@@ -2423,6 +2464,7 @@ nonReserved
     | DIAGNOSIS
     | DICTIONARIES
     | DICTIONARY
+    | DISABLE
     | DISCARD
     | DISTINCTPC
     | DISTINCTPCSA
@@ -2525,6 +2567,9 @@ nonReserved
     | MANUAL
     | MAP
     | MAPPING
+    | MARK
+    | MARK_CONDITION
+    | MARK_SLOT
     | MATCHED
     | MATCH_ALL
     | MATCH_ANY
@@ -2552,6 +2597,7 @@ nonReserved
     | MTMV
     | NAME
     | NAMES
+    | NULL_AWARE
     | NEGATIVE
     | NEVER
     | NEXT
@@ -2587,6 +2633,7 @@ nonReserved
     | PHYSICAL
     | PI
     | PLAN
+    | PLANS
     | PLUGIN
     | PLUGINS
     | POLICY
