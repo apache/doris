@@ -326,20 +326,10 @@ RULES = [
         "util/hash_util.hpp, a separate pre-existing wart)",
     ),
     (
-        "format/parquet/decoder.h",
-        "util/rle_encoding.h",
-        set(),
-        "BaseDictDecoder holds RleBatchDecoder<uint32_t> behind a unique_ptr "
-        "(forward-declared; the dtor and every member that dereferences it are "
-        "defined in decoder.cpp); the old include made every one of ~530 TUs "
-        "that transitively see a parquet decoder instantiate the whole "
-        "RLE/BitPacking decode chain at ~0.4 CPU s each",
-    ),
-    (
         "format_v2/parquet/reader/native/decoder.h",
         "util/rle_encoding.h",
         set(),
-        "same contract as format/parquet/decoder.h: the dictionary index "
+        "the native dictionary index "
         "decoder is forward-declared and only decoder.cpp needs the complete "
         "RleBatchDecoder type; keeping rle_encoding.h (and the unrolled "
         "bit_packing.inline.h it carries) out of this header keeps the RLE "
@@ -520,12 +510,6 @@ ANGLE_BANS = [
         "breaks the -fno-access-control UT build on libc++",
     ),
     (
-        "format/table/iceberg_reader_mixin.h",
-        "ranges",
-        "rides the table-reader stack; <ranges> is heavy and breaks the "
-        "-fno-access-control UT build on libc++",
-    ),
-    (
         "storage/index/inverted/query/engine/collect/top_k_collector.h",
         "ranges",
         "rides the inverted-index query stack; <ranges> is heavy and breaks "
@@ -587,11 +571,11 @@ REVERSE_REACH_BASELINES = {
     "gen_cpp/Types_types.h": 1993,
     "gen_cpp/segment_v2.pb.h": 1234,
     "gen_cpp/PaloInternalService_types.h": 1133,
-    "util/threadpool.h": 988,
+    "util/threadpool.h": 1200,
     # parsed_page.h holds RleDecoder<bool> by value and constructs it in the
     # header, so the whole storage read stack sees the RLE machinery; a live
     # dependency, budgeted as-is (trimming it is a refactor, not a gate).
-    "util/rle_encoding.h": 823,
+    "util/rle_encoding.h": 919,
     "gen_cpp/internal_service.pb.h": 741,
     "gen_cpp/FrontendService_types.h": 576,
     "storage/options.h": 464,

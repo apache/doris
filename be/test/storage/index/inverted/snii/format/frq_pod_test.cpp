@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <limits>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -207,6 +208,60 @@ TEST(SniiFrqPod, DecodeRejectsZeroInteriorDeltaAndDocidOverflow) {
     EXPECT_TRUE(overflow.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << overflow;
 }
 
+// A window is checked whole before its deltas are summed. Only the first delta may be zero, a zero
+// anywhere else in any PFOR run is found, and the sum may reach the last docid but not pass it.
+TEST(SniiFrqPod, DecodeChecksEveryDeltaOfTheWindow) {
+    constexpr uint32_t kLastDocid = std::numeric_limits<uint32_t>::max();
+    constexpr size_t kRun = doris::snii::format::kFrqBaseUnit;
+    U32Vec docids;
+    auto decode = [&docids](const U32Vec& deltas, uint64_t win_base) {
+        auto [bytes, meta] = MakeRawDdFromDeltas(deltas);
+        return decode_dd_region(Slice(bytes), meta, win_base, &docids);
+    };
+    auto expect_corrupt = [](const Status& status, const std::string& message) {
+        EXPECT_TRUE(status.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status;
+        EXPECT_NE(status.to_string().find(message), std::string::npos) << status;
+    };
+
+    U32Vec deltas(3 * kRun, 3);
+    deltas[0] = 0;
+    ASSERT_TRUE(decode(deltas, /*win_base=*/7).ok());
+    EXPECT_EQ(docids.front(), 7U);
+    EXPECT_EQ(docids[1], 10U);
+    EXPECT_EQ(docids.back(), 7U + 3U * (3 * kRun - 1));
+    for (const size_t at : {size_t {1}, kRun - 1, kRun, 3 * kRun - 1}) {
+        U32Vec with_zero = deltas;
+        with_zero[at] = 0;
+        expect_corrupt(decode(with_zero, 7), "zero docid delta");
+    }
+
+    ASSERT_TRUE(decode({1, kLastDocid - 2}, /*win_base=*/1).ok());
+    EXPECT_EQ(docids, (U32Vec {2, kLastDocid}));
+    ASSERT_TRUE(decode({0}, kLastDocid).ok());
+    EXPECT_EQ(docids, (U32Vec {kLastDocid}));
+    expect_corrupt(decode({1, kLastDocid - 1}, 1), "docid accumulation overflow");
+    // These add up to 2^32, which is 0 in 32 bits.
+    expect_corrupt(decode(U32Vec(16, 1U << 28), 0), "docid accumulation overflow");
+    expect_corrupt(decode({0}, static_cast<uint64_t>(kLastDocid) + 1),
+                   "window base exceeds uint32 docid range");
+}
+
+// The docid reader decodes each window over the vector of the one before.
+TEST(SniiFrqPod, DecodeOverAVectorOfAnotherSize) {
+    U32Vec large(3000);
+    for (uint32_t i = 0; i < large.size(); ++i) {
+        large[i] = i * 5;
+    }
+    const U32Vec small = {5, 9, 12};
+    U32Vec out;
+    ASSERT_TRUE(RoundTrip(large, 0, 0, &out).ok());
+    EXPECT_EQ(out, large);
+    ASSERT_TRUE(RoundTrip(small, 0, 0, &out).ok());
+    EXPECT_EQ(out, small);
+    ASSERT_TRUE(RoundTrip(large, 0, 0, &out).ok());
+    EXPECT_EQ(out, large);
+}
+
 // first_docid < win_base (dd[0] would underflow) -> InvalidArgument.
 TEST(SniiFrqPod, FirstDocBelowWinBaseRejected) {
     U32Vec docs = {100, 200};
@@ -354,14 +409,8 @@ TEST(SniiFrqPod, UncompLenCapRejected) {
     EXPECT_TRUE(s.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
 }
 
-// ===========================================================================
-// T22 -- emit_region single-copy (raw branch writes the plaintext view straight
-// to `out` with no temp `disk` vector). The raw region's on-disk bytes must equal
-// the plaintext EXACTLY (regions carry no header / no trailing crc), and the meta
-// (disk_len / crc / zstd / uncomp_len) must be unchanged. The zstd branch keeps
-// its own buffer and stays byte-identical. All bytes MUST match the pre-refactor
-// output.
-// ===========================================================================
+// Raw regions must match the plaintext bytes and preserve their metadata;
+// compressed regions must preserve their wire bytes.
 
 namespace {
 

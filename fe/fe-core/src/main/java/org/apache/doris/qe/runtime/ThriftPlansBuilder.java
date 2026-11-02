@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.scan.FileQueryScanNode;
+import org.apache.doris.datasource.split.FileScanRangeCompactor;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.PipelineDistributedPlan;
@@ -578,7 +579,9 @@ public class ThriftPlansBuilder {
             scanParams = computeDefaultScanSourceParam((DefaultScanSource) scanSource);
         }
         // perNodeScanRanges is required
-        instanceParams.setPerNodeScanRanges(scanParams.perNodeScanRanges);
+        instanceParams.setPerNodeScanRanges(FileScanRangeCompactor.compactInstanceScanRanges(
+                scanParams.perNodeScanRanges, currentFragmentParam.getFileScanParams(),
+                currentFragmentParam.getQueryOptions()));
     }
 
     // local shuffle has two functions:

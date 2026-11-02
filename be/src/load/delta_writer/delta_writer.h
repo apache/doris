@@ -89,7 +89,7 @@ public:
 
     int64_t tablet_id() const { return _req.tablet_id; }
 
-    int64_t binlog_tablet_id() const { return _req.binlog_tablet_id; }
+    int64_t changelog_tablet_id() const { return _req.changelog_tablet_id; }
 
     int64_t txn_id() const { return _req.txn_id; }
 
@@ -133,7 +133,7 @@ public:
     DeltaWriter(StorageEngine& engine, const WriteRequest& req, RuntimeProfile* profile,
                 const UniqueId& load_id);
     DeltaWriter(StorageEngine& engine, const WriteRequest& group_build_req,
-                const WriteRequest& sub_data_req, const WriteRequest& sub_row_binlog_req,
+                const WriteRequest& sub_data_req, const WriteRequest& sub_changelog_req,
                 RuntimeProfile* profile, const UniqueId& load_id);
 
     ~DeltaWriter() override;

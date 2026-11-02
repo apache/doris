@@ -40,7 +40,7 @@
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
-#include "storage/binlog.h"
+#include "storage/changelog.h"
 #include "storage/rowset/group_rowset_writer.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_writer_context.h"
@@ -56,9 +56,9 @@ namespace {
 constexpr uint32_t MAX_PATH_LEN = 1024;
 constexpr std::string_view kStorageRootDir = "/ut_dir/cloud_group_rowset_builder_writer_test";
 constexpr int64_t kDataTabletId = 10010;
-constexpr int64_t kRowBinlogTabletId = 10011;
+constexpr int64_t kChangelogTabletId = 10011;
 constexpr int64_t kDataIndexId = 10001;
-constexpr int64_t kRowBinlogIndexId = 10002;
+constexpr int64_t kChangelogIndexId = 10002;
 
 class LocalRemoteFileSystem final : public io::RemoteFileSystem {
 public:
@@ -179,30 +179,30 @@ protected:
                 kDataTabletId, 270068390, 10001, 1, TKeysType::UNIQUE_KEYS,
                 {{"k1", TPrimitiveType::INT, true}, {"v1", TPrimitiveType::INT, false}});
         _request.__set_enable_unique_key_merge_on_write(true);
-        testutil::enable_row_binlog(&_request);
+        testutil::enable_changelog(&_request);
 
-        _row_binlog_request = _request;
-        _row_binlog_request.tablet_id = kRowBinlogTabletId;
-        _row_binlog_request.tablet_schema = testutil::create_row_binlog_tablet_schema(
+        _changelog_request = _request;
+        _changelog_request.tablet_id = kChangelogTabletId;
+        _changelog_request.tablet_schema = testutil::create_changelog_tablet_schema(
                 _request.tablet_schema, _request.tablet_schema.schema_hash + 1);
-        _row_binlog_request.__set_tablet_role(TTabletRole::TABLET_ROLE_ROW_BINLOG);
+        _changelog_request.__set_tablet_role(TTabletRole::TABLET_ROLE_CHANGELOG);
 
         auto data_meta = create_tablet_meta(_request, TabletRolePB::TABLET_ROLE_DATA);
-        auto row_binlog_meta =
-                create_tablet_meta(_row_binlog_request, TabletRolePB::TABLET_ROLE_ROW_BINLOG);
+        auto changelog_meta =
+                create_tablet_meta(_changelog_request, TabletRolePB::TABLET_ROLE_CHANGELOG);
         _tablet = std::make_shared<CloudTablet>(*_engine, data_meta);
-        _row_binlog_tablet = std::make_shared<CloudTablet>(*_engine, row_binlog_meta);
+        _changelog_tablet = std::make_shared<CloudTablet>(*_engine, changelog_meta);
         add_initial_rowset(_tablet, _request.version);
-        add_initial_rowset(_row_binlog_tablet, _row_binlog_request.version);
+        add_initial_rowset(_changelog_tablet, _changelog_request.version);
         _engine->tablet_mgr().put_tablet_for_UT(_tablet);
-        _engine->tablet_mgr().put_tablet_for_UT(_row_binlog_tablet);
+        _engine->tablet_mgr().put_tablet_for_UT(_changelog_tablet);
         create_remote_tablet_dir(kDataTabletId);
-        create_remote_tablet_dir(kRowBinlogTabletId);
+        create_remote_tablet_dir(kChangelogTabletId);
     }
 
     void TearDown() override {
         _tablet.reset();
-        _row_binlog_tablet.reset();
+        _changelog_tablet.reset();
         _engine.reset();
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_storage_root_path).ok());
         config::cloud_mow_sync_rowsets_when_load_txn_begin = true;
@@ -220,12 +220,12 @@ protected:
                 {{TYPE_INT, "k1", false}, {TYPE_INT, "v1", false}});
         return testutil::create_table_schema_param(
                 tdesc_tbl, kDataIndexId, _request.tablet_schema.schema_hash,
-                _request.tablet_schema.columns, kRowBinlogIndexId,
-                _row_binlog_request.tablet_schema.schema_hash,
-                &_row_binlog_request.tablet_schema.columns);
+                _request.tablet_schema.columns, kChangelogIndexId,
+                _changelog_request.tablet_schema.schema_hash,
+                &_changelog_request.tablet_schema.columns);
     }
 
-    void init_write_requests(WriteRequest* data_req, WriteRequest* row_binlog_req,
+    void init_write_requests(WriteRequest* data_req, WriteRequest* changelog_req,
                              WriteRequest* group_req) {
         PUniqueId load_id;
         load_id.set_hi(0);
@@ -241,11 +241,11 @@ protected:
         data_req->table_schema_param = create_schema_param();
         data_req->write_req_type = WriteRequestType::DATA;
 
-        *row_binlog_req = *data_req;
-        row_binlog_req->tablet_id = _row_binlog_request.tablet_id;
-        row_binlog_req->index_id = kRowBinlogIndexId;
-        row_binlog_req->schema_hash = _row_binlog_request.tablet_schema.schema_hash;
-        row_binlog_req->write_req_type = WriteRequestType::ROW_BINLOG;
+        *changelog_req = *data_req;
+        changelog_req->tablet_id = _changelog_request.tablet_id;
+        changelog_req->index_id = kChangelogIndexId;
+        changelog_req->schema_hash = _changelog_request.tablet_schema.schema_hash;
+        changelog_req->write_req_type = WriteRequestType::CHANGELOG;
 
         *group_req = *data_req;
         group_req->write_req_type = WriteRequestType::GROUP;
@@ -280,31 +280,31 @@ protected:
             return data_writer_res.error();
         }
 
-        RowsetWriterContext row_binlog_context;
-        row_binlog_context.rowset_state = PREPARED;
-        row_binlog_context.segments_overlap = NONOVERLAPPING;
-        row_binlog_context.tablet_schema = _row_binlog_tablet->tablet_schema();
-        row_binlog_context.tablet = _row_binlog_tablet;
-        row_binlog_context.tablet_schema_hash = _row_binlog_request.tablet_schema.schema_hash;
-        row_binlog_context.max_rows_per_segment = 1024;
-        row_binlog_context.write_type = DataWriteType::TYPE_DIRECT;
-        row_binlog_context.storage_resource = _engine->get_storage_resource("");
-        row_binlog_context.write_binlog_opt().enable = true;
-        auto& cfg = row_binlog_context.write_binlog_opt().write_binlog_config();
+        RowsetWriterContext changelog_context;
+        changelog_context.rowset_state = PREPARED;
+        changelog_context.segments_overlap = NONOVERLAPPING;
+        changelog_context.tablet_schema = _changelog_tablet->tablet_schema();
+        changelog_context.tablet = _changelog_tablet;
+        changelog_context.tablet_schema_hash = _changelog_request.tablet_schema.schema_hash;
+        changelog_context.max_rows_per_segment = 1024;
+        changelog_context.write_type = DataWriteType::TYPE_DIRECT;
+        changelog_context.storage_resource = _engine->get_storage_resource("");
+        changelog_context.write_changelog_opt().enable = true;
+        auto& cfg = changelog_context.write_changelog_opt().write_changelog_config();
         cfg.source.tablet_schema = _tablet->tablet_schema();
         cfg.source.base_tablet = _tablet;
         cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
-        auto lsn_buffer = AutoIncIDBuffer::create_shared(1, 1, kBinlogLsnAutoIncId);
+        auto lsn_buffer = AutoIncIDBuffer::create_shared(1, 1, kChangelogLsnAutoIncId);
         lsn_buffer->append_range_for_test(1000, num_rows);
         std::vector<int64_t> allocated_lsns;
         RETURN_IF_ERROR(allocate_lsn(lsn_buffer, num_rows, allocated_lsns));
         auto lsn_ids = std::make_shared<std::vector<int64_t>>(allocated_lsns.begin(),
                                                               allocated_lsns.end());
 
-        auto row_binlog_writer_res =
-                _row_binlog_tablet->create_rowset_writer(row_binlog_context, false);
-        if (!row_binlog_writer_res.has_value()) {
-            return row_binlog_writer_res.error();
+        auto changelog_writer_res =
+                _changelog_tablet->create_rowset_writer(changelog_context, false);
+        if (!changelog_writer_res.has_value()) {
+            return changelog_writer_res.error();
         }
 
         *group_writer = std::make_unique<GroupRowsetWriter>();
@@ -312,46 +312,46 @@ protected:
                 ->set_data_writer(
                         std::shared_ptr<RowsetWriter>(std::move(data_writer_res.value())));
         (*group_writer)
-                ->set_row_binlog_writer(
-                        std::shared_ptr<RowsetWriter>(std::move(row_binlog_writer_res.value())));
+                ->set_changelog_writer(
+                        std::shared_ptr<RowsetWriter>(std::move(changelog_writer_res.value())));
         RETURN_IF_ERROR((*group_writer)->init((*group_writer)->data_writer()->context()));
-        auto& group_binlog_ctx =
-                const_cast<RowsetWriterContext&>((*group_writer)->row_binlog_writer()->context());
-        group_binlog_ctx.insert_segment_allocated_lsns(0, lsn_ids);
+        auto& group_changelog_ctx =
+                const_cast<RowsetWriterContext&>((*group_writer)->changelog_writer()->context());
+        group_changelog_ctx.insert_segment_allocated_lsns(0, lsn_ids);
         return Status::OK();
     }
 
     void assert_rowset_meta(const RowsetSharedPtr& data_rowset,
-                            const RowsetSharedPtr& row_binlog_rowset) {
-        ASSERT_FALSE(data_rowset->rowset_meta()->is_row_binlog());
+                            const RowsetSharedPtr& changelog_rowset) {
+        ASSERT_FALSE(data_rowset->rowset_meta()->is_changelog());
         ASSERT_EQ(data_rowset->rowset_meta()->tablet_id(), _tablet->tablet_id());
         ASSERT_EQ(data_rowset->rowset_meta()->tablet_schema_hash(),
                   _request.tablet_schema.schema_hash);
 
-        ASSERT_TRUE(row_binlog_rowset->rowset_meta()->is_row_binlog());
-        ASSERT_EQ(row_binlog_rowset->rowset_meta()->tablet_id(), _row_binlog_tablet->tablet_id());
-        ASSERT_EQ(row_binlog_rowset->rowset_meta()->tablet_schema_hash(),
-                  _row_binlog_request.tablet_schema.schema_hash);
-        ASSERT_GE(row_binlog_rowset->rowset_meta()->tablet_schema()->field_index(BINLOG_LSN_COL),
+        ASSERT_TRUE(changelog_rowset->rowset_meta()->is_changelog());
+        ASSERT_EQ(changelog_rowset->rowset_meta()->tablet_id(), _changelog_tablet->tablet_id());
+        ASSERT_EQ(changelog_rowset->rowset_meta()->tablet_schema_hash(),
+                  _changelog_request.tablet_schema.schema_hash);
+        ASSERT_GE(changelog_rowset->rowset_meta()->tablet_schema()->field_index(CHANGELOG_LSN_COL),
                   0);
     }
 
     std::unique_ptr<CloudStorageEngine> _engine;
     CloudTabletSPtr _tablet;
-    CloudTabletSPtr _row_binlog_tablet;
+    CloudTabletSPtr _changelog_tablet;
     TCreateTabletReq _request;
-    TCreateTabletReq _row_binlog_request;
+    TCreateTabletReq _changelog_request;
     std::string _storage_root_path;
 };
 
-TEST_F(CloudGroupRowsetBuilderWriterTest, builderBuildsRowBinlogMeta) {
+TEST_F(CloudGroupRowsetBuilderWriterTest, builderBuildsChangelogMeta) {
     WriteRequest data_req;
-    WriteRequest row_binlog_req;
+    WriteRequest changelog_req;
     WriteRequest group_req;
-    init_write_requests(&data_req, &row_binlog_req, &group_req);
+    init_write_requests(&data_req, &changelog_req, &group_req);
 
     RuntimeProfile profile("CloudGroupRowsetBuilderWriterTest");
-    CloudGroupRowsetBuilder builder(*_engine, group_req, data_req, row_binlog_req, &profile);
+    CloudGroupRowsetBuilder builder(*_engine, group_req, data_req, changelog_req, &profile);
     builder.set_skip_writing_rowset_metadata(true);
     auto st = builder.init();
     ASSERT_TRUE(st.ok()) << st;
@@ -359,10 +359,10 @@ TEST_F(CloudGroupRowsetBuilderWriterTest, builderBuildsRowBinlogMeta) {
     ASSERT_TRUE(builder.rowset_writer()->flush().ok());
     ASSERT_TRUE(builder.build_rowset().ok());
 
-    assert_rowset_meta(builder.data_builder()->rowset(), builder.row_binlog_builder()->rowset());
+    assert_rowset_meta(builder.data_builder()->rowset(), builder.changelog_builder()->rowset());
 }
 
-TEST_F(CloudGroupRowsetBuilderWriterTest, writerBuildsRowBinlogMeta) {
+TEST_F(CloudGroupRowsetBuilderWriterTest, writerBuildsChangelogMeta) {
     std::unique_ptr<GroupRowsetWriter> group_writer;
     auto st = create_group_writer(&group_writer, 2);
     ASSERT_TRUE(st.ok()) << st;

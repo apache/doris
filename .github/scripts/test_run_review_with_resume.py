@@ -86,6 +86,7 @@ class ResumeReviewTest(unittest.TestCase):
             base_sha="b" * 40,
             model="gpt-5.6-sol",
             fallback_model=None,
+            capacity_fallback_model="gpt-6-sol",
             effort="xhigh",
             budget_seconds=1000,
         )
@@ -425,6 +426,91 @@ class ResumeReviewTest(unittest.TestCase):
         self.assertEqual("done", (self.context / "codex-final-message.txt").read_text())
         self.target_check.assert_called_once()
 
+    def test_capacity_fallback_resumes_same_session_after_five_failures(self):
+        self.args.model = "gpt-6.1-sol"
+        self.args.budget_seconds = 3600
+        before = self.ledger.read_text()
+        self.assertEqual(0, self.execute(
+            [{"events": [thread_event(), failed()], "elapsed": 5}] * 5
+            + [{"events": [thread_event(), completed()], "status": 0}]
+        ))
+        self.assertEqual(
+            ["gpt-6.1-sol"] * 5 + ["gpt-6-sol"],
+            [c[c.index("--model") + 1] for c in self.commands],
+        )
+        self.assertEqual([3600, 3295, 2990, 2685, 2380, 2075], self.timeouts)
+        self.assertEqual([300] * 5, self.sleeps)
+        for command in self.commands[1:]:
+            self.assertEqual(["resume", THREAD], command[-3:-1])
+            self.assertIn("model_reasoning_effort=xhigh", command)
+        self.assertNotIn("Capacity recovery switched", self.commands[4][-1])
+        self.assertIn("Capacity recovery switched to gpt-6-sol", self.commands[5][-1])
+        self.assertIn("including child agents", self.commands[5][-1])
+        self.assertIn("cumulative round count", self.commands[5][-1])
+        self.assertEqual(before, self.ledger.read_text())
+        self.assertEqual("gpt-6-sol\n", (self.context / "codex-review-model.txt").read_text())
+        self.verification.assert_called_once()
+
+    def test_capacity_fallback_is_optional(self):
+        self.args.capacity_fallback_model = None
+        self.args.budget_seconds = 3600
+        self.assertEqual(1, self.execute([{"events": [thread_event(), failed()]}] * 7))
+        self.assertEqual(
+            [self.args.model] * 7,
+            [c[c.index("--model") + 1] for c in self.commands],
+        )
+
+    def test_fifth_attempt_non_capacity_failure_does_not_switch(self):
+        self.args.budget_seconds = 3600
+        self.assertEqual(1, self.execute(
+            [{"events": [thread_event(), failed()]}] * 4
+            + [{"events": [thread_event(), failed("HTTP 422")]}]
+        ))
+        self.assertEqual(5, len(self.commands))
+        self.assertEqual("HTTP 422", self.last_error())
+        self.assertEqual(self.args.model + "\n", (self.context / "codex-review-model.txt").read_text())
+
+    def test_capacity_fallback_preserves_budget_and_target_checks(self):
+        self.args.budget_seconds = 1500
+        self.assertEqual(1, self.execute([{"events": [thread_event(), failed()]}] * 5))
+        self.assertEqual(5, len(self.commands))
+        self.assertEqual([300] * 4, self.sleeps)
+        self.assertIn("Insufficient shared review budget", self.last_error())
+        self.assertEqual(self.args.model + "\n", (self.context / "codex-review-model.txt").read_text())
+
+    def test_target_change_before_capacity_switch_stops_same_review(self):
+        self.args.budget_seconds = 3600
+        self.target_check.side_effect = [None] * 4 + [runner.ReviewSuperseded("c" * 40)]
+        self.assertEqual(75, self.execute([{"events": [thread_event(), failed()]}] * 5))
+        self.assertEqual(5, len(self.commands))
+        self.assertEqual(self.args.model + "\n", (self.context / "codex-review-model.txt").read_text())
+        self.assert_superseded()
+
+    def test_submission_at_fifth_capacity_is_verified_without_switch(self):
+        self.args.budget_seconds = 3600
+        read_events = runner.read_events
+        def submitted(path):
+            if path.name == "5.jsonl":
+                (self.context / runner.SUBMISSION_FILE).write_text("{}")
+            return read_events(path)
+        with mock.patch.object(runner, "read_events", side_effect=submitted):
+            self.assertEqual(0, self.execute([{"events": [thread_event(), failed()]}] * 5))
+        self.assertEqual(5, len(self.commands))
+        self.assertEqual([300] * 4, self.sleeps)
+        self.verification.assert_called_once()
+        self.assertTrue(json.loads((self.context / runner.RESULT_FILE).read_text())["recovered_after_capacity"])
+
+    def test_unsupported_capacity_fallback_does_not_restart_or_switch_back(self):
+        self.args.budget_seconds = 3600
+        rejection = "The 'gpt-6-sol' " + runner.UNSUPPORTED_CHATGPT_MODEL
+        self.assertEqual(1, self.execute(
+            [{"events": [thread_event(), failed()]}] * 5
+            + [{"events": [thread_event(), failed(rejection)]}]
+        ))
+        self.assertEqual(6, len(self.commands))
+        self.assertEqual(["resume", THREAD], self.commands[-1][-3:-1])
+        self.assertEqual(rejection, self.last_error())
+
     def test_zero_exit_capacity_can_complete_on_the_sixth_resume(self):
         self.args.budget_seconds = 3600
         self.assertEqual(
@@ -579,6 +665,10 @@ class ResumeReviewTest(unittest.TestCase):
         self.assertEqual(1, self.execute([{"events": [thread_event(), failed()]}] * 7))
         self.assertEqual([300] * 6, self.sleeps)
         self.assertEqual(7, len(self.commands))
+        self.assertEqual(
+            [self.args.model] * 5 + ["gpt-6-sol"] * 2,
+            [c[c.index("--model") + 1] for c in self.commands],
+        )
         self.assertEqual(runner.CAPACITY_MESSAGE, self.last_error())
 
     def test_no_retry_for_auth_usage_or_generic_errors_even_before_session_starts(self):
@@ -814,7 +904,7 @@ class HeadWatchdogTest(unittest.TestCase):
         self.enterContext(mock.patch.object(runner.time, "monotonic", side_effect=lambda: self.clock))
         self.sleep = self.enterContext(mock.patch.object(runner.time, "sleep", side_effect=self.advance))
         self.api = self.enterContext(mock.patch.object(runner.subprocess, "run"))
-        self.api.return_value = SimpleNamespace(stdout=json.dumps({"head": {"sha": "a" * 40}}))
+        self.api.return_value = SimpleNamespace(stderr="", stdout=json.dumps({"head": {"sha": "a" * 40}}))
         self.stderr = self.enterContext(redirect_stderr(io.StringIO()))
         self.watchdog = runner.HeadWatchdog(self.args, lambda: 1000 - self.clock)
 
@@ -873,8 +963,8 @@ class HeadWatchdogTest(unittest.TestCase):
 
     def test_backoff_polls_and_stops_before_another_model_request(self):
         self.api.side_effect = [
-            SimpleNamespace(stdout=json.dumps({"head": {"sha": "a" * 40}})),
-            SimpleNamespace(stdout=json.dumps({"head": {"sha": "c" * 40}})),
+            SimpleNamespace(stderr="", stdout=json.dumps({"head": {"sha": "a" * 40}})),
+            SimpleNamespace(stderr="", stdout=json.dumps({"head": {"sha": "c" * 40}})),
         ]
         with self.assertRaises(runner.ReviewSuperseded):
             self.watchdog.wait(300)
@@ -883,7 +973,7 @@ class HeadWatchdogTest(unittest.TestCase):
     def test_backoff_api_time_counts_toward_wait(self):
         def slow_api(*args, **kwargs):
             self.clock += 5
-            return SimpleNamespace(stdout=json.dumps({"head": {"sha": "a" * 40}}))
+            return SimpleNamespace(stderr="", stdout=json.dumps({"head": {"sha": "a" * 40}}))
         self.api.side_effect = slow_api
         self.watchdog.wait(125)
         self.assertEqual(125, self.clock)
@@ -1017,7 +1107,9 @@ class WorkflowBudgetTest(unittest.TestCase):
         )
         # A shell gh stub writes the downloaded helper and advances Bash's elapsed
         # clock without waiting minutes. The helper reports the actual CLI args.
-        gh = """gh() {
+        gh = """python3() {
+  if [ "$1" != "$REVIEW_GH_HELPER" ]; then command python3 "$@"; return; fi
+  shift
   SECONDS=$((SECONDS + SETUP_SECONDS))
   cat <<'HELPER'
 import json, sys
@@ -1054,6 +1146,7 @@ HELPER
                     check=True,
                 )
                 args = json.loads(result.stdout)
+                self.assertEqual("gpt-6-sol", args[args.index("--capacity-fallback-model") + 1])
                 actual = int(args[args.index("--budget-seconds") + 1])
                 self.assertLessEqual(actual, expected)
                 self.assertGreaterEqual(actual, expected - 2)
@@ -1081,7 +1174,7 @@ class ResumeTargetTest(unittest.TestCase):
     def check(self, pages):
         def api(command, **kwargs):
             data = pages if "--paginate" in command else self.pr
-            return SimpleNamespace(stdout=json.dumps(data))
+            return SimpleNamespace(stderr="", stdout=json.dumps(data))
 
         with mock.patch.object(runner.subprocess, "run", side_effect=api):
             runner.check_resume_target(self.args, "2026-09-07T11:00:00Z", lambda: 500)

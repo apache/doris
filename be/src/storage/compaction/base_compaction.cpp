@@ -103,7 +103,7 @@ Status BaseCompaction::execute_compact() {
     st = CompactionMixin::execute_compact();
     RETURN_IF_ERROR(st);
 
-    DCHECK_EQ(_state, CompactionState::SUCCESS);
+    DCHECK(_state == CompactionState::SUCCESS);
 
     DorisMetrics::instance()->base_compaction_deltas_total->increment(_input_rowsets.size());
     DorisMetrics::instance()->base_compaction_bytes_total->increment(_input_rowsets_total_size);

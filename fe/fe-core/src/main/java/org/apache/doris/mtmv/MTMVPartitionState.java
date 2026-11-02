@@ -29,7 +29,7 @@ import java.util.Map.Entry;
  * <p>{@code refreshEpoch} says which generation of data the partition currently holds, {@code
  * latestEpoch} says which generation it must hold. A partition whose {@code latestEpoch} is ahead of
  * its {@code refreshEpoch} is dirty: it holds rows read before a metadata-only change of a base table
- * (a dropped / truncated / replaced / recovered partition emits no row binlog), so those rows can no
+ * (a dropped / truncated / replaced / recovered partition emits no changelog), so those rows can no
  * longer be removed incrementally and the partition has to be rebuilt.
  *
  * <p>Keyed by MV partition name in {@code MTMV.partitionStates}. The name is deliberately the only

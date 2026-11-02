@@ -20,6 +20,7 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <cstdint>
 #include <map>
 #include <ostream>
 #include <string>
@@ -27,6 +28,7 @@
 
 #include "common/status.h"
 #include "gtest/gtest_pred_impl.h"
+#include "util/defer_op.h"
 
 namespace doris {
 using namespace config;
@@ -147,6 +149,54 @@ TEST_F(ConfigTest, UpdateConfigs) {
     EXPECT_TRUE(s.to_string().find("'cfg_std_string' is not support to modify") !=
                 std::string::npos);
     EXPECT_EQ(cfg_std_string, "doris_config_test_string");
+}
+
+TEST(S3WriteBufferConfigTest, ValidateRuntimeUpdates) {
+    const bool saved_enable_file_cache = config::enable_file_cache;
+    const int64_t saved_block_size = config::file_cache_each_block_size;
+    const int64_t saved_buffer_size = config::s3_write_buffer_size;
+    auto* saved_config_map = config::full_conf_map;
+    Defer restore {[&]() {
+        config::enable_file_cache = saved_enable_file_cache;
+        config::file_cache_each_block_size = saved_block_size;
+        config::s3_write_buffer_size = saved_buffer_size;
+        config::full_conf_map = saved_config_map;
+    }};
+    // Exercise the production registry without changing the configuration dump used by other tests.
+    config::full_conf_map = nullptr;
+    constexpr int64_t kMiB = 1024 * 1024;
+    config::enable_file_cache = true;
+    config::file_cache_each_block_size = kMiB;
+
+    ASSERT_TRUE(config::set_config("s3_write_buffer_size", "8388608").ok());
+    EXPECT_EQ(config::s3_write_buffer_size, 8 * kMiB);
+
+    const int64_t invalid_sizes[] = {-1, 0, kMiB / 2, 5 * kMiB + kMiB / 2};
+    for (const auto size : invalid_sizes) {
+        const auto status = config::set_config("s3_write_buffer_size", std::to_string(size));
+        EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
+        EXPECT_EQ(config::s3_write_buffer_size, 8 * kMiB);
+    }
+
+    // Reject upload buffers smaller than one cache block.
+    config::file_cache_each_block_size = 8 * kMiB;
+    EXPECT_TRUE(config::set_config("s3_write_buffer_size", "4194304")
+                        .is<ErrorCode::INVALID_ARGUMENT>());
+    EXPECT_EQ(config::s3_write_buffer_size, 8 * kMiB);
+    ASSERT_TRUE(config::set_config("s3_write_buffer_size", "16777216").ok());
+    EXPECT_EQ(config::s3_write_buffer_size, 16 * kMiB);
+
+    // Reject an invalid block size before evaluating the modulo operation.
+    config::file_cache_each_block_size = 0;
+    EXPECT_TRUE(config::set_config("s3_write_buffer_size", "8388608")
+                        .is<ErrorCode::INVALID_ARGUMENT>());
+    EXPECT_EQ(config::s3_write_buffer_size, 16 * kMiB);
+
+    // Preserve the existing behavior when File Cache is disabled.
+    config::enable_file_cache = false;
+    config::file_cache_each_block_size = kMiB;
+    ASSERT_TRUE(config::set_config("s3_write_buffer_size", "5767168").ok());
+    EXPECT_EQ(config::s3_write_buffer_size, 5 * kMiB + kMiB / 2);
 }
 
 } // namespace doris

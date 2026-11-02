@@ -22,10 +22,15 @@
 #include <iostream>
 
 #include "common/logging.h"
+#include "core/assert_cast.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/uint24.h"
+#include "core/value/vdatetime_value.h"
 #include "storage/olap_common.h"
 #include "storage/segment/page_builder.h"
 #include "storage/segment/page_decoder.h"
+#include "storage/storage_layout.h"
 #include "storage/types.h"
 
 namespace doris {
@@ -154,6 +159,29 @@ public:
             EXPECT_EQ(status.code(), ENTRY_NOT_FOUND);
         }
     }
+
+    // Eight consecutive days from 2020-01-01 in one plain page of V1 DATE cells, each date
+    // stored as a uint24.
+    void build_date_v1_page(std::vector<VecDateTimeValue>* days, OwnedSlice* page) {
+        using Layout = StorageLayout<FieldType::OLAP_FIELD_TYPE_DATE>;
+        constexpr size_t kRows = 8;
+        days->resize(kRows);
+        std::vector<uint24_t> cells(kRows);
+        for (size_t i = 0; i < kRows; ++i) {
+            ASSERT_TRUE((*days)[i].from_date_int64(static_cast<int64_t>(20200101 + i)));
+            cells[i] = Layout::to_storage((*days)[i]);
+        }
+        PageBuilderOptions options;
+        options.data_page_size = 256 * 1024;
+        PageBuilder* builder = nullptr;
+        ASSERT_TRUE(
+                PlainPageBuilder<FieldType::OLAP_FIELD_TYPE_DATE>::create(&builder, options).ok());
+        std::unique_ptr<PageBuilder> page_builder(builder);
+        size_t added = kRows;
+        ASSERT_TRUE(page_builder->add(reinterpret_cast<const uint8_t*>(cells.data()), &added).ok());
+        ASSERT_EQ(added, kRows);
+        ASSERT_TRUE(page_builder->finish(page).ok());
+    }
 };
 
 TEST_F(PlainPageTest, TestInt32PlainPageRandom) {
@@ -264,6 +292,46 @@ TEST_F(PlainPageTest, TestBoolPlainPageSeekValue) {
             segment_v2::PlainPageBuilder<FieldType::OLAP_FIELD_TYPE_BOOL>,
             segment_v2::PlainPageDecoder<FieldType::OLAP_FIELD_TYPE_BOOL>>(&bools.get()[1], 1, &t,
                                                                            nullptr);
+}
+
+// A V1 DATE page holds each date as a uint24 cell; a batch decodes the cells into the dates
+// of a ColumnDate.
+TEST_F(PlainPageTest, TestDateV1PlainPageDecodesIntoDates) {
+    std::vector<VecDateTimeValue> days;
+    OwnedSlice page;
+    ASSERT_NO_FATAL_FAILURE(build_date_v1_page(&days, &page));
+    PageDecoderOptions decoder_options;
+    PlainPageDecoder<FieldType::OLAP_FIELD_TYPE_DATE> decoder(page.slice(), decoder_options);
+    ASSERT_TRUE(decoder.init().ok());
+
+    MutableColumnPtr dates = ColumnDate::create();
+    size_t n = days.size();
+    ASSERT_TRUE(decoder.next_batch(&n, dates).ok());
+    ASSERT_EQ(n, days.size());
+    const auto& decoded = assert_cast<const ColumnDate&>(*dates).get_data();
+    for (size_t i = 0; i < days.size(); ++i) {
+        EXPECT_EQ(decoded[i], days[i]) << "row " << i;
+    }
+}
+
+// Rows read by id into a ColumnDate come back as their dates.
+TEST_F(PlainPageTest, TestDateV1PlainPageReadsRowIdsIntoDates) {
+    std::vector<VecDateTimeValue> days;
+    OwnedSlice page;
+    ASSERT_NO_FATAL_FAILURE(build_date_v1_page(&days, &page));
+    PageDecoderOptions decoder_options;
+    PlainPageDecoder<FieldType::OLAP_FIELD_TYPE_DATE> decoder(page.slice(), decoder_options);
+    ASSERT_TRUE(decoder.init().ok());
+
+    const rowid_t rowids[] = {1, 3, 6};
+    MutableColumnPtr picked = ColumnDate::create();
+    size_t n = 3;
+    ASSERT_TRUE(decoder.read_by_rowids(rowids, 0, &n, picked).ok());
+    ASSERT_EQ(n, 3);
+    const auto& picked_dates = assert_cast<const ColumnDate&>(*picked).get_data();
+    for (size_t i = 0; i < 3; ++i) {
+        EXPECT_EQ(picked_dates[i], days[rowids[i]]) << "row id " << rowids[i];
+    }
 }
 
 } // namespace segment_v2

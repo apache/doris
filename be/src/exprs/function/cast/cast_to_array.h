@@ -29,11 +29,11 @@ inline bool has_null_literal_leaf(const DataTypePtr& type) {
     return type_without_nullable->is_null_literal();
 }
 
-WrapperType create_array_wrapper(FunctionContext* context, const DataTypePtr& from_type_untyped,
+WrapperType create_array_wrapper(const CastOptions& options, const DataTypePtr& from_type_untyped,
                                  const DataTypeArray& to_type) {
     /// Conversion from String through parsing.
     if (check_and_get_data_type<DataTypeString>(from_type_untyped.get())) {
-        if (context->enable_strict_mode()) {
+        if (options.strict_mode) {
             return cast_from_string_to_complex_type_strict_mode;
         } else {
             return cast_from_string_to_complex_type;
@@ -59,41 +59,28 @@ WrapperType create_array_wrapper(FunctionContext* context, const DataTypePtr& fr
     DataTypePtr to_nested_type = to_type.get_nested_type();
 
     /// Prepare nested type conversion
-    const auto nested_function =
-            prepare_unpack_dictionaries(context, from_nested_type, to_nested_type);
+    const auto nested_function = bind_cast_executor(options, from_nested_type, to_nested_type);
 
     return [nested_function, from_nested_type, to_nested_type](
-                   FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                   uint32_t result, size_t /*input_rows_count*/,
-                   const NullMap::value_type* null_map = nullptr) -> Status {
-        ColumnPtr from_column = block.get_by_position(arguments.front()).column;
-
-        const auto* from_col_array = check_and_get_column<ColumnArray>(from_column.get());
+                   RuntimeState* state, const ColumnWithTypeAndName& source_column,
+                   ColumnWithTypeAndName& target_column, size_t /*input_rows_count*/,
+                   const NullMap::value_type* parent_null_map = nullptr) -> Status {
+        const auto* from_col_array = check_and_get_column<ColumnArray>(source_column.column.get());
 
         if (from_col_array) {
             /// The elements of a row that is NULL are hidden payloads, so the NULL of the row has to
             /// be inherited by the elements that belong to it before they are cast.
-            auto child_mask = build_child_null_mask(null_map, &from_col_array->get_offsets(),
+            auto child_mask = build_child_null_mask(parent_null_map, &from_col_array->get_offsets(),
                                                     from_col_array->get_data_ptr());
-            /// create columns for converting nested column containing original and result columns
             ColumnWithTypeAndName from_nested_column {child_mask.column, from_nested_type, ""};
-
-            /// convert nested column
-            ColumnNumbers new_arguments {block.columns()};
-            block.insert(from_nested_column);
-
-            uint32_t nested_result = block.columns();
-            block.insert({to_nested_type, ""});
-            RETURN_IF_ERROR(nested_function(context, block, new_arguments, nested_result,
+            ColumnWithTypeAndName nested_result {nullptr, to_nested_type, ""};
+            RETURN_IF_ERROR(nested_function(state, from_nested_column, nested_result,
                                             child_mask.column->size(), child_mask.null_map));
-            auto nested_result_column = block.get_by_position(nested_result).column;
-
-            /// set converted nested column to result
-            block.get_by_position(result).column =
-                    ColumnArray::create(nested_result_column, from_col_array->get_offsets_ptr());
+            target_column.column =
+                    ColumnArray::create(nested_result.column, from_col_array->get_offsets_ptr());
         } else {
             return Status::RuntimeError("Illegal column {} for function CAST AS Array",
-                                        from_column->get_name());
+                                        source_column.column->get_name());
         }
         return Status::OK();
     };

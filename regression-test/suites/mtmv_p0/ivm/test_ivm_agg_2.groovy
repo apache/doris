@@ -21,7 +21,7 @@ import static java.util.concurrent.TimeUnit.SECONDS
 suite("test_ivm_agg_2") {
 
     // =========================================================
-    // Part 6: Scalar agg MV with all-NULL values + binlog_op
+    // Part 6: Scalar agg MV with all-NULL values + changelog_op
     //         Tests SUM/AVG/COUNT(expr)/MIN/MAX when every value is NULL
     // =========================================================
 
@@ -37,8 +37,7 @@ suite("test_ivm_agg_2") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -122,7 +121,7 @@ suite("test_ivm_agg_2") {
 
     // =========================================================
     // Part 7: Group disappearing — all rows in a group deleted
-    //         via binlog_op=1 → group_count reaches 0
+    //         via changelog_op=1 → group_count reaches 0
     //         → __DORIS_DELETE_SIGN__=1 removes the group row from MV
     // =========================================================
 
@@ -139,8 +138,7 @@ suite("test_ivm_agg_2") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -174,7 +172,7 @@ suite("test_ivm_agg_2") {
         SELECT grp, cnt, sum_v1 FROM ivm_agg_grpdel_mv ORDER BY grp
     """
 
-    // Step 2: Delete the only row in grp=2 (binlog_op=1) and add a dirty row in grp=1
+    // Step 2: Delete the only row in grp=2 (changelog_op=1) and add a dirty row in grp=1
     // After INCREMENTAL, grp=2 should disappear (group_count=0 → DELETE_SIGN=1)
     sql """DELETE FROM ivm_agg_grpdel_base WHERE k1 = 3;"""
     // Dirty the partition so INCREMENTAL actually runs
@@ -222,7 +220,7 @@ suite("test_ivm_agg_2") {
     """
 
     // =========================================================
-    // Part 8: Scalar agg — all rows deleted via binlog_op=1
+    // Part 8: Scalar agg — all rows deleted via changelog_op=1
     //         Scalar row must persist with COUNT(*)=0, SUM=NULL, MIN=NULL, MAX=NULL
     //         (scalar agg always has exactly one output row, never deleted)
     // =========================================================
@@ -239,8 +237,7 @@ suite("test_ivm_agg_2") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -272,7 +269,7 @@ suite("test_ivm_agg_2") {
         SELECT cnt, sum_v1, min_v1, max_v1 FROM ivm_agg_scalardel_mv
     """
 
-    // Step 2: Delete all rows (binlog_op=1)
+    // Step 2: Delete all rows (changelog_op=1)
     // After INCREMENTAL, scalar row should persist with cnt=0, sum=NULL, min=NULL, max=NULL
     // NOTE: Deleting the MIN (10) and MAX (20) will trigger assert_true guards for MIN/MAX.
     // Since this is explicit INCREMENTAL, it will FAIL due to the boundary guard.
@@ -303,7 +300,7 @@ suite("test_ivm_agg_2") {
         SELECT cnt, sum_v1 FROM ivm_agg_scalardel_mv
     """
 
-    // Step 3: Delete all rows via binlog_op=1
+    // Step 3: Delete all rows via changelog_op=1
     sql """DELETE FROM ivm_agg_scalardel_base WHERE k1 = 1;"""
     sql """DELETE FROM ivm_agg_scalardel_base WHERE k1 = 2;"""
     // Dirty partition for INCREMENTAL
@@ -370,7 +367,7 @@ suite("test_ivm_agg_2") {
     """
 
     // =========================================================
-    // Part 9: MAX boundary deletion via binlog_op=1
+    // Part 9: MAX boundary deletion via changelog_op=1
     //         Symmetric to Part 4 (MIN boundary), tests the MAX guard:
     //         assert_true(deltaDelMax IS NULL OR old_max IS NULL OR deltaDelMax < old_max)
     //         Deleting the MAX value → deltaDelMax == old_max → guard fails → INCREMENTAL FAILED
@@ -388,8 +385,7 @@ suite("test_ivm_agg_2") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """

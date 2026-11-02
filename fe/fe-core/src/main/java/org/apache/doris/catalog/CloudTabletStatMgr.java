@@ -354,8 +354,8 @@ public class CloudTabletStatMgr extends MasterDaemon {
                             dynamicPartitionNearLimitCount++;
                         }
                     }
-                    long tableBinlogSize = 0L;
-                    long tableTotalBinlogSize = 0L;
+                    long tableChangelogSize = 0L;
+                    long tableTotalChangelogSize = 0L;
                     for (Partition partition : allPartitions) {
                         long partitionDataSize = 0L;
                         for (MaterializedIndex index
@@ -365,7 +365,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
                             tabletCount += tablets.size();
                             for (Tablet tablet : tablets) {
                                 long tabletDataSize = 0L;
-                                long tabletBinlogSize = 0L;
+                                long tabletChangelogSize = 0L;
 
                                 long tabletRowCount = 0L;
                                 long tabletIndexSize = 0L;
@@ -378,11 +378,11 @@ public class CloudTabletStatMgr extends MasterDaemon {
                                         tableTotalReplicaDataSize += replica.getDataSize();
                                     }
 
-                                    if (index.isRowBinlog()) {
-                                        if (replica.getDataSize() > tabletBinlogSize) {
-                                            tabletBinlogSize = replica.getDataSize();
+                                    if (index.isChangelog()) {
+                                        if (replica.getDataSize() > tabletChangelogSize) {
+                                            tabletChangelogSize = replica.getDataSize();
                                         }
-                                        tableTotalBinlogSize += replica.getDataSize();
+                                        tableTotalChangelogSize += replica.getDataSize();
                                     }
 
                                     if (replica.getRowCount() > tabletRowCount) {
@@ -401,7 +401,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
 
                                 tableDataSize += tabletDataSize;
                                 partitionDataSize += tabletDataSize;
-                                tableBinlogSize += tabletBinlogSize;
+                                tableChangelogSize += tabletChangelogSize;
                                 if (maxTabletSize.second <= tabletDataSize) {
                                     maxTabletSize = Pair.of("" + tablet.getId(), tabletDataSize);
                                 }
@@ -410,7 +410,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
                                 }
 
                                 indexRowCount += tabletRowCount;
-                                if (!index.isRowBinlog()) {
+                                if (!index.isChangelog()) {
                                     tableRowCount += tabletRowCount;
                                 }
 
@@ -439,7 +439,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
                             table.getName(), tableDataSize, tableTotalReplicaDataSize, 0L,
                             tableReplicaCount, tableRowCount, 0L, 0L,
                             tableTotalLocalIndexSize, tableTotalLocalSegmentSize, 0L, 0L,
-                            tableBinlogSize, tableTotalBinlogSize);
+                            tableChangelogSize, tableTotalChangelogSize);
                     olapTable.setStatistics(tableStats);
                     LOG.debug("finished to set row num for table: {} in database: {}",
                             table.getName(), db.getFullName());

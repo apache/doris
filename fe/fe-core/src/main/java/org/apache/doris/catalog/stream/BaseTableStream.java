@@ -26,7 +26,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.thrift.TBinlogScanType;
+import org.apache.doris.thrift.TChangelogScanType;
 import org.apache.doris.thrift.TRow;
 
 import com.google.common.collect.ImmutableList;
@@ -61,16 +61,16 @@ public abstract class BaseTableStream extends Table {
             }
         }
 
-        public static TBinlogScanType toThrift(StreamScanType streamScanType) {
+        public static TChangelogScanType toThrift(StreamScanType streamScanType) {
             switch (streamScanType) {
                 case MIN_DELTA:
-                    return TBinlogScanType.MIN_DELTA;
+                    return TChangelogScanType.MIN_DELTA;
                 case APPEND_ONLY:
-                    return TBinlogScanType.APPEND_ONLY;
+                    return TChangelogScanType.APPEND_ONLY;
                 case DETAIL:
-                    return TBinlogScanType.DETAIL;
+                    return TChangelogScanType.DETAIL;
                 default:
-                    return TBinlogScanType.UNKNOWN;
+                    return TChangelogScanType.UNKNOWN;
             }
         }
     }

@@ -48,8 +48,8 @@ public class ModifyDistributionOp extends AlterTableOp {
     }
 
     @Override
-    public boolean allowOpRowBinlog() {
-        // Changing distribution is allowed for row binlog tables.
+    public boolean allowOnChangelogTable() {
+        // Changing distribution is allowed for changelog tables.
         return true;
     }
 

@@ -22,7 +22,7 @@ namespace doris::segment_v2 {
 CJKSegmenter::CJKSegmenter() = default;
 
 void CJKSegmenter::analyze(AnalyzeContext& context) {
-    if (context.getCurrentCharType() != CharacterUtil::CHAR_USELESS) {
+    if (context.getCurrentCharType() != CharacterUtil::CharType::USELESS) {
         // Prioritize processing the prefixes that have already been matched
         if (!tmp_hits_.empty()) {
             auto it = tmp_hits_.begin();

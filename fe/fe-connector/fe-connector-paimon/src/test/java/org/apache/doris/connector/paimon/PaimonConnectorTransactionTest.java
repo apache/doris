@@ -24,22 +24,31 @@ import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.thrift.TPaimonCommitMessage;
 
 import org.apache.paimon.CoreOptions;
+import org.apache.paimon.Snapshot;
 import org.apache.paimon.consumer.ConsumerManager;
 import org.apache.paimon.data.BinaryRow;
+import org.apache.paimon.data.BinaryString;
+import org.apache.paimon.data.GenericRow;
+import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.io.CompactIncrement;
 import org.apache.paimon.io.DataIncrement;
 import org.apache.paimon.io.DataOutputViewStreamWrapper;
+import org.apache.paimon.reader.RecordReader;
+import org.apache.paimon.schema.FileSystemSchemaManager;
 import org.apache.paimon.schema.Schema;
-import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.DelegatedFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.FileStoreTableFactory;
+import org.apache.paimon.table.sink.BatchTableCommit;
+import org.apache.paimon.table.sink.BatchTableWrite;
+import org.apache.paimon.table.sink.BatchWriteBuilder;
 import org.apache.paimon.table.sink.CommitMessage;
 import org.apache.paimon.table.sink.CommitMessageImpl;
 import org.apache.paimon.table.sink.CommitMessageSerializer;
 import org.apache.paimon.table.sink.TableCommitImpl;
+import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypes;
 import org.apache.thrift.TSerializer;
@@ -64,7 +73,8 @@ import java.util.Map;
  * {@code PaimonTransactionTest}: a commit whose outcome was lost is reconciled against the snapshots
  * Paimon actually published, a transaction whose outcome stays unknown is never aborted, a failure
  * before the commit started stays abortable, and the commit payloads the BEs report are
- * de-duplicated by their exact content.
+ * de-duplicated by their exact content. An overwrite whose writers report no commit data still
+ * commits: it replaces its static partition, or the whole table, with nothing.
  *
  * <p>No mocking framework (this module has none by convention). The table is a real on-disk Paimon
  * table, so reconciliation reads real snapshot files; only the committer it hands out is scripted,
@@ -85,7 +95,7 @@ public class PaimonConnectorTransactionTest {
         org.apache.paimon.fs.Path location =
                 new org.apache.paimon.fs.Path("file://" + warehouse + "/db.db/tbl");
         LocalFileIO fileIO = LocalFileIO.create();
-        new SchemaManager(fileIO, location).createTable(new Schema(
+        new FileSystemSchemaManager(fileIO, location).createTable(new Schema(
                 Collections.singletonList(ID), Collections.emptyList(), Collections.emptyList(),
                 Collections.emptyMap(), ""));
         table = FileStoreTableFactory.create(fileIO, location);
@@ -189,6 +199,35 @@ public class PaimonConnectorTransactionTest {
     }
 
     @Test
+    public void emptyStaticPartitionOverwriteReplacesThePartitionWithNothing() throws Exception {
+        // INSERT OVERWRITE ... PARTITION (p = 'a') of a source with no rows: no writer reports commit data, and
+        // the commit still replaces partition 'a' with nothing. (Mutation: return early on empty commit data for
+        // an overwrite too -> no snapshot is committed and both rows stay.)
+        FileStoreTable partitioned = partitionedTableWithRows();
+        PaimonConnectorTransaction transaction =
+                overwriteTransaction(partitioned, Collections.singletonMap("p", "a"));
+
+        transaction.commit();
+
+        Assertions.assertEquals(Snapshot.CommitKind.OVERWRITE,
+                partitioned.snapshotManager().latestSnapshot().commitKind());
+        Assertions.assertEquals(Collections.singletonList("2:b"), rows(partitioned),
+                "only the overwritten partition is cleared");
+    }
+
+    @Test
+    public void emptyOverwriteReplacesTheTableWithNothing() throws Exception {
+        FileStoreTable partitioned = partitionedTableWithRows();
+        PaimonConnectorTransaction transaction = overwriteTransaction(partitioned, Collections.emptyMap());
+
+        transaction.commit();
+
+        Assertions.assertEquals(Snapshot.CommitKind.OVERWRITE,
+                partitioned.snapshotManager().latestSnapshot().commitKind());
+        Assertions.assertEquals(Collections.emptyList(), rows(partitioned));
+    }
+
+    @Test
     public void commitUserIsNamespacedByDorisCluster() {
         Assertions.assertEquals(
                 PaimonConnectorTransaction.commitUser(10001, TRANSACTION_ID),
@@ -209,6 +248,73 @@ public class PaimonConnectorTransactionTest {
                 new PaimonTableHandle("db", "tbl", Collections.emptyList(), Collections.emptyList()),
                 target, Collections.emptyMap(), plainInsert(), true));
         return transaction;
+    }
+
+    /** A table {@code (id INT, p STRING)} partitioned by {@code p}, holding the rows (1, 'a') and (2, 'b'). */
+    private FileStoreTable partitionedTableWithRows() throws Exception {
+        org.apache.paimon.fs.Path location =
+                new org.apache.paimon.fs.Path("file://" + warehouse + "/db.db/partitioned");
+        LocalFileIO fileIO = LocalFileIO.create();
+        new FileSystemSchemaManager(fileIO, location).createTable(new Schema(
+                Arrays.asList(ID, new DataField(1, "p", DataTypes.STRING())), Collections.singletonList("p"),
+                Collections.emptyList(), Collections.emptyMap(), ""));
+        FileStoreTable partitioned = FileStoreTableFactory.create(fileIO, location);
+        BatchWriteBuilder writeBuilder = partitioned.newBatchWriteBuilder();
+        try (BatchTableWrite write = writeBuilder.newWrite()) {
+            write.write(GenericRow.of(1, BinaryString.fromString("a")));
+            write.write(GenericRow.of(2, BinaryString.fromString("b")));
+            List<CommitMessage> messages = write.prepareCommit();
+            try (BatchTableCommit commit = writeBuilder.newCommit()) {
+                commit.commit(messages);
+            }
+        }
+        return partitioned;
+    }
+
+    private static PaimonConnectorTransaction overwriteTransaction(FileStoreTable target,
+            Map<String, String> staticPartition) {
+        PaimonConnectorTransaction transaction =
+                new PaimonConnectorTransaction(TRANSACTION_ID, new RecordingConnectorContext());
+        transaction.bind(PaimonWriteBinding.create(
+                new PaimonTableHandle("db", "partitioned", target.partitionKeys(), Collections.emptyList()),
+                target, Collections.emptyMap(), overwrite(staticPartition), true));
+        return transaction;
+    }
+
+    /** The rows of the table as {@code id:p}, ordered by id. */
+    private static List<String> rows(FileStoreTable target) throws Exception {
+        ReadBuilder readBuilder = target.newReadBuilder();
+        List<String> rows = new ArrayList<>();
+        try (RecordReader<InternalRow> reader = readBuilder.newRead().createReader(readBuilder.newScan().plan())) {
+            reader.forEachRemaining(row -> rows.add(row.getInt(0) + ":" + row.getString(1)));
+        }
+        rows.sort(null);
+        return rows;
+    }
+
+    /** An INSERT OVERWRITE, of the given static partition or, when it is empty, of the whole table. */
+    private static ConnectorWriteHandle overwrite(Map<String, String> staticPartition) {
+        return new ConnectorWriteHandle() {
+            @Override
+            public ConnectorTableHandle getTableHandle() {
+                return null;
+            }
+
+            @Override
+            public List<ConnectorColumn> getColumns() {
+                return Collections.emptyList();
+            }
+
+            @Override
+            public boolean isOverwrite() {
+                return true;
+            }
+
+            @Override
+            public Map<String, String> getStaticPartitionSpec() {
+                return staticPartition;
+            }
+        };
     }
 
     /** An INSERT without a PARTITION clause. */

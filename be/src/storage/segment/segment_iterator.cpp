@@ -68,15 +68,15 @@
 #include "exprs/vliteral.h"
 #include "exprs/vmatch_predicate.h"
 #include "exprs/vslot_ref.h"
-#include "io/cache/cached_remote_file_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/io_common.h"
+#include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
-#include "storage/binlog.h"
+#include "storage/changelog.h"
 #include "storage/id_manager.h"
 #include "storage/index/ann/ann_index.h"
 #include "storage/index/ann/ann_index_iterator.h"
@@ -106,6 +106,7 @@
 #include "storage/segment/row_ranges.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_prefetcher.h"
+#include "storage/segment/segment_read_ahead.h"
 #include "storage/segment/variant/variant_column_reader.h"
 #include "storage/segment/virtual_column_iterator.h"
 #include "storage/tablet/tablet_schema.h"
@@ -114,6 +115,7 @@
 #include "util/concurrency_stats.h"
 #include "util/defer_op.h"
 #include "util/simd/bits.h"
+#include "util/simd/selection.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -384,6 +386,36 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     return status;
 }
 
+Status SegmentIterator::_init_query_read_ahead() {
+    if (!SegmentReadAhead::enabled() || _opts.io_ctx.reader_type != ReaderType::READER_QUERY) {
+        return Status::OK();
+    }
+
+    DORIS_CHECK(_opts.runtime_state != nullptr);
+    auto* exec_env = _opts.runtime_state->exec_env();
+    DORIS_CHECK(exec_env != nullptr);
+    auto* scheduler = exec_env->file_range_read_scheduler();
+    DORIS_CHECK(scheduler != nullptr);
+    auto* query_context = _opts.runtime_state->get_query_ctx();
+    DORIS_CHECK(query_context != nullptr);
+    auto read_context = query_context->get_or_create_file_range_read_context(scheduler);
+    const auto status = SegmentReadAhead::create_for_query(
+            _file_reader, exec_env, std::move(read_context), _opts, &_segment_read_ahead);
+    if (!status.ok()) {
+        LOG_EVERY_N(WARNING, 100)
+                << "failed to initialize query read-ahead; use the original read path: " << status;
+        return Status::OK();
+    }
+    // Both enable switches are mutable. If one was disabled after the entry check,
+    // create_for_query() leaves the context empty and the original reader remains in use.
+    if (_segment_read_ahead == nullptr) {
+        return Status::OK();
+    }
+    _column_read_ahead_context =
+            std::make_unique<ColumnReadAheadContext>(_segment_read_ahead->column_context());
+    return Status::OK();
+}
+
 std::unique_ptr<AdaptiveBlockSizePredictor> SegmentIterator::_make_block_size_predictor() const {
     if (!config::enable_adaptive_batch_size || _opts.preferred_block_size_bytes == 0) {
         return nullptr;
@@ -419,6 +451,7 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     SCOPED_RAW_TIMER(&_opts.stats->segment_iterator_init_timer_ns);
     _inited = true;
     _file_reader = _segment->_file_reader;
+    RETURN_IF_ERROR(_init_query_read_ahead());
     _col_predicates.clear();
 
     for (const auto& predicate : opts.column_predicates) {
@@ -515,17 +548,22 @@ void SegmentIterator::_rebuild_scan_predicate_states() {
 
 void SegmentIterator::_mark_common_expr_states(const VExprSPtr& expr, bool runtime_generated) {
     if (expr->is_slot_ref()) {
-        const auto ordinal =
-                cast_set<ColumnId>(assert_cast<const VSlotRef*>(expr.get())->column_id());
-        DORIS_CHECK_LT(ordinal, _schema->num_block_columns());
-        _column_states[ordinal].has_common_expr = true;
-        _column_states[ordinal].has_runtime_common_expr |= runtime_generated;
-        _is_need_expr_eval = true;
+        _mark_common_expr_column(
+                cast_set<ColumnId>(assert_cast<const VSlotRef*>(expr.get())->column_id()),
+                runtime_generated);
         return;
     }
     if (expr->is_virtual_slot_ref()) {
-        const auto& virtual_expr =
-                assert_cast<const VirtualSlotRef*>(expr.get())->get_virtual_column_expr();
+        const auto* virtual_slot = assert_cast<const VirtualSlotRef*>(expr.get());
+        // The score of every row is prepared before the first batch is read, and Score() itself has
+        // no value, so an expression on the score reads the score column like a stored column.
+        if (_score_runtime != nullptr &&
+            cast_set<size_t>(virtual_slot->column_id()) == _score_runtime->get_dest_column_idx()) {
+            _mark_common_expr_column(cast_set<ColumnId>(virtual_slot->column_id()),
+                                     runtime_generated);
+            return;
+        }
+        const auto& virtual_expr = virtual_slot->get_virtual_column_expr();
         DORIS_CHECK(virtual_expr != nullptr);
         _mark_common_expr_states(virtual_expr, runtime_generated);
         return;
@@ -533,6 +571,13 @@ void SegmentIterator::_mark_common_expr_states(const VExprSPtr& expr, bool runti
     for (const auto& child : expr->children()) {
         _mark_common_expr_states(child, runtime_generated);
     }
+}
+
+void SegmentIterator::_mark_common_expr_column(ColumnId ordinal, bool runtime_generated) {
+    DORIS_CHECK_LT(ordinal, _schema->num_block_columns());
+    _column_states[ordinal].has_common_expr = true;
+    _column_states[ordinal].has_runtime_common_expr |= runtime_generated;
+    _is_need_expr_eval = true;
 }
 
 void SegmentIterator::_initialize_predicate_results() {
@@ -572,6 +617,10 @@ Status SegmentIterator::_lazy_init(Block* block) {
 
     RETURN_IF_ERROR(_apply_ann_topn_predicate());
 
+    // _row_bitmap is immutable after _range_iter is created. Cache its cardinality to avoid
+    // traversing all roaring containers for every batch.
+    _row_bitmap_cardinality = _row_bitmap.cardinality();
+
     if (_opts.read_orderby_key_reverse) {
         _range_iter.reset(new BackwardBitmapRangeIterator(_row_bitmap));
     } else {
@@ -582,8 +631,7 @@ Status SegmentIterator::_lazy_init(Block* block) {
     // prediction) because the predictor may increase block_row_max on subsequent batches
     // up to this ceiling. Using the current (possibly reduced) _opts.block_row_max would
     // cause heap-buffer-overflow if a later prediction is larger.
-    auto nrows_reserve_limit =
-            std::min(_row_bitmap.cardinality(), uint64_t(_initial_block_row_max));
+    auto nrows_reserve_limit = std::min(_row_bitmap_cardinality, uint64_t(_initial_block_row_max));
     _current_columns.resize(_schema->num_read_columns());
 
     for (size_t i = 0; i < _schema->num_read_columns(); i++) {
@@ -607,10 +655,18 @@ Status SegmentIterator::_lazy_init(Block* block) {
     // shortcut only changes how fast those default rows are produced.
     _count_emit_shortcut = _should_engage_count_emit_shortcut(block);
     if (_count_emit_shortcut) {
-        _count_emit_rows_remaining = _row_bitmap.cardinality();
+        _count_emit_rows_remaining = _row_bitmap_cardinality;
+    } else {
+        _prepare_scan_read_ahead();
     }
 
     return Status::OK();
+}
+
+bool SegmentIterator::_use_read_ahead_for_column(ColumnId cid) const {
+    const auto* column = _schema->column(cid);
+    return _column_read_ahead_context != nullptr && is_scalar_type(column->type()) &&
+           !column->is_extracted_column();
 }
 
 void SegmentIterator::_init_segment_prefetchers() {
@@ -649,6 +705,11 @@ void SegmentIterator::_init_segment_prefetchers() {
             SegmentPrefetcherConfig prefetch_config(window_size,
                                                     config::file_cache_each_block_size);
             for (uint32_t cid = 0; cid < _schema->num_read_columns(); ++cid) {
+                // Only scalar columns use the new windows. Nested columns keep their existing
+                // prefetchers even when the query has a read-ahead context.
+                if (_use_read_ahead_for_column(cid)) {
+                    continue;
+                }
                 auto& column_iter = _column_iterators[cid];
                 if (column_iter == nullptr) {
                     continue;
@@ -680,6 +741,10 @@ void SegmentIterator::_init_segment_prefetchers() {
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>> prefetchers;
             for (size_t idx = 0; idx < _column_iterators.size(); ++idx) {
                 auto cid = cast_set<ColumnId>(idx);
+                // Match initialization above so each column uses one prefetch mechanism.
+                if (_use_read_ahead_for_column(cid)) {
+                    continue;
+                }
                 auto* column_iter = _column_iterators[cid].get();
                 if (column_iter != nullptr) {
                     ScopedColumnIteratorReadPhase scoped_read_phase {
@@ -700,6 +765,66 @@ void SegmentIterator::_init_segment_prefetchers() {
             }
         }
     }
+}
+
+void SegmentIterator::_prepare_scan_read_ahead() {
+    auto plans = _plan_scan_read_ahead();
+    if (!plans.empty()) {
+        DORIS_CHECK(_segment_read_ahead != nullptr);
+        static_cast<void>(_segment_read_ahead->apply_plans(std::move(plans)));
+    }
+}
+
+std::vector<ColumnReadAheadPlan> SegmentIterator::_plan_scan_read_ahead() {
+    if (_column_read_ahead_context == nullptr || _row_bitmap.isEmpty()) {
+        return {};
+    }
+    std::vector<ColumnReadAheadPlan> plans;
+    const auto prepare_columns = [&](const std::vector<ColumnId>& ordinals,
+                                     ColumnReadAheadRole role) {
+        for (ColumnId cid : ordinals) {
+            DORIS_CHECK_LT(cid, _column_iterators.size());
+            // Nested columns have independent child positions across read phases and stay on
+            // the original path, including their offsets and null maps.
+            if (!_use_read_ahead_for_column(cid)) {
+                continue;
+            }
+            if (_no_need_read_key_data_eligible(cid) || !_need_read_data(cid)) {
+                continue;
+            }
+            auto* column_iterator = _column_iterators[cid].get();
+            DORIS_CHECK(column_iterator != nullptr);
+            const ColumnReadAheadRequest request {
+                    .scan_rowids = &_row_bitmap,
+                    .context = _column_read_ahead_context.get(),
+                    .role = role,
+                    .reverse = _opts.read_orderby_key_reverse,
+                    .page_driven = true,
+            };
+            const auto status = column_iterator->prepare_read_ahead(request, &plans);
+            if (!status.ok()) {
+                LOG_EVERY_N(WARNING, 100)
+                        << "failed to prepare column read-ahead; use the original read path: "
+                        << status;
+            }
+        }
+    };
+
+    const bool need_predicate_eval = _is_need_vec_eval || _is_need_short_eval;
+    if (need_predicate_eval) {
+        prepare_columns(_predicate_ordinals, ColumnReadAheadRole::EAGER);
+        prepare_columns(_common_expr_ordinals, ColumnReadAheadRole::LAZY);
+    } else if (_is_need_expr_eval) {
+        prepare_columns(_common_expr_ordinals, ColumnReadAheadRole::EAGER);
+    }
+
+    if (need_predicate_eval || _is_need_expr_eval) {
+        prepare_columns(_output_ordinals, ColumnReadAheadRole::LAZY);
+    } else {
+        prepare_columns(_output_ordinals, ColumnReadAheadRole::EAGER);
+    }
+
+    return plans;
 }
 
 Status SegmentIterator::_get_row_ranges_by_keys() {
@@ -1429,24 +1554,36 @@ Status SegmentIterator::_apply_index_expr() {
 
     // Evaluate inverted index for virtual column MATCH expressions (projections).
     // Unlike common exprs which filter rows, these only compute index result bitmaps
-    // for later materialization via fast_execute().
-    for (auto& [cid, expr_ctx] : _virtual_column_exprs) {
-        if (_row_bitmap.isEmpty()) {
-            // Zero surviving rows: the projection column is never materialized,
-            // so its whole-segment index evaluation would be pure waste.
-            break;
-        }
-        if (expr_ctx->get_index_context() == nullptr) {
-            continue;
-        }
-        if (Status st = evaluate_with_candidate_policy(expr_ctx); !st.ok()) {
-            if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
+    // for later materialization via fast_execute(). They must not add BM25 scores
+    // either: score() and its range filter only reflect the filtering conjuncts.
+    {
+        CollectionSimilarityPtr filter_similarity =
+                _index_query_context != nullptr
+                        ? std::exchange(_index_query_context->collection_similarity, nullptr)
+                        : nullptr;
+        DEFER({
+            if (_index_query_context != nullptr) {
+                _index_query_context->collection_similarity = filter_similarity;
+            }
+        });
+        for (auto& [cid, expr_ctx] : _virtual_column_exprs) {
+            if (_row_bitmap.isEmpty()) {
+                // Zero surviving rows: the projection column is never materialized,
+                // so its whole-segment index evaluation would be pure waste.
+                break;
+            }
+            if (expr_ctx->get_index_context() == nullptr) {
                 continue;
-            } else {
-                LOG(WARNING) << "failed to evaluate inverted index for virtual column expr: "
-                             << expr_ctx->root()->debug_string()
-                             << ", error msg: " << st.to_string();
-                return st;
+            }
+            if (Status st = evaluate_with_candidate_policy(expr_ctx); !st.ok()) {
+                if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
+                    continue;
+                } else {
+                    LOG(WARNING) << "failed to evaluate inverted index for virtual column expr: "
+                                 << expr_ctx->root()->debug_string()
+                                 << ", error msg: " << st.to_string();
+                    return st;
+                }
             }
         }
     }
@@ -1551,7 +1688,6 @@ bool SegmentIterator::_count_on_index_fastpath_safe() const {
     // ranges): the fabricated [0, df) range only counts correctly against a
     // full [0, num_rows) bitmap.
     facts.row_bitmap_is_full = _row_bitmap.cardinality() == uint64_t(num_rows());
-    facts.record_rowids = _opts.record_rowids;
     facts.has_ann_topn = _opts.ann_topn_runtime != nullptr;
     facts.has_score_runtime = _score_runtime != nullptr;
     // Mirror of the _need_read_data preamble: rows must be emitted as defaults,
@@ -1611,7 +1747,6 @@ bool SegmentIterator::_should_engage_count_emit_shortcut(const Block* block) {
     facts.has_delete_predicates = _opts.delete_condition_predicates != nullptr &&
                                   _opts.delete_condition_predicates->num_of_column_predicate() > 0;
     facts.has_virtual_columns = !_virtual_column_exprs.empty();
-    facts.record_rowids = _opts.record_rowids || _schema->rowid_ordinal() >= 0;
     facts.has_read_limit = _opts.read_limit > 0;
     facts.read_orderby_key_reverse = _opts.read_orderby_key_reverse;
     facts.has_condition_cache_digest = _opts.condition_cache_digest != 0;
@@ -1783,13 +1918,13 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
         // occurring, return true here that column data needs to be read
         return true;
     }
-    // Row-binlog incremental reads force-push the TSO range predicate (see
+    // Changelog incremental reads force-push the TSO range predicate (see
     // OlapScanner::_init_tso_predicate), and the merge iterator uses the TSO column as its
-    // sequence sort key (BetaRowsetReader sets binlog_tso_idx). On a cross-version rowset
-    // (e.g. produced by binlog LMax quick-merge) the TSO zonemap can be always-true, so the
+    // sequence sort key (BetaRowsetReader sets changelog_tso_idx). On a cross-version rowset
+    // (e.g. produced by changelog LMax quick-merge) the TSO zonemap can be always-true, so the
     // pruning below would skip reading it and fill placeholder zeros, breaking the merge
     // ordering. The TSO column carries real values on disk, so force it to be read.
-    if (_opts.read_row_binlog && cid == _schema->tso_ordinal()) {
+    if (_opts.read_changelog && cid == _schema->tso_ordinal()) {
         return true;
     }
     const auto& column = *_schema->column(cid);
@@ -1889,6 +2024,13 @@ Status SegmentIterator::_init_column_iterators() {
         if (cid >= _schema->num_block_columns() && !_column_states[cid].has_delete_pred) {
             continue;
         }
+        if (_schema->column(cid)->name() == BeConsts::COMPACTION_ROWID_COL) {
+            // Compaction reads synthesize source locations rather than reading a stored column.
+            _column_iterators[cid].reset(
+                    new CompactionRowIdColumnIterator(_opts.rowset_id, _segment->id()));
+            continue;
+        }
+
         if (_schema->column(cid)->name().starts_with(BeConsts::GLOBAL_ROWID_COL)) {
             auto& id_file_map = _opts.runtime_state->get_id_file_map();
             uint32_t file_id = id_file_map->get_file_mapping_id(std::make_shared<FileMapping>(
@@ -1912,7 +2054,9 @@ Status SegmentIterator::_init_column_iterators() {
                     // If the col is predicate column, then should read the last page to check
                     // if the column is full dict encoding
                     .is_predicate_column = _column_states[cid].has_predicate(),
-                    .file_reader = _file_reader.get(),
+                    .file_reader = _use_read_ahead_for_column(cid)
+                                           ? _segment_read_ahead->file_reader().get()
+                                           : _file_reader.get(),
                     .stats = _opts.stats,
                     .io_ctx = _opts.io_ctx,
             };
@@ -2673,11 +2817,20 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
                 sel_rowid_idx[new_size++] = sel_pos + i;
             }
         } else {
-            simd::iterate_through_bits_mask(
-                    [&](const int bit_pos) {
-                        sel_rowid_idx[new_size++] = sel_pos + (uint16_t)bit_pos;
-                    },
-                    mask);
+#if defined(__x86_64__)
+            // Sparse masks need fewer stores with the original bit iteration.
+            if (__builtin_popcount(mask) > 2) {
+                // Fixed-width stores fit: new_size <= sel_pos and a complete SIMD block remains.
+                new_size += simd::append_selected_indices(mask, sel_pos, sel_rowid_idx + new_size);
+            } else
+#endif
+            {
+                simd::iterate_through_bits_mask(
+                        [&](const int bit_pos) {
+                            sel_rowid_idx[new_size++] = sel_pos + static_cast<uint16_t>(bit_pos);
+                        },
+                        mask);
+            }
         }
         sel_pos += SIMD_BYTES;
     }
@@ -3012,7 +3165,7 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
 
     // If the row bitmap size is smaller than nrows_read_limit, there's no need to reserve that many column rows.
     uint32_t nrows_read_limit =
-            std::min(cast_set<uint32_t>(_row_bitmap.cardinality()), _opts.block_row_max);
+            std::min(cast_set<uint32_t>(_row_bitmap_cardinality), _opts.block_row_max);
     if (_can_opt_limit_reads()) {
         // No SegmentIterator-side conjunct remains to be evaluated, so LIMIT is equivalent before
         // and after filtering. Cap the first read directly; this is the no-conjunct fast path that
@@ -3402,23 +3555,6 @@ void SegmentIterator::_convert_dict_code_for_predicate_if_necessary_impl(
     } else if (PredicateTypeTraits::is_bloom_filter(predicate.type())) {
         col_ptr->initialize_hash_values_for_runtime_filter();
     }
-}
-
-Status SegmentIterator::current_block_row_locations(std::vector<RowLocation>* block_row_locations) {
-    DCHECK(_opts.record_rowids);
-    DCHECK_GE(_block_rowids.size(), _selected_size);
-    block_row_locations->resize(_selected_size);
-    uint32_t sid = segment_id();
-    if (!_is_need_vec_eval && !_is_need_short_eval && !_is_need_expr_eval) {
-        for (auto i = 0; i < _selected_size; i++) {
-            (*block_row_locations)[i] = RowLocation(sid, _block_rowids[i]);
-        }
-    } else {
-        for (auto i = 0; i < _selected_size; i++) {
-            (*block_row_locations)[i] = RowLocation(sid, _block_rowids[_sel_rowid_idx[i]]);
-        }
-    }
-    return Status::OK();
 }
 
 Status SegmentIterator::_construct_compound_expr_context() {

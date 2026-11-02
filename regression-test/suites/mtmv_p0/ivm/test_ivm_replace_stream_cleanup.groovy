@@ -30,8 +30,7 @@ suite("test_ivm_replace_stream_cleanup") {
         DISTRIBUTED BY HASH(k1) BUCKETS 1
         PROPERTIES (
             'replication_num' = '1',
-            'binlog.enable' = 'true',
-            'binlog.format' = 'ROW'
+            'changelog.enable' = 'true'
         )
     """
     sql """
@@ -43,8 +42,7 @@ suite("test_ivm_replace_stream_cleanup") {
         DISTRIBUTED BY HASH(k1) BUCKETS 1
         PROPERTIES (
             'replication_num' = '1',
-            'binlog.enable' = 'true',
-            'binlog.format' = 'ROW'
+            'changelog.enable' = 'true'
         )
     """
 

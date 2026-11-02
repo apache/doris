@@ -18,12 +18,14 @@
 package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
 import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.pushdown.ConnectorIn;
 import org.apache.doris.connector.spi.pushdown.ConnectorLike;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.spi.pushdown.ConnectorOr;
 
 import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.GenericRow;
@@ -102,6 +104,49 @@ public class PaimonPredicateConverterTest {
         LeafPredicate leaf = (LeafPredicate) predicates.get(0);
         Assertions.assertEquals(Timestamp.fromLocalDateTime(literal), leaf.literals().get(0),
                 "an NTZ predicate literal must retain precision below one millisecond");
+    }
+
+    @Test
+    public void precisionRepairDropsOnlyTimestampPredicates() {
+        RowType rowType = RowType.builder()
+                .field("id", DataTypes.INT())
+                .field("ts", DataTypes.TIMESTAMP(6))
+                .build();
+        PaimonPredicateConverter converter = new PaimonPredicateConverter(rowType, true);
+
+        ConnectorComparison idComparison = new ConnectorComparison(
+                ConnectorComparison.Operator.EQ, new ConnectorColumnRef("id", ANY),
+                new ConnectorLiteral(ANY, 7));
+        ConnectorComparison timestampComparison = new ConnectorComparison(
+                ConnectorComparison.Operator.EQ, new ConnectorColumnRef("ts", ANY),
+                new ConnectorLiteral(ANY, LocalDateTime.of(2025, 1, 1, 0, 0)));
+
+        Assertions.assertEquals(1, converter.convert(idComparison).size(),
+                "non-timestamp predicates must remain pushable during precision repair");
+        Assertions.assertTrue(converter.convert(timestampComparison).isEmpty(),
+                "timestamp predicates must remain Doris residuals during precision repair");
+    }
+
+    @Test
+    public void precisionRepairKeepsSafeAndSiblingsButNotMixedOr() {
+        RowType rowType = RowType.builder()
+                .field("id", DataTypes.INT())
+                .field("ts", DataTypes.TIMESTAMP(6))
+                .build();
+        PaimonPredicateConverter converter = new PaimonPredicateConverter(rowType, true);
+        ConnectorComparison idComparison = new ConnectorComparison(
+                ConnectorComparison.Operator.EQ, new ConnectorColumnRef("id", ANY),
+                new ConnectorLiteral(ANY, 7));
+        ConnectorComparison timestampComparison = new ConnectorComparison(
+                ConnectorComparison.Operator.EQ, new ConnectorColumnRef("ts", ANY),
+                new ConnectorLiteral(ANY, LocalDateTime.of(2025, 1, 1, 0, 0)));
+
+        Assertions.assertEquals(1, converter.convert(new ConnectorAnd(
+                Arrays.asList(idComparison, timestampComparison))).size(),
+                "a safe AND sibling must remain available for file pruning");
+        Assertions.assertTrue(converter.convert(new ConnectorOr(
+                Arrays.asList(idComparison, timestampComparison))).isEmpty(),
+                "a mixed OR must remain a residual instead of narrowing the result set");
     }
 
     @Test

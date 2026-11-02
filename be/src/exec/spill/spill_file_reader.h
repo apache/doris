@@ -27,12 +27,15 @@
 #include "core/pod_array.h"
 #include "core/pod_array_fwd.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/file_system.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/workload_management/resource_context.h"
+#include "util/slice.h"
 
 namespace doris {
 class RuntimeState;
 class Block;
+class SpillDataDir;
 
 /// SpillFileReader reads blocks sequentially across all parts of a SpillFile.
 ///
@@ -44,12 +47,15 @@ class Block;
 ///
 /// Part boundaries are transparent to the caller. When the current part is
 /// exhausted, the reader automatically opens the next part.
+///
+/// Parts are opened on the file system pinned in the SpillFile (local disk or object storage).
+/// Part sizes are known from the writer, so no size lookup is needed on open.
 class SpillFileReader {
 public:
-    SpillFileReader(RuntimeState* state, RuntimeProfile* profile, std::string spill_dir,
-                    size_t part_count);
+    SpillFileReader(RuntimeState* state, RuntimeProfile* profile, SpillDataDir* data_dir,
+                    io::FileSystemSPtr fs, std::string spill_dir, std::vector<int64_t> part_sizes);
 
-    ~SpillFileReader() { (void)close(); }
+    virtual ~SpillFileReader() { (void)close(); }
 
     /// Open the first part and read its footer metadata.
     Status open();
@@ -65,9 +71,28 @@ public:
 
     Status close();
 
+protected:
+    /// Storage-specific read sizing. Local files read the footer tail and one block at a time.
+    virtual size_t _footer_probe_size(size_t file_size, bool fetch_small_part) const;
+    virtual size_t _read_window_end(size_t index) const;
+
+    /// Account a successful store read in the storage-specific counters.
+    virtual void _record_spill_read(size_t bytes_read);
+
 private:
-    /// Open a specific part file and read its footer.
-    Status _open_part(size_t part_index);
+    /// Open a specific part file and read its footer. `fetch_small_part` allows the storage
+    /// policy to fetch the whole part when it fits in one read.
+    Status _open_part(size_t part_index, bool fetch_small_part);
+
+    /// Read the footer (block offsets, max sub block size, block count) of the current part.
+    Status _read_footer(size_t file_size, bool fetch_small_part);
+
+    /// Point `out` at the serialized bytes of block `index` of the current part, reading
+    /// them (and any following blocks selected by the storage policy) if not buffered.
+    Status _block_slice(size_t index, Slice* out);
+
+    /// Read exactly `len` bytes at `offset` of the current part into `data`.
+    Status _read_exact(size_t offset, char* data, size_t len);
 
     /// Seek implementation with status propagation.
     Status _seek_to_block(size_t block_index);
@@ -75,8 +100,17 @@ private:
     /// Close the current part's file reader.
     void _close_current_part();
 
+    /// Make the read buffer hold at least `size` bytes.
+    void _ensure_read_buff(size_t size);
+
+    /// Account bytes read from the store (local or remote) as one request.
+    void _record_read(size_t bytes_read);
+
     // ── Configuration ──
+    SpillDataDir* _data_dir = nullptr;
+    io::FileSystemSPtr _fs;
     std::string _spill_dir;
+    std::vector<int64_t> _part_sizes;
     size_t _part_count;
 
     // ── Current part state ──
@@ -87,8 +121,10 @@ private:
     size_t _part_block_count = 0;
     size_t _part_read_block_index = 0;
     size_t _part_max_sub_block_size = 0;
+    // Holds the bytes of [_window_begin, _window_end) of the current part.
     PaddedPODArray<char> _read_buff;
-    std::vector<size_t> _block_start_offsets;
+    size_t _window_begin = 0;
+    size_t _window_end = 0;
 
     PBlock _pb_block;
 
@@ -101,6 +137,9 @@ private:
     RuntimeProfile::Counter* _read_rows_count = nullptr;
     RuntimeProfile::Counter* _read_file_count = nullptr;
 
+protected:
+    // Includes the footer start as the final offset, so every block has an end offset.
+    std::vector<size_t> _block_start_offsets;
     std::shared_ptr<ResourceContext> _resource_ctx = nullptr;
 };
 

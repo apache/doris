@@ -62,9 +62,7 @@
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_jsonb.h"
-#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
-#include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/define_primitive_type.h"
@@ -670,12 +668,6 @@ bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* o
 MutableColumnPtr create_variant_binary_column() {
     return ColumnMap::create(ColumnString::create(), ColumnString::create(),
                              ColumnArray::ColumnOffsets::create());
-}
-
-DataTypePtr get_variant_binary_column_type() {
-    static auto type = std::make_shared<DataTypeMap>(std::make_shared<DataTypeString>(),
-                                                     std::make_shared<DataTypeString>());
-    return type;
 }
 
 TabletColumn create_sparse_column(const TabletColumn& variant) {

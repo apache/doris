@@ -190,7 +190,7 @@ public final class AzureUri {
         return scheme + "://" + container + "@" + accountName + "/" + encodeKey(key);
     }
 
-    private static String encodeKey(String raw) {
+    static String encodeKey(String raw) {
         if (raw.isEmpty()) {
             return raw;
         }

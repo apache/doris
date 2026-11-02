@@ -77,7 +77,7 @@ public class TabletTest {
 
         tablet = new LocalTablet(1);
         TabletMeta tabletMeta = new TabletMeta(10, 20, 30, 40, 1, TStorageMedium.HDD,
-                false /* isRowBinlog */);
+                false /* isChangelog */);
         invertedIndex.addTablet(1, tabletMeta);
         replica1 = new LocalReplica(1L, 1L, 100L, 0, 200000L, 0, 3000L, ReplicaState.NORMAL, 0, 0);
         replica2 = new LocalReplica(2L, 2L, 100L, 0, 200000L, 0, 3000L, ReplicaState.NORMAL, 0, 0);
@@ -113,7 +113,7 @@ public class TabletTest {
     public void testGetReplicaStatsOnlyUsesNormalReplicas() {
         Tablet statsTablet = new LocalTablet(2);
         invertedIndex.addTablet(2, new TabletMeta(10, 20, 30, 40, 1, TStorageMedium.HDD,
-                false /* isRowBinlog */));
+                false /* isChangelog */));
         statsTablet.addReplica(new LocalReplica(11L, 1L, 100L, 0, 10L, 0L, 100L, ReplicaState.NORMAL, 0L, 100L));
         statsTablet.addReplica(new LocalReplica(12L, 2L, 100L, 0, 20L, 0L, 200L, ReplicaState.NORMAL, 0L, 100L));
         statsTablet.addReplica(new LocalReplica(13L, 3L, 100L, 0, 0L, 0L, 300L, ReplicaState.NORMAL, 0L, 100L));
@@ -159,33 +159,33 @@ public class TabletTest {
     }
 
     @Test
-    public void testLocalReplicaBinlogMissingTimeoutAndRetryBudget() {
-        long originTimeoutSecond = Config.tablet_binlog_missing_timeout_second;
-        int originMaxTimes = Config.tablet_binlog_missing_max_times;
+    public void testLocalReplicaChangelogMissingTimeoutAndRetryBudget() {
+        long originTimeoutSecond = Config.tablet_changelog_missing_timeout_second;
+        int originMaxTimes = Config.tablet_changelog_missing_max_times;
         try {
-            Config.tablet_binlog_missing_timeout_second = 60;
-            Config.tablet_binlog_missing_max_times = 2;
+            Config.tablet_changelog_missing_timeout_second = 60;
+            Config.tablet_changelog_missing_max_times = 2;
 
-            replica1.setBinlogMissing(true);
-            Assertions.assertTrue(replica1.isBinlogMissing());
+            replica1.setChangelogMissing(true);
+            Assertions.assertTrue(replica1.isChangelogMissing());
 
-            replica1.consumeBinlogMissingRetry();
-            Assertions.assertTrue(replica1.isBinlogMissing());
-            replica1.consumeBinlogMissingRetry();
-            Assertions.assertFalse(replica1.isBinlogMissing());
+            replica1.consumeChangelogMissingRetry();
+            Assertions.assertTrue(replica1.isChangelogMissing());
+            replica1.consumeChangelogMissingRetry();
+            Assertions.assertFalse(replica1.isChangelogMissing());
 
-            replica1.setBinlogMissing(true);
-            Assertions.assertTrue(replica1.isBinlogMissing());
-            replica1.setBinlogMissing(false);
-            Assertions.assertFalse(replica1.isBinlogMissing());
+            replica1.setChangelogMissing(true);
+            Assertions.assertTrue(replica1.isChangelogMissing());
+            replica1.setChangelogMissing(false);
+            Assertions.assertFalse(replica1.isChangelogMissing());
 
-            Config.tablet_binlog_missing_timeout_second = 0;
-            replica1.setBinlogMissing(true);
-            Assertions.assertFalse(replica1.isBinlogMissing());
+            Config.tablet_changelog_missing_timeout_second = 0;
+            replica1.setChangelogMissing(true);
+            Assertions.assertFalse(replica1.isChangelogMissing());
         } finally {
-            Config.tablet_binlog_missing_timeout_second = originTimeoutSecond;
-            Config.tablet_binlog_missing_max_times = originMaxTimes;
-            replica1.setBinlogMissing(false);
+            Config.tablet_changelog_missing_timeout_second = originTimeoutSecond;
+            Config.tablet_changelog_missing_max_times = originMaxTimes;
+            replica1.setChangelogMissing(false);
         }
     }
 
@@ -289,27 +289,27 @@ public class TabletTest {
     }
 
     @Test
-    public void testRowBinlogTabletIdsGsonUpgradeCompatibility() {
+    public void testChangelogTabletIdsGsonUpgradeCompatibility() {
         Tablet baseTablet = new LocalTablet(10L);
-        baseTablet.setRowBinlogTabletId(20L);
+        baseTablet.setChangelogTabletId(20L);
         JsonObject baseTabletJson = JsonParser.parseString(GsonUtils.GSON.toJson(baseTablet)).getAsJsonObject();
         Tablet deserializedBaseTablet = GsonUtils.GSON.fromJson(baseTabletJson, Tablet.class);
-        Assertions.assertEquals(20L, deserializedBaseTablet.getRowBinlogTabletId());
-        Assertions.assertNull(deserializedBaseTablet.rowBinlogBaseTabletId);
+        Assertions.assertEquals(20L, deserializedBaseTablet.getChangelogTabletId());
+        Assertions.assertNull(deserializedBaseTablet.changelogBaseTabletId);
 
-        Tablet rowBinlogTablet = new LocalTablet(20L);
-        rowBinlogTablet.setRowBinlogBaseTabletId(10L);
-        JsonObject rowBinlogTabletJson = JsonParser.parseString(GsonUtils.GSON.toJson(rowBinlogTablet))
+        Tablet changelogTablet = new LocalTablet(20L);
+        changelogTablet.setChangelogBaseTabletId(10L);
+        JsonObject changelogTabletJson = JsonParser.parseString(GsonUtils.GSON.toJson(changelogTablet))
                 .getAsJsonObject();
-        Tablet deserializedRowBinlogTablet = GsonUtils.GSON.fromJson(rowBinlogTabletJson, Tablet.class);
-        Assertions.assertEquals(10L, deserializedRowBinlogTablet.getRowBinlogBaseTabletId());
-        Assertions.assertNull(deserializedRowBinlogTablet.rowBinlogTabletId);
+        Tablet deserializedChangelogTablet = GsonUtils.GSON.fromJson(changelogTabletJson, Tablet.class);
+        Assertions.assertEquals(10L, deserializedChangelogTablet.getChangelogBaseTabletId());
+        Assertions.assertNull(deserializedChangelogTablet.changelogTabletId);
 
         baseTabletJson.remove("rbti");
         baseTabletJson.remove("rbbti");
         Tablet deserializedLegacyTablet = GsonUtils.GSON.fromJson(baseTabletJson, Tablet.class);
-        Assertions.assertNull(deserializedLegacyTablet.rowBinlogTabletId);
-        Assertions.assertNull(deserializedLegacyTablet.rowBinlogBaseTabletId);
+        Assertions.assertNull(deserializedLegacyTablet.changelogTabletId);
+        Assertions.assertNull(deserializedLegacyTablet.changelogBaseTabletId);
     }
 
     /**

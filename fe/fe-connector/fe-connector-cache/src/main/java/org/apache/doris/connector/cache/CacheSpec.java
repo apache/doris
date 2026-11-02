@@ -220,13 +220,26 @@ public final class CacheSpec {
         checkWeightProperties(properties, Collections.emptyMap(), engine, knownEntries);
     }
 
-    /** DDL validation: reject unknown entries only when explicitly submitted by this statement. */
+    /**
+     * DDL validation: the keys this statement submits for {@code engine} must be well formed (see
+     * {@link #checkSubmittedEngineProperties}), its submitted weights must not exceed the FE-global limit, and an
+     * unknown weight entry is rejected only when this statement submits it.
+     */
     public static void checkWeightProperties(Map<String, String> properties,
             Map<String, String> submittedProperties, String engine, String... knownEntries) {
+        checkWeightProperties(properties, submittedProperties, MetaCacheGovernance.globalMaxWeight(), engine,
+                knownEntries);
+    }
+
+    /** As {@link #checkWeightProperties(Map, Map, String, String...)}, against the given FE-global limit. */
+    public static void checkWeightProperties(Map<String, String> properties, Map<String, String> submittedProperties,
+            OptionalLong globalMaxWeight, String engine, String... knownEntries) {
+        checkSubmittedEngineProperties(submittedProperties, engine);
         OptionalLong catalogMax = checkCatalogWeightProperty(properties);
         if (properties == null) {
             return;
         }
+        checkSubmittedWeightsAgainstGlobal(properties, submittedProperties, globalMaxWeight, engine);
         String prefix = metaCacheKeyPrefix(engine);
         Set<String> weightKeys = new HashSet<>();
         for (String entry : knownEntries) {
@@ -244,13 +257,75 @@ public final class CacheSpec {
                 // Like other connector properties, validate consumed values but tolerate unknown keys.
                 continue;
             }
-            long parsed = parseWeight(property.getValue(), key, false, 0L);
-            if (parsed <= 0L) {
-                throw new IllegalArgumentException(key + " must be positive");
-            }
+            long parsed = parsePositiveWeight(property.getValue(), key);
             if (catalogMax.isPresent() && parsed > catalogMax.getAsLong()) {
                 throw new IllegalArgumentException(key + " can not exceed "
                         + MetaCacheBudgetManager.CATALOG_MAX_WEIGHT_PROPERTY);
+            }
+        }
+    }
+
+    /**
+     * DDL validation of the {@code meta.cache.<engine>.<entry>.<option>} keys this statement submits: the option must
+     * be enable, ttl-second, capacity or max-weight, and the value one of its type. Entry names are not checked, so a
+     * key of an entry that a newer connector reads stays accepted, and keys an earlier statement persisted are not
+     * inspected, so a stored key never blocks an unrelated ALTER.
+     */
+    public static void checkSubmittedEngineProperties(Map<String, String> submittedProperties, String engine) {
+        String prefix = metaCacheKeyPrefix(engine);
+        for (Map.Entry<String, String> property : submittedProperties.entrySet()) {
+            String key = property.getKey();
+            if (!key.startsWith(prefix)) {
+                continue;
+            }
+            int optionStart = key.lastIndexOf('.');
+            if (optionStart <= prefix.length()) {
+                throw unknownProperty(key);
+            }
+            String value = property.getValue();
+            switch (key.substring(optionStart)) {
+                case KEY_ENABLE:
+                    checkBooleanProperty(value, key);
+                    break;
+                case KEY_TTL_SECOND:
+                    checkLongProperty(value, CACHE_NO_TTL, key);
+                    break;
+                case KEY_CAPACITY:
+                    checkLongProperty(value, 0L, key);
+                    break;
+                case KEY_MAX_WEIGHT:
+                    parsePositiveWeight(value, key);
+                    break;
+                default:
+                    throw unknownProperty(key);
+            }
+        }
+    }
+
+    /**
+     * DDL validation against the FE-global limit, the one of the FE running the statement: a submitted catalog
+     * weight, and a submitted {@code engine} entry weight of a catalog without a catalog weight, must not exceed it.
+     * Admission clamps every cache to the limit anyway; this keeps SHOW CREATE CATALOG from promising more. Only
+     * submitted keys are checked, so a limit lowered after a restart never blocks an unrelated ALTER.
+     */
+    public static void checkSubmittedWeightsAgainstGlobal(Map<String, String> effectiveProperties,
+            Map<String, String> submittedProperties, OptionalLong globalMaxWeight, String engine) {
+        if (!globalMaxWeight.isPresent()) {
+            return;
+        }
+        boolean catalogLimited = effectiveProperties.containsKey(MetaCacheBudgetManager.CATALOG_MAX_WEIGHT_PROPERTY);
+        String prefix = metaCacheKeyPrefix(engine);
+        for (Map.Entry<String, String> property : submittedProperties.entrySet()) {
+            String key = property.getKey();
+            boolean limitedByGlobal = key.equals(MetaCacheBudgetManager.CATALOG_MAX_WEIGHT_PROPERTY)
+                    || !catalogLimited && key.startsWith(prefix) && key.endsWith(KEY_MAX_WEIGHT);
+            if (!limitedByGlobal) {
+                continue;
+            }
+            long weight = parsePositiveWeight(property.getValue(), key);
+            if (weight > globalMaxWeight.getAsLong()) {
+                throw new IllegalArgumentException(key + " (" + weight + " bytes) can not exceed the FE global max"
+                        + " weight external_meta_cache_max_weight (" + globalMaxWeight.getAsLong() + " bytes)");
             }
         }
     }
@@ -398,6 +473,18 @@ public final class CacheSpec {
             throw invalidWeight(key, rawValue);
         }
         return value.longValue();
+    }
+
+    private static long parsePositiveWeight(String value, String key) {
+        long parsed = parseWeight(value, key, false, 0L);
+        if (parsed <= 0L) {
+            throw new IllegalArgumentException(key + " must be positive");
+        }
+        return parsed;
+    }
+
+    private static IllegalArgumentException unknownProperty(String key) {
+        return new IllegalArgumentException("Unknown external meta cache property: " + key);
     }
 
     private static IllegalArgumentException invalidWeight(String key, String value) {

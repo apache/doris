@@ -153,4 +153,58 @@ suite("test_catalog_ddl", "p0,external") {
             )
         """
         sql """alter catalog test_ddl_future_core_cache set properties("comment" = "updated")"""
+
+        // A submitted meta cache key must name a known option with a value of its type. An unknown entry is still
+        // accepted (above): a newer connector may read an entry this version does not know.
+        sql """drop catalog if exists test_ddl_strict_meta_cache"""
+        test {
+            sql """
+                create catalog test_ddl_strict_meta_cache properties(
+                    "type" = "hms",
+                    "hive.metastore.uris" = "thrift://127.0.0.1:9083",
+                    "meta.cache.hive.file.max-weigth" = "64MB"
+                )
+            """
+            exception "Unknown external meta cache property: meta.cache.hive.file.max-weigth"
+        }
+        test {
+            sql """
+                create catalog test_ddl_strict_meta_cache properties(
+                    "type" = "hms",
+                    "hive.metastore.uris" = "thrift://127.0.0.1:9083",
+                    "meta.cache.hive.file.enable" = "1"
+                )
+            """
+            exception "The parameter meta.cache.hive.file.enable is wrong, value is 1"
+        }
+        test {
+            sql """
+                create catalog test_ddl_strict_meta_cache properties(
+                    "type" = "hms",
+                    "hive.metastore.uris" = "thrift://127.0.0.1:9083",
+                    "meta.cache.iceberg.table.ttl-second" = "-2"
+                )
+            """
+            exception "The parameter meta.cache.iceberg.table.ttl-second is wrong, value is -2"
+        }
+        // The core namespace that fe-core owns is checked the same way, on ALTER too.
+        test {
+            sql """alter catalog test_ddl_future_core_cache set properties("meta.cache.default.schema.enable" = "1")"""
+            exception "The parameter meta.cache.default.schema.enable is wrong, value is 1"
+        }
+
+        // A submitted weight may not exceed the FE global limit. Frontends run without one by default.
+        def globalWeight = sql """ADMIN SHOW FRONTEND CONFIG LIKE 'external_meta_cache_max_weight'"""
+        if (globalWeight.size() == 1 && globalWeight[0][1] != "0") {
+            test {
+                sql """
+                    create catalog test_ddl_strict_meta_cache properties(
+                        "type" = "hms",
+                        "hive.metastore.uris" = "thrift://127.0.0.1:9083",
+                        "meta.cache.max-weight" = "1PB"
+                    )
+                """
+                exception "can not exceed the FE global max weight external_meta_cache_max_weight"
+            }
+        }
 }

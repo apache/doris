@@ -305,9 +305,7 @@ TEST(SniiCompoundWriterBlob, RejectsInvertedKindAndDuplicateRegistrations) {
     std::remove(path.c_str());
 }
 
-// The compaction-target shape (design 4.3): ONE writer takes a streamed text
-// merge session AND blob registrations at the same time. Any SNII table with
-// both a text and a numeric/vector index produces this on every compaction.
+// One writer must seal streamed text and blob indexes in the same container.
 TEST(SniiCompoundWriterBlob, RegistersDuringStreamedSessionWithoutDisturbingIt) {
     const std::string path = TempPath();
     const auto payload = Pattern(5000, 61);

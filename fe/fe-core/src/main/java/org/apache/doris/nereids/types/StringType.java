@@ -18,7 +18,11 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.types.coercion.CharacterType;
+
+import java.util.Optional;
 
 /**
  * String data type in Nereids.
@@ -44,5 +48,10 @@ public class StringType extends CharacterType {
     @Override
     public DataType defaultConcreteType() {
         return this;
+    }
+
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.of(new StringLiteral(""));
     }
 }

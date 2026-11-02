@@ -38,8 +38,7 @@ suite("test_ivm_union_3") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -53,8 +52,7 @@ suite("test_ivm_union_3") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -68,8 +66,7 @@ suite("test_ivm_union_3") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -124,7 +121,7 @@ suite("test_ivm_union_3") {
     """
 
     // =========================================================
-    // Part 12: Self-union with DELETE (MOW with binlog_op)
+    // Part 12: Self-union with DELETE (MOW with changelog_op)
     // Same table appears in both arms. Verifies delete propagation
     // only affects the delta arm being refreshed.
     // =========================================================
@@ -140,8 +137,7 @@ suite("test_ivm_union_3") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -170,7 +166,7 @@ suite("test_ivm_union_3") {
         SELECT k1, v1 FROM test_ivm_union_3_self_del_mv
     """
 
-    // Delete row k1=2 (binlog_op=1) and insert k1=4 (binlog_op=0)
+    // Delete row k1=2 (changelog_op=1) and insert k1=4 (changelog_op=0)
     sql """
         INSERT INTO test_ivm_union_3_self_del_t VALUES
             (4, 40);
@@ -204,8 +200,7 @@ suite("test_ivm_union_3") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -219,8 +214,7 @@ suite("test_ivm_union_3") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """

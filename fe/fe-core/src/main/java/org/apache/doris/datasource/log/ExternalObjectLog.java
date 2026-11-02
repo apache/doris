@@ -61,6 +61,9 @@ public class ExternalObjectLog implements Writable {
     @SerializedName(value = "newPartitionNames")
     private List<String> newPartitionNames;
 
+    @SerializedName(value = "invalidateTableLookup")
+    private boolean invalidateTableLookup;
+
     @SerializedName(value = "lastUpdateTime")
     private long lastUpdateTime;
 
@@ -83,6 +86,13 @@ public class ExternalObjectLog implements Writable {
         externalObjectLog.setTableName(tblName);
         externalObjectLog.setLastUpdateTime(updateTime);
         return externalObjectLog;
+    }
+
+    public static ExternalObjectLog createForExplicitRefreshTable(long catalogId, String dbName, String tblName,
+            long updateTime) {
+        ExternalObjectLog log = createForRefreshTable(catalogId, dbName, tblName, updateTime);
+        log.setInvalidateTableLookup(true);
+        return log;
     }
 
     public static ExternalObjectLog createForRefreshPartitions(long catalogId, String dbName, String tblName,

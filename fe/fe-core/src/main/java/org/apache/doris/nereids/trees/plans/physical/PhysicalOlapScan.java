@@ -79,7 +79,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
     // use for ann push down
     private final List<OrderKey> annOrderKeys;
     private final Optional<Long> annLimit;
-    // user for binlog scan
+    // user for changelog scan
     private final Optional<TableScanParams> scanParams;
 
     /**

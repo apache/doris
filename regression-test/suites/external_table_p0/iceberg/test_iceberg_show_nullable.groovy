@@ -47,25 +47,58 @@ suite("test_iceberg_show_nullable", "p0,external") {
     sql """
     create table iceberg_show_nullable (
         id bigint not null,
-        value string not null,
+        value string not null comment 'required value',
         event_time datetime
     )"""
+    String columnsQuery = """select COLUMN_NAME, IS_NULLABLE from information_schema.columns
+        where TABLE_SCHEMA = 'test_iceberg_show_nullable_db' and TABLE_NAME = 'iceberg_show_nullable'"""
+
+    // A new table has no snapshot yet, but its schema already declares the required columns.
+    qt_snapshots_empty """select count(*) from iceberg_show_nullable\$snapshots"""
+    qt_desc_empty """desc iceberg_show_nullable"""
+    order_qt_information_schema_empty(columnsQuery)
+
     sql """insert into iceberg_show_nullable values (1, 'a', '2026-01-01 00:00:00'), (2, 'b', null)"""
 
     qt_desc """desc iceberg_show_nullable"""
     qt_show_columns """show columns from iceberg_show_nullable"""
+    qt_show_full_columns """show full columns from iceberg_show_nullable"""
+    qt_show_columns_like """show columns from iceberg_show_nullable like 'id'"""
     // SHOW COLUMNS ... WHERE is rewritten to information_schema.columns; no ORDER BY, so the rows are
     // sorted by the framework (order_qt_) instead of being compared in an unspecified scan order.
     order_qt_show_columns_where """show columns from iceberg_show_nullable where `Null` = 'NO'"""
-    order_qt_information_schema """select COLUMN_NAME, IS_NULLABLE from information_schema.columns
-        where TABLE_SCHEMA = 'test_iceberg_show_nullable_db' and TABLE_NAME = 'iceberg_show_nullable'"""
+    order_qt_show_full_columns_where """show full columns from iceberg_show_nullable where `Null` = 'YES'"""
+    order_qt_information_schema(columnsQuery)
+    order_qt_information_schema_required(columnsQuery + " and IS_NULLABLE = 'NO'")
     String ddl = sql("""show create table iceberg_show_nullable""")[0][1]
     assertTrue(ddl.contains("`id` bigint NOT NULL"), ddl)
-    assertTrue(ddl.contains("`value` text NOT NULL"), ddl)
+    assertTrue(ddl.contains("`value` text NOT NULL COMMENT \"required value\""), ddl)
     assertTrue(ddl.contains("`event_time` datetimev2(6) NULL"), ddl)
     order_qt_select """select * from iceberg_show_nullable"""
 
+    // Columns are read as nullable, but the Iceberg validator rejects required NULLs before
+    // format-specific writers run.
+    test {
+        sql """insert into iceberg_show_nullable values (null, 'bad', '2026-01-02 00:00:00')"""
+        exception "Iceberg required field 'id' contains NULL"
+    }
+    test {
+        sql """insert into iceberg_show_nullable values (3, null, '2026-01-02 00:00:00')"""
+        exception "Iceberg required field 'value' contains NULL"
+    }
+
     // Relaxing the constraint is reflected without a new data snapshot.
+    qt_snapshots_before_alter """select count(*) from iceberg_show_nullable\$snapshots"""
     sql """alter table iceberg_show_nullable modify column value string null"""
+    qt_snapshots_after_alter """select count(*) from iceberg_show_nullable\$snapshots"""
     qt_desc_after_alter """desc iceberg_show_nullable"""
+    order_qt_information_schema_after_alter(columnsQuery)
+    ddl = sql("""show create table iceberg_show_nullable""")[0][1]
+    assertTrue(ddl.contains("`value` text NULL COMMENT \"required value\""), ddl)
+    sql """insert into iceberg_show_nullable values (3, null, null)"""
+    order_qt_select_after_alter """select * from iceberg_show_nullable"""
+    test {
+        sql """insert into iceberg_show_nullable values (null, 'still required', null)"""
+        exception "Iceberg required field 'id' contains NULL"
+    }
 }

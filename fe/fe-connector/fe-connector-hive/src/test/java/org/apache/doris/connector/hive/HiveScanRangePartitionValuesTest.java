@@ -122,25 +122,4 @@ public class HiveScanRangePartitionValuesTest {
         Assertions.assertFalse(rangeDesc.isSetColumnsFromPathIsNull());
     }
 
-    @Test
-    public void testAcidTableEmitsBothTransactionalParamsAndPartitionValues() {
-        // ACID (transactional_hive) ranges must still carry columns-from-path in addition to the
-        // transactional delete-delta params; the partition-value rebuild runs regardless of ACID.
-        HiveScanRange range = HiveScanRange.builder()
-                .path("/tbl/dt=2024-01-01/delta_0000005_0000005/bucket_00000")
-                .partitionValues(orderedPartitionValues("dt", "2024-01-01"))
-                .acidInfo("/tbl/dt=2024-01-01", Arrays.asList(
-                        "/tbl/dt=2024-01-01/delete_delta_0000003_0000003|bucket_00000"))
-                .build();
-
-        TTableFormatFileDesc formatDesc = new TTableFormatFileDesc();
-        TFileRangeDesc rangeDesc = new TFileRangeDesc();
-        range.populateRangeParams(formatDesc, rangeDesc);
-
-        Assertions.assertTrue(formatDesc.isSetTransactionalHiveParams(),
-                "ACID range must still emit transactional params");
-        Assertions.assertEquals(Collections.singletonList("dt"), rangeDesc.getColumnsFromPathKeys());
-        Assertions.assertEquals(Collections.singletonList("2024-01-01"), rangeDesc.getColumnsFromPath());
-        Assertions.assertEquals(Collections.singletonList(false), rangeDesc.getColumnsFromPathIsNull());
-    }
 }

@@ -1157,7 +1157,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             modifyPropertiesInternal(replayJob.getProperties());
             if (replayPersistInfo != null) {
                 setOffsetProviderPersist(replayPersistInfo);
-                if (tvfType != null && !Config.isCloudMode()) {
+                if (tvfType != null) {
                     offsetProvider.restoreFromPersistInfo(offsetProviderPersist);
                 }
             } else {
@@ -1169,9 +1169,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                             offsetProviderPersist, offsetProvider.getPersistInfo());
                 }
             }
-            // When the pause state is restarted, it also needs to be updated
             if (Config.isCloudMode()) {
-                replayOnCloudMode();
+                this.jobStatistic = replayJob.getJobStatistic();
             }
         } catch (Exception e) {
             // should not happen

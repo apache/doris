@@ -22,7 +22,9 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.planner.OlapTableSink.AdaptiveBucketAssignment;
 import org.apache.doris.planner.OlapTableSink.AdaptiveIndexBucketAssignment;
 import org.apache.doris.system.Backend;
@@ -31,7 +33,9 @@ import org.apache.doris.thrift.TDistributionHashType;
 import org.apache.doris.thrift.TOlapTableIndexTablets;
 import org.apache.doris.thrift.TOlapTableLocationParam;
 import org.apache.doris.thrift.TOlapTablePartition;
+import org.apache.doris.thrift.TOlapTableSchemaParam;
 import org.apache.doris.thrift.TTabletLocation;
+import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
@@ -41,6 +45,7 @@ import org.mockito.Mockito;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -64,6 +69,30 @@ public class OlapTableSinkTest {
                     sink.getTDistributionHashType(identity));
         } finally {
             Config.be_exec_version = originalVersion;
+        }
+    }
+
+    @Test
+    public void testRowTtlRejectsPartialUpdateModes() {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getFullSchema()).thenReturn(Collections.emptyList());
+        OlapTableSink sink = new OlapTableSink(table, null, Collections.emptyList());
+        for (boolean ttl : new boolean[] {false, true}) {
+            Mockito.when(table.hasRowTtl()).thenReturn(ttl);
+            for (TUniqueKeyUpdateMode mode : TUniqueKeyUpdateMode.values()) {
+                sink.setPartialUpdateInfo(mode, new HashSet<>(Collections.singletonList("k")));
+                TOlapTableSchemaParam schema = new TOlapTableSchemaParam();
+                if (ttl && mode != TUniqueKeyUpdateMode.UPSERT) {
+                    AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                            () -> Deencapsulation.invoke(sink, "setPartialUpdateInfoForParam", schema, table, mode));
+                    Assertions.assertTrue(error.getMessage().contains(
+                            "Partial update is not supported on tables with row TTL"));
+                } else {
+                    Assertions.assertDoesNotThrow(
+                            () -> Deencapsulation.invoke(sink, "setPartialUpdateInfoForParam", schema, table, mode));
+                    Assertions.assertEquals(mode, schema.getUniqueKeyUpdateMode());
+                }
+            }
         }
     }
 

@@ -23,7 +23,6 @@
 #include "common/config.h"
 #include "core/block/block.h"
 #include "core/value/bitmap_value.h"
-#include "storage/iterator/olap_data_convertor.h"
 #include "storage/key/row_key_encoder.h"
 #include "storage/mow/historical_row_fetcher.h"
 #include "storage/mow/key_probe.h"
@@ -56,10 +55,9 @@ Status probe_and_plan(TransformExecContext& ctx, RowKeyEncoder& key_encoder, Mow
                       HistoricalRowFetcher& fetcher,
                       const std::vector<RowsetSharedPtr>& specified_rowsets,
                       std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
-                      const std::vector<IOlapColumnDataAccessor*>& key_columns,
-                      IOlapColumnDataAccessor* seq_column, const signed char* delete_signs,
-                      size_t num_rows, Block* block, std::vector<bool>& use_default_or_null_flag,
-                      bool& has_default_or_nullable) {
+                      const std::vector<const IColumn*>& key_columns, const IColumn* seq_column,
+                      const signed char* delete_signs, size_t num_rows, Block* block,
+                      std::vector<bool>& use_default_or_null_flag, bool& has_default_or_nullable) {
     const TabletSchema& schema = *ctx.tablet_schema;
     PartialUpdateInfo& info = *ctx.partial_update_info;
     const bool have_input_seq_column = (seq_column != nullptr);
@@ -101,8 +99,8 @@ Status probe_and_plan_flexible(TransformExecContext& ctx, RowKeyEncoder& key_enc
                                MowKeyProbe& probe, HistoricalRowFetcher& fetcher,
                                const std::vector<RowsetSharedPtr>& specified_rowsets,
                                std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
-                               const std::vector<IOlapColumnDataAccessor*>& key_columns,
-                               IOlapColumnDataAccessor* seq_column, const signed char* delete_signs,
+                               const std::vector<const IColumn*>& key_columns,
+                               const IColumn* seq_column, const signed char* delete_signs,
                                size_t num_rows, Block* block,
                                std::vector<BitmapValue>& skip_bitmaps,
                                std::vector<bool>& use_default_or_null_flag,
@@ -165,23 +163,20 @@ Status FixedPartialUpdateFillStage::apply(TransformExecContext& ctx, Block* bloc
     const auto& update_cids = info.update_cids;
     Block full_block = widen_partial_update_block(schema, update_cids, *block);
 
-    // 2. key-only conversion with stage-local encoder + convertor
+    // 2. key columns with a stage-local encoder
     RowKeyEncoder key_encoder(schema, /*mow=*/true);
     // FE forbids partial update on mow tables with cluster keys; everything
     // below assumes sort keys == schema keys
     DCHECK_EQ(key_encoder.num_sort_key_columns(), schema.num_key_columns());
-    OlapBlockDataConvertor convertor;
-    convertor.resize(schema.num_columns());
-    std::vector<IOlapColumnDataAccessor*> key_columns;
-    RETURN_IF_ERROR(convert_key_columns(convertor, schema, full_block, num_rows, key_columns));
-    IOlapColumnDataAccessor* seq_column = nullptr;
+    std::vector<const IColumn*> key_columns;
+    collect_key_columns(schema, full_block, key_columns);
+    const IColumn* seq_column = nullptr;
     if (schema.has_sequence_col()) {
         const auto seq_cid = cast_set<uint32_t>(schema.sequence_col_idx());
         const bool have_input_seq_column =
                 std::find(update_cids.begin(), update_cids.end(), seq_cid) != update_cids.end();
         if (have_input_seq_column) {
-            RETURN_IF_ERROR(convert_seq_column(convertor, schema, full_block, seq_cid, num_rows,
-                                               seq_column));
+            seq_column = full_block.get_by_position(seq_cid).column.get();
         }
     }
 
@@ -232,7 +227,7 @@ Status FlexiblePartialUpdateFillStage::apply(TransformExecContext& ctx, Block* b
     const std::vector<RowsetSharedPtr>& specified_rowsets = ctx.mow_context->rowset_ptrs;
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
 
-    // encoder shared with the aggregator, which owns the conversion code
+    // encoder shared with the aggregator
     RowKeyEncoder key_encoder(schema, /*mow=*/true);
     // FE forbids partial update on mow tables with cluster keys; everything
     // below assumes sort keys == schema keys
@@ -251,11 +246,11 @@ Status FlexiblePartialUpdateFillStage::apply(TransformExecContext& ctx, Block* b
             block, num_rows, specified_rowsets, segment_caches));
     num_rows = block->rows();
 
-    // 2. encode primary key columns + sequence column
-    std::vector<IOlapColumnDataAccessor*> key_columns;
-    RETURN_IF_ERROR(aggregator.convert_pk_columns(block, 0, num_rows, key_columns));
-    IOlapColumnDataAccessor* seq_column = nullptr;
-    RETURN_IF_ERROR(aggregator.convert_seq_column(block, 0, num_rows, seq_column));
+    // 2. primary key columns + sequence column
+    std::vector<const IColumn*> key_columns;
+    aggregator.collect_pk_columns(*block, key_columns);
+    const IColumn* seq_column = nullptr;
+    aggregator.collect_seq_column(*block, seq_column);
 
     std::vector<BitmapValue>* skip_bitmaps =
             &get_mutable_skip_bitmap_column(block, skip_bitmap_col_idx)->get_data();

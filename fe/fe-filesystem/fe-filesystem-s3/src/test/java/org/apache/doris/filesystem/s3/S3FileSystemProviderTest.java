@@ -128,6 +128,18 @@ class S3FileSystemProviderTest {
     }
 
     @Test
+    void supportsGuess_keepsExplicitS3AtGcsAndMinioEndpoints() {
+        for (String endpoint : new String[] {"https://storage.googleapis.com",
+                "https://storage.us-east1.rep.googleapis.com", "http://minio.local:9000"}) {
+            for (String name : new String[] {"S3", "s3"}) {
+                Map<String, String> props = Map.of("provider", name, "s3.endpoint", endpoint);
+                Assertions.assertTrue(provider.supportsGuess(props), endpoint);
+                Assertions.assertTrue(provider.supports(props), endpoint);
+            }
+        }
+    }
+
+    @Test
     void supports_keepsGoogleapisMapWhenUserExplicitlyRequestsS3() {
         // An explicit fs.s3.support=true / provider=S3 overrides the dialect guess: the user has
         // the final say about which filesystem serves the map.

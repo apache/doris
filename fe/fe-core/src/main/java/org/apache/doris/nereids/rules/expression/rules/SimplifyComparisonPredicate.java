@@ -182,16 +182,15 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
         if (left instanceof Cast && right instanceof DateLiteral
                 && ((Cast) left).getDataType().equals(right.getDataType())) {
             Cast cast = (Cast) left;
+            if (right instanceof TimeStampNsLiteral) {
+                // Other temporal types have a wider calendar range. Removing this cast would
+                // suppress conversion overflow for DATE as well as DATETIME/TIMESTAMPTZ.
+                return cp;
+            }
             if (cast.child().getDataType() instanceof DateTimeType
                     || cast.child().getDataType() instanceof DateTimeV2Type
                     || cast.child().getDataType() instanceof TimeStampNsType) {
                 // right is datetime
-                if (right instanceof TimeStampNsLiteral) {
-                    // DATETIME and DATETIMEV2 have a wider calendar range than TIMESTAMP_NS.
-                    // Removing the cast would turn an out-of-range cast result (NULL or an error)
-                    // into an ordinary boolean comparison.
-                    return cp;
-                }
                 if (right instanceof DateTimeV2Literal) {
                     return processDateTimeLikeComparisonPredicateDateTimeV2Literal(
                             cp, cast.child(), (DateTimeV2Literal) right);

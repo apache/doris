@@ -18,7 +18,21 @@
 893966443	30.0.0.0	GET /english/playing/mascot/images/button.03.gif HTTP/1.0	200	893	10.160415
 
 -- !sql --
-893966443	30.0.0.0	GET /english/playing/mascot/images/button.03.gif HTTP/1.0	200	893	10.160415
+893966443	30.0.0.0	GET /english/playing/mascot/images/button.03.gif HTTP/1.0	200	893	10.160416
+
+-- !score_order_by_score_and_column --
+200	10.160415
+200	4.585793
+200	4.585793
+
+-- !score_topn_best --
+10.160415
+
+-- !score_range_without_topn --
+14
+
+-- !score_range_topn_control --
+14
 
 -- !sql --
 2	2	{"key":"abc hhh"}	0.0
@@ -28,7 +42,7 @@
 3	3	this is a test
 
 -- !sql --
-4	4	hello world	1.0925692
+4	4	hello world	0.8025915
 
 -- !sql --
 4	4	hello world

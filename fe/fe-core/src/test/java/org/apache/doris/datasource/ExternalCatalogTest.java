@@ -66,12 +66,52 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class ExternalCatalogTest extends TestWithFeService {
     private Env env;
     private CatalogMgr mgr;
     private ConnectContext rootCtx;
+
+    @Test
+    public void testDatabaseLookupPreservesInitializationFailure() {
+        IllegalStateException failure = new IllegalStateException();
+        IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog() {
+            @Override
+            protected void initLocalObjectsImpl() {
+                throw failure;
+            }
+        };
+        RuntimeException thrown = Assertions.assertThrows(RuntimeException.class,
+                () -> catalog.getDbNullable("db_by_id"));
+        Assertions.assertSame(failure, thrown.getCause());
+    }
+
+    @Test
+    public void testDatabaseDiscoveryFailureIsNotMissingAndCanRecover() {
+        AtomicBoolean unavailable = new AtomicBoolean(true);
+        IllegalStateException failure = new IllegalStateException("Kerberos principal has no matching rule");
+        IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog() {
+            @Override
+            protected List<String> listDatabaseNames() {
+                if (unavailable.get()) {
+                    throw failure;
+                }
+                return super.listDatabaseNames();
+            }
+        };
+        RuntimeException thrown = Assertions.assertThrows(RuntimeException.class,
+                () -> catalog.getDbNullable("db_by_id"));
+        Throwable cause = thrown;
+        while (cause.getCause() != null) {
+            cause = cause.getCause();
+        }
+        Assertions.assertSame(failure, cause);
+        unavailable.set(false);
+        Assertions.assertNotNull(catalog.getDbNullable("db_by_id"));
+        Assertions.assertNull(catalog.getDbNullable("missing_database"));
+    }
 
     @Test
     public void testScopedWeightAlterStillInvalidatesRemoteBackendsAndRowCounts() throws Exception {
@@ -152,10 +192,10 @@ public class ExternalCatalogTest extends TestWithFeService {
             }
 
             @Override
-            protected void closeResources() {
+            protected Runnable detachResources() {
                 Assertions.assertEquals("4KB", getProperties().get("meta.cache.max-weight"),
-                        "new limits must not be published before old connector resources close");
-                super.closeResources();
+                        "new limits must not be published before old connector resources detach");
+                return super.detachResources();
             }
         };
         mgr.getIdToCatalog().put(catalog.getId(), catalog);

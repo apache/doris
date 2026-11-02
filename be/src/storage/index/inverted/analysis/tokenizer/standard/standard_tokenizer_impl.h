@@ -34,7 +34,19 @@ public:
 
     ~StandardTokenizerImpl() = default;
 
-    int32_t get_next_token() {
+    enum class TokenType : int32_t {
+        EOF_TOKEN = -1,
+        WORD = 0,
+        NUMERIC = 1,
+        SOUTH_EAST_ASIAN = 2,
+        IDEOGRAPHIC = 3,
+        HIRAGANA = 4,
+        KATAKANA = 5,
+        HANGUL = 6,
+        EMOJI = 7,
+    };
+
+    TokenType get_next_token() {
         int32_t _zz_input = 0;
         int32_t _zz_action = 0;
 
@@ -60,7 +72,7 @@ public:
                     UChar32 c = U_UNASSIGNED;
                     U8_NEXT(_zz_buffer_l, _zz_current_pos_l, _zz_end_read_l, c);
                     if (c < 0) {
-                        return YYEOF;
+                        return TokenType::EOF_TOKEN;
                     }
                     _zz_input = c;
                 } else if (_zz_at_eof) {
@@ -107,7 +119,7 @@ public:
 
             if (_zz_input == YYEOF && _zz_start_read == _zz_current_pos) {
                 _zz_at_eof = true;
-                return YYEOF;
+                return TokenType::EOF_TOKEN;
             } else {
                 switch (_zz_action < 0 ? _zz_action : ZZ_ACTION[_zz_action]) {
                 case 1: {
@@ -116,47 +128,47 @@ public:
                 case 10:
                     break;
                 case 2: {
-                    return NUMERIC_TYPE;
+                    return TokenType::NUMERIC;
                 }
                 case 11:
                     break;
                 case 3: {
-                    return WORD_TYPE;
+                    return TokenType::WORD;
                 }
                 case 12:
                     break;
                 case 4: {
-                    return EMOJI_TYPE;
+                    return TokenType::EMOJI;
                 }
                 case 13:
                     break;
                 case 5: {
-                    return SOUTH_EAST_ASIAN_TYPE;
+                    return TokenType::SOUTH_EAST_ASIAN;
                 }
                 case 14:
                     break;
                 case 6: {
-                    return HANGUL_TYPE;
+                    return TokenType::HANGUL;
                 }
                 case 15:
                     break;
                 case 7: {
-                    return IDEOGRAPHIC_TYPE;
+                    return TokenType::IDEOGRAPHIC;
                 }
                 case 16:
                     break;
                 case 8: {
-                    return KATAKANA_TYPE;
+                    return TokenType::KATAKANA;
                 }
                 case 17:
                     break;
                 case 9: {
-                    return HIRAGANA_TYPE;
+                    return TokenType::HIRAGANA;
                 }
                 case 18:
                     break;
                 default:
-                    return YYEOF;
+                    return TokenType::EOF_TOKEN;
                 }
             }
         }
@@ -261,15 +273,6 @@ private:
 public:
     static constexpr int32_t YYEOF = -1;
     static constexpr int32_t YYINITIAL = 0;
-
-    static constexpr int32_t WORD_TYPE = 0;
-    static constexpr int32_t NUMERIC_TYPE = 1;
-    static constexpr int32_t SOUTH_EAST_ASIAN_TYPE = 2;
-    static constexpr int32_t IDEOGRAPHIC_TYPE = 3;
-    static constexpr int32_t HIRAGANA_TYPE = 4;
-    static constexpr int32_t KATAKANA_TYPE = 5;
-    static constexpr int32_t HANGUL_TYPE = 6;
-    static constexpr int32_t EMOJI_TYPE = 7;
 
 private:
     static constexpr int32_t ZZ_UNKNOWN_ERROR = 0;

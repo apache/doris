@@ -48,7 +48,6 @@
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_base.h"
 #include "exprs/function/cast/variant_v2/cast_variant_v2_internal.h"
-#include "exprs/function_context.h"
 #include "runtime/runtime_state.h"
 
 namespace doris::CastWrapper::variant_v2_internal {
@@ -211,14 +210,13 @@ void append_timestamp(ScalarGroups& groups, size_t row, int64_t micros, bool utc
     group.source_rows.push_back(row);
 }
 
-void append_timestamp_nanos(FunctionContext* context, ScalarGroups& groups, size_t row,
-                            int64_t nanos, bool utc_adjusted) {
+void append_timestamp_nanos(RuntimeState* state, ScalarGroups& groups, size_t row, int64_t nanos,
+                            bool utc_adjusted) {
     if (utc_adjusted) {
-        DORIS_CHECK(context != nullptr);
-        DORIS_CHECK(context->state() != nullptr);
+        DORIS_CHECK(state != nullptr);
         const auto seconds = TimeStampNsValue(nanos).epoch_seconds();
         const auto instant = cctz::time_point<cctz::seconds>(cctz::seconds(seconds));
-        const auto offset = context->state()->timezone_obj().lookup(instant).offset;
+        const auto offset = state->timezone_obj().lookup(instant).offset;
         const auto local_nanos = static_cast<__int128>(nanos) +
                                  static_cast<__int128>(offset) * TimeStampNsValue::NANOS_PER_SECOND;
         if (local_nanos < std::numeric_limits<int64_t>::min() ||
@@ -241,7 +239,7 @@ void append_string(ScalarGroups& groups, size_t row, StringRef value) {
     group.source_rows.push_back(row);
 }
 
-void append_timestamp_nanos_string(FunctionContext* context, ScalarGroups& groups, size_t row,
+void append_timestamp_nanos_string(RuntimeState* state, ScalarGroups& groups, size_t row,
                                    int64_t nanos, bool utc_adjusted) {
     const TimeStampNsValue value(nanos);
     if (!utc_adjusted) {
@@ -250,15 +248,14 @@ void append_timestamp_nanos_string(FunctionContext* context, ScalarGroups& group
         return;
     }
 
-    DORIS_CHECK(context != nullptr);
-    DORIS_CHECK(context->state() != nullptr);
+    DORIS_CHECK(state != nullptr);
     const auto instant = cctz::time_point<cctz::seconds>(cctz::seconds(value.epoch_seconds()));
-    std::string text = cctz::format("%Y-%m-%d %H:%M:%S", instant, context->state()->timezone_obj());
+    std::string text = cctz::format("%Y-%m-%d %H:%M:%S", instant, state->timezone_obj());
     fmt::format_to(std::back_inserter(text), ".{:09}", value.nanosecond());
     append_string(groups, row, StringRef(text.data(), text.size()));
 }
 
-void classify_value(FunctionContext* context, ScalarGroups& groups, size_t row, VariantRef value,
+void classify_value(RuntimeState* state, ScalarGroups& groups, size_t row, VariantRef value,
                     PrimitiveType target_primitive, bool forced_null) {
     if (forced_null) {
         append_invalid(groups, row);
@@ -324,23 +321,23 @@ void classify_value(FunctionContext* context, ScalarGroups& groups, size_t row, 
         return;
     case VariantPrimitiveId::TIMESTAMP_NANOS:
         if (target_primitive == TYPE_STRING) {
-            append_timestamp_nanos_string(context, groups, row, value.get_timestamp_nanos(), true);
+            append_timestamp_nanos_string(state, groups, row, value.get_timestamp_nanos(), true);
             return;
         }
         if (target_primitive == TYPE_TIMESTAMP_NS) {
-            append_timestamp_nanos(context, groups, row, value.get_timestamp_nanos(), true);
+            append_timestamp_nanos(state, groups, row, value.get_timestamp_nanos(), true);
             return;
         }
         append_timestamp(groups, row, nanos_to_micros(value.get_timestamp_nanos()), true);
         return;
     case VariantPrimitiveId::TIMESTAMP_NTZ_NANOS:
         if (target_primitive == TYPE_STRING) {
-            append_timestamp_nanos_string(context, groups, row, value.get_timestamp_ntz_nanos(),
+            append_timestamp_nanos_string(state, groups, row, value.get_timestamp_ntz_nanos(),
                                           false);
             return;
         }
         if (target_primitive == TYPE_TIMESTAMP_NS) {
-            append_timestamp_nanos(context, groups, row, value.get_timestamp_ntz_nanos(), false);
+            append_timestamp_nanos(state, groups, row, value.get_timestamp_ntz_nanos(), false);
             return;
         }
         append_timestamp(groups, row, nanos_to_micros(value.get_timestamp_ntz_nanos()), false);
@@ -352,21 +349,16 @@ void classify_value(FunctionContext* context, ScalarGroups& groups, size_t row, 
     throw Exception(ErrorCode::CORRUPTION, "Unknown Variant primitive id");
 }
 
-Status execute_non_strict_scalar_cast(FunctionContext* context, const ColumnPtr& source,
+Status execute_non_strict_scalar_cast(RuntimeState* state, const ColumnPtr& source,
                                       const DataTypePtr& source_type,
                                       const DataTypePtr& target_type, const char* source_name,
                                       size_t rows, ColumnPtr* output) {
-    if (context == nullptr) {
-        return Status::InternalError("Variant V2 scalar CAST requires a FunctionContext");
-    }
-    auto cast_context = context->clone();
-    cast_context->set_enable_strict_mode(false);
     const DataTypePtr nullable_target = make_nullable(target_type);
-    Block temporary {{source, source_type, source_name},
-                     {nullable_target->create_column(), nullable_target, "variant-v2-result"}};
-    WrapperType wrapper =
-            prepare_unpack_dictionaries(cast_context.get(), source_type, nullable_target);
-    Status status = wrapper(cast_context.get(), temporary, {0}, 1, rows, nullptr);
+    ColumnWithTypeAndName source_column {source, source_type, source_name};
+    ColumnWithTypeAndName target_column {nullable_target->create_column(), nullable_target,
+                                         "variant-v2-result"};
+    WrapperType wrapper = bind_cast_executor(CastOptions {}, source_type, nullable_target);
+    Status status = wrapper(state, source_column, target_column, rows, nullptr);
     if (!status.ok()) {
         if (status.is<ErrorCode::INVALID_ARGUMENT>()) {
             *output = make_all_null_column(target_type, rows);
@@ -374,17 +366,17 @@ Status execute_non_strict_scalar_cast(FunctionContext* context, const ColumnPtr&
         }
         return status;
     }
-    *output = make_nullable(temporary.get_by_position(1).column);
+    *output = make_nullable(std::move(target_column.column));
     return Status::OK();
 }
 
-Status execute_concrete_cast(FunctionContext* context, const ScalarGroup& group,
+Status execute_concrete_cast(RuntimeState* state, const ScalarGroup& group,
                              const DataTypePtr& target_type, ColumnPtr* output) {
-    return execute_non_strict_scalar_cast(context, group.values->get_ptr(), group.type, target_type,
+    return execute_non_strict_scalar_cast(state, group.values->get_ptr(), group.type, target_type,
                                           "variant-v2-group", group.source_rows.size(), output);
 }
 
-Status assemble_groups(FunctionContext* context, const ScalarGroups& groups,
+Status assemble_groups(RuntimeState* state, const ScalarGroups& groups,
                        const DataTypePtr& target_type, size_t rows, ColumnPtr* output) {
     const ScalarGroup* only_group = nullptr;
     size_t only_group_index = 0;
@@ -404,7 +396,7 @@ Status assemble_groups(FunctionContext* context, const ScalarGroups& groups,
             *output = make_all_null_column(target_type, rows);
             return Status::OK();
         }
-        return execute_concrete_cast(context, *only_group, target_type, output);
+        return execute_concrete_cast(state, *only_group, target_type, output);
     }
 
     MutableColumnPtr nested = target_type->create_column();
@@ -423,7 +415,7 @@ Status assemble_groups(FunctionContext* context, const ScalarGroups& groups,
         if (index == INVALID_GROUP) {
             cast_result = make_all_null_column(target_type, group.source_rows.size());
         } else {
-            RETURN_IF_ERROR(execute_concrete_cast(context, group, target_type, &cast_result));
+            RETURN_IF_ERROR(execute_concrete_cast(state, group, target_type, &cast_result));
         }
         const auto& nullable = assert_cast<const ColumnNullable&>(*cast_result);
         nested->insert_range_from(nullable.get_nested_column(), 0, group.source_rows.size());
@@ -441,11 +433,11 @@ Status assemble_groups(FunctionContext* context, const ScalarGroups& groups,
     return Status::OK();
 }
 
-Status execute_typed_cast(FunctionContext* context, const ColumnPtr& source,
+Status execute_typed_cast(RuntimeState* state, const ColumnPtr& source,
                           const DataTypePtr& source_type, const DataTypePtr& target_type,
                           size_t rows, ColumnPtr* output) {
     const DataTypePtr nullable_source = make_nullable(source_type);
-    return execute_non_strict_scalar_cast(context, source, nullable_source, target_type,
+    return execute_non_strict_scalar_cast(state, source, nullable_source, target_type,
                                           "variant-v2-typed", rows, output);
 }
 
@@ -509,19 +501,19 @@ Status cast_scalar_to_variant(const ColumnPtr& source, const DataTypePtr& source
     return Status::OK();
 }
 
-Status cast_typed_variant_to_scalar(FunctionContext* context, const ColumnVariantV2& source,
+Status cast_typed_variant_to_scalar(RuntimeState* state, const ColumnVariantV2& source,
                                     const DataTypePtr& target_type, size_t rows,
                                     ForcedNulls forced_nulls, ColumnPtr* output) {
     if (!source.is_typed() || source.size() != rows) {
         return Status::InternalError("Expected a typed Variant V2 source with {} rows", rows);
     }
     ColumnPtr converted;
-    RETURN_IF_ERROR(execute_typed_cast(context, source.typed_column().get_ptr(),
-                                       source.typed_type(), target_type, rows, &converted));
+    RETURN_IF_ERROR(execute_typed_cast(state, source.typed_column().get_ptr(), source.typed_type(),
+                                       target_type, rows, &converted));
     return apply_forced_nulls(std::move(converted), forced_nulls, output);
 }
 
-Status cast_variant_refs_to_scalar(FunctionContext* context, std::span<const VariantRef> values,
+Status cast_variant_refs_to_scalar(RuntimeState* state, std::span<const VariantRef> values,
                                    const DataTypePtr& target_type, ForcedNulls forced_nulls,
                                    ColumnPtr* output) {
     if (!forced_nulls.empty() && forced_nulls.size() != values.size()) {
@@ -530,13 +522,13 @@ Status cast_variant_refs_to_scalar(FunctionContext* context, std::span<const Var
     }
     ScalarGroups groups;
     for (size_t row = 0; row < values.size(); ++row) {
-        classify_value(context, groups, row, values[row], target_type->get_primitive_type(),
+        classify_value(state, groups, row, values[row], target_type->get_primitive_type(),
                        !forced_nulls.empty() && forced_nulls[row] != 0);
     }
-    return assemble_groups(context, groups, target_type, values.size(), output);
+    return assemble_groups(state, groups, target_type, values.size(), output);
 }
 
-Status cast_encoded_variant_to_scalar(FunctionContext* context, const ColumnVariantV2& source,
+Status cast_encoded_variant_to_scalar(RuntimeState* state, const ColumnVariantV2& source,
                                       const DataTypePtr& target_type, size_t rows,
                                       ForcedNulls forced_nulls, ColumnPtr* output) {
     if (source.is_typed() || source.size() != rows ||
@@ -545,14 +537,14 @@ Status cast_encoded_variant_to_scalar(FunctionContext* context, const ColumnVari
     }
     ScalarGroups groups;
     for (size_t row = 0; row < rows; ++row) {
-        classify_value(context, groups, row, source.get_value_ref(row),
+        classify_value(state, groups, row, source.get_value_ref(row),
                        target_type->get_primitive_type(),
                        !forced_nulls.empty() && forced_nulls[row] != 0);
     }
-    return assemble_groups(context, groups, target_type, rows, output);
+    return assemble_groups(state, groups, target_type, rows, output);
 }
 
-Status cast_variant_values_to_scalar(FunctionContext* context, const ColumnVariantV2& source,
+Status cast_variant_values_to_scalar(RuntimeState* state, const ColumnVariantV2& source,
                                      const DataTypePtr& target_type, size_t rows,
                                      ForcedNulls forced_nulls, ColumnPtr* output) {
     if (source.size() != rows || (!forced_nulls.empty() && forced_nulls.size() != rows)) {
@@ -562,10 +554,9 @@ Status cast_variant_values_to_scalar(FunctionContext* context, const ColumnVaria
     visit_variant_v2_values(
             source, 0, rows, forced_nulls, [&](size_t row) { append_invalid(groups, row); },
             [&](size_t row, VariantRef value) {
-                classify_value(context, groups, row, value, target_type->get_primitive_type(),
-                               false);
+                classify_value(state, groups, row, value, target_type->get_primitive_type(), false);
             });
-    return assemble_groups(context, groups, target_type, rows, output);
+    return assemble_groups(state, groups, target_type, rows, output);
 }
 
 ColumnPtr make_all_null_column(const DataTypePtr& nested_type, size_t rows) {

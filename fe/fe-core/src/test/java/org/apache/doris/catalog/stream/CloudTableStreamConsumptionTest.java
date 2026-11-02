@@ -59,15 +59,15 @@ public class CloudTableStreamConsumptionTest extends TestWithFeService {
         FeConstants.runningUnitTest = true;
         Config.allow_replica_on_same_host = true;
         Config.enable_table_stream = true;
-        Config.enable_feature_binlog = true;
+        Config.enable_feature_changelog = true;
         createDatabase("test_cloud_stream_consumption");
         connectContext.setDatabase("test_cloud_stream_consumption");
         createTable("create table test_cloud_stream_consumption.base_table (k1 int, k2 int) "
                 + "unique key(k1) partition by range(k1) "
                 + "(partition p1 values less than (100), partition p2 values less than (200)) "
                 + "distributed by hash(k1) buckets 1 properties("
-                + "'replication_num'='1','binlog.enable'='true','binlog.format'='ROW',"
-                + "'binlog.need_historical_value'='true')");
+                + "'replication_num'='1','changelog.enable'='true',"
+                + "'changelog.need_historical_value'='true')");
         createTable("create stream test_cloud_stream_consumption.s1 "
                 + "on table test_cloud_stream_consumption.base_table "
                 + "properties('show_initial_rows'='true')");
@@ -78,8 +78,8 @@ public class CloudTableStreamConsumptionTest extends TestWithFeService {
                 + "unique key(k1) partition by range(k1) "
                 + "(partition p1 values less than (100)) "
                 + "distributed by hash(k1) buckets 1 properties("
-                + "'replication_num'='1','binlog.enable'='true','binlog.format'='ROW',"
-                + "'binlog.need_historical_value'='true')");
+                + "'replication_num'='1','changelog.enable'='true',"
+                + "'changelog.need_historical_value'='true')");
         createTable("create stream test_cloud_stream_consumption.empty_stream "
                 + "on table test_cloud_stream_consumption.empty_base_table "
                 + "properties('show_initial_rows'='true')");

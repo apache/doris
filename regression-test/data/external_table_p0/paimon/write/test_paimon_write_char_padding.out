@@ -50,6 +50,57 @@
 [ab]	2	20
 [abc]	3	60
 
+-- !orc_spark_dml --
+[ab]	2	20
+[abc]	3	60
+
+-- !orc_spark_upsert --
+[ab]	2	7
+[abc]	3	60
+[k]	1	8
+
+-- !orc_spark_one_bucket_update --
+[ab]	2	20
+[k]	1	1
+[x]	1	3
+
+-- !orc_spark_one_bucket_delete --
+[k]	1	1
+[x]	1	3
+
+-- !orc_spark_dynamic_bucket --
+[ab]	2	20
+[abc]	3	60
+
+-- !orc_spark_rowkind_delete --
+[ab]	+I	2
+
+-- !orc_spark_merge --
+[ab]	2	2
+[k]	1	10
+[q]	1	30
+
+-- !orc_spark_merge_trailing_space_fails --
+[ab]	2	2
+[k]	1	10
+[q]	1	30
+
+-- !orc_cross_partition_upsert --
+[k]	1	2	p2
+[m]	1	2	p2
+
+-- !orc_partition_key_merge --
+[k]	9	[x  ]
+
+-- !avro_level0_keys_read_back --
+[k  ]	3	2
+[q]	1	1
+
+-- !avro_level0_merge --
+[abc]	3	30
+[k  ]	3	20
+[q]	1	1
+
 -- !bucketed_route_plan --
 PhysicalConnectorTableSink
 --PhysicalDistribute[DistributionSpecGather]
@@ -65,7 +116,7 @@ PhysicalConnectorTableSink
 
 -- !orc_bucketed_route_plan --
 PhysicalConnectorTableSink
---PhysicalDistribute[DistributionSpecExternalTableSinkHashPartitioned]
+--PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
 ------PhysicalTVFRelation
 

@@ -164,12 +164,13 @@ public class IcebergPartitionUtilsTest {
         UUID value = UUID.fromString("00112233-4455-6677-8899-aabbccddeeff");
         data.set(0, value);
         Assertions.assertEquals("00112233-4455-6677-8899-aabbccddeeff",
-                IcebergPartitionUtils.getIdentityPartitionInfoMap(data, spec, table, ZoneOffset.UTC).get("key"));
+                IcebergPartitionUtils.getIdentityPartitionInfoMap(
+                        data, spec, table.schema(), ZoneOffset.UTC).get("key"));
         Assertions.assertEquals(value.toString(),
                 IcebergPartitionUtils.serializePartitionValue(Types.UUIDType.get(), value, ZoneOffset.UTC));
         data.set(0, null);
-        Assertions.assertNull(
-                IcebergPartitionUtils.getIdentityPartitionInfoMap(data, spec, table, ZoneOffset.UTC).get("key"));
+        Assertions.assertNull(IcebergPartitionUtils.getIdentityPartitionInfoMap(
+                data, spec, table.schema(), ZoneOffset.UTC).get("key"));
     }
 
     @Test
@@ -258,7 +259,8 @@ public class IcebergPartitionUtilsTest {
                 .build();
         Table table = tableWith(schema, spec);
 
-        List<String> cols = IcebergPartitionUtils.getIdentityPartitionColumns(table);
+        List<String> cols =
+                IcebergPartitionUtils.getIdentityPartitionColumns(table, table.schema());
 
         // Only the two identity columns, CASE-PRESERVED (#65094 read-path alignment), in spec order; the
         // bucket(id) transform is excluded. MUTATION: including non-identity transforms -> "id_bucket"/"id"
@@ -284,11 +286,29 @@ public class IcebergPartitionUtilsTest {
         table.updateSpec().removeField("payload").addField("int_col").commit();
         Assertions.assertEquals(2, table.specs().size());
 
-        List<String> cols = IcebergPartitionUtils.getIdentityPartitionColumns(table);
+        List<String> cols =
+                IcebergPartitionUtils.getIdentityPartitionColumns(table, table.schema());
 
         // Both specs contribute, in first-seen (spec id) order. MUTATION: iterating table.spec() instead of
         // table.specs() -> ["int_col"] -> red. MUTATION: dropping the LinkedHashSet dedup -> duplicates -> red.
         Assertions.assertEquals(Arrays.asList("payload", "int_col"), cols);
+    }
+
+    @Test
+    public void identityPartitionColumnsUseAuthoritativeScanSchemaAfterCaseRename() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "P", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("P").build();
+        Table table = tableWith(schema, spec);
+        Schema pinnedSchema = table.schema();
+
+        table.updateSchema().renameColumn("P", "p").commit();
+
+        Assertions.assertEquals(Collections.singletonList("P"),
+                IcebergPartitionUtils.getIdentityPartitionColumns(table, pinnedSchema));
+        Assertions.assertEquals(Collections.singletonList("p"),
+                IcebergPartitionUtils.getIdentityPartitionColumns(table, table.schema()));
     }
 
     // ---- toPartitionFieldKeys ----
@@ -378,7 +398,8 @@ public class IcebergPartitionUtilsTest {
         pd.set(1, 2);          // id_bucket = 2 (non-identity -> skipped)
 
         Map<String, String> info =
-                IcebergPartitionUtils.getIdentityPartitionInfoMap(pd, spec, table, ZoneOffset.UTC);
+                IcebergPartitionUtils.getIdentityPartitionInfoMap(
+                        pd, spec, table.schema(), ZoneOffset.UTC);
 
         // Only the identity column survives, key CASE-PRESERVED (#65094 read-path alignment). MUTATION:
         // emitting id_bucket -> size 2 -> red. MUTATION: re-lowercasing the key -> "p" != "P" -> red.
@@ -396,10 +417,32 @@ public class IcebergPartitionUtilsTest {
         pd.set(0, null);       // genuine null partition value
 
         Map<String, String> info =
-                IcebergPartitionUtils.getIdentityPartitionInfoMap(pd, spec, table, ZoneOffset.UTC);
+                IcebergPartitionUtils.getIdentityPartitionInfoMap(
+                        pd, spec, table.schema(), ZoneOffset.UTC);
 
         Assertions.assertTrue(info.containsKey("p"));
         Assertions.assertNull(info.get("p"));
+    }
+
+    @Test
+    public void identityPartitionInfoMapUsesAuthoritativeScanSchemaAfterCaseRename() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "P", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("P").build();
+        Table table = tableWith(schema, spec);
+        Schema pinnedSchema = table.schema();
+
+        table.updateSchema().renameColumn("P", "p").commit();
+
+        PartitionData pd = new PartitionData(spec.partitionType());
+        pd.set(0, 7);
+        Assertions.assertEquals(Collections.singletonMap("P", "7"),
+                IcebergPartitionUtils.getIdentityPartitionInfoMap(
+                        pd, spec, pinnedSchema, ZoneOffset.UTC));
+        Assertions.assertEquals(Collections.singletonMap("p", "7"),
+                IcebergPartitionUtils.getIdentityPartitionInfoMap(
+                        pd, spec, table.schema(), ZoneOffset.UTC));
     }
 
     // ---- getPartitionDataJson ----

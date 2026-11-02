@@ -45,7 +45,6 @@ CountOnIndexFastpathFacts safe_facts() {
     f.has_topn_filters = false;
     f.has_external_row_ranges = false;
     f.row_bitmap_is_full = true;
-    f.record_rowids = false;
     f.has_ann_topn = false;
     f.has_score_runtime = false;
     f.no_need_read_data_opt_enabled = true;
@@ -145,11 +144,6 @@ TEST(CountOnIndexFastpath, PrunedRowSpaceVetoes) {
 TEST(CountOnIndexFastpath, RowIdConsumersVeto) {
     {
         auto f = safe_facts();
-        f.record_rowids = true;
-        EXPECT_FALSE(count_on_index_fastpath_safe(f));
-    }
-    {
-        auto f = safe_facts();
         f.has_ann_topn = true;
         EXPECT_FALSE(count_on_index_fastpath_safe(f));
     }
@@ -195,7 +189,6 @@ CountEmitShortcutFacts safe_emit_facts() {
     f.has_remaining_common_exprs = false;
     f.has_delete_predicates = false;
     f.has_virtual_columns = false;
-    f.record_rowids = false;
     f.has_read_limit = false;
     f.read_orderby_key_reverse = false;
     f.has_condition_cache_digest = false;
@@ -254,18 +247,11 @@ TEST(CountEmitShortcut, SurvivingEvaluationRefuses) {
     }
 }
 
-// Consumers of real row ids or per-row values refuse.
-TEST(CountEmitShortcut, RowIdOrValueConsumersRefuse) {
-    {
-        auto f = safe_emit_facts();
-        f.has_virtual_columns = true;
-        EXPECT_FALSE(count_emit_shortcut_safe(f));
-    }
-    {
-        auto f = safe_emit_facts();
-        f.record_rowids = true;
-        EXPECT_FALSE(count_emit_shortcut_safe(f));
-    }
+// Virtual columns consume real row ids or per-row values.
+TEST(CountEmitShortcut, VirtualColumnsRefuse) {
+    auto f = safe_emit_facts();
+    f.has_virtual_columns = true;
+    EXPECT_FALSE(count_emit_shortcut_safe(f));
 }
 
 // Batch accounting must be a pure countdown: limits, reverse key-ordered

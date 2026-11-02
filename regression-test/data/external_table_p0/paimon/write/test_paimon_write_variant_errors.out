@@ -17,3 +17,7 @@
 2	["array",2]
 3	{"kind":"object-source"}
 
+-- !variant_field_lineage --
+1	true	{"kind":"object-n","n":2}	true
+2	false	{"kind":"object-n","n":2}	true
+

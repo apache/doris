@@ -154,7 +154,7 @@ public abstract class DorisHttpTestCase {
         // index
         MaterializedIndex baseIndex = new MaterializedIndex(testIndexId, MaterializedIndex.IndexState.NORMAL);
         TabletMeta tabletMeta = new TabletMeta(testDbId, testTableId, testPartitionId, testIndexId, testSchemaHash,
-                TStorageMedium.HDD, false /* isRowBinlog */);
+                TStorageMedium.HDD, false /* isChangelog */);
         baseIndex.addTablet(tablet, tabletMeta);
 
         tablet.addReplica(replica1);

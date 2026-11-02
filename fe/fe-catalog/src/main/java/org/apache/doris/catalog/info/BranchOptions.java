@@ -32,9 +32,11 @@ public class BranchOptions {
             Optional.empty());
 
     private final Optional<Long> snapshotId;
-    // retain time in milliseconds
+    // RETAIN time in milliseconds, for the branch reference's maximum age
     private final Optional<Long> retain;
+    // WITH SNAPSHOT RETENTION <n> SNAPSHOTS
     private final Optional<Integer> numSnapshots;
+    // WITH SNAPSHOT RETENTION <time> in milliseconds, for the maximum snapshot age
     private final Optional<Long> retention;
 
     public BranchOptions(Optional<Long> snapshotId,

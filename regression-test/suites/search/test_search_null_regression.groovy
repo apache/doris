@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_search_null_regression", "p0") {
+    // SEARCH uses two-valued matching; SQL comparisons and MATCH retain three-valued logic.
     def tableName = "search_null_regression_test"
 
     // Pin enable_segment_limit_pushdown to prevent CI flakiness from fuzzy testing.
@@ -119,7 +120,7 @@ suite("test_search_null_regression", "p0") {
     """
 
     // Regression Test 3: NULL Handling in OR Queries
-    // Verify that OR queries properly handle NULL values according to SQL semantics
+    // NULL terms are non-matches inside SEARCH; positive MATCH has the same WHERE hits
     qt_regression_3_null_or """
         SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${tableName}
         WHERE search('title:NonExistent OR content:Ronald', '{"mode":"standard"}')

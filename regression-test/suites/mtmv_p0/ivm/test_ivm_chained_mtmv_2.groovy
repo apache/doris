@@ -32,9 +32,8 @@ suite("test_ivm_chained_mtmv_2") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
         );
     """
 
@@ -51,9 +50,8 @@ suite("test_ivm_chained_mtmv_2") {
         DISTRIBUTED BY HASH(id) BUCKETS 4
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
         )
         AS SELECT id, grp, amount, note FROM base_tbl_commit_tso;
     """
@@ -124,7 +122,7 @@ suite("test_ivm_chained_mtmv_2") {
     waitingMTMVTaskFinishedByMvName("root_ivm_commit_tso")
 
     // A COMPLETE refresh of the root rebuilds it, which is a base-table change of the child that emits no
-    // row binlog: the child's own baseline is invalidated by it. A strict INCREMENTAL request then rebuilds
+    // changelog: the child's own baseline is invalidated by it. A strict INCREMENTAL request then rebuilds
     // the child -- the rebuild is the refresh's own work -- instead of being refused until an AUTO refresh
     // had run, so the task below succeeds and its error message is empty.
     sql """REFRESH MATERIALIZED VIEW child_ivm_commit_tso INCREMENTAL;"""

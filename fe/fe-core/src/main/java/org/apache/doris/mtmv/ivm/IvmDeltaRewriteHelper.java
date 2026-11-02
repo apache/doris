@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.logical.SupportChangelog;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.collect.ImmutableList;
@@ -421,6 +422,34 @@ public class IvmDeltaRewriteHelper {
         return new LogicalProject<>(projects.build(), union);
     }
 
+    Pair<Plan, Map<Slot, Slot>> preSnapshot(Plan plan, IvmDeltaRewriteState rewriteState) {
+        return rewriteSnapshot(plan, rewriteState, true);
+    }
+
+    Pair<Plan, Map<Slot, Slot>> postSnapshot(Plan plan, IvmDeltaRewriteState rewriteState) {
+        return rewriteSnapshot(plan, rewriteState, false);
+    }
+
+    private Pair<Plan, Map<Slot, Slot>> rewriteSnapshot(Plan plan, IvmDeltaRewriteState rewriteState,
+            boolean preSnapshot) {
+        Plan rewritten = plan.rewriteDownShortCircuit(node -> {
+            // IVM reads only changelog-capable scans as base scans. A stream scan is such a scan only
+            // through its supertype, and an IVM query never contains one, so leave it untouched.
+            if (!(node instanceof SupportChangelog) || node instanceof LogicalOlapTableStreamScan) {
+                return node;
+            }
+            LogicalOlapScan scan = (LogicalOlapScan) node;
+            if (rewriteState.isExcluded(scan)) {
+                // Excluded tables produce no delta, but their snapshot side still joins
+                // the delta side; apply the window so the property also saves their scan.
+                return rewriteState.restrictWindow(scan);
+            }
+            scan = rewriteState.restrictWindow(scan);
+            return remapOlapScanToPlan(scan, scan.withSnapshot(preSnapshot, rewriteState.getStream(scan)));
+        });
+        return freshPlan(rewritten);
+    }
+
     /**
      * Deep copy a plan before reusing it in another branch, and return the copied output mapping.
      */
@@ -514,7 +543,7 @@ public class IvmDeltaRewriteHelper {
 
     /**
      * Projects an incremental delta scan's output onto the slots of the scan it replaces, keeping their
-     * ExprIds so the plan above keeps binding to them. A delta scan is expanded from the row binlog, which
+     * ExprIds so the plan above keeps binding to them. A delta scan is expanded from the changelog, which
      * does not carry {@code __DORIS_ROW_LSN_COL__}: its value is the stream's lsn virtual column, which is
      * mapped back so the normalized plan's row-id, where it has one, keeps evaluating to the row lsn.
      */

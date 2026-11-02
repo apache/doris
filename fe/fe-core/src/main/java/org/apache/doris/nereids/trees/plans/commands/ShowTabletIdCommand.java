@@ -82,7 +82,7 @@ public class ShowTabletIdCommand extends ShowCommand {
         builder.addColumn(new Column("QueryHits", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("WindowAccessCount", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("LastAccessTime", ScalarType.createVarchar(30)));
-        builder.addColumn(new Column("IsRowBinlog", ScalarType.createVarchar(30)));
+        builder.addColumn(new Column("IsChangelog", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("DetailCmd", ScalarType.createVarchar(30)));
         return builder.build();
     }
@@ -112,7 +112,7 @@ public class ShowTabletIdCommand extends ShowCommand {
         Long indexId = tabletMeta != null ? tabletMeta.getIndexId() : TabletInvertedIndex.NOT_EXIST_VALUE;
         String indexName = FeConstants.null_string;
         Boolean isSync = true;
-        Boolean isRowBinlog = false;
+        Boolean isChangelog = false;
         long queryHits = 0L;
 
         int tabletIdx = -1;
@@ -164,7 +164,7 @@ public class ShowTabletIdCommand extends ShowCommand {
                     break;
                 }
                 indexName = olapTable.getIndexNameById(indexId);
-                isRowBinlog = index.isRowBinlog();
+                isChangelog = index.isChangelog();
 
                 Tablet tablet = index.getTablet(tabletId);
                 if (tablet == null) {
@@ -200,7 +200,7 @@ public class ShowTabletIdCommand extends ShowCommand {
                 partitionId.toString(), indexId.toString(),
                 isSync.toString(), String.valueOf(tabletIdx), String.valueOf(queryHits),
                 String.valueOf(accessCount), String.valueOf(lastAccessTime),
-                isRowBinlog.toString(), detailCmd));
+                isChangelog.toString(), detailCmd));
         return new ShowResultSet(getMetaData(), rows);
     }
 

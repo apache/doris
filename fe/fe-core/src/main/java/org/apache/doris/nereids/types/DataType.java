@@ -23,6 +23,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -44,6 +45,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -554,6 +556,15 @@ public abstract class DataType {
     public DataType defaultConcreteType() {
         return this;
     }
+
+    /**
+     * The non-null zero value of this type: the value a NOT NULL column of the type is
+     * initialized with when no value is supplied, and what a slot of this type holds when the
+     * plan has no producer for it (e.g. an IVM hidden slot a source scan does not carry).
+     * The expression must be deterministic, have no slot references, and produce this type.
+     * Empty for types that have no such value (state types, lambda, unsupported).
+     */
+    public abstract Optional<Expression> zeroValue();
 
     public boolean acceptsType(DataType other) {
         return sameType(other);

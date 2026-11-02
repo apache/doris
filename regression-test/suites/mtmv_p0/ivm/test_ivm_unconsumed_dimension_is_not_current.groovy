@@ -50,7 +50,7 @@ suite("test_ivm_unconsumed_dimension_is_not_current", "nonConcurrent") {
     def mvName = "ivm_unconsumed_dim_mv"
     def forcedFallbackDebugPoint = "IvmIncrRefreshManager.doRefresh.force_fallback_reason"
     // The failure the strict path stops on: a reason strict mode does not fall back for.
-    def forcedReason = "BINLOG_BROKEN"
+    def forcedReason = "CHANGELOG_BROKEN"
 
     def waitForNewTask = { previousTaskId ->
         def taskResult
@@ -102,9 +102,8 @@ suite("test_ivm_unconsumed_dimension_is_not_current", "nonConcurrent") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
         )
     """
     sql """ALTER TABLE ivm_unconsumed_dim_f ADD PARTITION p202601 VALUES [('2026-01-01'), ('2026-02-01'))"""
@@ -120,9 +119,8 @@ suite("test_ivm_unconsumed_dimension_is_not_current", "nonConcurrent") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
         )
     """
 

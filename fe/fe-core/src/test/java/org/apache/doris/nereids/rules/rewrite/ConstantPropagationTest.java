@@ -27,12 +27,14 @@ import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.MatchAny;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -43,12 +45,14 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalBlackholeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -67,6 +71,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 class ConstantPropagationTest {
 
@@ -361,7 +366,18 @@ class ConstantPropagationTest {
         LogicalAggregate rewrittenAgg1 = (LogicalAggregate) rewrittenProject1.child();
         Assertions.assertEquals(expectGroupby1, rewrittenAgg1.getGroupByExpressions());
         Assertions.assertEquals(expectAggOutput1, rewrittenAgg1.getOutputExpressions());
-        Assertions.assertEquals(expectProjection1, rewrittenProject1.getProjects());
+        // the constant outputs above the aggregate are materialized with a fresh exprId, so that one exprId
+        // does not describe both the output slot of the aggregate and the constant
+        List<NamedExpression> actualProjects1 = rewrittenProject1.getProjects();
+        Assertions.assertEquals(expectProjection1.subList(0, 5), actualProjects1.subList(0, 5));
+        // the aggregate removes these two constant grouping keys from its outputs, so the project item is the only
+        // definition of their exprIds and the ids are kept
+        assertKeptConstantProjectItem(actualProjects1.get(5), aggOutput.get(5).getExprId(),
+                new IntegerLiteral(1), aggOutput.get(5).getName());
+        Assertions.assertEquals(expectProjection1.get(6), actualProjects1.get(6));
+        assertKeptConstantProjectItem(actualProjects1.get(7), aggOutput.get(7).getExprId(),
+                new IntegerLiteral(11), aggOutput.get(7).getName());
+        Assertions.assertEquals(expectProjection1.subList(8, 10), actualProjects1.subList(8, 10));
 
         Set<Expression> conjunctions2 = ImmutableSet.of(
                 new EqualTo(studentId, new IntegerLiteral(3)),
@@ -396,7 +412,141 @@ class ConstantPropagationTest {
         LogicalAggregate rewrittenAgg2 = (LogicalAggregate) rewrittenProject2.child();
         Assertions.assertEquals(expectGroupby2, rewrittenAgg2.getGroupByExpressions());
         Assertions.assertEquals(expectAggOutput2, rewrittenAgg2.getOutputs());
-        Assertions.assertEquals(expectProjection2, rewrittenProject2.getProjects());
+        List<NamedExpression> actualProjects2 = rewrittenProject2.getProjects();
+        Assertions.assertEquals(expectProjection2.subList(0, 5), actualProjects2.subList(0, 5));
+        // all grouping keys are constant, so the aggregate keeps the first one; the constant is still materialized
+        // above it, with the exprId of the aggregate output
+        assertKeptConstantProjectItem(actualProjects2.get(5), expectAggOutput2.get(5).getExprId(),
+                new IntegerLiteral(3), null);
+        // the other keys are removed from the aggregate, their exprIds are kept
+        assertKeptConstantProjectItem(actualProjects2.get(6), aggOutput.get(6).getExprId(),
+                new IntegerLiteral(3), aggOutput.get(6).getName());
+        assertKeptConstantProjectItem(actualProjects2.get(7), aggOutput.get(7).getExprId(),
+                new IntegerLiteral(13), aggOutput.get(7).getName());
+        assertKeptConstantProjectItem(actualProjects2.get(8), aggOutput.get(8).getExprId(),
+                new IntegerLiteral(13), aggOutput.get(8).getName());
+        assertKeptConstantProjectItem(actualProjects2.get(9), aggOutput.get(9).getExprId(),
+                new IntegerLiteral(6), aggOutput.get(9).getName());
+    }
+
+    @Test
+    void testConstantGroupByKeyKeepsExprIdWhenTheAggregateDropsIt() {
+        // positive gate for the materialized view shape which this PR must not change: the constant is materialized
+        // above the aggregate with the exprId of the aggregate output, no fresh exprId and no refresh of the plan
+        // above, so the identity of the column is kept (the MV matching relies on it)
+        LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(ImmutableSet.of(
+                new EqualTo(studentId, new IntegerLiteral(5))), student);
+        List<Expression> groupby = ImmutableList.of(studentId, studentGender);
+        List<NamedExpression> aggOutput = ImmutableList.of(
+                new Alias(new Sum(studentAge), "sum_age"),
+                studentGender,
+                studentId);
+        LogicalAggregate<LogicalFilter<LogicalOlapScan>> aggregate
+                = new LogicalAggregate<>(groupby, aggOutput, filter);
+
+        LogicalProject<?> rewrittenProject = (LogicalProject<?>) executor.rewriteRoot(aggregate, jobContext);
+        NamedExpression constantItem = rewrittenProject.getProjects().get(2);
+        assertKeptConstantProjectItem(constantItem, studentId.getExprId(), new IntegerLiteral(5), studentId.getName());
+        // the aggregate dropped the key, so nothing below the project defines this column any more
+        Assertions.assertFalse(rewrittenProject.child().getOutput().stream()
+                .anyMatch(slot -> slot.getExprId().equals(studentId.getExprId())));
+    }
+
+    @Test
+    public void testProjectItemShadowingAChildSlotGetsFreshExprId() {
+        // a project item which re-defines a column which its child still outputs describes another value, so it
+        // must be materialized with a fresh exprId, and the sink above has to follow that exprId
+        LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(ImmutableSet.of(
+                new EqualTo(studentId, new IntegerLiteral(5))), student);
+        LogicalProject<LogicalFilter<LogicalOlapScan>> project = new LogicalProject<>(ImmutableList.of(
+                new Alias(studentId.getExprId(), new Add(studentId, new IntegerLiteral(0)), studentId.getName()),
+                studentGender), filter);
+        List<NamedExpression> sinkOutputExprs = ImmutableList.of(studentId, studentGender);
+        LogicalBlackholeSink<LogicalProject<LogicalFilter<LogicalOlapScan>>> sink
+                = new LogicalBlackholeSink<>(sinkOutputExprs, project);
+
+        LogicalSink<?> rewrittenSink = (LogicalSink<?>) executor.rewriteRoot(sink, jobContext);
+        // the child of the project still outputs studentId, so the constant item got a fresh exprId
+        NamedExpression constantItem = ((LogicalProject<?>) rewrittenSink.child()).getProjects().get(0);
+        Assertions.assertEquals(new IntegerLiteral(5), ((Alias) constantItem).child());
+        Assertions.assertNotEquals(studentId.getExprId(), constantItem.getExprId());
+        // and the sink follows it, otherwise it would reference a slot which its child no longer outputs
+        Assertions.assertEquals(constantItem.getExprId(), rewrittenSink.getOutputExprs().get(0).getExprId());
+        List<ExprId> childOutputIds = rewrittenSink.child().getOutput().stream()
+                .map(Slot::getExprId).collect(Collectors.toList());
+        for (NamedExpression outputExpr : rewrittenSink.getOutputExprs()) {
+            Assertions.assertTrue(childOutputIds.contains(outputExpr.getExprId()),
+                    "the sink expects " + outputExpr + " which its child does not output: "
+                            + rewrittenSink.child().getOutput());
+        }
+    }
+
+    @Test
+    public void testBlackholeSinkKeepsTheOutputExprIds() {
+        // `warm up select` is planned with a blackhole sink which takes its output expressions from its child, so
+        // the sink has to follow the fresh exprIds of the constants materialized below it, otherwise it expects a
+        // slot which the rewritten child does not output any more
+        LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(ImmutableSet.of(
+                new EqualTo(studentId, new IntegerLiteral(5)),
+                new EqualTo(studentGender, new StringLiteral("F"))), student);
+        // all grouping keys are constant, so the aggregate keeps the first one (and drops the other), the constant
+        // above the kept key shadows it and must get a fresh exprId
+        List<Expression> groupby = ImmutableList.of(studentId, studentGender);
+        List<NamedExpression> aggOutput = ImmutableList.of(
+                new Alias(new Sum(studentAge), "sum_age"),
+                studentId,
+                studentGender);
+        LogicalAggregate<LogicalFilter<LogicalOlapScan>> aggregate
+                = new LogicalAggregate<>(groupby, aggOutput, filter);
+        List<NamedExpression> sinkOutputExprs = ImmutableList.copyOf(aggregate.getOutput());
+        LogicalBlackholeSink<LogicalAggregate<LogicalFilter<LogicalOlapScan>>> sink
+                = new LogicalBlackholeSink<>(sinkOutputExprs, aggregate);
+
+        LogicalSink<?> rewrittenSink = (LogicalSink<?>) executor.rewriteRoot(sink, jobContext);
+        List<ExprId> childOutputIds = rewrittenSink.child().getOutput().stream()
+                .map(Slot::getExprId).collect(java.util.stream.Collectors.toList());
+        for (NamedExpression outputExpr : rewrittenSink.getOutputExprs()) {
+            Assertions.assertTrue(childOutputIds.contains(outputExpr.getExprId()),
+                    "the sink expects " + outputExpr + " which its child does not output: "
+                            + rewrittenSink.child().getOutput());
+        }
+        // the constant column of the sink is refreshed to the fresh exprId of the constant project
+        // constant propagation keeps the exprIds here, the sink still references the output of its child
+        Assertions.assertEquals(studentId.getExprId(),
+                rewrittenSink.getOutputExprs().get(1).getExprId());
+    }
+
+    /**
+     * The aggregate still outputs the replaced column, so the constant project item would shadow it and must be
+     * materialized with a fresh exprId.
+     */
+    private static void assertFreshConstantProjectItem(NamedExpression actual, ExprId replacedExprId,
+            Expression expectedExpr, String expectedName) {
+        Alias alias = assertConstantProjectItem(actual, expectedExpr, expectedName);
+        Assertions.assertNotEquals(replacedExprId, alias.getExprId(),
+                "the constant project item must not reuse the exprId of an output which the aggregate still has");
+    }
+
+    /**
+     * The aggregate removed the constant grouping key from its outputs, so the project item is the only definition
+     * of the column: its exprId is kept, rules and consumers such as the materialized view matching rely on it.
+     */
+    private static void assertKeptConstantProjectItem(NamedExpression actual, ExprId replacedExprId,
+            Expression expectedExpr, String expectedName) {
+        Alias alias = assertConstantProjectItem(actual, expectedExpr, expectedName);
+        Assertions.assertEquals(replacedExprId, alias.getExprId(),
+                "the constant project item is the only definition, it must keep the exprId of the column");
+    }
+
+    private static Alias assertConstantProjectItem(NamedExpression actual, Expression expectedExpr,
+            String expectedName) {
+        Assertions.assertTrue(actual instanceof Alias, actual.toString());
+        Alias alias = (Alias) actual;
+        Assertions.assertEquals(expectedExpr, alias.child());
+        if (expectedName != null) {
+            Assertions.assertEquals(expectedName, alias.getName());
+        }
+        return alias;
     }
 
     @Test

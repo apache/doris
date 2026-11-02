@@ -523,12 +523,18 @@ public:
     int32_t version_col_idx() const { return _version_col_idx; }
     bool has_skip_bitmap_col() const { return _skip_bitmap_col_idx != -1; }
     int32_t skip_bitmap_col_idx() const { return _skip_bitmap_col_idx; }
-    bool is_tso_enabled() const { return _commit_tso_col_idx != -1 || _binlog_tso_col_idx != -1; }
+    bool is_tso_enabled() const {
+        return _commit_tso_col_idx != -1 || _changelog_tso_col_idx != -1;
+    }
     int32_t commit_tso_col_idx() const { return _commit_tso_col_idx; }
     int32_t row_lsn_col_idx() const { return _row_lsn_col_idx; }
-    int32_t binlog_tso_col_idx() const { return _binlog_tso_col_idx; }
-    int32_t binlog_lsn_col_idx() const { return _binlog_lsn_col_idx; }
-    int32_t binlog_op_col_idx() const { return _binlog_op_col_idx; }
+    bool has_ttl_col() const { return _ttl_col_idx != -1; }
+    int32_t ttl_col_idx() const { return _ttl_col_idx; }
+    int64_t row_ttl_duration_us() const { return _row_ttl_duration_us; }
+    int32_t row_ttl_time_zone_offset_seconds() const { return _row_ttl_time_zone_offset_seconds; }
+    int32_t changelog_tso_col_idx() const { return _changelog_tso_col_idx; }
+    int32_t changelog_lsn_col_idx() const { return _changelog_lsn_col_idx; }
+    int32_t changelog_op_col_idx() const { return _changelog_op_col_idx; }
     segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
     void set_row_store_page_size(long page_size) { _row_store_page_size = page_size; }
     long row_store_page_size() const { return _row_store_page_size; }
@@ -801,9 +807,12 @@ private:
     int32_t _skip_bitmap_col_idx = -1;
     int32_t _commit_tso_col_idx = -1;
     int32_t _row_lsn_col_idx = -1;
-    int32_t _binlog_tso_col_idx = -1;
-    int32_t _binlog_lsn_col_idx = -1;
-    int32_t _binlog_op_col_idx = -1;
+    int32_t _ttl_col_idx = -1;
+    int64_t _row_ttl_duration_us = -1;
+    int32_t _row_ttl_time_zone_offset_seconds {0};
+    int32_t _changelog_tso_col_idx = -1;
+    int32_t _changelog_lsn_col_idx = -1;
+    int32_t _changelog_op_col_idx = -1;
     int32_t _schema_version = -1;
     int64_t _table_id = -1;
     int64_t _db_id = -1;

@@ -263,8 +263,8 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
         wrequest.write_file_cache = params.write_file_cache();
         wrequest.storage_vault_id = params.storage_vault_id();
         wrequest.enable_table_memtable_backpressure = params.is_adaptive_random_bucket();
-        if (tablet.has_binlog_tablet_id()) {
-            wrequest.binlog_tablet_id = tablet.binlog_tablet_id();
+        if (tablet.has_changelog_tablet_id()) {
+            wrequest.changelog_tablet_id = tablet.changelog_tablet_id();
         }
 
         auto delta_writer = create_delta_writer(wrequest);
@@ -320,24 +320,24 @@ std::unique_ptr<BaseDeltaWriter> TabletsChannel::create_delta_writer(const Write
     DCHECK(request.write_req_type == WriteRequestType::DATA);
     DCHECK(request.table_schema_param != nullptr);
 
-    // whether to write binlog is decided by binlog_tablet_id: it is set only when this backend
-    // also owns the binlog tablet that is paired with the base tablet.
-    if (request.binlog_tablet_id <= 0) {
+    // whether to write changelog is decided by changelog_tablet_id: it is set only when this
+    // backend also owns the changelog tablet that is paired with the base tablet.
+    if (request.changelog_tablet_id <= 0) {
         return std::make_unique<DeltaWriter>(_engine, request, _profile, _load_id);
     }
 
-    int64_t row_binlog_index_id = 0;
+    int64_t changelog_index_id = 0;
     for (const auto* index_schema : request.table_schema_param->indexes()) {
         if (index_schema->index_id == request.index_id) {
-            row_binlog_index_id = index_schema->row_binlog_id;
+            changelog_index_id = index_schema->changelog_index_id;
             break;
         }
     }
-    DCHECK(row_binlog_index_id > 0);
+    DCHECK(changelog_index_id > 0);
 
-    const auto* row_binlog_index_schema =
-            request.table_schema_param->row_binlog_index_schema(row_binlog_index_id);
-    DCHECK(row_binlog_index_schema != nullptr);
+    const auto* changelog_index_schema =
+            request.table_schema_param->changelog_index_schema(changelog_index_id);
+    DCHECK(changelog_index_schema != nullptr);
 
     // group_build_req is only for the group wrapper itself. It provides the group semantics and
     // metadata used by BaseDeltaWriter/GroupRowsetBuilder to expose tablet_id, txn_id,
@@ -349,13 +349,13 @@ std::unique_ptr<BaseDeltaWriter> TabletsChannel::create_delta_writer(const Write
     WriteRequest sub_data_req = request;
     sub_data_req.write_req_type = WriteRequestType::DATA;
 
-    WriteRequest sub_row_binlog_req = request;
-    sub_row_binlog_req.write_req_type = WriteRequestType::ROW_BINLOG;
-    sub_row_binlog_req.tablet_id = request.binlog_tablet_id;
-    sub_row_binlog_req.index_id = row_binlog_index_schema->index_id;
-    sub_row_binlog_req.schema_hash = row_binlog_index_schema->schema_hash;
+    WriteRequest sub_changelog_req = request;
+    sub_changelog_req.write_req_type = WriteRequestType::CHANGELOG;
+    sub_changelog_req.tablet_id = request.changelog_tablet_id;
+    sub_changelog_req.index_id = changelog_index_schema->index_id;
+    sub_changelog_req.schema_hash = changelog_index_schema->schema_hash;
 
-    return std::make_unique<DeltaWriter>(_engine, group_build_req, sub_data_req, sub_row_binlog_req,
+    return std::make_unique<DeltaWriter>(_engine, group_build_req, sub_data_req, sub_changelog_req,
                                          _profile, _load_id);
 }
 
@@ -531,13 +531,13 @@ void TabletsChannel::_commit_txn(DeltaWriter* writer, PTabletWriterAddBlockResul
         tablet_info->set_schema_hash(0);
         tablet_info->set_received_rows(writer->total_received_rows());
         tablet_info->set_num_rows_filtered(writer->num_rows_filtered());
-        // report the row binlog tablet as a normal tablet so FE advances its version.
-        if (writer->binlog_tablet_id() > 0) {
-            PTabletInfo* binlog_tablet_info = tablet_vec->Add();
-            binlog_tablet_info->set_tablet_id(writer->binlog_tablet_id());
-            binlog_tablet_info->set_schema_hash(0);
-            binlog_tablet_info->set_received_rows(writer->total_received_rows());
-            binlog_tablet_info->set_num_rows_filtered(writer->num_rows_filtered());
+        // report the changelog tablet as a normal tablet so FE advances its version.
+        if (writer->changelog_tablet_id() > 0) {
+            PTabletInfo* changelog_tablet_info = tablet_vec->Add();
+            changelog_tablet_info->set_tablet_id(writer->changelog_tablet_id());
+            changelog_tablet_info->set_schema_hash(0);
+            changelog_tablet_info->set_received_rows(writer->total_received_rows());
+            changelog_tablet_info->set_num_rows_filtered(writer->num_rows_filtered());
         }
         _total_received_rows += writer->total_received_rows();
         _num_rows_filtered += writer->num_rows_filtered();
@@ -638,8 +638,8 @@ Status BaseTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& req
                 .enable_table_memtable_backpressure = request.is_adaptive_random_bucket(),
                 .load_cancel_status = _load_cancel_status,
         };
-        if (tablet.has_binlog_tablet_id()) {
-            wrequest.binlog_tablet_id = tablet.binlog_tablet_id();
+        if (tablet.has_changelog_tablet_id()) {
+            wrequest.changelog_tablet_id = tablet.changelog_tablet_id();
         }
 
         auto delta_writer = create_delta_writer(wrequest);

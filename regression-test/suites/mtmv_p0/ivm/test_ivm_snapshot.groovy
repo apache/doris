@@ -31,10 +31,9 @@ suite("test_ivm_snapshot") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "changelog.enable" = "true",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.need_historical_value" = "true"
+            "changelog.need_historical_value" = "true"
         );
     """
 
@@ -114,8 +113,7 @@ suite("test_ivm_snapshot") {
         DISTRIBUTED BY HASH(event_id) BUCKETS 2
         PROPERTIES (
             'replication_num' = '1',
-            'binlog.enable' = 'true',
-            'binlog.format' = 'ROW'
+            'changelog.enable' = 'true'
         );
     """
 

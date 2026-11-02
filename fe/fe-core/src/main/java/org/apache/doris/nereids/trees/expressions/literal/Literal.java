@@ -177,10 +177,15 @@ public abstract class Literal extends Expression implements LeafExpression {
      * Cast with checking strict mode is enabled or not.
      */
     public Expression checkedCastWithStrictChecking(DataType targetType) {
+        return checkedCastWithStrictChecking(targetType, SessionVariable.enableStrictCast());
+    }
+
+    /** Cast a nested element using the enclosing cast's effective strictness. */
+    public Expression checkedCastWithStrictChecking(DataType targetType, boolean strictCast) {
         try {
-            return checkedCastTo(targetType);
+            return checkedCastTo(targetType, strictCast);
         } catch (CastException c) {
-            if (SessionVariable.enableStrictCast()) {
+            if (strictCast) {
                 throw c;
             } else {
                 return new NullLiteral(dataType);
@@ -193,6 +198,11 @@ public abstract class Literal extends Expression implements LeafExpression {
      */
     @Override
     public Expression checkedCastTo(DataType targetType) throws AnalysisException {
+        return checkedCastTo(targetType, SessionVariable.enableStrictCast());
+    }
+
+    /** Preserve effective strictness through literal container conversions. */
+    public Expression checkedCastTo(DataType targetType, boolean strictCast) throws AnalysisException {
         if (this instanceof NullLiteral) {
             return new NullLiteral(targetType);
         }
@@ -202,7 +212,7 @@ public abstract class Literal extends Expression implements LeafExpression {
                 throw new CastException(String.format("%s can't cast to %s, overflow.", desc, targetType));
             }
         }
-        return uncheckedCastTo(targetType);
+        return uncheckedCastTo(targetType, strictCast);
     }
 
     protected boolean numericOverflow(String desc, DataType targetType) {
@@ -258,6 +268,10 @@ public abstract class Literal extends Expression implements LeafExpression {
         } else {
             return new DecimalV3Literal((DecimalV3Type) targetType, result);
         }
+    }
+
+    protected Expression uncheckedCastTo(DataType targetType, boolean strictCast) throws AnalysisException {
+        return uncheckedCastTo(targetType);
     }
 
     @Override

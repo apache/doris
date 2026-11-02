@@ -86,7 +86,7 @@ public class ReplaceTableOp extends AlterTableOp {
     }
 
     @Override
-    public boolean allowOpRowBinlog() {
+    public boolean allowOnChangelogTable() {
         return true;
     }
 

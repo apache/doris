@@ -53,6 +53,10 @@ inline constexpr std::array<float, 256> kByteNormLengths = [] {
     return lengths;
 }();
 
+// How many of the ascending `docs` the cursor lists: leaping over the postings between them when
+// the docs are much rarer than the postings, otherwise decoding every posting once.
+Status count_listed_docs(PostingsCursor& cursor, std::span<const uint32_t> docs, uint64_t* out);
+
 // One field's index as the engine reads it: postings by term, the dictionary by pattern and
 // the documents still alive. Every source uses the Doris segment's document IDs.
 class IndexSource {
@@ -92,6 +96,10 @@ public:
         return doc_freq(term, out);
     }
 
+    // How many of the ascending `docs` hold a term, the term read as scoring_doc_freq reads it.
+    virtual Status scoring_doc_freq_among(std::string_view term, std::span<const uint32_t> docs,
+                                          uint64_t* out);
+
     // The terms `pattern` matches, in dictionary order, at most `max_expansions` of them when
     // that is positive.
     virtual Status expand_terms(TermPattern& pattern, int32_t max_expansions,
@@ -107,6 +115,12 @@ public:
         out->assign(docs.size(), 1);
         return Status::OK();
     }
+
+    // The sum of the lengths norm_lengths() gives the encoded norms of every document.
+    virtual Status sum_norm_lengths(uint64_t* out);
+
+    // The sum of the lengths norm_lengths() gives the encoded norms of the ascending `docs`.
+    virtual Status sum_norm_lengths_of(std::span<const uint32_t> docs, uint64_t* out);
 
     // Whether the source reads in batched rounds: a leaf then opens all its terms at once and
     // the engine lists them term at a time, materializing what it needs, instead of driving

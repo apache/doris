@@ -556,7 +556,7 @@ enum TTableType {
     JDBC_TABLE = 10,
     TEST_EXTERNAL_TABLE = 11,
     MAX_COMPUTE_TABLE = 12,
-    LAKESOUL_TABLE = 13,
+    LAKESOUL_TABLE = 13, // Deprecated: reading this format is no longer supported.
     TRINO_CONNECTOR_TABLE = 14,
     DICTIONARY_TABLE = 15,
     REMOTE_DORIS_TABLE = 16
@@ -671,6 +671,7 @@ enum TMetadataType {
   // Also assigned on branch-4.1 for Lance physical index entries inspection.
   // Keep the value aligned across maintained branches. Do not renumber.
   LANCE_INDEX_ENTRIES = 15,
+  INDEX_DISK_USAGE = 16,
 }
 
 // deprecated

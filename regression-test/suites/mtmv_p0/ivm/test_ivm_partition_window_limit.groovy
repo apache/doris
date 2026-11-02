@@ -37,8 +37,7 @@ suite("test_ivm_partition_window_limit") {
             DISTRIBUTED BY HASH(k1) BUCKETS 2
             PROPERTIES (
                 "replication_num" = "1",
-                "binlog.enable" = "true",
-                "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+                "changelog.enable" = "true", "changelog.need_historical_value" = "true",
                 "enable_unique_key_merge_on_write" = "true"
             );
         """
@@ -97,7 +96,7 @@ suite("test_ivm_partition_window_limit") {
 
     // Remove the window: a strict INCREMENTAL would now be rejected (baseline rebuild
     // pending, see test_ivm_partition_window_remove), so the AUTO refresh rebuilds a
-    // complete baseline and p1's accumulated binlog is replayed (11 -> 12).
+    // complete baseline and p1's accumulated changelog is replayed (11 -> 12).
     sql """ALTER MATERIALIZED VIEW test_ivm_pw_mv SET ("ivm_partition_window_limit" = "");"""
     sql """INSERT INTO test_ivm_pw_s VALUES ("2026-01-01", 1, 12);"""
     sql """REFRESH MATERIALIZED VIEW test_ivm_pw_mv AUTO"""

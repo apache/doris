@@ -41,9 +41,13 @@ static const std::string SKIP_BITMAP_COL = "__DORIS_SKIP_BITMAP_COL__";
 static const std::string SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
 static const std::string COMMIT_TSO_COL = "__DORIS_COMMIT_TSO_COL__";
 static const std::string ROW_LSN_COL = "__DORIS_ROW_LSN_COL__";
-static const std::string BINLOG_TSO_COL = "__DORIS_BINLOG_TSO__";
-static const std::string BINLOG_LSN_COL = "__DORIS_BINLOG_LSN__";
-static const std::string BINLOG_OP_COL = "__DORIS_BINLOG_OP__";
+static const std::string TTL_COL = "__DORIS_TTL_COL__";
+// ATTN(changelog-rename): formerly "__DORIS_BINLOG_TSO__"
+static const std::string CHANGELOG_TSO_COL = "__DORIS_CHANGELOG_TSO__";
+// ATTN(changelog-rename): formerly "__DORIS_BINLOG_LSN__"
+static const std::string CHANGELOG_LSN_COL = "__DORIS_CHANGELOG_LSN__";
+// ATTN(changelog-rename): formerly "__DORIS_BINLOG_OP__"
+static const std::string CHANGELOG_OP_COL = "__DORIS_CHANGELOG_OP__";
 
 // 用来加速运算
 const static int32_t g_power_table[] = {1,      10,      100,      1000,      10000,

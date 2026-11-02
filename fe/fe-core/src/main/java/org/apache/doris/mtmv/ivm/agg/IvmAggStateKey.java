@@ -21,5 +21,7 @@ package org.apache.doris.mtmv.ivm.agg;
 public enum IvmAggStateKey {
     COUNT,
     SUM,
-    BITMAP_UNION
+    BITMAP_UNION,
+    MIN_COUNT,
+    MAX_COUNT
 }

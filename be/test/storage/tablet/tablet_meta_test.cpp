@@ -83,11 +83,18 @@ TEST(TabletMetaTest, SaveAsBufferAndParse) {
     }
 }
 
-TEST(TabletMetaTest, RowBinlogTtlMetadataRoundTrip) {
+TEST(TabletMetaTest, PreserveLz4hcCompressionType) {
+    TabletMeta tablet_meta(1, 2, 3, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
+                           TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4HC);
+
+    EXPECT_EQ(segment_v2::LZ4HC, tablet_meta.tablet_schema()->compression_type());
+}
+
+TEST(TabletMetaTest, ChangelogTtlMetadataRoundTrip) {
     TabletMeta tablet_meta(1, 2, 3, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
                            TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
-    tablet_meta.set_tablet_role(TabletRolePB::TABLET_ROLE_ROW_BINLOG);
-    BinlogConfig binlog_config(true, 60, 1024, 10, BinlogFormatPB::ROW, false);
+    tablet_meta.set_tablet_role(TabletRolePB::TABLET_ROLE_CHANGELOG);
+    BinlogConfig binlog_config(true, 60, 1024, 10, BinlogFormatPB::CHANGELOG, false);
     tablet_meta.set_binlog_config(binlog_config);
 
     TabletMetaPB tablet_meta_pb;
@@ -97,7 +104,7 @@ TEST(TabletMetaTest, RowBinlogTtlMetadataRoundTrip) {
 
     TabletMeta restored;
     restored.init_from_pb(tablet_meta_pb);
-    EXPECT_TRUE(restored.binlog_config().has_row_ttl());
+    EXPECT_TRUE(restored.binlog_config().has_changelog_ttl());
     EXPECT_EQ(60, restored.binlog_config().ttl_seconds());
 }
 
@@ -131,7 +138,7 @@ TEST(TabletMetaTest, TopLevelInvertedIndexFormatOverridesSharedSchemaFormat) {
 TEST(TabletMetaTest, DisableAutoCompactionDoesNotMutateSharedSchema) {
     TabletMetaPB pb;
     pb.set_tablet_id(101);
-    pb.set_tablet_role(TabletRolePB::TABLET_ROLE_ROW_BINLOG);
+    pb.set_tablet_role(TabletRolePB::TABLET_ROLE_CHANGELOG);
     pb.mutable_schema()->set_schema_version(8123);
     pb.mutable_schema()->set_disable_auto_compaction(true);
 

@@ -21,13 +21,36 @@ jobs:
       pull-requests: read
       statuses: write
     steps:
+      # Keep the trusted helper outside the PR checkout; capture the first API failure too.
+      - name: Checkout trusted GitHub API diagnostics
+        timeout-minutes: 2
+        uses: actions/checkout@v4
+        with:
+          # PR target events already provide a trusted default-branch ref/SHA.
+          # Passing that SHA explicitly after merge trips checkout's fork guard
+          # when it equals the PR merge commit. Other callers stay SHA-pinned.
+          ref: ${{ github.event_name != 'pull_request_target' && (github.workflow_sha || github.sha) || '' }}
+          persist-credentials: false
+          path: .review-api-source
+          sparse-checkout: .github/scripts/review_github_api.py
+          sparse-checkout-cone-mode: false
+
+      - name: Install GitHub API diagnostics
+        timeout-minutes: 1
+        run: |
+          install -m 700 .review-api-source/.github/scripts/review_github_api.py "$RUNNER_TEMP/review_github_api.py"
+          gh --version
+          printf 'REVIEW_GH_VERSION=%s\n' "$(gh --version | sed -n '1p')" >> "$GITHUB_ENV"
+          printf 'REVIEW_GH_HELPER=%s\n' "$RUNNER_TEMP/review_github_api.py" >> "$GITHUB_ENV"
+          printf 'REVIEW_GITHUB_DIAGNOSTICS_DIR=%s\n' "$RUNNER_TEMP/review-github-diagnostics" >> "$GITHUB_ENV"
+
       - name: Mark aggregate status as pending
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ inputs.head_sha }}
           REPO: ${{ github.repository }}
         run: |
-          gh api "repos/${REPO}/statuses/${HEAD_SHA}" \
+          python3 "$REVIEW_GH_HELPER" api "repos/${REPO}/statuses/${HEAD_SHA}" \
             -X POST \
             -f state='pending' \
             -f context='code-review' \
@@ -54,12 +77,12 @@ jobs:
           status_pages="$RUNNER_TEMP/code-review-status-pages.json"
           statuses="$RUNNER_TEMP/code-review-statuses.json"
 
-          gh api --paginate --slurp \
+          python3 "$REVIEW_GH_HELPER" api --paginate --slurp \
             -H 'Accept: application/vnd.github+json' \
             "repos/${REPO}/pulls?state=open&per_page=100" > "$pull_pages"
           jq '[.[][]]' "$pull_pages" > "$pulls"
 
-          gh api --paginate --slurp \
+          python3 "$REVIEW_GH_HELPER" api --paginate --slurp \
             -H 'Accept: application/vnd.github+json' \
             "repos/${REPO}/commits/${HEAD_SHA}/statuses?per_page=100" > "$status_pages"
           jq '[.[][]]' "$status_pages" > "$statuses"
@@ -77,9 +100,19 @@ jobs:
           REPO: ${{ github.repository }}
           STATE: ${{ steps.resolution.outputs.state }}
         run: |
-          gh api "repos/${REPO}/statuses/${HEAD_SHA}" \
+          python3 "$REVIEW_GH_HELPER" api "repos/${REPO}/statuses/${HEAD_SHA}" \
             -X POST \
             -f state="$STATE" \
             -f context='code-review' \
             -f description="$DESCRIPTION" \
             -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+      - name: Preserve GitHub API failure diagnostics
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-api-errors-aggregate-${{ inputs.head_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/review-github-diagnostics/*.json
+          if-no-files-found: ignore

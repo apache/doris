@@ -34,6 +34,8 @@ class WriteBatch;
 
 namespace doris {
 
+enum class ColumnFamilyIndex;
+
 class OlapMeta final {
 public:
     struct BatchEntry {
@@ -49,28 +51,30 @@ public:
 
     Status init();
 
-    Status get(const int column_family_index, const std::string& key, std::string* value);
+    Status get(ColumnFamilyIndex column_family_index, const std::string& key, std::string* value);
 
-    bool key_may_exist(const int column_family_index, const std::string& key, std::string* value);
+    bool key_may_exist(ColumnFamilyIndex column_family_index, const std::string& key,
+                       std::string* value);
 
-    Status put(const int column_family_index, const std::string& key, const std::string& value);
-    Status put(const int column_family_index, const std::vector<BatchEntry>& entries);
+    Status put(ColumnFamilyIndex column_family_index, const std::string& key,
+               const std::string& value);
+    Status put(ColumnFamilyIndex column_family_index, const std::vector<BatchEntry>& entries);
     Status put(rocksdb::WriteBatch* batch);
 
-    Status remove(const int column_family_index, const std::string& key);
-    Status remove(const int column_family_index, const std::vector<std::string>& keys);
+    Status remove(ColumnFamilyIndex column_family_index, const std::string& key);
+    Status remove(ColumnFamilyIndex column_family_index, const std::vector<std::string>& keys);
 
-    Status iterate(const int column_family_index, std::string_view prefix,
+    Status iterate(ColumnFamilyIndex column_family_index, std::string_view prefix,
                    std::function<bool(std::string_view, std::string_view)> const& func);
 
-    Status iterate(const int column_family_index, std::string_view seek_key,
+    Status iterate(ColumnFamilyIndex column_family_index, std::string_view seek_key,
                    std::string_view prefix,
                    std::function<bool(std::string_view, std::string_view)> const& func);
 
     [[nodiscard]] std::string get_root_path() const { return _root_path; }
 
-    rocksdb::ColumnFamilyHandle* get_handle(const int column_family_index) {
-        return _handles[column_family_index].get();
+    rocksdb::ColumnFamilyHandle* get_handle(ColumnFamilyIndex column_family_index) {
+        return _handles[static_cast<size_t>(column_family_index)].get();
     }
 
 private:

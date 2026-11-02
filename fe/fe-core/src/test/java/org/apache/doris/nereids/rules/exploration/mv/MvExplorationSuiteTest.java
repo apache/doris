@@ -973,6 +973,61 @@ public class MvExplorationSuiteTest extends SqlTestBase {
         Assertions.assertTrue(compensatePredicates.isInvalid());
     }
 
+    // -------------------------------------------------------------------------
+    // scalar aggregate over a grouped view
+    // -------------------------------------------------------------------------
+
+    @Test
+    void testAggregateOutputRecomputedForScalarQueryOverGroupedView() {
+        connectContext.getSessionVariable().setDisableNereidsRules(
+                "OLAP_SCAN_PARTITION_PRUNE"
+                        + ",PRUNE_EMPTY_PARTITION"
+                        + ",ELIMINATE_GROUP_BY_KEY_BY_UNIFORM"
+                        + ",ELIMINATE_CONST_JOIN_CONDITION"
+                        + ",CONSTANT_PROPAGATION"
+        );
+        TestAggregateMaterializedViewRule rule = new TestAggregateMaterializedViewRule();
+        StructInfo groupedView = buildStructInfo("select id, count(*) as c from T1 group by id");
+
+        // The query has no grouping, so the roll up aggregates the values the view stored again.
+        Assertions.assertTrue(rule.aggregateOutputIsRecomputedForTest(
+                buildStructInfo("select count(*) from T1"), groupedView));
+
+        // The same grouping reads those values as they are stored.
+        Assertions.assertFalse(rule.aggregateOutputIsRecomputedForTest(
+                buildStructInfo("select id, count(*) as c from T1 group by id"), groupedView));
+
+        // A query without an aggregate has no aggregate output to compute again.
+        Assertions.assertFalse(rule.aggregateOutputIsRecomputedForTest(
+                buildStructInfo("select id from T1"), groupedView));
+
+        // A scalar view stores the single value which the scalar query reads.
+        Assertions.assertFalse(rule.aggregateOutputIsRecomputedForTest(
+                buildStructInfo("select count(*) from T1"),
+                buildStructInfo("select count(*) as c from T1")));
+    }
+
+    private StructInfo buildStructInfo(String sql) {
+        CascadesContext cascadesContext = createCascadesContext(sql, connectContext);
+        Plan plan = PlanChecker.from(cascadesContext)
+                .analyze()
+                .rewrite()
+                .getPlan().child(0);
+        return StructInfo.of(plan, plan, cascadesContext);
+    }
+
+    private static class TestAggregateMaterializedViewRule extends AbstractMaterializedViewAggregateRule {
+        @Override
+        public List<Rule> buildRules() {
+            return ImmutableList.of();
+        }
+
+        private boolean aggregateOutputIsRecomputedForTest(StructInfo queryStructInfo,
+                StructInfo viewStructInfo) {
+            return aggregateOutputIsRecomputed(queryStructInfo, viewStructInfo);
+        }
+    }
+
     private static boolean isNotNullOnSlot(Expression expression, String slotName) {
         if (!(expression instanceof Not) || ((Not) expression).isGeneratedIsNotNull()
                 || !(((Not) expression).child() instanceof IsNull)) {

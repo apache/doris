@@ -26,6 +26,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
@@ -52,6 +53,19 @@ public class BackupCommandTest extends TestWithFeService {
         connectContext = createDefaultCtx();
         env = Env.getCurrentEnv();
         accessControllerManager = env.getAccessManager();
+    }
+
+    @Test
+    public void testAnalyzePropertiesWithTimeout() {
+        BackupCommand command = (BackupCommand) new NereidsParser().parseSingle(
+                "BACKUP SNAPSHOT test_db.test_snapshot TO test_repo "
+                        + "PROPERTIES (\"timeout\" = \"3600\", \"type\" = \"full\", \"content\" = \"metadata_only\")");
+
+        Deencapsulation.invoke(command, "analyzeProperties");
+
+        Assertions.assertEquals(3600L * 1000, command.getTimeoutMs());
+        Assertions.assertEquals(BackupCommand.BackupType.FULL, command.getBackupType());
+        Assertions.assertEquals(BackupCommand.BackupContent.METADATA_ONLY, command.getContent());
     }
 
     @Test

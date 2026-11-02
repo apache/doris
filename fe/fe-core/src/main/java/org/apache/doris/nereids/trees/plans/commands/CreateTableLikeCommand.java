@@ -86,6 +86,9 @@ public class CreateTableLikeCommand extends Command implements ForwardWithSync {
             table.readLock();
             try {
                 if (table.isManagedTable()) {
+                    if (((OlapTable) table).isLegacyChangelog()) {
+                        throw new DdlException(((OlapTable) table).getLegacyChangelogMessage());
+                    }
                     if (!CollectionUtils.isEmpty(createTableLikeInfo.getRollupNames())) {
                         OlapTable olapTable = (OlapTable) table;
                         for (String rollupIndexName : createTableLikeInfo.getRollupNames()) {

@@ -40,8 +40,7 @@ suite("test_ivm_agg_5") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -107,7 +106,7 @@ suite("test_ivm_agg_5") {
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_bare_grpby_mv")
     // Physical rows now: k1=1('a',0), k1=2('b',0), k1=3('a',1), k1=4('b',0),
     //                    k1=5('c',0), k1=6('c',0), k1=7('a',0)
-    // COMPLETE ignores binlog_op → 'a': cnt=3, 'b': cnt=2, 'c': cnt=2
+    // COMPLETE ignores changelog_op → 'a': cnt=3, 'b': cnt=2, 'c': cnt=2
 
     // Delete both 'b' rows in a single batch: k1=2 and k1=4, both op=1.
     // delta for 'b': k1=2(-1) + k1=4(-1) = -2. new_cnt = 2+(-2) = 0 → DELETE_SIGN=1 → gone!
@@ -141,8 +140,7 @@ suite("test_ivm_agg_5") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """

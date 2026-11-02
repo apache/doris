@@ -20,9 +20,13 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <cstring>
 #include <memory>
+#include <optional>
+#include <string>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "core/assert_cast.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
@@ -48,6 +52,73 @@
 
 namespace doris {
 using namespace ErrorCode;
+
+namespace {
+
+// Generates `num_rows` ordered rows in the layout of `schema`: row r holds r + j in column j, so
+// (int, int) gives (0, 1), (1, 2), (2, 3), ... It hands every row out in its first next_batch()
+// and ignores the StorageReadOptions; the tests below rely on both.
+class AutoIncrementUtIterator : public RowwiseIterator {
+public:
+    AutoIncrementUtIterator(const ReadSchema& schema, size_t num_rows)
+            : _schema(schema), _num_rows(num_rows) {}
+    ~AutoIncrementUtIterator() override = default;
+
+    Status init(const StorageReadOptions& opts) override { return Status::OK(); }
+
+    Status next_batch(Block* block) override {
+        if (_rows_returned == _num_rows) {
+            return Status::EndOfFile("End of AutoIncrementUtIterator");
+        }
+        auto columns_guard = block->mutate_columns_scoped();
+        auto& columns = columns_guard.mutable_columns();
+        for (; _rows_returned < _num_rows; ++_rows_returned) {
+            for (size_t j = 0; j < _schema.num_block_columns(); ++j) {
+                char data[16] = {};
+                size_t data_len = 0;
+                switch (_schema.column(j)->type()) {
+                case FieldType::OLAP_FIELD_TYPE_SMALLINT:
+                    *(int16_t*)data = cast_set<int16_t>(_rows_returned + j);
+                    data_len = sizeof(int16_t);
+                    break;
+                case FieldType::OLAP_FIELD_TYPE_INT:
+                    *(int32_t*)data = cast_set<int32_t>(_rows_returned + j);
+                    data_len = sizeof(int32_t);
+                    break;
+                case FieldType::OLAP_FIELD_TYPE_BIGINT:
+                    *(int64_t*)data = cast_set<int64_t>(_rows_returned + j);
+                    data_len = sizeof(int64_t);
+                    break;
+                case FieldType::OLAP_FIELD_TYPE_FLOAT:
+                    *(float*)data = cast_set<float>(_rows_returned + j);
+                    data_len = sizeof(float);
+                    break;
+                case FieldType::OLAP_FIELD_TYPE_DOUBLE:
+                    *(double*)data = cast_set<double>(_rows_returned + j);
+                    data_len = sizeof(double);
+                    break;
+                default:
+                    break;
+                }
+                columns[j]->insert_data(data, data_len);
+            }
+        }
+        return Status::OK();
+    }
+
+    const ReadSchema& schema() const override { return _schema; }
+
+private:
+    const ReadSchema& _schema;
+    size_t _num_rows;
+    size_t _rows_returned = 0;
+};
+
+RowwiseIteratorUPtr new_auto_increment_iterator(const ReadSchema& schema, size_t num_rows) {
+    return std::make_unique<AutoIncrementUtIterator>(schema, num_rows);
+}
+
+} // namespace
 
 class VGenericIteratorsTest : public testing::Test {
 public:
@@ -118,17 +189,15 @@ TEST(VGenericIteratorsTest, AutoIncrement) {
     }
 }
 
-TEST(VGenericIteratorsTest, StatisticsIteratorPreservesNullForNullableChar) {
-    constexpr auto test_dir = "./ut_dir/vgeneric_iterators_test";
-    constexpr auto segment_path = "./ut_dir/vgeneric_iterators_test/nullable_char_segment.dat";
-    constexpr auto row_count = 3;
-
+// Writes one segment of an INT key and a nullable CHAR(8) column holding `values`, std::nullopt
+// for NULL, and opens it. The writer pads every CHAR value to the declared 8 bytes, which is what
+// the segment's zone map keeps as its bounds.
+static std::shared_ptr<segment_v2::Segment> write_char_segment(
+        const std::string& segment_path, const std::vector<std::optional<std::string>>& values,
+        TabletSchemaSPtr* tablet_schema) {
     auto fs = io::global_local_filesystem();
-    ASSERT_TRUE(fs->delete_directory(test_dir).ok());
-    ASSERT_TRUE(fs->create_directory(test_dir).ok());
-
-    auto tablet_schema = std::make_shared<TabletSchema>();
-    tablet_schema->append_column(*create_int_key(0, false));
+    *tablet_schema = std::make_shared<TabletSchema>();
+    (*tablet_schema)->append_column(*create_int_key(0, false));
     auto nullable_char = std::make_shared<TabletColumn>();
     nullable_char->set_unique_id(1);
     nullable_char->set_name("1");
@@ -137,55 +206,107 @@ TEST(VGenericIteratorsTest, StatisticsIteratorPreservesNullForNullableChar) {
     nullable_char->set_length(8);
     nullable_char->set_index_length(8);
     nullable_char->set_aggregation_method(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE);
-    tablet_schema->append_column(*nullable_char);
-    tablet_schema->set_storage_page_size(4096);
+    (*tablet_schema)->append_column(*nullable_char);
+    (*tablet_schema)->set_storage_page_size(4096);
 
     io::FileWriterPtr file_writer;
-    ASSERT_TRUE(fs->create_file(segment_path, &file_writer).ok());
+    EXPECT_TRUE(fs->create_file(segment_path, &file_writer).ok());
     VerticalSegmentWriterOptions writer_options;
     writer_options.num_rows_per_block = 1024;
-    TestVerticalSegmentWriter writer(file_writer.get(), 0, tablet_schema, nullptr, nullptr,
+    TestVerticalSegmentWriter writer(file_writer.get(), 0, *tablet_schema, nullptr, nullptr,
                                      writer_options, nullptr);
-    ASSERT_TRUE(writer.init().ok());
+    EXPECT_TRUE(writer.init().ok());
 
     RowCursor row;
-    std::vector<Field> fields(tablet_schema->num_columns(), Field(PrimitiveType::TYPE_NULL));
-    ASSERT_TRUE(row.init_scan_key(tablet_schema, std::move(fields)).ok());
-    for (int i = 0; i < row_count; ++i) {
-        row.mutable_field(0) = Field::create_field<TYPE_INT>(i);
-        ASSERT_TRUE(writer.append_row(row).ok());
+    std::vector<Field> fields((*tablet_schema)->num_columns(), Field(PrimitiveType::TYPE_NULL));
+    EXPECT_TRUE(row.init_scan_key(*tablet_schema, std::move(fields)).ok());
+    for (size_t i = 0; i < values.size(); ++i) {
+        row.mutable_field(0) = Field::create_field<TYPE_INT>(static_cast<int32_t>(i));
+        row.mutable_field(1) = values[i].has_value()
+                                       ? Field::create_field<TYPE_STRING>(String(*values[i]))
+                                       : Field(PrimitiveType::TYPE_NULL);
+        EXPECT_TRUE(writer.append_row(row).ok());
     }
     uint64_t file_size = 0;
     uint64_t index_size = 0;
-    ASSERT_TRUE(writer.finalize_columns(&index_size).ok());
-    ASSERT_TRUE(writer.finalize_footer(&file_size).ok());
-    ASSERT_TRUE(file_writer->close().ok());
+    EXPECT_TRUE(writer.finalize_columns(&index_size).ok());
+    EXPECT_TRUE(writer.finalize_footer(&file_size).ok());
+    EXPECT_TRUE(file_writer->close().ok());
 
     std::shared_ptr<segment_v2::Segment> segment;
-    ASSERT_TRUE(segment_v2::Segment::open(fs, segment_path, 100, 0, RowsetId {.version = 1},
-                                          tablet_schema, io::FileReaderOptions {}, &segment)
+    EXPECT_TRUE(segment_v2::Segment::open(fs, segment_path, 100, 0, RowsetId {.version = 1},
+                                          *tablet_schema, io::FileReaderOptions {}, &segment)
                         .ok());
+    return segment;
+}
 
-    std::vector<ColumnId> column_ids {0, 1};
-    ReadSchema schema(project_columns_by_ordinal(tablet_schema->columns(), column_ids));
-    VStatisticsIterator iterator(segment, schema);
-    OlapReaderStatistics stats;
-    StorageReadOptions read_options(stats);
-    read_options.push_down_agg_type_opt = TPushAggOp::MINMAX;
-    ASSERT_TRUE(iterator.init(read_options).ok());
+class StatisticsIteratorCharTest : public testing::Test {
+protected:
+    static constexpr auto kTestDir = "./ut_dir/vgeneric_iterators_test";
 
+    void SetUp() override {
+        _fs = io::global_local_filesystem();
+        ASSERT_TRUE(_fs->delete_directory(kTestDir).ok());
+        ASSERT_TRUE(_fs->create_directory(kTestDir).ok());
+    }
+    void TearDown() override { EXPECT_TRUE(_fs->delete_directory(kTestDir).ok()); }
+
+    // Answers the pushed-down `agg` over a segment holding `values` in the CHAR column: the
+    // first Block it hands out goes to `block`, and the read must be over after it.
+    void read_statistics(const std::vector<std::optional<std::string>>& values,
+                         TPushAggOp::type agg, Block* block) {
+        TabletSchemaSPtr tablet_schema;
+        auto segment = write_char_segment(std::string(kTestDir) + "/char_segment.dat", values,
+                                          &tablet_schema);
+        ASSERT_NE(segment, nullptr);
+        std::vector<ColumnId> column_ids {0, 1};
+        ReadSchema schema(project_columns_by_ordinal(tablet_schema->columns(), column_ids));
+        std::unique_ptr<RowwiseIterator> iterator =
+                std::make_unique<VStatisticsIterator>(segment, schema);
+        OlapReaderStatistics stats;
+        StorageReadOptions read_options(stats);
+        read_options.push_down_agg_type_opt = agg;
+        ASSERT_TRUE(iterator->init(read_options).ok());
+
+        create_block(schema, *block);
+        ASSERT_TRUE(iterator->next_batch(block).ok());
+        Block after_last;
+        create_block(schema, after_last);
+        ASSERT_TRUE(iterator->next_batch(&after_last).is<ErrorCode::END_OF_FILE>());
+    }
+
+    std::shared_ptr<io::FileSystem> _fs;
+};
+
+TEST_F(StatisticsIteratorCharTest, PreservesNullForNullableChar) {
     Block block;
-    create_block(schema, block);
-    ASSERT_TRUE(iterator.next_batch(&block).ok());
+    read_statistics({std::nullopt, std::nullopt, std::nullopt}, TPushAggOp::MINMAX, &block);
     ASSERT_EQ(2, block.rows());
 
     const auto& nullable_column =
             assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
     EXPECT_TRUE(nullable_column.is_null_at(0));
     EXPECT_TRUE(nullable_column.is_null_at(1));
-    ASSERT_TRUE(iterator.next_batch(&block).is<ErrorCode::END_OF_FILE>());
+}
 
-    ASSERT_TRUE(fs->delete_directory(test_dir).ok());
+// CHAR(8) stores "a" as "a" plus seven '\0'. MIN/MAX answered from the zone map must come out as
+// the rows of a normal read do: without the padding.
+TEST_F(StatisticsIteratorCharTest, AnswersCharBoundsWithoutPadding) {
+    Block block;
+    read_statistics({"bb", "a", "ccc"}, TPushAggOp::MINMAX, &block);
+    ASSERT_EQ(2, block.rows());
+
+    // next_batch_of_zone_map hands out the max first, then the min.
+    const auto& char_column = *block.get_by_position(1).column;
+    EXPECT_EQ("ccc", char_column.get_data_at(0).to_string());
+    EXPECT_EQ("a", char_column.get_data_at(1).to_string());
+}
+
+// COUNT reports the segment's row count and reads no zone map, so every row is a default.
+TEST_F(StatisticsIteratorCharTest, CountFillsTheRowCount) {
+    Block block;
+    read_statistics({"bb", std::nullopt, "ccc"}, TPushAggOp::COUNT, &block);
+    EXPECT_EQ(3, block.rows());
 }
 
 // A string zone map bound is cut to 512 bytes, and a cut bound is not a value the column holds:
@@ -569,6 +690,10 @@ public:
                     *(double*)data = j == _seq_col_idx ? _seq_col_rows_returned : 1;
                     data_len = sizeof(double);
                     break;
+                case FieldType::OLAP_FIELD_TYPE_STRING:
+                    std::memcpy(data, &_seq_col_rows_returned, sizeof(_seq_col_rows_returned));
+                    data_len = sizeof(_seq_col_rows_returned);
+                    break;
                 default:
                     break;
                 }
@@ -597,6 +722,7 @@ public:
 TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
     EXPECT_TRUE(1);
     auto schema = create_schema();
+    schema.append_compaction_rowid_column();
     auto output_schema = std::make_shared<ReadSchema>(schema);
     std::vector<RowwiseIteratorUPtr> inputs;
 
@@ -637,6 +763,12 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
     auto seq_col = block.get_by_position(seq_column_id).column;
     size_t actual_value = (*seq_col)[0].get<TYPE_BIGINT>();
     EXPECT_EQ(seg_iter_num - 1, actual_value);
+
+    const auto rowid = block.get_by_position(schema.rowid_ordinal()).column->get_data_at(0);
+    ASSERT_EQ(sizeof(int), rowid.size);
+    int rowid_value = 0;
+    std::memcpy(&rowid_value, rowid.data, sizeof(rowid_value));
+    EXPECT_EQ(seg_iter_num - 1, rowid_value);
 }
 
 // Mirror of MergeWithSeqColumn but with small_seq_first=true.
@@ -683,20 +815,20 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumnSmallSeqFirst) {
     EXPECT_EQ(0, actual_value);
 }
 
-// Models the row-binlog quick-merge read path: the merge output rowset holds the
-// same user key across multiple segments, each carrying a distinct binlog event
-// (distinct TSO). A row-binlog scan reads it with is_unique=false and the TSO as
+// Models the changelog quick-merge read path: the merge output rowset holds the
+// same user key across multiple segments, each carrying a distinct changelog event
+// (distinct TSO). A changelog scan reads it with is_unique=false and the TSO as
 // the sequence column with small_seq_first=true. Unlike the is_unique=true cases
 // above (which collapse same-key rows to one), the merge iterator must keep EVERY
 // event and emit them ordered by ascending TSO, so a table-stream query over a
 // quick-merge rowset returns the complete, ordered change chain without dropping
 // any event.
-TEST(VGenericIteratorsTest, MergeKeepsAllBinlogEventsOrderedByTso) {
+TEST(VGenericIteratorsTest, MergeKeepsAllChangelogEventsOrderedByTso) {
     auto schema = create_schema();
     auto output_schema = std::make_shared<ReadSchema>(schema);
     std::vector<RowwiseIteratorUPtr> inputs;
 
-    int seq_column_id = 2; // BIGINT column stands in for __DORIS_BINLOG_TSO__.
+    int seq_column_id = 2; // BIGINT column stands in for __DORIS_CHANGELOG_TSO__.
     int num_rows = 1;
     int rows_begin = 0;
     // Same key in every segment, each carrying a distinct TSO. The children are fed in a
@@ -712,7 +844,7 @@ TEST(VGenericIteratorsTest, MergeKeepsAllBinlogEventsOrderedByTso) {
     }
 
     // is_unique=false keeps every same-key event; small_seq_first=true orders by
-    // ascending TSO. This mirrors beta_rowset_reader's row-binlog merge setup.
+    // ascending TSO. This mirrors beta_rowset_reader's changelog merge setup.
     auto iter = new_merge_iterator(std::move(inputs), seq_column_id, /*is_unique=*/false,
                                    /*is_reverse=*/false, /*merged_rows=*/nullptr, output_schema,
                                    /*small_seq_first=*/true);
@@ -800,7 +932,7 @@ private:
 // explicit compare columns are given. The read schema must therefore place its key columns as
 // the leading prefix; if a non-key column precedes a key column, init() must reject the merge
 // with a "compare contract violated" error instead of silently comparing a value column as a key
-// (issue #66390: a ROW-binlog APPEND_ONLY scan projected value columns ahead of a key).
+// (issue #66390: a changelog APPEND_ONLY scan projected value columns ahead of a key).
 TEST(VGenericIteratorsTest, MergeRejectsProjectionMissingKeyPrefix) {
     // Full tablet schema: k0(smallint), k1(int), v2(bigint). Project {v2, k0}: the schema has
     // one key column (k0) but it is not the leading column, so ordinal 0 is a non-key column.

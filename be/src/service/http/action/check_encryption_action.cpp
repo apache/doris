@@ -74,6 +74,11 @@ Result<bool> is_tablet_encrypted(const BaseTabletSPtr& tablet) {
             rs_meta->end_version() == 1) {
             return;
         }
+        // Must be checked before resolving the fs: an empty rowset has no file to check, and a
+        // version hole rowset may carry a resource id that resolves to no storage resource.
+        if (rs->num_segments() == 0) {
+            return;
+        }
         // Must not be `physical_fs()`: packed rowsets keep their segments as slices inside a
         // shared object, and only the `PackedFileSystem` wrapper can resolve a segment path to
         // that slice. `fs()` is not an option either, since it decrypts and would hide the
@@ -85,9 +90,6 @@ Result<bool> is_tablet_encrypted(const BaseTabletSPtr& tablet) {
             return;
         }
 
-        if (rs->num_segments() == 0) {
-            return;
-        }
         auto maybe_seg_path = rs->segment(0).path();
         if (!maybe_seg_path) {
             st = std::move(maybe_seg_path.error());
@@ -141,7 +143,9 @@ Result<bool> is_tablet_encrypted(const BaseTabletSPtr& tablet) {
     if (st) {
         return is_encrypted;
     }
-    return st;
+    // Must be wrapped: `Status` converts to `bool`, so a bare `return st;` would report the
+    // error as "not encrypted".
+    return ResultError(std::move(st));
 }
 
 Result<std::string> get_last_encrypt_footer(const BaseTabletSPtr& tablet) {

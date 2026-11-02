@@ -96,16 +96,17 @@ TEST_F(QueryCacheFragmentContextTest, scan_without_runtime_fails_loudly) {
             << st.to_string();
 }
 
-TEST_F(QueryCacheFragmentContextTest, binlog_scan_without_runtime_fails_before_binlog_handling) {
-    // The runtime check comes first: a row-binlog scan with a broken setup
+TEST_F(QueryCacheFragmentContextTest,
+       changelog_scan_without_runtime_fails_before_changelog_handling) {
+    // The runtime check comes first: a changelog scan with a broken setup
     // must fail the same way instead of dereferencing the missing runtime in
-    // disable_for_binlog_scan().
+    // disable_for_changelog_scan().
     TPlanNode tnode;
     tnode.__set_node_type(TPlanNodeType::OLAP_SCAN_NODE);
     tnode.__set_node_id(7);
     tnode.__set_num_children(0);
     TOlapScanNode olap_scan_node;
-    olap_scan_node.__set_read_row_binlog(true);
+    olap_scan_node.__set_read_changelog(true);
     tnode.__set_olap_scan_node(olap_scan_node);
 
     ASSERT_EQ(_context->_query_cache_runtime, nullptr);

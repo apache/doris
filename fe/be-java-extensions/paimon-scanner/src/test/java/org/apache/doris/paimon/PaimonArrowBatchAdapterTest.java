@@ -41,7 +41,7 @@ import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.data.variant.GenericVariant;
 import org.apache.paimon.data.variant.Variant;
 import org.apache.paimon.fs.local.LocalFileIO;
-import org.apache.paimon.schema.SchemaManager;
+import org.apache.paimon.schema.FileSystemSchemaManager;
 import org.apache.paimon.table.FileStoreTableFactory;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.sink.BatchTableCommit;
@@ -263,7 +263,7 @@ public class PaimonArrowBatchAdapterTest {
                         .column("ts", DataTypes.TIMESTAMP(precision).notNull())
                         .column("detail", DataTypes.ROW(DataTypes.FIELD(0, "t", DataTypes.TIMESTAMP(precision))))
                         .primaryKey("ts").option("bucket", "1").option("file.format", format).build();
-                new SchemaManager(fileIO, path).createTable(schema);
+                new FileSystemSchemaManager(fileIO, path).createTable(schema);
                 Table table = FileStoreTableFactory.create(fileIO, path);
                 PaimonWriteSchema writeSchema = PaimonWriteSchema.create(table.rowType(), new String[] {"ts", "detail"});
                 BatchWriteBuilder builder = table.newBatchWriteBuilder();

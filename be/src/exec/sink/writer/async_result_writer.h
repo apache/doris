@@ -72,10 +72,6 @@ public:
 
     void set_low_memory_mode();
 
-    void wait_for_processing_before_next_sink() {
-        _queue_admission.wait_for_processing_before_next_sink();
-    }
-
 protected:
     Status _projection_block(Block& input_block, Block* output_block);
     const VExprContextSPtrs& _vec_output_expr_ctxs;
@@ -92,14 +88,13 @@ private:
 
     void process_block(RuntimeState* state, RuntimeProfile* operator_profile);
     [[nodiscard]] bool _data_queue_is_available() const {
-        return _queue_admission.is_available(_data_queue.size());
+        return _data_queue.size() < ASYNC_WRITER_QUEUE_SIZE;
     }
     [[nodiscard]] bool _is_finished() const { return !_writer_status.ok() || _eos; }
     void _set_ready_to_finish();
 
     void _return_free_block(std::unique_ptr<Block>);
     QueuedBlock _get_block_from_queue();
-    void _notify_block_processed();
 
     std::mutex _m;
     std::condition_variable _cv;
@@ -107,7 +102,6 @@ private:
     // Default value is ok
     AtomicStatus _writer_status;
     bool _eos = false;
-    AsyncWriterQueueAdmission _queue_admission;
     std::atomic_bool _low_memory_mode = false;
 
     std::shared_ptr<Dependency> _dependency;

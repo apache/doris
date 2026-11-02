@@ -40,6 +40,7 @@ public final class CatalogMetaCache implements AutoCloseable {
     private final String engine;
     private final OptionalLong catalogMaxWeight;
     private final boolean managed;
+    private final ConnectorCacheOwner connectorOwner;
     private final Set<String> names = ConcurrentHashMap.newKeySet();
     private final Map<String, MetaCache<?, ?>> entries = new ConcurrentHashMap<>();
     private final AtomicBoolean closed = new AtomicBoolean(false);
@@ -75,7 +76,15 @@ public final class CatalogMetaCache implements AutoCloseable {
         CatalogMetaCache cache = new CatalogMetaCache(new ScopedMetaCacheRegistry(), manager,
                 catalogId, engine, manager.parseCatalogMaxWeight(catalogProperties), true);
         MetaCacheGovernance.register(cache);
-        return cache;
+        try {
+            if (cache.connectorOwner != null) {
+                cache.connectorOwner.register(cache);
+            }
+            return cache;
+        } catch (RuntimeException | Error e) {
+            cache.close();
+            throw e;
+        }
     }
 
     CatalogMetaCache(ScopedMetaCacheRegistry registry, MetaCacheBudgetManager budgetManager,
@@ -86,6 +95,7 @@ public final class CatalogMetaCache implements AutoCloseable {
         this.engine = Objects.requireNonNull(engine, "engine can not be null");
         this.catalogMaxWeight = Objects.requireNonNull(catalogMaxWeight, "catalogMaxWeight can not be null");
         this.managed = managed;
+        this.connectorOwner = managed ? ConnectorCacheOwner.current() : null;
     }
 
     public <K, V> MetaCache<K, V> create(MetaCacheDefinition<K, V> definition) {
@@ -151,6 +161,11 @@ public final class CatalogMetaCache implements AutoCloseable {
         registry.invalidate(ScopePath.catalog());
     }
 
+    /** Runs a short auxiliary-index update at the same publication boundary as catalog invalidation. */
+    public void invalidateCatalogAndRun(Runnable commitAction) {
+        registry.invalidateAndRunUnderPublicationGate(ScopePath.catalog(), commitAction);
+    }
+
     public void invalidateDatabase(String database) {
         registry.invalidate(ScopePath.database(database));
     }
@@ -214,6 +229,9 @@ public final class CatalogMetaCache implements AutoCloseable {
                 entries.clear();
                 if (managed) {
                     MetaCacheGovernance.unregister(this);
+                }
+                if (connectorOwner != null) {
+                    connectorOwner.unregister(this);
                 }
             }
         }

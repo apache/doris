@@ -23,9 +23,9 @@ import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.FileSystemCatalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.fs.local.LocalFileIO;
+import org.apache.paimon.schema.FileSystemSchemaManager;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
-import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.Assertions;
@@ -160,7 +160,7 @@ public class PaimonConnectorMetadataTablePropertiesTest {
 
     private static Map<String, String> storedSchemaOptions(Catalog catalog) throws Exception {
         FileStoreTable table = (FileStoreTable) catalog.getTable(TABLE_ID);
-        return new SchemaManager(LocalFileIO.create(), table.location()).latest().get().options();
+        return new FileSystemSchemaManager(LocalFileIO.create(), table.location()).latest().get().options();
     }
 
     private static Map<String, String> options(String min, String max) {

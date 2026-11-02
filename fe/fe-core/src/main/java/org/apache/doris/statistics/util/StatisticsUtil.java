@@ -867,9 +867,10 @@ public class StatisticsUtil {
             return false;
         }
 
-        // Support OLAP table
+        // Support OLAP table, except one that still enables changelog through "binlog.format" = "ROW": it can only
+        // be dropped.
         if (table instanceof OlapTable) {
-            return true;
+            return !((OlapTable) table).isLegacyChangelog();
         }
 
         // Support flipped plugin-driven external tables whose connector declares column auto-analyze

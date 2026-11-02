@@ -60,7 +60,7 @@ std::vector<TabletColumnPtr> project_columns_by_ordinal(
 class ReadSchema {
 public:
     using SequenceMap = std::unordered_map<ColumnId, std::vector<ColumnId>>;
-    using RowBinlogValueColumnPairs = std::vector<std::pair<ColumnId, ColumnId>>;
+    using ChangelogValueColumnPairs = std::vector<std::pair<ColumnId, ColumnId>>;
 
     explicit ReadSchema(std::vector<TabletColumnPtr> columns);
 
@@ -85,15 +85,19 @@ public:
     // Append private historical delete-predicate columns without extending the Block prefix.
     void append_dropped_columns(std::vector<TabletColumn> columns);
 
+    // Append COMPACTION_ROWID_COL to the Block prefix before any historical delete columns.
+    // It carries each source row's physical location through compaction filtering and merge.
+    void append_compaction_rowid_column();
+
     // Create caller-visible Blocks from the FE-slot prefix.
     Block create_read_block() const;
 
     std::string read_columns_to_string() const;
 
-    // Always sets the two facts below; the flags add the sequence mapping and the row-binlog
+    // Always sets the two facts below; the flags add the sequence mapping and the changelog
     // before-image mapping.
     Status init_from_tablet_schema(const TabletSchema& tablet_schema,
-                                   bool merge_by_sequence_mapping, bool map_row_binlog_columns);
+                                   bool merge_by_sequence_mapping, bool map_changelog_columns);
 
     // Whether the tablet schema defines a sequence mapping -- not whether this read merges by
     // one. A MoW query does not merge, yet a value predicate still must not be pushed down.
@@ -107,19 +111,19 @@ public:
 
     const SequenceMap& sequence_map() const { return _sequence_map; }
 
-    // Return the matching before-image ordinal for a Row Binlog value column. For example, in
-    // [v1, v2, __BEFORE__v1__, __BEFORE__v2__], 0 maps to 2 and 1 maps to 3. Columns without a
-    // before image, including TSO/LSN/OP, map to themselves.
+    // Return the matching before-image ordinal for a changelog value column. For example, in
+    // [v1, v2, __DORIS_CHANGELOG_BEFORE_v1__, __DORIS_CHANGELOG_BEFORE_v2__], 0 maps to 2 and 1
+    // maps to 3. Columns without a before image, including TSO/LSN/OP, map to themselves.
     ColumnId before_column_ordinal(ColumnId ordinal) const {
         DCHECK_LT(ordinal, _before_column_ordinals.size());
         return _before_column_ordinals[ordinal];
     }
 
-    const RowBinlogValueColumnPairs& row_binlog_value_column_pairs() const {
-        return _row_binlog_value_column_pairs;
+    const ChangelogValueColumnPairs& changelog_value_column_pairs() const {
+        return _changelog_value_column_pairs;
     }
 
-    bool row_binlog_value_pairs_complete() const { return _row_binlog_value_pairs_complete; }
+    bool changelog_value_pairs_complete() const { return _changelog_value_pairs_complete; }
 
     const TabletColumn* column(size_t ordinal) const { return _read_columns[ordinal].get(); }
 
@@ -137,21 +141,21 @@ public:
     size_t num_key_columns() const { return _num_key_columns; }
 
     // All special-column ordinals below address the caller-visible Block prefix and are -1 when
-    // absent. A Row Binlog layout may be [k1, v1, __BEFORE__v1__, TSO, LSN, OP]; a snapshot layout
-    // may instead contain COMMIT_TSO.
+    // absent. A changelog layout may be [k1, v1, __DORIS_CHANGELOG_BEFORE_v1__, TSO, LSN, OP]; a
+    // snapshot layout may instead contain COMMIT_TSO.
     // Logical-delete marker used by unique-key reads.
     int32_t delete_sign_ordinal() const { return _delete_sign_ordinal; }
     // Sequence column used to choose the winning row during merge.
     int32_t sequence_ordinal() const { return _sequence_ordinal; }
-    // Synthetic row identifier returned by rowid-producing scans.
+    // Synthetic row identifier returned by queries or carried by compaction reads.
     int32_t rowid_ordinal() const { return _rowid_ordinal; }
     // Rowset version synthesized for single-version reads.
     int32_t version_ordinal() const { return _version_ordinal; }
-    // Row Binlog transaction timestamp.
+    // Changelog transaction timestamp.
     int32_t tso_ordinal() const { return _tso_ordinal; }
-    // Row Binlog log-sequence number.
+    // Changelog log-sequence number.
     int32_t lsn_ordinal() const { return _lsn_ordinal; }
-    // Row Binlog operation kind, such as INSERT, UPDATE, or DELETE.
+    // Changelog operation kind, such as INSERT, UPDATE, or DELETE.
     int32_t op_ordinal() const { return _op_ordinal; }
     // Snapshot commit timestamp.
     int32_t commit_tso_ordinal() const { return _commit_tso_ordinal; }
@@ -166,7 +170,7 @@ private:
     void _init_read_types();
     void _init_before_column_ordinals();
     Status _init_sequence_map(const TabletSchema& tablet_schema);
-    void _init_row_binlog_column_mappings(const TabletSchema& tablet_schema);
+    void _init_changelog_column_mappings(const TabletSchema& tablet_schema);
 
     void _init_descriptors() {
         DORIS_CHECK_LE(_num_block_columns, _read_columns.size());
@@ -199,19 +203,20 @@ private:
             if (col.name() == SEQUENCE_COL) {
                 _sequence_ordinal = i;
             }
-            if (col.name().starts_with(BeConsts::GLOBAL_ROWID_COL)) {
+            if (col.name().starts_with(BeConsts::GLOBAL_ROWID_COL) ||
+                col.name() == BeConsts::COMPACTION_ROWID_COL) {
                 _rowid_ordinal = i;
             }
             if (col.name() == VERSION_COL) {
                 _version_ordinal = i;
             }
-            if (col.name() == BINLOG_TSO_COL) {
+            if (col.name() == CHANGELOG_TSO_COL) {
                 _tso_ordinal = i;
             }
-            if (col.name() == BINLOG_LSN_COL) {
+            if (col.name() == CHANGELOG_LSN_COL) {
                 _lsn_ordinal = i;
             }
-            if (col.name() == BINLOG_OP_COL) {
+            if (col.name() == CHANGELOG_OP_COL) {
                 _op_ordinal = i;
             }
             if (col.name() == COMMIT_TSO_COL) {
@@ -252,8 +257,8 @@ private:
     std::unordered_map<int32_t, int32_t> _uid_to_ordinal;
     SequenceMap _sequence_map;
     std::vector<ColumnId> _before_column_ordinals;
-    RowBinlogValueColumnPairs _row_binlog_value_column_pairs;
-    bool _row_binlog_value_pairs_complete = false;
+    ChangelogValueColumnPairs _changelog_value_column_pairs;
+    bool _changelog_value_pairs_complete = false;
     bool _tablet_has_sequence_map = false;
     bool _tablet_has_extracted_variant_columns = false;
 };

@@ -106,10 +106,16 @@ public class EsConnectorRestClient {
         OkHttpClient client = httpSslEnable ? getOrCreateSslClient() : PLAIN_CLIENT;
         String node = currentNode();
         try (Response response = executeResponse(client, node, path, null)) {
-            return response.isSuccessful();
+            if (response.isSuccessful()) {
+                return true;
+            }
+            if (response.code() == 404) {
+                return false;
+            }
+            throw new DorisConnectorException("Failed to check index " + indexName
+                    + ": HTTP " + response.code());
         } catch (IOException e) {
-            LOG.warn("existIndex error", e);
-            return false;
+            throw new DorisConnectorException("Failed to check index " + indexName, e);
         }
     }
 

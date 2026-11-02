@@ -255,10 +255,14 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             stmt.setOrigStmt(prepareCommand.getOriginalStmt());
             executor = new StmtExecutor(ctx, stmt, true);
             ctx.setExecutor(executor);
-            if (null != queryId) {
-                executor.execute(queryId);
-            } else {
-                executor.execute();
+            try {
+                if (null != queryId) {
+                    executor.execute(queryId);
+                } else {
+                    executor.execute();
+                }
+            } finally {
+                finishExecution(prepCtx);
             }
             if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
                 stmtStr = executeStmt.toSql();
@@ -279,6 +283,21 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             // When audit log is disabled for prepared statements, still update QPS metrics.
             AuditLogHelper.updateMetrics(ctx);
         }
+    }
+
+    /**
+     * COM_STMT_EXECUTE has no per-statement close like the one COM_QUERY runs in its finally. An execution that
+     * fails after its scans were planned, such as one a scan-level SQL block rule rejects or a prepared
+     * INSERT ... SELECT whose transaction fails to begin, never reaches unregisterQuery: the query-finish callbacks
+     * its scans registered (releasing a connector read transaction, closing the connector scope) would stay in the
+     * registry for good, its connector scope would stay open until the statement's next EXECUTE, and scan nodes left
+     * for the statement end would never stop. The context ExecuteCommand ran this execution with is the prepared
+     * statement's current one (see PreparedStatementContext#nextStatementContext). Both calls are no-ops for an
+     * execution that finished normally, which already unregistered its query and closed its scope.
+     */
+    private void finishExecution(PreparedStatementContext prepCtx) {
+        QeProcessorImpl.INSTANCE.unregisterQuery(ctx.queryId());
+        prepCtx.getStatementContext().close();
     }
 
     // process COM_EXECUTE, parse binary row data
@@ -431,29 +450,32 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_TABLE, "Empty tableName");
             return;
         }
-        DatabaseIf db = ctx.getCurrentCatalog().getDbNullable(ctx.getDatabase());
-        if (db == null) {
-            ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Unknown database(" + ctx.getDatabase() + ")");
-            return;
-        }
-        TableIf table = db.getTableNullable(tableName);
-        if (table == null) {
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_TABLE, "Unknown table(" + tableName + ")");
-            return;
-        }
-
-        table.readLock();
         try {
-            MysqlProtocolAdapter.of(ctx).resultSender(ctx)
-                    // COM_FIELD_LIST is a metadata statement: it must agree with SHOW COLUMNS, so it serves
-                    // the display schema (the nullability the source declares), not the read schema.
-                    .sendFieldList(db.getFullName(), table.getName(), table.getBaseSchemaForDisplay());
+            // Metadata lookup can fail before a table is locked; return an ERR packet instead of losing the session.
+            DatabaseIf db = ctx.getCurrentCatalog().getDbNullable(ctx.getDatabase());
+            if (db == null) {
+                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Unknown database(" + ctx.getDatabase() + ")");
+                return;
+            }
+            TableIf table = db.getTableNullable(tableName);
+            if (table == null) {
+                ctx.getState().setError(ErrorCode.ERR_UNKNOWN_TABLE, "Unknown table(" + tableName + ")");
+                return;
+            }
+
+            table.readLock();
+            try {
+                MysqlProtocolAdapter.of(ctx).resultSender(ctx)
+                        // COM_FIELD_LIST is a metadata statement: it must agree with SHOW COLUMNS, so it serves
+                        // the display schema (the nullability the source declares), not the read schema.
+                        .sendFieldList(db.getFullName(), table.getName(), table.getBaseSchemaForDisplay());
+            } finally {
+                table.readUnlock();
+            }
+            ctx.getState().setEof();
         } catch (Throwable throwable) {
             handleQueryException(throwable, "", null, null);
-        } finally {
-            table.readUnlock();
         }
-        ctx.getState().setEof();
     }
 
     private void handleChangeUser() throws IOException {

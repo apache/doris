@@ -38,6 +38,15 @@ import java.io.Closeable;
 public interface ConnectorSplitSource extends Closeable {
 
     /**
+     * Nonblocking, idempotent hint that a backend has requested a batch beyond its first one.
+     * May run concurrently on an engine RPC thread. A connector may use this to expand speculative
+     * prefetch, but MUST keep producing without the hint: planning and fully filtered scans may
+     * need to enumerate metadata before any backend can request a batch.
+     */
+    default void onMoreSplitsRequested() {
+    }
+
+    /**
      * Returns whether more ranges remain. May advance over internally-skipped tasks (e.g. files
      * filtered out by a rewrite scope), so it is the only safe way to test for completion.
      */

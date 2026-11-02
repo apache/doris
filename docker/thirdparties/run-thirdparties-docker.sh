@@ -76,12 +76,12 @@ Usage: $0 <options>
      --hive-modules <list>  comma separated hive modules to refresh
 
   All valid components:
-    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,iceberg-rest,hudi,kafka,mariadb,db2,oceanbase,lakesoul,kerberos,ranger,polaris,minio,fluss
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,iceberg-rest,hudi,kafka,mariadb,db2,oceanbase,kerberos,ranger,polaris,minio,fluss
   "
     exit 1
 }
 DEFAULT_COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,hudi,db2,oceanbase,kerberos,minio"
-ALL_COMPONENTS="${DEFAULT_COMPONENTS},kafka,lakesoul,ranger,polaris,fluss"
+ALL_COMPONENTS="${DEFAULT_COMPONENTS},kafka,ranger,polaris,fluss"
 COMPONENTS=$2
 HELP=0
 STOP=0
@@ -294,8 +294,6 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_DB2=1
     elif [[ "${element}"x == "oceanbase"x ]];then
         RUN_OCEANBASE=1
-    elif [[ "${element}"x == "lakesoul"x ]]; then
-        RUN_LAKESOUL=1
     elif [[ "${element}"x == "kerberos"x ]]; then
         RUN_KERBEROS=1
     elif [[ "${element}"x == "minio"x ]]; then
@@ -1542,43 +1540,6 @@ start_fluss() {
     compose_up_stack "${fluss_dir}/fluss.yaml" "${fluss_dir}/fluss.env" -d --wait
 }
 
-start_lakesoul() {
-    echo "RUN_LAKESOUL"
-    cp "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml.tpl "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml
-    register_stack_metadata "lakesoul" "${ROOT}/docker-compose/lakesoul/lakesoul.yaml" ""
-    compose_cmd "${ROOT}/docker-compose/lakesoul/lakesoul.yaml" "" down --remove-orphans
-    sudo rm -rf "${ROOT}"/docker-compose/lakesoul/data
-    if [[ "${STOP}" -ne 1 ]]; then
-        echo "PREPARE_LAKESOUL_DATA"
-        compose_cmd "${ROOT}/docker-compose/lakesoul/lakesoul.yaml" "" up -d
-        ## import tpch data into lakesoul
-        ## install rustup
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain none -y
-        # shellcheck source=/dev/null
-        . "${HOME}/.cargo/env"
-        ## install rust nightly-2023-05-20
-        rustup install nightly-2023-05-20
-        ## download&generate tpch data
-        mkdir -p lakesoul/test_files/tpch/data
-        git clone https://github.com/databricks/tpch-dbgen.git
-        (
-            cd tpch-dbgen
-            make
-            ./dbgen -f -s 0.1
-            mv *.tbl ../lakesoul/test_files/tpch/data
-        )
-        export TPCH_DATA=$(realpath lakesoul/test_files/tpch/data)
-        ## import tpch data
-        git clone https://github.com/lakesoul-io/LakeSoul.git
-        #    git checkout doris_dev
-        (
-            cd LakeSoul/rust
-            cargo test load_tpch_data --package lakesoul-datafusion --features=ci -- --nocapture
-        )
-    fi
-}
-
 dump_kerberos_container_state() {
     local container="$1"
 
@@ -1980,10 +1941,6 @@ fi
 
 if [[ "${RUN_MARIADB}" -eq 1 ]]; then
     launch_component "mariadb" "${LOG_ROOT}/start_mariadb.log" start_mariadb
-fi
-
-if [[ "${RUN_LAKESOUL}" -eq 1 ]]; then
-    launch_component "lakesoul" "${LOG_ROOT}/start_lakesoul.log" start_lakesoul
 fi
 
 if [[ "${RUN_FLUSS}" -eq 1 ]]; then

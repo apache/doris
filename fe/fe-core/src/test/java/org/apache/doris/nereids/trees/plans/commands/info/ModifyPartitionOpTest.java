@@ -29,32 +29,32 @@ import org.junit.jupiter.api.Test;
 public class ModifyPartitionOpTest {
 
     @Test
-    public void rowBinlogTableRejectsStorageRelocationProperties() {
+    public void changelogTableRejectsStorageRelocationProperties() {
         ModifyPartitionOp storageMedium = new ModifyPartitionOp(Lists.newArrayList("p0"),
                 ImmutableMap.of("STORAGE_MEDIUM", "SSD"), false);
         ModifyPartitionOp cooldownTime = ModifyPartitionOp.createStarClause(
                 ImmutableMap.of("Storage_Cooldown_Time", "2026-01-01 00:00:00"), false);
 
-        Assertions.assertFalse(storageMedium.allowOpRowBinlog());
-        Assertions.assertFalse(cooldownTime.allowOpRowBinlog());
+        Assertions.assertFalse(storageMedium.allowOnChangelogTable());
+        Assertions.assertFalse(cooldownTime.allowOnChangelogTable());
         AlterOperations alterOperations = new AlterOperations();
         Assertions.assertThrows(DdlException.class,
-                () -> alterOperations.checkRowBinlogAllow(Lists.newArrayList(storageMedium)));
+                () -> alterOperations.checkChangelogAllow(Lists.newArrayList(storageMedium)));
         Assertions.assertThrows(DdlException.class,
-                () -> alterOperations.checkRowBinlogAllow(Lists.newArrayList(cooldownTime)));
+                () -> alterOperations.checkChangelogAllow(Lists.newArrayList(cooldownTime)));
     }
 
     @Test
-    public void rowBinlogTableStillAllowsReplicationModification() throws DdlException {
+    public void changelogTableStillAllowsReplicationModification() throws DdlException {
         ModifyPartitionOp replication = new ModifyPartitionOp(Lists.newArrayList("p0"),
                 ImmutableMap.of(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, "3"), false);
 
-        Assertions.assertTrue(replication.allowOpRowBinlog());
-        new AlterOperations().checkRowBinlogAllow(Lists.newArrayList(replication));
+        Assertions.assertTrue(replication.allowOnChangelogTable());
+        new AlterOperations().checkChangelogAllow(Lists.newArrayList(replication));
     }
 
     @Test
-    public void rowBinlogTableRejectsTableLevelStorageRelocation() {
+    public void changelogTableRejectsTableLevelStorageRelocation() {
         ModifyTablePropertiesOp storageMedium = new ModifyTablePropertiesOp(
                 ImmutableMap.of(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD"));
         ModifyTablePropertiesOp upperCaseStorageMedium = new ModifyTablePropertiesOp(
@@ -62,20 +62,20 @@ public class ModifyPartitionOpTest {
         ModifyTablePropertiesOp cooldownTime = new ModifyTablePropertiesOp(
                 ImmutableMap.of("Storage_Cooldown_Time", "2026-01-01 00:00:00"));
 
-        Assertions.assertFalse(storageMedium.allowOpRowBinlog());
-        Assertions.assertFalse(upperCaseStorageMedium.allowOpRowBinlog());
-        Assertions.assertFalse(cooldownTime.allowOpRowBinlog());
+        Assertions.assertFalse(storageMedium.allowOnChangelogTable());
+        Assertions.assertFalse(upperCaseStorageMedium.allowOnChangelogTable());
+        Assertions.assertFalse(cooldownTime.allowOnChangelogTable());
         AlterOperations alterOperations = new AlterOperations();
         Assertions.assertThrows(DdlException.class,
-                () -> alterOperations.checkRowBinlogAllow(Lists.newArrayList(storageMedium)));
+                () -> alterOperations.checkChangelogAllow(Lists.newArrayList(storageMedium)));
     }
 
     @Test
-    public void rowBinlogTableStillAllowsTableLevelReplicationModification() throws DdlException {
+    public void changelogTableStillAllowsTableLevelReplicationModification() throws DdlException {
         ModifyTablePropertiesOp replication = new ModifyTablePropertiesOp(
                 ImmutableMap.of(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, "3"));
 
-        Assertions.assertTrue(replication.allowOpRowBinlog());
-        new AlterOperations().checkRowBinlogAllow(Lists.newArrayList(replication));
+        Assertions.assertTrue(replication.allowOnChangelogTable());
+        new AlterOperations().checkChangelogAllow(Lists.newArrayList(replication));
     }
 }

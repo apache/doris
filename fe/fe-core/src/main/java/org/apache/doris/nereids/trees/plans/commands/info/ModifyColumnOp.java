@@ -113,6 +113,11 @@ public class ModifyColumnOp extends AlterTableOp {
         if (table instanceof OlapTable) {
             isOlap = true;
             olapTable = (OlapTable) table;
+            if (olapTable.hasRowTtl()
+                    && (colName.equalsIgnoreCase(olapTable.getRowTtlCol())
+                    || colName.equalsIgnoreCase(Column.TTL_COL))) {
+                throw new AnalysisException("Can not modify a row ttl source or hidden column");
+            }
             keysType = olapTable.getKeysType();
             isEnableMergeOnWrite = olapTable.getEnableUniqueKeyMergeOnWrite();
             if (!Strings.isNullOrEmpty(rollupName)) {

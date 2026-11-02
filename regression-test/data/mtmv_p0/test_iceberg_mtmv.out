@@ -129,6 +129,11 @@
 2024-01-01T00:00	4
 2024-01-02T00:00	3
 
+-- !new_source_partition_rewrite --
+2024-01-01T00:00	4
+2024-01-02T00:00	3
+2024-01-03T00:00	2
+
 -- !evolution2 --
 {"ts_month":null, "ts_day":"2024-12-03"}
 {"ts_month":657, "ts_day":null}
@@ -176,4 +181,3 @@
 -- !test6 --
 {"create_date1_month":647, "create_date2_year":null}
 {"create_date1_month":647, "create_date2_year":53}
-

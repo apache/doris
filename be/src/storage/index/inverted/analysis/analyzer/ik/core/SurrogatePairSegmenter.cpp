@@ -22,7 +22,7 @@ namespace doris::segment_v2 {
 void SurrogatePairSegmenter::analyze(AnalyzeContext& context) {
     const auto& current_char_type = context.getCurrentCharType();
 
-    if (current_char_type == CharacterUtil::CHAR_SURROGATE) {
+    if (current_char_type == CharacterUtil::CharType::SURROGATE) {
         Lexeme newLexeme(context.getBufferOffset(), context.getCurrentCharOffset(),
                          context.getCurrentCharLen(), Lexeme::Type::CNChar, context.getCursor(),
                          context.getCursor());

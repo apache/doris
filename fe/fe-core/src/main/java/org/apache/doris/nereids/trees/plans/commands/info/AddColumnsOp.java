@@ -98,7 +98,8 @@ public class AddColumnsOp extends AlterTableOp {
 
         columns = Lists.newArrayList();
         for (ColumnDefinition columnDef : columnDefs) {
-            Column col = columnDef.translateToCatalogStyle();
+            Column col = columnDef.getType().isTimeStampTzType() || columnDef.getType().isTimeStampNsType()
+                    ? columnDef.translateToCatalogStyleForSchemaChange() : columnDef.translateToCatalogStyle();
             columns.add(col);
         }
     }
@@ -138,8 +139,8 @@ public class AddColumnsOp extends AlterTableOp {
     }
 
     @Override
-    public boolean allowOpRowBinlog() {
-        // Add columns is considered safe for row binlog tables.
+    public boolean allowOnChangelogTable() {
+        // Add columns is considered safe for changelog tables.
         return true;
     }
 

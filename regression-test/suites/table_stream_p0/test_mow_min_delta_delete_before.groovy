@@ -43,9 +43,8 @@ suite("test_mow_min_delta_delete_before", "nonConcurrent") {
             PROPERTIES (
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write" = "true",
-                "binlog.enable" = "true",
-                "binlog.format" = "ROW",
-                "binlog.need_historical_value" = "true"
+                "changelog.enable" = "true",
+                "changelog.need_historical_value" = "true"
             )
         """
         // Seed old value before the stream starts so the in-window change is an
@@ -90,9 +89,8 @@ suite("test_mow_min_delta_delete_before", "nonConcurrent") {
             PROPERTIES (
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write" = "true",
-                "binlog.enable" = "true",
-                "binlog.format" = "ROW",
-                "binlog.need_historical_value" = "true"
+                "changelog.enable" = "true",
+                "changelog.need_historical_value" = "true"
             )
         """
         // Seed old value before the stream starts so the first in-window DELETE

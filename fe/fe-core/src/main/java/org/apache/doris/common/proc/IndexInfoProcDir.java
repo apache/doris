@@ -42,7 +42,7 @@ import java.util.Set;
 public class IndexInfoProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES =
             new ImmutableList.Builder<String>().add("IndexId").add("IndexName").add("SchemaVersion").add("SchemaHash")
-                    .add("ShortKeyColumnCount").add("StorageType").add("Keys").add("IsRowBinlog").build();
+                    .add("ShortKeyColumnCount").add("StorageType").add("Keys").add("IsChangelog").build();
 
     private DatabaseIf db;
     private TableIf table;
@@ -91,7 +91,7 @@ public class IndexInfoProcDir implements ProcDirInterface {
                             String.valueOf(indexMeta.getShortKeyColumnCount()),
                             indexMeta.getStorageType().name(),
                             builder.toString(),
-                            String.valueOf(indexMeta.isRowBinlogIndex())));
+                            String.valueOf(indexMeta.isChangelogIndex())));
                 }
             } else {
                 result.addRow(Lists.newArrayList(String.valueOf(table.getId()), table.getName(), "", "", "", "", "",

@@ -43,7 +43,7 @@ class TabletSchema;
 
 struct RowsetReaderContext {
     ReaderType reader_type = ReaderType::READER_QUERY;
-    bool read_row_binlog = false;
+    bool read_changelog = false;
     Version version {-1, -1};
     // Set only by compaction, alongside its extended tablet_schema.
     VariantCompactionPathsSPtr variant_compaction_paths;
@@ -87,7 +87,6 @@ struct RowsetReaderContext {
     // for unique key merge on write
     bool enable_unique_key_merge_on_write = false;
     DeleteBitmapPtr delete_bitmap = nullptr;
-    bool record_rowids = false;
     RowIdConversion* rowid_conversion = nullptr;
     bool is_key_column_group = false;
     // column unique ids referenced by output/orderby exprs (NOT ordinals)

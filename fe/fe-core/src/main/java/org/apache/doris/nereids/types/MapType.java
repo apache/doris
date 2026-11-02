@@ -19,9 +19,14 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.annotation.Developing;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.types.coercion.ComplexDataType;
 
+import java.util.Collections;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Struct type in Nereids.
@@ -126,5 +131,10 @@ public class MapType extends DataType implements ComplexDataType, NestedColumnPr
     @Override
     public String toString() {
         return toSql();
+    }
+
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.of(new MapLiteral(Collections.<Literal, Literal>emptyMap(), this));
     }
 }

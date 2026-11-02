@@ -25,7 +25,6 @@ import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
-import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.CatalogEnvironment;
 import org.apache.paimon.table.DelegatedFileStoreTable;
@@ -94,10 +93,6 @@ final class PaimonCacheSizeEstimator {
     }
 
     static MetaCacheSizeEstimate estimateTable(Identifier key, Table table, long entryOverheadBytes) {
-        if (table instanceof PrivilegedFileStoreTable) {
-            return MetaCacheSizeEstimate.incomplete(
-                    "authorization decorators must be applied outside the metadata cache");
-        }
         long bytes = add(entryOverheadBytes, ReflectiveObjectSizeEstimator.estimateComplete(key));
         if (table instanceof FileStoreTable) {
             Set<Object> visited = Collections.newSetFromMap(new IdentityHashMap<>());
@@ -140,7 +135,7 @@ final class PaimonCacheSizeEstimator {
             return add(bytes, estimateFileStoreTable(
                     ((DelegatedFileStoreTable) table).wrapped(), visited));
         }
-        bytes = add(bytes, estimateCompleteOnce(table.schema(), visited));
+        bytes = add(bytes, estimateSchemaOnce(table.schema(), visited));
         bytes = add(bytes, estimateStoreGrowth(table.schema()));
         bytes = add(bytes, estimateTableFileIO(table.fileIO(), visited));
         bytes = add(bytes, estimatePath(table.location(), visited));
@@ -203,6 +198,12 @@ final class PaimonCacheSizeEstimator {
 
     static long estimateFileIO(FileIO fileIO) {
         return add(JvmSizeUtils.instanceSize(fileIO.getClass()), FILE_IO_BYTES);
+    }
+
+    /** A whole-value walk of a wide schema would exhaust the visit budget, so each field is estimated on its own. */
+    private static long estimateSchemaOnce(TableSchema schema, Set<Object> visited) {
+        return !visited.add(schema)
+                ? 0L : ReflectiveObjectSizeEstimator.estimateCompletePerElement(schema, schema.fields());
     }
 
     private static long estimateCompleteOnce(Object value, Set<Object> visited) {

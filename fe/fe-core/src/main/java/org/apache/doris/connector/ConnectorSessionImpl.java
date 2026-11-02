@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.connector.spi.ConnectorDelegatedCredential;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorTaskScheduler;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 
 import java.util.Collections;
@@ -57,6 +58,7 @@ public class ConnectorSessionImpl implements ConnectorSession {
     // The backend execution version the planner pinned for the statement, captured at construction like the
     // statement scope; Config.be_exec_version when the session is built outside a planned statement.
     private final int beExecVersion;
+    private final QueryTaskGroups taskGroups;
     // Otherwise-immutable session; this is bound once by the insert executor at write time
     // for connectors using the SPI transaction model (e.g. maxcompute), and read back by the
     // connector's planWrite via getCurrentTransaction(). volatile for cross-thread visibility.
@@ -88,6 +90,15 @@ public class ConnectorSessionImpl implements ConnectorSession {
         this.delegatedCredential = delegatedCredential;
         this.statementScope = statementScope != null ? statementScope : ConnectorStatementScope.NONE;
         this.beExecVersion = beExecVersion;
+        // Capture the handle now. Looking it up from a cleared scope on a worker could resurrect a
+        // finished query. Offline sessions use the SPI's direct scheduler and own no background work.
+        this.taskGroups = this.statementScope == ConnectorStatementScope.NONE ? null
+                : this.statementScope.computeIfAbsent(QueryTaskGroups.SCOPE_KEY, QueryTaskGroups::new);
+    }
+
+    @Override
+    public ConnectorTaskScheduler getTaskScheduler(ConnectorTaskScheduler.Stage stage) {
+        return taskGroups == null ? ConnectorTaskScheduler.DIRECT : taskGroups.get(stage);
     }
 
     @Override

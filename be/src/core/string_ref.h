@@ -218,7 +218,6 @@ struct StringRef {
 
     // Trims leading and trailing spaces.
     StringRef trim() const;
-    StringRef trim_tail_padding_zero() const;
     StringRef trim_whitespace() const;
     StringRef trim_quote() const;
 

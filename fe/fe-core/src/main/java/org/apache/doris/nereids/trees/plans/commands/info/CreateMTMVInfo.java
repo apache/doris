@@ -393,9 +393,9 @@ public class CreateMTMVInfo extends CreateTableInfo {
             return LargeIntType.INSTANCE;
         }
         // Native-table streams use MIN_DELTA, which collapses one key to at most (-, +), so the
-        // sequence does not need a source binlog sequence. When IVM supports external tables,
+        // sequence does not need a source changelog sequence. When IVM supports external tables,
         // this method inspects normalizedPlan and returns LARGEINT if an external stream does not
-        // support MIN_DELTA and therefore needs its 64-bit binlog sequence in the IVM sequence.
+        // support MIN_DELTA and therefore needs its 64-bit changelog sequence in the IVM sequence.
         return BigIntType.INSTANCE;
     }
 

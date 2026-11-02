@@ -19,6 +19,9 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.annotation.Developing;
+import org.apache.doris.nereids.trees.expressions.Expression;
+
+import java.util.Optional;
 
 /**
  * Unsupported type in Nereids.
@@ -56,5 +59,10 @@ public class UnsupportedType extends DataType {
     @Override
     public String toSql() {
         return "UNSUPPORTED";
+    }
+
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.empty();
     }
 }

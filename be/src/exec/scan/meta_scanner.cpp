@@ -37,6 +37,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/types.h"
+#include "format/table/index_disk_usage_reader.h"
 #include "format/table/parquet_metadata_reader.h"
 #include "runtime/cluster_info.h"
 #include "runtime/descriptors.h"
@@ -67,6 +68,11 @@ Status MetaScanner::_open_impl(RuntimeState* state) {
     if (_scan_range.meta_scan_range.metadata_type == TMetadataType::PARQUET) {
         auto reader = ParquetMetadataReader::create_unique(_tuple_desc->slots(), state, _profile,
                                                            _scan_range.meta_scan_range);
+        RETURN_IF_ERROR(reader->init_reader());
+        _reader = std::move(reader);
+    } else if (_scan_range.meta_scan_range.metadata_type == TMetadataType::INDEX_DISK_USAGE) {
+        auto reader = IndexDiskUsageReader::create_unique(_tuple_desc->slots(), state, _profile,
+                                                          _scan_range.meta_scan_range);
         RETURN_IF_ERROR(reader->init_reader());
         _reader = std::move(reader);
     } else {

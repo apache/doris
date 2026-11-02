@@ -90,7 +90,7 @@ DECLARE_mInt32(lease_compaction_interval_seconds);
 DECLARE_mBool(enable_parallel_cumu_compaction);
 DECLARE_mDouble(base_compaction_thread_num_factor);
 DECLARE_mDouble(cumu_compaction_thread_num_factor);
-DECLARE_mDouble(binlog_compaction_thread_num_factor);
+DECLARE_mDouble(changelog_compaction_thread_num_factor);
 DECLARE_mInt32(check_auto_compaction_interval_seconds);
 DECLARE_mInt32(max_base_compaction_task_num_per_disk);
 DECLARE_mBool(prioritize_query_perf_in_compaction);
@@ -103,6 +103,7 @@ DECLARE_mInt32(cloud_single_rowset_compaction_segment_group_size);
 // CloudStorageEngine config
 DECLARE_mInt32(refresh_s3_info_interval_s);
 DECLARE_mInt32(vacuum_stale_rowsets_interval_s);
+DECLARE_mInt64(warm_up_rowset_state_gc_grace_period_seconds);
 DECLARE_mInt32(schedule_sync_tablets_interval_s);
 
 // Cloud mow

@@ -26,10 +26,10 @@
 namespace doris::segment_v2::inverted_index::kuromoji {
 
 TEST(KuromojiIpadicParserTest, CategoryOrdinal) {
-    EXPECT_EQ(ipadic_category_ordinal("KANJI"), CAT_KANJI);
-    EXPECT_EQ(ipadic_category_ordinal(" DEFAULT "), CAT_DEFAULT);
-    EXPECT_EQ(ipadic_category_ordinal("KANJINUMERIC"), CAT_KANJINUMERIC);
-    EXPECT_EQ(ipadic_category_ordinal("NOPE"), CAT_CLASS_COUNT);
+    EXPECT_EQ(ipadic_category_ordinal("KANJI"), CharCategory::CAT_KANJI);
+    EXPECT_EQ(ipadic_category_ordinal(" DEFAULT "), CharCategory::CAT_DEFAULT);
+    EXPECT_EQ(ipadic_category_ordinal("KANJINUMERIC"), CharCategory::CAT_KANJINUMERIC);
+    EXPECT_EQ(ipadic_category_ordinal("NOPE"), CharCategory::CAT_CLASS_COUNT);
 }
 
 TEST(KuromojiIpadicParserTest, LexiconLine) {
@@ -80,17 +80,17 @@ TEST(KuromojiIpadicParserTest, CharDef) {
     CharDefInput cd;
     ASSERT_TRUE(parse_char_def(content, &cd).ok());
 
-    EXPECT_EQ(cd.defs[CAT_KANJI].invoke, 0);
-    EXPECT_EQ(cd.defs[CAT_KANJI].group, 0);
-    EXPECT_EQ(cd.defs[CAT_KANJI].length, 2);
-    EXPECT_EQ(cd.defs[CAT_ALPHA].invoke, 1);
-    EXPECT_EQ(cd.defs[CAT_DEFAULT].group, 1);
+    EXPECT_EQ(cd.defs[static_cast<size_t>(CharCategory::CAT_KANJI)].invoke, 0);
+    EXPECT_EQ(cd.defs[static_cast<size_t>(CharCategory::CAT_KANJI)].group, 0);
+    EXPECT_EQ(cd.defs[static_cast<size_t>(CharCategory::CAT_KANJI)].length, 2);
+    EXPECT_EQ(cd.defs[static_cast<size_t>(CharCategory::CAT_ALPHA)].invoke, 1);
+    EXPECT_EQ(cd.defs[static_cast<size_t>(CharCategory::CAT_DEFAULT)].group, 1);
 
-    EXPECT_EQ(cd.catmap[0x4E00], CAT_KANJI);
-    EXPECT_EQ(cd.catmap[0x9FA5], CAT_KANJI);
-    EXPECT_EQ(cd.catmap[0x0041], CAT_ALPHA);   // 'A'
-    EXPECT_EQ(cd.catmap[0x3007], CAT_SYMBOL);  // first category is primary
-    EXPECT_EQ(cd.catmap[0x0040], CAT_DEFAULT); // unmapped -> DEFAULT
+    EXPECT_EQ(cd.catmap[0x4E00], CharCategory::CAT_KANJI);
+    EXPECT_EQ(cd.catmap[0x9FA5], CharCategory::CAT_KANJI);
+    EXPECT_EQ(cd.catmap[0x0041], CharCategory::CAT_ALPHA);   // 'A'
+    EXPECT_EQ(cd.catmap[0x3007], CharCategory::CAT_SYMBOL);  // first category is primary
+    EXPECT_EQ(cd.catmap[0x0040], CharCategory::CAT_DEFAULT); // unmapped -> DEFAULT
 }
 
 TEST(KuromojiIpadicParserTest, UnkDef) {
@@ -99,11 +99,11 @@ TEST(KuromojiIpadicParserTest, UnkDef) {
             "KANJI,1285,1285,11426,noun,general,*,*,*,*,*\n";
     UnkDictInput unk;
     ASSERT_TRUE(parse_unk_def(content, &unk).ok());
-    ASSERT_EQ(unk.per_category.size(), static_cast<std::size_t>(CAT_CLASS_COUNT));
-    ASSERT_EQ(unk.per_category[CAT_DEFAULT].size(), 1U);
-    EXPECT_EQ(unk.per_category[CAT_DEFAULT][0].word_cost, 4769);
-    ASSERT_EQ(unk.per_category[CAT_KANJI].size(), 1U);
-    EXPECT_EQ(unk.per_category[CAT_KANJI][0].left_id, 1285);
+    ASSERT_EQ(unk.per_category.size(), static_cast<std::size_t>(CharCategory::CAT_CLASS_COUNT));
+    ASSERT_EQ(unk.per_category[static_cast<size_t>(CharCategory::CAT_DEFAULT)].size(), 1U);
+    EXPECT_EQ(unk.per_category[static_cast<size_t>(CharCategory::CAT_DEFAULT)][0].word_cost, 4769);
+    ASSERT_EQ(unk.per_category[static_cast<size_t>(CharCategory::CAT_KANJI)].size(), 1U);
+    EXPECT_EQ(unk.per_category[static_cast<size_t>(CharCategory::CAT_KANJI)][0].left_id, 1285);
 }
 
 } // namespace doris::segment_v2::inverted_index::kuromoji

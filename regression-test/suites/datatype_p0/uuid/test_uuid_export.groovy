@@ -19,25 +19,22 @@
 // UUID annotations survive nested file export and direct reload into native UUID columns.
 suite("test_uuid_export", "p0,external") {
 
-    String localPath = context.config.otherConfigs.get("uuidLocalExportPath")
-    boolean localMode = localPath != null
+    String provider = getS3Provider()
+    String endpoint = getS3Endpoint()
+    if (provider.equalsIgnoreCase("AZURE")) {
+        if (endpoint == "azure-endpoint") {
+            endpoint = "https://${getS3AK()}.blob.core.windows.net"
+        } else if (!endpoint.contains("://")) {
+            endpoint = "https://${endpoint}"
+        }
+    }
     String token = UUID.randomUUID().toString()
-    String outputPath
-    String sinkProperties
-    String sourceProperties
-    if (localMode) {
-        outputPath = "file://${localPath}_${token}_"
-        sinkProperties = ""
-        def backends = sql "SHOW BACKENDS"
-        sourceProperties = "\"backend_id\"=\"${backends[0][0]}\""
-    } else {
-        outputPath = "s3://${context.config.otherConfigs.get('s3BucketName')}/uuid_file_export/${token}_"
-        sinkProperties = """
-                            "s3.endpoint"="${getS3Endpoint()}", "s3.region"="${getS3Region()}",
+    String outputPath = "s3://${context.config.otherConfigs.get('s3BucketName')}/uuid_file_export/${token}_"
+    String sinkProperties = """
+                            "provider"="${provider}",
+                            "s3.endpoint"="${endpoint}", "s3.region"="${getS3Region()}",
                             "s3.access_key"="${getS3AK()}", "s3.secret_key"="${getS3SK()}"
                             """
-        sourceProperties = sinkProperties
-    }
     sql "DROP TABLE IF EXISTS uuid_file_export"
     sql """CREATE TABLE uuid_file_export (id INT, u UUID, a ARRAY<UUID>, s STRUCT<k:UUID>)
            DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -49,14 +46,10 @@ suite("test_uuid_export", "p0,external") {
            (3, NULL, NULL, NULL)"""
     qt_source "SELECT * FROM uuid_file_export ORDER BY id"
     String exportPath = "${outputPath}export/"
-    if (localMode) {
-        new File("${localPath}_${token}_export").mkdirs()
-    }
     String label = "uuid_export_${token.replace('-', '_')}"
-    String storageClause = localMode ? "" : "WITH S3 (${sinkProperties})"
     sql """EXPORT TABLE uuid_file_export TO "${exportPath}"
            PROPERTIES("label"="${label}", "format"="parquet")
-           ${storageClause}"""
+           WITH S3 (${sinkProperties})"""
     String state = ""
     for (int attempt = 0; attempt < 60; ++attempt) {
         def jobs = sql "SHOW EXPORT WHERE LABEL='${label}'"
@@ -70,14 +63,10 @@ suite("test_uuid_export", "p0,external") {
         sleep(2000)
     }
     assertEquals("FINISHED", state)
-    String exportInput = localMode
-            ? "${context.config.otherConfigs.get('uuidLocalTvfPath')}_${token}_export/*"
-            : "${exportPath}*"
-    String exportTvf = localMode ? "local" : "s3"
-    String exportKey = localMode ? "file_path" : "uri"
+    String exportInput = "${exportPath}*"
     sql "DROP TABLE IF EXISTS uuid_file_export_reload"
     sql "CREATE TABLE uuid_file_export_reload LIKE uuid_file_export"
     sql """INSERT INTO uuid_file_export_reload
-           SELECT * FROM ${exportTvf}("${exportKey}"="${exportInput}", "format"="parquet", ${sourceProperties})"""
+           SELECT * FROM s3("uri"="${exportInput}", "format"="parquet", ${sinkProperties})"""
     qt_export "SELECT * FROM uuid_file_export_reload ORDER BY id"
 }

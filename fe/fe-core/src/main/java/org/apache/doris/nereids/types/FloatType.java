@@ -18,7 +18,11 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.types.coercion.FractionalType;
+
+import java.util.Optional;
 
 /**
  * Float type in Nereids.
@@ -67,5 +71,10 @@ public class FloatType extends FractionalType {
     @Override
     public int width() {
         return WIDTH;
+    }
+
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.of(new FloatLiteral(0));
     }
 }

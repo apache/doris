@@ -84,15 +84,20 @@ public:
     }
 
     // Character definitions.
-    uint8_t char_category(char32_t cp) const {
-        return cp < 0x10000 ? _catmap[cp] : static_cast<uint8_t>(CAT_DEFAULT);
+    CharCategory char_category(char32_t cp) const {
+        return cp < 0x10000 ? static_cast<CharCategory>(_catmap[cp]) : CharCategory::CAT_DEFAULT;
     }
-    bool is_invoke(char32_t cp) const { return _defs[char_category(cp)].invoke != 0; }
-    bool is_group(char32_t cp) const { return _defs[char_category(cp)].group != 0; }
+    bool is_invoke(char32_t cp) const {
+        return _defs[static_cast<size_t>(char_category(cp))].invoke != 0;
+    }
+    bool is_group(char32_t cp) const {
+        return _defs[static_cast<size_t>(char_category(cp))].group != 0;
+    }
 
     // Unknown-word dictionary.
-    WordIdRun unknown_run(uint8_t category) const {
-        return category < _unk_runs_count ? _unk_runs[category] : WordIdRun {0, 0};
+    WordIdRun unknown_run(CharCategory category) const {
+        const auto index = static_cast<size_t>(category);
+        return index < _unk_runs_count ? _unk_runs[index] : WordIdRun {0, 0};
     }
     const WordEntry& unknown_word(uint32_t word_id) const { return _unk_entries[word_id]; }
     std::string_view unknown_feature(const WordEntry& e) const {
