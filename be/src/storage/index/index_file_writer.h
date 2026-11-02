@@ -178,6 +178,7 @@ public:
     // Finish the close process. This waits for the close operation to complete by calling
     // _idx_v2_writer->close(false), which blocks until the close is fully done.
     Status finish_close();
+    bool is_closed() const { return _closed; }
     const InvertedIndexFileInfo* get_index_file_info() const {
         DCHECK(_closed) << debug_string();
         return &_file_info;

@@ -28,6 +28,7 @@
 #include "storage/index/index_writer.h"
 #include "storage/index/inverted/clucene/inverted_index_searcher.h"
 #include "storage/index/inverted/clucene/searcher_cache_value.h"
+#include "storage/rowset/beta_rowset_writer.h"
 #include "storage/storage_engine.h"
 
 namespace doris::segment_v2 {
@@ -188,6 +189,24 @@ TEST_F(IndexFileWriterTest, OpenAfterCloseFails) {
     auto open_result = writer.open(index_meta.get());
     ASSERT_FALSE(open_result.has_value());
     EXPECT_TRUE(open_result.error().is<ErrorCode::INTERNAL_ERROR>());
+}
+
+TEST_F(IndexFileWriterTest, CollectionClosesOnlyOpenWriters) {
+    auto sealed_at_flush = std::make_unique<IndexFileWriter>(_fs, _index_path_prefix, _rowset_id, 0,
+                                                             InvertedIndexStorageFormatPB::V2);
+    auto left_open = std::make_unique<IndexFileWriter>(_fs, _index_path_prefix, _rowset_id, 1,
+                                                       InvertedIndexStorageFormatPB::V2);
+    ASSERT_TRUE(sealed_at_flush->begin_close().ok());
+    auto* open_writer = left_open.get();
+
+    InvertedIndexFileCollection collection;
+    ASSERT_TRUE(collection.add(0, std::move(sealed_at_flush)).ok());
+    ASSERT_TRUE(collection.add(1, std::move(left_open)).ok());
+    ASSERT_FALSE(open_writer->is_closed());
+
+    ASSERT_TRUE(collection.begin_close().ok());
+    EXPECT_TRUE(open_writer->is_closed());
+    ASSERT_TRUE(collection.finish_close().ok());
 }
 
 TEST_F(IndexFileWriterTest, OpenWithoutRamDirTest) {

@@ -122,7 +122,6 @@ Status SegmentFlusher::transform_block(Block* block, int32_t segment_id,
 Status SegmentFlusher::close() {
     RETURN_IF_ERROR(_seg_files.close());
     RETURN_IF_ERROR(_preload_segment_indexes_to_file_cache());
-    RETURN_IF_ERROR(_idx_files.finish_close());
     return Status::OK();
 }
 
