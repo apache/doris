@@ -131,4 +131,24 @@ suite("test_timestamptz_mtmv_definition_time_zone_hint","mtmv") {
         ) t
     """
     waitingMTMVTaskFinishedByMvName(nestedMvName, dbName)
+
+    // A scalar subquery owns its plan on the expression rather than as a child node, and its hint is applied
+    // while the subquery is analyzed even though the subquery folds away to a constant afterwards. A
+    // conflicting zone there has to be rejected as well.
+    def subqueryMvName = "timestamptz_mtmv_definition_time_zone_hint_subquery_mv"
+    sql "DROP MATERIALIZED VIEW IF EXISTS ${subqueryMvName}"
+    test {
+        sql """
+            CREATE MATERIALIZED VIEW ${subqueryMvName}
+            BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+            DISTRIBUTED BY RANDOM BUCKETS 1
+            PROPERTIES('replication_num' = '1')
+            AS
+            SELECT date_trunc(x.ts, 'day') AS d, SUM(x.id) AS s
+            FROM (SELECT /*+ SET_VAR(time_zone='${hintedTz}') */ id, ts FROM ${tableName}) x
+            WHERE (SELECT /*+ SET_VAR(time_zone='${creationTz}') */ 1) = 1
+            GROUP BY date_trunc(x.ts, 'day')
+        """
+        exception "conflicting time zones"
+    }
 }
