@@ -50,6 +50,13 @@ public:
     static Result<std::shared_ptr<ObjStorageFileSystem>> create(ObjStorageConfig config,
                                                                 std::string id);
 
+    // Applies a refreshed configuration of the same storage resource to `fs`. The same
+    // backend is reset in place (ObjClientHolder::reset) and `fs` is returned. A different
+    // backend is a different storage target, which a reset refuses, so a new file system with
+    // the same id is built from `config`, as the next BE start would build it.
+    static Result<std::shared_ptr<ObjStorageFileSystem>> refresh(
+            std::shared_ptr<ObjStorageFileSystem> fs, ObjStorageConfig config);
+
     ~ObjStorageFileSystem() override;
 
     const std::shared_ptr<ObjClientHolder>& client_holder() const { return _client; }

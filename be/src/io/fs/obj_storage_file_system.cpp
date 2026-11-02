@@ -76,6 +76,16 @@ Result<std::shared_ptr<ObjStorageFileSystem>> ObjStorageFileSystem::create(ObjSt
     return fs;
 }
 
+Result<std::shared_ptr<ObjStorageFileSystem>> ObjStorageFileSystem::refresh(
+        std::shared_ptr<ObjStorageFileSystem> fs, ObjStorageConfig config) {
+    const auto& holder = fs->client_holder();
+    if (holder->state()->config.backend.index() != config.client.backend.index()) {
+        return create(std::move(config), fs->id());
+    }
+    RETURN_IF_ERROR_RESULT(holder->reset(config.client));
+    return fs;
+}
+
 ObjStorageFileSystem::ObjStorageFileSystem(ObjStorageConfig config, std::string id)
         : RemoteFileSystem(config.prefix, std::move(id), FileSystemType::OBJECT_STORAGE),
           _bucket(std::move(config.bucket)),

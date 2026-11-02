@@ -427,6 +427,41 @@ TEST_F(ObjClientFactoryTest, ResetMergeKeepsTheStorageTarget) {
     EXPECT_TRUE(as_azure.error().is<ErrorCode::INVALID_ARGUMENT>()) << as_azure.error();
 }
 
+TEST_F(ObjClientFactoryTest, RefreshResetsTheSameBackendAndRebuildsAnotherOne) {
+    auto param = make_s3_param("refresh-s3.example.com");
+    auto storage = TEST_TRY(ObjStorageConfigResolver::from_storage_param(param));
+    auto fs = TEST_TRY(ObjStorageFileSystem::create(storage, "refresh-resource"));
+
+    // Rotated keys on the same backend are reset in place.
+    auto rotated = param;
+    rotated.__set_sk("rotated-sk");
+    auto rotated_storage = TEST_TRY(ObjStorageConfigResolver::from_storage_param(rotated));
+    auto same = TEST_TRY(ObjStorageFileSystem::refresh(fs, rotated_storage));
+    EXPECT_EQ(same, fs);
+    EXPECT_EQ(secret_key_of(fs->client_holder()->state()->config), "rotated-sk");
+
+    // FE allows an ALTER RESOURCE from S3 to Azure. A reset would keep the S3 target, so a new
+    // file system with the same id is built for the Azure target, as a BE restart would build.
+    auto azure_param = make_azure_param("refresh-azure.example.com");
+    azure_param.__set_root_path("azure-root");
+    auto azure_storage = TEST_TRY(ObjStorageConfigResolver::from_storage_param(azure_param));
+    auto rebuilt = ObjStorageFileSystem::refresh(fs, azure_storage);
+#ifdef USE_AZURE
+    ASSERT_TRUE(rebuilt.has_value()) << rebuilt.error();
+    EXPECT_NE(rebuilt.value(), fs);
+    EXPECT_EQ(rebuilt.value()->id(), "refresh-resource");
+    EXPECT_EQ(rebuilt.value()->bucket(), "container");
+    EXPECT_EQ(rebuilt.value()->prefix(), "azure-root");
+    EXPECT_EQ(rebuilt.value()->client_holder()->state()->config.provider(),
+              ObjStorageProvider::AZURE);
+#else
+    ASSERT_FALSE(rebuilt.has_value());
+    EXPECT_TRUE(rebuilt.error().is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << rebuilt.error();
+#endif
+    // Requests that still hold the old file system keep its S3 target.
+    EXPECT_EQ(fs->client_holder()->state()->config.provider(), ObjStorageProvider::AWS);
+}
+
 TEST_F(ObjClientFactoryTest, FactoryValidatesBeforeBuilding) {
     auto& factory = ObjClientFactory::instance();
     auto no_region = make_s3_param("validate-s3.example.com");
