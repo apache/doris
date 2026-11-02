@@ -332,6 +332,8 @@ public class JdbcMySQLClient extends JdbcClient {
             }
             case "FLOAT":
                 return Type.FLOAT;
+            case "VECTOR":
+                return ArrayType.create(Type.FLOAT, true);
             case "DOUBLE":
                 return Type.DOUBLE;
             case "DECIMAL": {
