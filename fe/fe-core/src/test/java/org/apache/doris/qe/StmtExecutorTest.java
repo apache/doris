@@ -1012,6 +1012,10 @@ public class StmtExecutorTest extends TestWithFeService {
             TQueryOptions options = new TQueryOptions();
             options.enable_profile = true;
             Mockito.when(coordinator.getQueryOptions()).thenReturn(options);
+            // A dispatched Flight query registers its cancellation route with these.
+            Mockito.when(coordinator.getQueryId()).thenReturn(queryId);
+            Mockito.when(coordinator.getBackendBrpcAddresses())
+                    .thenReturn(Collections.singletonList(new TNetworkAddress("127.0.0.1", 8060)));
             Mockito.when(coordinator.getExecutionProfile()).thenReturn(execution);
             Mockito.when(coordinator.getExecStatus()).thenReturn(Status.OK);
             Mockito.when(coordinator.mustOutliveDispatch()).thenReturn("FLIGHT_DEFERRED".equals(outcome));
@@ -1083,6 +1087,8 @@ public class StmtExecutorTest extends TestWithFeService {
                     Assertions.assertSame(successful, manager.getExecutionProfile(successful.getQueryId()));
                     Assertions.assertSame(executor.getCoord(),
                             QeProcessorImpl.INSTANCE.getCoordinator(successful.getQueryId()));
+                    // The result stays on the BEs, so the query's cancellation route was registered.
+                    Mockito.verify(executor.getCoord()).getBackendBrpcAddresses();
                     Assertions.assertEquals("FLIGHT_DEFERRED".equals(outcome), executor.isDeferredForArrowFlight());
                     if (executor.isDeferredForArrowFlight()) {
                         JsonObject pending = JsonParser.parseString(profile.getSummaryProfile().getExecutionSummary()
