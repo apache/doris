@@ -110,6 +110,29 @@ TEST(TimeStampTzValueTest, AddLocalCalendarDays) {
     EXPECT_FALSE(maximum.date_add_days(1, cctz::fixed_time_zone(std::chrono::hours(-8))));
 }
 
+TEST(TimeStampTzValueTest, AddLocalCalendarDaysAtUtcBoundaries) {
+    cctz::time_zone new_york;
+    ASSERT_TRUE(cctz::load_time_zone("America/New_York", &new_york));
+    const auto east = cctz::fixed_time_zone(std::chrono::hours(8));
+    const auto west = cctz::fixed_time_zone(std::chrono::hours(-8));
+    const auto minimum = make_timestamptz(0, 1, 1, 0, 0, 0, 123456);
+    const auto maximum = make_timestamptz(9999, 12, 31, 23, 0, 0, 123456);
+    auto result = minimum;
+    ASSERT_TRUE(result.date_add_days(0, new_york));
+    EXPECT_EQ(result, minimum);
+    result = maximum;
+    ASSERT_TRUE(result.date_add_days(0, east));
+    EXPECT_EQ(result, maximum);
+
+    // Both conversions pass through local February 29, year 0, and finish in valid UTC.
+    result = make_timestamptz(0, 2, 28, 20, 0, 0, 123456);
+    ASSERT_TRUE(result.date_add_days(-1, east));
+    EXPECT_EQ(result, make_timestamptz(0, 2, 27, 20, 0, 0, 123456));
+    result = make_timestamptz(0, 3, 1, 1, 0, 0, 123456);
+    ASSERT_TRUE(result.date_add_days(1, west));
+    EXPECT_EQ(result, make_timestamptz(0, 3, 2, 1, 0, 0, 123456));
+}
+
 TEST(TimeStampTzValueTest, ToStringPreservesHistoricalOffsetSeconds) {
     TimezoneUtils::load_offsets_to_cache();
     const auto utc = cctz::utc_time_zone();

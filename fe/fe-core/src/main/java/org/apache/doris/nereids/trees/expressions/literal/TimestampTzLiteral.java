@@ -198,6 +198,11 @@ public class TimestampTzLiteral extends DateTimeLiteral {
 
     /** Add calendar days in the session timezone, retaining the local time of day. */
     public Expression plusDays(long days) {
+        // Predicate movement relies on zero days being an identity even when the local
+        // display year of a valid UTC boundary value is outside [0, 9999].
+        if (days == 0) {
+            return this;
+        }
         ZoneId zone = TimeZoneParser.parse(getSessionTimeZone(), TimeZoneParser.Usage.SESSION);
         ZonedDateTime local = toJavaDateType().atOffset(ZoneOffset.UTC).atZoneSameInstant(zone);
         LocalDateTime target = local.toLocalDateTime().plusDays(days);
@@ -205,8 +210,8 @@ public class TimestampTzLiteral extends DateTimeLiteral {
         if (isDateOutOfRange(local.toLocalDateTime()) || isDateOutOfRange(target)) {
             throw new AnalysisException("datetime out of range: " + target);
         }
-        // Keep the original offset when the target repeats, including adding zero days
-        // to the second 01:30 during the New York autumn transition.
+        // Keep the original offset when the target repeats: November 4 01:30-05 minus
+        // one day selects the second occurrence of November 3 01:30 in New York.
         if (zone.getRules().getValidOffsets(target).contains(local.getOffset())) {
             return fromJavaDateType(LocalDateTime.ofInstant(
                     target.toInstant(local.getOffset()), ZoneOffset.UTC), getScale());
