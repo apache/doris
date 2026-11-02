@@ -1629,19 +1629,15 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
-    public void metadataColumnsRejectDisabledFileScannerV2DuringPlanning() {
+    public void metadataColumnsIgnoreDeprecatedScannerOptionDuringPlanning() {
         IcebergScanPlanProvider provider = providerOver(
                 createTable("t1", SCHEMA, PartitionSpec.unpartitioned()));
         ConnectorSession session = new FakeScanSession("UTC",
                 Collections.singletonMap("enable_file_scanner_v2", "false"));
         List<ConnectorColumnHandle> columns = Collections.singletonList(new IcebergColumnHandle("_pos", -1));
 
-        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
-                () -> provider.planScan(session, ConnectorScanRequest.builder(
-                        new IcebergTableHandle("db1", "t1"), columns).build()));
-        Assertions.assertEquals(
-                "Iceberg metadata columns require FileScannerV2 native Parquet/ORC reader",
-                ex.getMessage());
+        Assertions.assertDoesNotThrow(() -> provider.planScan(session, ConnectorScanRequest.builder(
+                new IcebergTableHandle("db1", "t1"), columns).build()));
     }
 
     @Test
@@ -1678,20 +1674,20 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
-    public void metadataColumnsRejectDisabledFileScannerV2InStreamingPath() throws IOException {
+    public void metadataColumnsIgnoreDeprecatedScannerOptionInStreamingPath() throws IOException {
         IcebergScanPlanProvider provider = providerOver(
                 createTable("stream_metadata_v2", SCHEMA, PartitionSpec.unpartitioned()));
         ConnectorSession session = new FakeScanSession("UTC",
                 Collections.singletonMap("enable_file_scanner_v2", "false"));
         List<ConnectorColumnHandle> columns = Collections.singletonList(new IcebergColumnHandle("_pos", -1));
 
-        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
-                () -> provider.streamSplits(session,
-                        ConnectorScanRequest.builder(new IcebergTableHandle("db1", "stream_metadata_v2"), columns)
-                                .filter(Optional.empty()).limit(-1L).build()));
-        Assertions.assertEquals(
-                "Iceberg metadata columns require FileScannerV2 native Parquet/ORC reader",
-                ex.getMessage());
+        Assertions.assertDoesNotThrow(() -> {
+            try (ConnectorSplitSource source = provider.streamSplits(session,
+                    ConnectorScanRequest.builder(new IcebergTableHandle("db1", "stream_metadata_v2"), columns)
+                            .filter(Optional.empty()).limit(-1L).build())) {
+                Assertions.assertNotNull(source);
+            }
+        });
     }
 
     @Test
@@ -3398,10 +3394,9 @@ public class IcebergScanPlanProviderTest {
     public void getScanNodePropertiesForPositionDeletesSysHandleEmitsDict() {
         // WHY (D-065 narrowed): every OTHER sys table rides the JNI serialized-split path, where the
         // metadata-table schema travels inside the serialized FileScanTask — so the field-id dict is
-        // correctly skipped. $position_deletes has no serialized task: BOTH native readers resolve the `row`
-        // column through params.history_schema_info. Without the dict, scanner v1 hard-errors ("Iceberg
-        // position delete system table row schema is missing") and scanner v2 SILENTLY degrades to name
-        // matching, mis-reading renamed columns under schema evolution. The dict must also be built from the
+        // correctly skipped. $position_deletes has no serialized task: the native reader resolves the `row`
+        // column through params.history_schema_info. Without the dict, name matching can misread renamed
+        // columns under schema evolution. The dict must also be built from the
         // METADATA table's own schema — feeding the base schema keyed off meta columns is exactly what makes
         // IcebergSchemaUtils throw "requested column not found".
         // MUTATION: widening the guard back to `if (!systemTable)` -> no dict -> red.

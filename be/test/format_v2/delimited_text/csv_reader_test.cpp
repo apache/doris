@@ -45,7 +45,6 @@
 #include "exec/scan/scanner.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
-#include "format/csv/csv_reader.h"
 #include "format_v2/column_mapper.h"
 #include "io/fs/stream_load_pipe.h"
 #include "io/io_common.h"
@@ -408,7 +407,7 @@ VExprContextSPtr prepared_conjunct(RuntimeState* state, const VExprSPtr& expr) {
     return context;
 }
 
-class PlainCsvSplitTest : public testing::TestWithParam<bool> {
+class PlainCsvSplitTest : public testing::Test {
 protected:
     void read_range(const std::string& content, const std::string& delimiter, int64_t start,
                     int64_t size, bool count_only, std::vector<std::string>* values,
@@ -452,46 +451,29 @@ protected:
                 }
             }
         };
-        if (GetParam()) {
-            auto reader = create_reader(path, &params, slots, &state, &profile, start, size);
-            auto request = std::make_shared<FileScanRequest>();
-            request->local_positions.emplace(LocalColumnId(0), LocalIndex(0));
-            ASSERT_TRUE(reader->open(request).ok());
-            if (count_only) {
-                FileAggregateRequest aggregate_request;
-                aggregate_request.agg_type = TPushAggOp::type::COUNT;
-                FileAggregateResult result;
-                ASSERT_TRUE(reader->get_aggregate_result(aggregate_request, &result).ok());
-                *total_rows += result.count;
-            } else {
-                read_blocks([&](Block* block, size_t* rows, bool* eof) {
-                    return reader->get_block(block, rows, eof);
-                });
-            }
+        auto reader = create_reader(path, &params, slots, &state, &profile, start, size);
+        auto request = std::make_shared<FileScanRequest>();
+        request->local_positions.emplace(LocalColumnId(0), LocalIndex(0));
+        ASSERT_TRUE(reader->open(request).ok());
+        if (count_only) {
+            FileAggregateRequest aggregate_request;
+            aggregate_request.agg_type = TPushAggOp::type::COUNT;
+            FileAggregateResult result;
+            ASSERT_TRUE(reader->get_aggregate_result(aggregate_request, &result).ok());
+            *total_rows += result.count;
         } else {
-            TFileRangeDesc range;
-            range.__set_path(path);
-            range.__set_start_offset(start);
-            range.__set_size(size);
-            range.__set_file_size(content.size());
-            ScannerCounter counter;
-            auto reader = ::doris::CsvReader::create_unique(
-                    &state, &profile, &counter, params, range, slots, state.batch_size(), nullptr);
-            ASSERT_TRUE(reader->init_reader(true).ok());
-            if (count_only) {
-                reader->set_push_down_agg_type(TPushAggOp::type::COUNT);
-            }
             read_blocks([&](Block* block, size_t* rows, bool* eof) {
-                return reader->get_next_block(block, rows, eof);
+                return reader->get_block(block, rows, eof);
             });
-            EXPECT_EQ(counter.num_rows_filtered, 0);
         }
     }
 
     doris::test::ScopedTempDirectory _dir {"doris_plain_csv_split_test"};
 };
 
-TEST_P(PlainCsvSplitTest, EveryByteBoundaryMatchesUnsplitRowsAndCount) {
+// Keep the exhaustive delimiter/split cross-product together to detect lost or duplicated rows.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST_F(PlainCsvSplitTest, EveryByteBoundaryMatchesUnsplitRowsAndCount) {
     for (const std::string delimiter : {"\n", "\r\n", "ABCDE", "||", "aba"}) {
         const std::string extra = delimiter == "||" ? "|" : delimiter == "aba" ? "ba" : "";
         for (bool trailing : {false, true}) {
@@ -538,7 +520,9 @@ TEST_P(PlainCsvSplitTest, EveryByteBoundaryMatchesUnsplitRowsAndCount) {
     }
 }
 
-TEST_P(PlainCsvSplitTest, FirstSplitStillHonorsHeadersAndSkipLines) {
+// Keep the exhaustive delimiter/split cross-product together to detect lost or duplicated rows.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST_F(PlainCsvSplitTest, FirstSplitStillHonorsHeadersAndSkipLines) {
     for (int header_mode : {1, 2, 3}) {
         const std::string header = header_mode == 1 ? "id||" : "id||String||";
         const std::string content = header + "1|||2||3";
@@ -559,11 +543,6 @@ TEST_P(PlainCsvSplitTest, FirstSplitStillHonorsHeadersAndSkipLines) {
         }
     }
 }
-
-INSTANTIATE_TEST_SUITE_P(LegacyAndV2, PlainCsvSplitTest, testing::Bool(),
-                         [](const testing::TestParamInfo<bool>& info) {
-                             return info.param ? "V2" : "Legacy";
-                         });
 
 class CsvV2ReaderTest : public testing::Test {
 public:

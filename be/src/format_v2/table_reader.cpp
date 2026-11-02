@@ -43,7 +43,7 @@
 #include "format/table/deletion_vector_reader.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
 #include "format/table/iceberg_scan_semantics.h"
-#include "format/table/paimon_reader.h"
+#include "format/table/paimon_deletion_vector.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/delimited_text/csv_reader.h"
 #include "format_v2/delimited_text/text_reader.h"

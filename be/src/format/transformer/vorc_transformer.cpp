@@ -55,7 +55,7 @@
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "format/arrow/arrow_block_convertor.h"
-#include "format/orc/vorc_reader.h"
+#include "format_v2/orc/orc_file_input_stream.h"
 #include "io/fs/file_writer.h"
 #include "orc/Int128.hh"
 #include "orc/MemoryPool.hh"
@@ -502,9 +502,9 @@ Status VOrcTransformer::collect_file_statistics_after_close(TIcebergColumnStats*
         io::FileReaderSPtr file_reader;
         io::FileReaderOptions reader_options;
         RETURN_IF_ERROR(_fs->open_file(_file_writer->path(), &file_reader, &reader_options));
-        auto input_stream = std::make_unique<ORCFileInputStream>(
-                _file_writer->path().native(), file_reader, nullptr, nullptr, 8L * 1024L * 1024L,
-                1L * 1024L * 1024L);
+        auto input_stream = std::make_unique<format::orc::OrcFileInputStream>(
+                _file_writer->path().native(), file_reader, nullptr, nullptr,
+                format::orc::OrcFileInputStreamOptions {});
         std::unique_ptr<orc::Reader> reader =
                 orc::createReader(std::move(input_stream), orc::ReaderOptions());
         std::unique_ptr<orc::Statistics> file_stats = reader->getStatistics();
