@@ -65,6 +65,10 @@ import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.mtmv.MTMVRefreshContext;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
+import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
+import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.expressions.literal.Result;
 import org.apache.doris.nereids.types.VarBinaryType;
@@ -158,6 +162,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -2635,6 +2640,45 @@ public class IcebergUtils {
             return action.apply(pinnedSnapshot.get());
         }
         return withLatestSnapshotCacheValue(dorisTable, action);
+    }
+
+    /** Derive all MV partition versions from one view without retaining an unbudgeted map. */
+    public static Map<String, MTMVSnapshotIf> getPartitionSnapshots(ExternalTable dorisTable,
+            Set<String> partitionNames, MTMVRefreshContext context, Optional<MvccSnapshot> snapshot)
+            throws AnalysisException {
+        Map<String, MTMVSnapshotIf> versions = new LinkedHashMap<>();
+        if (partitionNames.isEmpty()) {
+            return versions;
+        }
+        IcebergSnapshotCacheValue value = getSnapshotCacheValue(snapshot, dorisTable);
+        IcebergPartitionInfo info = value.getPartitionInfo();
+        for (String name : partitionNames) {
+            try {
+                versions.put(name, partitionSnapshotOf(name, info, value.getSnapshot().getSnapshotId()));
+            } catch (AnalysisException e) {
+                context.recordPartitionSnapshotFailure((MTMVRelatedTableIf) dorisTable, name, e);
+            }
+        }
+        return versions;
+    }
+
+    public static MTMVSnapshotIf getPartitionSnapshot(String partitionName, IcebergSnapshotCacheValue value)
+            throws AnalysisException {
+        return partitionSnapshotOf(partitionName, value.getPartitionInfo(), value.getSnapshot().getSnapshotId());
+    }
+
+    private static MTMVSnapshotIf partitionSnapshotOf(String partitionName,
+            IcebergPartitionInfo info, long tableSnapshotId) throws AnalysisException {
+        long latestSnapshotId = info.getLatestSnapshotId(partitionName);
+        // last_updated_snapshot_id can be absent; retain the table-snapshot fallback for MV refresh.
+        if (latestSnapshotId <= 0) {
+            if (tableSnapshotId <= 0) {
+                throw new AnalysisException("can not find partition: " + partitionName
+                        + ", and table snapshot ID is also invalid");
+            }
+            return new MTMVSnapshotIdSnapshot(tableSnapshotId);
+        }
+        return new MTMVSnapshotIdSnapshot(latestSnapshotId);
     }
 
     public static IcebergSnapshotCacheValue getSnapshotCacheValue(Optional<MvccSnapshot> snapshot,

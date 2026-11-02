@@ -221,21 +221,13 @@ public class IcebergExternalTable extends ExternalTable
     @Override
     public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
                                                Optional<MvccSnapshot> snapshot) throws AnalysisException {
-        IcebergSnapshotCacheValue snapshotValue = IcebergUtils.getSnapshotCacheValue(snapshot, this);
-        long latestSnapshotId = snapshotValue.getPartitionInfo().getLatestSnapshotId(partitionName);
-        // If partition snapshot ID is unavailable (<= 0), fallback to table snapshot ID
-        // This can happen when last_updated_snapshot_id is null in Iceberg metadata
-        if (latestSnapshotId <= 0) {
-            long tableSnapshotId = snapshotValue.getSnapshot().getSnapshotId();
-            // If table snapshot ID is also invalid, it means empty table
-            if (tableSnapshotId <= 0) {
-                throw new AnalysisException("can not find partition: " + partitionName
-                        + ", and table snapshot ID is also invalid");
-            }
-            // Use table snapshot ID as fallback when partition snapshot ID is unavailable
-            return new MTMVSnapshotIdSnapshot(tableSnapshotId);
-        }
-        return new MTMVSnapshotIdSnapshot(latestSnapshotId);
+        return IcebergUtils.getPartitionSnapshot(partitionName, IcebergUtils.getSnapshotCacheValue(snapshot, this));
+    }
+
+    @Override
+    public Map<String, MTMVSnapshotIf> getPartitionSnapshots(Set<String> partitionNames,
+            MTMVRefreshContext context, Optional<MvccSnapshot> snapshot) throws AnalysisException {
+        return IcebergUtils.getPartitionSnapshots(this, partitionNames, context, snapshot);
     }
 
     @Override

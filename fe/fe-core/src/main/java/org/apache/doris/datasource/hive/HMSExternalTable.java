@@ -1102,6 +1102,9 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         if (dlaTable instanceof HiveDlaTable) {
             return ((HiveDlaTable) dlaTable).getPartitionSnapshots(partitionNames, snapshot);
         }
+        if (dlaTable instanceof IcebergDlaTable) {
+            return IcebergUtils.getPartitionSnapshots(this, partitionNames, context, snapshot);
+        }
         return MTMVRelatedTableIf.super.getPartitionSnapshots(partitionNames, context, snapshot);
     }
 

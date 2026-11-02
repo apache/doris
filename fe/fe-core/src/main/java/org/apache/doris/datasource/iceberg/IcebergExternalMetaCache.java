@@ -975,6 +975,14 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                 snapshots.invalidateIf((key, value) -> key.getNameMapping().equals(nameMapping)
                         && (!key.belongsTo(currentValue) || !sharesOperationalResources(currentValue, value)));
             }
+            MetaCacheEntry<IcebergSnapshotEntryKey, IcebergPartitionInfo> partitions =
+                    partitionEntry.getIfInitialized(nameMapping.getCtlId());
+            if (partitions != null) {
+                // Partition maps retain no FileIO; preserve reuse across handles of the same
+                // physical generation, but retire maps no latest reader can reach anymore.
+                partitions.invalidateIf(key -> key.getNameMapping().equals(nameMapping)
+                        && !key.belongsTo(currentValue));
+            }
             Optional<String> currentUuid = currentValue.getTableUuid();
             MetaCacheEntry<IcebergSchemaCacheKey, SchemaCacheValue> schemas =
                     schemaEntry.getIfInitialized(nameMapping.getCtlId());
@@ -1213,7 +1221,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                     }
                 };
                 value.withPartitionInfoLoader(key.isPresent() && !IcebergUtils.useSessionCatalog(dorisTable)
-                        ? () -> partitions.get(key.get(), ignored -> loader.get()) : loader);
+                        ? () -> getPartitionInfo(key.get(), partitions, loader) : loader);
             }
             return value;
         } catch (AnalysisException e) {
@@ -1222,6 +1230,36 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
             // AnalysisException subclasses UserException, so the more specific type comes first.
             throw new RuntimeException(e.getMessage(), e);
         }
+    }
+
+    private IcebergPartitionInfo getPartitionInfo(IcebergSnapshotEntryKey key,
+            MetaCacheEntry<IcebergSnapshotEntryKey, IcebergPartitionInfo> partitions,
+            Supplier<IcebergPartitionInfo> loader) {
+        if (!canCachePartitionInfo(key)) {
+            // A pinned old projection can still read its immutable generation after retirement.
+            return loader.get();
+        }
+        IcebergPartitionInfo info = partitions.get(key, ignored -> loader.get());
+        if (!canCachePartitionInfo(key)) {
+            // Replacement can race the load, including a count-mode contextual miss. Do not leave
+            // the superseded map published after returning it to the query that still owns it.
+            partitions.invalidateKeyIfSame(key, info);
+        }
+        return info;
+    }
+
+    private boolean canCachePartitionInfo(IcebergSnapshotEntryKey key) {
+        MetaCacheEntry<NameMapping, IcebergTableCacheValue> tables =
+                tableEntry.getIfInitialized(key.getNameMapping().getCtlId());
+        if (tables == null) {
+            return false;
+        }
+        if (!tables.isEffectivelyEnabled()) {
+            // A disabled table entry never publishes handles; physical keys still permit reuse.
+            return true;
+        }
+        IcebergTableCacheValue current = tables.peekIfPresent(key.getNameMapping());
+        return current != null && key.belongsTo(current);
     }
 
     private IcebergMetadataOps resolveMetadataOps(CatalogIf catalog) {
