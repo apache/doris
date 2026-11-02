@@ -23,11 +23,15 @@ import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
+import org.apache.doris.nereids.trees.expressions.ArrayItemReference.ArrayItemSlot;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -164,7 +168,7 @@ public class PushDownProject implements RewriteRuleFactory, NormalizeToSlot {
         List<Expression> newExpressions = new ArrayList<>();
         for (Expression expression : expressions) {
             Expression newExpression = expression.rewriteDownShortCircuit(e -> {
-                if (e instanceof PreferPushDownProject) {
+                if (e instanceof PreferPushDownProject && !hasFreeLambdaArgument(e)) {
                     List<Plan> children = plan.children();
                     for (int i = 0; i < children.size(); i++) {
                         Plan child = children.get(i);
@@ -338,6 +342,53 @@ public class PushDownProject implements RewriteRuleFactory, NormalizeToSlot {
         return pushedOutput;
     }
 
+    /**
+     * Returns true if {@code expression} references any {@link ArrayItemSlot} that is not bound
+     * by an enclosing {@link Lambda} within {@code expression} itself.
+     *
+     * <p>{@link Expression#getInputSlots()} deliberately excludes {@link ArrayItemSlot}, so a
+     * sub-expression inside a lambda body (such as {@code element_at(p, 1)}) has an empty
+     * {@code getInputSlots()} set when it only depends on the lambda parameter {@code p}.
+     * Pushing such a sub-expression out of its enclosing {@link Lambda} into a child
+     * {@link LogicalProject} leaves {@code p} unbound outside {@code visitArrayMap}, causing
+     * {@code ExpressionTranslator.visitArrayItemSlot} to return {@code null}.
+     */
+    @VisibleForTesting
+    static boolean hasFreeLambdaArgument(Expression expression) {
+        return hasFreeLambdaArgument(expression, ImmutableSet.of());
+    }
+
+    private static boolean hasFreeLambdaArgument(Expression expression, Set<ExprId> boundLambdaArgs) {
+        if (!expression.containsType(ArrayItemSlot.class)) {
+            return false;
+        }
+        if (expression instanceof ArrayItemSlot) {
+            return !boundLambdaArgs.contains(((ArrayItemSlot) expression).getExprId());
+        }
+        if (expression instanceof Lambda) {
+            Lambda lambda = (Lambda) expression;
+            // The array expression iterated by each lambda argument is evaluated in the outer scope,
+            // before this lambda's own parameters are bound.
+            for (ArrayItemReference arg : lambda.getLambdaArguments()) {
+                if (hasFreeLambdaArgument(arg.getArrayExpression(), boundLambdaArgs)) {
+                    return true;
+                }
+            }
+            ImmutableSet.Builder<ExprId> nextBoundArgs = ImmutableSet.<ExprId>builder()
+                    .addAll(boundLambdaArgs);
+            for (ArrayItemReference arg : lambda.getLambdaArguments()) {
+                nextBoundArgs.add(arg.getExprId());
+            }
+            return hasFreeLambdaArgument(lambda.getLambdaFunction(), nextBoundArgs.build());
+        }
+        for (Expression child : expression.children()) {
+            if (hasFreeLambdaArgument(child, boundLambdaArgs)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static class PushdownProjectHelper {
         private final Plan plan;
         private final StatementContext statementContext;
@@ -387,7 +438,7 @@ public class PushDownProject implements RewriteRuleFactory, NormalizeToSlot {
             }
 
             Expression newExpression = expression.rewriteDownShortCircuit(e -> {
-                if (e instanceof PreferPushDownProject) {
+                if (e instanceof PreferPushDownProject && !hasFreeLambdaArgument(e)) {
                     List<Plan> children = plan.children();
                     for (int i = 0; i < children.size(); i++) {
                         Plan child = children.get(i);

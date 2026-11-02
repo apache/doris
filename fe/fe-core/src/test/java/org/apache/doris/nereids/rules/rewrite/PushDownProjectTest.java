@@ -20,6 +20,9 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
+import org.apache.doris.nereids.trees.expressions.ArrayItemReference.ArrayItemSlot;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
@@ -28,7 +31,10 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFirst;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -40,6 +46,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
@@ -50,6 +60,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -239,5 +250,297 @@ public class PushDownProjectTest implements MemoPatternMatchSupported {
                                     && rewrittenPredicate.anyMatch(SlotReference.class::isInstance)
                                     && !rewrittenPredicate.anyMatch(PreferPushDownProject.class::isInstance);
                         }));
+    }
+
+    @Test
+    public void testHasFreeLambdaArgument() {
+        StructType pairStructType = new StructType(ImmutableList.of(
+                new StructField("col1", IntegerType.INSTANCE, true, ""),
+                new StructField("col2", IntegerType.INSTANCE, true, "")
+        ));
+        ArrayType arrayOfPairsType = ArrayType.of(pairStructType);
+        SlotReference arrSlot = new SlotReference(new ExprId(20), "arr", arrayOfPairsType, true, ImmutableList.of());
+        SlotReference otherArrSlot = new SlotReference(
+                new ExprId(21), "arr2", arrayOfPairsType, true, ImmutableList.of());
+
+        ArrayItemReference outerRef = new ArrayItemReference(new ExprId(30), "p", arrSlot);
+        ArrayItemSlot outerSlot = outerRef.toSlot();
+        ElementAt freeElementAt = new ElementAt(outerSlot, Literal.of(1));
+
+        // 1. Sub-expression referencing an unbound ArrayItemSlot has a free lambda argument.
+        Assertions.assertTrue(PushDownProject.hasFreeLambdaArgument(freeElementAt));
+
+        // 2. Self-contained ArrayMap binding 'p' has no free lambda arguments.
+        Lambda selfContainedLambda = new Lambda(
+                ImmutableList.of("p"), freeElementAt, ImmutableList.of(outerRef));
+        ArrayMap selfContainedArrayMap = new ArrayMap(selfContainedLambda);
+        Assertions.assertFalse(PushDownProject.hasFreeLambdaArgument(selfContainedArrayMap));
+
+        // 3. Inner ArrayMap capturing outer 'p' in its body has a free lambda argument when inspected alone,
+        //    but is bound when wrapped by the outer Lambda.
+        ArrayItemReference innerRef = new ArrayItemReference(new ExprId(31), "x", otherArrSlot);
+        ArrayItemSlot innerSlot = innerRef.toSlot();
+        Expression innerCapturingBody = new Add(
+                freeElementAt, new ElementAt(innerSlot, Literal.of(1)));
+        ArrayMap innerCapturingArrayMap = new ArrayMap(new Lambda(
+                ImmutableList.of("x"), innerCapturingBody, ImmutableList.of(innerRef)));
+        Assertions.assertTrue(PushDownProject.hasFreeLambdaArgument(innerCapturingArrayMap));
+        ArrayMap outerWrappingCapturingInner = new ArrayMap(new Lambda(
+                ImmutableList.of("p"), innerCapturingArrayMap, ImmutableList.of(outerRef)));
+        Assertions.assertFalse(PushDownProject.hasFreeLambdaArgument(outerWrappingCapturingInner));
+
+        // 4. Inner Lambda with a shadowed parameter name ("p") but distinct ExprId does NOT bind outer 'p'.
+        ArrayItemReference shadowedInnerRef = new ArrayItemReference(new ExprId(32), "p", otherArrSlot);
+        ArrayMap shadowedInnerArrayMap = new ArrayMap(new Lambda(
+                ImmutableList.of("p"), freeElementAt, ImmutableList.of(shadowedInnerRef)));
+        Assertions.assertTrue(PushDownProject.hasFreeLambdaArgument(shadowedInnerArrayMap));
+
+        // 5. Inner Lambda whose argument arrayExpression references outer 'p' has a free lambda argument
+        //    even if its body only uses its own parameter.
+        ArrayItemReference innerRefOverOuterSlot = new ArrayItemReference(
+                new ExprId(33), "x", new ElementAt(outerSlot, Literal.of(1)));
+        ArrayItemSlot innerSlotOverOuter = innerRefOverOuterSlot.toSlot();
+        ArrayMap innerArrayMapOverOuterSlot = new ArrayMap(new Lambda(
+                ImmutableList.of("x"),
+                new ElementAt(innerSlotOverOuter, Literal.of(1)),
+                ImmutableList.of(innerRefOverOuterSlot)));
+        Assertions.assertTrue(PushDownProject.hasFreeLambdaArgument(innerArrayMapOverOuterSlot));
+        ArrayMap outerWrappingArrayArgCapture = new ArrayMap(new Lambda(
+                ImmutableList.of("p"), innerArrayMapOverOuterSlot, ImmutableList.of(outerRef)));
+        Assertions.assertFalse(PushDownProject.hasFreeLambdaArgument(outerWrappingArrayArgCapture));
+
+        // 6. Inner ArrayMap that only references its own bound parameter has no free lambda arguments.
+        ArrayMap independentInnerArrayMap = new ArrayMap(new Lambda(
+                ImmutableList.of("x"),
+                new ElementAt(innerSlot, Literal.of(1)),
+                ImmutableList.of(innerRef)));
+        Assertions.assertFalse(PushDownProject.hasFreeLambdaArgument(independentInnerArrayMap));
+    }
+
+    @Test
+    public void shouldNotPushDownExpressionWithFreeLambdaArgumentInProjectAboveJoin() {
+        StructType pairStructType = new StructType(ImmutableList.of(
+                new StructField("col1", IntegerType.INSTANCE, true, ""),
+                new StructField("col2", IntegerType.INSTANCE, true, "")
+        ));
+        SlotReference kSlot = new SlotReference(new ExprId(1), "k", IntegerType.INSTANCE, true, ImmutableList.of());
+        SlotReference arrSlot = new SlotReference(
+                new ExprId(2), "arr", ArrayType.of(pairStructType), true, ImmutableList.of());
+
+        LogicalOneRowRelation leftRel = new LogicalOneRowRelation(new RelationId(1), ImmutableList.of(kSlot));
+        LogicalOneRowRelation rightRel = new LogicalOneRowRelation(new RelationId(2), ImmutableList.of(arrSlot));
+
+        ArrayItemReference lambdaArg = new ArrayItemReference(new ExprId(3), "p", arrSlot);
+        ElementAt structFieldReadOnLambdaArg = new ElementAt(lambdaArg.toSlot(), Literal.of(1));
+        Lambda predicateLambda = new Lambda(
+                ImmutableList.of("p"),
+                new EqualTo(structFieldReadOnLambdaArg, kSlot),
+                ImmutableList.of(lambdaArg));
+        Expression arrayFirstExpr = new ArrayFirst(predicateLambda).rewriteWhenAnalyze();
+        NamedExpression topProjectAlias = new Alias(
+                new ExprId(4), new ElementAt(arrayFirstExpr, Literal.of(2)), "v");
+
+        LogicalPlan plan = new LogicalPlanBuilder(leftRel)
+                .joinEmptyOn(rightRel, JoinType.CROSS_JOIN)
+                .projectAll(ImmutableList.of(kSlot, topProjectAlias))
+                .build();
+
+        PlanChecker.from(connectContext, plan)
+                .applyTopDown(new PushDownProject())
+                .matchesFromRoot(
+                        logicalProject(
+                                logicalJoin(
+                                        logicalOneRowRelation(),
+                                        logicalOneRowRelation()
+                                )
+                        ).when(project -> project.getProjects().get(1).anyMatch(
+                                e -> e instanceof ElementAt && ((ElementAt) e).child(0) instanceof ArrayItemSlot))
+                );
+    }
+
+    @Test
+    public void shouldPushDownSelfContainedLambdaWhileKeepingFreeLambdaArgumentExpressionInPlace() {
+        StructType pairStructType = new StructType(ImmutableList.of(
+                new StructField("col1", IntegerType.INSTANCE, true, ""),
+                new StructField("col2", IntegerType.INSTANCE, true, "")
+        ));
+        SlotReference kSlot = new SlotReference(new ExprId(1), "k", IntegerType.INSTANCE, true, ImmutableList.of());
+        SlotReference arrSlot = new SlotReference(
+                new ExprId(2), "arr", ArrayType.of(pairStructType), true, ImmutableList.of());
+
+        LogicalOneRowRelation leftRel = new LogicalOneRowRelation(new RelationId(1), ImmutableList.of(kSlot));
+        LogicalOneRowRelation rightRel = new LogicalOneRowRelation(new RelationId(2), ImmutableList.of(arrSlot));
+
+        // Cross-side lambda: p -> element_at(p, 1) = k (must stay above join; element_at(p, 1) must not be extracted)
+        ArrayItemReference crossRef = new ArrayItemReference(new ExprId(3), "p", arrSlot);
+        ArrayMap crossSideArrayMap = new ArrayMap(new Lambda(
+                ImmutableList.of("p"),
+                new EqualTo(new ElementAt(crossRef.toSlot(), Literal.of(1)), kSlot),
+                ImmutableList.of(crossRef)));
+        NamedExpression crossSideAlias = new Alias(new ExprId(4), crossSideArrayMap, "cross_map");
+
+        // Self-contained right-side lambda: q -> element_at(q, 2) (should be pushed down to right join child)
+        ArrayItemReference rightOnlyRef = new ArrayItemReference(new ExprId(5), "q", arrSlot);
+        ArrayMap rightOnlyArrayMap = new ArrayMap(new Lambda(
+                ImmutableList.of("q"),
+                new ElementAt(rightOnlyRef.toSlot(), Literal.of(2)),
+                ImmutableList.of(rightOnlyRef)));
+        NamedExpression rightOnlyAlias = new Alias(new ExprId(6), rightOnlyArrayMap, "right_map");
+
+        LogicalPlan plan = new LogicalPlanBuilder(leftRel)
+                .joinEmptyOn(rightRel, JoinType.INNER_JOIN)
+                .projectAll(ImmutableList.of(kSlot, crossSideAlias, rightOnlyAlias))
+                .build();
+
+        PlanChecker.from(connectContext, plan)
+                .applyTopDown(new PushDownProject())
+                .matchesFromRoot(
+                        logicalProject(
+                                logicalJoin(
+                                        logicalOneRowRelation(),
+                                        logicalProject(logicalOneRowRelation())
+                                                .when(rightProj -> rightProj.getProjects().size() == 2
+                                                        && rightProj.getProjects().get(1) instanceof Alias
+                                                        && rightProj.getProjects().get(1).child(0) instanceof ArrayMap)
+                                )
+                        ).when(topProj -> topProj.getProjects().get(1).child(0) instanceof ArrayMap
+                                && topProj.getProjects().get(1).anyMatch(
+                                        e -> e instanceof ElementAt
+                                                && ((ElementAt) e).child(0) instanceof ArrayItemSlot)
+                                && topProj.getProjects().get(2).child(0) instanceof SlotReference)
+                );
+    }
+
+    @Test
+    public void shouldNotPushDownInnerLambdaCapturingOuterLambdaArgument() {
+        StructType pairStructType = new StructType(ImmutableList.of(
+                new StructField("col1", IntegerType.INSTANCE, true, ""),
+                new StructField("col2", IntegerType.INSTANCE, true, "")
+        ));
+        SlotReference leftArrSlot = new SlotReference(
+                new ExprId(1), "left_arr", ArrayType.of(pairStructType), true, ImmutableList.of());
+        SlotReference rightArrSlot = new SlotReference(
+                new ExprId(2), "right_arr", ArrayType.of(pairStructType), true, ImmutableList.of());
+
+        LogicalOneRowRelation leftRel = new LogicalOneRowRelation(new RelationId(1), ImmutableList.of(leftArrSlot));
+        LogicalOneRowRelation rightRel = new LogicalOneRowRelation(new RelationId(2), ImmutableList.of(rightArrSlot));
+
+        // Outer lambda iterates right_arr (from right child); inner lambda iterates left_arr (from left child)
+        // and captures outer parameter 'p'. Neither the inner ArrayMap nor element_at(p, 1) may be pushed down.
+        ArrayItemReference outerRef = new ArrayItemReference(new ExprId(3), "p", rightArrSlot);
+        ArrayItemReference innerRef = new ArrayItemReference(new ExprId(4), "x", leftArrSlot);
+        ArrayMap capturingInnerArrayMap = new ArrayMap(new Lambda(
+                ImmutableList.of("x"),
+                new Add(new ElementAt(outerRef.toSlot(), Literal.of(1)),
+                        new ElementAt(innerRef.toSlot(), Literal.of(1))),
+                ImmutableList.of(innerRef)));
+        ArrayMap outerArrayMap = new ArrayMap(new Lambda(
+                ImmutableList.of("p"),
+                capturingInnerArrayMap,
+                ImmutableList.of(outerRef)));
+
+        // A second nested expression where the inner ArrayMap over left_arr does NOT capture outer 'q':
+        // the inner ArrayMap CAN be pushed down to leftRel while element_at(q, 1) stays inside the outer lambda.
+        ArrayItemReference outerRef2 = new ArrayItemReference(new ExprId(5), "q", rightArrSlot);
+        ArrayItemReference independentInnerRef = new ArrayItemReference(new ExprId(6), "y", leftArrSlot);
+        ArrayMap independentInnerArrayMap = new ArrayMap(new Lambda(
+                ImmutableList.of("y"),
+                new ElementAt(independentInnerRef.toSlot(), Literal.of(1)),
+                ImmutableList.of(independentInnerRef)));
+        ArrayMap outerArrayMapWithIndependentInner = new ArrayMap(new Lambda(
+                ImmutableList.of("q"),
+                new Add(new ElementAt(outerRef2.toSlot(), Literal.of(1)),
+                        new ElementAt(independentInnerArrayMap, Literal.of(1))),
+                ImmutableList.of(outerRef2)));
+
+        LogicalPlan plan = new LogicalPlanBuilder(leftRel)
+                .joinEmptyOn(rightRel, JoinType.INNER_JOIN)
+                .projectAll(ImmutableList.of(
+                        new Alias(new ExprId(7), outerArrayMap, "captured"),
+                        new Alias(new ExprId(8), outerArrayMapWithIndependentInner, "independent_inner")))
+                .build();
+
+        PlanChecker.from(connectContext, plan)
+                .applyTopDown(new PushDownProject())
+                .matchesFromRoot(
+                        logicalProject(
+                                logicalJoin(
+                                        logicalProject(logicalOneRowRelation())
+                                                .when(leftProj -> leftProj.getProjects().size() == 2
+                                                        && leftProj.getProjects().get(1).child(0)
+                                                                .equals(independentInnerArrayMap)),
+                                        logicalOneRowRelation()
+                                )
+                        ).when(topProj -> topProj.getProjects().get(0).child(0).equals(outerArrayMap)
+                                && topProj.getProjects().get(1).anyMatch(
+                                        e -> e instanceof ElementAt
+                                                && ((ElementAt) e).child(0).equals(outerRef2.toSlot())))
+                );
+    }
+
+    @Test
+    public void shouldNotPushDownFreeLambdaArgumentInJoinConjunctsFilterAndUnion() {
+        StructType pairStructType = new StructType(ImmutableList.of(
+                new StructField("col1", IntegerType.INSTANCE, true, ""),
+                new StructField("col2", IntegerType.INSTANCE, true, "")
+        ));
+        SlotReference kSlot = new SlotReference(new ExprId(1), "k", IntegerType.INSTANCE, true, ImmutableList.of());
+        SlotReference arrSlot = new SlotReference(
+                new ExprId(2), "arr", ArrayType.of(pairStructType), true, ImmutableList.of());
+
+        LogicalOneRowRelation leftRel = new LogicalOneRowRelation(new RelationId(1), ImmutableList.of(kSlot));
+        LogicalOneRowRelation rightRel = new LogicalOneRowRelation(new RelationId(2), ImmutableList.of(arrSlot));
+
+        ArrayItemReference lambdaArg = new ArrayItemReference(new ExprId(3), "p", arrSlot);
+        Expression crossSidePredicate = new EqualTo(
+                new ElementAt(
+                        new ArrayMap(new Lambda(
+                                ImmutableList.of("p"),
+                                new EqualTo(new ElementAt(lambdaArg.toSlot(), Literal.of(1)), kSlot),
+                                ImmutableList.of(lambdaArg))),
+                        Literal.of(1)),
+                Literal.of(true));
+
+        // 1. Join otherConjuncts path (pushDownJoinExpressions -> pushDownProjectInExpressions)
+        LogicalPlan joinWithConjunctPlan = new LogicalPlanBuilder(leftRel)
+                .join(rightRel, JoinType.INNER_JOIN, ImmutableList.of(), ImmutableList.of(crossSidePredicate))
+                .build();
+        PlanChecker.from(connectContext, joinWithConjunctPlan)
+                .applyTopDown(new PushDownProject())
+                .matchesFromRoot(
+                        logicalJoin(
+                                logicalOneRowRelation(),
+                                logicalOneRowRelation()
+                        ).when(join -> join.getOtherJoinConjuncts().get(0).equals(crossSidePredicate))
+                );
+
+        // 2. Filter above join path (pushDownFilterExpressions -> PushdownProjectHelper)
+        LogicalPlan filterAboveJoinPlan = new LogicalPlanBuilder(leftRel)
+                .joinEmptyOn(rightRel, JoinType.INNER_JOIN)
+                .filter(crossSidePredicate)
+                .build();
+        PlanChecker.from(connectContext, filterAboveJoinPlan)
+                .applyTopDown(new PushDownProject())
+                .matchesFromRoot(
+                        logicalFilter(
+                                logicalJoin(
+                                        logicalOneRowRelation(),
+                                        logicalOneRowRelation()
+                                )
+                        ).when(filter -> filter.getConjuncts().contains(crossSidePredicate))
+                );
+
+        // 3. Union path (pushThroughUnion -> PushdownProjectHelper) with an unbound lambda slot expression
+        ArrayItemReference unionLambdaArg = new ArrayItemReference(new ExprId(99), "u", arrSlot);
+        NamedExpression freeLambdaAliasOnUnion = new Alias(
+                new ExprId(105), new ElementAt(unionLambdaArg.toSlot(), Literal.of(1)), "free_elem");
+        LogicalUnion union = new LogicalUnion(
+                Qualifier.ALL, unionOutput,
+                Lists.newArrayList(regulatorRel1Output, regulatorRel2Output),
+                Lists.newArrayList(), true, children);
+        LogicalProject<LogicalUnion> unionProject = new LogicalProject<>(
+                ImmutableList.of(freeLambdaAliasOnUnion), union);
+        Plan resUnionPlan = PushDownProject.pushThroughUnion(unionProject, new StatementContext());
+        Assertions.assertSame(unionProject, resUnionPlan);
     }
 }
