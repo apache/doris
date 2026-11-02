@@ -18,7 +18,7 @@
 #ifdef USE_AZURE
 #include "cpp/obj-client/azure_obj_storage_client.h"
 
-#include "cpp/obj-client/auth/azure_auth_factory.h"
+#include "cpp/obj-client/auth/azure/azure_auth_factory.h"
 #endif
 
 #include <gtest/gtest.h>
@@ -83,8 +83,8 @@ TEST(AzureObjStorageClientMultipartHelperTest, create_upload_is_provider_free) {
 using namespace Azure::Storage::Blobs;
 
 TEST(AzureAuthFactoryTest, AllowsEmptySharedKeyCredentials) {
-    auto result = AzureAuthFactory::create("https://account.blob.core.windows.net/container",
-                                           {.account_name = "", .account_key = ""}, {});
+    auto result = AzureAuthFactory::create("https://account.blob.core.windows.net/container", "",
+                                           AzureSharedKeyConfig {.account_key = ""}, {});
 
     EXPECT_TRUE(result);
 }
@@ -143,7 +143,7 @@ protected:
                                                         accountName),
                                 .account = accountName,
                                 .container = containerName,
-                                .auth = io::AzureSharedKeyConfig {.account_key = accountKey},
+                                .auth = AzureSharedKeyConfig {.account_key = accountKey},
                         },
         });
         ASSERT_TRUE(client_result.has_value()) << client_result.error();

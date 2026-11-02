@@ -24,6 +24,7 @@
 
 #include "common/status.h"
 #include "cpp/aws_common.h"
+#include "cpp/obj-client/auth/azure/azure_auth.h"
 #include "cpp/obj-client/auth/obj_credential.h"
 #include "cpp/obj-client/obj_storage_client.h"
 
@@ -92,19 +93,11 @@ struct S3ClientConfig {
     bool operator==(const S3ClientConfig&) const = default;
 };
 
-struct AzureSharedKeyConfig {
-    std::string account_key;
-
-    bool operator==(const AzureSharedKeyConfig&) const = default;
-};
-
-// One alternative per Azure authentication method. Only SharedKey exists so far; another
-// method is added as another alternative, so two methods can never be carried together.
-using AzureAuthConfig = std::variant<AzureSharedKeyConfig>;
-
+// The authentication is the AzureAuthConfig shared with Recycler (common/cpp,
+// azure/azure_auth.h), which owns its methods and their rules; BE only adds the storage target.
 struct AzureClientConfig {
     std::string endpoint;
-    // Required by SharedKey, which signs requests with the account name.
+    // The storage account the endpoint names; SharedKey signs requests with it.
     std::string account;
     // The Azure SDK client is bound to one blob container, so the container is part of
     // the client identity. S3 clients are not bound to a bucket and do not carry one.

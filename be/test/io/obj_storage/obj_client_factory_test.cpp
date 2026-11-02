@@ -30,6 +30,7 @@
 
 #include "cloud/config.h"
 #include "common/config.h"
+#include "cpp/obj-client/auth/azure/azure_auth.h"
 #include "cpp/obj-client/rate_limited_obj_storage_client.h"
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
@@ -169,6 +170,33 @@ TEST_F(ObjClientFactoryTest, ResolvesAzureParamIntoAzureBackend) {
     EXPECT_EQ(std::get<AzureSharedKeyConfig>(azure.auth).account_key, param.sk);
     EXPECT_EQ(config.usage, ClientUsage::EXTERNAL_ACCESS);
     EXPECT_EQ(config.provider(), ObjStorageProvider::AZURE);
+}
+
+TEST_F(ObjClientFactoryTest, AzureAuthRulesAreSharedWithRecycler) {
+    // BE and Recycler both check, hash and name an AzureAuthConfig with these common functions.
+    const AzureAuthConfig with_key = AzureSharedKeyConfig {.account_key = "key-a"};
+    const AzureAuthConfig without_key = AzureSharedKeyConfig {.account_key = ""};
+    EXPECT_FALSE(validate_azure_auth("account", with_key).has_value());
+    EXPECT_FALSE(validate_azure_auth("", without_key).has_value());
+    auto no_key = validate_azure_auth("account", without_key);
+    ASSERT_TRUE(no_key.has_value());
+    EXPECT_NE(no_key->find("empty account key"), std::string::npos) << *no_key;
+    auto no_account = validate_azure_auth("", with_key);
+    ASSERT_TRUE(no_account.has_value());
+    EXPECT_NE(no_account->find("empty account name"), std::string::npos) << *no_account;
+
+    auto hash_of = [](std::string_view account, const AzureAuthConfig& auth) {
+        uint64_t hash = 0;
+        hash_combine_azure_auth(&hash, account, auth);
+        return hash;
+    };
+    EXPECT_EQ(hash_of("account", with_key), hash_of("account", with_key));
+    EXPECT_NE(hash_of("account", with_key),
+              hash_of("account", AzureSharedKeyConfig {.account_key = "key-b"}));
+    EXPECT_NE(hash_of("account", with_key), hash_of("other-account", with_key));
+
+    EXPECT_EQ(azure_auth_type_name(with_key), "shared_key");
+    EXPECT_EQ(azure_auth_account_key(with_key), "key-a");
 }
 
 TEST_F(ObjClientFactoryTest, RejectsNativeCredentialOnAzureFromMetadataSources) {
