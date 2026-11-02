@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.common.util.TimeZoneParser;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.UnboundException;
@@ -36,6 +37,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.util.Objects;
 
 /**
@@ -192,8 +196,24 @@ public class TimestampTzLiteral extends DateTimeLiteral {
         throw new AnalysisException(String.format("Cast from %s to %s not supported", this, targetType));
     }
 
+    /** Add calendar days in the session timezone, retaining the local time of day. */
     public Expression plusDays(long days) {
-        return fromJavaDateType(toJavaDateType().plusDays(days), getDataType().getScale());
+        ZoneId zone = TimeZoneParser.parse(getSessionTimeZone(), TimeZoneParser.Usage.SESSION);
+        ZonedDateTime local = toJavaDateType().atOffset(ZoneOffset.UTC).atZoneSameInstant(zone);
+        LocalDateTime target = local.toLocalDateTime().plusDays(days);
+        // Like BE, reject local years outside [0, 9999], even when UTC is representable.
+        if (isDateOutOfRange(local.toLocalDateTime()) || isDateOutOfRange(target)) {
+            throw new AnalysisException("datetime out of range: " + target);
+        }
+        // Keep the original offset when the target repeats, including adding zero days
+        // to the second 01:30 during the New York autumn transition.
+        if (zone.getRules().getValidOffsets(target).contains(local.getOffset())) {
+            return fromJavaDateType(LocalDateTime.ofInstant(
+                    target.toInstant(local.getOffset()), ZoneOffset.UTC), getScale());
+        }
+        // Match BE cctz's gap policy (the transition instant), retaining microseconds.
+        return fromJavaDateType(LocalDateTime.ofInstant(
+                convertLocalToInstantPreservingFraction(target, zone), ZoneOffset.UTC), getScale());
     }
 
     /**

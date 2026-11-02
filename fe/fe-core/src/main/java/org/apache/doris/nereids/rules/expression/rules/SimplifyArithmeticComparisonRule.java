@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
@@ -109,6 +110,13 @@ public class SimplifyArithmeticComparisonRule implements ExpressionPatternRuleFa
 
     private static boolean couldRearrange(ComparisonPredicate cmp) {
         if (!REARRANGEMENT_MAP.containsKey(cmp.left().getClass()) || cmp.left().isConstant()) {
+            return false;
+        }
+
+        // Calendar-day addition across DST is not order-preserving or invertible:
+        // 01:50-04 + 1 day < next-day 01:30-05 is false, but moving the day to the RHS is true.
+        if (cmp.left() instanceof DateAddSubMonotonic
+                && !((DateAddSubMonotonic) cmp.left()).isMonotonic(null, null)) {
             return false;
         }
 

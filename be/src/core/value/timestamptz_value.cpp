@@ -88,6 +88,24 @@ int TimestampTzValue::to_buffer(char* buffer, const cctz::time_zone& tz, int sca
     return len;
 }
 
+bool TimestampTzValue::date_add_days(int64_t days, const cctz::time_zone& local_time_zone) {
+    DateV2Value<DateTimeV2ValueType> local_dt;
+    // UTC year 0000/9999 can become an unrepresentable local year after zone conversion.
+    if (!to_datetime(local_dt, local_time_zone, 6, 6)) {
+        return false;
+    }
+    // For example, adding zero days to the second 01:30 at the autumn transition must
+    // retain that instant, rather than resolving to the first occurrence of 01:30.
+    const auto preferred_offset = static_cast<int>(local_dt.datetime_diff_in_seconds(_utc_dt));
+    // A day delta can move an otherwise valid local date beyond years [0, 9999].
+    if (!local_dt.date_add_days(days)) {
+        return false;
+    }
+    convert_local_to_utc(local_time_zone, local_dt, preferred_offset);
+    // A valid local result can still fall outside the supported UTC year range.
+    return is_valid_date();
+}
+
 bool TimestampTzValue::from_datetime(const DateV2Value<DateTimeV2ValueType>& origin_dt,
                                      const cctz::time_zone& local_time_zone, int dt_scale,
                                      int tz_scale) {
