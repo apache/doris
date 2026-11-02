@@ -1162,8 +1162,8 @@ TEST_F(CollectionStatisticsTest, DeleteSignRowsCountWhenTheScanReturnsThem) {
     const Status status = stats_->collect(runtime_state_.get(), splits, tablet_schema,
                                           create_match_expr_contexts("alpha"), nullptr, &hidden);
     ASSERT_TRUE(status.ok()) << status;
-    expect_collected_stats(L"1", 2, 5);
-    expect_collected_term(L"1", L"alpha", 1);
+    expect_collected_stats(kMatchField, 2, 5);
+    expect_collected_term(kMatchField, L"alpha", 1);
 }
 
 namespace {
