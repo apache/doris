@@ -1056,6 +1056,11 @@ public:
     }
 
 private:
+    // With `enable_strict_instance_auth`, reject a request naming an instance without
+    // cloud_unique_id.
+    bool check_strict_instance_auth(const ::google::protobuf::Message& req,
+                                    MetaServiceResponseStatus* status);
+
     template <typename Request, typename Response>
     using MetaServiceMethod = void (cloud::MetaService::*)(::google::protobuf::RpcController*,
                                                            const Request*, Response*,
@@ -1075,6 +1080,14 @@ private:
             auto* status = resp->mutable_status();
             set_response_code(status, status->code(), status->msg());
         };
+
+        // Only rpc goes through the proxy, the http api (authorized by token) calls impl directly.
+        static const bool names_instance_by_id =
+                Request::descriptor()->FindFieldByName("instance_id") != nullptr ||
+                Request::descriptor()->FindFieldByName("instance_ids") != nullptr;
+        if (names_instance_by_id && !check_strict_instance_auth(*req, resp->mutable_status())) {
+            return;
+        }
 
         // life span of this defer MUST be longer than `done`
         std::unique_ptr<int, std::function<void(int*)>> defer_injection(

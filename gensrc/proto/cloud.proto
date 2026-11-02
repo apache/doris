@@ -1669,6 +1669,7 @@ message AlterInstanceRequest {
     optional string name = 3;
     optional string request_ip = 4;
     map<string, string> properties = 5; // key is the Name of SnapshotProperty value.
+    optional string cloud_unique_id = 6; // For auth
 }
 
 message AlterInstanceResponse {

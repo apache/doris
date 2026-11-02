@@ -1467,6 +1467,85 @@ TEST(MetaServiceTest, GetClusterTest) {
     }
 }
 
+TEST(MetaServiceTest, StrictInstanceAuthTest) {
+    auto meta_service = get_meta_service(false);
+    bool enable_strict_instance_auth = config::enable_strict_instance_auth;
+    DORIS_CLOUD_DEFER {
+        config::enable_strict_instance_auth = enable_strict_instance_auth;
+    };
+    const std::string instance_id = "strict_auth_instance";
+    const std::string cloud_unique_id = "1:" + instance_id + ":node";
+
+    // Requests below change nothing even if they pass the proxy check, e.g. alter_cluster without
+    // cluster, so only whether the proxy rejects them matters.
+    auto rejected = [](const MetaServiceResponseStatus& status) {
+        return status.code() == MetaServiceCode::INVALID_ARGUMENT &&
+               (status.msg().starts_with("cloud_unique_id is required") ||
+                status.msg().starts_with("instance_ids is not allowed"));
+    };
+    auto alter_cluster = [&](const std::string& req_cloud_unique_id) {
+        brpc::Controller cntl;
+        AlterClusterRequest req;
+        req.set_instance_id(instance_id);
+        req.set_cloud_unique_id(req_cloud_unique_id);
+        req.set_op(AlterClusterRequest::ALTER_PROPERTIES);
+        AlterClusterResponse res;
+        meta_service->alter_cluster(&cntl, &req, &res, nullptr);
+        return res.status();
+    };
+    auto alter_instance = [&](AlterInstanceRequest::Operation op,
+                              const std::string& req_cloud_unique_id) {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        req.set_instance_id(instance_id);
+        req.set_cloud_unique_id(req_cloud_unique_id);
+        req.set_op(op);
+        AlterInstanceResponse res;
+        meta_service->alter_instance(&cntl, &req, &res, nullptr);
+        return res.status();
+    };
+    auto update_ak_sk = [&]() {
+        brpc::Controller cntl;
+        UpdateAkSkRequest req;
+        req.set_instance_id(instance_id);
+        UpdateAkSkResponse res;
+        meta_service->update_ak_sk(&cntl, &req, &res, nullptr);
+        return res.status();
+    };
+    auto get_cluster_status = [&](bool by_instance_id) {
+        brpc::Controller cntl;
+        GetClusterStatusRequest req;
+        if (by_instance_id) {
+            req.add_instance_ids(instance_id);
+        } else {
+            req.add_cloud_unique_ids(cloud_unique_id);
+        }
+        GetClusterStatusResponse res;
+        meta_service->get_cluster_status(&cntl, &req, &res, nullptr);
+        return res.status();
+    };
+
+    // instance_id only requests are kept without the strict mode
+    config::enable_strict_instance_auth = false;
+    EXPECT_FALSE(rejected(alter_cluster("")));
+    EXPECT_FALSE(rejected(alter_instance(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY, "")));
+    EXPECT_FALSE(rejected(update_ak_sk()));
+    EXPECT_FALSE(rejected(get_cluster_status(true)));
+
+    config::enable_strict_instance_auth = true;
+    EXPECT_TRUE(rejected(alter_cluster("")));
+    EXPECT_FALSE(rejected(alter_cluster(cloud_unique_id)));
+    EXPECT_TRUE(rejected(alter_instance(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY, "")));
+    EXPECT_FALSE(
+            rejected(alter_instance(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY, cloud_unique_id)));
+    // MS asks other MS to refresh an instance by instance_id only
+    EXPECT_FALSE(rejected(alter_instance(AlterInstanceRequest::REFRESH, "")));
+    // update_ak_sk has no cloud_unique_id, it is only allowed by http api in the strict mode
+    EXPECT_TRUE(rejected(update_ak_sk()));
+    EXPECT_TRUE(rejected(get_cluster_status(true)));
+    EXPECT_FALSE(rejected(get_cluster_status(false)));
+}
+
 TEST(MetaServiceTest, BeginTxnTest) {
     auto meta_service = get_meta_service();
     int64_t db_id = 666;
