@@ -491,9 +491,9 @@ public class MaterializedViewUtils {
      *     <li>when both plans define that output as the same constant: a column which a predicate pins to a
      *     literal can be materialized with a fresh exprId, and the two plans then still compute the same value,
      *     or</li>
-     *     <li>when the rewritten output describes the same column as the origin one (name, type and, when both
-     *     sides keep it, qualifier), which is what the view rewrite keeps for the outputs it does not derive from
-     *     a constant.</li>
+     *     <li>when the rewritten output describes the same column as the origin one: the name and the type have
+     *     to match and the qualifier has to be kept by both sides and be equal, so that a same named column of
+     *     another relation (e.g. the two relations of a self join) is not accepted.</li>
      * </ul>
      * Otherwise the two plans are not known to produce the same columns (e.g. a self join can expose two same
      * named columns of two relations) and the rewritten plan must not be used.
@@ -542,9 +542,11 @@ public class MaterializedViewUtils {
 
     /**
      * Whether the rewritten output describes the same column as the origin one. The rewritten plan is built by the
-     * materialized view rewrite which keeps the position of the query outputs, so the name, the type and (when both
-     * sides keep it) the qualifier have to match. This rejects a same named column of another relation, e.g. a self
-     * join, and an output which is added or removed and shifts the columns.
+     * materialized view rewrite which keeps the position of the query outputs, so the name, the type and the
+     * qualifier have to match. The qualifier has to be kept by both sides: a missing qualifier can not rule out
+     * that the slot is the same named column of another relation, e.g. the two relations of a self join, so an
+     * output without a qualifier is rejected and the rewritten plan is not used. This also rejects an output which
+     * is added or removed and shifts the columns.
      */
     private static boolean isSameColumn(Slot rewrittenSlot, Slot originSlot) {
         if (!rewrittenSlot.getName().equalsIgnoreCase(originSlot.getName())
@@ -553,8 +555,7 @@ public class MaterializedViewUtils {
         }
         List<String> rewrittenQualifier = rewrittenSlot.getQualifier();
         List<String> originQualifier = originSlot.getQualifier();
-        return rewrittenQualifier.isEmpty() || originQualifier.isEmpty()
-                || rewrittenQualifier.equals(originQualifier);
+        return !rewrittenQualifier.isEmpty() && rewrittenQualifier.equals(originQualifier);
     }
 
     private static Map<ExprId, Expression> collectNamedExpressionDefinitions(Plan plan) {
