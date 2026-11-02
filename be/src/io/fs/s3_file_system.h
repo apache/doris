@@ -48,6 +48,13 @@ class S3FileSystem final : public RemoteFileSystem {
 public:
     static Result<std::shared_ptr<S3FileSystem>> create(ObjStorageConfig config, std::string id);
 
+    // Applies a refreshed configuration of the same storage resource to `fs`. The same
+    // backend is reset in place (ObjClientHolder::reset) and `fs` is returned. A different
+    // backend is a different storage target, which a reset refuses, so a new file system with
+    // the same id is built from `config`, as the next BE start would build it.
+    static Result<std::shared_ptr<S3FileSystem>> refresh(std::shared_ptr<S3FileSystem> fs,
+                                                         ObjStorageConfig config);
+
     ~S3FileSystem() override;
 
     const std::shared_ptr<ObjClientHolder>& client_holder() const { return _client; }

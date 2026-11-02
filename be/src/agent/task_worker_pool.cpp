@@ -1806,9 +1806,15 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
         }
     } else {
         DCHECK_EQ(existed_fs->type(), io::FileSystemType::S3) << param.id << ' ' << param.name;
-        auto client = static_cast<io::S3FileSystem*>(existed_fs.get())->client_holder();
-        st = client->reset(config->client);
-        fs = std::move(existed_fs);
+        // FE allows an ALTER RESOURCE to another backend, e.g. S3 to Azure; refresh then builds
+        // a new file system instead of keeping the old target.
+        auto res = io::S3FileSystem::refresh(std::static_pointer_cast<io::S3FileSystem>(existed_fs),
+                                             std::move(config).value());
+        if (!res.has_value()) {
+            st = std::move(res).error();
+        } else {
+            fs = std::move(res).value();
+        }
     }
 
     if (!st.ok()) {

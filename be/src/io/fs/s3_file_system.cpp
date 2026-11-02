@@ -75,6 +75,16 @@ Result<std::shared_ptr<S3FileSystem>> S3FileSystem::create(ObjStorageConfig conf
     return fs;
 }
 
+Result<std::shared_ptr<S3FileSystem>> S3FileSystem::refresh(std::shared_ptr<S3FileSystem> fs,
+                                                            ObjStorageConfig config) {
+    const auto& holder = fs->client_holder();
+    if (holder->state()->config.backend.index() != config.client.backend.index()) {
+        return create(std::move(config), fs->id());
+    }
+    RETURN_IF_ERROR_RESULT(holder->reset(config.client));
+    return fs;
+}
+
 S3FileSystem::S3FileSystem(ObjStorageConfig config, std::string id)
         : RemoteFileSystem(config.prefix, std::move(id), FileSystemType::S3),
           _bucket(std::move(config.bucket)),
