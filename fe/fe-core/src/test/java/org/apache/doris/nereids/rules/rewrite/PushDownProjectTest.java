@@ -259,12 +259,17 @@ public class PushDownProjectTest implements MemoPatternMatchSupported {
                 new StructField("col2", IntegerType.INSTANCE, true, "")
         ));
         ArrayType arrayOfPairsType = ArrayType.of(pairStructType);
-        SlotReference arrSlot = new SlotReference(new ExprId(20), "arr", arrayOfPairsType, true, ImmutableList.of());
+        StructType nestedStructType = new StructType(ImmutableList.of(
+                new StructField("col1", IntegerType.INSTANCE, true, ""),
+                new StructField("nested_arr", arrayOfPairsType, true, "")
+        ));
+        SlotReference arrSlot = new SlotReference(
+                new ExprId(20), "arr", ArrayType.of(nestedStructType), true, ImmutableList.of());
         SlotReference otherArrSlot = new SlotReference(
                 new ExprId(21), "arr2", arrayOfPairsType, true, ImmutableList.of());
 
         ArrayItemReference outerRef = new ArrayItemReference(new ExprId(30), "p", arrSlot);
-        ArrayItemSlot outerSlot = outerRef.toSlot();
+        ArrayItemSlot outerSlot = (ArrayItemSlot) outerRef.toSlot();
         ElementAt freeElementAt = new ElementAt(outerSlot, Literal.of(1));
 
         // 1. Sub-expression referencing an unbound ArrayItemSlot has a free lambda argument.
@@ -279,7 +284,7 @@ public class PushDownProjectTest implements MemoPatternMatchSupported {
         // 3. Inner ArrayMap capturing outer 'p' in its body has a free lambda argument when inspected alone,
         //    but is bound when wrapped by the outer Lambda.
         ArrayItemReference innerRef = new ArrayItemReference(new ExprId(31), "x", otherArrSlot);
-        ArrayItemSlot innerSlot = innerRef.toSlot();
+        ArrayItemSlot innerSlot = (ArrayItemSlot) innerRef.toSlot();
         Expression innerCapturingBody = new Add(
                 freeElementAt, new ElementAt(innerSlot, Literal.of(1)));
         ArrayMap innerCapturingArrayMap = new ArrayMap(new Lambda(
@@ -298,8 +303,8 @@ public class PushDownProjectTest implements MemoPatternMatchSupported {
         // 5. Inner Lambda whose argument arrayExpression references outer 'p' has a free lambda argument
         //    even if its body only uses its own parameter.
         ArrayItemReference innerRefOverOuterSlot = new ArrayItemReference(
-                new ExprId(33), "x", new ElementAt(outerSlot, Literal.of(1)));
-        ArrayItemSlot innerSlotOverOuter = innerRefOverOuterSlot.toSlot();
+                new ExprId(33), "x", new ElementAt(outerSlot, Literal.of(2)));
+        ArrayItemSlot innerSlotOverOuter = (ArrayItemSlot) innerRefOverOuterSlot.toSlot();
         ArrayMap innerArrayMapOverOuterSlot = new ArrayMap(new Lambda(
                 ImmutableList.of("x"),
                 new ElementAt(innerSlotOverOuter, Literal.of(1)),
@@ -342,7 +347,7 @@ public class PushDownProjectTest implements MemoPatternMatchSupported {
 
         LogicalPlan plan = new LogicalPlanBuilder(leftRel)
                 .joinEmptyOn(rightRel, JoinType.CROSS_JOIN)
-                .projectAll(ImmutableList.of(kSlot, topProjectAlias))
+                .projectExprs(ImmutableList.of(kSlot, topProjectAlias))
                 .build();
 
         PlanChecker.from(connectContext, plan)
@@ -389,7 +394,7 @@ public class PushDownProjectTest implements MemoPatternMatchSupported {
 
         LogicalPlan plan = new LogicalPlanBuilder(leftRel)
                 .joinEmptyOn(rightRel, JoinType.INNER_JOIN)
-                .projectAll(ImmutableList.of(kSlot, crossSideAlias, rightOnlyAlias))
+                .projectExprs(ImmutableList.of(kSlot, crossSideAlias, rightOnlyAlias))
                 .build();
 
         PlanChecker.from(connectContext, plan)
@@ -440,22 +445,23 @@ public class PushDownProjectTest implements MemoPatternMatchSupported {
                 ImmutableList.of(outerRef)));
 
         // A second nested expression where the inner ArrayMap over left_arr does NOT capture outer 'q':
-        // the inner ArrayMap CAN be pushed down to leftRel while element_at(q, 1) stays inside the outer lambda.
+        // the inner PreferPushDownProject expression CAN be pushed down to leftRel while element_at(q, 1)
+        // stays inside the outer lambda.
         ArrayItemReference outerRef2 = new ArrayItemReference(new ExprId(5), "q", rightArrSlot);
         ArrayItemReference independentInnerRef = new ArrayItemReference(new ExprId(6), "y", leftArrSlot);
         ArrayMap independentInnerArrayMap = new ArrayMap(new Lambda(
                 ImmutableList.of("y"),
                 new ElementAt(independentInnerRef.toSlot(), Literal.of(1)),
                 ImmutableList.of(independentInnerRef)));
+        ElementAt independentLeftElementAt = new ElementAt(independentInnerArrayMap, Literal.of(1));
         ArrayMap outerArrayMapWithIndependentInner = new ArrayMap(new Lambda(
                 ImmutableList.of("q"),
-                new Add(new ElementAt(outerRef2.toSlot(), Literal.of(1)),
-                        new ElementAt(independentInnerArrayMap, Literal.of(1))),
+                new Add(new ElementAt(outerRef2.toSlot(), Literal.of(1)), independentLeftElementAt),
                 ImmutableList.of(outerRef2)));
 
         LogicalPlan plan = new LogicalPlanBuilder(leftRel)
                 .joinEmptyOn(rightRel, JoinType.INNER_JOIN)
-                .projectAll(ImmutableList.of(
+                .projectExprs(ImmutableList.<NamedExpression>of(
                         new Alias(new ExprId(7), outerArrayMap, "captured"),
                         new Alias(new ExprId(8), outerArrayMapWithIndependentInner, "independent_inner")))
                 .build();
@@ -468,7 +474,7 @@ public class PushDownProjectTest implements MemoPatternMatchSupported {
                                         logicalProject(logicalOneRowRelation())
                                                 .when(leftProj -> leftProj.getProjects().size() == 2
                                                         && leftProj.getProjects().get(1).child(0)
-                                                                .equals(independentInnerArrayMap)),
+                                                                .equals(independentLeftElementAt)),
                                         logicalOneRowRelation()
                                 )
                         ).when(topProj -> topProj.getProjects().get(0).child(0).equals(outerArrayMap)
