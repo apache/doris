@@ -816,7 +816,7 @@ public class IcebergExternalMetaCacheTest {
         try (MockedStatic<IcebergUtils> icebergUtils = Mockito.mockStatic(
                 IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
             icebergUtils.when(() -> IcebergUtils.loadPartitionInfo(
-                            tableIdentity, cache, "ice.db.tbl", projectionTable, 11L, 3L, capturedAuthenticator, true, false))
+                            "ice.db.tbl", projectionTable, 11L, 3L, capturedAuthenticator, true, false))
                     .thenReturn(IcebergPartitionInfo.empty());
             icebergUtils.when(() -> IcebergUtils.getNameMapping(projectionTable))
                     .thenReturn(Optional.empty());
@@ -829,10 +829,10 @@ public class IcebergExternalMetaCacheTest {
                     null, false, capturedAuthenticator, true, false);
 
             icebergUtils.verify(() -> IcebergUtils.loadPartitionInfo(
-                    tableIdentity, cache, "ice.db.tbl", projectionTable, 11L, 3L, capturedAuthenticator, true, false), Mockito.never());
+                    "ice.db.tbl", projectionTable, 11L, 3L, capturedAuthenticator, true, false), Mockito.never());
             value.getPartitionInfo();
             icebergUtils.verify(() -> IcebergUtils.loadPartitionInfo(
-                    tableIdentity, cache, "ice.db.tbl", projectionTable, 11L, 3L, capturedAuthenticator, true, false));
+                    "ice.db.tbl", projectionTable, 11L, 3L, capturedAuthenticator, true, false));
             icebergUtils.verify(() -> IcebergUtils.isValidRelatedTable(projectionTable));
             Mockito.verify(dorisTable, Mockito.never()).isValidRelatedTable();
         } finally {
@@ -867,9 +867,8 @@ public class IcebergExternalMetaCacheTest {
         ExecutionAuthenticator authenticator = new ExecutionAuthenticator() {};
         try (MockedStatic<IcebergUtils> utils = Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
             utils.when(() -> IcebergUtils.isValidRelatedTable(Mockito.any(Table.class))).thenReturn(true);
-            utils.when(() -> IcebergUtils.loadPartitionInfo(Mockito.eq(identity), Mockito.same(cache),
-                    Mockito.eq("ice.db.tbl"), Mockito.any(Table.class), Mockito.anyLong(), Mockito.anyLong(),
-                    Mockito.same(authenticator), Mockito.eq(false), Mockito.eq(false)))
+            utils.when(() -> IcebergUtils.loadPartitionInfo(Mockito.eq("ice.db.tbl"), Mockito.any(Table.class),
+                    Mockito.anyLong(), Mockito.anyLong(), Mockito.same(authenticator), Mockito.eq(false), Mockito.eq(false)))
                     .thenAnswer(call -> {
                         loads.incrementAndGet();
                         return info;
@@ -957,9 +956,8 @@ public class IcebergExternalMetaCacheTest {
         ExecutionAuthenticator authenticator = new ExecutionAuthenticator() {};
         try (MockedStatic<IcebergUtils> utils = Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
             utils.when(() -> IcebergUtils.isValidRelatedTable(Mockito.any(Table.class))).thenReturn(true);
-            utils.when(() -> IcebergUtils.loadPartitionInfo(Mockito.eq(identity), Mockito.same(cache),
-                    Mockito.eq("ice.db.tbl"), Mockito.any(Table.class), Mockito.anyLong(), Mockito.anyLong(),
-                    Mockito.same(authenticator), Mockito.eq(false), Mockito.eq(false)))
+            utils.when(() -> IcebergUtils.loadPartitionInfo(Mockito.eq("ice.db.tbl"), Mockito.any(Table.class),
+                    Mockito.anyLong(), Mockito.anyLong(), Mockito.same(authenticator), Mockito.eq(false), Mockito.eq(false)))
                     .thenAnswer(call -> {
                         loads.incrementAndGet();
                         if (replaceDuringLoad.getAndSet(false)) {
@@ -1059,6 +1057,83 @@ public class IcebergExternalMetaCacheTest {
     }
 
     @Test
+    public void testLazyPartitionLoadSurvivesCatalogReset() throws Exception {
+        assertRetainedPartitionLoadAfterReset(false, false);
+    }
+
+    @Test
+    public void testPartitionProjectionCreatedAfterCatalogReset() throws Exception {
+        assertRetainedPartitionLoadAfterReset(true, false);
+    }
+
+    @Test
+    public void testSessionPartitionProjectionNeedsNoCatalogCacheGroup() throws Exception {
+        assertRetainedPartitionLoadAfterReset(true, true);
+    }
+
+    private void assertRetainedPartitionLoadAfterReset(boolean resetBeforeProjection, boolean sessionCatalog)
+            throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor);
+        NameMapping identity = NameMapping.createForTest(1L, "db", "tbl");
+        IcebergExternalTable dorisTable = partitionConsumerForTest(identity);
+        Schema schema = new Schema(Types.NestedField.optional(1, "dt", Types.DateType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).day("dt").build();
+        String location = temporaryFolder.newFolder("retained-partition-reset").toURI().toString();
+        Table table = new HadoopTables(new Configuration()).create(schema, spec, location);
+        PartitionData partition = new PartitionData(spec.rawPartitionType());
+        partition.set(0, 19724);
+        table.newFastAppend().appendFile(DataFiles.builder(spec)
+                .withPath(location + "/data/old.parquet").withPartition(partition)
+                .withFileSizeInBytes(10).withRecordCount(1).build()).commit();
+        AtomicInteger authenticatedCalls = new AtomicInteger();
+        ExecutionAuthenticator captured = new ExecutionAuthenticator() {
+            @Override
+            public <T> T execute(Callable<T> action) throws Exception {
+                authenticatedCalls.incrementAndGet();
+                return action.call();
+            }
+        };
+        IcebergTableCacheValue generation = new IcebergTableCacheValue(table);
+        try (IcebergTableCacheValue.Lease retained = generation.tryAcquire();
+                MockedStatic<IcebergUtils> utils = Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            Assert.assertNotNull(retained);
+            utils.when(() -> IcebergUtils.useSessionCatalog(dorisTable)).thenReturn(sessionCatalog);
+            if (!sessionCatalog) {
+                cache.initCatalog(1L, Collections.emptyMap());
+                cache.entry(1L, IcebergExternalMetaCache.ENTRY_TABLE,
+                        NameMapping.class, IcebergTableCacheValue.class)
+                        .put(identity, generation);
+                if (resetBeforeProjection) {
+                    cache.invalidateCatalog(1L);
+                }
+            }
+            IcebergSnapshotCacheValue projection = partitionProjectionForTest(
+                    cache, dorisTable, retained.getIcebergTable(), captured);
+            Assert.assertEquals("partition enumeration remains lazy", 0, authenticatedCalls.get());
+            if (!resetBeforeProjection) {
+                cache.invalidateCatalog(1L);
+            }
+            IcebergPartitionInfo info = projection.getPartitionInfo();
+            Assert.assertEquals(1, info.getNameToPartitionItem().size());
+            Assert.assertEquals(1, info.getNameToIcebergPartition().size());
+            Assert.assertEquals(table.currentSnapshot().snapshotId(),
+                    info.getNameToIcebergPartition().values().iterator().next().getLastSnapshotId());
+            Assert.assertTrue(authenticatedCalls.get() > 0);
+            Mockito.verify(dorisTable.getCatalog(), Mockito.never()).getExecutionAuthenticator();
+            // Retired work must not populate the next catalog generation's budgeted entries.
+            cache.initCatalog(1L, Collections.emptyMap());
+            Assert.assertNull(cache.entry(1L, IcebergExternalMetaCache.ENTRY_PARTITION,
+                    IcebergSnapshotEntryKey.class, IcebergPartitionInfo.class)
+                    .peekIfPresent(IcebergSnapshotEntryKey.tryCreate(identity, table).get()));
+        } finally {
+            cache.close();
+            generation.retire();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testPartitionViewLoadsOncePerPhysicalGenerationAndRefreshInvalidatesIt() throws Exception {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor);
@@ -1083,9 +1158,8 @@ public class IcebergExternalMetaCacheTest {
         loader.setAccessible(true);
         try (MockedStatic<IcebergUtils> utils = Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
             utils.when(() -> IcebergUtils.isValidRelatedTable(Mockito.any(Table.class))).thenReturn(true);
-            utils.when(() -> IcebergUtils.loadPartitionInfo(Mockito.eq(identity), Mockito.same(cache),
-                    Mockito.eq("ice.db.tbl"), Mockito.any(Table.class), Mockito.anyLong(), Mockito.anyLong(),
-                    Mockito.same(authenticator), Mockito.eq(false), Mockito.eq(false)))
+            utils.when(() -> IcebergUtils.loadPartitionInfo(Mockito.eq("ice.db.tbl"), Mockito.any(Table.class),
+                    Mockito.anyLong(), Mockito.anyLong(), Mockito.same(authenticator), Mockito.eq(false), Mockito.eq(false)))
                     .thenAnswer(call -> {
                         loads.incrementAndGet();
                         return IcebergPartitionInfo.empty();

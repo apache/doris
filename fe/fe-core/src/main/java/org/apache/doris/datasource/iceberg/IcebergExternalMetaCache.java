@@ -1207,20 +1207,23 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                 String displayName = dorisTable.getCatalog().getName() + "." + dorisTable.getDbName()
                         + "." + dorisTable.getName();
                 Optional<IcebergSnapshotEntryKey> key = IcebergSnapshotEntryKey.tryCreate(tableIdentity, retainedTable);
-                MetaCacheEntry<IcebergSnapshotEntryKey, IcebergPartitionInfo> partitions =
-                        key.isPresent() ? partitionEntry.get(key.get().getNameMapping().getCtlId()) : null;
+                boolean useSharedCache = key.isPresent() && !IcebergUtils.useSessionCatalog(dorisTable);
+                // Retained work can start after reset retired the group. Capture an existing entry
+                // when applicable; direct loads need only the retained metadata and authenticator.
+                MetaCacheEntry<IcebergSnapshotEntryKey, IcebergPartitionInfo> partitions = useSharedCache
+                        ? partitionEntry.getIfInitialized(key.get().getNameMapping().getCtlId()) : null;
                 Supplier<IcebergPartitionInfo> loader = () -> {
                     try {
                         Table table = IcebergSnapshotCacheValue.createQueryScopedTable(
                                 retainedTable, retainedCurrentSnapshotJson);
-                        return IcebergUtils.loadPartitionInfo(tableIdentity, this, displayName, table,
+                        return IcebergUtils.loadPartitionInfo(displayName, table,
                                 latestIcebergSnapshot.getSnapshotId(), latestIcebergSnapshot.getSchemaId(),
                                 authenticator, enableMappingVarbinary, enableMappingTimestampTz);
                     } catch (AnalysisException e) {
                         throw new RuntimeException(e.getMessage(), e);
                     }
                 };
-                value.withPartitionInfoLoader(key.isPresent() && !IcebergUtils.useSessionCatalog(dorisTable)
+                value.withPartitionInfoLoader(partitions != null
                         ? () -> getPartitionInfo(key.get(), partitions, loader) : loader);
             }
             return value;

@@ -1751,11 +1751,7 @@ public class IcebergUtils {
                     }
                 } else {
                     Table table = icebergTable != null ? icebergTable : getIcebergTable(dorisTable);
-                    if (schemaId == NEWEST_SCHEMA_ID || table.currentSnapshot() == null) {
-                        schema = table.schema();
-                    } else {
-                        schema = table.schemas().get((int) schemaId);
-                    }
+                    schema = schemaForTable(table, schemaId);
                 }
                 String type = isView ? "view" : "table";
                 Preconditions.checkNotNull(schema,
@@ -1767,6 +1763,11 @@ public class IcebergUtils {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
         }
 
+    }
+
+    private static Schema schemaForTable(Table table, long schemaId) {
+        return schemaId == NEWEST_SCHEMA_ID || table.currentSnapshot() == null
+                ? table.schema() : table.schemas().get((int) schemaId);
     }
 
     /**
@@ -2327,21 +2328,26 @@ public class IcebergUtils {
             boolean enableMappingVarbinary, boolean enableMappingTimestampTz) throws AnalysisException {
         String displayName = dorisTable.getCatalog().getName() + "." + dorisTable.getDbName()
                 + "." + dorisTable.getName();
-        return loadPartitionInfo(dorisTable.getOrBuildNameMapping(), icebergExternalMetaCache(dorisTable),
-                displayName, table, snapshotId, schemaId, authenticator,
+        return loadPartitionInfo(displayName, table, snapshotId, schemaId, authenticator,
                 enableMappingVarbinary, enableMappingTimestampTz);
     }
 
-    static IcebergPartitionInfo loadPartitionInfo(org.apache.doris.datasource.NameMapping nameMapping,
-            IcebergExternalMetaCache cache,
-            String displayName, Table table, long snapshotId, long schemaId, ExecutionAuthenticator authenticator,
+    static IcebergPartitionInfo loadPartitionInfo(String displayName, Table table,
+            long snapshotId, long schemaId, ExecutionAuthenticator authenticator,
             boolean enableMappingVarbinary, boolean enableMappingTimestampTz) throws AnalysisException {
         if (snapshotId == IcebergUtils.UNKNOWN_SNAPSHOT_ID) {
             return IcebergPartitionInfo.empty();
         }
         List<IcebergPartition> icebergPartitions;
+        List<Column> partitionColumns;
         try {
             icebergPartitions = authenticator.execute(() -> loadIcebergPartition(table, snapshotId));
+            // A retained projection may outlive its catalog cache group. Its columns and ranges
+            // must use the same frozen table/schema, without looking up a new catalog generation.
+            partitionColumns = authenticator.execute(() -> buildTableSchemaCacheValue(table,
+                    parseSchema(Preconditions.checkNotNull(schemaForTable(table, schemaId),
+                            "Schema for Iceberg table %s is null", displayName),
+                            enableMappingVarbinary, enableMappingTimestampTz)).getPartitionColumns());
         } catch (Exception e) {
             String errorMsg = String.format("Failed to get iceberg partition info, table: %s, snapshotId: %s",
                     displayName, snapshotId);
@@ -2352,9 +2358,6 @@ public class IcebergUtils {
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
         long retainedPayloadBytes = 0L;
 
-        List<Column> partitionColumns = cache.getIcebergSchemaCacheValue(
-                nameMapping, schemaId, table, authenticator,
-                enableMappingVarbinary, enableMappingTimestampTz).getPartitionColumns();
         for (IcebergPartition partition : icebergPartitions) {
             nameToPartition.put(partition.getPartitionName(), partition);
             retainedPayloadBytes = MetaCacheWeightUtils.saturatedAdd(
