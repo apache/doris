@@ -310,7 +310,7 @@ suite("test_spatial_wkb_compatibility") {
     }
     test {
         sql "select ST_Overlaps(ST_GeogFromWKB('01E9030000000000000000F03F00000000000000400000000000000840'), ST_GeogFromWKB('010100000000000000000000000000000000000000'))"
-        exception "does not support this Geography WKB shape"
+        exception "WKB dimensions or embedded SRID are not supported"
     }
     test {
         sql "select ST_Overlaps(ST_GeogFromWKB('0104000000010000000101000000000000000000F03F0000000000000040'), ST_GeogFromWKB('010100000000000000000000000000000000000000'))"
@@ -322,7 +322,7 @@ suite("test_spatial_wkb_compatibility") {
     }
     test {
         sql "select ST_DWithin(ST_GeogFromWKB('01E9030000000000000000F03F00000000000000400000000000000840'), ST_GeogFromWKB('010100000000000000000000000000000000000000'), 1)"
-        exception "does not support this Geography WKB shape"
+        exception "WKB dimensions or embedded SRID are not supported"
     }
     test {
         sql "select ST_DWithin(ST_GeogFromWKB('0104000000010000000101000000000000000000F03F0000000000000040'), ST_GeogFromWKB('010100000000000000000000000000000000000000'), 1)"
