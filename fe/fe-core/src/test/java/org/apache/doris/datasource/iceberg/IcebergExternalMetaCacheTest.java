@@ -1152,6 +1152,59 @@ public class IcebergExternalMetaCacheTest {
     }
 
     @Test
+    public void testLazyRetainedPartitionRejectsCaseInsensitiveDuplicateColumns() throws Exception {
+        assertDuplicateSchemaRejectedByRetainedPartitionLoad(false);
+    }
+
+    @Test
+    public void testRetiredPartitionProjectionRejectsCaseInsensitiveDuplicateColumns() throws Exception {
+        assertDuplicateSchemaRejectedByRetainedPartitionLoad(true);
+    }
+
+    private void assertDuplicateSchemaRejectedByRetainedPartitionLoad(boolean resetBeforeLoad) throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor);
+        NameMapping identity = NameMapping.createForTest(1L, "db", "tbl");
+        IcebergExternalTable dorisTable = partitionConsumerForTest(identity);
+        Schema schema = new Schema(Types.NestedField.optional(1, "dt", Types.DateType.get()),
+                Types.NestedField.optional(2, "DT", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).day("dt").build();
+        String location = temporaryFolder.newFolder("retained-partition-duplicate-schema").toURI().toString();
+        Table table = new HadoopTables(new Configuration()).create(schema, spec, location);
+        PartitionData partition = new PartitionData(spec.rawPartitionType());
+        partition.set(0, 19724);
+        table.newFastAppend().appendFile(DataFiles.builder(spec)
+                .withPath(location + "/data/old.parquet").withPartition(partition)
+                .withFileSizeInBytes(10).withRecordCount(1).build()).commit();
+        IcebergTableCacheValue generation = new IcebergTableCacheValue(table);
+        try (IcebergTableCacheValue.Lease retained = generation.tryAcquire();
+                MockedStatic<IcebergUtils> utils = Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            Assert.assertNotNull(retained);
+            utils.when(() -> IcebergUtils.useSessionCatalog(dorisTable)).thenReturn(false);
+            cache.initCatalog(1L, Collections.emptyMap());
+            cache.entry(1L, IcebergExternalMetaCache.ENTRY_TABLE,
+                    NameMapping.class, IcebergTableCacheValue.class).put(identity, generation);
+            IcebergSnapshotCacheValue projection = partitionProjectionForTest(
+                    cache, dorisTable, retained.getIcebergTable(), new ExecutionAuthenticator() { });
+            if (resetBeforeLoad) {
+                cache.invalidateCatalog(1L);
+            }
+            RuntimeException error = Assert.assertThrows(RuntimeException.class, projection::getPartitionInfo);
+            Assert.assertTrue(org.apache.commons.lang3.exception.ExceptionUtils.getRootCauseMessage(error)
+                    .contains("Duplicate column name found: DT"));
+            Assert.assertTrue(org.apache.commons.lang3.exception.ExceptionUtils.getThrowableList(error).stream()
+                    .anyMatch(cause -> cause instanceof org.apache.doris.common.AnalysisException
+                            && cause.getMessage().contains("ice.db.tbl")
+                            && cause.getMessage().contains(Long.toString(table.currentSnapshot().snapshotId()))));
+            Mockito.verify(dorisTable.getCatalog(), Mockito.never()).getExecutionAuthenticator();
+        } finally {
+            cache.close();
+            generation.retire();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testLazyPartitionLoadSurvivesCatalogReset() throws Exception {
         assertRetainedPartitionLoadAfterReset(false, false);
     }

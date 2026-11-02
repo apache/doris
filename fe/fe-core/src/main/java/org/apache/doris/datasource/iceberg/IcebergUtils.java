@@ -2344,10 +2344,14 @@ public class IcebergUtils {
             icebergPartitions = authenticator.execute(() -> loadIcebergPartition(table, snapshotId));
             // A retained projection may outlive its catalog cache group. Its columns and ranges
             // must use the same frozen table/schema, without looking up a new catalog generation.
-            partitionColumns = authenticator.execute(() -> buildTableSchemaCacheValue(table,
-                    parseSchema(Preconditions.checkNotNull(schemaForTable(table, schemaId),
-                            "Schema for Iceberg table %s is null", displayName),
-                            enableMappingVarbinary, enableMappingTimestampTz)).getPartitionColumns());
+            partitionColumns = authenticator.execute(() -> {
+                List<Column> schema = parseSchema(Preconditions.checkNotNull(schemaForTable(table, schemaId),
+                        "Schema for Iceberg table %s is null", displayName),
+                        enableMappingVarbinary, enableMappingTimestampTz);
+                // This retained-table path bypasses the schema-cache loader's validation boundary.
+                new SchemaCacheValue(schema).validateSchema();
+                return buildTableSchemaCacheValue(table, schema).getPartitionColumns();
+            });
         } catch (Exception e) {
             String errorMsg = String.format("Failed to get iceberg partition info, table: %s, snapshotId: %s",
                     displayName, snapshotId);
