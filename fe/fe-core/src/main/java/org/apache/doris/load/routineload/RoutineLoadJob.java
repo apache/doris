@@ -2036,7 +2036,7 @@ public abstract class RoutineLoadJob
                         // fall through; let validate() surface the real error
                     }
                 }
-                createRoutineLoadInfo.validate(ctx);
+                createRoutineLoadInfo.validateForRecovery(ctx);
                 setRoutineLoadDesc(createRoutineLoadInfo.getRoutineLoadDesc());
             } finally {
                 ctx.cleanup();

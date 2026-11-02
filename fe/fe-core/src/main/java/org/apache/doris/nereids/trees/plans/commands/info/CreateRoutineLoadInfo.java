@@ -379,9 +379,21 @@ public class CreateRoutineLoadInfo {
     }
 
     /**
+     * Rebuild load expressions without validating stale data source properties in the original CREATE SQL.
+     * The job's current effective data source properties are validated before runtime use.
+     */
+    public void validateForRecovery(ConnectContext ctx) throws UserException {
+        validate(ctx, false);
+    }
+
+    /**
      * analyze create table info
      */
     public void validate(ConnectContext ctx) throws UserException {
+        validate(ctx, true);
+    }
+
+    private void validate(ConnectContext ctx, boolean validateDataSource) throws UserException {
         // check dbName and tableName
         checkDBTable(ctx);
         // check name
@@ -398,7 +410,9 @@ public class CreateRoutineLoadInfo {
         // check routine load job properties include desired concurrent number etc.
         checkJobProperties();
         // check data source properties
-        checkDataSourceProperties();
+        if (validateDataSource) {
+            checkDataSourceProperties();
+        }
         // analyze merge type
         if (routineLoadDesc != null) {
             if (mergeType != LoadTask.MergeType.MERGE && routineLoadDesc.getDeleteCondition() != null) {

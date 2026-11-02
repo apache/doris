@@ -18,6 +18,7 @@
 #include "load/routine_load/data_consumer.h"
 
 #include <absl/strings/str_split.h>
+#include <gen_cpp/BackendService_constants.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <librdkafka/rdkafkacpp.h>
@@ -47,6 +48,7 @@
 #include "common/metrics/doris_metrics.h"
 #include "common/status.h"
 #include "load/routine_load/consumer_helpers.h"
+#include "load/routine_load/kafka_properties.h"
 #include "load/routine_load/kinesis_conf.h"
 #include "runtime/aws_msk_iam_auth.h"
 #include "runtime/exec_env.h"
@@ -76,6 +78,10 @@ Status KafkaDataConsumer::init(std::shared_ptr<StreamLoadContext> ctx) {
 
     // conf has to be deleted finally
     Defer delete_conf {[conf]() { delete conf; }};
+
+    // Metadata probes and scheduled tasks share this path, including jobs from
+    // older FEs. Validate before any user-controlled Conf::set() can have effects.
+    RETURN_IF_ERROR(configure_kafka_security(*conf, ctx->kafka_info->properties));
 
     std::string errstr;
     auto set_conf = [&conf, &errstr](const std::string& conf_key, const std::string& conf_val) {
@@ -118,10 +124,10 @@ Status KafkaDataConsumer::init(std::shared_ptr<StreamLoadContext> ctx) {
     for (auto& item : ctx->kafka_info->properties) {
         _custom_properties.emplace(item.first, item.second);
 
-        // AWS properties (aws.*) are Doris-specific for MSK IAM authentication
-        // and should not be passed to librdkafka
-        if (starts_with(item.first, "aws.")) {
-            LOG(INFO) << "Skipping AWS property for librdkafka: " << item.first;
+        // Doris handles AWS authentication itself. Older FEs can also send offset
+        // bookkeeping properties; neither kind should reach librdkafka.
+        if (g_BackendService_constants.KAFKA_DORIS_PROPERTIES.contains(item.first)) {
+            LOG(INFO) << "Skipping Doris property for librdkafka: " << item.first;
             continue;
         }
 

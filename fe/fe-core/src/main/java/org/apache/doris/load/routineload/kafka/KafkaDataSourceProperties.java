@@ -23,6 +23,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
 import org.apache.doris.load.routineload.LoadDataSourceType;
+import org.apache.doris.thrift.BackendServiceConstants;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
@@ -253,8 +254,31 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
             }
         }
 
+        validateCustomProperties(customKafkaProperties);
+
         // Validate AWS MSK IAM authentication configuration if present
         validateAwsMskIamConfig();
+    }
+
+    // Also validate persisted jobs before converting FILE references or making BE metadata requests.
+    public static void validateCustomProperties(Map<String, String> properties) throws AnalysisException {
+        for (Map.Entry<String, String> property : properties.entrySet()) {
+            String key = property.getKey();
+            // Only zero is safe: it prevents the default kinit command from executing.
+            if (key.equals("sasl.kerberos.min.time.before.relogin") && !property.getValue().equals("0")) {
+                throw new AnalysisException("Kafka property '" + key + "' is not allowed in Routine Load"
+                        + " with a nonzero value; Kerberos tickets must be managed externally");
+            }
+            if (BackendServiceConstants.KAFKA_FILE_PROPERTIES.contains(key)) {
+                if (!property.getValue().startsWith("FILE:") || property.getValue().length() == 5) {
+                    throw new AnalysisException("Kafka property '" + key
+                            + "' must reference a file registered with CREATE FILE using FILE:<name>");
+                }
+            } else if (!BackendServiceConstants.KAFKA_ALLOWED_PROPERTIES.contains(key)
+                    && !BackendServiceConstants.KAFKA_DORIS_PROPERTIES.contains(key)) {
+                throw new AnalysisException("Kafka property '" + key + "' is not allowed in Routine Load");
+            }
+        }
     }
 
     private void validateAwsMskIamConfig() throws AnalysisException {
