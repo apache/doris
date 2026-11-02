@@ -40,7 +40,6 @@ import org.apache.doris.catalog.EncryptKeySearchDesc;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.info.TableNameInfo;
@@ -1219,18 +1218,6 @@ public class EditLog {
                     env.getBinlogManager().addModifyTableAddOrDropColumns(info, logId);
                     break;
                 }
-                case OperationType.OP_CHANGELOG_COLUMN_IDENTITY: {
-                    ChangelogColumnIdentityInfo info = (ChangelogColumnIdentityInfo) journal.getData();
-                    Database db = env.getInternalCatalog().getDbOrMetaException(info.getDbId());
-                    OlapTable table = (OlapTable) db.getTableOrMetaException(info.getTableId());
-                    table.writeLock();
-                    try {
-                        info.apply(table);
-                    } finally {
-                        table.writeUnlock();
-                    }
-                    break;
-                }
                 case OperationType.OP_ALTER_LIGHT_SCHEMA_CHANGE: {
                     final AlterLightSchemaChangeInfo info = (AlterLightSchemaChangeInfo) journal.getData();
                     env.getSchemaChangeHandler().replayAlterLightSchChange(info);
@@ -2384,10 +2371,6 @@ public class EditLog {
 
     public long logUpdateBinlogConfig(ModifyTablePropertyOperationLog info) {
         return logModifyTableProperty(OperationType.OP_UPDATE_BINLOG_CONFIG, info);
-    }
-
-    public EditLogItem logChangelogColumnIdentity(ChangelogColumnIdentityInfo info) {
-        return submitEdit(OperationType.OP_CHANGELOG_COLUMN_IDENTITY, info);
     }
 
     public void logAlterLightSchemaChange(AlterLightSchemaChangeInfo info) {

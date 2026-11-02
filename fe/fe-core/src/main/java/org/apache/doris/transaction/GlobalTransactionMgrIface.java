@@ -202,7 +202,7 @@ public interface GlobalTransactionMgrIface extends Writable {
 
     /**
      * Begin a VALUES transaction with a master-owned write snapshot.
-     * Callers must prepare changelog column identities before acquiring catalog locks.
+     * The master validates schema versions and registers the snapshot under the table read lock before returning.
      */
     default long beginTransactionForValues(long dbId, long tableId, String label, TUniqueId requestId,
             TxnCoordinator coordinator, LoadJobSourceType sourceType, long timeoutSecond,
