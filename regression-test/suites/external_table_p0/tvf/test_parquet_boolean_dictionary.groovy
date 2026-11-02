@@ -35,7 +35,8 @@ suite("test_parquet_boolean_dictionary", "p0,external") {
     def s3Client = null
     boolean uploaded = false
     Map<String, String> originalSettings = [:]
-    for (String variable : ['enable_sql_cache', 'enable_query_cache', 'enable_parquet_lazy_mat']) {
+    // Use the public SQL name: SHOW VARIABLES silently returns no rows for unknown names.
+    for (String variable : ['enable_sql_cache', 'enable_query_cache', 'enable_parquet_lazy_materialization']) {
         originalSettings[variable] = sql("SHOW VARIABLES LIKE '${variable}'")[0][1].toString()
     }
     try {
@@ -72,7 +73,7 @@ suite("test_parquet_boolean_dictionary", "p0,external") {
         sql "SET enable_sql_cache = false"
         sql "SET enable_query_cache = false"
         for (boolean lazyMaterialization : [false, true]) {
-            sql "SET enable_parquet_lazy_mat = ${lazyMaterialization}"
+            sql "SET enable_parquet_lazy_materialization = ${lazyMaterialization}"
             for (String predicate : ['', 'WHERE b = TRUE', 'WHERE b = FALSE', 'WHERE b IS NULL',
                     'WHERE b <> TRUE OR b IS NULL', 'WHERE id IN (1, 2, 5, 6, 9)']) {
                 quickTest("boolean_dictionary_rows",
