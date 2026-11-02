@@ -170,6 +170,48 @@ std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
     return instance_id;
 }
 
+bool MetaServiceProxy::check_strict_instance_auth(const ::google::protobuf::Message& req,
+                                                  MetaServiceResponseStatus* status) {
+    if (!config::enable_strict_instance_auth) {
+        return true;
+    }
+    const auto* descriptor = req.GetDescriptor();
+    const auto* reflection = req.GetReflection();
+    // get_cluster_status names instances by `instance_ids`, rpc callers use `cloud_unique_ids`.
+    const auto* instance_ids_field = descriptor->FindFieldByName("instance_ids");
+    if (instance_ids_field != nullptr) {
+        if (reflection->FieldSize(req, instance_ids_field) == 0) {
+            return true;
+        }
+        status->set_code(MetaServiceCode::INVALID_ARGUMENT);
+        status->set_msg("instance_ids is not allowed, use cloud_unique_ids instead");
+        LOG(WARNING) << status->msg() << ", request=" << descriptor->name();
+        return false;
+    }
+
+    // call_impl only checks requests with an instance_id or instance_ids field, the latter is
+    // handled above.
+    const auto* instance_id_field = descriptor->FindFieldByName("instance_id");
+    CHECK(instance_id_field != nullptr) << descriptor->name();
+    std::string instance_id = reflection->GetString(req, instance_id_field);
+    const auto* cloud_unique_id_field = descriptor->FindFieldByName("cloud_unique_id");
+    // Only the presence of cloud_unique_id is required here, whether instance_id belongs to it is
+    // checked separately. MS asks other MS to refresh an instance by instance_id, which changes
+    // nothing.
+    const auto* alter_instance = dynamic_cast<const AlterInstanceRequest*>(&req);
+    if (instance_id.empty() ||
+        (cloud_unique_id_field != nullptr &&
+         !reflection->GetString(req, cloud_unique_id_field).empty()) ||
+        (alter_instance != nullptr && alter_instance->op() == AlterInstanceRequest::REFRESH)) {
+        return true;
+    }
+    status->set_code(MetaServiceCode::INVALID_ARGUMENT);
+    status->set_msg("cloud_unique_id is required with instance_id");
+    LOG(WARNING) << status->msg() << ", request=" << descriptor->name()
+                 << " instance_id=" << instance_id;
+    return false;
+}
+
 // Return `true` if tablet has been dropped; otherwise or it may not determine when meeting errors, return false
 bool is_dropped_tablet(Transaction* txn, const std::string& instance_id, int64_t index_id,
                        int64_t partition_id) {
