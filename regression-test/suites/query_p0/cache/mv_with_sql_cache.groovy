@@ -116,6 +116,15 @@ suite("mv_with_sql_cache") {
                             create_sync_mv(dbName, tb_name1, mv_name2, mv_sql2)
                             sleep(10 * 1000)
 
+                            // Adding rollup schemas invalidates existing partition-dependent cache entries.
+                            assertNoCache "select * from ${tb_name1}"
+                            assertNoCache mv_sql1
+                            assertNoCache mv_sql2
+
+                            sql "select * from ${tb_name1}"
+                            sql mv_sql1
+                            sql mv_sql2
+
                             assertHasCache "select * from ${tb_name1}"
                             assertHasCache mv_sql1
                             assertHasCache mv_sql2
@@ -178,6 +187,15 @@ suite("mv_with_sql_cache") {
                             create_sync_mv(dbName, tb_name1, mv_name1, mv_sql1)
                             create_sync_mv(dbName, tb_name1, mv_name2, mv_sql2)
                             sleep(10 * 1000)
+
+                            // Adding rollup schemas invalidates existing partition-dependent cache entries.
+                            assertNoCache "select * from ${tb_name1}"
+                            assertNoCache mv_sql1
+                            assertNoCache mv_sql2
+
+                            sql "select * from ${tb_name1}"
+                            sql mv_sql1
+                            sql mv_sql2
 
                             assertHasCache "select * from ${tb_name1}"
                             assertHasCache mv_sql1
@@ -242,6 +260,15 @@ suite("mv_with_sql_cache") {
                             create_sync_mv(dbName, tb_name1, mv_name2, mv_sql2)
                             sleep(10 * 1000)
 
+                            // Adding rollup schemas invalidates existing partition-dependent cache entries.
+                            assertNoCache "select * from ${tb_name1}"
+                            assertNoCache mv_sql1
+                            assertNoCache mv_sql2
+
+                            sql "select * from ${tb_name1}"
+                            sql mv_sql1
+                            sql mv_sql2
+
                             assertHasCache "select * from ${tb_name1}"
                             assertHasCache mv_sql1
                             assertHasCache mv_sql2
@@ -253,6 +280,15 @@ suite("mv_with_sql_cache") {
                             // drop mv
                             sql """drop materialized view ${mv_name1} on ${tb_name1};"""
                             sleep(10 * 1000)
+
+                            // Dropping a rollup also changes the schema dependencies of cached queries.
+                            assertNoCache "select * from ${tb_name1}"
+                            assertNoCache mv_sql1
+                            assertNoCache mv_sql2
+
+                            sql "select * from ${tb_name1}"
+                            sql mv_sql1
+                            sql mv_sql2
 
                             assertHasCache "select * from ${tb_name1}"
                             assertHasCache mv_sql1

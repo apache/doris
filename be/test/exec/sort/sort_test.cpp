@@ -32,7 +32,6 @@
 #include "exec/sort/sorter.h"
 #include "exec/sort/topn_sorter.h"
 #include "exprs/vexpr_fwd.h"
-#include "format/orc/vorc_reader.h"
 #include "runtime/runtime_state.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_descriptors.h"

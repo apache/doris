@@ -19,10 +19,12 @@
 
 #include <arrow/api.h>
 #include <arrow/extension/parquet_variant.h>
+#include <arrow/io/file.h>
 #include <arrow/io/memory.h>
 #include <arrow/ipc/api.h>
 #include <arrow/util/compression.h>
 #include <gtest/gtest.h>
+#include <parquet/arrow/writer.h>
 #include <unistd.h>
 
 #include <filesystem>
@@ -54,11 +56,13 @@
 #include "format/arrow/arrow_row_batch.h"
 #include "format_v2/schema_reader.h"
 #include "io/fs/kafka_consumer_pipe.h"
+#include "load/delta_writer/push_handler.h"
 #include "load/stream_load/new_load_stream_mgr.h"
 #include "load/stream_load/stream_load_context.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "testutil/scoped_temp_dir.h"
 
 namespace doris::format {
 namespace {
@@ -1148,6 +1152,9 @@ TEST_F(LoadArrowPipeTest, Date64RetainsDorisRangeValidation) {
     bool eos = false;
     const auto status = reader.get_block(&output, &eos);
     EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Arrow column 'raw_value' (date64[ms] ->"), std::string::npos)
+            << status;
+    EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
     EXPECT_NE(status.to_string().find("Doris DATE range"), std::string::npos) << status;
     ASSERT_TRUE(reader.close().ok());
 }
@@ -1501,6 +1508,205 @@ TEST_F(LoadJsonPipeTest, EmptyFinishedPipeReturnsEof) {
     EXPECT_EQ(output.rows(), 0);
     EXPECT_EQ(io->load_filtered_rows, 0);
     ASSERT_TRUE(reader.close().ok());
+}
+
+arrow::Status write_push_parquet(const std::string& path, bool numeric) {
+    // The middle row is NULL in both physical encodings.
+    const auto validity = arrow::Buffer::FromString(std::string(1, '\x05'));
+    std::shared_ptr<arrow::Array> array;
+    if (numeric) {
+        array = std::make_shared<arrow::Int32Array>(
+                3, arrow::Buffer::FromVector(std::vector<int32_t> {7, 0, 8}), validity, 1);
+    } else {
+        array = std::make_shared<arrow::StringArray>(
+                3, arrow::Buffer::FromVector(std::vector<int32_t> {0, 1, 1, 2}),
+                arrow::Buffer::FromString("78"), validity, 1);
+    }
+    ARROW_ASSIGN_OR_RAISE(auto output, arrow::io::FileOutputStream::Open(path));
+    auto table =
+            arrow::Table::Make(arrow::schema({arrow::field("raw_value", array->type())}), {array});
+    ARROW_RETURN_NOT_OK(
+            ::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), output, 3));
+    return output->Close();
+}
+
+TEST_F(LoadReaderTest, PushLoadsUseSourceConversionsAcrossParquetRanges) {
+    doris::test::ScopedTempDirectory temp("push_reader");
+    for (int scenario = 0; scenario < 4; ++scenario) {
+        const auto path = (temp.path() / "data.parquet").string();
+        ASSERT_TRUE(write_push_parquet(path, scenario % 2 == 1).ok());
+
+        TTupleDescriptor tuple;
+        tuple.__set_id(0);
+        tuple.__set_byteSize(0);
+        tuple.__set_numNullBytes(1);
+        TDescriptorTable descriptors;
+        descriptors.tupleDescriptors.push_back(tuple);
+        tuple.__set_id(1);
+        descriptors.tupleDescriptors.push_back(tuple);
+        auto target = source_definition;
+        target.__set_id(20);
+        target.__set_parent(1);
+        target.__set_colName("value");
+        descriptors.__set_slotDescriptors({source_definition, target});
+
+        TBrokerScanRange scan;
+        scan.params.__set_src_tuple_id(0);
+        scan.params.__set_dest_tuple_id(1);
+        scan.params.__set_src_slot_ids({10});
+        scan.params.__set_expr_of_dest_slot(params.expr_of_dest_slot);
+        scan.params.__set_dest_sid_to_src_sid_without_trans({{20, 10}});
+        TBrokerRangeDesc range;
+        range.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+        range.__set_file_type(TFileType::FILE_LOCAL);
+        range.__set_path(path);
+        range.__set_start_offset(0);
+        range.__set_size(-1);
+        range.__set_file_size(std::filesystem::file_size(path));
+        if (scenario < 2) {
+            range.__set_num_of_columns_from_file(1);
+        }
+        scan.__set_ranges({range, range});
+
+        PushBrokerReader reader(scan, descriptors);
+        ASSERT_TRUE(reader.init().ok());
+        std::vector<std::string> values;
+        while (!reader.eof()) {
+            Block block;
+            auto status = reader.next(&block);
+            ASSERT_TRUE(status.ok()) << status;
+            for (size_t row = 0; row < block.rows(); ++row) {
+                const auto& column = *block.get_by_position(0).column;
+                values.push_back(column.is_null_at(row) ? "NULL"
+                                                        : column.get_data_at(row).to_string());
+            }
+        }
+        EXPECT_EQ(values, (std::vector<std::string> {"7", "NULL", "8", "7", "NULL", "8"}));
+        EXPECT_TRUE(reader.close().ok());
+    }
+}
+
+void collect_push_rows(PushBrokerReader& reader, bool with_path_column,
+                       std::vector<std::string>* values) {
+    while (!reader.eof()) {
+        Block block;
+        const auto status = reader.next(&block);
+        ASSERT_TRUE(status.ok()) << status;
+        for (size_t row = 0; row < block.rows(); ++row) {
+            const auto& column = *block.get_by_position(0).column;
+            values->push_back(column.is_null_at(row) ? "NULL"
+                                                     : column.get_data_at(row).to_string());
+            if (with_path_column) {
+                EXPECT_EQ(block.get_by_position(1).column->get_data_at(row).to_string(), "route");
+            }
+        }
+    }
+}
+
+TEST_F(LoadReaderTest, PushSourceProjectionOmitsAndReordersSlots) {
+    doris::test::ScopedTempDirectory temp("push_projection");
+    const auto path = (temp.path() / "data.parquet").string();
+    ASSERT_TRUE(write_push_parquet(path, false).ok());
+    for (const bool with_path_column : {false, true}) {
+        SCOPED_TRACE(with_path_column);
+        TTupleDescriptor tuple;
+        tuple.__set_id(0);
+        tuple.__set_byteSize(0);
+        tuple.__set_numNullBytes(1);
+        TDescriptorTable descriptors;
+        descriptors.tupleDescriptors.push_back(tuple);
+        tuple.__set_id(1);
+        descriptors.tupleDescriptors.push_back(tuple);
+        auto unused = source_definition;
+        unused.__set_id(11);
+        unused.__set_colName("unused");
+        auto partition = source_definition;
+        partition.__set_id(12);
+        partition.__set_colName("path_value");
+        auto target = source_definition;
+        target.__set_id(20);
+        target.__set_parent(1);
+        target.__set_colName("value");
+        // Descriptor order deliberately differs from the broker projection; slot 11 is omitted.
+        descriptors.__set_slotDescriptors({partition, unused, source_definition, target});
+        TBrokerScanRange scan;
+        scan.params.__set_src_tuple_id(0);
+        scan.params.__set_dest_tuple_id(1);
+        scan.params.__set_src_slot_ids(with_path_column ? std::vector<int32_t> {10, 12}
+                                                        : std::vector<int32_t> {10});
+        scan.params.__set_expr_of_dest_slot(params.expr_of_dest_slot);
+        scan.params.__set_dest_sid_to_src_sid_without_trans({{20, 10}});
+        if (with_path_column) {
+            auto path_target = target;
+            path_target.__set_id(21);
+            path_target.__set_colName("partition_value");
+            path_target.__set_slotIdx(1);
+            descriptors.slotDescriptors.push_back(path_target);
+            auto expression = params.expr_of_dest_slot.at(20);
+            expression.nodes.front().slot_ref.__set_slot_id(12);
+            scan.params.expr_of_dest_slot.emplace(21, std::move(expression));
+            scan.params.dest_sid_to_src_sid_without_trans.emplace(21, 12);
+        }
+        TBrokerRangeDesc range;
+        range.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+        range.__set_file_type(TFileType::FILE_LOCAL);
+        range.__set_path(path);
+        range.__set_start_offset(0);
+        range.__set_size(std::filesystem::file_size(path));
+        range.__set_file_size(std::filesystem::file_size(path));
+        if (with_path_column) {
+            range.__set_num_of_columns_from_file(1);
+            range.__set_columns_from_path({"route"});
+        }
+        scan.__set_ranges({range});
+        PushBrokerReader reader(scan, descriptors);
+        auto status = reader.init();
+        ASSERT_TRUE(status.ok()) << status;
+        std::vector<std::string> values;
+        collect_push_rows(reader, with_path_column, &values);
+        EXPECT_EQ(values, (std::vector<std::string> {"7", "NULL", "8"}));
+        ASSERT_TRUE(reader.close().ok());
+    }
+}
+
+TEST_F(LoadReaderTest, PushRejectsInvalidSourceProjection) {
+    TTupleDescriptor tuple;
+    tuple.__set_id(0);
+    tuple.__set_byteSize(0);
+    tuple.__set_numNullBytes(1);
+    TDescriptorTable descriptors;
+    descriptors.tupleDescriptors.push_back(tuple);
+    tuple.__set_id(1);
+    descriptors.tupleDescriptors.push_back(tuple);
+    auto target = source_definition;
+    target.__set_id(20);
+    target.__set_parent(1);
+    descriptors.__set_slotDescriptors({source_definition, target});
+    for (const auto& ids :
+         {std::vector<int32_t> {99}, std::vector<int32_t> {20}, std::vector<int32_t> {10, 10}}) {
+        TBrokerScanRange scan;
+        scan.params.__set_src_tuple_id(0);
+        scan.params.__set_dest_tuple_id(1);
+        scan.params.__set_src_slot_ids(ids);
+        scan.params.__set_expr_of_dest_slot(params.expr_of_dest_slot);
+        scan.params.__set_dest_sid_to_src_sid_without_trans({{20, 10}});
+        TBrokerRangeDesc range;
+        range.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+        range.__set_file_type(TFileType::FILE_LOCAL);
+        range.__set_num_of_columns_from_file(1);
+        scan.__set_ranges({range});
+        PushBrokerReader reader(scan, descriptors);
+        const auto status = reader.init();
+        EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
+    }
+}
+
+TEST_F(LoadReaderTest, QueryOnlyConnectorsRejectFileLoads) {
+    for (const char* table_format : {"adbc", "fluss"}) {
+        params.table_format_params.__set_table_format_type(table_format);
+        LoadTableReader reader(source.get(), destination.get());
+        EXPECT_TRUE(init(reader).is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+    }
 }
 
 TEST_F(LoadReaderTest, MissingPhysicalSourceAliasRequiresDeclaredDefault) {

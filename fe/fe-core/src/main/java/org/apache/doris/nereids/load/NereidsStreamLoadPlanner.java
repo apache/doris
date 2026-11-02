@@ -305,7 +305,7 @@ public class NereidsStreamLoadPlanner {
         params.setTotalLoadStreams(taskInfo.getStreamPerNode());
         params.setNumLocalSink(1);
         TQueryOptions queryOptions = new TQueryOptions();
-        // Load plans do not inherit session query options; explicitly select the V2 load path.
+        // Retain the deprecated wire option for older backends; loads always use V2.
         queryOptions.setEnableFileScannerV2(true);
         queryOptions.setQueryType(TQueryType.LOAD);
         int timeout = taskInfo.getTimeout();

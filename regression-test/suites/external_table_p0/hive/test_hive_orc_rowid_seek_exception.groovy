@@ -38,7 +38,7 @@ suite("test_hive_orc_rowid_seek_exception", "p0,external,hive,nonConcurrent") {
     def rowIdSeekQuery = """SELECT name, value, score FROM orc_topn_lazy_mat_table
                            ORDER BY id LIMIT 5"""
     try {
-        // Phase two uses the legacy ORC reader only when V2 is disabled.
+        // The deprecated option must not prevent phase two from using the V2 reader.
         sql "SET enable_file_scanner_v2=false"
         sql "SET enable_sql_cache=false"
         sql "SET topn_lazy_materialization_threshold=1024"
