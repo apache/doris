@@ -35,20 +35,16 @@
 #include <queue>
 #include <shared_mutex>
 #include <type_traits>
+#include <unordered_map>
+#include <utility>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/block/block.h"
-#include "core/block/column_with_type_and_name.h"
-#include "core/data_type/data_type_bitmap.h"
-#include "core/data_type/data_type_factory.hpp"
-#include "core/data_type/data_type_nullable.h"
-#include "exprs/function/function_helpers.h"
-#include "exprs/function/simple_function_factory.h"
-#include "exprs/vexpr_context.h"
-#include "format/parquet/vparquet_reader.h"
+#include "format_v2/table/load_reader.h"
 #include "io/hdfs_builder.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -67,6 +63,37 @@
 
 namespace doris {
 using namespace ErrorCode;
+
+namespace {
+
+Status project_broker_source_slots(const TDescriptorTable& descriptors,
+                                   const TBrokerScanRangeParams& params,
+                                   TDescriptorTable* projected) {
+    *projected = descriptors;
+    projected->slotDescriptors.clear();
+    std::unordered_map<SlotId, const TSlotDescriptor*> source_slots;
+    for (const auto& slot : descriptors.slotDescriptors) {
+        if (slot.parent == params.src_tuple_id) {
+            source_slots.emplace(slot.id, &slot);
+        } else {
+            projected->slotDescriptors.push_back(slot);
+        }
+    }
+    // The descriptor may include unused slots or list path slots before file slots. Expressions
+    // and LoadTableReader must see exactly the broker's selected source slots, in wire order.
+    for (const auto slot_id : params.src_slot_ids) {
+        const auto slot = source_slots.find(slot_id);
+        if (slot == source_slots.end()) {
+            return Status::InvalidArgument("Unknown or duplicate broker source slot {} in tuple {}",
+                                           slot_id, params.src_tuple_id);
+        }
+        projected->slotDescriptors.push_back(*slot->second);
+        source_slots.erase(slot);
+    }
+    return Status::OK();
+}
+
+} // namespace
 
 // Process push command, the main logical is as follows:
 //    a. related tablets not exist:
@@ -324,7 +351,7 @@ PushBrokerReader::PushBrokerReader(const TBrokerScanRange& t_scan_range,
           _eof(false),
           _next_range(0),
           _t_desc_tbl(t_desc_tbl),
-          _cur_reader_eof(false),
+          _cur_reader_eof(true),
           _params(t_scan_range.params),
           _ranges(t_scan_range.ranges) {
     // change broker params to file params
@@ -332,8 +359,8 @@ PushBrokerReader::PushBrokerReader(const TBrokerScanRange& t_scan_range,
         return;
     }
     _file_params.format_type = _ranges[0].format_type;
-    _file_params.src_tuple_id = _params.src_tuple_id;
-    _file_params.dest_tuple_id = _params.dest_tuple_id;
+    _file_params.__set_src_tuple_id(_params.src_tuple_id);
+    _file_params.__set_dest_tuple_id(_params.dest_tuple_id);
     _file_params.num_of_columns_from_file = _ranges[0].num_of_columns_from_file;
     _file_params.properties = _params.properties;
     _file_params.expr_of_dest_slot = _params.expr_of_dest_slot;
@@ -380,8 +407,11 @@ Status PushBrokerReader::init() {
             fmt::format("PushBrokerReader:dummy_id={}", print_id(dummy_id)));
     _runtime_state = RuntimeState::create_unique(params, query_options, query_globals,
                                                  ExecEnv::GetInstance(), nullptr, tracker);
+    TDescriptorTable projected_descriptors;
+    RETURN_IF_ERROR(project_broker_source_slots(_t_desc_tbl, _params, &projected_descriptors));
     DescriptorTbl* desc_tbl = nullptr;
-    Status status = DescriptorTbl::create(_runtime_state->obj_pool(), _t_desc_tbl, &desc_tbl);
+    Status status =
+            DescriptorTbl::create(_runtime_state->obj_pool(), projected_descriptors, &desc_tbl);
     if (UNLIKELY(!status.ok())) {
         return Status::Error<PUSH_INIT_ERROR>("Failed to create descriptor table, msg: {}", status);
     }
@@ -389,162 +419,69 @@ Status PushBrokerReader::init() {
     _runtime_profile = _runtime_state->runtime_profile();
     _runtime_profile->set_name("PushBrokerReader");
 
-    _file_cache_statistics.reset(new io::FileCacheStatistics());
-    _file_reader_stats.reset(new io::FileReaderStats());
-    _io_ctx.reset(new io::IOContext());
+    _file_cache_statistics = std::make_unique<io::FileCacheStatistics>();
+    _file_reader_stats = std::make_unique<io::FileReaderStats>();
+    _io_ctx = std::make_shared<io::IOContext>();
     _io_ctx->file_cache_stats = _file_cache_statistics.get();
     _io_ctx->file_reader_stats = _file_reader_stats.get();
     _io_ctx->query_id = &_runtime_state->query_id();
 
-    auto slot_descs = desc_tbl->get_tuple_descriptor(0)->slots();
-    uint32_t idx = 0;
-    for (auto& slot_desc : slot_descs) {
-        _all_col_names.push_back(to_lower((slot_desc->col_name())));
-        _col_name_to_block_idx.insert({to_lower(slot_desc->col_name()), idx++});
+    auto* source = desc_tbl->get_tuple_descriptor(_params.src_tuple_id);
+    _dest_tuple_desc = desc_tbl->get_tuple_descriptor(_params.dest_tuple_id);
+    if (source == nullptr || _dest_tuple_desc == nullptr) {
+        return Status::InternalError("Unknown source or destination tuple in push load");
     }
-
-    RETURN_IF_ERROR(_init_expr_ctxes());
-
+    // An omitted count covers selected broker slots, including when the descriptor has extras.
+    if (!_ranges.empty() && !_ranges.front().__isset.num_of_columns_from_file) {
+        _file_params.num_of_columns_from_file = cast_set<int32_t>(_params.src_slot_ids.size());
+    }
+    _file_params.__set_file_type(_file_ranges.empty() ? TFileType::FILE_LOCAL
+                                                      : _file_ranges.front().file_type);
+    for (size_t i = 0; i < _params.src_slot_ids.size(); ++i) {
+        TFileScanSlotInfo slot;
+        slot.__set_slot_id(_params.src_slot_ids[i]);
+        slot.__set_is_file_slot(std::cmp_less(i, _file_params.num_of_columns_from_file));
+        _file_params.required_slots.push_back(std::move(slot));
+    }
+    _file_params.__isset.required_slots = true;
+    _cur_reader = std::make_unique<format::LoadTableReader>(source, _dest_tuple_desc);
+    // Push ingestion must use the same source mapping and strict conversion contract as other
+    // file loads, rather than keeping a second Parquet reader and conversion implementation.
+    RETURN_IF_ERROR(_cur_reader->init({.projected_columns = {},
+                                       .conjuncts = {},
+                                       .format = format::FileFormat::PARQUET,
+                                       .scan_params = &_file_params,
+                                       .io_ctx = _io_ctx,
+                                       .runtime_state = _runtime_state.get(),
+                                       .scanner_profile = _runtime_profile}));
     _ready = true;
     return Status::OK();
+}
+
+PushBrokerReader::~PushBrokerReader() {
+    WARN_IF_ERROR(close(), "Failed to close push load reader");
 }
 
 Status PushBrokerReader::next(Block* block) {
     if (!_ready || block == nullptr) {
         return Status::Error<INVALID_ARGUMENT>("PushBrokerReader not ready or block is nullptr");
     }
-    if (_cur_reader == nullptr || _cur_reader_eof) {
+    if (_cur_reader_eof) {
         RETURN_IF_ERROR(_get_next_reader());
         if (_eof) {
             return Status::OK();
         }
     }
-    RETURN_IF_ERROR(_init_src_block());
-    size_t read_rows = 0;
-    RETURN_IF_ERROR(_cur_reader->get_next_block(_src_block_ptr, &read_rows, &_cur_reader_eof));
-    if (read_rows > 0) {
-        RETURN_IF_ERROR(_cast_to_input_block());
-        RETURN_IF_ERROR(_convert_to_output_block(block));
-    }
-    return Status::OK();
+    *block = Block(_dest_tuple_desc->slots(), 0);
+    return _cur_reader->get_block(block, &_cur_reader_eof);
 }
 
 Status PushBrokerReader::close() {
     _ready = false;
-    return Status::OK();
-}
-
-Status PushBrokerReader::_init_src_block() {
-    _src_block.clear();
-    int idx = 0;
-    for (auto& slot : _src_slot_descs) {
-        DataTypePtr data_type;
-        auto it = _name_to_col_type.find(slot->col_name());
-        if (it == _name_to_col_type.end()) {
-            // not exist in file, using type from _input_tuple_desc
-            data_type = slot->type();
-        } else {
-            data_type = it->second;
-        }
-        if (data_type == nullptr) {
-            return Status::NotSupported("Not support data type {} for column {}",
-                                        it == _name_to_col_type.end() ? slot->type()->get_name()
-                                                                      : it->second->get_name(),
-                                        slot->col_name());
-        }
-        MutableColumnPtr data_column = data_type->create_column();
-        _src_block.insert(
-                ColumnWithTypeAndName(std::move(data_column), data_type, slot->col_name()));
-        _src_block_name_to_idx.emplace(slot->col_name(), idx++);
+    if (_cur_reader != nullptr) {
+        RETURN_IF_ERROR(_cur_reader->close());
+        _cur_reader.reset();
     }
-    _src_block_ptr = &_src_block;
-    return Status::OK();
-}
-
-Status PushBrokerReader::_cast_to_input_block() {
-    uint32_t idx = 0;
-    for (auto& slot_desc : _src_slot_descs) {
-        if (_name_to_col_type.find(slot_desc->col_name()) == _name_to_col_type.end()) {
-            continue;
-        }
-        if (slot_desc->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
-            continue;
-        }
-        // remove nullable here, let the get_function decide whether nullable
-        auto return_type = slot_desc->type();
-        idx = _src_block_name_to_idx[slot_desc->col_name()];
-        auto& arg = _src_block_ptr->get_by_position(idx);
-        // bitmap convert：src -> to_base64 -> bitmap_from_base64
-        if (slot_desc->type()->get_primitive_type() == TYPE_BITMAP) {
-            auto base64_return_type = DataTypeFactory::instance().create_data_type(
-                    PrimitiveType::TYPE_STRING, slot_desc->is_nullable());
-            auto func_to_base64 = SimpleFunctionFactory::instance().get_function(
-                    "to_base64", {arg}, base64_return_type);
-            RETURN_IF_ERROR(func_to_base64->execute(nullptr, *_src_block_ptr, {idx}, idx,
-                                                    arg.column->size()));
-            _src_block_ptr->get_by_position(idx).type = std::move(base64_return_type);
-            auto& arg_base64 = _src_block_ptr->get_by_position(idx);
-            auto func_bitmap_from_base64 = SimpleFunctionFactory::instance().get_function(
-                    "bitmap_from_base64", {arg_base64}, return_type);
-            RETURN_IF_ERROR(func_bitmap_from_base64->execute(nullptr, *_src_block_ptr, {idx}, idx,
-                                                             arg_base64.column->size()));
-            _src_block_ptr->get_by_position(idx).type = std::move(return_type);
-        } else {
-            ColumnsWithTypeAndName arguments {
-                    arg,
-                    {DataTypeString().create_column_const(
-                             arg.column->size(),
-                             Field::create_field<TYPE_STRING>(
-                                     is_decimal(return_type->get_primitive_type())
-                                             ? "Decimal"
-                                             : remove_nullable(return_type)->get_family_name())),
-                     std::make_shared<DataTypeString>(), ""}};
-            auto func_cast =
-                    SimpleFunctionFactory::instance().get_function("CAST", arguments, return_type);
-            RETURN_IF_ERROR(
-                    func_cast->execute(nullptr, *_src_block_ptr, {idx}, idx, arg.column->size()));
-            _src_block_ptr->get_by_position(idx).type = std::move(return_type);
-        }
-    }
-    return Status::OK();
-}
-
-Status PushBrokerReader::_convert_to_output_block(Block* block) {
-    block->clear();
-
-    int ctx_idx = 0;
-    size_t rows = _src_block.rows();
-    auto filter_column = ColumnUInt8::create(rows, 1);
-
-    for (auto* slot_desc : _dest_tuple_desc->slots()) {
-        int dest_index = ctx_idx++;
-        ColumnPtr column_ptr;
-
-        auto& ctx = _dest_expr_ctxs[dest_index];
-        // PT1 => dest primitive type
-        RETURN_IF_ERROR(ctx->execute(&_src_block, column_ptr));
-        // column_ptr maybe a ColumnConst, convert it to a normal column
-        column_ptr = column_ptr->convert_to_full_column_if_const();
-        DCHECK(column_ptr);
-
-        // because of src_slot_desc is always be nullable, so the column_ptr after do dest_expr
-        // is likely to be nullable
-        if (LIKELY(column_ptr->is_nullable())) {
-            if (!slot_desc->is_nullable()) {
-                column_ptr = remove_nullable(column_ptr);
-            }
-        } else if (slot_desc->is_nullable()) {
-            column_ptr = make_nullable(column_ptr);
-        }
-        block->insert(dest_index,
-                      ColumnWithTypeAndName(column_ptr, slot_desc->type(), slot_desc->col_name()));
-    }
-    _src_block.clear();
-
-    size_t dest_size = block->columns();
-    block->insert(ColumnWithTypeAndName(std::move(filter_column), std::make_shared<DataTypeUInt8>(),
-                                        "filter column"));
-    RETURN_IF_ERROR(Block::filter_block(block, dest_size, dest_size));
     return Status::OK();
 }
 
@@ -554,116 +491,22 @@ void PushBrokerReader::print_profile() {
     LOG(INFO) << ss.str();
 }
 
-Status PushBrokerReader::_init_expr_ctxes() {
-    // Construct _src_slot_descs
-    const TupleDescriptor* src_tuple_desc =
-            _runtime_state->desc_tbl().get_tuple_descriptor(_params.src_tuple_id);
-    if (src_tuple_desc == nullptr) {
-        return Status::InternalError("Unknown source tuple descriptor, tuple_id={}",
-                                     _params.src_tuple_id);
-    }
-
-    std::map<SlotId, SlotDescriptor*> src_slot_desc_map;
-    std::unordered_map<SlotDescriptor*, int> src_slot_desc_to_index {};
-    for (size_t i = 0, len = src_tuple_desc->slots().size(); i < len; ++i) {
-        auto* slot_desc = src_tuple_desc->slots()[i];
-        src_slot_desc_to_index.emplace(slot_desc, i);
-        src_slot_desc_map.emplace(slot_desc->id(), slot_desc);
-    }
-    for (auto slot_id : _params.src_slot_ids) {
-        auto it = src_slot_desc_map.find(slot_id);
-        if (it == std::end(src_slot_desc_map)) {
-            return Status::InternalError("Unknown source slot descriptor, slot_id={}", slot_id);
-        }
-        _src_slot_descs.emplace_back(it->second);
-    }
-    _row_desc.reset(new RowDescriptor(_runtime_state->desc_tbl(),
-                                      std::vector<TupleId>({_params.src_tuple_id})));
-
-    if (!_pre_filter_texprs.empty()) {
-        DCHECK(_pre_filter_texprs.size() == 1);
-        RETURN_IF_ERROR(VExpr::create_expr_tree(_pre_filter_texprs[0], _pre_filter_ctx_ptr));
-        RETURN_IF_ERROR(_pre_filter_ctx_ptr->prepare(_runtime_state.get(), *_row_desc));
-        RETURN_IF_ERROR(_pre_filter_ctx_ptr->open(_runtime_state.get()));
-    }
-
-    _dest_tuple_desc = _runtime_state->desc_tbl().get_tuple_descriptor(_params.dest_tuple_id);
-    if (_dest_tuple_desc == nullptr) {
-        return Status::InternalError("Unknown dest tuple descriptor, tuple_id={}",
-                                     _params.dest_tuple_id);
-    }
-    bool has_slot_id_map = _params.__isset.dest_sid_to_src_sid_without_trans;
-    for (auto slot_desc : _dest_tuple_desc->slots()) {
-        auto it = _params.expr_of_dest_slot.find(slot_desc->id());
-        if (it == std::end(_params.expr_of_dest_slot)) {
-            return Status::InternalError("No expr for dest slot, id={}, name={}", slot_desc->id(),
-                                         slot_desc->col_name());
-        }
-
-        VExprContextSPtr ctx;
-        RETURN_IF_ERROR(VExpr::create_expr_tree(it->second, ctx));
-        RETURN_IF_ERROR(ctx->prepare(_runtime_state.get(), *_row_desc.get()));
-        RETURN_IF_ERROR(ctx->open(_runtime_state.get()));
-        _dest_expr_ctxs.emplace_back(ctx);
-        if (has_slot_id_map) {
-            auto it1 = _params.dest_sid_to_src_sid_without_trans.find(slot_desc->id());
-            if (it1 == std::end(_params.dest_sid_to_src_sid_without_trans)) {
-                _src_slot_descs_order_by_dest.emplace_back(nullptr);
-            } else {
-                auto _src_slot_it = src_slot_desc_map.find(it1->second);
-                if (_src_slot_it == std::end(src_slot_desc_map)) {
-                    return Status::InternalError("No src slot {} in src slot descs", it1->second);
-                }
-                _dest_slot_to_src_slot_index.emplace(_src_slot_descs_order_by_dest.size(),
-                                                     src_slot_desc_to_index[_src_slot_it->second]);
-                _src_slot_descs_order_by_dest.emplace_back(_src_slot_it->second);
-            }
-        }
-    }
-    return Status::OK();
-}
-
 Status PushBrokerReader::_get_next_reader() {
-    _cur_reader.reset(nullptr);
+    // Closing the load reader also clears destination expressions needed by subsequent ranges.
+    RETURN_IF_ERROR(_cur_reader->abort_split());
     if (_next_range >= _file_ranges.size()) {
         _eof = true;
         return Status::OK();
     }
-    const TFileRangeDesc& range = _file_ranges[_next_range++];
-    Status init_status;
-    switch (_file_params.format_type) {
-    case TFileFormatType::FORMAT_PARQUET: {
-        std::unique_ptr<ParquetReader> parquet_reader = ParquetReader::create_unique(
-                _runtime_profile, _file_params, range, _runtime_state->query_options().batch_size,
-                &_runtime_state->timezone_obj(), _io_ctx.get(), _runtime_state.get());
-
-        ParquetInitContext ctx;
-        ctx.column_names = _all_col_names;
-        ctx.col_name_to_block_idx = &_col_name_to_block_idx;
-        ctx.conjuncts = &_push_down_exprs;
-        ctx.slot_id_to_predicates = &_slot_id_to_predicates;
-        ctx.tuple_descriptor = _real_tuple_desc;
-        ctx.row_descriptor = _default_val_row_desc.get();
-        ctx.colname_to_slot_id = _col_name_to_slot_id;
-        ctx.not_single_slot_filter_conjuncts = &_not_single_slot_filter_conjuncts;
-        ctx.slot_id_to_filter_conjuncts = &_slot_id_to_filter_conjuncts;
-
-        init_status = parquet_reader->init_reader(&ctx);
-        _cur_reader = std::move(parquet_reader);
-        if (!init_status.ok()) {
-            return Status::InternalError("failed to init reader for file {}, err: {}", range.path,
-                                         init_status.to_string());
-        }
-        RETURN_IF_ERROR(_cur_reader->get_columns(&_name_to_col_type));
-        break;
-    }
-    default:
+    if (_file_params.format_type != TFileFormatType::FORMAT_PARQUET) {
         return Status::Error<PUSH_INIT_ERROR>("Unsupported file format type: {}",
                                               _file_params.format_type);
     }
     _cur_reader_eof = false;
-
-    return Status::OK();
+    format::SplitReadOptions split;
+    split.current_range = _file_ranges[_next_range++];
+    split.current_split_format = format::FileFormat::PARQUET;
+    return _cur_reader->prepare_split(split);
 }
 
 } // namespace doris

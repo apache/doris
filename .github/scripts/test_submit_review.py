@@ -52,6 +52,12 @@ class FinalReviewTest(unittest.TestCase):
         self.comments = []
         self.existing = []
         self.posts = []
+        self.thread_inputs = []
+        self.final_events = []
+        self.deletes = []
+        self.diff = ("diff --git a/file.py b/file.py\nnew file mode 100644\n"
+                     "--- /dev/null\n+++ b/file.py\n@@ -0,0 +1,20 @@\n" + "+line\n" * 20)
+        (self.context / "pr.diff").write_text(self.diff)
         self.real_api = submitter.api
         self.api = self.enterContext(mock.patch.object(submitter, "api", side_effect=self.fake_api))
         self.remaining = lambda: 60
@@ -62,21 +68,48 @@ class FinalReviewTest(unittest.TestCase):
         ], "existing_blocking_comment_ids": [], "converged": converged, "rounds": rounds,
             "incomplete_reason": "" if converged else "Round 3 found another candidate; coverage is not settled."}
 
-    def fake_api(self, path, remaining, *, payload=None, paginated=False):
+    def fake_api(self, path, remaining, *, payload=None, paginated=False, method=None):
         if path == self.root:
             return copy.deepcopy(self.pr)
         if path == self.root + "/reviews":
             if payload is None:
                 return copy.deepcopy(self.reviews)
             self.posts.append(copy.deepcopy(payload))
+            event = payload.get("event")
             self.reviews.append({
-                "id": 99, "user": {"login": "github-actions[bot]"},
-                "commit_id": payload["commit_id"], "submitted_at": "9999-01-01T00:00:00Z",
+                "id": 99, "node_id": "review-node-99", "user": {"login": "github-actions[bot]"},
+                "commit_id": payload["commit_id"], "submitted_at": "9999-01-01T00:00:00Z" if event else None,
                 "body": payload["body"], "html_url": "https://github.com/apache/doris/pull/123#pullrequestreview-99",
-                "state": "CHANGES_REQUESTED" if payload["event"] == "REQUEST_CHANGES" else "COMMENTED",
+                "state": ("CHANGES_REQUESTED" if event == "REQUEST_CHANGES" else "COMMENTED") if event else "PENDING",
             })
             self.comments = [dict(c, user={"login": "github-actions[bot]"},
                                   commit_id=payload["commit_id"]) for c in payload["comments"]]
+            if event:
+                self.final_events.append(event)
+            return copy.deepcopy(self.reviews[-1])
+        if path == "graphql":
+            self.assertEqual(submitter.THREAD_MUTATION, payload["query"])
+            inp = copy.deepcopy(payload["variables"]["input"])
+            self.assertEqual("review-node-99", inp["pullRequestReviewId"])
+            self.thread_inputs.append(inp)
+            self.comments.append({"path": inp["path"], "body": inp["body"],
+                                  "position": inp["line"], "original_position": inp["line"],
+                                  "user": {"login": "github-actions[bot]"}, "commit_id": self.run["head_sha"]})
+            return {"data": {"addPullRequestReviewThread": {"thread": {
+                "id": f"thread-{len(self.thread_inputs)}", "path": inp["path"],
+                "line": inp["line"], "diffSide": inp["side"],
+            }}}}
+        if path == self.root + "/reviews/99":
+            if method == "DELETE":
+                self.deletes.append(99)
+                self.reviews = [r for r in self.reviews if r["id"] != 99]
+                self.comments = []
+                return {}
+            return copy.deepcopy(next(r for r in self.reviews if r["id"] == 99))
+        if path == self.root + "/reviews/99/events":
+            self.final_events.append(payload["event"])
+            self.reviews[-1].update(state="CHANGES_REQUESTED" if payload["event"] == "REQUEST_CHANGES" else "COMMENTED",
+                                    submitted_at="9999-01-01T00:00:00Z", body=payload["body"])
             return copy.deepcopy(self.reviews[-1])
         if path == self.root + "/reviews/99/comments":
             return copy.deepcopy(self.comments)
@@ -94,7 +127,8 @@ class FinalReviewTest(unittest.TestCase):
     def gh_response(self, command, **kwargs):
         payload = json.loads(kwargs["input"]) if kwargs.get("input") is not None else None
         paginated = "--paginate" in command
-        value = self.fake_api(command[2], self.remaining, payload=payload, paginated=paginated)
+        method = command[command.index("--method") + 1] if "--method" in command else None
+        value = self.fake_api(command[2], self.remaining, payload=payload, paginated=paginated, method=method)
         return SimpleNamespace(stdout=json.dumps([value] if paginated else value), stderr="")
 
     def test_failed_post_retains_response_candidate_and_no_repost_guard(self):
@@ -154,7 +188,7 @@ class FinalReviewTest(unittest.TestCase):
 
         def lose_post_response(command, **kwargs):
             result = self.gh_response(command, **kwargs)
-            if kwargs.get("input") is not None:
+            if command[2].endswith("/events"):
                 raise subprocess.TimeoutExpired(command, 30, output=b'partial response', stderr=b'timed out')
             return result
 
@@ -220,7 +254,7 @@ class FinalReviewTest(unittest.TestCase):
                 (self.context / submitter.SUBMISSION_FILE).unlink(missing_ok=True)
                 result = self.submit(self.submission(level))
                 self.assertEqual("success", result["state"])
-                self.assertEqual("COMMENT", self.posts[-1]["event"])
+                self.assertEqual("COMMENT", self.final_events[-1])
 
     def test_round_limit_delivers_verified_findings_without_passing(self):
         submission = self.submission(2, converged=False, rounds=3)
@@ -229,8 +263,9 @@ class FinalReviewTest(unittest.TestCase):
         self.assertFalse(result["converged"])
         self.assertEqual(3, result["rounds"])
         self.assertEqual(submission["incomplete_reason"], result["incomplete_reason"])
-        self.assertEqual(submission["comments"], self.posts[0]["comments"])
-        self.assertEqual("COMMENT", self.posts[0]["event"])
+        self.assertEqual(submission["comments"], [{k: c[k] for k in ("path", "position", "body")}
+                                                  for c in self.comments])
+        self.assertEqual("COMMENT", self.final_events[0])
         self.assertIn("Review did not converge after 3 rounds", self.posts[0]["body"])
         self.assertIn(submission["incomplete_reason"], self.posts[0]["body"])
         self.assertEqual(result, self.verify())
@@ -522,7 +557,7 @@ class FinalReviewTest(unittest.TestCase):
 
         def lost_response(path, *args, **kwargs):
             result = original_api(path, *args, **kwargs)
-            if kwargs.get("payload") is not None:
+            if path.endswith("/events"):
                 raise subprocess.TimeoutExpired("gh", 30)
             return result
 
@@ -541,6 +576,7 @@ class FinalReviewTest(unittest.TestCase):
             with self.subTest(priority=level, converged=converged, capacity=capacity), tempfile.TemporaryDirectory() as tmp:
                 context = Path(tmp)
                 (context / "codex_goal_prompt.txt").write_text("Review the PR")
+                (context / "pr.diff").write_text(self.diff)
                 args = SimpleNamespace(context_dir=context, cwd=context, **{
                     k: self.run[k] for k in ("repository", "pr_number", "head_sha", "base_sha")
                 }, model="gpt-6-sol", effort="xhigh", budget_seconds=60)
@@ -592,6 +628,186 @@ class FinalReviewTest(unittest.TestCase):
         with self.assertRaises(subprocess.CalledProcessError):
             self.verify()
 
+    def test_five_comments_use_one_draft_and_separate_mutations(self):
+        submission = self.submission()
+        submission["comments"] = [dict(submission["comments"][0], position=i,
+                                       body=f"[P1] Finding {i}") for i in range(1, 6)]
+        self.submit(submission)
+        self.assertEqual(1, len(self.posts))
+        self.assertNotIn("event", self.posts[0])
+        self.assertEqual([], self.posts[0]["comments"])
+        self.assertEqual(5, len(self.thread_inputs))
+        self.assertEqual({"review-node-99"}, {c["pullRequestReviewId"] for c in self.thread_inputs})
+        self.assertEqual([1, 2, 3, 4, 5], [c["line"] for c in self.thread_inputs])
+        self.assertEqual(["REQUEST_CHANGES"], self.final_events)
+        self.assertEqual([], self.deletes)
+        self.assertEqual("submitted", json.loads((self.context / submitter.DRAFT_FILE).read_text())["stage"])
+
+    def test_invalid_anchor_is_rejected_before_intent_or_write(self):
+        submission = self.submission()
+        submission["comments"][0]["position"] = 999
+        with self.assertRaisesRegex(ValueError, "not commentable"):
+            self.submit(submission)
+        self.assertEqual([], self.posts)
+        self.assertFalse((self.context / submitter.SUBMISSION_FILE).exists())
+
+    def test_add_failure_deletes_only_owned_draft_and_never_reposts(self):
+        self.reviews = [{"id": 88, "state": "PENDING", "body": "Another draft", "commit_id": self.run["head_sha"],
+                         "user": {"login": "human"}}]
+        original = self.fake_api
+
+        def fail_add(path, *args, **kwargs):
+            if path == "graphql":
+                raise submitter.GitHubAPIError(path, "POST", ValueError("rejected"), stderr="Line could not be resolved")
+            return original(path, *args, **kwargs)
+
+        self.api.side_effect = fail_add
+        with self.assertRaisesRegex(ValueError, "Line could not be resolved"), redirect_stderr(io.StringIO()):
+            self.submit()
+        self.assertEqual([99], self.deletes)
+        self.assertEqual([88], [r["id"] for r in self.reviews])
+        self.assertEqual([], self.final_events)
+        with self.assertRaisesRegex(ValueError, "refusing to repost"):
+            self.submit()
+        self.assertEqual(1, len(self.posts))
+
+    def test_lost_create_response_cleans_up_without_recreating(self):
+        original = self.fake_api
+
+        def lose_create(path, *args, **kwargs):
+            result = original(path, *args, **kwargs)
+            if path == self.root + "/reviews" and kwargs.get("payload") is not None:
+                raise subprocess.TimeoutExpired("gh", 30)
+            return result
+
+        self.api.side_effect = lose_create
+        with self.assertRaises(subprocess.TimeoutExpired):
+            self.submit()
+        self.assertEqual([99], self.deletes)
+        self.assertEqual([], self.final_events)
+        with self.assertRaisesRegex(ValueError, "refusing to repost"):
+            self.submit()
+        self.assertEqual(1, len(self.posts))
+
+    def test_wrong_thread_location_is_not_published(self):
+        original = self.fake_api
+
+        def wrong_line(path, *args, **kwargs):
+            result = original(path, *args, **kwargs)
+            if path == "graphql":
+                result["data"]["addPullRequestReviewThread"]["thread"]["line"] += 1
+            return result
+
+        self.api.side_effect = wrong_line
+        with self.assertRaisesRegex(ValueError, "location did not match"):
+            self.submit()
+        self.assertEqual([99], self.deletes)
+        self.assertEqual([], self.final_events)
+
+    def test_incomplete_draft_is_not_published(self):
+        original = self.fake_api
+
+        def missing_comment(path, *args, **kwargs):
+            result = original(path, *args, **kwargs)
+            return [] if path.endswith("/comments") else result
+
+        self.api.side_effect = missing_comment
+        with self.assertRaisesRegex(ValueError, "inline comments"):
+            self.submit()
+        self.assertEqual([99], self.deletes)
+        self.assertEqual([], self.final_events)
+
+    def test_head_moves_between_adds_deletes_draft_without_publishing(self):
+        original = self.fake_api
+
+        def move_head(path, *args, **kwargs):
+            result = original(path, *args, **kwargs)
+            if path == "graphql":
+                self.pr["head"]["sha"] = "c" * 40
+            return result
+
+        submission = self.submission()
+        submission["comments"].append(dict(submission["comments"][0], position=13))
+        self.api.side_effect = move_head
+        with self.assertRaisesRegex(ValueError, "stale"):
+            self.submit(submission)
+        self.assertEqual(1, len(self.thread_inputs))
+        self.assertEqual([99], self.deletes)
+        self.assertEqual([], self.final_events)
+
+    def test_ambiguous_publish_is_never_retried_or_deleted(self):
+        original = self.fake_api
+
+        def fail_publish(path, *args, **kwargs):
+            if path.endswith("/events"):
+                raise subprocess.TimeoutExpired("gh", 30)
+            return original(path, *args, **kwargs)
+
+        self.api.side_effect = fail_publish
+        with self.assertRaises(subprocess.TimeoutExpired):
+            self.submit()
+        self.assertEqual([], self.deletes)
+        self.assertEqual("PENDING", self.reviews[0]["state"])
+        with self.assertRaisesRegex(ValueError, "did not match"):
+            self.verify()
+        with self.assertRaisesRegex(ValueError, "did not match"):
+            self.submit()
+        self.assertEqual(1, len(self.posts))
+        self.assertEqual(1, len(self.thread_inputs))
+        self.assertEqual("submitting", json.loads((self.context / submitter.DRAFT_FILE).read_text())["stage"])
+
+    def test_cleanup_failure_preserves_original_error_and_draft_id(self):
+        original = self.fake_api
+
+        def fail_add_and_cleanup(path, *args, **kwargs):
+            if path == "graphql":
+                raise ValueError("original add failure")
+            if kwargs.get("method") == "DELETE":
+                raise ValueError("cleanup unavailable")
+            return original(path, *args, **kwargs)
+
+        self.api.side_effect = fail_add_and_cleanup
+        with self.assertRaisesRegex(ValueError, "original add failure"), redirect_stderr(io.StringIO()):
+            self.submit()
+        progress = json.loads((self.context / submitter.DRAFT_FILE).read_text())
+        self.assertEqual("cleanup_failed", progress["stage"])
+        self.assertEqual(99, progress["review_id"])
+        self.assertIn("cleanup unavailable", progress["cleanup_error"])
+        self.assertEqual([], self.final_events)
+
+    def test_parallel_bot_review_during_adds_prevents_publication(self):
+        original = self.fake_api
+
+        def other_review(path, *args, **kwargs):
+            result = original(path, *args, **kwargs)
+            if path == "graphql":
+                self.reviews.append({"id": 100, "state": "COMMENTED", "body": "Other review",
+                                     "user": {"login": "github-actions[bot]"},
+                                     "commit_id": self.run["head_sha"], "submitted_at": "9999-01-01T00:00:00Z"})
+            return result
+
+        self.api.side_effect = other_review
+        with self.assertRaisesRegex(ValueError, "Another bot review"):
+            self.submit()
+        self.assertEqual([], self.final_events)
+        self.assertEqual([99], self.deletes)
+        self.assertEqual([100], [r["id"] for r in self.reviews])
+
+    def test_changed_draft_is_neither_published_nor_deleted(self):
+        original = self.fake_api
+
+        def change_draft(path, *args, **kwargs):
+            result = original(path, *args, **kwargs)
+            if path == "graphql":
+                self.reviews[0]["body"] = "Edited outside this invocation"
+            return result
+
+        self.api.side_effect = change_draft
+        with self.assertRaisesRegex(ValueError, "Pending review author"):
+            self.submit()
+        self.assertEqual([], self.final_events)
+        self.assertEqual([], self.deletes)
+
     def test_schema_requires_explicit_severity_and_all_fields(self):
         for value in ({"body": "summary"}, dict(self.submission(), comments="no"),
                       dict(self.submission(), existing_blocking_comment_ids=[1, 1]),
@@ -600,6 +816,47 @@ class FinalReviewTest(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 self.submit(value)
         self.assertEqual([], self.posts)
+
+
+class DiffLocationsTest(unittest.TestCase):
+    def locations(self, diff, pairs):
+        with tempfile.TemporaryDirectory() as tmp:
+            context = Path(tmp)
+            (context / "pr.diff").write_text(diff)
+            return submitter.inline_locations(context, [{"path": p, "position": n} for p, n in pairs])
+
+    def test_context_deletion_addition_and_later_hunk(self):
+        diff = ("diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n"
+                "@@ -10,3 +10,3 @@ function\n context\n-old\n+new\n last\n"
+                "@@ -30 +30 @@\n-before\n+after\n")
+        self.assertEqual([{"line": 10, "side": "RIGHT"}, {"line": 11, "side": "LEFT"},
+                          {"line": 11, "side": "RIGHT"}, {"line": 30, "side": "LEFT"},
+                          {"line": 30, "side": "RIGHT"}],
+                         self.locations(diff, [("a.py", i) for i in (1, 2, 3, 6, 7)]))
+        with self.assertRaisesRegex(ValueError, "not commentable"):
+            self.locations(diff, [("a.py", 5)])
+
+    def test_deleted_file_and_renamed_file_use_correct_paths(self):
+        diff = ("diff --git a/old.py b/old.py\n--- a/old.py\n+++ /dev/null\n@@ -1 +0,0 @@\n-gone\n"
+                "diff --git a/before.py b/after.py\n--- a/before.py\n+++ b/after.py\n"
+                "@@ -1 +1 @@\n-old\n+new\n")
+        self.assertEqual([{"line": 1, "side": "LEFT"}, {"line": 1, "side": "RIGHT"}],
+                         self.locations(diff, [("old.py", 1), ("after.py", 2)]))
+
+    def test_git_quoted_utf8_and_space_paths(self):
+        diff = ('diff --git "a/\\344\\270\\255.py" "b/\\344\\270\\255.py"\n'
+                '--- /dev/null\n+++ "b/\\344\\270\\255.py"\n@@ -0,0 +1 @@\n+text\n'
+                'diff --git a/has space.py b/has space.py\n--- /dev/null\n+++ b/has space.py\t\n'
+                '@@ -0,0 +1 @@\n+text\n')
+        self.assertEqual([{"line": 1, "side": "RIGHT"}] * 2,
+                         self.locations(diff, [("中.py", 1), ("has space.py", 1)]))
+
+    def test_no_newline_markers_are_not_anchors(self):
+        diff = ("diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n@@ -1 +1 @@\n"
+                "-old\n\\ No newline at end of file\n+new\n\\ No newline at end of file\n")
+        self.assertEqual([{"line": 1, "side": "RIGHT"}], self.locations(diff, [("a.py", 3)]))
+        with self.assertRaisesRegex(ValueError, "not commentable"):
+            self.locations(diff, [("a.py", 2)])
 
 
 class ReviewWorkflowTest(unittest.TestCase):
@@ -619,13 +876,31 @@ class ReviewWorkflowTest(unittest.TestCase):
         self.assertIn("steps.review.outcome == 'failure'", artifact)
         paths = artifact.split("          path: |\n", 1)[1].split("          #", 1)[0]
         self.assertEqual({"${{ env.REVIEW_CONTEXT_DIR }}/" + name for name in (
-            submitter.SUBMISSION_FILE, submitter.REJECTION_FILE, submitter.API_ERRORS_FILE
+            submitter.SUBMISSION_FILE, submitter.REJECTION_FILE, submitter.API_ERRORS_FILE, submitter.DRAFT_FILE
         )}, {line.strip() for line in paths.splitlines()})
         self.assertIn("include-hidden-files: true", artifact)
         self.assertIn("if-no-files-found: ignore", artifact)
 
 
 class GitHubAPITest(unittest.TestCase):
+    def test_graphql_errors_in_http_success_are_recorded_as_failure(self):
+        response = {"data": {"addPullRequestReviewThread": None},
+                    "errors": [{"message": "Line could not be resolved"}]}
+        debug = ("> POST /graphql HTTP/2.0\n\n< HTTP/2.0 200 OK\n"
+                 "< X-Github-Request-Id: GRAPHQL-REQUEST\n\n" + json.dumps(response))
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch.dict(submitter.os.environ, {"REVIEW_GITHUB_DIAGNOSTICS_DIR": tmp}), \
+             mock.patch.object(submitter.subprocess, "run", return_value=SimpleNamespace(
+                 stdout=json.dumps(response), stderr=debug
+             )), redirect_stderr(io.StringIO()):
+            with self.assertRaises(submitter.GitHubAPIError) as failure:
+                submitter.api("graphql", lambda: 60, payload={"query": "mutation"})
+            self.assertIn("Line could not be resolved", failure.exception.details["stdout"])
+            records = [json.loads(p.read_text()) for p in Path(tmp).glob("*.json")]
+            self.assertEqual(1, len(records))
+            self.assertEqual(200, records[0]["http"]["status"])
+            self.assertEqual("GRAPHQL-REQUEST", records[0]["http"]["headers"]["x-github-request-id"])
+
     def test_read_all_pages_and_bound_timeout(self):
         with mock.patch.object(submitter.subprocess, "run", return_value=SimpleNamespace(
             stderr="", stdout='[[{"id":1}], [{"id":2}]]'

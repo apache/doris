@@ -39,7 +39,7 @@ public class DeepCopierContext {
      * to ensure they keep same after deep copy
      */
     private final Map<RelationId, LogicalRelation> relationReplaceMap = Maps.newHashMap();
-    /** Whether copied OLAP scans should be marked for partition pruning again. */
+    /** Whether copied catalog scans should be marked for partition pruning again. */
     private boolean invalidatePartitionPruning = false;
 
     public void setInvalidatePartitionPruning(boolean invalidatePartitionPruning) {

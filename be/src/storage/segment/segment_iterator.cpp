@@ -68,9 +68,9 @@
 #include "exprs/vliteral.h"
 #include "exprs/vmatch_predicate.h"
 #include "exprs/vslot_ref.h"
-#include "io/cache/cached_remote_file_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/io_common.h"
+#include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
@@ -106,6 +106,7 @@
 #include "storage/segment/row_ranges.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_prefetcher.h"
+#include "storage/segment/segment_read_ahead.h"
 #include "storage/segment/variant/variant_column_reader.h"
 #include "storage/segment/virtual_column_iterator.h"
 #include "storage/tablet/tablet_schema.h"
@@ -114,6 +115,7 @@
 #include "util/concurrency_stats.h"
 #include "util/defer_op.h"
 #include "util/simd/bits.h"
+#include "util/simd/selection.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -384,6 +386,36 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     return status;
 }
 
+Status SegmentIterator::_init_query_read_ahead() {
+    if (!SegmentReadAhead::enabled() || _opts.io_ctx.reader_type != ReaderType::READER_QUERY) {
+        return Status::OK();
+    }
+
+    DORIS_CHECK(_opts.runtime_state != nullptr);
+    auto* exec_env = _opts.runtime_state->exec_env();
+    DORIS_CHECK(exec_env != nullptr);
+    auto* scheduler = exec_env->file_range_read_scheduler();
+    DORIS_CHECK(scheduler != nullptr);
+    auto* query_context = _opts.runtime_state->get_query_ctx();
+    DORIS_CHECK(query_context != nullptr);
+    auto read_context = query_context->get_or_create_file_range_read_context(scheduler);
+    const auto status = SegmentReadAhead::create_for_query(
+            _file_reader, exec_env, std::move(read_context), _opts, &_segment_read_ahead);
+    if (!status.ok()) {
+        LOG_EVERY_N(WARNING, 100)
+                << "failed to initialize query read-ahead; use the original read path: " << status;
+        return Status::OK();
+    }
+    // Both enable switches are mutable. If one was disabled after the entry check,
+    // create_for_query() leaves the context empty and the original reader remains in use.
+    if (_segment_read_ahead == nullptr) {
+        return Status::OK();
+    }
+    _column_read_ahead_context =
+            std::make_unique<ColumnReadAheadContext>(_segment_read_ahead->column_context());
+    return Status::OK();
+}
+
 std::unique_ptr<AdaptiveBlockSizePredictor> SegmentIterator::_make_block_size_predictor() const {
     if (!config::enable_adaptive_batch_size || _opts.preferred_block_size_bytes == 0) {
         return nullptr;
@@ -419,6 +451,7 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     SCOPED_RAW_TIMER(&_opts.stats->segment_iterator_init_timer_ns);
     _inited = true;
     _file_reader = _segment->_file_reader;
+    RETURN_IF_ERROR(_init_query_read_ahead());
     _col_predicates.clear();
 
     for (const auto& predicate : opts.column_predicates) {
@@ -623,9 +656,17 @@ Status SegmentIterator::_lazy_init(Block* block) {
     _count_emit_shortcut = _should_engage_count_emit_shortcut(block);
     if (_count_emit_shortcut) {
         _count_emit_rows_remaining = _row_bitmap_cardinality;
+    } else {
+        _prepare_scan_read_ahead();
     }
 
     return Status::OK();
+}
+
+bool SegmentIterator::_use_read_ahead_for_column(ColumnId cid) const {
+    const auto* column = _schema->column(cid);
+    return _column_read_ahead_context != nullptr && is_scalar_type(column->type()) &&
+           !column->is_extracted_column();
 }
 
 void SegmentIterator::_init_segment_prefetchers() {
@@ -664,6 +705,11 @@ void SegmentIterator::_init_segment_prefetchers() {
             SegmentPrefetcherConfig prefetch_config(window_size,
                                                     config::file_cache_each_block_size);
             for (uint32_t cid = 0; cid < _schema->num_read_columns(); ++cid) {
+                // Only scalar columns use the new windows. Nested columns keep their existing
+                // prefetchers even when the query has a read-ahead context.
+                if (_use_read_ahead_for_column(cid)) {
+                    continue;
+                }
                 auto& column_iter = _column_iterators[cid];
                 if (column_iter == nullptr) {
                     continue;
@@ -695,6 +741,10 @@ void SegmentIterator::_init_segment_prefetchers() {
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>> prefetchers;
             for (size_t idx = 0; idx < _column_iterators.size(); ++idx) {
                 auto cid = cast_set<ColumnId>(idx);
+                // Match initialization above so each column uses one prefetch mechanism.
+                if (_use_read_ahead_for_column(cid)) {
+                    continue;
+                }
                 auto* column_iter = _column_iterators[cid].get();
                 if (column_iter != nullptr) {
                     ScopedColumnIteratorReadPhase scoped_read_phase {
@@ -715,6 +765,66 @@ void SegmentIterator::_init_segment_prefetchers() {
             }
         }
     }
+}
+
+void SegmentIterator::_prepare_scan_read_ahead() {
+    auto plans = _plan_scan_read_ahead();
+    if (!plans.empty()) {
+        DORIS_CHECK(_segment_read_ahead != nullptr);
+        static_cast<void>(_segment_read_ahead->apply_plans(std::move(plans)));
+    }
+}
+
+std::vector<ColumnReadAheadPlan> SegmentIterator::_plan_scan_read_ahead() {
+    if (_column_read_ahead_context == nullptr || _row_bitmap.isEmpty()) {
+        return {};
+    }
+    std::vector<ColumnReadAheadPlan> plans;
+    const auto prepare_columns = [&](const std::vector<ColumnId>& ordinals,
+                                     ColumnReadAheadRole role) {
+        for (ColumnId cid : ordinals) {
+            DORIS_CHECK_LT(cid, _column_iterators.size());
+            // Nested columns have independent child positions across read phases and stay on
+            // the original path, including their offsets and null maps.
+            if (!_use_read_ahead_for_column(cid)) {
+                continue;
+            }
+            if (_no_need_read_key_data_eligible(cid) || !_need_read_data(cid)) {
+                continue;
+            }
+            auto* column_iterator = _column_iterators[cid].get();
+            DORIS_CHECK(column_iterator != nullptr);
+            const ColumnReadAheadRequest request {
+                    .scan_rowids = &_row_bitmap,
+                    .context = _column_read_ahead_context.get(),
+                    .role = role,
+                    .reverse = _opts.read_orderby_key_reverse,
+                    .page_driven = true,
+            };
+            const auto status = column_iterator->prepare_read_ahead(request, &plans);
+            if (!status.ok()) {
+                LOG_EVERY_N(WARNING, 100)
+                        << "failed to prepare column read-ahead; use the original read path: "
+                        << status;
+            }
+        }
+    };
+
+    const bool need_predicate_eval = _is_need_vec_eval || _is_need_short_eval;
+    if (need_predicate_eval) {
+        prepare_columns(_predicate_ordinals, ColumnReadAheadRole::EAGER);
+        prepare_columns(_common_expr_ordinals, ColumnReadAheadRole::LAZY);
+    } else if (_is_need_expr_eval) {
+        prepare_columns(_common_expr_ordinals, ColumnReadAheadRole::EAGER);
+    }
+
+    if (need_predicate_eval || _is_need_expr_eval) {
+        prepare_columns(_output_ordinals, ColumnReadAheadRole::LAZY);
+    } else {
+        prepare_columns(_output_ordinals, ColumnReadAheadRole::EAGER);
+    }
+
+    return plans;
 }
 
 Status SegmentIterator::_get_row_ranges_by_keys() {
@@ -1944,7 +2054,9 @@ Status SegmentIterator::_init_column_iterators() {
                     // If the col is predicate column, then should read the last page to check
                     // if the column is full dict encoding
                     .is_predicate_column = _column_states[cid].has_predicate(),
-                    .file_reader = _file_reader.get(),
+                    .file_reader = _use_read_ahead_for_column(cid)
+                                           ? _segment_read_ahead->file_reader().get()
+                                           : _file_reader.get(),
                     .stats = _opts.stats,
                     .io_ctx = _opts.io_ctx,
             };
@@ -2705,11 +2817,20 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
                 sel_rowid_idx[new_size++] = sel_pos + i;
             }
         } else {
-            simd::iterate_through_bits_mask(
-                    [&](const int bit_pos) {
-                        sel_rowid_idx[new_size++] = sel_pos + (uint16_t)bit_pos;
-                    },
-                    mask);
+#if defined(__x86_64__)
+            // Sparse masks need fewer stores with the original bit iteration.
+            if (__builtin_popcount(mask) > 2) {
+                // Fixed-width stores fit: new_size <= sel_pos and a complete SIMD block remains.
+                new_size += simd::append_selected_indices(mask, sel_pos, sel_rowid_idx + new_size);
+            } else
+#endif
+            {
+                simd::iterate_through_bits_mask(
+                        [&](const int bit_pos) {
+                            sel_rowid_idx[new_size++] = sel_pos + static_cast<uint16_t>(bit_pos);
+                        },
+                        mask);
+            }
         }
         sel_pos += SIMD_BYTES;
     }

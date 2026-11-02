@@ -93,9 +93,6 @@ public:
     // reported, and a tablet that was just loaded is only synchronized if it lacks `version`.
     static Result<TabletRowsets> capture_tablet_rowsets(int64_t tablet_id, int64_t version);
 
-protected:
-    Status _do_init_reader(ReaderInitContext* /*ctx*/) override { return init_reader(); }
-
 private:
     Status _collect_tablet(const TIndexDiskUsageTablet& target,
                            std::vector<segment_v2::IndexDiskUsageRow>* rows,
