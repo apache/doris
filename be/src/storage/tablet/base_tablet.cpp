@@ -69,6 +69,7 @@
 #include "util/debug_points.h"
 #include "util/jsonb/serialize.h"
 #include "util/string_util.h"
+#include "util/time.h"
 
 namespace doris {
 
@@ -200,6 +201,18 @@ BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta) : _tablet_meta(std::move
     INT_COUNTER_METRIC_REGISTER(_metric_entity, query_scan_count);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_bytes);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_finish_count);
+
+    // Seed the baselines from whatever the counters already hold -- they are NOT
+    // necessarily zero. The metric entity is keyed by tablet id, so register_metric() above
+    // hands back the EXISTING counters whenever another BaseTablet for this id is still
+    // alive: local migration constructs the replacement before dropping the original, and in
+    // cloud a background shared_ptr can outlive cache eviction while a replacement is loaded.
+    // Assuming zero there would make this object's first report bill the old object's entire
+    // history to a single window. Leaving the time at zero instead would make collect() skip
+    // the first round while commit() still advanced the baseline, discarding that activity.
+    last_reported_scan_count.store(query_scan_count->value(), std::memory_order_relaxed);
+    last_reported_flush_count.store(flush_finish_count->value(), std::memory_order_relaxed);
+    last_reported_mono_ms.store(MonotonicMillis(), std::memory_order_relaxed);
 
     // construct _timestamped_versioned_tracker from rs and stale rs meta
     _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(),
@@ -2333,6 +2346,13 @@ void BaseTablet::check_agg_delete_bitmap_for_stale_rowsets(int64_t& useless_rows
             },
             true);
 
+    // Compaction holds the header lock while merging the delete bitmap. Read the schema
+    // before taking the bitmap lock so the traversal cannot acquire these locks in reverse.
+    const bool has_sequence_col = tablet_schema()->has_sequence_col();
+    TEST_SYNC_POINT_CALLBACK(
+            "BaseTablet::check_agg_delete_bitmap_for_stale_rowsets:before_traverse_delete_bitmap",
+            this);
+
     std::set<RowsetId> useless_rowsets;
     std::map<RowsetId, std::vector<int64_t>> useless_rowset_versions;
     {
@@ -2349,7 +2369,7 @@ void BaseTablet::check_agg_delete_bitmap_for_stale_rowsets(int64_t& useless_rows
                         return -1;
                     }
                     if (end_versions.find(version) == end_versions.end()) {
-                        if (tablet_schema()->has_sequence_col()) {
+                        if (has_sequence_col) {
                             auto rowset_version = rowset_it->second;
                             if (version >= rowset_version.first &&
                                 version <= rowset_version.second) {
