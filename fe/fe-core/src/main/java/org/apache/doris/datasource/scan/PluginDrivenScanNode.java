@@ -445,22 +445,6 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (selectedPartitions == null || !selectedPartitions.isPruned) {
             return null;
         }
-        // A pruned-but-EMPTY selection over an EMPTY partition universe (totalPartitionNum == 0) means FE
-        // never enumerated any partitions to prune against — e.g. an MVCC time-travel pin (FOR VERSION/TIME
-        // AS OF, @tag, @branch) whose snapshot deliberately carries an empty partition-item map and defers
-        // partition resolution to the connector's predicate pushdown. Treat it as scan-all (null) so the
-        // getSplits() short-circuit does NOT fire and planScan runs, mirroring legacy PaimonScanNode (which
-        // ignores selectedPartitions and re-plans through the SDK with the pushed predicate). A GENUINE
-        // prune-to-zero over a NON-empty universe (totalPartitionNum > 0, e.g. MaxCompute WHERE
-        // part=<absent value>) keeps the empty set so getSplits() short-circuits to zero rows — the
-        // existing MaxCompute parity behavior (FIX-NONPART-PRUNE-DATALOSS sibling). NB: for a partitioned
-        // MaxCompute table that genuinely has ZERO partitions this scan-all is row-equivalent to legacy's
-        // unconditional empty short-circuit — MaxComputeScanPlanProvider.planScan returns no splits when
-        // getFileNum() <= 0, still zero rows.
-        if (selectedPartitions.selectedPartitions.isEmpty() && selectedPartitions.totalPartitionNum == 0
-                && !selectedPartitions.hasPartitionPredicate) {
-            return null;
-        }
         // A predicate-driven connector re-plans through its SDK with the pushed predicate (its planScan
         // ignores requiredPartitions), so a GENUINE prune-to-zero must NOT short-circuit the scan — return
         // scan-all (null) and let planScan answer from the predicate (e.g. paimon `col = <value absent from
@@ -1266,6 +1250,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         Optional<TableSnapshot> tableSnapshot = Optional.ofNullable(getQueryTableSnapshot());
         Optional<TableScanParams> scanParams = Optional.ofNullable(getScanParams());
         Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(table, tableSnapshot, scanParams);
+        if (!table.supportInternalPartitionPruned(snapshot) || table.getPartitionColumns(snapshot).isEmpty()) {
+            selectedPartitions = SelectedPartitions.NOT_PRUNED;
+            return;
+        }
         ConnectContext connectContext = ConnectContext.get();
         StatementContext statementContext = connectContext == null ? null : connectContext.getStatementContext();
         Optional<Map<String, PartitionItem>> partitions = statementContext == null
@@ -1282,7 +1270,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         }
         // An UNAVAILABLE view (a connector entry that cannot be represented as a Doris partition item) must not
         // become an empty selection: keep NOT_PRUNED so the scan reads every partition instead of none.
-        return partitions.map(items -> new SelectedPartitions(items.size(), items, false))
+        return partitions.map(items -> new SelectedPartitions(items.size(), items, true))
                 .orElse(SelectedPartitions.NOT_PRUNED);
     }
 

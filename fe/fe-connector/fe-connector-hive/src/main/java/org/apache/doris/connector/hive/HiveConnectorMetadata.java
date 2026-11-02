@@ -2690,6 +2690,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         if (lowerCaseValue.equals("not") || lowerCaseValue.equals("and") || lowerCaseValue.equals("or")
                 || lowerCaseValue.equals("like") || lowerCaseValue.equals("date")
                 || lowerCaseValue.equals("const") || lowerCaseValue.equals("struct")
+                || lowerCaseValue.equals("in") || lowerCaseValue.equals("between")
                 || isAllDigits(value)) {
             return false;
         }

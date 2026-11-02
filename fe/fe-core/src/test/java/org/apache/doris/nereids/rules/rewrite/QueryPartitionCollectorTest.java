@@ -61,8 +61,7 @@ import java.util.Set;
  * (not yet enumerated) connector-pruning scan must therefore consume the view the pre-lock preload pass
  * materialized, and must never fall back to a live enumeration when such a view exists. The second contract
  * pinned here is state accounting: {@code NOT_PRUNED} is the "partitioning never got enumerated" sentinel, not
- * a concrete zero-partition selection, so it must be reported as scan-all rather than as "query no partitions"
- * (which makes the compensator reject an otherwise eligible MV rewrite).</p>
+ * a concrete zero-partition selection or proof that an MV covers the scan.</p>
  */
 public class QueryPartitionCollectorTest {
 
@@ -119,17 +118,15 @@ public class QueryPartitionCollectorTest {
     }
 
     @Test
-    public void deferredScanRecordsScanAllWhenThePreloadedViewIsUnavailable() {
+    public void deferredScanRecordsUnknownWhenThePreloadedViewIsUnavailable() {
         PluginDrivenExternalTable table = table(SelectedPartitions.DEFERRED_PARTITION_PRUNING);
         StatementContext statementContext = statementContext();
         try {
-            // An unrepresentable connector partition makes the whole view unavailable; every scan-path
-            // consumer must read that as "scan everything", never as "query nothing".
             registerPreloadedView(statementContext, table, Optional.empty());
 
             collect(scan(table, Optional.empty()), statementContext);
 
-            assertScanAll(statementContext);
+            assertUnknownPartitions(statementContext);
         } finally {
             statementContext.close();
         }
@@ -174,15 +171,13 @@ public class QueryPartitionCollectorTest {
     }
 
     @Test
-    public void notPrunedScanRecordsScanAll() {
+    public void notPrunedScanRecordsUnknown() {
         PluginDrivenExternalTable table = table(SelectedPartitions.NOT_PRUNED);
         StatementContext statementContext = statementContext();
         try {
             collect(scan(table, Optional.empty()), statementContext);
 
-            // MUTATION: recording the sentinel's empty map instead makes the compensator read this as "the
-            // query reads no partitions" and reject an otherwise eligible MV rewrite.
-            assertScanAll(statementContext);
+            assertUnknownPartitions(statementContext);
         } finally {
             statementContext.close();
         }
@@ -230,8 +225,14 @@ public class QueryPartitionCollectorTest {
         Assertions.assertEquals(Sets.newHashSet(names), recorded.iterator().next().value());
     }
 
-    private static void assertScanAll(StatementContext statementContext) {
-        Assertions.assertTrue(recorded(statementContext).contains(PartitionCompensator.ALL_PARTITIONS));
+    private static void assertUnknownPartitions(StatementContext statementContext) {
+        Collection<Pair<RelationId, Set<String>>> partitions = recorded(statementContext);
+        Assertions.assertEquals(1, partitions.size());
+        Assertions.assertEquals(new RelationId(1), partitions.iterator().next().key());
+        Assertions.assertNull(partitions.iterator().next().value());
+        Assertions.assertFalse(partitions.contains(PartitionCompensator.ALL_PARTITIONS));
+        Assertions.assertNull(PartitionCompensator.getQueryUsedPartitions(statementContext, new BitSet())
+                .get(QUALIFIERS));
     }
 
     private static Map<String, PartitionItem> partitions(String... names) {

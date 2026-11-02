@@ -1317,7 +1317,7 @@ public class StatementContextTest {
     }
 
     @Test
-    public void testEliminatedFilterWarmsUnfilteredPartitionViewBeforeLock() {
+    public void testUnboundTautologyWarmsUnfilteredPartitionViewBeforeLock() {
         LogicalPlan plan = new NereidsParser().parseSingle(
                 "select * from hive_catalog.db.hive_table where true = true or hive_table.p = 1");
         UnboundRelation relation = findUnboundRelation(plan);
@@ -1343,17 +1343,22 @@ public class StatementContextTest {
                     statementContext, plan, PhysicalProperties.ANY);
             boolean hasInitialFilter = Deencapsulation.invoke(
                     collectRelation, "isUnderInitialFilter", cascadesContext, plan, relation);
-            org.junit.jupiter.api.Assertions.assertFalse(hasInitialFilter,
-                    "a foldable tautology is removed before partition pruning and must warm as unfiltered");
+            org.junit.jupiter.api.Assertions.assertTrue(hasInitialFilter);
+            Optional<Expression> initialPredicate = Deencapsulation.invoke(
+                    collectRelation, "initialScanPredicate", cascadesContext, plan, relation);
 
             statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
             statementContext.registerExternalTableForPreload(
                     hiveExternalTable, Optional.empty(), Optional.empty(), hasInitialFilter);
+            statementContext.getExternalTablePreloadInfo(31L).orElseThrow()
+                    .registerScanPredicate(relation.getRelationId(), initialPredicate.orElseThrow());
             statementContext.preloadDeferredScanPartitionViewsBeforeLock(false);
 
             org.junit.jupiter.api.Assertions.assertEquals(scanView,
                     statementContext.getExternalTablePreloadInfo(31L).get().getScanPartitionView());
             Mockito.verify(hiveExternalTable, Mockito.times(1)).getNameToPartitionItemsForScan(Mockito.any());
+            Mockito.verify(hiveExternalTable, Mockito.never()).applyPartitionFilterForScan(
+                    Mockito.any(), Mockito.any());
         } finally {
             statementContext.close();
         }

@@ -66,6 +66,25 @@ public class PartitionCompensator {
     public static final Collection<Pair<RelationId, Set<String>>> ALL_PARTITIONS_LIST =
             ImmutableList.of(ALL_PARTITIONS);
 
+    /** Whether an async MV references a query relation with unavailable partition coverage. */
+    public static boolean hasUnknownPartitionCoverage(MaterializationContext materializationContext,
+            StatementContext statementContext, BitSet relationIds) throws AnalysisException {
+        if (!(materializationContext instanceof AsyncMaterializationContext)) {
+            return false;
+        }
+        MTMV mtmv = ((AsyncMaterializationContext) materializationContext).getMtmv();
+        for (MTMVRelatedTableIf table : mtmv.getMvPartitionInfo().getPctTables()) {
+            for (Pair<RelationId, Set<String>> partitions
+                    : statementContext.getTableUsedPartitionNameMap().get(table.getFullQualifiers())) {
+                if (partitions.key() != null && partitions.value() == null
+                        && (relationIds.isEmpty() || relationIds.get(partitions.key().asInt()))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     /**
      * Maybe only some partitions is invalid in materialized view, or base table maybe add, modify, delete partition
      * So we should calc the invalid partition used in query
@@ -299,6 +318,10 @@ public class PartitionCompensator {
                 if (!currentUsedRelationIdSet.isEmpty()
                         && !currentUsedRelationIdSet.intersects(usedPartitionRelation)) {
                     continue;
+                }
+                if (tableUsedPartitionPair.value() == null) {
+                    queryUsedRelatedTablePartitionsMap.put(queryUsedTable, null);
+                    continue tableLoop;
                 }
                 usedPartitionSet.addAll(tableUsedPartitionPair.value());
             }

@@ -540,6 +540,106 @@ public class StatementContextPartitionPredicateSafetyTest {
         }
     }
 
+    @Test
+    public void systemAccountRejectsSchemaChangeAfterSelectivePreload() throws Exception {
+        for (UserIdentity user : List.of(UserIdentity.ROOT, UserIdentity.ADMIN)) {
+            try (Fixture fixture = new Fixture(Type.STRING, user, List.of("1", "01"), "1")) {
+                fixture.collect("h.p = '1'");
+                fixture.statement.preloadDeferredScanPartitionViewsBeforeLock(true);
+                Assertions.assertEquals(Set.of("p=1"),
+                        fixture.preload().getFilteredScanView(fixture.relation.getRelationId()).get()
+                                .getItems().keySet());
+
+                Column partitionColumn = new Column("p", Type.INT);
+                List<Column> schema = List.of(partitionColumn, new Column("id", Type.INT));
+                Mockito.when(fixture.table.getFullSchema(Mockito.any())).thenReturn(schema);
+                Mockito.when(fixture.table.getPartitionColumns(Mockito.any())).thenReturn(List.of(partitionColumn));
+                Mockito.when(fixture.table.getSchemaCacheValue(Mockito.any())).thenReturn(Optional.of(
+                        new PluginDrivenSchemaCacheValue(schema, List.of(partitionColumn), List.of("p"), Map.of())));
+
+                assertSystemPolicyBindingRejected(fixture);
+                Mockito.verify(fixture.plugin, Mockito.never()).getDataMasks(
+                        Mockito.any(), Mockito.any(), Mockito.anySet(), Mockito.any());
+                Mockito.verify(fixture.plugin, Mockito.never()).getRowFilters(
+                        Mockito.any(), Mockito.any(), Mockito.any());
+            }
+        }
+    }
+
+    @Test
+    public void systemAccountRejectsConnectorReplacementAfterSelectivePreload() throws Exception {
+        for (UserIdentity user : List.of(UserIdentity.ROOT, UserIdentity.ADMIN)) {
+            try (Fixture fixture = new Fixture(Type.STRING, user, List.of("1", "01"), "1")) {
+                fixture.collect("h.p = '1'");
+                fixture.statement.preloadDeferredScanPartitionViewsBeforeLock(true);
+                PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) fixture.table.getCatalog();
+                Mockito.when(catalog.getConnector()).thenReturn(Mockito.mock(Connector.class));
+
+                assertSystemPolicyBindingRejected(fixture);
+                Mockito.verify(fixture.plugin, Mockito.never()).getDataMasks(
+                        Mockito.any(), Mockito.any(), Mockito.anySet(), Mockito.any());
+                Mockito.verify(fixture.plugin, Mockito.never()).getRowFilters(
+                        Mockito.any(), Mockito.any(), Mockito.any());
+            }
+        }
+    }
+
+    @Test
+    public void systemAccountRevalidatesSchemaOnSamePlanRetryWithoutPolicies() throws Exception {
+        for (UserIdentity user : List.of(UserIdentity.ROOT, UserIdentity.ADMIN)) {
+            try (Fixture fixture = new Fixture(Type.STRING, user, List.of("1", "01"), "1")) {
+                fixture.bindMixed("h.p = '1'");
+                fixture.statement.releasePlannerResources();
+                Planner planner = Mockito.mock(Planner.class);
+                fixture.statement.validateOrRevalidatePartitionPoliciesForExecution(planner);
+                fixture.statement.resetConnectorStatementScope();
+                fixture.context.setQueryId(new TUniqueId(100, 2));
+                fixture.statement.validateOrRevalidatePartitionPoliciesForExecution(planner);
+
+                fixture.statement.resetConnectorStatementScope();
+                Column partitionColumn = new Column("p", Type.INT);
+                List<Column> schema = List.of(partitionColumn, new Column("id", Type.INT));
+                Mockito.when(fixture.table.initSchema()).thenReturn(Optional.of(
+                        new PluginDrivenSchemaCacheValue(schema, List.of(partitionColumn), List.of("p"), Map.of())));
+                Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                        () -> fixture.statement.validateOrRevalidatePartitionPoliciesForExecution(planner));
+                Mockito.verify(fixture.plugin, Mockito.never()).getDataMasks(
+                        Mockito.any(), Mockito.any(), Mockito.anySet(), Mockito.any());
+                Mockito.verify(fixture.plugin, Mockito.never()).getRowFilters(
+                        Mockito.any(), Mockito.any(), Mockito.any());
+            }
+        }
+    }
+
+    private static void assertSystemPolicyBindingRejected(Fixture fixture) {
+        fixture.lock();
+        fixture.cascades.setCteContext(new CTEContext());
+        org.apache.doris.nereids.exceptions.AnalysisException failure = Assertions.assertThrows(
+                org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> Rewriter.getWholeTreeRewriterWithCustomJobs(fixture.cascades,
+                        ImmutableList.of(Rewriter.bottomUp(
+                                new BindRelation(), new CheckPolicy(), new BindExpression()))).execute());
+        Assertions.assertTrue(failure.getMessage().contains("Partition policy proof changed"));
+    }
+
+    @Test
+    public void unboundCastsAndTautologiesPreserveTheCompletePreloadView() throws Exception {
+        for (String predicate : List.of("cast(h.p as int) = 1", "true = true or h.p = '1'")) {
+            try (Fixture fixture = new Fixture(Type.STRING, UserIdentity.ROOT, List.of("1", "01"), "1")) {
+                fixture.variables.feDebug = true;
+                fixture.collect(predicate);
+                Assertions.assertFalse(fixture.preload().getInitialScanPredicates().isEmpty());
+                fixture.statement.preloadDeferredScanPartitionViewsBeforeLock(true);
+
+                Assertions.assertEquals(Set.of("p=1", "p=01"),
+                        fixture.preload().getScanPartitionView().orElseThrow().keySet());
+                Mockito.verify(fixture.table, Mockito.never()).applyPartitionFilterForScan(
+                        Mockito.any(), Mockito.any());
+                Mockito.verify(fixture.table).getNameToPartitionItemsForScan(Mockito.any());
+            }
+        }
+    }
+
     private static final class Fixture implements AutoCloseable {
         private final ConnectContext previousContext = ConnectContext.get();
         private final ConnectContext context = Mockito.mock(ConnectContext.class);

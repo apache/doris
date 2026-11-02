@@ -955,6 +955,123 @@ public class PluginDrivenMvccExternalTableTest {
     }
 
     @Test
+    public void testDeferredPruningPinRetainsLatestSchemaThroughMtmvWarmup() {
+        Fixture fixture = Fixture.timeTravelConnectorPartitionPruning();
+        ConnectorMvccSnapshot snapshot = ConnectorMvccSnapshot.builder()
+                .snapshotId(PINNED_SNAPSHOT_ID).schemaId(Fixture.TT_SCHEMA_ID).retainSchema(true).build();
+        Mockito.when(fixture.metadata.beginQuerySnapshot(fixture.session, fixture.handle))
+                .thenReturn(Optional.of(snapshot));
+
+        PluginDrivenMvccSnapshot deferred = (PluginDrivenMvccSnapshot)
+                fixture.table.loadSnapshot(Optional.empty(), Optional.empty());
+
+        Assertions.assertTrue(deferred.isPartitionViewDeferred());
+        Assertions.assertEquals("v1", deferred.getPinnedSchema().getSchema().get(0).getName());
+        Assertions.assertSame(deferred.getPinnedSchema(),
+                fixture.table.getSchemaCacheValue(Optional.of(deferred)).orElseThrow());
+        Mockito.verify(fixture.metadata, Mockito.never()).listPartitions(
+                Mockito.any(), Mockito.any(), Mockito.any());
+        Mockito.verify(fixture.metadata).getTableSchema(fixture.session, fixture.pinnedHandle, snapshot);
+
+        PluginDrivenMvccSnapshot materialized = (PluginDrivenMvccSnapshot)
+                fixture.table.materializePartitionViewForMtmv(deferred);
+
+        Assertions.assertTrue(materialized.isPartitionViewMaterialized());
+        Assertions.assertSame(deferred.getPinnedSchema(), materialized.getPinnedSchema());
+        Assertions.assertSame(materialized.getPinnedSchema(),
+                fixture.table.getSchemaCacheValue(Optional.of(materialized)).orElseThrow());
+        ListPartitionItem item = (ListPartitionItem) materialized.getNameToPartitionItem().get("dt=2024-01-01");
+        Assertions.assertEquals(PrimitiveType.STRING,
+                item.getItems().get(0).getKeys().get(0).getType().getPrimitiveType());
+        Mockito.verify(fixture.metadata).listPartitions(
+                fixture.session, fixture.pinnedHandle, Optional.empty());
+    }
+
+    @Test
+    public void testDeferredPruningPinRetainsSchemaWhenMtmvHandleDisappears() {
+        Fixture fixture = Fixture.timeTravelConnectorPartitionPruning();
+        ConnectorMvccSnapshot snapshot = ConnectorMvccSnapshot.builder()
+                .snapshotId(PINNED_SNAPSHOT_ID).schemaId(Fixture.TT_SCHEMA_ID).retainSchema(true).build();
+        Mockito.when(fixture.metadata.beginQuerySnapshot(fixture.session, fixture.handle))
+                .thenReturn(Optional.of(snapshot));
+        PluginDrivenMvccSnapshot deferred = (PluginDrivenMvccSnapshot)
+                fixture.table.loadSnapshot(Optional.empty(), Optional.empty());
+        Mockito.when(fixture.metadata.getTableHandle(fixture.session, "REMOTE_DB", "REMOTE_TBL"))
+                .thenReturn(Optional.empty());
+
+        PluginDrivenMvccSnapshot unavailable = (PluginDrivenMvccSnapshot)
+                fixture.table.materializePartitionViewForMtmv(deferred);
+
+        Assertions.assertTrue(unavailable.isPartitionViewUnavailable());
+        Assertions.assertSame(deferred.getPinnedSchema(), unavailable.getPinnedSchema());
+        Assertions.assertFalse(fixture.table.getNameToPartitionItemsForScan(Optional.of(unavailable)).isPresent());
+        Assertions.assertThrows(AnalysisException.class,
+                () -> fixture.table.getAndCopyPartitionItems(Optional.of(unavailable)));
+    }
+
+    @Test
+    public void testDeferredPruningPinDoesNotRetainSchemaWithoutOptIn() {
+        Fixture fixture = Fixture.timeTravelConnectorPartitionPruning();
+        ConnectorMvccSnapshot snapshot = ConnectorMvccSnapshot.builder()
+                .snapshotId(PINNED_SNAPSHOT_ID).schemaId(Fixture.TT_SCHEMA_ID).build();
+        Mockito.when(fixture.metadata.beginQuerySnapshot(fixture.session, fixture.handle))
+                .thenReturn(Optional.of(snapshot));
+
+        PluginDrivenMvccSnapshot deferred = (PluginDrivenMvccSnapshot)
+                fixture.table.loadSnapshot(Optional.empty(), Optional.empty());
+
+        Assertions.assertTrue(deferred.isPartitionViewDeferred());
+        Assertions.assertNull(deferred.getPinnedSchema());
+        Assertions.assertSame(fixture.latestCacheValue,
+                fixture.table.getSchemaCacheValue(Optional.of(deferred)).orElseThrow());
+        Mockito.verify(fixture.metadata, Mockito.never()).applySnapshot(
+                Mockito.any(), Mockito.any(), Mockito.any());
+        Mockito.verify(fixture.metadata, Mockito.never()).getTableSchema(
+                Mockito.any(), Mockito.any(), Mockito.any(ConnectorMvccSnapshot.class));
+    }
+
+    @Test
+    public void testDeferredPruningPinWithUnknownSchemaIdKeepsLatestSchema() {
+        Fixture fixture = Fixture.timeTravelConnectorPartitionPruning();
+        ConnectorMvccSnapshot snapshot = ConnectorMvccSnapshot.builder()
+                .snapshotId(PINNED_SNAPSHOT_ID).retainSchema(true).build();
+        Mockito.when(fixture.metadata.beginQuerySnapshot(fixture.session, fixture.handle))
+                .thenReturn(Optional.of(snapshot));
+
+        PluginDrivenMvccSnapshot deferred = (PluginDrivenMvccSnapshot)
+                fixture.table.loadSnapshot(Optional.empty(), Optional.empty());
+
+        Assertions.assertTrue(deferred.isPartitionViewDeferred());
+        Assertions.assertNull(deferred.getPinnedSchema());
+        Assertions.assertSame(fixture.latestCacheValue,
+                fixture.table.getSchemaCacheValue(Optional.of(deferred)).orElseThrow());
+        Mockito.verify(fixture.metadata, Mockito.never()).getTableSchema(
+                Mockito.any(), Mockito.any(), Mockito.any(ConnectorMvccSnapshot.class));
+    }
+
+    @Test
+    public void testDeferredPruningPinRejectsDuplicateRetainedSchemaColumns() {
+        Fixture fixture = Fixture.timeTravelConnectorPartitionPruning();
+        ConnectorMvccSnapshot snapshot = ConnectorMvccSnapshot.builder()
+                .snapshotId(PINNED_SNAPSHOT_ID).schemaId(Fixture.TT_SCHEMA_ID).retainSchema(true).build();
+        ConnectorTableSchema schema = new ConnectorTableSchema("REMOTE_TBL", Arrays.asList(
+                new ConnectorColumn("id", ConnectorType.of("INT"), "", true, null),
+                new ConnectorColumn("ID", ConnectorType.of("INT"), "", true, null)),
+                "", Collections.emptyMap());
+        Mockito.when(fixture.metadata.beginQuerySnapshot(fixture.session, fixture.handle))
+                .thenReturn(Optional.of(snapshot));
+        Mockito.when(fixture.metadata.getTableSchema(fixture.session, fixture.pinnedHandle, snapshot))
+                .thenReturn(schema);
+
+        IllegalArgumentException error = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> fixture.table.loadSnapshot(Optional.empty(), Optional.empty()));
+
+        Assertions.assertEquals("Duplicate column name found: ID", error.getMessage());
+        Mockito.verify(fixture.metadata, Mockito.never()).listPartitions(
+                Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    @Test
     public void testLatestRangeUsesPinnedPartitionTypeAndArity() {
         Fixture f = pinnedPartitionFixture();
         Mockito.when(f.metadata.getMvccPartitionView(f.session, f.pinnedHandle))
@@ -1316,6 +1433,9 @@ public class PluginDrivenMvccExternalTableTest {
                 f.table.getNameToPartitionItemsForScan(Optional.of(materialized));
         Assertions.assertTrue(scanView.isPresent(), "a real empty view is available, not invalid");
         Assertions.assertSame(materialized.getNameToPartitionItem(), scanView.get());
+        Assertions.assertFalse(f.table.applyPartitionFilterForScan(Optional.of(materialized),
+                new ConnectorLiteral(ConnectorType.of("STRING"), "2024-01-01")).isPresent());
+        Mockito.verify(f.metadata, Mockito.never()).applyFilter(Mockito.any(), Mockito.any(), Mockito.any());
         Mockito.verify(f.metadata).applySnapshot(Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.any());
         Mockito.verify(f.metadata, Mockito.times(1)).listPartitions(
                 Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.eq(Optional.empty()));
@@ -1354,6 +1474,9 @@ public class PluginDrivenMvccExternalTableTest {
                 () -> f.table.getNameToPartitionItems(Optional.of(materialized)));
         Assertions.assertThrows(AnalysisException.class,
                 () -> f.table.getAndCopyPartitionItems(Optional.of(materialized)));
+        Assertions.assertFalse(f.table.applyPartitionFilterForScan(Optional.of(materialized),
+                new ConnectorLiteral(ConnectorType.of("STRING"), "2024-01-01")).isPresent());
+        Mockito.verify(f.metadata, Mockito.never()).applyFilter(Mockito.any(), Mockito.any(), Mockito.any());
         // Enumerated from the SNAPSHOT-PINNED handle, exactly as the data scan reads it.
         Mockito.verify(f.metadata).applySnapshot(Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.any());
         Mockito.verify(f.metadata).listPartitions(
@@ -1382,6 +1505,47 @@ public class PluginDrivenMvccExternalTableTest {
                 Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.any());
         Mockito.verify(f.metadata, Mockito.never()).applyFilter(
                 Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.any());
+    }
+
+    @Test
+    public void testMaterializedMtmvPinDeclinesLiveConnectorFilter() {
+        Fixture fixture = Fixture.connectorPartitionPruning();
+        PluginDrivenMvccSnapshot deferred = (PluginDrivenMvccSnapshot)
+                fixture.table.loadSnapshot(Optional.empty(), Optional.empty());
+        PluginDrivenMvccSnapshot materialized = (PluginDrivenMvccSnapshot)
+                fixture.table.materializePartitionViewForMtmv(deferred);
+        ConnectorLiteral predicate = new ConnectorLiteral(ConnectorType.of("STRING"), "2024-01-01");
+
+        Assertions.assertFalse(fixture.table.applyPartitionFilterForScan(Optional.of(materialized), predicate)
+                .isPresent());
+        Assertions.assertSame(materialized.getNameToPartitionItem(),
+                fixture.table.getNameToPartitionItemsForScan(Optional.of(materialized)).orElseThrow());
+        Mockito.verify(fixture.metadata, Mockito.never()).applyFilter(Mockito.any(), Mockito.any(), Mockito.any());
+        Mockito.verify(fixture.metadata, Mockito.times(1)).listPartitions(
+                fixture.session, fixture.pinnedHandle, Optional.empty());
+    }
+
+    @Test
+    public void testDeferredPruningPinStillAllowsConnectorFilter() {
+        Fixture fixture = Fixture.connectorPartitionPruning();
+        PluginDrivenMvccSnapshot deferred = (PluginDrivenMvccSnapshot)
+                fixture.table.loadSnapshot(Optional.empty(), Optional.empty());
+        ConnectorLiteral predicate = new ConnectorLiteral(ConnectorType.of("STRING"), "2024-01-01");
+        FilterApplicationResult<ConnectorTableHandle> result =
+                new FilterApplicationResult<>(fixture.pinnedHandle, predicate, false);
+        Mockito.when(fixture.metadata.applyFilter(
+                Mockito.eq(fixture.session), Mockito.eq(fixture.pinnedHandle), Mockito.any()))
+                .thenReturn(Optional.of(result));
+
+        PluginDrivenExternalTable.ConnectorFilteredPartitionView view =
+                fixture.table.applyPartitionFilterForScan(Optional.of(deferred), predicate).orElseThrow();
+
+        Assertions.assertSame(result, view.getFilterResult());
+        Assertions.assertEquals(2, view.getItems().size());
+        Mockito.verify(fixture.metadata).applyFilter(
+                Mockito.eq(fixture.session), Mockito.eq(fixture.pinnedHandle), Mockito.any());
+        Mockito.verify(fixture.metadata).listPartitions(
+                fixture.session, fixture.pinnedHandle, Optional.of(predicate));
     }
 
     @Test
@@ -1851,13 +2015,12 @@ public class PluginDrivenMvccExternalTableTest {
                 f.table.getNameToPartitionItemsForScan(Optional.of(pin)).orElseThrow().keySet(),
                 "scan pruning must reuse the snapshot-consistent materialized view");
         ConnectorLiteral predicate = new ConnectorLiteral(ConnectorType.of("STRING"), "2024-01-01");
-        Mockito.when(f.metadata.applyFilter(Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.any()))
-                .thenReturn(Optional.of(new FilterApplicationResult<>(f.pinnedHandle, predicate, false)));
-        Assertions.assertTrue(f.table.applyPartitionFilterForScan(Optional.of(pin), predicate).isPresent(),
-                "a snapshot-aware connector may materialize a filtered historical view");
+        Assertions.assertFalse(f.table.applyPartitionFilterForScan(Optional.of(pin), predicate).isPresent(),
+                "a materialized historical pin must be pruned from its captured partition view");
+        Mockito.verify(f.metadata, Mockito.never()).applyFilter(Mockito.any(), Mockito.any(), Mockito.any());
         Mockito.verify(f.metadata).listPartitions(
                 Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.eq(Optional.empty()));
-        Mockito.verify(f.metadata).listPartitions(
+        Mockito.verify(f.metadata, Mockito.never()).listPartitions(
                 Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.eq(Optional.of(predicate)));
         Mockito.verify(f.metadata, Mockito.never()).listPartitions(
                 Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.any());

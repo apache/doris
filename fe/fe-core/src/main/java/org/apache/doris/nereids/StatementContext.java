@@ -20,6 +20,7 @@ package org.apache.doris.nereids;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.authorization.DataMaskSpec;
 import org.apache.doris.authorization.RowFilterSpec;
 import org.apache.doris.catalog.Column;
@@ -176,6 +177,7 @@ public class StatementContext implements Closeable {
     private boolean skipUnpreloadedScanPartitionPruning;
     private final Map<DataPolicyContext, Map<String, DataMaskSpec>> dataMaskEvaluations = new HashMap<>();
     private final Set<Long> partitionPolicyObservedTables = new HashSet<>();
+    private final Map<RelationId, UserIdentity> systemPartitionFilterUsers = new HashMap<>();
     private final Map<RelationId, PartitionPolicyProof> partitionPolicyProofs = new LinkedHashMap<>();
     private final Set<PartitionPolicyProof> usedPartitionPolicyProofs = new HashSet<>();
     private final Map<PartitionPolicyProof, List<RowFilterSpec>> partitionProofRowPolicies = new HashMap<>();
@@ -535,6 +537,10 @@ public class StatementContext implements Closeable {
                 .collect(Collectors.toList());
     }
 
+    public void registerSystemPartitionFilter(RelationId relationId, UserIdentity user) {
+        systemPartitionFilterUsers.put(relationId, user);
+    }
+
     /** Establishes raw-value preservation from a complete, successful mask evaluation before locks. */
     public boolean proveInitialPartitionValues(UnboundRelation relation, TableIf table) {
         if (relation.getTableSnapshot().isPresent() || relation.getScanParams() != null
@@ -604,7 +610,8 @@ public class StatementContext implements Closeable {
         List<String> output = scan.getOutput().stream().map(slot -> slot.getName().toLowerCase(Locale.ROOT)
                 + ":" + slot.getDataType().toSql() + ":" + slot.nullable()).collect(Collectors.toList());
         try {
-            DataPolicyContext actual = capturePartitionPolicyColumns(proof.table, columns);
+            DataPolicyContext actual = proof.systemUser == null
+                    ? capturePartitionPolicyColumns(proof.table, columns) : null;
             if (proof.table != scan.getTable() || !proofMatches(proof, actual, false) || !proof.schema.equals(output)) {
                 throw new AnalysisException("Partition policy proof changed before binding " + proof.table.getName());
             }
@@ -631,6 +638,14 @@ public class StatementContext implements Closeable {
     }
 
     private boolean proofMatches(PartitionPolicyProof proof, DataPolicyContext actual, boolean retry) {
+        if (proof.systemUser != null) {
+            return proof.systemUser.equals(connectContext.getCurrentUserIdentity())
+                    && proof.table.getDatabase() != null && proof.table.getDatabase().getCatalog() != null
+                    && ((PluginDrivenExternalCatalog) proof.table.getCatalog()).getConnector() == proof.connector
+                    && proof.pin.orElse(null)
+                    == getSnapshot(proof.table, Optional.empty(), Optional.empty()).orElse(null)
+                    && proofSchemaMatches(proof);
+        }
         DataPolicyContext expected = executionPolicyContexts.getOrDefault(proof, proof.policy);
         return proof.table.getDatabase() != null && proof.table.getDatabase().getCatalog() != null
                 && ((PluginDrivenExternalCatalog) proof.table.getCatalog()).getConnector() == proof.connector
@@ -660,6 +675,7 @@ public class StatementContext implements Closeable {
         partitionPolicyEpoch++;
         dataMaskEvaluations.clear();
         partitionPolicyObservedTables.clear();
+        systemPartitionFilterUsers.clear();
         boolean used = !usedPartitionPolicyProofs.isEmpty();
         for (Map.Entry<RelationId, PartitionPolicyProof> entry : partitionPolicyProofs.entrySet()) {
             ExternalTablePreloadInfo info = externalTablePreloadInfos.get(entry.getValue().table.getId());
@@ -688,15 +704,16 @@ public class StatementContext implements Closeable {
         }
         Preconditions.checkState(plannerResources.isEmpty(), "Policy revalidation requires released planner locks");
         long epoch = partitionPolicyEpoch;
-        AccessControllerManager manager = connectContext.getEnv().getAccessManager();
         Map<DataPolicyContext, List<RowFilterSpec>> evaluated = new HashMap<>();
         Map<PartitionPolicyProof, DataPolicyContext> renewed = new LinkedHashMap<>();
         try {
             for (PartitionPolicyProof proof : used) {
                 List<Column> schema = proof.table.getFullSchema(proof.pin);
-                DataPolicyContext actual = capturePartitionPolicy(proof.table, schema);
+                DataPolicyContext actual = proof.systemUser == null
+                        ? capturePartitionPolicy(proof.table, schema) : null;
                 List<RowFilterSpec> baselineRows = partitionProofRowPolicies.get(proof);
-                if (baselineRows == null || !proof.schema.equals(policySchemaFingerprint(schema))
+                if (proof.systemUser == null && baselineRows == null
+                        || !proof.schema.equals(policySchemaFingerprint(schema))
                         || !proofMatches(proof, actual, partitionPolicyRetryPending)) {
                     throw new AnalysisException("Partition policy scope changed for " + proof.table.getName());
                 }
@@ -708,22 +725,27 @@ public class StatementContext implements Closeable {
                             || !proof.remotePartitions.equals(fresh.getPartitionColumnRemoteNames())) {
                         throw new AnalysisException("Partition policy schema changed for " + proof.table.getName());
                     }
-                    List<RowFilterSpec> rows = evaluated.get(actual);
-                    if (rows == null) {
-                        if (!manager.evalDataMaskPolicies(actual).isEmpty()) {
-                            throw new AnalysisException("Column masks changed for " + proof.table.getName());
+                    if (proof.systemUser == null) {
+                        AccessControllerManager manager = connectContext.getEnv().getAccessManager();
+                        List<RowFilterSpec> rows = evaluated.get(actual);
+                        if (rows == null) {
+                            if (!manager.evalDataMaskPolicies(actual).isEmpty()) {
+                                throw new AnalysisException("Column masks changed for " + proof.table.getName());
+                            }
+                            rows = manager.evalRowFilterPolicies(actual);
+                            evaluated.put(actual, rows);
                         }
-                        rows = manager.evalRowFilterPolicies(actual);
-                        evaluated.put(actual, rows);
-                    }
-                    if (!baselineRows.equals(rows)) {
-                        throw new AnalysisException("Row policies changed for " + proof.table.getName());
+                        if (!baselineRows.equals(rows)) {
+                            throw new AnalysisException("Row policies changed for " + proof.table.getName());
+                        }
                     }
                 }
-                if (!actual.equals(capturePartitionPolicy(proof.table, schema))) {
-                    throw new AnalysisException("Partition policy context changed during revalidation");
+                if (proof.systemUser == null) {
+                    if (!actual.equals(capturePartitionPolicy(proof.table, schema))) {
+                        throw new AnalysisException("Partition policy context changed during revalidation");
+                    }
+                    renewed.put(proof, actual);
                 }
-                renewed.put(proof, actual);
             }
             if (epoch != partitionPolicyEpoch) {
                 throw new AnalysisException("Partition policy epoch changed during revalidation");
@@ -740,6 +762,7 @@ public class StatementContext implements Closeable {
     private static final class PartitionPolicyProof {
         private final PluginDrivenExternalTable table;
         private final DataPolicyContext policy;
+        private final UserIdentity systemUser;
         private final Optional<MvccSnapshot> pin;
         private final List<String> schema;
         private final List<String> partitions;
@@ -749,8 +772,15 @@ public class StatementContext implements Closeable {
         private PartitionPolicyProof(PluginDrivenExternalTable table, DataPolicyContext policy,
                 Optional<MvccSnapshot> pin, List<String> schema, List<String> partitions,
                 List<String> remotePartitions) {
+            this(table, policy, null, pin, schema, partitions, remotePartitions);
+        }
+
+        private PartitionPolicyProof(PluginDrivenExternalTable table, DataPolicyContext policy, UserIdentity systemUser,
+                Optional<MvccSnapshot> pin, List<String> schema, List<String> partitions,
+                List<String> remotePartitions) {
             this.table = table;
             this.policy = policy;
+            this.systemUser = systemUser;
             this.pin = pin;
             this.schema = List.copyOf(schema);
             this.partitions = List.copyOf(partitions);
@@ -1215,6 +1245,7 @@ public class StatementContext implements Closeable {
     public synchronized void beginPartitionPolicyReplan() {
         dataMaskEvaluations.clear();
         partitionPolicyObservedTables.clear();
+        systemPartitionFilterUsers.clear();
         partitionPolicyProofs.clear();
         usedPartitionPolicyProofs.clear();
         partitionProofRowPolicies.clear();
@@ -1942,11 +1973,28 @@ public class StatementContext implements Closeable {
                     .filter(StatementContext::isSafeInitialPartitionPredicate).collect(Collectors.toList());
             ConnectorExpression predicate = safeConjuncts.isEmpty() ? null
                     : NereidsToConnectorExpressionConverter.convert(ExpressionUtils.and(safeConjuncts));
+            UserIdentity systemUser = systemPartitionFilterUsers.get(entry.getKey());
+            if (predicate != null && proof == null && systemUser != null) {
+                if (!systemUser.equals(connectContext.getCurrentUserIdentity())) {
+                    throw new AnalysisException("Partition policy user changed before selective preload");
+                }
+                List<Column> schema = table.getFullSchema(snapshot);
+                if (schema != null) {
+                    List<String> remotePartitions = table.getSchemaCacheValue(snapshot)
+                            .filter(PluginDrivenSchemaCacheValue.class::isInstance)
+                            .map(value -> ((PluginDrivenSchemaCacheValue) value).getPartitionColumnRemoteNames())
+                            .orElse(Collections.emptyList());
+                    proof = new PartitionPolicyProof((PluginDrivenExternalTable) table, null, systemUser, snapshot,
+                            policySchemaFingerprint(schema), policySchemaFingerprint(columns), remotePartitions);
+                }
+            }
             Optional<PluginDrivenExternalTable.ConnectorFilteredPartitionView> view = predicate == null
+                    || systemUser != null && proof == null
                     ? Optional.empty()
                     : ((PluginDrivenExternalTable) table).applyPartitionFilterForScan(snapshot, predicate);
             info.setFilteredScanView(entry.getKey(), view, predicate);
             if (proof != null && view.isPresent()) {
+                partitionPolicyProofs.putIfAbsent(entry.getKey(), proof);
                 usedPartitionPolicyProofs.add(proof);
             }
             if (!view.isPresent() && !info.hasScanPartitionView()) {

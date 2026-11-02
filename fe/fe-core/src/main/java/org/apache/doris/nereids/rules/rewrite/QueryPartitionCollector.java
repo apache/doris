@@ -86,19 +86,15 @@ public class QueryPartitionCollector extends DefaultPlanVisitor<Void, CascadesCo
                 Set<String> deferredPartitions = materializeDeferredPartitions(
                         (PluginDrivenExternalTable) table, logicalFileScan, context);
                 if (deferredPartitions == null) {
-                    // The connector view is unavailable: keep the "query all partitions" marker.
-                    tableUsedPartitionNameMap.put(table.getFullQualifiers(), PartitionCompensator.ALL_PARTITIONS);
+                    tableUsedPartitionNameMap.put(table.getFullQualifiers(),
+                            Pair.of(catalogRelation.getRelationId(), null));
                 } else {
                     tableUsedPartitionNameMap.put(table.getFullQualifiers(),
                             Pair.of(catalogRelation.getRelationId(), deferredPartitions));
                 }
             } else if (selectedPartitions.isNotPruned()) {
-                // NOT_PRUNED is the "pruning did not run" sentinel, NOT a concrete selection: its map is empty
-                // because partitioning never got enumerated (an unrepresentable connector partition makes the
-                // whole view unavailable, and PruneFileScanPartition then returns this sentinel), yet the scan
-                // reads EVERY partition. Recording the empty map would tell the compensator the query reads no
-                // partitions at all and reject an otherwise eligible MV rewrite.
-                tableUsedPartitionNameMap.put(table.getFullQualifiers(), PartitionCompensator.ALL_PARTITIONS);
+                tableUsedPartitionNameMap.put(table.getFullQualifiers(),
+                        Pair.of(catalogRelation.getRelationId(), null));
             } else {
                 tableUsedPartitionNameMap.put(table.getFullQualifiers(),
                         Pair.of(catalogRelation.getRelationId(), selectedPartitions.selectedPartitions.keySet()));

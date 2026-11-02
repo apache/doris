@@ -104,8 +104,13 @@ public class PluginDrivenMvccSnapshot implements MvccSnapshot {
 
     /** Creates a lightweight latest/fence pin whose partition view must be materialized on demand. */
     public static PluginDrivenMvccSnapshot deferred(ConnectorMvccSnapshot connectorSnapshot) {
+        return deferred(connectorSnapshot, null);
+    }
+
+    static PluginDrivenMvccSnapshot deferred(ConnectorMvccSnapshot connectorSnapshot,
+            SchemaCacheValue pinnedSchema) {
         return new PluginDrivenMvccSnapshot(connectorSnapshot, Collections.emptyMap(), Collections.emptyMap(),
-                null, null, false, 0L, 0L, PartitionViewState.DEFERRED);
+                pinnedSchema, null, false, 0L, 0L, PartitionViewState.DEFERRED);
     }
 
     /** Creates a historical pin whose connector cannot provide a snapshot-consistent partition view. */

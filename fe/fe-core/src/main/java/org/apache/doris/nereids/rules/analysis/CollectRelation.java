@@ -27,6 +27,7 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.nereids.CTEContext;
@@ -46,12 +47,10 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
-import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
-import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -397,11 +396,10 @@ public class CollectRelation implements AnalysisRuleFactory {
     private void collectInitialScanPredicates(CascadesContext context, Plan plan, UnboundRelation relation,
             List<Expression> predicates) {
         if (plan instanceof LogicalFilter && isTransparentFilterChild(context, plan.child(0), relation)) {
-            ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(plan, context);
             for (Expression conjunct : ExpressionUtils.extractConjunction(((LogicalFilter<?>) plan).getPredicate())) {
-                Expression folded = FoldConstantRule.evaluate(conjunct, rewriteContext);
-                if (!BooleanLiteral.TRUE.equals(folded) && !conjunct.getInputSlots().isEmpty()
-                        && conjunct.getInputSlots().stream().allMatch(slot -> slot instanceof UnboundSlot
+                Set<Slot> inputSlots = conjunct.getInputSlots();
+                if (!inputSlots.isEmpty()
+                        && inputSlots.stream().allMatch(slot -> slot instanceof UnboundSlot
                                 && belongsToRelation(context, (UnboundSlot) slot, plan.child(0), relation))) {
                     predicates.add(conjunct);
                 }
@@ -422,6 +420,12 @@ public class CollectRelation implements AnalysisRuleFactory {
                 return false;
             }
             if (context.getConnectContext().getCurrentUserIdentity().isSystemUser()) {
+                TableIf table = context.getStatementContext().getTables().get(
+                        RelationUtil.getQualifierName(context.getConnectContext(), relation.getNameParts()));
+                if (table instanceof PluginDrivenExternalTable) {
+                    context.getStatementContext().registerSystemPartitionFilter(
+                            relation.getRelationId(), context.getConnectContext().getCurrentUserIdentity());
+                }
                 return true;
             }
             TableIf table = context.getStatementContext().getTables().get(

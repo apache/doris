@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.scan;
 
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -25,15 +26,31 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.connector.hive.HiveCatalogProperties;
+import org.apache.doris.connector.hive.HiveConnectorMetadata;
+import org.apache.doris.connector.hive.HiveFileListingCache;
+import org.apache.doris.connector.hive.HiveFileStatus;
+import org.apache.doris.connector.hive.HiveScanPlanProvider;
+import org.apache.doris.connector.hive.HiveTableHandle;
+import org.apache.doris.connector.hive.HiveTableType;
+import org.apache.doris.connector.hms.HmsClient;
+import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorCapability;
+import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.scan.ConnectorScanContext;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
+import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
@@ -42,16 +59,29 @@ import org.apache.doris.datasource.mvcc.PluginDrivenMvccSnapshot;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenSchemaCacheValue;
+import org.apache.doris.datasource.split.SplitAssignment;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.rewrite.PruneFileScanPartition;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TPushAggOp;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -65,6 +95,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * FIX-BATCH-MODE-SPLIT (P4-T06e / NG-7) — guards {@link PluginDrivenScanNode#shouldUseBatchMode},
@@ -91,6 +124,7 @@ import java.util.Optional;
 public class PluginDrivenScanNodeBatchModeTest {
 
     private static final int THRESHOLD = 1024; // Explicit threshold, independent of session defaults.
+    private static final AtomicInteger NEXT_REFRESH_GENERATION_QUERY = new AtomicInteger();
 
     private static SelectedPartitions pruned(int count) {
         Map<String, PartitionItem> items = new LinkedHashMap<>();
@@ -148,8 +182,59 @@ public class PluginDrivenScanNodeBatchModeTest {
                 SelectedPartitions.DEFERRED_PARTITION_PRUNING, Optional.of(items));
 
         Assertions.assertNotSame(SelectedPartitions.DEFERRED_PARTITION_PRUNING, materialized);
+        Assertions.assertTrue(materialized.isPruned);
+        Assertions.assertFalse(materialized.hasPartitionPredicate);
+        Assertions.assertEquals(items.keySet(),
+                Set.copyOf(PluginDrivenScanNode.resolveRequiredPartitions(materialized)));
         Assertions.assertTrue(
                 PluginDrivenScanNode.shouldUseBatchMode(materialized, true, true, THRESHOLD));
+    }
+
+    @Test
+    public void testDeferredEmptyPartitionViewShortCircuits() {
+        SelectedPartitions materialized = PluginDrivenScanNode.materializeDeferredSelectedPartitions(
+                SelectedPartitions.DEFERRED_PARTITION_PRUNING, Optional.of(Collections.emptyMap()));
+
+        Assertions.assertTrue(materialized.isPruned);
+        Assertions.assertFalse(materialized.hasPartitionPredicate);
+        List<String> required = PluginDrivenScanNode.resolveRequiredPartitions(materialized);
+        Assertions.assertNotNull(required);
+        Assertions.assertTrue(required.isEmpty());
+        Assertions.assertNull(PluginDrivenScanNode.resolveRequiredPartitions(materialized, true));
+    }
+
+    @Test
+    public void testDeferredUnsupportedPartitionModelPreservesScanAll() throws Exception {
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        StatementContext statement = Mockito.mock(StatementContext.class);
+        context.setStatementContext(statement);
+        context.setThreadLocalInfo();
+        try {
+            for (boolean internallyPrunable : List.of(false, true)) {
+                PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+                Mockito.when(table.supportInternalPartitionPruned(Mockito.any())).thenReturn(internallyPrunable);
+                Mockito.when(table.getPartitionColumns(Mockito.any())).thenReturn(Collections.emptyList());
+                Mockito.when(statement.resolveScanPartitionView(Mockito.eq(table), Mockito.any(), Mockito.any(),
+                        Mockito.any())).thenReturn(Optional.of(Collections.emptyMap()));
+                PluginDrivenScanNode node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
+                Mockito.doReturn(table).when(node).getTargetTable();
+                Deencapsulation.setField(node, "selectedPartitions", SelectedPartitions.DEFERRED_PARTITION_PRUNING);
+
+                Deencapsulation.invoke(node, "materializeDeferredSelectedPartitions");
+
+                SelectedPartitions selected = Deencapsulation.getField(node, "selectedPartitions");
+                Assertions.assertTrue(selected.isNotPruned());
+                Assertions.assertNull(PluginDrivenScanNode.resolveRequiredPartitions(selected));
+                Mockito.verify(statement, Mockito.never()).resolveScanPartitionView(
+                        Mockito.eq(table), Mockito.any(), Mockito.any(), Mockito.any());
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
+        }
     }
 
     @Test
@@ -171,6 +256,267 @@ public class PluginDrivenScanNodeBatchModeTest {
     @Test
     public void testMtmvWarmupValidMaterializedPinRetainsBatchMode() {
         assertMtmvWarmupBatchMode(false);
+    }
+
+    @Test
+    public void testMtmvRefreshGenerationUsesPinnedNamesForStreaming() throws Exception {
+        assertMtmvRefreshGenerationUsesPinnedNames(true, true, false);
+    }
+
+    @Test
+    public void testMtmvRefreshGenerationUsesPinnedNamesForPartitionBatches() throws Exception {
+        assertMtmvRefreshGenerationUsesPinnedNames(false, true, false);
+    }
+
+    @Test
+    public void testMtmvRefreshUnfilteredPinUsesPinnedNamesForStreaming() throws Exception {
+        assertMtmvRefreshGenerationUsesPinnedNames(true, false, false);
+    }
+
+    @Test
+    public void testMtmvRefreshUnfilteredPinUsesPinnedNamesForPartitionBatches() throws Exception {
+        assertMtmvRefreshGenerationUsesPinnedNames(false, false, false);
+    }
+
+    @Test
+    public void testMtmvRefreshFilteredEmptyPinShortCircuits() throws Exception {
+        assertMtmvRefreshGenerationUsesPinnedNames(true, true, true);
+    }
+
+    @Test
+    public void testMtmvRefreshUnfilteredEmptyPinShortCircuits() throws Exception {
+        assertMtmvRefreshGenerationUsesPinnedNames(false, false, true);
+    }
+
+    private static void assertMtmvRefreshGenerationUsesPinnedNames(
+            boolean streaming, boolean includeFilter, boolean emptyPin) throws Exception {
+        String originalPartition = "p=x/q=1";
+        String addedPartition = "p=x/q=2";
+        List<String> initialPartitions = emptyPin ? Collections.emptyList() : List.of(originalPartition);
+        AtomicReference<List<String>> livePartitions = new AtomicReference<>(initialPartitions);
+        HmsClient client = Mockito.mock(HmsClient.class);
+        Mockito.when(client.listPartitionNames(Mockito.eq("db"), Mockito.eq("hive_table"), Mockito.anyInt()))
+                .thenAnswer(invocation -> livePartitions.get());
+        Mockito.when(client.listPartitionsByFilter(
+                Mockito.eq("db"), Mockito.eq("hive_table"), Mockito.anyString()))
+                .thenAnswer(invocation -> partitionInfos(livePartitions.get()));
+        Mockito.when(client.getExistingPartitions(
+                Mockito.eq("db"), Mockito.eq("hive_table"), Mockito.anyList()))
+                .thenAnswer(invocation -> {
+                    List<String> requested = invocation.getArgument(2);
+                    List<String> present = new ArrayList<>(requested);
+                    present.retainAll(livePartitions.get());
+                    return partitionInfos(present);
+                });
+        Mockito.when(client.getExistingPartitionsWithStats(
+                Mockito.eq("db"), Mockito.eq("hive_table"), Mockito.anyList()))
+                .thenCallRealMethod();
+        Mockito.when(client.getExistingPartitionsWithStats(
+                Mockito.eq("db"), Mockito.eq("hive_table"), Mockito.anyList(), Mockito.any()))
+                .thenCallRealMethod();
+
+        HiveCatalogProperties properties = HiveCatalogProperties.of(Collections.singletonMap(
+                HiveCatalogProperties.HIVE_METASTORE_URIS, "thrift://localhost:9083"));
+        ConnectorContext connectorContext = Mockito.mock(ConnectorContext.class);
+        ConnectorStorageContext storage = Mockito.mock(ConnectorStorageContext.class);
+        Mockito.when(connectorContext.getStorageContext()).thenReturn(storage);
+        Mockito.when(storage.normalizeStorageUri(Mockito.anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(client, properties, connectorContext);
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "hive_table", HiveTableType.HIVE)
+                .inputFormat("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat")
+                .serializationLib("org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe")
+                .partitionKeyNames(List.of("p", "q"))
+                .partitionKeyTypes(Map.of("p", "STRING", "q", "STRING"))
+                .partitionKeyHiveTypes(Map.of("p", "string", "q", "string"))
+                .build();
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getTaskScheduler(Mockito.any())).thenCallRealMethod();
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
+        TUniqueId queryId = new TUniqueId(67725L, NEXT_REFRESH_GENERATION_QUERY.incrementAndGet());
+        Mockito.when(session.getQueryId()).thenReturn(DebugUtil.printId(queryId));
+        Connector connector = Mockito.mock(Connector.class);
+        Mockito.when(connector.getMetadata(session)).thenReturn(metadata);
+        Mockito.when(connector.getCapabilities())
+                .thenReturn(Collections.singleton(ConnectorCapability.SUPPORTS_METADATA_PRELOAD));
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.getName()).thenReturn("hive");
+        Mockito.when(catalog.getConnector()).thenReturn(connector);
+        Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+        ExternalDatabase<PluginDrivenExternalTable> database = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getRemoteName()).thenReturn("db");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Column firstPartitionColumn = new Column("p", Type.STRING);
+        Column secondPartitionColumn = new Column("q", Type.STRING);
+        SchemaCacheValue schema = new PluginDrivenSchemaCacheValue(
+                List.of(firstPartitionColumn, secondPartitionColumn),
+                List.of(firstPartitionColumn, secondPartitionColumn), List.of("p", "q"));
+        PluginDrivenMvccExternalTable table = new PluginDrivenMvccExternalTable(
+                31L, "hive_table", "hive_table", catalog, database) {
+            @Override
+            protected synchronized void makeSureInitialized() {
+            }
+
+            @Override
+            protected Optional<SchemaCacheValue> getLatestSchemaCacheValue() {
+                return Optional.of(schema);
+            }
+
+            @Override
+            public Optional<ConnectorTableHandle> resolveConnectorTableHandle(
+                    ConnectorSession ignored, ConnectorMetadata ignoredMetadata) {
+                return Optional.of(handle);
+            }
+
+            @Override
+            public boolean supportsConnectorPartitionPruning() {
+                return true;
+            }
+        };
+        PluginDrivenMvccSnapshot deferred = (PluginDrivenMvccSnapshot)
+                table.loadSnapshot(Optional.empty(), Optional.empty());
+        PluginDrivenMvccSnapshot materialized = (PluginDrivenMvccSnapshot)
+                table.materializePartitionViewForMtmv(deferred);
+        Set<String> expectedPartitions = Set.copyOf(initialPartitions);
+        Assertions.assertEquals(expectedPartitions, materialized.getNameToPartitionItem().keySet());
+
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        StatementContext statement = new StatementContext(context, null);
+        context.setStatementContext(statement);
+        context.getSessionVariable().setEnableMaterializedViewRewrite(false);
+        context.getSessionVariable().setEnableDmlMaterializedViewRewrite(false);
+        context.setThreadLocalInfo();
+        try {
+            statement.setSnapshot(new MvccTableInfo(table), materialized);
+            TableIf targetTable = Mockito.mock(TableIf.class);
+            Mockito.when(targetTable.needReadLockWhenPlan()).thenReturn(true);
+            statement.getTables().put(List.of("internal", "db", "mv"), targetTable);
+            RelationId relationId = new RelationId(1);
+            statement.registerExternalTableForPreload(table, Optional.empty(), Optional.empty(), includeFilter);
+            if (includeFilter) {
+                Expression initialPredicate = new EqualTo(new UnboundSlot("p"), new VarcharLiteral("x"));
+                statement.getExternalTablePreloadInfo(table.getId()).orElseThrow()
+                        .registerScanPredicate(relationId, initialPredicate);
+            }
+            livePartitions.set(emptyPin ? List.of(addedPartition) : List.of(originalPartition, addedPartition));
+            statement.preloadDeferredScanPartitionViewsBeforeLock(true);
+
+            SlotReference firstPartitionSlot = new SlotReference("p", StringType.INSTANCE);
+            SlotReference secondPartitionSlot = new SlotReference("q", StringType.INSTANCE);
+            LogicalFileScan scan = new LogicalFileScan(relationId, table, List.of("hive", "db"),
+                    Collections.emptyList(), Optional.empty(), Optional.empty(), Optional.empty(),
+                    Optional.of(List.of(firstPartitionSlot, secondPartitionSlot)));
+            HiveFileListingCache files = Mockito.mock(HiveFileListingCache.class);
+            Mockito.when(files.listDataFiles(Mockito.eq("db"), Mockito.eq("hive_table"), Mockito.anyString(),
+                    Mockito.anyList(), Mockito.nullable(FileSystem.class), Mockito.any()))
+                    .thenAnswer(invocation -> List.of(
+                            new HiveFileStatus(invocation.getArgument(2) + "/data.parquet", 10L, 1L)));
+            HiveScanPlanProvider provider = new HiveScanPlanProvider(client, properties, connectorContext, files);
+            PluginDrivenScanNode node = streamingNode(provider);
+            TupleDescriptor descriptor = Deencapsulation.getField(node, "desc");
+            Mockito.when(descriptor.getTable()).thenReturn(table);
+            Expr residual = Mockito.mock(Expr.class);
+            Deencapsulation.setField(node, "connectorSession", session);
+            Deencapsulation.setField(node, "currentHandle", handle);
+            SelectedPartitions selected;
+            if (includeFilter) {
+                Expression predicate = new EqualTo(firstPartitionSlot, new VarcharLiteral("x"));
+                LogicalFilter<LogicalFileScan> filter = new LogicalFilter<>(Set.of(predicate), scan);
+                CascadesContext cascades = CascadesContext.initContext(statement, filter, PhysicalProperties.ANY);
+                selected = Deencapsulation.invoke(new PruneFileScanPartition(),
+                        "pruneExternalPartitions", table, filter, scan, cascades);
+                Deencapsulation.setField(node, "selectedPartitions", selected);
+                Deencapsulation.setField(node, "conjuncts", new ArrayList<>(List.of(residual)));
+            } else {
+                node.setSelectedPartitions(scan.getSelectedPartitions());
+                Deencapsulation.setField(node, "conjuncts", new ArrayList<Expr>());
+                Deencapsulation.invoke(node, "materializeDeferredSelectedPartitions");
+                selected = Deencapsulation.getField(node, "selectedPartitions");
+            }
+            Assertions.assertTrue(selected.isPruned);
+            if (!includeFilter) {
+                Assertions.assertFalse(selected.hasPartitionPredicate);
+            }
+            Assertions.assertEquals(expectedPartitions, selected.selectedPartitions.keySet());
+            Assertions.assertFalse(PluginDrivenScanNode.reusedConnectorFilterResult(selected).isPresent());
+            List<String> requiredPartitions = PluginDrivenScanNode.resolveRequiredPartitions(selected);
+            Assertions.assertNotNull(requiredPartitions);
+            Assertions.assertEquals(expectedPartitions, Set.copyOf(requiredPartitions));
+            node.convertPredicate();
+            Assertions.assertEquals(includeFilter ? List.of(residual) : Collections.emptyList(), node.getConjuncts());
+            Assertions.assertSame(handle, Deencapsulation.getField(node, "currentHandle"));
+            Mockito.verify(client, Mockito.never()).listPartitionsByFilter(
+                    Mockito.eq("db"), Mockito.eq("hive_table"), Mockito.anyString());
+            if (emptyPin) {
+                Assertions.assertTrue(requiredPartitions.isEmpty());
+                Assertions.assertFalse(PluginDrivenScanNode.shouldUseBatchMode(selected, true, true, 1));
+                Assertions.assertTrue(node.getSplits(1).isEmpty());
+                SplitAssignment assignment = Mockito.mock(SplitAssignment.class);
+                Mockito.when(assignment.getScanContext()).thenReturn(new ConnectorScanContext());
+                ConnectorMetadata scanMetadata = Mockito.mock(ConnectorMetadata.class);
+                Mockito.when(scanMetadata.getColumnHandles(session, handle)).thenReturn(Collections.emptyMap());
+                Mockito.when(scanMetadata.applySnapshot(session, handle, materialized.getConnectorSnapshot()))
+                        .thenReturn(handle);
+                Mockito.doNothing().when(node).stop();
+                Deencapsulation.setField(node, "cachedMetadata", scanMetadata);
+                Deencapsulation.setField(node, "splitAssignment", assignment);
+                Deencapsulation.setField(node, "streamingBatch", streaming);
+                Deencapsulation.setField(node, "conjuncts", new ArrayList<Expr>());
+                node.startSplit(1);
+                if (streaming) {
+                    Mockito.verify(assignment).finishSchedule();
+                }
+                Mockito.verify(client, Mockito.never()).getExistingPartitionsWithStats(
+                        Mockito.eq("db"), Mockito.eq("hive_table"), Mockito.anyList(), Mockito.any());
+                Mockito.verify(files, Mockito.never()).listDataFiles(
+                        Mockito.eq("db"), Mockito.eq("hive_table"), Mockito.anyString(),
+                        Mockito.anyList(), Mockito.nullable(FileSystem.class), Mockito.any());
+            } else {
+                ConnectorScanRequest request = ConnectorScanRequest.builder(handle, Collections.emptyList())
+                        .requiredPartitions(requiredPartitions).build();
+                List<ConnectorScanRange> ranges = new ArrayList<>();
+                if (streaming) {
+                    Assertions.assertFalse(PluginDrivenScanNode.shouldUseBatchMode(selected, true, true, 2));
+                    Assertions.assertTrue(provider.streamingSplitEstimate(
+                            session, handle, Optional.empty(), false) >= 0);
+                    try (ConnectorSplitSource source = provider.streamSplits(session, request)) {
+                        while (source.hasNext()) {
+                            ranges.add(source.next());
+                        }
+                    }
+                } else {
+                    Assertions.assertTrue(PluginDrivenScanNode.shouldUseBatchMode(selected, true, true, 1));
+                    ranges.addAll(provider.planScanForPartitionBatch(session, request, requiredPartitions));
+                }
+                Assertions.assertEquals(1, ranges.size());
+                Assertions.assertEquals(originalPartition + "/data.parquet", ranges.get(0).getPath().orElseThrow());
+            }
+            livePartitions.set(initialPartitions);
+            Assertions.assertEquals(expectedPartitions, materialized.getNameToPartitionItem().keySet());
+            Assertions.assertEquals(expectedPartitions, materialized.getNameToLastModifiedMillis().keySet());
+        } finally {
+            try {
+                QeProcessorImpl.INSTANCE.finishQueryCallbacks(queryId);
+                statement.close();
+            } finally {
+                ConnectContext.remove();
+                if (previousContext != null) {
+                    previousContext.setThreadLocalInfo();
+                }
+            }
+        }
+    }
+
+    private static List<HmsPartitionInfo> partitionInfos(List<String> names) {
+        List<HmsPartitionInfo> partitions = new ArrayList<>();
+        for (String name : names) {
+            String secondValue = name.substring(name.indexOf("/q=") + 3);
+            partitions.add(new HmsPartitionInfo(List.of("x", secondValue), name,
+                    null, null, null, Collections.emptyMap()));
+        }
+        return partitions;
     }
 
     @SuppressWarnings("unchecked")
@@ -285,14 +631,17 @@ public class PluginDrivenScanNodeBatchModeTest {
             SelectedPartitions finalized = Deencapsulation.getField(node, "selectedPartitions");
             Assertions.assertEquals(!hasMalformedPartition, node.isBatchMode());
             Assertions.assertFalse((Boolean) Deencapsulation.getField(node, "streamingBatch"));
-            Assertions.assertNull(PluginDrivenScanNode.resolveRequiredPartitions(finalized));
             if (hasMalformedPartition) {
                 Assertions.assertSame(SelectedPartitions.NOT_PRUNED, finalized,
                         "the malformed partition must not be excluded by startSplit's map-key batches");
+                Assertions.assertNull(PluginDrivenScanNode.resolveRequiredPartitions(finalized));
             } else {
                 Assertions.assertFalse(finalized.isNotPruned());
                 Assertions.assertEquals(materialized.getNameToPartitionItem(), finalized.selectedPartitions);
-                Assertions.assertFalse(finalized.isPruned);
+                Assertions.assertTrue(finalized.isPruned);
+                Assertions.assertFalse(finalized.hasPartitionPredicate);
+                Assertions.assertEquals(materialized.getNameToPartitionItem().keySet(),
+                        Set.copyOf(PluginDrivenScanNode.resolveRequiredPartitions(finalized)));
             }
             Mockito.verify(provider).supportsBatchScan(session, handle);
             Mockito.verify(metadata, Mockito.times(1)).listPartitions(session, handle, Optional.empty());
@@ -344,7 +693,11 @@ public class PluginDrivenScanNodeBatchModeTest {
             SelectedPartitions materialized = PluginDrivenScanNode.materializeDeferredSelectedPartitions(
                     SelectedPartitions.DEFERRED_PARTITION_PRUNING, consumed);
 
+            Assertions.assertTrue(materialized.isPruned);
+            Assertions.assertFalse(materialized.hasPartitionPredicate);
             Assertions.assertEquals(scanView.get().keySet(), materialized.selectedPartitions.keySet());
+            Assertions.assertEquals(scanView.get().keySet(),
+                    Set.copyOf(PluginDrivenScanNode.resolveRequiredPartitions(materialized)));
             Assertions.assertTrue(PluginDrivenScanNode.shouldUseBatchMode(
                     materialized, true, true, THRESHOLD));
             Mockito.verify(hiveExternalTable, Mockito.times(1)).getNameToPartitionItemsForScan(Mockito.any());

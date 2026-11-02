@@ -34,6 +34,11 @@ import org.apache.doris.connector.spi.pushdown.ConnectorIn;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
 
+import org.apache.hadoop.hive.metastore.PartFilterExprUtil;
+import org.apache.hadoop.hive.metastore.api.MetaException;
+import org.apache.hadoop.hive.metastore.parser.ExpressionTree;
+import org.apache.hadoop.hive.metastore.parser.ExpressionTree.LeafNode;
+import org.apache.hadoop.hive.metastore.parser.FilterLexer;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -45,6 +50,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
@@ -336,8 +342,10 @@ public class HiveConnectorMetadataPartitionPruningTest {
         // `date` is a valid partition key, but the metastore filter lexer tokenizes it as KW_DATE and an
         // all-digit name as an IntegralLiteral, while a key operand must be an Identifier: the connector must
         // decline the direct path (which could only fail and taint the pooled client) and prune locally.
-        for (String partKey : Arrays.asList("date", "20240101")) {
-            List<String> parts = Arrays.asList(partKey + "=2024-01-01", partKey + "=2023-01-01");
+        for (String partKey : Arrays.asList("date", "20240101", "in", "IN", "In",
+                "between", "BETWEEN", "Between")) {
+            String renderedKey = partKey.toLowerCase(Locale.ROOT);
+            List<String> parts = Arrays.asList(renderedKey + "=2024-01-01", renderedKey + "=2023-01-01");
             boolean[] filterAttempted = {false};
             FakeHmsClient client = new FakeHmsClient(parts) {
                 @Override
@@ -354,14 +362,55 @@ public class HiveConnectorMetadataPartitionPruningTest {
                     .partitionKeyTypes(Collections.singletonMap(partKey, "STRING"))
                     .build();
 
+            for (ConnectorExpression predicate : Arrays.asList(
+                    eq(partKey, "2024-01-01"), in(partKey, "2024-01-01", "2022-01-01"))) {
+                Optional<FilterApplicationResult<ConnectorTableHandle>> result = metadata.applyFilter(
+                        null, handle, new ConnectorFilterConstraint(predicate));
+
+                Assertions.assertTrue(result.isPresent(), partKey);
+                Assertions.assertEquals(Collections.singletonList(renderedKey + "=2024-01-01"),
+                        prunedLocations(result), partKey);
+                Assertions.assertFalse(filterAttempted[0], partKey + " must not build an HMS filter");
+                Assertions.assertTrue(client.wasListPartitionNamesCalled(), partKey + " prunes locally");
+            }
+        }
+    }
+
+    @Test
+    public void testHiveParserRejectsReservedIdentifiersRegardlessOfCase() {
+        for (String partKey : Arrays.asList("in", "IN", "In", "between", "BETWEEN", "Between")) {
+            int tokenType = partKey.equalsIgnoreCase("in") ? FilterLexer.IN : FilterLexer.BETWEEN;
+            FilterLexer lexer = new FilterLexer(new ExpressionTree.ANTLRNoCaseStringStream(partKey));
+            Assertions.assertEquals(tokenType, lexer.nextToken().getType(), partKey);
+            String filter = "(" + partKey + " = '2024-01-01')";
+            Assertions.assertThrows(MetaException.class, () -> PartFilterExprUtil.getFilterParser(filter), partKey);
+        }
+    }
+
+    @Test
+    public void testHmsFilterAcceptsIdentifiersContainingReservedWords() throws Exception {
+        for (String partKey : Arrays.asList("inside", "between1")) {
+            String partitionName = partKey + "=2024-01-01";
+            HmsFilterClient client = new HmsFilterClient(Collections.singletonList(partitionName));
+            HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                    client, HiveTestProperties.minimal(), new FakeConnectorContext());
+            HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                    .partitionKeyNames(Collections.singletonList(partKey))
+                    .partitionKeyTypes(Collections.singletonMap(partKey, "STRING"))
+                    .build();
+
             Optional<FilterApplicationResult<ConnectorTableHandle>> result = metadata.applyFilter(
                     null, handle, new ConnectorFilterConstraint(eq(partKey, "2024-01-01")));
 
             Assertions.assertTrue(result.isPresent(), partKey);
-            Assertions.assertEquals(Collections.singletonList(partKey + "=2024-01-01"),
-                    prunedLocations(result), partKey);
-            Assertions.assertFalse(filterAttempted[0], partKey + " must not build an HMS filter");
-            Assertions.assertTrue(client.wasListPartitionNamesCalled(), partKey + " prunes locally");
+            Assertions.assertEquals(Collections.singletonList(partitionName), prunedLocations(result), partKey);
+            Assertions.assertEquals("(" + partKey + " = '2024-01-01')", client.filter);
+            FilterLexer lexer = new FilterLexer(new ExpressionTree.ANTLRNoCaseStringStream(partKey));
+            Assertions.assertEquals(FilterLexer.Identifier, lexer.nextToken().getType(), partKey);
+            LeafNode parsed = (LeafNode) PartFilterExprUtil.getFilterParser(client.filter).tree.getRoot();
+            Assertions.assertEquals(partKey, parsed.keyName);
+            Assertions.assertEquals("2024-01-01", parsed.value);
+            Assertions.assertFalse(client.wasListPartitionNamesCalled(), partKey + " must use HMS filtering");
         }
     }
 

@@ -187,7 +187,9 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         // MVCC table class because the catalog also serves snapshot-capable sibling formats, but its latest
         // pin is deliberately not a data snapshot and applySnapshot is a no-op. Keep only that lightweight
         // query-begin pin here; PruneFileScanPartition will request the selected partition view later.
-        if (supportsConnectorPartitionPruning()) {
+        boolean deferPartitionPruning = supportsConnectorPartitionPruning();
+        if (deferPartitionPruning
+                && (!connectorSnapshot.isSchemaRetained() || connectorSnapshot.getSchemaId() < 0)) {
             return PluginDrivenMvccSnapshot.deferred(connectorSnapshot);
         }
 
@@ -206,6 +208,9 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
                     db != null ? db.getRemoteName() : "", getRemoteName(), atSchema);
             // Eager pins bypass the schema cache loader, so preserve its mapped-column validation.
             pinnedSchema.validateSchema();
+        }
+        if (deferPartitionPruning) {
+            return PluginDrivenMvccSnapshot.deferred(connectorSnapshot, pinnedSchema);
         }
         if (canDeferPartitionView(metadata, session, pinnedHandle)) {
             PluginDrivenSchemaCacheValue schema = pinnedSchema != null ? pinnedSchema
@@ -850,9 +855,11 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     @Override
     public Optional<ConnectorFilteredPartitionView> applyPartitionFilterForScan(Optional<MvccSnapshot> snapshot,
             ConnectorExpression partitionFilter) {
-        if (snapshot.isPresent() && snapshot.get() instanceof PluginDrivenMvccSnapshot
-                && ((PluginDrivenMvccSnapshot) snapshot.get()).isPartitionViewUnavailable()) {
-            return Optional.empty();
+        if (snapshot.isPresent() && snapshot.get() instanceof PluginDrivenMvccSnapshot) {
+            PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot) snapshot.get();
+            if (pin.isPartitionViewUnavailable() || pin.isPartitionViewMaterialized()) {
+                return Optional.empty();
+            }
         }
         return super.applyPartitionFilterForScan(snapshot, partitionFilter);
     }
@@ -901,7 +908,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             // No handle (e.g. the base table was concurrently dropped): the view cannot be materialized at
             // all, so publish it UNAVAILABLE instead of an authoritative empty map that the consumers would
             // read as a real zero-partition table.
-            return PluginDrivenMvccSnapshot.unavailable(pin.getConnectorSnapshot(), null);
+            return PluginDrivenMvccSnapshot.unavailable(pin.getConnectorSnapshot(), pin.getPinnedSchema());
         }
         // Enumerate from the SNAPSHOT-PINNED handle - the same generation the data scan reads - never the
         // freshly resolved latest one (see pinPartitionViewHandle).
@@ -909,7 +916,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
                 pinPartitionViewHandle(handleOpt.get(), metadata, session, Optional.of(pin));
         PluginDrivenPartitionView view = listPartitions(
                 metadata, session, pinnedHandle, getPartitionColumns(Optional.of(pin)));
-        return new PluginDrivenMvccSnapshot(pin.getConnectorSnapshot(), view, null);
+        return new PluginDrivenMvccSnapshot(pin.getConnectorSnapshot(), view, pin.getPinnedSchema());
     }
 
     /**
