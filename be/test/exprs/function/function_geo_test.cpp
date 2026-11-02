@@ -1691,6 +1691,53 @@ TEST(VGeoFunctionsTest, GeographyAreaUsesStableRingsInBothUnits) {
     }
 }
 
+TEST(VGeoFunctionsTest, GeographyAreaRejectsUnresolvedTinyShellHoleRemainder) {
+    const std::string shell =
+            "(2.6777052903196932 -48.092023509394799,"
+            "3.6962367378877943 -48.092023509394799,"
+            "3.6962367378877943 -28.186396269395232,"
+            "2.6777052903196932 -28.186396269395232,"
+            "2.6777052903196932 -48.092023509394799)";
+    const std::string hole =
+            "(2.6777052903196941 -48.092023509394785,"
+            "3.6962367378877934 -48.092023509394785,"
+            "3.6962367378877934 -28.186396269395239,"
+            "2.6777052903196941 -28.186396269395239,"
+            "2.6777052903196941 -48.092023509394785)";
+    for (const auto* unit : {"st_area_square_meters", "st_area_square_km"}) {
+        Block block;
+        const auto status = execute_geography_test(
+                unit, {geography_test_hex("POLYGON (" + shell + "," + hole + ")")},
+                make_nullable(std::make_shared<DataTypeFloat64>()), &block);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("unresolved shell/hole cancellation"), std::string::npos);
+    }
+}
+
+TEST(VGeoFunctionsTest, GeographyPolygonWitnessAvoidsQuadraticCrossingScan) {
+    for (const int count : {32, 64, 128}) {
+        const auto polygon = [](int segments, double half_width, double base_lat, double apex_lat) {
+            std::ostringstream text;
+            text << std::setprecision(17) << "POLYGON ((";
+            for (int i = 0; i <= segments; ++i) {
+                if (i != 0) {
+                    text << ",";
+                }
+                text << -half_width + 2 * half_width * i / segments << " " << base_lat;
+            }
+            text << ",0 " << apex_lat << "," << -half_width << " " << base_lat << "))";
+            return text.str();
+        };
+        const auto outer =
+                spatial_test_wkb(geography_test_hex(polygon(count, 10, 50, 58.00000000000001)));
+        const auto inner = spatial_test_wkb(geography_test_hex(polygon(count, 2, 55, 58)));
+        EXPECT_EQ(geography_polygon_crossing_checks_for_test(outer, inner), 0);
+        EXPECT_EQ(geography_polygon_crossing_checks_for_test(inner, outer), 0);
+        expect_geography_relation("st_intersects", polygon(count, 10, 50, 58.00000000000001),
+                                  polygon(count, 2, 55, 58), true);
+    }
+}
+
 TEST(VGeoFunctionsTest, GeographyBearingUsesOriginalNearAntipodalDirections) {
     struct Case {
         std::string from;

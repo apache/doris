@@ -42,5 +42,7 @@ bool geography_portable_bearing_for_test(StringRef from, StringRef to, double* b
 size_t geography_calculation_edges_for_test(const std::string& left, const std::string& right,
                                             size_t* exact_proofs = nullptr,
                                             size_t* candidate_visits = nullptr);
+size_t geography_polygon_crossing_checks_for_test(const std::string& left,
+                                                  const std::string& right);
 #endif
 } // namespace doris

@@ -308,6 +308,7 @@ std::unique_ptr<GeoShape> decode_geography_calculation_shape(StringRef value) {
 #ifdef BE_TEST
 static thread_local size_t geography_exact_proofs = 0;
 static thread_local size_t geography_candidate_visits = 0;
+static thread_local size_t geography_polygon_crossing_checks = 0;
 #endif
 
 // Test coplanarity of the original degree ordinates, not independently rounded S2 vectors.
@@ -1152,6 +1153,9 @@ static bool geography_has_raw_polygon_edge_crossing(const GeographyEdgeNodes::Ra
                                                     const GeographyEdgeNodes::RawEdges& right_edges,
                                                     const GeographyEdgeNodes& nodes) {
     const auto crosses = [&](const auto& left, const auto& right) {
+#ifdef BE_TEST
+        ++geography_polygon_crossing_checks;
+#endif
         if (S2::CrossingSign(left.first.point, left.second.point, right.first.point,
                              right.second.point) <= 0) {
             return false;
@@ -1570,13 +1574,17 @@ static Status geography_relation_impl(std::string_view name, const GeoShape& lhs
         !shares_raw_vertex()) {
         // CLOSED indexes can turn a raw endpoint/apex gap into contact. An unrelated collision
         // must not hide genuine contact or a strict interior point elsewhere in either shape.
+        // Interior/vertex witnesses prove the contact without inspecting every edge pair. Keep
+        // the raw crossing fallback last: nested N-edge polygons can otherwise perform N^2
+        // CrossingSign calls even though a cheap inner vertex already proves the intersection.
         const bool has_witness =
-                geography_has_raw_polygon_edge_crossing(left_edges, right_edges, nodes) ||
                 (lhs.type() == GeoShapeType::GEO_SHAPE_POLYGON &&
                  geography_has_polygon_intersection_witness(nodes.left, left, nodes.right,
                                                             nodes)) ||
                 (rhs.type() == GeoShapeType::GEO_SHAPE_POLYGON &&
-                 geography_has_polygon_intersection_witness(nodes.right, right, nodes.left, nodes));
+                 geography_has_polygon_intersection_witness(nodes.right, right, nodes.left,
+                                                            nodes)) ||
+                geography_has_raw_polygon_edge_crossing(left_edges, right_edges, nodes);
         if (!has_witness) {
             return Status::NotSupported(
                     "{} does not support ambiguous spherical Polygon boundary intersection", name);
@@ -1807,8 +1815,45 @@ double geography_area(const GeoShape& shape, StringRef wkb, bool square_meters) 
     GeographyEdgeNodes nodes(wkb, wkb);
     MutableS2ShapeIndex index;
     geography_shape_index(shape, nodes.left, nodes, &index);
-    const double steradians = S2::GetArea(*index.shape(0));
-    return square_meters ? S2Earth::SteradiansToSquareMeters(steradians)
-                         : S2Earth::SteradiansToSquareKm(steradians);
+    const auto* polygon = static_cast<const S2LaxPolygonShape*>(index.shape(0));
+    GeographyFloat steradians = 0;
+    GeographyFloat error = 0;
+    for (int loop = 0; loop < polygon->num_loops(); ++loop) {
+        const S2PointLoopSpan vertices(&polygon->loop_vertex(loop, 0),
+                                       polygon->num_loop_vertices(loop));
+        steradians += static_cast<GeographyFloat>(S2::GetSignedArea(vertices));
+        error += static_cast<GeographyFloat>(S2::GetCurvatureMaxError(vertices));
+    }
+    // S2::GetArea applies a 4*pi modulo after summing loop areas. A valid shell and hole whose
+    // true remainder is below the per-loop error can round to a tiny negative total, turning a
+    // small polygon into an apparent full-sphere area. Reject that unresolved cancellation
+    // instead of returning a value with the wrong order of magnitude.
+    using std::abs;
+    if (abs(steradians) <= error) {
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                        "Geography area does not support unresolved shell/hole cancellation");
+    }
+    if (steradians < 0) {
+        steradians += 4 * geography_pi<GeographyFloat>();
+    }
+    const double area = static_cast<double>(steradians);
+    return square_meters ? S2Earth::SteradiansToSquareMeters(area)
+                         : S2Earth::SteradiansToSquareKm(area);
 }
+
+#ifdef BE_TEST
+size_t geography_polygon_crossing_checks_for_test(const std::string& left,
+                                                  const std::string& right) {
+    geography_polygon_crossing_checks = 0;
+    const auto left_shape = decode_geography_calculation_shape(StringRef(left));
+    const auto right_shape = decode_geography_calculation_shape(StringRef(right));
+    DCHECK(left_shape != nullptr);
+    DCHECK(right_shape != nullptr);
+    bool result = false;
+    const auto status = geography_relation("st_intersects", *left_shape, *right_shape,
+                                           StringRef(left), StringRef(right), &result);
+    DCHECK(status.ok());
+    return geography_polygon_crossing_checks;
+}
+#endif
 } // namespace doris
