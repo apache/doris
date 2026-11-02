@@ -27,10 +27,14 @@
 #include <unistd.h>
 
 #include <map>
+#include <tuple>
+#include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
 #include "gtest/gtest_pred_impl.h"
+#include "io/fs/stream_load_pipe.h"
+#include "load/routine_load/kafka_share_consumer.h"
 #include "load/stream_load/new_load_stream_mgr.h"
 #include "load/stream_load/stream_load_executor.h"
 #include "runtime/cluster_info.h"
@@ -45,12 +49,92 @@ extern TLoadTxnCommitResult k_stream_load_commit_result;
 extern TLoadTxnRollbackResult k_stream_load_rollback_result;
 extern TStreamLoadPutResult k_stream_load_put_result;
 
+class TaskShareConsumer : public KafkaShareConsumer {
+public:
+    bool fail_consume = false;
+    bool fail_pipeline = false;
+    bool fail_ack = false;
+    int cancel_calls = 0;
+    std::vector<std::tuple<int32_t, int64_t, bool>> acknowledgements;
+
+    bool match(std::shared_ptr<StreamLoadContext> ctx) override {
+        return ctx->kafka_info->use_share_consumer;
+    }
+
+    Status consume(std::shared_ptr<StreamLoadContext> ctx) override {
+        _ctx = ctx;
+        reserve_records(2);
+        _records = {{0, 100}, {1, 50}};
+        _processed = 1;
+        if (fail_consume) {
+            return Status::InternalError("share consume failed");
+        }
+        auto pipe = std::static_pointer_cast<io::StreamLoadPipe>(ctx->body_sink);
+        RETURN_IF_ERROR(pipe->append_with_line_delimiter("row", 3));
+        if (fail_pipeline) {
+            pipe->cancel("pipeline failed");
+            return Status::OK();
+        }
+        return pipe->finish();
+    }
+
+    Status cancel(std::shared_ptr<StreamLoadContext> ctx) override {
+        ++cancel_calls;
+        return KafkaShareConsumer::cancel(ctx);
+    }
+
+protected:
+    Status acknowledge_record(int32_t partition, int64_t offset, bool accept) override {
+        if (accept) {
+            EXPECT_FALSE(_ctx.lock()->need_rollback);
+        }
+        acknowledgements.emplace_back(partition, offset, accept);
+        return Status::OK();
+    }
+
+    Status commit_acknowledgements() override {
+        return fail_ack ? Status::InternalError("ack response lost") : Status::OK();
+    }
+
+private:
+    std::weak_ptr<StreamLoadContext> _ctx;
+};
+
 class RoutineLoadTaskExecutorTest : public testing::Test {
 public:
     RoutineLoadTaskExecutorTest() = default;
     ~RoutineLoadTaskExecutorTest() override = default;
 
     ExecEnv* _env = nullptr;
+    std::shared_ptr<TaskShareConsumer> _share_consumer;
+    std::shared_ptr<StreamLoadContext> _share_ctx;
+    size_t _pooled_consumers = 0;
+
+    void run_share_task(TStatusCode::type commit_status) {
+        TKafkaLoadInfo info;
+        info.__set_use_share_consumer(true);
+        _share_ctx = std::make_shared<StreamLoadContext>(_env);
+        _share_ctx->id = UniqueId::gen_uid();
+        _share_ctx->job_id = 1;
+        _share_ctx->txn_id = 4;
+        _share_ctx->load_type = TLoadType::ROUTINE_LOAD;
+        _share_ctx->load_src_type = TLoadSourceType::KAFKA;
+        _share_ctx->kafka_info = std::make_unique<KafkaLoadInfo>(info);
+        _share_ctx->need_rollback = true;
+        k_stream_load_commit_result.status.status_code = commit_status;
+        DataConsumerPool pool;
+        pool._pool.push_back(_share_consumer);
+        RoutineLoadTaskExecutor executor(_env);
+        int finished = 0;
+        executor.exec_task(_share_ctx, &pool, [&](auto ctx) { ++finished; });
+        if (_share_ctx->load_status_future.valid()) {
+            _share_ctx->load_status_future.wait();
+        }
+        EXPECT_EQ(finished, 1);
+        _pooled_consumers = pool._pool.size();
+        _env->new_load_stream_mgr()->remove(_share_ctx->id);
+        executor.stop();
+    }
 
     void SetUp() override {
         _env = ExecEnv::GetInstance();
@@ -65,6 +149,7 @@ public:
 
         config::max_routine_load_thread_pool_size = 1024;
         config::max_consumer_num_per_group = 3;
+        _share_consumer = std::make_shared<TaskShareConsumer>();
     }
 
     void TearDown() override {
@@ -73,6 +158,57 @@ public:
         _env->clear_stream_load_executor();
     }
 };
+
+TEST_F(RoutineLoadTaskExecutorTest, ShareAcceptsOnlyAfterCommit) {
+    run_share_task(TStatusCode::OK);
+    EXPECT_EQ(_share_consumer->acknowledgements,
+              (std::vector<std::tuple<int32_t, int64_t, bool>> {{0, 100, true}, {1, 50, false}}));
+    EXPECT_EQ(_share_consumer->cancel_calls, 0);
+    EXPECT_EQ(_pooled_consumers, 1);
+}
+
+TEST_F(RoutineLoadTaskExecutorTest, ShareAcceptsCommittedPublishTimeout) {
+    run_share_task(TStatusCode::PUBLISH_TIMEOUT);
+    EXPECT_EQ(_share_consumer->acknowledgements,
+              (std::vector<std::tuple<int32_t, int64_t, bool>> {{0, 100, true}, {1, 50, false}}));
+    EXPECT_EQ(_share_consumer->cancel_calls, 0);
+    EXPECT_EQ(_pooled_consumers, 1);
+}
+
+TEST_F(RoutineLoadTaskExecutorTest, ShareReleasesAfterCommitFailure) {
+    run_share_task(TStatusCode::INTERNAL_ERROR);
+    EXPECT_EQ(_share_consumer->acknowledgements,
+              (std::vector<std::tuple<int32_t, int64_t, bool>> {{0, 100, false}, {1, 50, false}}));
+    EXPECT_EQ(_share_consumer->cancel_calls, 1);
+    EXPECT_EQ(_pooled_consumers, 0);
+}
+
+TEST_F(RoutineLoadTaskExecutorTest, ShareReleasesAfterConsumeFailure) {
+    _share_consumer->fail_consume = true;
+    run_share_task(TStatusCode::OK);
+    EXPECT_EQ(_share_consumer->acknowledgements,
+              (std::vector<std::tuple<int32_t, int64_t, bool>> {{0, 100, false}, {1, 50, false}}));
+    EXPECT_EQ(_share_consumer->cancel_calls, 1);
+    EXPECT_EQ(_pooled_consumers, 0);
+}
+
+TEST_F(RoutineLoadTaskExecutorTest, ShareReleasesAfterPipelineFailure) {
+    _share_consumer->fail_pipeline = true;
+    run_share_task(TStatusCode::OK);
+    EXPECT_EQ(_share_consumer->acknowledgements,
+              (std::vector<std::tuple<int32_t, int64_t, bool>> {{0, 100, false}, {1, 50, false}}));
+    EXPECT_EQ(_share_consumer->cancel_calls, 1);
+    EXPECT_EQ(_pooled_consumers, 0);
+}
+
+TEST_F(RoutineLoadTaskExecutorTest, ShareAckFailureDoesNotReuseConsumerOrRollback) {
+    _share_consumer->fail_ack = true;
+    run_share_task(TStatusCode::OK);
+    EXPECT_EQ(_share_consumer->acknowledgements,
+              (std::vector<std::tuple<int32_t, int64_t, bool>> {{0, 100, true}, {1, 50, false}}));
+    EXPECT_FALSE(_share_ctx->need_rollback);
+    EXPECT_EQ(_pooled_consumers, 0);
+}
 
 TEST_F(RoutineLoadTaskExecutorTest, exec_task) {
     TRoutineLoadTask task;
