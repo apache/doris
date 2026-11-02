@@ -939,6 +939,28 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
     }
 
     @Test
+    void guardedResolverPreservesViewClassificationBeforeTableEndpoint() {
+        remoteViews.add("v");
+        Assertions.assertTrue(database.getTableNamesWithLock().contains("v"));
+        Mockito.when(connector.getCapabilities()).thenReturn(java.util.EnumSet.of(
+                org.apache.doris.connector.spi.ConnectorCapability.SUPPORTS_VIEW));
+        PluginDrivenExternalTable view = database.getTableNullable("v");
+        // This fixture skips initialization; retain the classification that normal initialization resolves.
+        Deencapsulation.setField(view, "isView", true);
+        Mockito.when(metadata.getTableHandle(Mockito.any(), Mockito.eq("db"), Mockito.eq("v")))
+                .thenThrow(new IllegalStateException("table endpoint rejects views with a non-404 error"));
+        remoteCache.put("v", "view metadata");
+        readMissingHandle(view);
+        Assertions.assertSame(view, database.getTableNullable(view.getId()));
+        Assertions.assertEquals("view metadata", remoteCache.get("v"));
+        remoteViews.remove("v");
+        readMissingHandle(view);
+        Assertions.assertNull(database.getTableNullable(view.getId()));
+        Assertions.assertNull(remoteCache.get("v"));
+        Mockito.verify(metadata, Mockito.never()).getTableHandle(Mockito.any(), Mockito.eq("db"), Mockito.eq("v"));
+    }
+
+    @Test
     void delayedMissingDoesNotInvalidateRecreatedTable() throws Exception {
         verifyDelayedMissing(false);
     }
