@@ -204,7 +204,10 @@ public class TrinoConnectorDorisMetadata implements ConnectorMetadata {
             for (ColumnHandle columnHandle : columnHandles.values()) {
                 ColumnMetadata colMeta = metadata.getColumnMetadata(
                         connSession, trinoHandle.getTrinoTableHandle(), columnHandle);
-                if (colMeta.isHidden()) {
+                // MongoDB hides its primary identifier by default; Doris has no hidden-column lookup path.
+                boolean mongoIdentifier = "_id".equals(colMeta.getName())
+                        && TrinoTypeMapping.isObjectIdType(colMeta.getType());
+                if (colMeta.isHidden() && !mongoIdentifier) {
                     continue;
                 }
                 ConnectorType connType = TrinoTypeMapping.toConnectorType(colMeta.getType());

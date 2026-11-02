@@ -79,6 +79,9 @@ public final class TrinoTypeMapping {
             return ConnectorType.of("UUID");
         } else if (type instanceof VarbinaryType) {
             return new ConnectorType("VARBINARY");
+        } else if (isObjectIdType(type)) {
+            // ObjectId is twelve raw bytes, including zero and non-UTF-8 bytes.
+            return new ConnectorType("VARBINARY", 12, -1);
         } else if (type instanceof DecimalType) {
             DecimalType decimal = (DecimalType) type;
             return new ConnectorType("DECIMALV3", decimal.getPrecision(), decimal.getScale());
@@ -118,5 +121,10 @@ public final class TrinoTypeMapping {
         } else {
             throw new IllegalArgumentException("Cannot transform unknown Trino type: " + type);
         }
+    }
+
+    static boolean isObjectIdType(Type type) {
+        // The optional MongoDB plugin lives in its own classloader, so do not link its implementation class.
+        return "ObjectId".equalsIgnoreCase(type.getTypeSignature().getBase());
     }
 }
