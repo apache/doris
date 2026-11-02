@@ -66,7 +66,10 @@ suite("test_flight_cancel_cleanup", "arrow_flight_sql") {
         jdbc_sql("INSERT INTO ${table} SELECT number FROM numbers(\"number\"=\"1024\")")
         def tabletBackends = jdbc_sql_return_maparray("SHOW TABLETS FROM ${table}")
                 .collect { it.BackendId }.unique().size()
-        [false, true].each { explicitCancel ->
+        [[explicitCancel: false, nextRequestFirst: false],
+                [explicitCancel: true, nextRequestFirst: false],
+                [explicitCancel: false, nextRequestFirst: true]].each { mode ->
+            def explicitCancel = mode.explicitCancel
             def info = client.execute("SELECT id, n FROM ${table} " +
                     "LATERAL VIEW explode_numbers(100000000) expanded AS n", auth)
             if (tabletBackends > 1) {
@@ -78,6 +81,11 @@ suite("test_flight_cancel_cleanup", "arrow_flight_sql") {
                 // Flight tickets omit leading zeroes; the BE diagnostic API requires two 16-digit halves.
                 queryId.split("-").collect { it.padLeft(16, "0") }.join("-")
             }.unique()
+            if (mode.nextRequestFirst) {
+                // The streams are read from the BEs, so the session can run its next request while one of
+                // them is still to be read; aborting that stream afterwards must still reach every BE.
+                assertEquals(1, consume("SELECT 1 AS healthy"))
+            }
             // Abort only one endpoint; the cancellation must reach every participating BE.
             [info.endpoints[0]].each { endpoint ->
                 FlightClient.builder(allocator, endpoint.locations[0]).build().withCloseable { beClient ->

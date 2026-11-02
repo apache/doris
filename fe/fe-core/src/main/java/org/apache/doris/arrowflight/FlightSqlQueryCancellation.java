@@ -17,51 +17,63 @@
 
 package org.apache.doris.arrowflight;
 
+import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.common.Status;
 import org.apache.doris.proto.InternalService.PCancelPlanFragmentResult;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.Coordinator;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
-import com.github.benmanes.caffeine.cache.Expiry;
-import com.github.benmanes.caffeine.cache.Scheduler;
-import com.github.benmanes.caffeine.cache.Ticker;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.function.LongSupplier;
 import java.util.stream.Collectors;
 
+/**
+ * Routes the early close of a Flight result stream, which a BE reports through cancelFlightQuery, to every BE of
+ * the stream's query. A route outlives the request and the session that registered it: the client reads the
+ * results from the BEs, so it can still hold a stream of the query open after its session has started another
+ * request or has been torn down, and close that stream early then. A route goes when its cancellation succeeds,
+ * when its query's execution timeout (plus 5 s) has passed, and when {@link #MAX_ROUTED_RESULTS} newer result ids
+ * push it out. Those go oldest first, as the oldest routes are the likeliest to belong to streams that have
+ * ended; a query whose route was pushed out ends at its timeout, as every Flight query did before routes existed.
+ */
 public final class FlightSqlQueryCancellation {
     private static final Logger LOG = LogManager.getLogger(FlightSqlQueryCancellation.class);
-    public static final FlightSqlQueryCancellation INSTANCE = new FlightSqlQueryCancellation(Ticker.systemTicker());
-    private final Cache<TUniqueId, Route> results;
+    // Counted in result ids, which cost a few hundred bytes each, so the registry stays within some tens of MB
+    // however many Flight queries are registered within one execution timeout.
+    static final int MAX_ROUTED_RESULTS = 100_000;
+    public static final FlightSqlQueryCancellation INSTANCE =
+            new FlightSqlQueryCancellation(System::nanoTime, MAX_ROUTED_RESULTS);
+    private final LongSupplier nanoClock;
+    private final int capacity;
+    // In registration order, so the eldest entry belongs to the oldest route. Guarded by this.
+    private final LinkedHashMap<TUniqueId, Route> results = new LinkedHashMap<>();
 
-    FlightSqlQueryCancellation(Ticker ticker) {
-        results = Caffeine.newBuilder().ticker(ticker).scheduler(Scheduler.systemScheduler())
-                .expireAfter(new Expiry<TUniqueId, Route>() {
-                    @Override
-                    public long expireAfterCreate(TUniqueId key, Route route, long now) {
-                        return route.ttlNanos;
-                    }
+    FlightSqlQueryCancellation(LongSupplier nanoClock, int capacity) {
+        this.nanoClock = nanoClock;
+        this.capacity = capacity;
+    }
 
-                    @Override
-                    public long expireAfterUpdate(TUniqueId key, Route route, long now, long duration) {
-                        return route.ttlNanos;
-                    }
-
-                    @Override
-                    public long expireAfterRead(TUniqueId key, Route route, long now, long duration) {
-                        return duration;
-                    }
-                }).build();
+    /**
+     * Registers the route of a Flight query whose results stay on the BEs, from the result ids of the endpoints
+     * the session collected for it, before its coordinator is closed or deferred. Nothing of the session is
+     * kept, so neither its next request nor its teardown drops the route.
+     */
+    public void register(ConnectContext context, Coordinator coord) {
+        register(coord.getQueryId(), context.getFlightSqlEndpointsLocations().stream()
+                        .map(FlightSqlEndpointsLocation::getFinstId).distinct().collect(Collectors.toList()),
+                coord.getBackendBrpcAddresses(), coord.getQueryOptions().getExecutionTimeout());
     }
 
     public void register(TUniqueId queryId, List<TUniqueId> resultIds,
@@ -74,18 +86,32 @@ public final class FlightSqlQueryCancellation {
         Route route = new Route(queryId.deepCopy(),
                 resultIds.stream().map(TUniqueId::deepCopy).distinct().collect(Collectors.toList()),
                 backends.stream().map(TNetworkAddress::deepCopy).distinct().collect(Collectors.toList()),
-                TimeUnit.SECONDS.toNanos(Math.max(0L, timeoutSeconds) + 5));
-        for (TUniqueId resultId : route.resultIds) {
-            results.put(resultId, route);
+                nanoClock.getAsLong() + TimeUnit.SECONDS.toNanos(Math.max(0L, timeoutSeconds) + 5));
+        synchronized (this) {
+            for (TUniqueId resultId : route.resultIds) {
+                results.put(resultId, route);
+            }
+            // Whole routes leave from the eldest end: the expired ones there, then as many as the bound requires.
+            long now = nanoClock.getAsLong();
+            while (!results.isEmpty()) {
+                Route eldest = results.values().iterator().next();
+                if (results.size() <= capacity && !eldest.isExpired(now)) {
+                    break;
+                }
+                remove(eldest);
+            }
         }
     }
 
-    public void unregister(List<TUniqueId> resultIds) {
-        results.invalidateAll(resultIds);
-    }
-
     public TStatus cancel(TUniqueId resultId) {
-        Route route = results.getIfPresent(resultId);
+        Route route;
+        synchronized (this) {
+            route = results.get(resultId);
+            if (route != null && route.isExpired(nanoClock.getAsLong())) {
+                remove(route);
+                route = null;
+            }
+        }
         if (route == null) {
             return new TStatus(TStatusCode.NOT_FOUND);
         }
@@ -122,25 +148,40 @@ public final class FlightSqlQueryCancellation {
         }
         if (status.getStatusCode() == TStatusCode.OK) {
             // An unsuccessful attempt must remain routable for the caller's bounded retry.
-            for (TUniqueId id : route.resultIds) {
-                results.asMap().remove(id, route);
+            synchronized (this) {
+                remove(route);
             }
         }
         return status;
+    }
+
+    synchronized int routedResults() {
+        return results.size();
+    }
+
+    // Removes the route's result ids that still map to it. Guarded by this.
+    private void remove(Route route) {
+        for (TUniqueId id : route.resultIds) {
+            results.remove(id, route);
+        }
     }
 
     private static final class Route {
         private final TUniqueId queryId;
         private final List<TUniqueId> resultIds;
         private final List<TNetworkAddress> backends;
-        private final long ttlNanos;
+        private final long deadlineNanos;
 
         private Route(TUniqueId queryId, List<TUniqueId> resultIds,
-                List<TNetworkAddress> backends, long ttlNanos) {
+                List<TNetworkAddress> backends, long deadlineNanos) {
             this.queryId = queryId;
             this.resultIds = resultIds;
             this.backends = backends;
-            this.ttlNanos = ttlNanos;
+            this.deadlineNanos = deadlineNanos;
+        }
+
+        private boolean isExpired(long nowNanos) {
+            return nowNanos - deadlineNanos >= 0;
         }
     }
 }
