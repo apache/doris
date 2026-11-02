@@ -25,10 +25,60 @@
 #include <string_view>
 
 #include "common/cast_set.h"
+#include "common/status.h"
 #include "exec/common/sip_hash.h"
 #include "exec/common/variant_util.h"
 
 namespace doris {
+
+std::string encode_variant_path_component(std::string_view key) {
+    std::string result;
+    result.reserve(key.size());
+    for (char ch : key) {
+        if (ch == '%') {
+            result += "%25";
+        } else if (ch == '.') {
+            result += "%2E";
+        } else {
+            result += ch;
+        }
+    }
+    return result;
+}
+
+Status decode_variant_path_component(std::string_view key, std::string* decoded) {
+    decoded->clear();
+    decoded->reserve(key.size());
+    for (size_t i = 0; i < key.size(); ++i) {
+        if (key[i] != '%') {
+            *decoded += key[i];
+            continue;
+        }
+        const auto code = key.substr(i, 3);
+        if (code == "%25") {
+            *decoded += '%';
+        } else if (code == "%2E") {
+            *decoded += '.';
+        } else {
+            return Status::Corruption("Invalid escaped Variant path component: {}", key);
+        }
+        i += 2;
+    }
+    return Status::OK();
+}
+
+PathInData make_variant_storage_path(const std::string& root,
+                                     const std::vector<std::string>& components, bool escape_dots) {
+    if (!escape_dots) {
+        return PathInData(root, components);
+    }
+    std::vector<std::string> encoded;
+    encoded.reserve(components.size());
+    for (const auto& component : components) {
+        encoded.push_back(encode_variant_path_component(component));
+    }
+    return PathInData(root, encoded);
+}
 
 PathInData::PathInData(std::string_view path_, bool is_typed_) : path(path_), is_typed(is_typed_) {
     const char* begin = path.data();

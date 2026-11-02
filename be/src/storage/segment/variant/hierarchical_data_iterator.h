@@ -77,7 +77,8 @@ public:
                          std::unique_ptr<SubstreamIterator>&& sparse_reader,
                          std::unique_ptr<SubstreamIterator>&& root_column_reader,
                          ColumnReaderCache* column_reader_cache, OlapReaderStatistics* stats,
-                         ReadType read_type, const io::IOContext* io_ctx = nullptr);
+                         ReadType read_type, const io::IOContext* io_ctx = nullptr,
+                         uint32_t path_encoding = 0);
 
     ~HierarchicalDataIterator() override;
 

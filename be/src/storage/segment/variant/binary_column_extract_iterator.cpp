@@ -28,8 +28,11 @@ namespace doris::segment_v2 {
 
 BinaryColumnExtractIterator::BinaryColumnExtractIterator(std::string_view path,
                                                          BinaryColumnCacheSPtr sparse_column_cache,
-                                                         const StorageReadOptions* opts)
-        : BaseBinaryColumnProcessor(std::move(sparse_column_cache), opts), _path(path) {}
+                                                         const StorageReadOptions* opts,
+                                                         uint32_t path_encoding)
+        : BaseBinaryColumnProcessor(std::move(sparse_column_cache), opts),
+          _path(path),
+          _path_encoding(path_encoding) {}
 
 Status BinaryColumnExtractIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) {
     RETURN_IF_ERROR(_validate_destination(*dst));
@@ -93,6 +96,7 @@ Status BinaryColumnExtractIterator::_fill_variant_v2_path(MutableColumnPtr& dst,
     }
     variant_v2::VariantAssemblerOptions options;
     options.requested_path = PathInData(_path);
+    options.path_encoding = _path_encoding;
     options.storage_map_kind = variant_v2::StorageMapKind::SPARSE;
     auto assembler = DORIS_TRY(variant_v2::VariantAssembler::create(std::move(options)));
     ColumnNullable::MutablePtr assembled;

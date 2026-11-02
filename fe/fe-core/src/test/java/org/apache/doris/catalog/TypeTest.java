@@ -17,7 +17,9 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.DdlException;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.types.DataType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -368,4 +370,32 @@ public class TypeTest {
         Assertions.assertEquals("struct<b:text comment \"field doc\">",
                 structType.hideVersionForVersionColumn(true, true));
     }
+
+    @Test
+    public void testVariantEscapedPropertyRoundTrip() {
+        VariantType type = new VariantType(new ArrayList<>(), 1, false, 10000, 3,
+                false, 0, 0, false, true);
+        Assertions.assertTrue(type.toSql().contains("\"variant_escape_dots_in_keys\" = \"true\""));
+        Assertions.assertFalse(new VariantType().toSql().contains("variant_escape_dots_in_keys"));
+        DataType converted = DataType.fromCatalogType(type);
+        Assertions.assertTrue(converted.toSql().contains("variant_escape_dots_in_keys"));
+        Assertions.assertEquals(type, converted.toCatalogDataType());
+        Assertions.assertTrue(ColumnToThrift.toThrift(new Column("v", type)).isVariantEscapeDotsInKeys());
+    }
+
+    @Test
+    public void testVariantEscapedPropertyIsImmutable() {
+        VariantType escaped = new VariantType(new ArrayList<>(), 0, false, 10000, 0,
+                false, 0, 64, false, true);
+        VariantType legacy = new VariantType(new ArrayList<>(), 0, false, 10000, 0,
+                false, 0, 64, false, false);
+        Column on = new Column("v", escaped);
+        Column off = new Column("v", legacy);
+        Assertions.assertThrows(DdlException.class,
+                () -> on.checkSchemaChangeAllowed(off));
+        Assertions.assertThrows(DdlException.class,
+                () -> off.checkSchemaChangeAllowed(on));
+        Assertions.assertDoesNotThrow(() -> on.checkSchemaChangeAllowed(new Column("v", escaped)));
+    }
+
 }

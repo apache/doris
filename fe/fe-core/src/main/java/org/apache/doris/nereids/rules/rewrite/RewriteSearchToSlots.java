@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.info.IndexType;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -34,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
@@ -141,7 +143,16 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
                     // Create ElementAt expression for variant subcolumn
                     // This will be converted to an extracted column slot by VariantSubPathPruning rule
                     // If the subcolumn doesn't exist, ElementAt will remain and BE will handle it gracefully
-                    childExpr = new ElementAt(parentSlot, new StringLiteral(subcolumnPath));
+                    if (((VariantType) parentSlot.getDataType())
+                            .getEscapeDotsInKeys()) {
+                        childExpr = parentSlot;
+                        for (String part : subcolumnPath.split("\\.", -1)) {
+                            String key = PropertyAnalyzer.decodeVariantPathComponent(part);
+                            childExpr = new ElementAt(childExpr, new StringLiteral(key));
+                        }
+                    } else {
+                        childExpr = new ElementAt(parentSlot, new StringLiteral(subcolumnPath));
+                    }
                     normalizedFieldName = normalizedParentFieldName + "." + subcolumnPath;
 
                     LOG.info(

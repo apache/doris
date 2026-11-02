@@ -404,6 +404,7 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     if (tcolumn.__isset.variant_doc_hash_shard_count) {
         column->set_variant_doc_hash_shard_count(tcolumn.variant_doc_hash_shard_count);
     }
+    column->set_variant_escape_dots_in_keys(tcolumn.variant_escape_dots_in_keys);
     if (tcolumn.__isset.variant_enable_nested_group) {
         column->set_variant_enable_nested_group(tcolumn.variant_enable_nested_group);
     }

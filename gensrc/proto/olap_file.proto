@@ -455,6 +455,7 @@ message ColumnPB {
     optional bool variant_enable_nested_group = 34 [default = false];
     // Dynamic default expression retained separately from the historical backfill literal.
     optional bytes default_value_expr = 35;
+    optional bool variant_escape_dots_in_keys = 36 [default = false];
 }
 
 // Dictionary of Schema info, to reduce TabletSchemaCloudPB fdb kv size

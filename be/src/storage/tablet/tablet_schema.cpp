@@ -569,6 +569,7 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     if (column.has_variant_doc_hash_shard_count()) {
         _variant.doc_hash_shard_count = column.variant_doc_hash_shard_count();
     }
+    _variant.escape_dots_in_keys = column.variant_escape_dots_in_keys();
     if (column.has_variant_enable_nested_group()) {
         _variant.enable_nested_group = column.variant_enable_nested_group();
     }
@@ -664,6 +665,7 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     column->set_variant_doc_materialization_min_rows(_variant.doc_materialization_min_rows);
     column->set_variant_doc_hash_shard_count(_variant.doc_hash_shard_count);
     column->set_variant_enable_nested_group(_variant.enable_nested_group);
+    column->set_variant_escape_dots_in_keys(_variant.escape_dots_in_keys);
 }
 
 void TabletColumn::add_sub_column(TabletColumn& sub_column) {
@@ -728,13 +730,13 @@ DataTypePtr TabletColumn::get_vec_type() const {
 }
 
 // escape '.' and '_'
-std::string escape_for_path_name(const std::string& s) {
+std::string escape_for_path_name(const std::string& s, bool escape_percent = false) {
     std::string res;
     const char* pos = s.data();
     const char* end = pos + s.size();
     while (pos != end) {
         unsigned char c = *pos;
-        if (c == '.' || c == '_') {
+        if (c == '.' || c == '_' || (escape_percent && c == '%')) {
             res += '%';
             res += hex_digit_uppercase(c / 16);
             res += hex_digit_uppercase(c % 16);
@@ -746,8 +748,9 @@ std::string escape_for_path_name(const std::string& s) {
     return res;
 }
 
-void TabletIndex::set_escaped_escaped_index_suffix_path(const std::string& path_name) {
-    std::string escaped_path = escape_for_path_name(path_name);
+void TabletIndex::set_escaped_escaped_index_suffix_path(const std::string& path_name,
+                                                        bool escape_percent) {
+    std::string escaped_path = escape_for_path_name(path_name, escape_percent);
     _escaped_index_suffix_path = escaped_path;
 }
 
@@ -1632,7 +1635,9 @@ bool TabletSchema::has_inverted_index_with_index_id(int64_t index_id) const {
 std::vector<const TabletIndex*> TabletSchema::inverted_indexs(
         int32_t col_unique_id, const std::string& suffix_path) const {
     std::vector<const TabletIndex*> result;
-    const std::string escaped_suffix = escape_for_path_name(suffix_path);
+    const int parent_index = field_index(col_unique_id);
+    const bool escaped = parent_index >= 0 && column(parent_index).variant_escape_dots_in_keys();
+    const std::string escaped_suffix = escape_for_path_name(suffix_path, escaped);
     auto it = _col_id_suffix_to_index.find(
             std::make_tuple(IndexType::INVERTED, col_unique_id, escaped_suffix));
     if (it != _col_id_suffix_to_index.end()) {
@@ -1667,16 +1672,18 @@ std::vector<const TabletIndex*> TabletSchema::inverted_indexs(const TabletColumn
     // TODO use more efficient impl
     // Use parent id if unique not assigned, this could happend when accessing subcolumns of variants
     int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
-    return inverted_indexs(col_unique_id, escape_for_path_name(col.suffix_path()));
+    return inverted_indexs(col_unique_id, col.suffix_path());
 }
 
 const TabletIndex* TabletSchema::ann_index(int32_t col_unique_id,
                                            const std::string& suffix_path) const {
+    const int parent_index = field_index(col_unique_id);
+    const bool escaped = parent_index >= 0 && column(parent_index).variant_escape_dots_in_keys();
     for (size_t i = 0; i < _indexes.size(); i++) {
         if (_indexes[i]->index_type() == IndexType::ANN) {
             for (int32_t id : _indexes[i]->col_unique_ids()) {
                 if (id == col_unique_id &&
-                    _indexes[i]->get_index_suffix() == escape_for_path_name(suffix_path)) {
+                    _indexes[i]->get_index_suffix() == escape_for_path_name(suffix_path, escaped)) {
                     return _indexes[i].get();
                 }
             }
@@ -1692,7 +1699,7 @@ const TabletIndex* TabletSchema::ann_index(const TabletColumn& col) const {
     // TODO use more efficient impl
     // Use parent id if unique not assigned, this could happend when accessing subcolumns of variants
     int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
-    return ann_index(col_unique_id, escape_for_path_name(col.suffix_path()));
+    return ann_index(col_unique_id, col.suffix_path());
 }
 
 bool TabletSchema::has_ngram_bf_index(int32_t col_unique_id) const {
@@ -1774,6 +1781,9 @@ bool operator==(const TabletColumn& a, const TabletColumn& b) {
     if (a._unique_id != b._unique_id) return false;
     if (a._col_name != b._col_name) return false;
     if (a._type != b._type) return false;
+    if (a._variant.escape_dots_in_keys != b._variant.escape_dots_in_keys) {
+        return false;
+    }
     if (a._is_key != b._is_key) return false;
     if (a._aggregation != b._aggregation) return false;
     if (a._is_nullable != b._is_nullable) return false;

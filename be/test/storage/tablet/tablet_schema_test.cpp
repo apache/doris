@@ -1137,4 +1137,49 @@ TEST_F(TabletSchemaTest, to_schema_pb_v2_skips_legacy_flags) {
               out.binary_plain_encoding_default_impl());
 }
 
+TEST_F(TabletSchemaTest, EscapedVariantPropertyAndIndexSuffixRoundTrip) {
+    TabletColumn column;
+    column.set_unique_id(7);
+    column.set_name("v");
+    column.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    column.set_variant_escape_dots_in_keys(true);
+    ColumnPB pb;
+    column.to_schema_pb(&pb);
+    TabletColumn restored(pb);
+    EXPECT_TRUE(restored.variant_escape_dots_in_keys());
+    TabletIndex index;
+    index.set_escaped_escaped_index_suffix_path("v.a%2Eb_x");
+    EXPECT_EQ(index.get_index_suffix(), "v%2Ea%2Eb%5Fx");
+    index.set_escaped_escaped_index_suffix_path("v.a%2Eb_x", true);
+    EXPECT_EQ(index.get_index_suffix(), "v%2Ea%252Eb%5Fx");
+    index.set_escaped_escaped_index_suffix_path("v.a.b_x", true);
+    EXPECT_EQ(index.get_index_suffix(), "v%2Ea%2Eb%5Fx");
+    TabletSchema schema;
+    schema.append_column(restored);
+    for (auto kind : {IndexType::INVERTED, IndexType::ANN}) {
+        TabletIndexPB index_pb;
+        index_pb.set_index_id(kind == IndexType::INVERTED ? 70 : 71);
+        index_pb.set_index_type(kind);
+        index_pb.add_col_unique_id(7);
+        TabletIndex child_index;
+        child_index.init_from_pb(index_pb);
+        child_index.set_escaped_escaped_index_suffix_path("v.a%2Eb_x", true);
+        schema.append_index(std::move(child_index));
+    }
+    TabletColumn scalar;
+    scalar.set_name("v.a%2Eb_x");
+    scalar.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    scalar.set_parent_unique_id(7);
+    scalar.set_path_info(PathInData("v.a%2Eb_x"));
+    const auto indexes = schema.inverted_indexs(scalar);
+    ASSERT_EQ(indexes.size(), 1);
+    EXPECT_EQ(indexes[0]->index_id(), 70);
+    EXPECT_EQ(schema.inverted_indexs(7, "v.a%2Eb_x")[0], indexes[0]);
+    auto array = scalar;
+    array.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+    ASSERT_NE(schema.ann_index(array), nullptr);
+    EXPECT_EQ(schema.ann_index(array)->index_id(), 71);
+    EXPECT_EQ(schema.ann_index(7, "v.a%2Eb_x"), schema.ann_index(array));
+}
+
 } // namespace doris

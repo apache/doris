@@ -2499,6 +2499,49 @@ public class PropertyAnalyzer {
         return shardCount;
     }
 
+    public static final String PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS = "variant_escape_dots_in_keys";
+
+    public static boolean analyzeVariantEscapeDotsInKeys(Map<String, String> properties)
+            throws AnalysisException {
+        String value = properties.remove(PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS);
+        if (value == null) {
+            return false;
+        }
+        if (!value.equalsIgnoreCase("true") && !value.equalsIgnoreCase("false")) {
+            throw new AnalysisException("variant_escape_dots_in_keys must be true or false");
+        }
+        return Boolean.parseBoolean(value);
+    }
+
+    public static String encodeVariantPathComponent(String key) {
+        return key.replace("%", "%25").replace(".", "%2E");
+    }
+
+    public static String decodeVariantPathComponent(String key) throws AnalysisException {
+        StringBuilder result = new StringBuilder();
+        for (int i = 0; i < key.length(); i++) {
+            char ch = key.charAt(i);
+            if (ch != '%') {
+                result.append(ch);
+            } else if (key.startsWith("%25", i)) {
+                result.append('%');
+                i += 2;
+            } else if (key.startsWith("%2E", i)) {
+                result.append('.');
+                i += 2;
+            } else {
+                throw new AnalysisException("Invalid escaped Variant path component: " + key);
+            }
+        }
+        return result.toString();
+    }
+
+    public static void validateVariantStoragePath(String path) throws AnalysisException {
+        for (String component : path.split("\\.", -1)) {
+            decodeVariantPathComponent(component);
+        }
+    }
+
     public static void validateVariantProperties(Map<String, String> properties) throws AnalysisException {
         if (properties != null && properties.containsKey(PROPERTIES_VARIANT_ENABLE_DOC_MODE)) {
             if (properties.containsKey(PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT)) {

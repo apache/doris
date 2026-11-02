@@ -79,6 +79,7 @@ public:
         int32_t doc_hash_shard_count = 64;
 
         bool enable_nested_group = false;
+        bool escape_dots_in_keys = false;
     };
 
     TabletColumn();
@@ -280,6 +281,9 @@ public:
         _variant.enable_typed_paths_to_sparse = variant_enable_typed_paths_to_sparse;
     }
 
+    bool variant_escape_dots_in_keys() const { return _variant.escape_dots_in_keys; }
+    void set_variant_escape_dots_in_keys(bool value) { _variant.escape_dots_in_keys = value; }
+
     bool variant_enable_nested_group() const { return _variant.enable_nested_group; }
 
     void set_variant_enable_nested_group(bool val) { _variant.enable_nested_group = val; }
@@ -367,7 +371,8 @@ public:
 
     const std::string& get_index_suffix() const { return _escaped_index_suffix_path; }
 
-    void set_escaped_escaped_index_suffix_path(const std::string& name);
+    void set_escaped_escaped_index_suffix_path(const std::string& name,
+                                               bool escape_percent = false);
 
     bool is_inverted_index() const { return _index_type == IndexType::INVERTED; }
 

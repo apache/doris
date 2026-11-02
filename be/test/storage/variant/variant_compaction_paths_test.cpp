@@ -149,4 +149,18 @@ TEST(VariantCompactionPathsTest, TypeThatCannotCarryAnInvertedIndex) {
     EXPECT_EQ(1, variant_subcolumn_indexes(&layout, scalar).size());
 }
 
+TEST(VariantCompactionPathsTest, EncodedAndNestedPathsKeepSeparateIndexes) {
+    VariantCompactionPaths paths;
+    paths.subcolumn_indexes["a%2Eb"] = {make_inverted_index(3001, "dotted")};
+    paths.subcolumn_indexes["a.b"] = {make_inverted_index(3002, "nested")};
+    VariantCompactionPathsMap layout;
+    layout[kVariantUid] = std::move(paths);
+    auto dotted = variant_subcolumn_indexes(&layout, make_extracted_column("a%2Eb", false));
+    auto nested = variant_subcolumn_indexes(&layout, make_extracted_column("a.b", false));
+    ASSERT_EQ(dotted.size(), 1);
+    ASSERT_EQ(nested.size(), 1);
+    EXPECT_EQ(dotted[0]->index_id(), 3001);
+    EXPECT_EQ(nested[0]->index_id(), 3002);
+}
+
 } // namespace doris

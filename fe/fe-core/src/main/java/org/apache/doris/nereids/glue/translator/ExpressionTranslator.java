@@ -51,6 +51,7 @@ import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
@@ -267,7 +268,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         Column column = slot.getOriginalColumn().orElse(null);
         OlapTable olapTbl = getOlapTableDirectly(slot);
         if (column != null && olapTbl != null) {
-            invertedIndex = olapTbl.getInvertedIndex(column, slot.getSubPath(), analyzer);
+            invertedIndex = olapTbl.getInvertedIndex(
+                    column, storageVariantSubPath(column, slot.getSubPath()), analyzer);
             if (analyzer != null && invertedIndex == null) {
                 throw new AnalysisException("No inverted index found for analyzer '" + analyzer
                         + "' on column " + column.getName());
@@ -747,6 +749,14 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         return new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments), dictGetMany.nullable());
     }
 
+    private static List<String> storageVariantSubPath(Column column, List<String> path) {
+        if (!column.getVariantEscapeDotsInKeys()) {
+            return path;
+        }
+        return path.stream().map(PropertyAnalyzer::encodeVariantPathComponent)
+                .collect(Collectors.toList());
+    }
+
     @Override
     public Expr visitSearchExpression(SearchExpression searchExpression,
             PlanTranslatorContext context) {
@@ -766,7 +776,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 if (olapTbl != null) {
                     Column column = slot.getOriginalColumn().orElse(null);
                     if (column != null) {
-                        invertedIndex = olapTbl.getInvertedIndex(column, slot.getSubPath());
+                        invertedIndex = olapTbl.getInvertedIndex(
+                                column, storageVariantSubPath(column, slot.getSubPath()));
                     }
                 }
             }

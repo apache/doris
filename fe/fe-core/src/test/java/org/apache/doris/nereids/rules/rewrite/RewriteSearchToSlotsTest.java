@@ -26,6 +26,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.TableIndexes;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.VariantType;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
@@ -47,6 +48,7 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
@@ -373,4 +375,28 @@ public class RewriteSearchToSlotsTest {
                 0, 0, (short) 0, TStorageType.COLUMN, KeysType.PRIMARY_KEYS);
         return table;
     }
+
+    @Test
+    public void testEscapedStorageFieldsBecomeLogicalElementAtChains() throws Exception {
+        OlapTable table = buildVariantTableWithInvertedIndex(190L);
+        table.getFullSchema().get(1).setType(new VariantType(
+                new ArrayList<>(), 0, false, 10000, 0, false, 0, 64, false, true));
+        LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(), table, ImmutableList.of("db"));
+        Method method = RewriteSearchToSlots.class.getDeclaredMethod("rewriteSearch", Search.class, LogicalOlapScan.class);
+        method.setAccessible(true);
+        SearchExpression dotted = (SearchExpression) method.invoke(rewriteRule,
+                new Search(new StringLiteral("v.a%2Eb:value")), scan);
+        ElementAt key = (ElementAt) dotted.getSlotChildren().get(0);
+        Assertions.assertInstanceOf(SlotReference.class, key.child(0));
+        Assertions.assertEquals("a.b", ((StringLiteral) key.child(1)).getStringValue());
+        SearchExpression nested = (SearchExpression) method.invoke(rewriteRule,
+                new Search(new StringLiteral("v.a.b:value")), scan);
+        ElementAt leaf = (ElementAt) nested.getSlotChildren().get(0);
+        Assertions.assertInstanceOf(ElementAt.class, leaf.child(0));
+        Assertions.assertEquals("b", ((StringLiteral) leaf.child(1)).getStringValue());
+        InvocationTargetException error = Assertions.assertThrows(InvocationTargetException.class,
+                () -> method.invoke(rewriteRule, new Search(new StringLiteral("v.bad%2e:value")), scan));
+        Assertions.assertTrue(error.getCause().getMessage().contains("Invalid escaped Variant path component"));
+    }
+
 }

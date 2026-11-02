@@ -162,13 +162,15 @@ void get_field_info(const Field& field, FieldInfo* info);
 // inherit index from parent column
 bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
                    TabletIndexes& sub_column_indexes, FieldType column_type,
-                   const std::string& suffix_path, bool is_array_nested_type = false);
+                   const std::string& suffix_path, bool is_array_nested_type = false,
+                   bool escape_dots = false);
 
 bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
                    TabletIndexes& sub_column_indexes, const TabletColumn& column);
 
 bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
-                   TabletIndexes& sub_column_indexes, const segment_v2::ColumnMetaPB& column_pb);
+                   TabletIndexes& sub_column_indexes, const segment_v2::ColumnMetaPB& column_pb,
+                   bool escape_dots = false);
 
 Status update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolumns_types,
                                     TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
@@ -181,6 +183,8 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
 
 class VariantCompactionUtil {
 public:
+    static Status check_path_encoding(const std::vector<RowsetSharedPtr>& inputs,
+                                      const TabletSchema& schema);
     // get the subpaths and sparse paths for the variant column
     static void get_subpaths(int32_t max_subcolumns_count, const PathToNoneNullValues& path_stats,
                              VariantCompactionPaths& paths_set_info);

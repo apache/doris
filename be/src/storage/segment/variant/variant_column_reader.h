@@ -182,6 +182,8 @@ using PathToBinaryColumnCacheUPtr = std::unique_ptr<PathToBinaryColumnCache>;
 
 class VariantColumnReader : public ColumnReader {
 public:
+    uint32_t path_encoding() const { return _path_encoding; }
+
     VariantColumnReader() = default;
 
     Status init(const ColumnReaderOptions& opts, ColumnMetaAccessor* accessor,
@@ -423,6 +425,7 @@ private:
     std::unique_ptr<SubcolumnColumnMetaInfo> _subcolumns_meta_info;
     // Sparse column readers (single or bucketized)
     std::shared_ptr<BinaryColumnReader> _binary_column_reader;
+    uint32_t _path_encoding = 0;
     std::shared_ptr<ColumnReader> _root_column_reader;
     std::unique_ptr<VariantStatistics> _statistics;
     std::shared_ptr<TabletSchema> _tablet_schema;

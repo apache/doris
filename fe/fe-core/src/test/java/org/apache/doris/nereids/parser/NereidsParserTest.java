@@ -23,6 +23,7 @@ import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mtmv.ivm.IvmDryRunLimit;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
@@ -78,6 +79,7 @@ import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SqlModeHelper;
@@ -1710,8 +1712,8 @@ public class NereidsParserTest extends ParserTestBase {
         LogicalPlan logicalPlan = parser.parseSingle(sql);
         Assertions.assertInstanceOf(CreateTableCommand.class, logicalPlan);
         CreateTableCommand createTableCommand = (CreateTableCommand) logicalPlan;
-        org.apache.doris.nereids.types.VariantType variantType =
-                (org.apache.doris.nereids.types.VariantType) createTableCommand.getCreateTableInfo()
+        VariantType variantType =
+                (VariantType) createTableCommand.getCreateTableInfo()
                         .getColumnDefinitions().get(1).getType();
         Assertions.assertTrue(variantType.getEnableNestedGroup());
     }
@@ -2040,4 +2042,27 @@ public class NereidsParserTest extends ParserTestBase {
         Assertions.assertInstanceOf(Not.class, expression);
         Assertions.assertInstanceOf(IsFalse.class, expression.child(0));
     }
+
+    @Test
+    public void testVariantEscapedKeysPropertiesAndCodec() throws Exception {
+        String prefix = "CREATE TABLE escaped (id INT, v VARIANT<PROPERTIES(";
+        String suffix = ")>) DISTRIBUTED BY HASH(id) BUCKETS 1";
+        NereidsParser parser = new NereidsParser();
+        CreateTableCommand command = (CreateTableCommand) parser.parseSingle(prefix
+                + "\"variant_escape_dots_in_keys\"=\"true\",\"variant_enable_nested_group\"=\"false\"" + suffix);
+        VariantType type = (VariantType)
+                command.getCreateTableInfo().getColumnDefinitions().get(1).getType();
+        Assertions.assertTrue(type.getEscapeDotsInKeys());
+        Assertions.assertThrows(NotSupportedException.class, () -> parser.parseSingle(prefix
+                + "\"variant_escape_dots_in_keys\"=\"invalid\"" + suffix));
+        Assertions.assertThrows(NotSupportedException.class, () -> parser.parseSingle(prefix
+                + "\"variant_escape_dots_in_keys\"=\"true\",\"variant_enable_nested_group\"=\"true\"" + suffix));
+        Assertions.assertEquals("a%252Eb",
+                PropertyAnalyzer.encodeVariantPathComponent("a%2Eb"));
+        Assertions.assertEquals("a%2Eb",
+                PropertyAnalyzer.decodeVariantPathComponent("a%252Eb"));
+        Assertions.assertThrows(org.apache.doris.common.AnalysisException.class,
+                () -> PropertyAnalyzer.validateVariantStoragePath("a%2e"));
+    }
+
 }

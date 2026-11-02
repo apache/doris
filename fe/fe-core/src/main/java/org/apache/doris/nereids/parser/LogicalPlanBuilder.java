@@ -5477,6 +5477,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             throw new NotSupportedException(e.getMessage());
         }
 
+        boolean escapeDotsInKeys;
+        try {
+            escapeDotsInKeys = PropertyAnalyzer.analyzeVariantEscapeDotsInKeys(properties);
+            if (escapeDotsInKeys && enableNestedGroup) {
+                throw new NotSupportedException("NestedGroup and variant_escape_dots_in_keys cannot both be true");
+            }
+            if (escapeDotsInKeys) {
+                for (VariantField field : fields) {
+                    PropertyAnalyzer.validateVariantStoragePath(field.getPattern());
+                }
+            }
+        } catch (org.apache.doris.common.AnalysisException e) {
+            throw new NotSupportedException(e.getMessage());
+        }
         if (enableNestedGroup) {
             enableVariantDocMode = false;
             variantMaxSubcolumnsCount = 0;
@@ -5529,7 +5543,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new VariantType(fields, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
                     variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
                     enableVariantDocMode, variantDocMaterializationMinRows, variantDocHashShardCount,
-                    enableNestedGroup);
+                    enableNestedGroup, escapeDotsInKeys);
     }
 
     private static boolean isSupportedVariantDocModeType(DataType type) {

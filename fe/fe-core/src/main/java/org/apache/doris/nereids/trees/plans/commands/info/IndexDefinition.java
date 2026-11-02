@@ -32,6 +32,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
@@ -176,6 +177,15 @@ public class IndexDefinition {
     public void checkColumn(ColumnDefinition column, KeysType keysType,
             boolean enableUniqueKeyMergeOnWrite,
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {
+        if (column.getType() instanceof VariantType
+                && ((VariantType) column.getType()).getEscapeDotsInKeys()
+                && properties.containsKey("field_pattern")) {
+            try {
+                PropertyAnalyzer.validateVariantStoragePath(properties.get("field_pattern"));
+            } catch (org.apache.doris.common.AnalysisException e) {
+                throw new AnalysisException(e.getMessage(), e);
+            }
+        }
         if (indexType == IndexType.ANN) {
             if (column.isNullable()) {
                 throw new AnalysisException("ANN index must be built on a column that is not nullable");
@@ -299,6 +309,13 @@ public class IndexDefinition {
      */
     public void checkColumn(Column column, KeysType keysType, boolean enableUniqueKeyMergeOnWrite,
                             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {
+        if (column.getVariantEscapeDotsInKeys() && properties.containsKey("field_pattern")) {
+            try {
+                PropertyAnalyzer.validateVariantStoragePath(properties.get("field_pattern"));
+            } catch (org.apache.doris.common.AnalysisException e) {
+                throw new AnalysisException(e.getMessage(), e);
+            }
+        }
         if (indexType == IndexType.ANN) {
             if (column.isAllowNull()) {
                 throw new AnalysisException("ANN index must be built on a column that is not nullable");

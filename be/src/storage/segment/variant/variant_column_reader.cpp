@@ -196,6 +196,9 @@ const SubcolumnColumnMetaInfo::Node* VariantColumnReader::get_subcolumn_meta_by_
     }
     // try rebuild path with hierarchical
     // example path(['a.b']) -> path(['a', 'b'])
+    if (_path_encoding == 1) {
+        return nullptr;
+    }
     auto path = PathInData(relative_path.get_path());
     node = _subcolumns_meta_info->find_leaf(path);
     return node;
@@ -305,7 +308,7 @@ Status VariantColumnReader::_create_hierarchical_reader(
     }
     RETURN_IF_ERROR(HierarchicalDataIterator::create(
             reader, col_uid, path, node, std::move(sparse_iter), std::move(root_column_reader),
-            column_reader_cache, stats, read_type, io_ctx));
+            column_reader_cache, stats, read_type, io_ctx, _path_encoding));
     return Status::OK();
 }
 
@@ -871,7 +874,7 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
 
     // try rebuild path with hierarchical
     // example path(['a.b']) -> path(['a', 'b'])
-    if (node == nullptr) {
+    if (node == nullptr && _path_encoding == 0) {
         relative_path = PathInData(relative_path.get_path());
         node = _subcolumns_meta_info->find_exact(relative_path);
     }
@@ -1049,7 +1052,7 @@ Status VariantColumnReader::_create_iterator_from_plan(
         BinaryColumnCacheSPtr binary_column_cache = DORIS_TRY(_get_binary_column_cache(
                 binary_column_cache_ptr, plan.binary_cache_key, plan.binary_column_reader));
         *iterator = std::make_unique<BinaryColumnExtractIterator>(
-                plan.relative_path.get_path(), std::move(binary_column_cache), opt);
+                plan.relative_path.get_path(), std::move(binary_column_cache), opt, _path_encoding);
         if (opt && opt->stats) {
             opt->stats->variant_subtree_sparse_iter_count++;
         }
@@ -1079,7 +1082,8 @@ Status VariantColumnReader::_create_iterator_from_plan(
         DCHECK(plan.binary_column_reader);
         ColumnIteratorUPtr inner_iter;
         RETURN_IF_ERROR(plan.binary_column_reader->new_iterator(&inner_iter, nullptr));
-        *iterator = std::make_unique<VariantDocValueCompactIterator>(std::move(inner_iter));
+        *iterator = std::make_unique<VariantDocValueCompactIterator>(std::move(inner_iter),
+                                                                     _path_encoding);
         return Status::OK();
     }
     case ReadKind::HIERARCHICAL_DOC: {
@@ -1193,6 +1197,18 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
                                              &_root_column_reader));
     }
 
+    _path_encoding = self_column_pb.variant_path_encoding();
+    if (_path_encoding > 1) {
+        return Status::Corruption("Unknown Variant path encoding {} for column {}", _path_encoding,
+                                  column_uid);
+    }
+    const auto& parent = opts.tablet_schema->column_by_uid(column_uid);
+    if (_path_encoding != (parent.variant_escape_dots_in_keys() ? 1U : 0U)) {
+        return Status::NotSupported(
+                "Variant path encoding {} does not match variant_escape_dots_in_keys={} for column "
+                "{}",
+                _path_encoding, parent.variant_escape_dots_in_keys(), column_uid);
+    }
     _data_type = DataTypeFactory::instance().create_data_type(self_column_pb);
     _root_unique_id = self_column_pb.unique_id();
     const bool should_record_path_stats = variant_util::should_record_variant_path_stats(
@@ -1353,7 +1369,9 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
         // Rebuild via the string constructor when the path has neither typed
         // nor nested metadata, so the tree matches the new shape.
         if (!relative_path.get_is_typed() && !relative_path.has_nested_part()) {
-            relative_path = PathInData(relative_path.get_path());
+            if (_path_encoding == 0) {
+                relative_path = PathInData(relative_path.get_path());
+            }
         }
         _subcolumns_meta_info->add(
                 relative_path,
@@ -1523,6 +1541,7 @@ TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(const TabletCol
                                                  {.unique_id = -1,
                                                   .parent_unique_id = column.parent_unique_id(),
                                                   .path_info = index_path});
+        target_column.set_variant_escape_dots_in_keys(_path_encoding == 1);
         variant_util::inherit_index(parent_index, sub_column_info.indexes, target_column);
         for (const auto& index : sub_column_info.indexes) {
             add_variant_search_binding_diagnostic(

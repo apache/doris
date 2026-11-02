@@ -250,7 +250,10 @@ ScoringIndexCandidates resolve_text_scoring_index_candidates(const TabletSchemaS
             continue;
         }
         auto owned_index = std::make_shared<TabletIndex>(*index);
-        owned_index->set_escaped_escaped_index_suffix_path(column.path_info_ptr()->get_path());
+        owned_index->set_escaped_escaped_index_suffix_path(
+                column.path_info_ptr()->get_path(),
+                tablet_schema->column_by_uid(column.parent_unique_id())
+                        .variant_escape_dots_in_keys());
         candidates.index_metas.push_back(owned_index.get());
         candidates.owned_index_metas.emplace_back(std::move(owned_index));
     }
