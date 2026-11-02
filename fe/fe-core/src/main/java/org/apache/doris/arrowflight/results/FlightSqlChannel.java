@@ -17,13 +17,10 @@
 
 package org.apache.doris.arrowflight.results;
 
-import org.apache.doris.arrowflight.FlightSqlQueryCancellation;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.ResultSetMetaData;
-import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
@@ -47,7 +44,6 @@ import java.util.concurrent.TimeUnit;
 public class FlightSqlChannel {
     private final Cache<String, FlightSqlResultCacheEntry> resultCache;
     private final BufferAllocator allocator;
-    private final List<TUniqueId> remoteResultIds = new ArrayList<>();
 
     public FlightSqlChannel() {
         // The Stmt result is not picked up by the Client within 10 minutes and will be deleted.
@@ -128,16 +124,8 @@ public class FlightSqlChannel {
         return allocator.getAllocatedMemory();
     }
 
-    public synchronized void registerRemoteQuery(TUniqueId queryId, List<TUniqueId> resultIds,
-            List<TNetworkAddress> backends, int timeoutSeconds) {
-        FlightSqlQueryCancellation.INSTANCE.register(queryId, resultIds, backends, timeoutSeconds);
-        remoteResultIds.addAll(resultIds);
-    }
-
-    public synchronized void reset() {
+    public void reset() {
         resultCache.invalidateAll();
-        FlightSqlQueryCancellation.INSTANCE.unregister(remoteResultIds);
-        remoteResultIds.clear();
     }
 
     public void close() {
