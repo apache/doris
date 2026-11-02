@@ -1825,8 +1825,8 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
         // the raw column. CLucene compaction is selected per column: a sibling index
         // must not re-enable native merging for this column later in this loop.
         const auto column_indexes = _cur_tablet_schema->inverted_indexs(col_unique_id);
-        const bool needs_norms_rebuild = std::any_of(
-                column_indexes.begin(), column_indexes.end(), [](const TabletIndex* column_index) {
+        const bool needs_norms_rebuild =
+                std::ranges::any_of(column_indexes, [](const TabletIndex* column_index) {
                     return segment_v2::inverted_index::InvertedIndexAnalyzer::should_analyzer(
                                    column_index->properties()) &&
                            should_write_index_norms(*column_index) &&
