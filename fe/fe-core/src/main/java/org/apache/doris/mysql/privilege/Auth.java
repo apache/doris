@@ -479,6 +479,17 @@ public class Auth implements Writable {
         return widened;
     }
 
+    /**
+     * The role names an identity effectively holds right now, as every built-in privilege check
+     * resolves them: an SU narrowing of the current session (or of the RPC thread) replaces the
+     * union, LDAP roles are included, the per-user default role and the synthetic SU baseline are
+     * not. This is what an authorization source is told when it asks the engine who holds which
+     * roles, so a policy written against Doris roles sees the same set the engine enforces.
+     */
+    public Set<String> getEffectiveRoleNames(UserIdentity user) {
+        return getRoleNamesByUserWithLdap(user, false);
+    }
+
     public Set<String> getRoleNamesByUserWithLdap(UserIdentity user, boolean showUserDefaultRole) {
         Set<Role> rolesByUserWithLdap = getRolesByUserWithLdap(user);
         Set<String> res = Sets.newHashSetWithExpectedSize(rolesByUserWithLdap.size());

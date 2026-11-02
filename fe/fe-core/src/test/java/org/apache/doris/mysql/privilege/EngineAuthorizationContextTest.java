@@ -61,22 +61,21 @@ public class EngineAuthorizationContextTest {
     }
 
     /**
-     * Roles come without the per-user default role: it is how the built-in model stores a user's own grants,
-     * not a role an administrator writes a policy against.
+     * Roles come as the engine's own checks resolve them (without the per-user default role, under the
+     * session's SU narrowing if any): a source's role-bound policies see the same set the engine enforces.
      */
     @Test
-    public void testRolesAreReadWithoutTheInternalDefaultRole() {
+    public void testRolesAreReadAsTheEngineResolvesThem() {
         Auth auth = Mockito.mock(Auth.class);
         Set<String> roles = ImmutableSet.of("analyst");
-        Mockito.when(auth.getRolesByUser(Mockito.any(UserIdentity.class), Mockito.eq(false))).thenReturn(roles);
+        Mockito.when(auth.getEffectiveRoleNames(Mockito.any(UserIdentity.class))).thenReturn(roles);
 
         EngineAuthorizationContext context = new EngineAuthorizationContext(
                 new AccessControllerManager(auth), auth);
         context.servedBy(new Recording());
 
         Assertions.assertEquals(roles, context.rolesOf(SUBJECT));
-        Mockito.verify(auth).getRolesByUser(
-                UserIdentity.createAnalyzedUserIdentWithIp("user1", "%"), false);
+        Mockito.verify(auth).getEffectiveRoleNames(UserIdentity.createAnalyzedUserIdentWithIp("user1", "%"));
     }
 
     @Test

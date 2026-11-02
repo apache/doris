@@ -35,6 +35,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -561,5 +562,48 @@ public class SuUserNarrowingTest extends TestWithFeService {
         Assertions.assertTrue(Auth.SU_NARROWING_BASELINE_ROLE.startsWith(RoleManager.DEFAULT_ROLE_PREFIX));
         Assertions.assertThrows(Exception.class, () -> runAsAdmin("CREATE ROLE " + Auth.SU_NARROWING_BASELINE_ROLE));
         Assertions.assertFalse(Env.getCurrentEnv().getAuth().doesRoleExist(Auth.SU_NARROWING_BASELINE_ROLE));
+    }
+
+    /**
+     * The authorization-SPI role bridge (what a ranger-hive or third-party source is told when it asks
+     * who holds which roles) resolves through the same choke point as the built-in checks: a narrowed
+     * session's override, and the narrowing a BE->FE RPC carries, reach role-bound policies of every
+     * source; the per-user default role and the synthetic baseline never do.
+     */
+    @Test
+    public void testAuthorizationSpiRoleBridgeIsNarrowed() throws Exception {
+        addUser("spi_person", true);
+        createRole("spi_tenant_a");
+        createRole("spi_tenant_b");
+        grantRole("GRANT 'spi_tenant_a','spi_tenant_b' TO 'spi_person'@'%'");
+        UserIdentity person = ident("spi_person");
+        EngineAuthorizationContext bridge = new EngineAuthorizationContext(
+                Env.getCurrentEnv().getAccessManager(), Env.getCurrentEnv().getAuth());
+
+        ConnectContext ctx = new ConnectContext();
+        ctx.setCurrentUserIdentity(person);
+        ctx.setThreadLocalInfo();
+        try {
+            Assertions.assertEquals(Sets.newHashSet("spi_tenant_a", "spi_tenant_b"),
+                    bridge.rolesOf(AccessTranslation.subjectOf(person)));
+            ctx.setSessionRoleOverride(Collections.singleton("spi_tenant_a"));
+            Assertions.assertEquals(Collections.singleton("spi_tenant_a"),
+                    bridge.rolesOf(AccessTranslation.subjectOf(person)));
+            // another identity's roles are untouched by this session's narrowing
+            Assertions.assertTrue(bridge.rolesOf(AccessTranslation.subjectOf(ident("bystander"))).isEmpty());
+        } finally {
+            connectContext.setThreadLocalInfo();
+        }
+
+        // the narrowing a metadata RPC carries (no ConnectContext on the handler thread)
+        Auth.setRpcSessionNarrowing(person, Collections.singleton("spi_tenant_b"));
+        try {
+            Assertions.assertEquals(Collections.singleton("spi_tenant_b"),
+                    bridge.rolesOf(AccessTranslation.subjectOf(person)));
+        } finally {
+            Auth.clearRpcSessionNarrowing();
+        }
+        Assertions.assertEquals(Sets.newHashSet("spi_tenant_a", "spi_tenant_b"),
+                bridge.rolesOf(AccessTranslation.subjectOf(person)));
     }
 }
