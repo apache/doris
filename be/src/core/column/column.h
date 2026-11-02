@@ -239,12 +239,6 @@ public:
                                "Method insert_data is not supported for " + get_name());
     }
 
-    virtual void insert_many_fix_len_data(const char* pos, size_t num) {
-        throw doris::Exception(
-                ErrorCode::NOT_IMPLEMENTED_ERROR,
-                "Method insert_many_fix_len_data is not supported for " + get_name());
-    }
-
     // todo(zeno) Use dict_args temp object to cover all arguments
     virtual void insert_many_dict_data(const int32_t* data_array, size_t start_index,
                                        const StringRef* dict, size_t data_num,
@@ -899,11 +893,18 @@ bool is_column_const(const IColumn& column);
 bool is_column_nullable(const IColumn& column);
 } // namespace doris
 
-// Wrap `ColumnPtr` because `ColumnPtr` can't be used in forward declaration.
+// Hold a constant expression's single-row result column. For example, both a one-row Int64
+// column and ColumnConst(Int64, N) store the same Int64 row here; broadcast wraps it again.
+// This class also allows forward declarations where the ColumnPtr alias cannot be used.
 namespace doris {
-struct ColumnPtrWrapper {
-    ColumnPtr column_ptr;
+class ConstantExprResult {
+public:
+    explicit ConstantExprResult(ColumnPtr column);
 
-    ColumnPtrWrapper(ColumnPtr col) : column_ptr(std::move(col)) {}
+    const IColumn& column() const { return *_column_ptr; }
+    const ColumnPtr& column_ptr() const { return _column_ptr; }
+
+private:
+    ColumnPtr _column_ptr;
 };
 } // namespace doris

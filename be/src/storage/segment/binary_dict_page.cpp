@@ -288,7 +288,7 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, MutableColumnPtr& dst) {
         // without copying actual char data. This allows length() to work.
         // ColumnDictI32 does not implement insert_offsets_from_lengths, so convert
         // it to a predicate column (ColumnString) first. This is a no-op for
-        // non-dictionary columns and for ColumnNullable it converts the nested column.
+        // non-dictionary columns; a Nullable never reaches a page decoder.
         dst = dst->convert_to_predicate_column_if_dictionary();
         const auto* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->get_data(0));
         size_t start_index = _bit_shuffle_ptr->_cur_index;

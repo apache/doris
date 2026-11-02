@@ -56,7 +56,7 @@ public:
     Scanner(RuntimeState* state, ScanLocalStateBase* local_state, int64_t limit,
             RuntimeProfile* profile);
 
-    //only used for FileScanner read one line.
+    // Standalone scanner context used by external row fetches and reader tests.
     Scanner(RuntimeState* state, RuntimeProfile* profile)
             : _state(state), _limit(1), _profile(profile), _total_rf_num(0), _has_prepared(false) {
         DorisMetrics::instance()->scanner_cnt->increment(1);
@@ -318,7 +318,7 @@ protected:
     int64_t _per_scanner_open_timer = 0;
     int64_t _projection_timer = 0;
 
-    bool _should_stop = false;
+    std::atomic_bool _should_stop = false;
 
     // Cached pointer to ScanOperator's remaining-limit counter. Null when
     // this scanner is on the topn path or the query has no LIMIT.

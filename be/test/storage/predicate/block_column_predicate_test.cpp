@@ -40,7 +40,6 @@
 #include "core/value/timestamptz_value.h"
 #include "exprs/hybrid_set.h"
 #include "format/parquet/parquet_block_split_bloom_filter.h"
-#include "format/parquet/vparquet_reader.h"
 #include "gtest/gtest_pred_impl.h"
 #include "storage/predicate/column_predicate.h"
 #include "storage/predicate/comparison_predicate.h"

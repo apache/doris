@@ -1119,6 +1119,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setSplits(locations);
             result.status = new TStatus(TStatusCode.OK);
             return result;
+        } catch (SplitSource.SplitPendingException e) {
+            // The backend will retry; an empty OK batch would incorrectly mean EOF.
+            result.status = new TStatus(TStatusCode.INCOMPLETE);
+            return result;
         } catch (Exception e) {
             LOG.warn("failed to fetch split batch with source id {}", request.getSplitSourceId(), e);
             result.status = new TStatus(TStatusCode.INTERNAL_ERROR);
@@ -4784,6 +4788,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         OlapTable olapTable = (OlapTable) table;
+        if (olapTable.hasRowTtl()) {
+            needUseCache = false;
+        }
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         ArrayList<List<TNullableStringLiteral>> partitionValues = new ArrayList<>();
         for (int i = 0; i < request.partitionValues.size(); i++) {
@@ -5089,6 +5096,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     txnId = coordinator.getTxnId();
                 }
             }
+        }
+
+        if (olapTable.hasRowTtl()) {
+            needUseCache = false;
         }
 
         if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.replacePartition.DisableCache")) {

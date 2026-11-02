@@ -68,19 +68,7 @@ public:
                                      format::ColumnDefinition* column) const override;
     std::string debug_string() const override;
     format::TableColumnMappingMode mapping_mode() const override {
-        const bool has_field_ids = supports_iceberg_scan_semantics_v1(_scan_params)
-                                           ? schema_has_any_field_id(_data_reader.file_schema)
-                                           : schema_has_all_field_ids(_data_reader.file_schema);
-        if (!_data_reader.file_schema.empty() && has_field_ids) {
-            return format::TableColumnMappingMode::BY_FIELD_ID;
-        }
-        if (!_data_reader.file_schema.empty() && supports_iceberg_scan_semantics_v2(_scan_params) &&
-            !_scan_has_any_authoritative_name_mapping()) {
-            // ID-less migrated files are name-readable only while Iceberg's explicit default name
-            // mapping exists; current names must not resurrect file fields after it is removed.
-            return format::TableColumnMappingMode::BY_FIELD_ID;
-        }
-        return format::TableColumnMappingMode::BY_NAME;
+        return _mapping_mode(_data_reader.file_schema);
     }
 
 protected:
@@ -149,6 +137,27 @@ private:
     static constexpr size_t ICEBERG_ROW_POS_BLOCK_POSITION = 1;
 
     bool _scan_has_any_authoritative_name_mapping() const;
+    // annotate_file_schema() runs before TableReader stores the file schema, so the mode is also
+    // computable from the schema being annotated.
+    format::TableColumnMappingMode _mapping_mode(
+            const std::vector<format::ColumnDefinition>& file_schema) const {
+        const bool has_field_ids = supports_iceberg_scan_semantics_v1(_scan_params)
+                                           ? schema_has_any_field_id(file_schema)
+                                           : schema_has_all_field_ids(file_schema);
+        if (!file_schema.empty() && has_field_ids) {
+            return format::TableColumnMappingMode::BY_FIELD_ID;
+        }
+        if (!file_schema.empty() && supports_iceberg_scan_semantics_v2(_scan_params) &&
+            !_scan_has_any_authoritative_name_mapping()) {
+            // ID-less migrated files are name-readable only while Iceberg's explicit default name
+            // mapping exists; current names must not resurrect file fields after it is removed.
+            return format::TableColumnMappingMode::BY_FIELD_ID;
+        }
+        return format::TableColumnMappingMode::BY_NAME;
+    }
+    void _apply_positional_id_fallback(std::vector<format::ColumnDefinition>* file_schema);
+    Status _apply_table_timestamp_semantics(std::vector<format::ColumnDefinition>* file_schema,
+                                            format::TableColumnMappingMode mode) const;
 
     class PositionDeleteRowsCollector final {
     public:
@@ -180,7 +189,15 @@ private:
                                                    size_t key_idx,
                                                    const EqualityDeleteColumnPath& data_path,
                                                    format::FileScanRequest* request,
-                                                   VExprSPtr* key_expr);
+                                                   VExprSPtr* key_expr,
+                                                   DataTypePtr* comparison_type);
+    // Returns `filter` with its delete keys converted to `comparison_types`, cached per scanner.
+    Status _convert_equality_delete_filter(const EqualityDeleteFilter& filter,
+                                           const DataTypes& comparison_types,
+                                           EqualityDeleteFilter* result);
+    Status _build_converted_equality_delete_filter(const EqualityDeleteFilter& filter,
+                                                   const DataTypes& comparison_types,
+                                                   EqualityDeleteFilter* result) const;
     Status _find_equality_delete_data_field(const EqualityDeleteFilter& filter, size_t key_idx,
                                             EqualityDeleteColumnPath* data_path,
                                             bool* complete_path) const;
@@ -238,9 +255,19 @@ private:
         // Delete-file names are retained for Iceberg tables imported from formats that did not
         // persist field ids. In BY_NAME mode they are the fallback binding key.
         std::vector<std::string> field_names;
+        // Table-side types of the keys, from the scan's schema metadata. They resolve table
+        // fields and build defaults for keys a data file lacks. The comparison type comes from
+        // the file types; a table type only lets a timestamptz key read as DATETIMEV2 compare
+        // as TIMESTAMPTZ, and a STRING placeholder (an Iceberg TIME or timestamptz_ns, which
+        // Doris cannot represent) lets an ORC TIME key and its text default compare as TIMEV2.
         std::vector<DataTypePtr> key_types;
+        // Types of the delete block columns: the delete file's own key types, or the comparison
+        // types of a converted filter.
+        std::vector<DataTypePtr> delete_key_types;
         Block delete_block;
         std::shared_ptr<const EqualityDeleteHashIndex> hash_index;
+        // Split-cache key of this filter, extended by the comparison types for converted copies.
+        std::string cache_key;
     };
     std::vector<EqualityDeleteFilter> _equality_delete_filters;
     // Scanner-shared cache supplied in SplitReadOptions. Parsed delete files outlive one data-file

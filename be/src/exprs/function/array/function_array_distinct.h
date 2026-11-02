@@ -23,6 +23,7 @@
 #include <glog/logging.h>
 
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <ostream>
 #include <utility>
@@ -48,6 +49,7 @@
 #include "core/types.h"
 #include "exec/common/hash_table/hash.h"
 #include "exprs/function/function.h"
+#include "util/simd/bits.h"
 
 namespace doris {
 class FunctionContext;
@@ -188,18 +190,22 @@ private:
         return true;
     }
 
+    template <bool batch_copy>
     bool _execute_string(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
                          IColumn& dest_column, ColumnArray::Offsets64& dest_offsets,
                          const NullMapType* src_null_map, NullMapType* dest_null_map) const {
-        const auto* src_data_concrete = reinterpret_cast<const ColumnString*>(&src_column);
-        if (!src_data_concrete) {
-            return false;
-        }
-
-        auto& dest_column_string = reinterpret_cast<ColumnString&>(dest_column);
+        const auto& src_data_concrete = assert_cast<const ColumnString&>(src_column);
+        auto& dest_column_string = assert_cast<ColumnString&>(dest_column);
         ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
         ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
-        column_string_chars.reserve(src_column.size());
+        IColumn::Selector selector;
+        if constexpr (batch_copy) {
+            // _execute_by_type() passes nullptr after ruling out NULL elements.
+            DCHECK(src_null_map == nullptr);
+            selector.reserve(src_column.size());
+        } else {
+            column_string_chars.reserve(src_column.size());
+        }
 
         using Set = phmap::flat_hash_set<StringRef, DefaultHash<StringRef>>;
         Set set;
@@ -211,31 +217,34 @@ private:
             set.clear();
             size_t null_size = 0;
             for (size_t j = prev_src_offset; j < curr_src_offset; ++j) {
-                if (null_size != 0 && src_null_map && (*src_null_map)[j]) {
-                    // ignore duplicated nulls
-                    continue;
-                }
-                if (src_null_map && (*src_null_map)[j]) {
-                    DCHECK(dest_null_map != nullptr);
-                    // Note: here we need to update the offset of ColumnString
-                    column_string_offsets.push_back(column_string_offsets.back());
-                    (*dest_null_map).push_back(true);
-                    null_size++;
-                    continue;
+                if constexpr (!batch_copy) {
+                    if (null_size != 0 && src_null_map && (*src_null_map)[j]) {
+                        // ignore duplicated nulls
+                        continue;
+                    }
+                    if (src_null_map && (*src_null_map)[j]) {
+                        DCHECK(dest_null_map != nullptr);
+                        column_string_offsets.push_back(column_string_offsets.back());
+                        (*dest_null_map).push_back(true);
+                        null_size++;
+                        continue;
+                    }
                 }
 
-                StringRef src_str_ref = src_data_concrete->get_data_at(j);
-                if (!set.contains(src_str_ref)) {
-                    set.insert(src_str_ref);
-                    // copy the src data to column_string_chars
-                    const size_t old_size = column_string_chars.size();
-                    const size_t new_size = old_size + src_str_ref.size;
-                    column_string_chars.resize(new_size);
-                    if (src_str_ref.size > 0) {
-                        memcpy(column_string_chars.data() + old_size, src_str_ref.data,
-                               src_str_ref.size);
+                StringRef src_str_ref = src_data_concrete.get_data_at(j);
+                if (set.insert(src_str_ref).second) {
+                    if constexpr (batch_copy) {
+                        selector.push_back(static_cast<IColumn::ColumnIndex>(j));
+                    } else {
+                        const size_t old_size = column_string_chars.size();
+                        const size_t new_size = old_size + src_str_ref.size;
+                        column_string_chars.resize(new_size);
+                        if (src_str_ref.size > 0) {
+                            memcpy(column_string_chars.data() + old_size, src_str_ref.data,
+                                   src_str_ref.size);
+                        }
+                        column_string_offsets.push_back(new_size);
                     }
-                    column_string_offsets.push_back(new_size);
 
                     if (dest_null_map) {
                         (*dest_null_map).push_back(false);
@@ -247,6 +256,10 @@ private:
             dest_offsets.push_back(res_offset);
             prev_src_offset = curr_src_offset;
         }
+        if constexpr (batch_copy) {
+            dest_column_string.insert_indices_from(src_column, selector.data(),
+                                                   selector.data() + selector.size());
+        }
         return true;
     }
 
@@ -255,8 +268,15 @@ private:
                           const NullMapType* src_null_map, NullMapType* dest_null_map,
                           DataTypePtr& nested_type) const {
         if (is_string_type(nested_type->get_primitive_type())) {
-            return _execute_string(src_column, src_offsets, dest_column, dest_offsets, src_null_map,
-                                   dest_null_map);
+            // NULL rows can carry hidden strings: one 4KiB payload per array adds 16MiB for
+            // 4096 arrays. Keep scalar copying when any NULL exists or UInt32 indices overflow.
+            if (src_column.size() > std::numeric_limits<IColumn::ColumnIndex>::max() ||
+                (src_null_map && simd::contain_one(src_null_map->data(), src_null_map->size()))) {
+                return _execute_string<false>(src_column, src_offsets, dest_column, dest_offsets,
+                                              src_null_map, dest_null_map);
+            }
+            return _execute_string<true>(src_column, src_offsets, dest_column, dest_offsets,
+                                         nullptr, dest_null_map);
         }
         auto call = [&](const auto& type) -> bool {
             using DispatchType = std::decay_t<decltype(type)>;

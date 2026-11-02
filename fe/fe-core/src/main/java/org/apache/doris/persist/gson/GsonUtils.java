@@ -413,7 +413,12 @@ public class GsonUtils {
                 // was never migrated to a connector, so the remapped catalog has no backing connector and
                 // errors on access (it must be dropped); this only keeps old images/edit-logs loadable.
                 .registerCompatibleSubtype(
-                        PluginDrivenExternalCatalog.class, "LakeSoulExternalCatalog");
+                        PluginDrivenExternalCatalog.class, "LakeSoulExternalCatalog")
+                // Migrate Lance catalogs written by 4.1.4+ (4.1.x / 4.2) to PluginDriven on deserialization.
+                // Until a lance connector plugin is installed the catalog has no backing connector and errors
+                // on access; without this label the whole image fails to parse and the FE cannot start.
+                .registerCompatibleSubtype(
+                        PluginDrivenExternalCatalog.class, "LanceExternalCatalog");
         if (Config.isNotCloudMode()) {
             dsTypeAdapterFactory
                     .registerSubtype(InternalCatalog.class, InternalCatalog.class.getSimpleName());
@@ -472,7 +477,10 @@ public class GsonUtils {
                     PluginDrivenExternalDatabase.class, "HMSExternalDatabase")
             // Migrate old LakeSoul databases to PluginDriven on deserialization (deprecated, no connector)
             .registerCompatibleSubtype(
-                    PluginDrivenExternalDatabase.class, "LakeSoulExternalDatabase");
+                    PluginDrivenExternalDatabase.class, "LakeSoulExternalDatabase")
+            // Migrate Lance databases (4.1.4+) to PluginDriven on deserialization
+            .registerCompatibleSubtype(
+                    PluginDrivenExternalDatabase.class, "LanceExternalDatabase");
 
     private static RuntimeTypeAdapterFactory<TableIf> tblTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
                     TableIf.class, "clazz").registerSubtype(ExternalTable.class, ExternalTable.class.getSimpleName())
@@ -508,6 +516,10 @@ public class GsonUtils {
             // PluginDrivenMvccExternalTable — matching what buildTableInternal rebuilds it as on replay.
             .registerCompatibleSubtype(
                     PluginDrivenMvccExternalTable.class, "HMSExternalTable")
+            // Lance tables (4.1.4+) migrate to the MVCC variant: LanceExternalTable implemented MvccTable
+            // (dataset versions back snapshots/time-travel)
+            .registerCompatibleSubtype(
+                    PluginDrivenMvccExternalTable.class, "LanceExternalTable")
             .registerSubtype(BrokerTable.class, BrokerTable.class.getSimpleName())
             .registerSubtype(EsTable.class, EsTable.class.getSimpleName())
             .registerSubtype(FunctionGenTable.class, FunctionGenTable.class.getSimpleName())

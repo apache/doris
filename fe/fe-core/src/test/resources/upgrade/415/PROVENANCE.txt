@@ -1,0 +1,56 @@
+Golden FE metadata fixtures for upgrading a 4.1.4+ cluster that has Lance catalogs.
+
+WHAT THIS IS
+============
+Every .bin / .json / .txt / .index file in this directory except this one was produced by REAL Apache Doris
+4.1.5 bytecode, the same way the 4.1.3 fixtures in ../413 were (read ../413/PROVENANCE.txt for why
+hand-written fixtures are not good enough). 4.1.4 added the Lance catalog; 4.1.4, 4.1.4.1, 4.1.5 and
+4.2.0-rc01 register the same GSON labels, and the only ones 4.1.3 did not have are LanceExternalCatalog,
+LanceExternalDatabase and LanceExternalTable. 4.1.5 is the newest release at the time of writing.
+
+PROVENANCE
+==========
+  source tag        : 4.1.5-release  (annotated tag; commit 917b20be83878e98f94e3ebf7efccc80346e3e50)
+  gson              : 2.10.1 (identical on 4.1.5 and on the branch under test)
+  generator         : generator/Gen415Fixtures.java (committed here verbatim)
+  generated on      : 2026-10-24
+  sha256 datasource.module.bin : 7a435e135f73d1f2f9b9fa099dc6756e6b01529bf660ced736d923724ebb425d
+
+HOW TO REGENERATE
+=================
+  mkdir -p /path/to/doris-415 && git archive 4.1.5-release | tar -x -C /path/to/doris-415
+  cd /path/to/doris-415
+  DORIS_HOME=$PWD DORIS_THIRDPARTY=/path/to/doris/thirdparty bash generated-source.sh
+  # compile only, and resolve the classpath inside the same reactor so the 4.1.5 modules come from their
+  # own target/classes rather than from ~/.m2 (where 1.2-SNAPSHOT is the CURRENT branch's):
+  mvn -o -f fe/pom.xml -pl fe-core -am -Dmaven.test.skip=true -Dcheckstyle.skip=true -Dlicense.skip=true \
+      -Drat.skip=true -Dmaven.build.cache.enabled=false -Dmdep.includeScope=runtime \
+      compile dependency:build-classpath > build.log
+  # the last "Dependencies classpath:" block in build.log is fe-core's; prepend fe-core's own classes:
+  CP=$PWD/fe/fe-core/target/classes:$(grep -A1 'Dependencies classpath:' build.log | tail -1)
+  javac -d gen-classes -cp "$CP" Gen415Fixtures.java
+  java -cp "gen-classes:$CP" org.apache.doris.tools.Gen415Fixtures <outDir>
+
+  Output is byte-deterministic across JVM runs (verified: two runs produce identical files).
+
+  !! NEVER run `mvn install` in the 4.1.5 tree: both trees resolve ${revision}=1.2-SNAPSHOT.
+
+CONTENTS
+========
+  datasource.module.bin   the image's "datasource" module, framed exactly as MetaWriter writes it: the
+                          internal catalog plus three Lance catalogs (ids 10101-10103), each built through
+                          4.1.5's own CatalogFactory.createFromLog, i.e. what a catalog created on 4.1.4+
+                          looks like. Their props always carry "type": 4.1.5 has no Lance resource type, so
+                          there is no resource-backed (4.1.3 "G2") Lance shape.
+                            10101 g1_lance_s3     filesystem namespace on S3-compatible storage, comment, taap
+                            10102 g1_lance_local  filesystem namespace on file://
+                            10103 g1_lance_rest   REST namespace with bearer auth and namespace options
+  catalogMgr.json         the same JSON unframed, for human diffing. Not read by the tests.
+  labels.{ds,db,tbl}.txt  4.1.5's own GSON label registries, read reflectively out of GsonUtils.
+  editlog/op320-*.bin     OP_CREATE_CATALOG for each Lance catalog, in JournalEntity wire form.
+
+NOT HERE, ON PURPOSE
+====================
+  Lance databases / tables  4.1.5 never persists an external database or table (only CatalogMgr.idToCatalog
+                            is serialized), so no image or journal can carry those two labels; they are
+                            covered by labels.{db,tbl}.txt.

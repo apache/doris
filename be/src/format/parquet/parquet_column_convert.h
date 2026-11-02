@@ -22,6 +22,7 @@
 #include <libdivide.h>
 
 #include <chrono>
+#include <cmath>
 #include <limits>
 
 #include "common/cast_set.h"
@@ -35,7 +36,6 @@
 #include "core/types.h"
 #include "format/column_type_convert.h"
 #include "format/format_common.h"
-#include "format/parquet/decoder.h"
 #include "format/parquet/parquet_common.h"
 #include "format/parquet/schema_desc.h"
 #include "util/timezone_utils.h"
@@ -614,7 +614,7 @@ public:
                 // half subnormal:
                 //    value = (-1)^sign * (mant / 2^10) * 2^(1 - bias)
                 // half bias = 15 → exponent = 1 - 15 = -14
-                float f = (static_cast<float>(mant) / 1024.0F) * std::powf(2.0F, -14.0F);
+                float f = (static_cast<float>(mant) / 1024.0F) * std::pow(2.0F, -14.0F);
                 return sign ? -f : f;
             }
         } else if (exp == 0x1F) {

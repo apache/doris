@@ -219,6 +219,11 @@ public final class QeProcessorImpl implements QeProcessor {
 
         // Run connector-registered query-finish callbacks (e.g. committing a hive
         // read transaction). Connector-agnostic: fe-core names no source here.
+        finishQueryCallbacks(queryId);
+    }
+
+    @Override
+    public void finishQueryCallbacks(TUniqueId queryId) {
         queryFinishCallbackRegistry.runAndClear(DebugUtil.printId(queryId));
     }
 

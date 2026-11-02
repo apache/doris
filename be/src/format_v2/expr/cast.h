@@ -17,10 +17,12 @@
 
 #pragma once
 
+#include <functional>
 #include <string>
 
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "core/block/column_with_type_and_name.h"
 #include "exprs/function_context.h"
 #include "exprs/vexpr.h"
 
@@ -30,6 +32,7 @@ class RuntimeState;
 class TExprNode;
 class Block;
 class VExprContext;
+struct CastOptions;
 } // namespace doris
 
 namespace doris::format {
@@ -62,11 +65,18 @@ public:
         return Status::OK();
     }
 
+protected:
+    virtual void configure_cast_options(CastOptions& /*options*/) const {}
+
 private:
     Status _do_execute(VExprContext* context, const Block* block, const Selector* selector,
                        size_t count, ColumnPtr& result_column) const;
+    using CastExecutor =
+            std::function<Status(RuntimeState*, const ColumnWithTypeAndName&,
+                                 ColumnWithTypeAndName&, size_t, const NullMap::value_type*)>;
     std::string _expr_name;
-    FunctionBasePtr _function;
+    CastExecutor _cast_executor;
+    RuntimeState* _runtime_state = nullptr;
 };
 
 inline bool is_cast_expr(const VExprSPtr& expr) {

@@ -471,6 +471,8 @@ TEST_F(TimeSharingTaskExecutorTest, test_invalid_task_handle_returns_error) {
     TimeSharingTaskExecutor::ThreadConfig thread_config;
     thread_config.thread_name = "invalid_task_handle";
     thread_config.workload_group = "normal";
+    thread_config.max_thread_num = 0;
+    thread_config.min_thread_num = 0;
     TimeSharingTaskExecutor executor(thread_config, 0, 1, 1, ticker);
     ASSERT_TRUE(executor.init().ok());
 

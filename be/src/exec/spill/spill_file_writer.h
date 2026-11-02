@@ -47,19 +47,15 @@ class SpillFile;
 /// directory. A part is closed synchronously when it is rotated out or when close() is called.
 /// If the SpillFile is destroyed before the writer is closed, the unfinished part is discarded.
 ///
-/// Files are created on the file system pinned in the SpillFile, which is either a local disk or
-/// the object storage of a cloud storage vault. For object storage the writer additionally
-/// pauses before every append while the S3 upload queue holds at least
-/// spill_s3_max_inflight_upload_bytes of buffers, which slows down a spill that
-/// produces faster than object storage takes it, and reports request statistics derived from
-/// the closed part.
+/// Files are created on the file system pinned in the SpillFile. This base class handles
+/// common part lifecycle and local writes; SpillS3FileWriter provides object-storage writes.
 class SpillFileWriter {
 public:
     SpillFileWriter(const std::shared_ptr<SpillFile>& spill_file, RuntimeState* state,
                     RuntimeProfile* profile, SpillDataDir* data_dir, io::FileSystemSPtr fs,
                     std::string spill_dir);
 
-    ~SpillFileWriter();
+    virtual ~SpillFileWriter();
 
     /// Write a block. Automatically opens the first part, splits large blocks,
     /// and rotates to a new part when the current one exceeds max_part_size.
@@ -76,6 +72,19 @@ public:
     size_t max_block_bytes() const { return _max_block_bytes; }
     size_t max_footer_bytes() const { return _max_footer_bytes; }
 
+protected:
+    /// Preserve the first append failure for the whole part, including its footer.
+    virtual Status _append_to_part(const Slice& data);
+
+    /// Record bytes in the storage-specific query I/O context.
+    virtual void _record_spill_write_bytes(int64_t bytes);
+
+    /// Account a closed or discarded part after its writer has drained on failure.
+    virtual void _on_part_closed(const std::shared_ptr<SpillFile>& spill_file, bool closed,
+                                 int64_t close_ns);
+
+    const std::string& _spill_directory() const { return _spill_dir; }
+
 private:
     Status _close_impl(const std::shared_ptr<SpillFile>& spill_file);
 
@@ -87,25 +96,10 @@ private:
     Status _open_next_part(const std::shared_ptr<SpillFile>& spill_file);
 
     /// Close the current part: write the footer, close the file writer synchronously
-    /// (draining in-flight uploads on failure), account its remote statistics, register
+    /// (draining in-flight uploads on failure), account its statistics, register
     /// the successful part with the SpillFile, and advance to the next part index.
     /// Statistics are accounted whether it succeeds or not.
     Status _close_current_part(const std::shared_ptr<SpillFile>& spill_file);
-
-    /// Append to the current part. For object storage `data` is appended after
-    /// _wait_for_upload_queue(). After a failed append the part is
-    /// broken: every later append, the footer included, returns that failure without reaching
-    /// the file writer (S3FileWriter must not be appended to after a failed append).
-    Status _append_to_part(const Slice& data);
-
-    /// Object storage only: refuse a cancelled query, and wait while the S3 upload queue holds
-    /// at least spill_s3_max_inflight_upload_bytes of buffers. Buffers that are still being
-    /// filled are not queued, so idle writers cannot block each other.
-    Status _wait_for_upload_queue();
-
-    /// Object storage only: account the upload time and, after a successful close(), the bytes
-    /// of the whole part including its footer. Does not inspect S3 upload state.
-    void _account_remote_part(bool closed);
 
     /// Reset the per-part state and move on to the next part index.
     void _advance_part();
@@ -134,16 +128,17 @@ private:
     // ── Current part state (reset on rotation) ──
     size_t _current_part_index = 0;
     std::string _current_part_path;
-    std::unique_ptr<doris::io::FileWriter> _file_writer;
     size_t _part_written_blocks = 0;
-    int64_t _part_written_bytes = 0;
     size_t _part_max_sub_block_size = 0;
     std::string _part_meta;
-    // Object storage only: time spent in append() and close() of the current part.
-    int64_t _part_upload_ns = 0;
-    // First failed append of the current part.
-    Status _part_append_status;
 
+protected:
+    std::unique_ptr<doris::io::FileWriter> _file_writer;
+    int64_t _part_written_bytes = 0;
+    Status _part_append_status;
+    std::shared_ptr<ResourceContext> _resource_ctx = nullptr;
+
+private:
     bool _closed = false;
     // First failed write_block(); every later write and close() returns it.
     Status _write_status;
@@ -161,12 +156,6 @@ private:
     RuntimeProfile::Counter* _write_rows_counter = nullptr;
     RuntimeProfile::Counter* _memory_used_counter = nullptr;
     RuntimeProfile::Counter* _total_file_count = nullptr;
-    // Remote only, may be null when the profile does not register them.
-    RuntimeProfile::Counter* _remote_upload_bytes = nullptr;
-    RuntimeProfile::Counter* _remote_upload_timer = nullptr;
-    RuntimeProfile::Counter* _remote_upload_wait_timer = nullptr;
-
-    std::shared_ptr<ResourceContext> _resource_ctx = nullptr;
 };
 using SpillFileWriterSPtr = std::shared_ptr<SpillFileWriter>;
 } // namespace doris

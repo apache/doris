@@ -26,9 +26,12 @@
 #include <cstdint>
 #include <deque>
 #include <functional>
-#include <memory>
+#include <map>
+#include <mutex>
+#include <optional>
 #include <string_view>
 #include <thread>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -46,6 +49,8 @@ class StorageVaultAccessor;
 class InstanceChecker;
 class TxnKv;
 class InstanceInfoPB;
+class ObjectStoreInfoPB;
+class HdfsVaultInfo;
 
 struct PendingTableStreamDrop {
     int64_t base_db_id;
@@ -62,6 +67,77 @@ struct PendingTableStreamDrop {
 TxnErrorCode collect_pending_table_stream_drops(
         const std::shared_ptr<TxnKv>& txn_kv, std::string_view instance_id,
         std::unordered_map<int64_t, PendingTableStreamDrop>* pending_drops);
+
+struct SharedResourceOwner {
+    std::string instance_id;
+    std::string resource_id;
+};
+
+// resource id -> all instance/resource pairs that use the same physical storage.
+using SharedResourceOwners = std::unordered_map<std::string, std::vector<SharedResourceOwner>>;
+
+// Tells which instance/resource pairs write into the same physical storage.
+// Resource IDs are local to an instance, so the physical storage location is
+// matched instead: descendants can write into inherited resources even after
+// decoupling removes their source_instance_id.
+//
+// One index is shared by all checkers of a scheduling round. It is loaded
+// lazily on the first query, and the result (success or failure) is cached
+// until the round ends. A new round must create a new index to see changes.
+class SharedStorageIndex {
+public:
+    // If `instances` is given, it is used as the full instance list instead of
+    // scanning all instances from the kv store.
+    explicit SharedStorageIndex(
+            std::shared_ptr<TxnKv> txn_kv,
+            std::optional<std::vector<InstanceInfoPB>> instances = std::nullopt);
+
+    // For every resource of `instance_id`, fill in all owners sharing its physical storage.
+    // A resource without identifiable storage location is only owned by itself.
+    // Return 0 on success, -1 if the index failed to load or the instance is unknown.
+    // Never fills partial owners on failure.
+    int get_shared_resource_owners(std::string_view instance_id, SharedResourceOwners* owners);
+
+private:
+    // Physical storage location. All fields must match exactly, overlapping
+    // prefixes are not merged. Credentials are deliberately not part of it.
+    struct StorageLocation {
+        std::string type;     // "s3" or "hdfs"
+        std::string endpoint; // S3 endpoint, or HDFS fs_name
+        std::string bucket;   // empty for HDFS
+        std::string prefix;
+
+        bool operator<(const StorageLocation& other) const {
+            return std::tie(type, endpoint, bucket, prefix) <
+                   std::tie(other.type, other.endpoint, other.bucket, other.prefix);
+        }
+    };
+
+    // Resources without connection info have no location, so that they never
+    // match unrelated resources.
+    using ResourceLocations = std::map<std::string, std::optional<StorageLocation>>;
+
+    static std::optional<StorageLocation> s3_location(const ObjectStoreInfoPB& obj_info);
+    static std::optional<StorageLocation> hdfs_location(const HdfsVaultInfo& hdfs_info);
+
+    void ensure_loaded();
+    int load_all_instances();
+    int load_instance(const InstanceInfoPB& instance);
+    int load_storage_vaults(const std::string& instance_id);
+    void add_resource(const std::string& instance_id, const std::string& resource_id,
+                      std::optional<StorageLocation> location);
+
+    std::shared_ptr<TxnKv> txn_kv_;
+    // Consumed by the first load.
+    std::optional<std::vector<InstanceInfoPB>> preloaded_instances_;
+
+    std::once_flag load_once_;
+    int load_status_ = -1;
+    // instance_id -> (resource_id -> location)
+    std::unordered_map<std::string, ResourceLocations> instance_resource_locations_;
+    // location -> all instance/resource pairs located there
+    std::map<StorageLocation, std::vector<SharedResourceOwner>> location_to_owners_;
+};
 
 class Checker {
 public:
@@ -82,6 +158,7 @@ private:
     friend class RecyclerServiceImpl;
 
     std::shared_ptr<TxnKv> txn_kv_;
+    std::shared_ptr<ResourceManager> resource_mgr_;
     std::atomic_bool stopped_ {false};
     std::string ip_port_;
     std::vector<std::thread> workers_;
@@ -89,7 +166,11 @@ private:
     std::mutex mtx_;
     // notify check workers
     std::condition_variable pending_instance_cond_;
-    std::deque<InstanceInfoPB> pending_instance_queue_;
+    struct PendingInstance {
+        InstanceInfoPB instance;
+        std::shared_ptr<SharedStorageIndex> shared_storage_index;
+    };
+    std::deque<PendingInstance> pending_instance_queue_;
     // instance_id -> enqueue_timestamp
     std::unordered_map<std::string, long> pending_instance_map_;
     std::unordered_map<std::string, std::shared_ptr<InstanceChecker>> working_instance_map_;
@@ -101,7 +182,9 @@ private:
 
 class InstanceChecker {
 public:
-    explicit InstanceChecker(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id);
+    explicit InstanceChecker(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
+                             std::shared_ptr<ResourceManager> resource_mgr = nullptr,
+                             std::shared_ptr<SharedStorageIndex> shared_storage_index = nullptr);
     // Return 0 if success, otherwise error
     int init(const InstanceInfoPB& instance);
     // Return 0 if success.
@@ -168,6 +251,8 @@ public:
     StorageVaultAccessor* get_accessor(const std::string& id);
 
     ResourceManager* resource_mgr() const { return resource_mgr_.get(); }
+
+    SharedStorageIndex* shared_storage_index() const { return shared_storage_index_.get(); }
 
     void get_all_accessor(std::vector<StorageVaultAccessor*>* accessors);
 
@@ -280,6 +365,7 @@ private:
     std::shared_ptr<SnapshotManager> snapshot_manager_;
     std::shared_ptr<ResourceManager> resource_mgr_;
     bool table_stream_versioned_write_ {false};
+    std::shared_ptr<SharedStorageIndex> shared_storage_index_;
 };
 
 } // namespace doris::cloud

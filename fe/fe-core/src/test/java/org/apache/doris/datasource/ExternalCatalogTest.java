@@ -192,10 +192,10 @@ public class ExternalCatalogTest extends TestWithFeService {
             }
 
             @Override
-            protected void closeResources() {
+            protected Runnable detachResources() {
                 Assertions.assertEquals("4KB", getProperties().get("meta.cache.max-weight"),
-                        "new limits must not be published before old connector resources close");
-                super.closeResources();
+                        "new limits must not be published before old connector resources detach");
+                return super.detachResources();
             }
         };
         mgr.getIdToCatalog().put(catalog.getId(), catalog);

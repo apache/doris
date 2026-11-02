@@ -130,7 +130,7 @@ Status scalar_matches(const std::string& pattern, const std::vector<std::string>
         patterns->insert_data(pattern.data(), pattern.size());
     }
     ColumnPtr pattern_column;
-    std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_columns(2);
+    std::vector<std::shared_ptr<ConstantExprResult>> constant_columns(2);
     if (dynamic_pattern) {
         // Prove vector_non_const will reach the scalar regex function, where RE2 is
         // constructed locally. No scalar or vector string fast path accepts these patterns.
@@ -144,7 +144,7 @@ Status scalar_matches(const std::string& pattern, const std::vector<std::string>
         pattern_column = std::move(patterns);
     } else {
         pattern_column = ColumnConst::create(std::move(patterns), rows.size());
-        constant_columns[1] = std::make_shared<ColumnPtrWrapper>(pattern_column);
+        constant_columns[1] = std::make_shared<ConstantExprResult>(pattern_column);
     }
     context->set_constant_cols(constant_columns);
 

@@ -37,7 +37,7 @@ under the License.
 
     ```console
     $ cd /to/your/workspace/
-    $ cp doris/docker/Dockerfile ./
+    $ cp doris/docker/compilation/Dockerfile ./
     ```
 
 After preparation, your workspace should like this:

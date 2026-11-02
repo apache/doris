@@ -973,6 +973,9 @@ Status BaseBetaRowsetWriter::_close_file_writers() {
     // Flush and close segment files
     RETURN_NOT_OK_STATUS_WITH_WARN(_segment_creator.close(),
                                    "failed to close segment creator when build new rowset");
+    // Deferred compaction indexes are absent from the per-segment flush statistics.
+    // Other writes close each index file at flush time and leave this collection total at zero.
+    _total_index_size += _idx_files.get_total_index_size();
     return Status::OK();
 }
 

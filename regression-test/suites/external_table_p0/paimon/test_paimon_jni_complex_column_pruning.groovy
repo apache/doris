@@ -26,11 +26,9 @@ suite("test_paimon_jni_complex_column_pruning", "p0,external") {
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String catalogName = "test_paimon_jni_complex_column_pruning"
 
-    // The external pipeline runs fuzzy sessions and enable_file_scanner_v2 is one of the randomized
-    // variables; nested pruning for paimon is a v2-reader feature (the v1 paimon readers consume no
-    // access paths), so the suite pins the read path it is testing.
-    def scannerV2Rows = sql "show variables like 'enable_file_scanner_v2'"
-    String originalScannerV2 = scannerV2Rows[0][1]
+    // Read the deprecated option by its stable name; SHOW VARIABLES prefixes its display name.
+    def scannerV2Rows = sql "SELECT @@enable_file_scanner_v2"
+    String originalScannerV2 = scannerV2Rows[0][0]
     sql "set enable_file_scanner_v2 = true"
 
     def rowsOf = { String query -> sql(query).collect { row -> row.collect { "${it}".toString() } } }

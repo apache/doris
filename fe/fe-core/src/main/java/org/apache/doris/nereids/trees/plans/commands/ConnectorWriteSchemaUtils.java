@@ -28,6 +28,8 @@ import org.apache.doris.nereids.trees.expressions.Default;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -101,7 +103,9 @@ public final class ConnectorWriteSchemaUtils {
                 throw new AnalysisException("Cannot find column information for DEFAULT("
                         + reference.toSql() + ")");
             }
-            return resolveDefault(column);
+            // The parsed default takes the literal's own type (-1 is a TINYINT); the expression around DEFAULT(column)
+            // must bind against the column's type, as the bound DEFAULT rewrite does.
+            return TypeCoercionUtils.castUnbound(resolveDefault(column), DataType.fromCatalogType(column.getType()));
         });
     }
 

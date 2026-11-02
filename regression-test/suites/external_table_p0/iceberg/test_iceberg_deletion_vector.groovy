@@ -330,10 +330,11 @@ class IcebergRestCatalog {
     qt_q3 """ SELECT * FROM dv_test_orc ORDER BY id; """
     qt_no_delete """ SELECT * FROM dv_test_no_delete ORDER BY id; """
 
-    def enableFileScannerV2Rows = sql """SHOW VARIABLES LIKE 'enable_file_scanner_v2'"""
+    // Read the deprecated option by its stable name; SHOW VARIABLES prefixes its display name.
+    def enableFileScannerV2Rows = sql """SELECT @@enable_file_scanner_v2"""
     assertTrue(enableFileScannerV2Rows.size() > 0,
             "Session variable enable_file_scanner_v2 is not found")
-    String originalEnableFileScannerV2 = enableFileScannerV2Rows[0][1].toString()
+    String originalEnableFileScannerV2 = enableFileScannerV2Rows[0][0].toString()
     def expectedDvCount = sql """ SELECT count(*) FROM dv_test; """
     try {
         // Versioned Iceberg scans require V2 even when the session switch is disabled, so the
@@ -624,19 +625,19 @@ s3.path-style-access=true
     // Cross-reader comparison protects against Doris accepting a DV/equality-delete result that
     // diverges from Spark, Trino, or Iceberg's Java reader.
     explain {
-        sql("SELECT count(*) FROM dv_test;")
+        sql("SELECT /*+ SET_VAR(enable_external_table_batch_mode=false) */ count(*) FROM dv_test;")
         verbose(true)
         contains "deleteFileNum"
     }
 
     explain {
-        sql("SELECT count(*) FROM dv_test_orc;")
+        sql("SELECT /*+ SET_VAR(enable_external_table_batch_mode=false) */ count(*) FROM dv_test_orc;")
         verbose(true)
         contains "deleteFileNum"
     }
 
     explain {
-        sql("SELECT count(*) FROM dv_test_v2;")
+        sql("SELECT /*+ SET_VAR(enable_external_table_batch_mode=false) */ count(*) FROM dv_test_v2;")
         verbose(true)
         contains "deleteFileNum"
     }

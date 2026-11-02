@@ -121,30 +121,23 @@ inline bool CastToBool::from_string(const StringRef& from, UInt8& to, CastParame
 template <CastModeType Mode>
 class CastToImpl<Mode, DataTypeString, DataTypeBool> : public CastToBase {
 public:
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t /*input_rows_count*/,
+    Status execute_impl(RuntimeState* /*state*/, const ColumnWithTypeAndName& source_column,
+                        ColumnWithTypeAndName& target_column, size_t /*input_rows_count*/,
                         const NullMap::value_type* null_map = nullptr) const override {
-        const auto* col_from = assert_cast<const DataTypeString::ColumnType*>(
-                block.get_by_position(arguments[0]).column.get());
-        auto to_type = block.get_by_position(result).type;
-        auto nested_to_type = remove_nullable(to_type);
+        const auto* col_from =
+                assert_cast<const DataTypeString::ColumnType*>(source_column.column.get());
+        auto nested_to_type = remove_nullable(target_column.type);
         auto serde = nested_to_type->get_serde();
-
         if constexpr (Mode == CastModeType::NonStrictMode) {
             auto nullable_col_to = create_empty_nullable_column(nested_to_type);
-            // may write nulls to nullable_col_to
             RETURN_IF_ERROR(serde->from_string_batch(*col_from, *nullable_col_to, {}));
-            block.get_by_position(result).column = std::move(nullable_col_to);
-        } else if constexpr (Mode == CastModeType::StrictMode) {
+            target_column.column = std::move(nullable_col_to);
+        } else {
             MutableColumnPtr column_to = nested_to_type->create_column();
-            // WON'T write nulls to the result column, just raise errors. null_map is only used to skip invalid rows
             RETURN_IF_ERROR(
                     serde->from_string_strict_mode_batch(*col_from, *column_to, {}, null_map));
-            block.get_by_position(result).column = std::move(column_to);
-        } else {
-            return Status::InternalError("Unsupported cast mode");
+            target_column.column = std::move(column_to);
         }
-
         return Status::OK();
     }
 };
@@ -152,21 +145,26 @@ template <CastModeType AllMode, typename NumberType>
     requires(IsDataTypeNumber<NumberType>)
 class CastToImpl<AllMode, NumberType, DataTypeBool> : public CastToBase {
 public:
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count,
+    Status execute_impl(RuntimeState* state, const ColumnWithTypeAndName& source_column,
+                        ColumnWithTypeAndName& target_column, size_t input_rows_count,
                         const NullMap::value_type* null_map = nullptr) const override {
-        const auto* col_from = assert_cast<const typename NumberType::ColumnType*>(
-                block.get_by_position(arguments[0]).column.get());
+        const auto* col_from =
+                assert_cast<const typename NumberType::ColumnType*>(source_column.column.get());
         DataTypeBool::ColumnType::MutablePtr col_to =
                 DataTypeBool::ColumnType::create(input_rows_count);
 
         CastParameters params;
         params.is_strict = (AllMode == CastModeType::StrictMode);
+        const auto* from_data = col_from->get_data().data();
+        auto* to_data = col_to->get_data().data();
         for (size_t i = 0; i < input_rows_count; ++i) {
-            CastToBool::from_number(col_from->get_element(i), col_to->get_element(i), params);
+            if (null_map != nullptr && null_map[i] != 0) {
+                continue;
+            }
+            CastToBool::from_number(from_data[i], to_data[i], params);
         }
 
-        block.get_by_position(result).column = std::move(col_to);
+        target_column.column = std::move(col_to);
         return Status::OK();
     }
 };
@@ -175,12 +173,12 @@ template <CastModeType AllMode, typename DecimalType>
     requires(IsDataTypeDecimal<DecimalType>)
 class CastToImpl<AllMode, DecimalType, DataTypeBool> : public CastToBase {
 public:
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count,
+    Status execute_impl(RuntimeState* state, const ColumnWithTypeAndName& source_column,
+                        ColumnWithTypeAndName& target_column, size_t input_rows_count,
                         const NullMap::value_type* null_map = nullptr) const override {
-        const auto* col_from = assert_cast<const typename DecimalType::ColumnType*>(
-                block.get_by_position(arguments[0]).column.get());
-        const auto type_from = block.get_by_position(arguments[0]).type;
+        const auto* col_from =
+                assert_cast<const typename DecimalType::ColumnType*>(source_column.column.get());
+        const auto type_from = source_column.type;
         DataTypeBool::ColumnType::MutablePtr col_to =
                 DataTypeBool::ColumnType::create(input_rows_count);
 
@@ -189,12 +187,16 @@ public:
 
         auto precision = type_from->get_precision();
         auto scale = type_from->get_scale();
+        const auto* from_data = col_from->get_data().data();
+        auto* to_data = col_to->get_data().data();
         for (size_t i = 0; i < input_rows_count; ++i) {
-            CastToBool::from_decimal(col_from->get_element(i), col_to->get_element(i), precision,
-                                     scale, params);
+            if (null_map != nullptr && null_map[i] != 0) {
+                continue;
+            }
+            CastToBool::from_decimal(from_data[i], to_data[i], precision, scale, params);
         }
 
-        block.get_by_position(result).column = std::move(col_to);
+        target_column.column = std::move(col_to);
         return Status::OK();
     }
 };

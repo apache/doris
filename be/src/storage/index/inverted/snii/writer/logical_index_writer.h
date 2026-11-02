@@ -76,6 +76,9 @@ struct SniiIndexInput {
     // tests may only tighten them to exercise extreme-window behavior without
     // allocating hundreds of MiB.
     format::PrxWindowLimits prx_window_limits = format::kReaderPrxWindowLimits;
+    // When set, the .prx windows of the index share one format::PrxZstdBudget, which replaces
+    // prx_window_limits.zstd_min_saving_percent.
+    bool prx_zstd_budget = false;
     // Lexicographically sorted terms with ascending-docid postings. Used when
     // `term_source` is null (callers that already hold a materialized vector,
     // e.g. unit tests). The writer reads but does not retain these.
@@ -194,7 +197,7 @@ struct FreqStats {
 // Builds and holds the section bytes + meta sub-sections for one logical index.
 class LogicalIndexWriter {
 public:
-    explicit LogicalIndexWriter(const SniiIndexInput& in);
+    LogicalIndexWriter(const SniiIndexInput& in, TrackedNullDocids null_docids);
     // Out-of-line: stream_state_ points at the private nested BlockState, which
     // is incomplete here (unique_ptr needs the complete type at destruction).
     ~LogicalIndexWriter();
@@ -281,7 +284,6 @@ public:
 
 private:
     friend class SniiStreamedIndexSession;
-    LogicalIndexWriter(const SniiIndexInput& in, TrackedNullDocids null_docids);
 
     // One DICT block's directory record. The block's serialized bytes are appended to
     // the in-RAM dict buffer as soon as the block is cut; only this compact summary
@@ -361,6 +363,8 @@ private:
     int dict_block_zstd_level_ = 3;
     int prx_zstd_level_ = 3;
     format::PrxWindowLimits prx_window_limits_ = format::kReaderPrxWindowLimits;
+    // The windows of the index share it when SniiIndexInput::prx_zstd_budget is set.
+    format::PrxZstdBudget prx_zstd_budget_;
     // The DICT region (zstd-compressed blocks) is staged here as blocks flush. It must
     // land contiguously AFTER the posting region (which streams concurrently to the
     // output), so it cannot stream directly; the orchestrator streams it into the

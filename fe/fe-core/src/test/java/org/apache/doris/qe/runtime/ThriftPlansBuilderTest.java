@@ -19,25 +19,39 @@ package org.apache.doris.qe.runtime;
 
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.scan.FileQueryScanNode;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.DefaultScanSource;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.LocalShuffleAssignedJob;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.ScanRanges;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.UnassignedJob;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.RecursiveCteScanNode;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SortNode;
+import org.apache.doris.thrift.TExternalScanRange;
+import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TFileScanRange;
+import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TPipelineFragmentParams;
+import org.apache.doris.thrift.TPipelineInstanceParams;
+import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TRecCTETarget;
+import org.apache.doris.thrift.TScanRange;
+import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TUniqueId;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 public class ThriftPlansBuilderTest {
     @Test
@@ -106,6 +120,35 @@ public class ThriftPlansBuilderTest {
         Assertions.assertEquals("127.0.0.2", targets.get(1).getAddr().getHostname());
         Assertions.assertEquals(9060, targets.get(1).getAddr().getPort());
         Assertions.assertEquals(11, targets.get(1).getNodeId());
+    }
+
+    @Test
+    public void compactsOnlyTheAssignedInstanceTransportCopy() {
+        FileQueryScanNode node = Mockito.mock(FileQueryScanNode.class);
+        Mockito.when(node.getId()).thenReturn(new PlanNodeId(1));
+        ScanRanges assigned = new ScanRanges();
+        for (int i = 0; i < 1000; i++) {
+            TFileScanRange files = new TFileScanRange().setRanges(new ArrayList<>(List.of(
+                    new TFileRangeDesc().setPath("file" + i).setStartOffset(0).setSize(10))));
+            assigned.addScanRange(new TScanRangeParams().setScanRange(new TScanRange()
+                    .setExtScanRange(new TExternalScanRange().setFileScanRange(files))), 10);
+        }
+        AssignedJob job = Mockito.mock(AssignedJob.class);
+        Mockito.when(job.getScanSource()).thenReturn(new DefaultScanSource(Map.of(node, assigned)));
+        TPipelineFragmentParams fragment = new TPipelineFragmentParams()
+                .setFileScanParams(Map.of(1, new TFileScanRangeParams()))
+                .setQueryOptions(new TQueryOptions().setMaxFileScannersConcurrency(16).setParallelInstance(1));
+        TPipelineInstanceParams instance = new TPipelineInstanceParams();
+
+        Deencapsulation.invoke(ThriftPlansBuilder.class, "setScanSourceParam", fragment, job, instance);
+
+        List<TScanRangeParams> transported = instance.getPerNodeScanRanges().get(1);
+        Assertions.assertTrue(transported.size() >= 16);
+        Assertions.assertTrue(transported.size() < 1000);
+        Assertions.assertEquals(1000, transported.stream().mapToInt(r -> r.getScanRange()
+                .getExtScanRange().getFileScanRange().getRangesSize()).sum());
+        Assertions.assertEquals(1000, assigned.params.size());
+        Assertions.assertEquals(10000, assigned.totalBytes);
     }
 
     private AssignedJob newAssignedJob(DistributedPlanWorker worker, TUniqueId instanceId) {

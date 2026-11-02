@@ -37,13 +37,19 @@ final class HmsPartitionBatchExecutor {
 
     private final int maxBatchSize;
     private final HmsPartitionTransport transport;
+    private final Runnable checkCancelled;
 
     HmsPartitionBatchExecutor(int maxBatchSize, HmsPartitionTransport transport) {
+        this(maxBatchSize, transport, () -> { });
+    }
+
+    HmsPartitionBatchExecutor(int maxBatchSize, HmsPartitionTransport transport, Runnable checkCancelled) {
         if (maxBatchSize <= 0) {
             throw new IllegalArgumentException("invalid HMS partition batch size");
         }
         this.maxBatchSize = maxBatchSize;
         this.transport = java.util.Objects.requireNonNull(transport, "transport");
+        this.checkCancelled = java.util.Objects.requireNonNull(checkCancelled, "checkCancelled");
     }
 
     HmsPartitionBatchResult executeExistingWithStats(HmsPartitionRequest request) {
@@ -55,6 +61,7 @@ final class HmsPartitionBatchExecutor {
     }
 
     private HmsPartitionBatchResult executeWithStats(HmsPartitionRequest request, boolean allowMissing) {
+        checkCancelled.run();
         long logicalStartNanos = System.nanoTime();
         List<HmsPartitionIdentity.ParsedPartitionName> partitions = request.getPartitions();
         if (partitions.isEmpty()) {
@@ -75,6 +82,7 @@ final class HmsPartitionBatchExecutor {
         int largestBatchSize = 0;
         int smallestBatchSize = Integer.MAX_VALUE;
         while (offset < partitions.size()) {
+            checkCancelled.run();
             int batchSize = Math.min(effectiveBatchSize, partitions.size() - offset);
             List<HmsPartitionIdentity.ParsedPartitionName> batch =
                     partitions.subList(offset, offset + batchSize);
@@ -91,6 +99,7 @@ final class HmsPartitionBatchExecutor {
             try {
                 List<HmsPartitionInfo> returned = transport.getPartitionsByNames(
                         request.getDbName(), request.getTableName(), batchNames);
+                checkCancelled.run();
                 result.addAll(validateAndOrder(batch, returned, allowMissing));
                 offset += batchSize;
             } catch (RemoteCallException e) {
