@@ -201,6 +201,7 @@ Compaction::Compaction(BaseTabletSPtr tablet, const std::string& label)
           _allow_delete_in_cumu_compaction(config::enable_delete_when_cumu_compaction),
           _enable_vertical_compact_variant_subcolumns(
                   config::enable_vertical_compact_variant_subcolumns),
+          _use_variant_extracted_schema(config::enable_vertical_compact_variant_subcolumns),
           _enable_inverted_index_compaction(config::inverted_index_compaction_enable) {
     init_profile(label);
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
@@ -465,8 +466,7 @@ Status Compaction::finish_merge_input_rowsets_execution(MergeInputRowsetsContext
     // schema stored in RowsetMeta. This is used when compaction temporarily
     // extends schema to split variant subcolumns for vertical compaction but
     // the final rowset meta must not persist those extracted subcolumns.
-    if (_enable_vertical_compact_variant_subcolumns &&
-        (_cur_tablet_schema->num_variant_columns() > 0)) {
+    if (_use_variant_extracted_schema && (_cur_tablet_schema->num_variant_columns() > 0)) {
         _output_rowset->rowset_meta()->set_tablet_schema(
                 _cur_tablet_schema->copy_without_variant_extracted_columns());
     }
@@ -648,8 +648,8 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
     _output_rowset = _output_rs_writer->manual_build(rowset_meta);
 
     // 2. check variant column path stats
-    RETURN_IF_ERROR(variant_util::VariantCompactionUtil::check_path_stats(_input_rowsets,
-                                                                          _output_rowset, _tablet));
+    RETURN_IF_ERROR(variant_util::VariantCompactionUtil::check_path_stats(
+            _input_rowsets, _output_rowset, _tablet, _cur_variant_compaction_paths.get()));
     return Status::OK();
 }
 
@@ -694,14 +694,11 @@ Status CompactionMixin::build_basic_info(bool is_ordered_compaction) {
                    [](const RowsetSharedPtr& rowset) { return rowset->rowset_meta(); });
     _cur_tablet_schema = _tablet->tablet_schema_with_merged_max_schema_version(rowset_metas);
 
-    // if enable_vertical_compact_variant_subcolumns is true, we need to compact the variant subcolumns in seperate column groups
-    // so get_extended_compaction_schema will extended the schema for variant columns
-    // for ordered compaction, we don't need to extend the schema for variant columns
-    if (_enable_vertical_compact_variant_subcolumns && !is_ordered_compaction) {
-        auto paths = std::make_shared<VariantCompactionPathsMap>();
-        RETURN_IF_ERROR(variant_util::VariantCompactionUtil::get_extended_compaction_schema(
-                _input_rowsets, _cur_tablet_schema, *paths));
-        _cur_variant_compaction_paths = std::move(paths);
+    // Ordered compaction links existing segments without rewriting their Variant values.
+    if (!is_ordered_compaction) {
+        RETURN_IF_ERROR(variant_util::VariantCompactionUtil::resolve_write_schema(
+                _input_rowsets, _enable_vertical_compact_variant_subcolumns, _cur_tablet_schema,
+                _cur_variant_compaction_paths, &_use_variant_extracted_schema));
     }
     snapshot_row_ttl();
     return Status::OK();
@@ -2213,8 +2210,8 @@ Status Compaction::check_correctness() {
                 _output_rowset->num_rows());
     }
     // 2. check variant column path stats
-    RETURN_IF_ERROR(variant_util::VariantCompactionUtil::check_path_stats(_input_rowsets,
-                                                                          _output_rowset, _tablet));
+    RETURN_IF_ERROR(variant_util::VariantCompactionUtil::check_path_stats(
+            _input_rowsets, _output_rowset, _tablet, _cur_variant_compaction_paths.get()));
     return Status::OK();
 }
 
@@ -2277,14 +2274,11 @@ Status CloudCompactionMixin::build_basic_info() {
         _cur_tablet_schema = _tablet->tablet_schema_with_merged_max_schema_version(rowset_metas);
     }
 
-    // if enable_vertical_compact_variant_subcolumns is true, we need to compact the variant subcolumns in seperate column groups
-    // so get_extended_compaction_schema will extended the schema for variant columns
-    if (_enable_vertical_compact_variant_subcolumns) {
-        auto paths = std::make_shared<VariantCompactionPathsMap>();
-        RETURN_IF_ERROR(variant_util::VariantCompactionUtil::get_extended_compaction_schema(
-                _input_rowsets, _cur_tablet_schema, *paths));
-        _cur_variant_compaction_paths = std::move(paths);
-    }
+    // Like master's extracted-schema extension, this also covers index-change compaction, which
+    // rewrites segments from the rebuilt schema.
+    RETURN_IF_ERROR(variant_util::VariantCompactionUtil::resolve_write_schema(
+            _input_rowsets, _enable_vertical_compact_variant_subcolumns, _cur_tablet_schema,
+            _cur_variant_compaction_paths, &_use_variant_extracted_schema));
     if (_cur_tablet_schema->has_ttl_col() && row_ttl_uses_source_time(*_cur_tablet_schema)) {
         // FE's metadata-sync notification is asynchronous. Fetch the committed policy so
         // an explicit compaction immediately after ALTER can reclaim newly expired rows.

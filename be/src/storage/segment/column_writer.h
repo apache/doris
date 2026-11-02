@@ -682,6 +682,7 @@ private:
     ordinal_t _next_rowid = 0;
     size_t none_null_size = 0;
     VariantWriterInputFormat _input_format = VariantWriterInputFormat::UNSET;
+    bool _preserve_carrier_types = false;
     std::unique_ptr<VariantPathBuilder> _v2_builder;
     std::vector<ValueChunk> _chunks;
     size_t _chunk_row_begin = 0;

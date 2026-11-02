@@ -1732,7 +1732,9 @@ protected:
     Status write_extracted_variant_segment(
             const ColumnPtr& source, const DataTypePtr& source_type, std::string_view rowset_id,
             SegmentFooterPB* footer, std::string* file_path, size_t first_batch_rows = 0,
-            size_t batch_rows = 0, const std::function<void(ColumnWriter*)>& after_batch = {}) {
+            size_t batch_rows = 0, const std::function<void(ColumnWriter*)>& after_batch = {},
+            DataWriteType write_type = DataWriteType::TYPE_COMPACTION,
+            VariantCompactionPathsSPtr compaction_paths = nullptr) {
         DORIS_CHECK(source.get() != nullptr);
         DORIS_CHECK(source_type != nullptr);
         DORIS_CHECK(footer != nullptr);
@@ -1747,8 +1749,9 @@ protected:
 
         footer->Clear();
         RowsetWriterContext rowset_ctx;
-        rowset_ctx.write_type = DataWriteType::TYPE_COMPACTION;
+        rowset_ctx.write_type = write_type;
         rowset_ctx.tablet_schema = _tablet_schema;
+        rowset_ctx.variant_compaction_paths = std::move(compaction_paths);
         TabletColumn column = _tablet_schema->column(1);
 
         ColumnWriterOptions opts;
@@ -3432,13 +3435,76 @@ TEST_F(VariantColumnWriterReaderTest,
     const auto source_type = std::make_shared<DataTypeVariantV2>(0, false);
     SegmentFooterPB footer;
     std::string file_path;
-    ASSERT_TRUE(write_extracted_variant_segment(source->get_ptr(), source_type,
-                                                "v2_extracted_predefined_string", &footer,
-                                                &file_path,
-                                                /*first_batch_rows=*/1)
+    ASSERT_TRUE(write_extracted_variant_segment(
+                        source->get_ptr(), source_type, "v2_extracted_predefined_string", &footer,
+                        &file_path,
+                        /*first_batch_rows=*/1, /*batch_rows=*/0, {}, DataWriteType::TYPE_DIRECT)
                         .ok());
     ASSERT_EQ(footer.columns_size(), 1);
     EXPECT_EQ(footer.columns(0).type(), static_cast<int>(FieldType::OLAP_FIELD_TYPE_STRING));
+
+    std::vector<std::string> actual;
+    ASSERT_TRUE(read_extracted_variant_rows(footer, file_path, &actual).ok());
+    EXPECT_EQ(actual, (std::vector<std::string> {R"({"nested":1})", "[1,2]"}));
+}
+
+TEST_F(VariantColumnWriterReaderTest,
+       v2_extracted_compaction_carrier_bypasses_predefined_string_type) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    construct_column(schema_pb.add_column(), 1, "VARIANT", "v", 1);
+    _tablet_schema = std::make_shared<TabletSchema>();
+    _tablet_schema->init_from_pb(schema_pb);
+    const TabletColumn& parent_column = _tablet_schema->column_by_uid(1);
+    // A C8 carrier is an untyped VARIANT schema slot; its concrete file codec is JSONB.
+    TabletColumn extracted_column;
+    extracted_column.set_name(parent_column.name_lower_case() + ".payload");
+    extracted_column.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    extracted_column.set_parent_unique_id(parent_column.unique_id());
+    extracted_column.set_path_info(PathInData(parent_column.name_lower_case() + ".payload"));
+    extracted_column.set_is_nullable(true);
+    _tablet_schema->append_column(extracted_column);
+    init_tablet_from_current_schema(11104);
+
+    auto source = ColumnVariantV2::create();
+    DataTypeVariantV2SerDe serde;
+    DataTypeSerDe::FormatOptions format_options;
+    for (const std::string_view json : {R"({"nested":1})", R"([1,2])"}) {
+        Slice slice(json.data(), json.size());
+        ASSERT_TRUE(serde.deserialize_one_cell_from_json(*source, slice, format_options).ok());
+    }
+    const auto source_type = std::make_shared<DataTypeVariantV2>(0, false);
+    // Write and reopen an old dynamic path before ADD. Its object/array values must not become
+    // STRING merely because a later write schema adds a STRING template for the same path.
+    SegmentFooterPB old_footer;
+    std::string old_file_path;
+    ASSERT_TRUE(write_extracted_variant_segment(
+                        source->get_ptr(), source_type, "v2_extracted_before_add", &old_footer,
+                        &old_file_path, 1, 0, {}, DataWriteType::TYPE_DIRECT)
+                        .ok());
+    std::vector<std::string> old_values;
+    ASSERT_TRUE(read_extracted_variant_rows(old_footer, old_file_path, &old_values).ok());
+    EXPECT_EQ(old_values, (std::vector<std::string> {R"({"nested":1})", "[1,2]"}));
+    source->clear();
+    for (const auto& json : old_values) {
+        Slice slice(json.data(), json.size());
+        ASSERT_TRUE(serde.deserialize_one_cell_from_json(*source, slice, format_options).ok());
+    }
+    auto payload_template = make_string_typed_path_template("payload");
+    _tablet_schema->mutable_column_by_uid(1).add_sub_column(payload_template);
+    // Compaction planning marks the path as a carrier; the writer reads only that set.
+    auto carrier_paths = std::make_shared<VariantCompactionPathsMap>();
+    (*carrier_paths)[1].carrier_path_set.insert("payload");
+    SegmentFooterPB footer;
+    std::string file_path;
+    ASSERT_TRUE(write_extracted_variant_segment(source->get_ptr(), source_type,
+                                                "v2_extracted_compaction_carrier", &footer,
+                                                &file_path,
+                                                /*first_batch_rows=*/1, /*batch_rows=*/0, {},
+                                                DataWriteType::TYPE_COMPACTION, carrier_paths)
+                        .ok());
+    ASSERT_EQ(footer.columns_size(), 1);
+    EXPECT_EQ(footer.columns(0).type(), static_cast<int>(FieldType::OLAP_FIELD_TYPE_JSONB));
 
     std::vector<std::string> actual;
     ASSERT_TRUE(read_extracted_variant_rows(footer, file_path, &actual).ok());

@@ -499,6 +499,17 @@ VariantSubcolumnWriter::VariantSubcolumnWriter(const ColumnWriterOptions& opts,
 VariantSubcolumnWriter::~VariantSubcolumnWriter() = default;
 
 Status VariantSubcolumnWriter::init() {
+    // C8 plans an ADD carrier as an untyped VARIANT slot owned by a template. Ordinary dynamic
+    // slots and native typed paths retain their existing write rules.
+    if (_opts.rowset_ctx->write_type == DataWriteType::TYPE_COMPACTION &&
+        _opts.rowset_ctx->variant_compaction_paths != nullptr) {
+        const auto layout =
+                _opts.rowset_ctx->variant_compaction_paths->find(get_column()->parent_unique_id());
+        _preserve_carrier_types =
+                layout != _opts.rowset_ctx->variant_compaction_paths->end() &&
+                layout->second.carrier_path_set.contains(
+                        get_column()->path_info_ptr()->copy_pop_front().get_path());
+    }
     return Status::OK();
 }
 
@@ -510,6 +521,9 @@ Status VariantSubcolumnWriter::_initialize_v2_builder() {
     DORIS_CHECK(get_column()->path_info_ptr() != nullptr);
     _v2_builder =
             std::make_unique<VariantPathBuilder>(get_column()->path_info_ptr()->copy_pop_front());
+    if (_preserve_carrier_types) {
+        _v2_builder->pin_jsonb();
+    }
     return Status::OK();
 }
 
@@ -713,7 +727,10 @@ Status VariantSubcolumnWriter::finalize() {
     DataTypePtr storage_type;
     TabletSchema::SubColumnInfo subcolumn_info;
     const PathInData relative_path = get_column()->path_info_ptr()->copy_pop_front();
-    if (variant_util::generate_sub_column_info(*_opts.rowset_ctx->tablet_schema,
+    // Only C8's ADD carrier bypasses the load template. Its existing JSONB codec must keep
+    // old dynamic/sparse values instead of converting them to the newly added template type.
+    if (!_preserve_carrier_types &&
+        variant_util::generate_sub_column_info(*_opts.rowset_ctx->tablet_schema,
                                                parent_column.unique_id(), relative_path.get_path(),
                                                &subcolumn_info)) {
         storage_type = DataTypeFactory::instance().create_data_type(subcolumn_info.column);

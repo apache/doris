@@ -67,6 +67,10 @@ public:
     VariantPathBuilder(const VariantPathBuilder&) = delete;
     VariantPathBuilder& operator=(const VariantPathBuilder&) = delete;
 
+    // ADD carriers pin the builder to the existing JSONB codec before the first value, so old
+    // dynamic and new typed cells never infer a common leaf type. Read-back fidelity follows the
+    // existing JSONB decoder, including integer canonicalization.
+    void pin_jsonb();
     Status append(VariantRef value, size_t row, const InferredPromotion& on_promotion = {});
     Status complete_rows(size_t rows);
     // Inferred conversions preserve values through JSONB fallback; explicit storage coercion

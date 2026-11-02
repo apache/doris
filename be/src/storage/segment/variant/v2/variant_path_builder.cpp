@@ -1079,6 +1079,8 @@ struct VariantPathBuilder::Impl {
     explicit Impl(PathInData path_, size_t prefix_rows_)
             : path(path_), logical_rows(prefix_rows_) {}
 
+    bool pinned_jsonb = false;
+
     Status initialize(const DataTypePtr& initial_type) {
         type = remove_nullable(initial_type);
         nullable_type = make_nullable(type);
@@ -1184,8 +1186,13 @@ VariantPathBuilder::~VariantPathBuilder() = default;
 VariantPathBuilder::VariantPathBuilder(VariantPathBuilder&&) noexcept = default;
 VariantPathBuilder& VariantPathBuilder::operator=(VariantPathBuilder&&) noexcept = default;
 
+void VariantPathBuilder::pin_jsonb() {
+    _impl->pinned_jsonb = true;
+}
+
 Status VariantPathBuilder::append(VariantRef value, size_t row,
                                   const InferredPromotion& on_promotion) {
+    const bool preserve_type = _impl->pinned_jsonb;
     try {
         const ScalarPhysical physical = scalar_physical(value);
         if (physical.kind == ScalarPhysicalKind::NULL_VALUE) {
@@ -1204,7 +1211,14 @@ Status VariantPathBuilder::append(VariantRef value, size_t row,
 
         const bool stable_scalar =
                 _impl->column && stable_scalar_matches_type(value, physical, _impl->type);
-        if (!stable_scalar) {
+        if (preserve_type) {
+            if (!_impl->column) {
+                RETURN_IF_ERROR(_impl->initialize(jsonb_type()));
+            } else if (_impl->type->get_primitive_type() != TYPE_JSONB) {
+                return Status::InternalError("Variant path builder {} pinned to JSONB holds {}",
+                                             _impl->path.get_path(), _impl->type->get_name());
+            }
+        } else if (!stable_scalar) {
             if (!_impl->column) {
                 RETURN_IF_ERROR(_impl->initialize(infer_type(value)));
             } else if (_impl->type->get_primitive_type() != TYPE_JSONB) {
@@ -1226,7 +1240,15 @@ Status VariantPathBuilder::append(VariantRef value, size_t row,
 
         try {
             auto& nullable = assert_cast<ColumnNullable&>(*_impl->column);
-            append_value(value, _impl->type, &nullable.get_nested_column());
+            if (preserve_type) {
+                JsonbWriter writer;
+                variant_to_jsonb(value, writer);
+                assert_cast<ColumnString&>(nullable.get_nested_column())
+                        .insert_data(writer.getOutput()->getBuffer(),
+                                     writer.getOutput()->getSize());
+            } else {
+                append_value(value, _impl->type, &nullable.get_nested_column());
+            }
             nullable.get_null_map_data().push_back(0);
         } catch (const Exception&) {
             if (is_array || _impl->type->get_primitive_type() == TYPE_JSONB) {

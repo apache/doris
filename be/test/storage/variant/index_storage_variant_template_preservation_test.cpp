@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -29,12 +30,14 @@
 
 #include "common/config.h"
 #include "core/column/variant_v2/column_variant_v2.h"
+#include "core/value/variant/variant_batch_builder.h"
 #include "exec/common/variant_util.h"
 #include "runtime/exec_env.h"
 #include "storage/compaction/base_compaction.h"
 #include "storage/compaction/cumulative_compaction.h"
 #include "storage/rowset/rowset_reader.h"
 #include "storage/rowset/rowset_reader_context.h"
+#include "storage/segment/column_writer.h"
 #include "storage/segment/segment_loader.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/variant/index_storage_variant_test_base.h"
@@ -124,6 +127,21 @@ protected:
                 rowset, &collected);
         ASSERT_TRUE(status.ok()) << status;
         ASSERT_TRUE(collected.contains(kVariantUid));
+        if (expected == TYPE_VARIANT) {
+            // TYPE_VARIANT is the selected schema owner, not a ColumnMetaPB codec. Assert both
+            // independently: one pinned VARIANT schema slot and one concrete JSONB file leaf.
+            auto schema = std::make_shared<TabletSchema>(*tablet_schema());
+            VariantCompactionPathsMap paths;
+            status = variant_util::VariantCompactionUtil::get_extended_compaction_schema(
+                    {rowset}, schema, paths);
+            ASSERT_TRUE(status.ok()) << status;
+            const auto columns = extracted_p_columns(*schema);
+            ASSERT_EQ(columns.size(), 1) << dump_schema_paths(*schema);
+            EXPECT_EQ(columns.front()->type(), FieldType::OLAP_FIELD_TYPE_VARIANT);
+            EXPECT_TRUE(paths.at(kVariantUid).sub_path_set.contains(StringRef("p")));
+            EXPECT_FALSE(paths.at(kVariantUid).sparse_path_set.contains(StringRef("p")));
+            expected = TYPE_JSONB;
+        }
         size_t matching_types = 0;
         for (const auto& [path, types] : collected.at(kVariantUid).path_to_data_types) {
             if (path.get_path() != "p") {
@@ -169,10 +187,15 @@ protected:
     }
 
     Result<RowsetSharedPtr> compact(const std::vector<RowsetSharedPtr>& rowsets, bool base,
-                                    bool vertical) {
+                                    bool vertical, bool extracted = true) {
         const bool ordered = config::enable_ordered_data_compaction;
         config::enable_ordered_data_compaction = false;
         Defer restore_ordered {[ordered] { config::enable_ordered_data_compaction = ordered; }};
+        // The configured mode is read once at construction.
+        const bool configured = config::enable_vertical_compact_variant_subcolumns;
+        config::enable_vertical_compact_variant_subcolumns = extracted;
+        Defer restore_extracted {
+                [configured] { config::enable_vertical_compact_variant_subcolumns = configured; }};
         std::unique_ptr<CompactionMixin> compaction;
         if (base) {
             compaction = std::make_unique<BaseCompaction>(*storage_engine(), tablet());
@@ -180,7 +203,6 @@ protected:
             compaction = std::make_unique<CumulativeCompaction>(*storage_engine(), tablet());
         }
         compaction->_is_vertical = vertical;
-        compaction->_enable_vertical_compact_variant_subcolumns = true;
         compaction->_input_rowsets = rowsets;
         RETURN_IF_ERROR_RESULT(compaction->CompactionMixin::execute_compact());
         EXPECT_EQ(compaction->is_vertical(), vertical);
@@ -685,10 +707,7 @@ TEST_P(IndexStorageVariantTemplateRewriteTest, UnchangedSparseLayoutPreservesVal
     }
 }
 
-
-
-// Disabled until compaction writes added-template carriers: ADD must not recast historical dynamic strings to INT.
-TEST_P(IndexStorageVariantTemplateRewriteTest, DISABLED_AddOverDynamicPreservesTimingAndTags) {
+TEST_P(IndexStorageVariantTemplateRewriteTest, AddOverDynamicPreservesTimingAndTags) {
     verify_timings(
             variant_with_template(std::nullopt),
             variant_with_template(FieldType::OLAP_FIELD_TYPE_INT),
@@ -699,8 +718,7 @@ TEST_P(IndexStorageVariantTemplateRewriteTest, DISABLED_AddOverDynamicPreservesT
              VariantPrimitiveId::STRING, VariantPrimitiveId::INT32, VariantPrimitiveId::INT32});
 }
 
-// Disabled until compaction writes added-template carriers: sparse and new typed cells must have one output destination.
-TEST_P(IndexStorageVariantTemplateRewriteTest, DISABLED_AddOverSparsePreservesTimingAndTags) {
+TEST_P(IndexStorageVariantTemplateRewriteTest, AddOverSparsePreservesTimingAndTags) {
     for (int32_t shards : {0, 4}) {
         SCOPED_TRACE(shards);
         auto before = variant_with_template(std::nullopt, 1);
@@ -714,6 +732,221 @@ TEST_P(IndexStorageVariantTemplateRewriteTest, DISABLED_AddOverSparsePreservesTi
                         std::nullopt, VariantPrimitiveId::INT32, VariantPrimitiveId::INT32},
                        true);
     }
+}
+
+// Newly typed rows after ADD have no none_null_size. Count their actual null gaps, not
+// segment rows, when they share a carrier with historical dynamic values.
+TEST_P(IndexStorageVariantTemplateRewriteTest, NullableTypedCarrierCountsOnlyPresentCells) {
+    verify_timings(variant_with_template(std::nullopt),
+                   variant_with_template(FieldType::OLAP_FIELD_TYPE_BIGINT),
+                   {R"({"p":2000000,"z":0})", R"({"z":1})", R"({"p":2000002,"z":2})", R"({"z":3})"},
+                   {R"({"p":5000000000,"z":4})", R"({"z":5})"},
+                   {VariantPrimitiveId::INT32, std::nullopt, VariantPrimitiveId::INT32,
+                    std::nullopt, VariantPrimitiveId::INT64, std::nullopt});
+}
+
+// Exercise physical reopening, not just schema derivation: carriers persist a concrete JSONB
+// codec, so inline metadata must register them as ordinary extracted leaves too.
+TEST_P(IndexStorageVariantTemplateRewriteTest, InlineCarrierPreservesValuesAndTags) {
+    const auto [base, vertical] = GetParam();
+    for (int32_t old_budget : {1, 8}) {
+        for (int32_t shards : {0, 4}) {
+            for (bool extracted : {false, true}) {
+                SCOPED_TRACE(::testing::Message() << "old_budget=" << old_budget << " shards="
+                                                  << shards << " extracted=" << extracted);
+                IndexTabletOptions options;
+                options.tablet_id = 115000 + old_budget * 100 + shards * 10 + extracted * 4 +
+                                    base * 2 + vertical;
+                options.external_segment_meta = false;
+                auto before = variant_with_template(std::nullopt, old_budget);
+                before.sparse_hash_shard_count = shards;
+                options.variant_columns = {before};
+                ASSERT_TRUE(create_tablet(options).ok());
+                auto first = write(0, {R"({"p":"001","z":0})", R"({"z":1})"});
+                auto second = write(1, {R"({"p":"bad","z":2})", R"({"z":3})"});
+                ASSERT_TRUE(first.has_value()) << first.error();
+                ASSERT_TRUE(second.has_value()) << second.error();
+                auto after = variant_with_template(FieldType::OLAP_FIELD_TYPE_INT, 1);
+                after.sparse_hash_shard_count = shards;
+                options.variant_columns = {after};
+                auto target = build_tablet_schema(options);
+                target->set_schema_version(tablet_schema()->schema_version() + 1);
+                install_write_schema(target);
+                auto recent = write(2, {R"({"p":2000004,"z":4})", R"({"p":2000005,"z":5})"});
+                ASSERT_TRUE(recent.has_value()) << recent.error();
+                expect_p_type(recent.value(), TYPE_INT); // New writes still use the new template.
+                segment_v2::VariantSubcolumnWriter::set_chunk_values_for_test(1);
+                Defer restore_chunks {
+                        [] { segment_v2::VariantSubcolumnWriter::set_chunk_values_for_test(0); }};
+                auto output = compact({first.value(), second.value(), recent.value()}, base,
+                                      vertical, extracted);
+                ASSERT_TRUE(output.has_value()) << output.error();
+                expect_p_type(output.value(),
+                              TYPE_JSONB); // Physical codec, not a VARIANT ColumnMetaPB.
+                expect_single_destination(output.value());
+                expect_values({output.value()},
+                              {R"({"p":"001","z":0})", R"({"z":1})", R"({"p":"bad","z":2})",
+                               R"({"z":3})", R"({"p":2000004,"z":4})", R"({"p":2000005,"z":5})"});
+                expect_p_tags({output.value()},
+                              {VariantPrimitiveId::STRING, std::nullopt, VariantPrimitiveId::STRING,
+                               std::nullopt, VariantPrimitiveId::INT32, VariantPrimitiveId::INT32});
+                // Publication keeps the target root template and removes extracted schema
+                // slots. Equal template lists must not hide this carrier on the next compaction.
+                ColumnPB compacted_root;
+                ColumnPB target_root;
+                output.value()
+                        ->tablet_schema()
+                        ->column_by_uid(kVariantUid)
+                        .to_schema_pb(&compacted_root);
+                target->column_by_uid(kVariantUid).to_schema_pb(&target_root);
+                ASSERT_EQ(compacted_root.SerializeAsString(), target_root.SerializeAsString());
+                auto newest = write(3, {R"({"p":2000006,"z":6})", R"({"p":2000007,"z":7})"});
+                ASSERT_TRUE(newest.has_value()) << newest.error();
+                auto repeated =
+                        compact({output.value(), newest.value()}, base, vertical, extracted);
+                ASSERT_TRUE(repeated.has_value()) << repeated.error();
+                expect_single_destination(repeated.value());
+                expect_values({repeated.value()},
+                              {R"({"p":"001","z":0})", R"({"z":1})", R"({"p":"bad","z":2})",
+                               R"({"z":3})", R"({"p":2000004,"z":4})", R"({"p":2000005,"z":5})",
+                               R"({"p":2000006,"z":6})", R"({"p":2000007,"z":7})"});
+                expect_p_tags({repeated.value()},
+                              {VariantPrimitiveId::STRING, std::nullopt, VariantPrimitiveId::STRING,
+                               std::nullopt, VariantPrimitiveId::INT32, VariantPrimitiveId::INT32,
+                               VariantPrimitiveId::INT32, VariantPrimitiveId::INT32});
+            }
+        }
+    }
+}
+
+// Materialized carriers use the existing JSONB codec. UUID has no JSONB tag and therefore
+// becomes its string spelling, just as on a mixed-type untemplated dynamic path.
+TEST_P(IndexStorageVariantTemplateRewriteTest, AddOverDynamicUuidKeepsEveryValueAsJsonb) {
+    const auto [base, vertical] = GetParam();
+    initialize(variant_with_template(std::nullopt), 116000 + base * 2 + vertical);
+    ASSERT_FALSE(HasFatalFailure());
+    const std::array<uint8_t, 16> uuid {0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                                        0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
+    VariantBatchBuilder builder;
+    auto row = builder.begin_row();
+    auto object = row.start_object();
+    object.add_key(StringRef("p"));
+    row.add_uuid(uuid);
+    object.finish();
+    row.finish();
+    const auto batch = builder.finish_batch();
+    auto source = ColumnVariantV2::create();
+    source->insert_encoded_batch(batch);
+    IndexRowsetSpec spec;
+    spec.version = 0;
+    spec.batches.push_back(IndexBatch::single_variant_column(source->get_ptr(), 0));
+    auto old = write_rowset(spec);
+    ASSERT_TRUE(old.has_value()) << old.error();
+    SegmentLoader::instance()->erase_segments(*old.value()->rowset_meta());
+    expect_p_type(old.value(), TYPE_UUID);
+    expect_p_tags({old.value()}, {VariantPrimitiveId::UUID});
+    const std::vector<std::string> expected {R"({"p":"00112233-4455-6677-8899-aabbccddeeff"})",
+                                             R"({"p":"00112233-4455-6677-8899-aabbccddeeff"})",
+                                             R"({"p":"new string"})"};
+    install_write_schema(target_schema(variant_with_template(FieldType::OLAP_FIELD_TYPE_STRING)));
+    auto recent = write(1, {expected[1], expected[2]});
+    ASSERT_TRUE(recent.has_value()) << recent.error();
+    expect_values({old.value(), recent.value()}, expected);
+    auto output = compact({old.value(), recent.value()}, base, vertical);
+    ASSERT_TRUE(output.has_value()) << output.error();
+    expect_p_type(output.value(), TYPE_JSONB);
+    expect_single_destination(output.value());
+    expect_values({output.value()}, expected);
+    expect_p_tags({output.value()}, std::vector<std::optional<VariantPrimitiveId>>(
+                                            expected.size(), VariantPrimitiveId::STRING));
+}
+
+constexpr auto kPlanningFailure = "Compaction.resolve_variant_write_schema.planning_failure";
+constexpr auto kAddedTemplateKeyScan =
+        "variant_util.collect_compaction_schema.added_template_key_scan";
+
+// Separate column groups off + never-altered (schema_version 0): no carrier planning at all, so
+// an injected planning failure is never reached and master's native full-root write remains.
+TEST_F(IndexStorageVariantTemplatePreservationTest, VerticalOffUnalteredSkipsCarrierPlanning) {
+    initialize(variant_with_template(FieldType::OLAP_FIELD_TYPE_INT), 117001);
+    ASSERT_FALSE(HasFatalFailure());
+    ASSERT_EQ(tablet_schema()->schema_version(), 0);
+    const std::vector<std::string> expected {R"({"p":1,"z":0})", R"({"p":2,"z":1})",
+                                             R"({"p":3,"z":2})"};
+    auto first = write(0, {expected[0], expected[1]});
+    ASSERT_TRUE(first.has_value()) << first.error();
+    auto second = write(1, {expected[2]});
+    ASSERT_TRUE(second.has_value()) << second.error();
+    ScopedDebugPoint failure(kPlanningFailure);
+    auto output = compact({first.value(), second.value()}, false, true, false);
+    ASSERT_TRUE(output.has_value()) << output.error();
+    EXPECT_EQ(failure.execute_num(), 0);
+    expect_p_type(output.value(), TYPE_INT);
+    expect_values({output.value()}, expected);
+}
+
+// Separate column groups off + ADD history: a planning failure must fail compaction rather than
+// fall back to full-root shredding that would re-cast old dynamic values (D1).
+TEST_F(IndexStorageVariantTemplatePreservationTest, VerticalOffAlteredPlanningFailureFails) {
+    initialize(variant_with_template(std::nullopt), 117002);
+    ASSERT_FALSE(HasFatalFailure());
+    auto old = write(0, {R"({"p":"001"})", R"({"p":"bad"})"});
+    ASSERT_TRUE(old.has_value()) << old.error();
+    install_write_schema(target_schema(variant_with_template(FieldType::OLAP_FIELD_TYPE_INT)));
+    auto recent = write(1, {R"({"p":7})"});
+    ASSERT_TRUE(recent.has_value()) << recent.error();
+    const std::vector<std::string> expected {R"({"p":"001"})", R"({"p":"bad"})", R"({"p":7})"};
+    expect_values({old.value(), recent.value()}, expected);
+    const std::string old_meta = old.value()->rowset_meta()->get_rowset_pb().SerializeAsString();
+    const std::string recent_meta =
+            recent.value()->rowset_meta()->get_rowset_pb().SerializeAsString();
+    {
+        ScopedDebugPoint failure(kPlanningFailure);
+        auto output = compact({old.value(), recent.value()}, false, true, false);
+        ASSERT_FALSE(output.has_value());
+        EXPECT_NE(output.error().to_string().find("injected variant carrier planning failure"),
+                  std::string::npos)
+                << output.error();
+        EXPECT_EQ(failure.execute_num(), 1);
+    }
+    EXPECT_EQ(old.value()->rowset_meta()->get_rowset_pb().SerializeAsString(), old_meta);
+    EXPECT_EQ(recent.value()->rowset_meta()->get_rowset_pb().SerializeAsString(), recent_meta);
+    expect_values({old.value(), recent.value()}, expected);
+    // Without the injected failure the same inputs compact through the ADD carrier.
+    auto output = compact({old.value(), recent.value()}, false, true, false);
+    ASSERT_TRUE(output.has_value()) << output.error();
+    expect_p_type(output.value(), TYPE_JSONB);
+    expect_values({output.value()}, expected);
+}
+
+// A rowset schema persisted without pattern_type (field 26) decodes as MATCH_NAME_GLOB. The same
+// metacharacter-free entry is unchanged, so it must not enter the ADD-only sparse key scan.
+TEST_F(IndexStorageVariantTemplatePreservationTest, LegacySchemaWithoutPatternTypeSkipsKeyScan) {
+    initialize(variant_with_template(FieldType::OLAP_FIELD_TYPE_INT), 117003);
+    ASSERT_FALSE(HasFatalFailure());
+    auto old = write(0, {R"({"p":1,"z":0})", R"({"p":2,"z":1})"});
+    ASSERT_TRUE(old.has_value()) << old.error();
+    TabletSchemaPB legacy_pb;
+    old.value()->tablet_schema()->to_schema_pb(&legacy_pb);
+    int cleared = 0;
+    for (auto& column : *legacy_pb.mutable_column()) {
+        for (auto& child : *column.mutable_children_columns()) {
+            child.clear_pattern_type();
+            ++cleared;
+        }
+    }
+    ASSERT_EQ(cleared, 1);
+    auto legacy = std::make_shared<TabletSchema>();
+    legacy->init_from_pb(legacy_pb);
+    const auto& legacy_templates = legacy->column_by_uid(kVariantUid).get_sub_columns();
+    ASSERT_EQ(legacy_templates.size(), 1);
+    ASSERT_EQ(legacy_templates.front()->pattern_type(), PatternTypePB::MATCH_NAME_GLOB);
+    old.value()->rowset_meta()->set_tablet_schema(legacy);
+    ScopedDebugPoint key_scan(kAddedTemplateKeyScan);
+    expect_schema({old.value()},
+                  target_schema(variant_with_template(FieldType::OLAP_FIELD_TYPE_INT)),
+                  FieldType::OLAP_FIELD_TYPE_INT);
+    EXPECT_EQ(key_scan.execute_num(), 0);
 }
 
 INSTANTIATE_TEST_SUITE_P(IndexStorageLocalCumulativeAndBase, IndexStorageVariantTemplateRewriteTest,

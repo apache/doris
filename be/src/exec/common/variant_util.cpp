@@ -94,6 +94,7 @@
 #include "storage/tablet/tablet_fwd.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/client_cache.h"
+#include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/json/path_in_data.h"
 #include "util/json/simd_json_parser.h"
@@ -891,8 +892,131 @@ void VariantCompactionUtil::get_subpaths(int32_t max_subcolumns_count,
     }
 }
 
+namespace {
+
+// Typed paths historically omit none_null_size. ADD carriers also contain newly typed rows;
+// include those actual cells in validation without adding typed counts to budget stats.
+Status add_missing_typed_path_counts(
+        const RowsetSharedPtr& rowset, const VariantCompactionPathsMap& carriers,
+        const std::unordered_map<int32_t, PathToNoneNullValues>& output_stats,
+        std::unordered_map<int32_t, PathToNoneNullValues>& input_stats) {
+    // Output path counts already come from the normal stats check. Only the compaction's planned
+    // carriers are counted in output while some inputs hold them typed, including new typed
+    // rowsets whose template already equals the target but which contribute to a carrier made
+    // from older inputs. Unaltered typed paths have no output count and are skipped.
+    std::unordered_map<int32_t, std::unordered_set<std::string>> counted_template_paths;
+    for (const auto& column : rowset->tablet_schema()->columns()) {
+        const auto output = output_stats.find(column->unique_id());
+        const auto layout = carriers.find(column->unique_id());
+        if (layout == carriers.end() || layout->second.carrier_path_set.empty() ||
+            output == output_stats.end() || !should_check_variant_path_stats(*column)) {
+            continue;
+        }
+        for (const auto& path : layout->second.carrier_path_set) {
+            if (output->second.contains(path)) {
+                counted_template_paths[column->unique_id()].insert(path);
+            }
+        }
+    }
+    if (counted_template_paths.empty()) {
+        return Status::OK();
+    }
+    SegmentCacheHandle segments;
+    RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
+            std::static_pointer_cast<BetaRowset>(rowset), &segments));
+    for (const auto& column : rowset->tablet_schema()->columns()) {
+        const auto paths = counted_template_paths.find(column->unique_id());
+        if (paths == counted_template_paths.end()) {
+            continue;
+        }
+        for (const auto& segment : segments.get_segments()) {
+            OlapReaderStatistics stats;
+            StorageReadOptions read_options(stats);
+            std::shared_ptr<segment_v2::VariantColumnReader> root;
+            auto status = segment->get_variant_root_reader(*column, read_options, &root);
+            if (status.is<ErrorCode::NOT_FOUND>()) {
+                continue; // An absent physical root contributes no non-null cells.
+            }
+            RETURN_IF_ERROR(status);
+            RETURN_IF_ERROR(root->load_external_meta_once());
+            std::unordered_set<std::string> needed;
+            root->get_typed_paths(&needed);
+            std::erase_if(needed, [&](const auto& path) {
+                return !paths->second.contains(path) ||
+                       root->get_stats()->subcolumns_non_null_size.contains(path);
+            });
+            // Unaltered typed paths are also uncounted in output, so do not traverse metadata
+            // or read their pages. This fallback is only for typed -> counted-carrier transitions.
+            if (needed.empty()) {
+                continue;
+            }
+            std::vector<segment_v2::ColumnMetaPB> metas;
+            RETURN_IF_ERROR(segment->traverse_column_meta_pbs([&](const auto& meta) {
+                if (!meta.has_column_path_info() ||
+                    meta.column_path_info().parrent_column_unique_id() != column->unique_id()) {
+                    return;
+                }
+                PathInData path;
+                path.from_protobuf(meta.column_path_info());
+                const auto relative = path.copy_pop_front();
+                if (relative.get_is_typed() && needed.contains(relative.get_path())) {
+                    metas.push_back(meta);
+                }
+            }));
+            for (const auto& meta : metas) {
+                PathInData full_path;
+                full_path.from_protobuf(meta.column_path_info());
+                const auto path = full_path.copy_pop_front().get_path();
+                uint64_t non_null = 0;
+                if (meta.has_none_null_size()) {
+                    non_null = meta.none_null_size();
+                } else if (!meta.is_nullable()) {
+                    non_null = meta.num_rows();
+                } else if (meta.num_rows() != 0) {
+                    // Legacy nullable metadata has no exact non-null total. Read bounded native
+                    // batches, with no query/template cast, rather than treating every row as set.
+                    segment_v2::ColumnReaderOptions options;
+                    options.tablet_schema = rowset->tablet_schema();
+                    std::shared_ptr<segment_v2::ColumnReader> reader;
+                    RETURN_IF_ERROR(segment_v2::ColumnReader::create(
+                            options, meta, meta.num_rows(), segment->file_reader(), &reader));
+                    segment_v2::ColumnIteratorUPtr iterator;
+                    RETURN_IF_ERROR(reader->new_iterator(&iterator, nullptr));
+                    segment_v2::ColumnIteratorOptions iterator_options;
+                    iterator_options.file_reader = segment->file_reader().get();
+                    iterator_options.stats = &stats;
+                    RETURN_IF_ERROR(iterator->init(iterator_options));
+                    RETURN_IF_ERROR(iterator->seek_to_ordinal(0));
+                    const auto type = DataTypeFactory::instance().create_data_type(meta);
+                    uint64_t remaining = meta.num_rows();
+                    while (remaining > 0) {
+                        MutableColumnPtr values = type->create_column();
+                        size_t count = std::min<uint64_t>(remaining, 4096);
+                        RETURN_IF_ERROR(iterator->next_batch(&count, values));
+                        if (count == 0) {
+                            return Status::Corruption(
+                                    "Incomplete typed path in segment {} uid {} path {}: {} rows "
+                                    "remaining",
+                                    segment->id(), column->unique_id(), path, remaining);
+                        }
+                        const auto& nulls =
+                                assert_cast<const ColumnNullable&>(*values).get_null_map_data();
+                        non_null += std::count(nulls.begin(), nulls.end(), UInt8 {0});
+                        remaining -= count;
+                    }
+                }
+                input_stats[column->unique_id()][path] += non_null;
+            }
+        }
+    }
+    return Status::OK();
+}
+
+} // namespace
+
 Status VariantCompactionUtil::check_path_stats(const std::vector<RowsetSharedPtr>& inputs,
-                                               RowsetSharedPtr output, BaseTabletSPtr tablet) {
+                                               RowsetSharedPtr output, BaseTabletSPtr tablet,
+                                               const VariantCompactionPathsMap* paths) {
     if (output->tablet_schema()->num_variant_columns() == 0) {
         return Status::OK();
     }
@@ -941,12 +1065,16 @@ Status VariantCompactionUtil::check_path_stats(const std::vector<RowsetSharedPtr
             return Status::OK();
         }
     }
+    std::unordered_map<int32_t, PathToNoneNullValues> output_uid_to_path_stats;
+    RETURN_IF_ERROR(aggregate_path_to_stats(output, &output_uid_to_path_stats));
     std::unordered_map<int32_t, PathToNoneNullValues> original_uid_to_path_stats;
     for (const auto& rs : inputs) {
         RETURN_IF_ERROR(aggregate_path_to_stats(rs, &original_uid_to_path_stats));
+        if (paths != nullptr) {
+            RETURN_IF_ERROR(add_missing_typed_path_counts(rs, *paths, output_uid_to_path_stats,
+                                                          original_uid_to_path_stats));
+        }
     }
-    std::unordered_map<int32_t, PathToNoneNullValues> output_uid_to_path_stats;
-    RETURN_IF_ERROR(aggregate_path_to_stats(output, &output_uid_to_path_stats));
     for (const auto& [uid, stats] : output_uid_to_path_stats) {
         if (output->tablet_schema()->column_by_uid(uid).is_variant_type() &&
             output->tablet_schema()->column_by_uid(uid).variant_enable_doc_mode()) {
@@ -1203,6 +1331,20 @@ using CollectedCompactionSchema = std::unordered_map<int32_t, VariantExtendedInf
 
 // Bounded statistics cannot enumerate every old sparse path. Read only the flattened keys,
 // not their values or row offsets, so ADD/glob templates also claim paths omitted from stats.
+// A rowset schema written without pattern_type (field 26) decodes as MATCH_NAME_GLOB. Without
+// glob metacharacters both pattern types match exactly the same paths, so the entry is unchanged
+// and must not trigger the ADD-only sparse key scan. The metacharacters are those of BE matching
+// (fnmatch with FNM_PATHNAME in generate_sub_column_info): FE index binding uses Java
+// PathMatcher("glob:"), which also treats {a,b} and ** specially, but BE matches '{' literally
+// under either pattern type, so this BE-side equivalence holds (H2).
+bool same_template_entry(const TabletColumn& source, const TabletColumn& target) {
+    if (source.name() != target.name()) {
+        return false;
+    }
+    return source.pattern_type() == target.pattern_type() ||
+           target.name().find_first_of("*?[\\") == std::string::npos;
+}
+
 Status collect_sparse_keys(const segment_v2::SegmentSharedPtr& segment,
                            const TabletSchemaSPtr& schema, const TabletSchema& target,
                            int32_t parent_uid, std::unordered_set<std::string>& sparse_paths) {
@@ -1334,9 +1476,7 @@ Result<CollectedCompactionSchema> collect_compaction_schema(
                     column->get_sub_columns(), [&](const auto& target_template) {
                         return std::ranges::none_of(
                                 source_templates, [&](const auto& source_template) {
-                                    return source_template->name() == target_template->name() &&
-                                           source_template->pattern_type() ==
-                                                   target_template->pattern_type();
+                                    return same_template_entry(*source_template, *target_template);
                                 });
                     });
             // Ordinary writes materialize every template match (select_variant_paths). Only ADD
@@ -1344,6 +1484,9 @@ Result<CollectedCompactionSchema> collect_compaction_schema(
             if (!has_added_template) {
                 continue;
             }
+            DBUG_EXECUTE_IF("variant_util.collect_compaction_schema.added_template_key_scan", {
+                return ResultError(Status::InternalError("injected added-template key scan"));
+            });
             SegmentCacheHandle segments;
             RETURN_IF_ERROR_RESULT(SegmentLoader::instance()->load_segments(
                     std::static_pointer_cast<BetaRowset>(rs), &segments));
@@ -1625,6 +1768,53 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
     target = output_schema;
     paths = std::move(output_paths);
     VLOG_DEBUG << "dump schema " << target->dump_full_schema();
+    return Status::OK();
+}
+
+// Full-root shredding reapplies load templates. Use C8's extracted layout for ADD carriers,
+// even if separate Variant column groups are disabled.
+// Even ADD-only histories need planning on later compactions: publication retains the target
+// template but drops extracted slots, so template-list equality does not rule out an old carrier.
+// Unaltered templates retain their existing full-root write path and physical layout.
+// Provenance split when separate column groups are disabled: a merged input schema at version 0
+// was never altered, so it skips planning and keeps master's full-root write. Otherwise an ADD
+// carrier may exist; a planning failure fails the compaction instead of re-casting old values
+// (D1). Contract (H1): every FE ALTER, light or heavy and including Cloud, bumps schema_version,
+// and the merged schema takes the inputs' maximum. A future FE ALTER path that does not bump it
+// must update this pre-filter. The safe direction: misjudging "altered" costs one planning pass.
+Status VariantCompactionUtil::resolve_write_schema(const std::vector<RowsetSharedPtr>& inputs,
+                                                   bool prefer_extracted, TabletSchemaSPtr& schema,
+                                                   VariantCompactionPathsSPtr& paths,
+                                                   bool* use_extracted) {
+    *use_extracted = prefer_extracted;
+    const bool has_ordinary_template = std::ranges::any_of(
+            schema->columns(),
+            [](const auto& column) { return is_ordinary_template_variant(*column); });
+    if (!prefer_extracted && (!has_ordinary_template || schema->schema_version() == 0)) {
+        return Status::OK();
+    }
+    // Extracted mode keeps the pre-existing in-place extension; otherwise plan on a copy and
+    // adopt it only when an ADD carrier needs to bypass the load template.
+    TabletSchemaSPtr resolved = schema;
+    if (!prefer_extracted) {
+        resolved = std::make_shared<TabletSchema>();
+        resolved->copy_from(*schema);
+    }
+    auto resolved_paths = std::make_shared<VariantCompactionPathsMap>();
+    auto status = get_extended_compaction_schema(inputs, resolved, *resolved_paths);
+    DBUG_EXECUTE_IF("Compaction.resolve_variant_write_schema.planning_failure", {
+        status = Status::InternalError("injected variant carrier planning failure");
+    });
+    RETURN_IF_ERROR(status);
+    // Only C8's carriers need the ADD carrier writer; native typed columns keep the template.
+    if (prefer_extracted || std::ranges::any_of(*resolved_paths, [](const auto& entry) {
+            return !entry.second.carrier_path_set.empty();
+        })) {
+        schema = std::move(resolved);
+        paths = std::move(resolved_paths);
+        // Also retain the existing post-build removal of transient extracted schema columns.
+        *use_extracted = true;
+    }
     return Status::OK();
 }
 

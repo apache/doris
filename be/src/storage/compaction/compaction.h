@@ -211,7 +211,12 @@ protected:
     bool _is_ordered_data_compaction {false};
     bool _trigger_quick_merge_by_changelog {false};
     bool _allow_delete_in_cumu_compaction;
-    bool _enable_vertical_compact_variant_subcolumns;
+    // Configured mode; read-only after construction.
+    const bool _enable_vertical_compact_variant_subcolumns;
+    // Whether this compaction's write schema carries transient extracted Variant columns: the
+    // configured mode, or an ADD carrier plan adopted by resolve_write_schema. Drives their
+    // removal from the output RowsetMeta.
+    bool _use_variant_extracted_schema;
 
     Version _output_version;
 

@@ -209,14 +209,26 @@ public:
                                                  TabletSchemaSPtr& target,
                                                  VariantCompactionPathsMap& paths);
 
+    // Resolves the compaction write schema for Variant roots. `prefer_extracted` is the configured
+    // separate-column-group mode. Sets `use_extracted` when `schema`/`paths` carry transient
+    // extracted Variant columns that must be removed from the output RowsetMeta. Layers of the
+    // "was this root altered" question: schema_version==0 here is the coarse pre-filter (H1),
+    // collect_compaction_schema's template-list comparison gates sparse-key I/O, and C8's
+    // template-path-in-history test is the carrier decision.
+    static Status resolve_write_schema(const std::vector<RowsetSharedPtr>& inputs,
+                                       bool prefer_extracted, TabletSchemaSPtr& schema,
+                                       VariantCompactionPathsSPtr& paths, bool* use_extracted);
+
     // Used to collect all the subcolumns types of variant column from rowsets
     static TabletSchemaSPtr calculate_variant_extended_schema(
             const std::vector<RowsetSharedPtr>& rowsets, const TabletSchemaSPtr& base_schema);
 
     // Check if the path stats are consistent between inputs rowsets and output rowset.
     // Used to check the correctness of compaction.
+    // `paths` is the compaction's planned layout; its carriers also count typed input cells.
     static Status check_path_stats(const std::vector<RowsetSharedPtr>& inputs,
-                                   RowsetSharedPtr output, BaseTabletSPtr tablet);
+                                   RowsetSharedPtr output, BaseTabletSPtr tablet,
+                                   const VariantCompactionPathsMap* paths = nullptr);
 
     // Calculate statistics about variant data paths from the encoded sparse column
     static void calculate_variant_stats(const IColumn& encoded_sparse_column,
