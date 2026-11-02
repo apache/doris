@@ -149,6 +149,13 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         List<Expression> children = or.children();
         Set<Slot> leftInputSlots = Sets.newHashSet(children.get(0).getInputSlots());
         Statistics leftStats = children.get(0).accept(this, context);
+        // A predicate can return key column statistics whose ndv is larger than its output row count.
+        // For example `a = b` on 1000 rows with ndv 1000 estimates one row but keeps ndv 1000 from the
+        // intersected range. The children already scaled their null counts with their own selectivity, so
+        // only repair the validity here instead of rescaling the null counts a second time; otherwise the
+        // overlap estimated below, which uses the left child's ndv, is far too small and the union is
+        // overestimated.
+        leftStats.enforceValid();
         Statistics outputStats = leftStats;
         Preconditions.checkArgument(children.size() > 1, "and expression abnormal: " + or);
         for (int i = 1; i < children.size(); i++) {
@@ -159,6 +166,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             // for the results of derivation. The lower limit may cause andStats.row > leftStats.row.
             double andStatsRowCount = Math.min(andStats.getRowCount(), leftStats.getRowCount());
             Statistics rightStats = child.accept(this, context);
+            rightStats.enforceValid();
             double rowCount = leftStats.getRowCount() + rightStats.getRowCount() - andStatsRowCount;
             Statistics orStats = context.statistics.withRowCount(rowCount);
 
@@ -180,6 +188,10 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                     orStats.addColumnStats(slot, colBuilder.build());
                 }
             }
+            // The key column statistics merged above use the distinct values of the union range, which is
+            // not bounded by the union row count. Repair them so the next child of this OR (and the
+            // returned statistics) work on valid statistics.
+            orStats.enforceValid();
             leftStats = orStats;
             outputStats = orStats;
             leftInputSlots.addAll(child.getInputSlots());

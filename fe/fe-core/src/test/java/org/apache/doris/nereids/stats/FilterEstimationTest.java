@@ -1562,6 +1562,57 @@ class FilterEstimationTest {
     }
 
     /**
+     * `(a = b) or (a <=> b)`
+     *
+     * <p>`a = b` is a subset of `a <=> b`, so the OR has to be estimated like the null-safe equality:
+     * 1000 rows with ndv 1000 give one row. The equality leaves key statistics whose ndv (1000) is larger
+     * than its output row count (1); if they are not repaired before the overlap is estimated, the
+     * overlap becomes 1/1000 row and the union is estimated as 1.999 rows.
+     */
+    @Test
+    public void testOrEqualAndNullSafeEqualOverlap() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        ColumnStatistic aStats = new ColumnStatisticBuilder(1000).setNdv(1000).setAvgSizeByte(4)
+                .setNumNulls(0).setDataSize(0).setMinValue(1).setMaxValue(1000).build();
+        ColumnStatistic bStats = new ColumnStatisticBuilder(1000).setNdv(1000).setAvgSizeByte(4)
+                .setNumNulls(0).setDataSize(0).setMinValue(1).setMaxValue(1000).build();
+        StatisticsBuilder statsBuilder = new StatisticsBuilder();
+        statsBuilder.setRowCount(1000);
+        statsBuilder.putColumnStatistics(a, aStats);
+        statsBuilder.putColumnStatistics(b, bStats);
+
+        Or or = new Or(new EqualTo(a, b), new NullSafeEqual(a, b));
+        Statistics result = new FilterEstimation().estimate(or, statsBuilder.build());
+        Assertions.assertEquals(1.0, result.getRowCount(), 0.01);
+    }
+
+    /**
+     * `(a < b) or (a = 5)`
+     *
+     * <p>The column-to-column comparison leaves the ndv of `a` (1000) larger than the 500 rows it
+     * estimates. The following `a = 5` has to be estimated with the valid ndv (500), otherwise the
+     * overlap is 0.5 row instead of one row and the union is estimated as 500.5 rows.
+     */
+    @Test
+    public void testOrColumnComparisonUsesValidKeyStatistics() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        ColumnStatistic aStats = new ColumnStatisticBuilder(1000).setNdv(1000).setAvgSizeByte(4)
+                .setNumNulls(0).setDataSize(0).setMinValue(1).setMaxValue(1000).build();
+        ColumnStatistic bStats = new ColumnStatisticBuilder(1000).setNdv(1000).setAvgSizeByte(4)
+                .setNumNulls(0).setDataSize(0).setMinValue(1).setMaxValue(1000).build();
+        StatisticsBuilder statsBuilder = new StatisticsBuilder();
+        statsBuilder.setRowCount(1000);
+        statsBuilder.putColumnStatistics(a, aStats);
+        statsBuilder.putColumnStatistics(b, bStats);
+
+        Or or = new Or(new LessThan(a, b), new EqualTo(a, new IntegerLiteral(5)));
+        Statistics result = new FilterEstimation().estimate(or, statsBuilder.build());
+        Assertions.assertEquals(500.0, result.getRowCount(), 0.01);
+    }
+
+    /**
      * for string literal, min-max range is only used for coverage, not for percentage
      */
     @Test
