@@ -85,7 +85,7 @@ struct AggregateFunctionQuantileStateData {
 
     void reset() {
         is_first = true;
-        value.clear();
+        value.reset();
     }
 
     DataType& get() { return value; }
