@@ -56,7 +56,12 @@ protected:
         address.port = config::brpc_port;
         _statement = std::make_shared<QueryStatement>(_id, address, "select value");
     }
-    void TearDown() override { ExecEnv::GetInstance()->_result_mgr = _previous_mgr; }
+    void TearDown() override {
+        ExecEnv::GetInstance()->_result_mgr = _previous_mgr;
+        // The constructor registers a process-wide result_buffer_block_count hook that captures
+        // `this`; deregister it before the fixture destroys the manager.
+        _mgr.stop();
+    }
     void fill_buffer() {
         auto block = std::make_shared<Block>(ColumnHelper::create_block<DataTypeInt64>({1, 2}));
         ASSERT_TRUE(_buffer->add_batch(&_state, block).ok());
