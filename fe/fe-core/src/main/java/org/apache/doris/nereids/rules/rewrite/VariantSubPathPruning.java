@@ -49,7 +49,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
@@ -95,8 +94,20 @@ public class VariantSubPathPruning implements CustomRewriter {
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+        // A changelog stores its Variant columns with every path in the sparse column and maps a BEFORE image onto
+        // its AFTER column by whole column, so a changelog scan reads Variant columns whole and sub-paths are taken
+        // above it. Its plan may union the changelog scan with a base table scan, whose union pushdown needs every
+        // child to supply the same sub-path slots, so the whole statement keeps whole-column reads, and SEARCH and
+        // MATCH on a Variant sub-path are not supported beside such a read. changelog() is still a TVF relation here:
+        // it only gets its changelog scan during physical translation.
+        if (plan.anyMatch(node -> ((node instanceof LogicalOlapScan
+                && ((LogicalOlapScan) node).getTable() instanceof OlapChangelogTableWrapper)
+                || (node instanceof LogicalTVFRelation
+                && ((LogicalTVFRelation) node).getFunction() instanceof Changelog))
+                && ((Plan) node).getOutput().stream().anyMatch(slot -> slot.getDataType() instanceof VariantType))) {
+            return plan;
+        }
         Context context = new Context();
-        collectChangelogSlots(plan, context.changelogSlots);
         plan.accept(VariantSubPathCollector.INSTANCE, context);
         if (context.elementAtToSubPathMap.isEmpty()) {
             return plan;
@@ -113,63 +124,7 @@ public class VariantSubPathPruning implements CustomRewriter {
         }
     }
 
-    /**
-     * Collect the Variant slots of changelog reads and the slots computed from them. A changelog stores its Variant
-     * columns with every path in the sparse column and maps a BEFORE image onto its AFTER column by whole column, so
-     * it reads them whole and their sub-paths stay above the read. A union over such a slot keeps its sub-paths
-     * above too, since a union pushdown needs every child to supply the same sub-path slots. Other scans of the
-     * statement are pruned as usual: SEARCH and MATCH need their sub-path slots.
-     */
-    private static void collectChangelogSlots(Plan plan, Set<Slot> slots) {
-        for (Plan child : plan.children()) {
-            collectChangelogSlots(child, slots);
-        }
-        if (isChangelogRead(plan)) {
-            for (Slot slot : plan.getOutput()) {
-                if (slot.getDataType() instanceof VariantType) {
-                    slots.add(slot);
-                }
-            }
-        } else if (plan instanceof LogicalCTEConsumer) {
-            ((LogicalCTEConsumer) plan).getConsumerToProducerOutputMap().forEach((consumer, producer) -> {
-                if (slots.contains(producer)) {
-                    slots.add(consumer);
-                }
-            });
-        } else if (plan instanceof LogicalSetOperation) {
-            LogicalSetOperation setOperation = (LogicalSetOperation) plan;
-            for (List<SlotReference> childOutputs : setOperation.getRegularChildrenOutputs()) {
-                for (int i = 0; i < childOutputs.size(); i++) {
-                    if (slots.contains(childOutputs.get(i))) {
-                        slots.add(setOperation.getOutput().get(i));
-                    }
-                }
-            }
-        } else if (plan instanceof LogicalGenerate) {
-            if (plan.getExpressions().stream().anyMatch(e -> !Collections.disjoint(e.getInputSlots(), slots))) {
-                slots.addAll(((LogicalGenerate<? extends Plan>) plan).getGeneratorOutput());
-            }
-        } else {
-            for (Expression expression : plan.getExpressions()) {
-                if (expression instanceof Alias && !Collections.disjoint(expression.getInputSlots(), slots)) {
-                    slots.add(((Alias) expression).toSlot());
-                }
-            }
-        }
-    }
-
-    // changelog() is still a TVF relation here: it only gets its changelog scan during physical translation.
-    private static boolean isChangelogRead(Plan plan) {
-        return (plan instanceof LogicalOlapScan
-                && ((LogicalOlapScan) plan).getTable() instanceof OlapChangelogTableWrapper)
-                || (plan instanceof LogicalTVFRelation
-                && ((LogicalTVFRelation) plan).getFunction() instanceof Changelog);
-    }
-
     private static class Context {
-
-        // Variant slots read whole, see collectChangelogSlots
-        private final Set<Slot> changelogSlots = Sets.newHashSet();
 
         // user for collector
         // record slot to its original expr. for example, Alias(c1, a1) will put a1 -> c1 to this map
@@ -253,9 +208,6 @@ public class VariantSubPathPruning implements CustomRewriter {
 
         public void putElementAtToSubPath(ElementAt elementAt,
                 Pair<SlotReference, List<String>> pair, Slot parent) {
-            if (changelogSlots.contains(pair.first)) {
-                return;
-            }
             this.elementAtToSubPathMap.put(elementAt, pair);
             Set<List<String>> subPaths = slotToSubPathsMap.computeIfAbsent(pair.first, k -> Sets.newHashSet());
             subPaths.add(pair.second);

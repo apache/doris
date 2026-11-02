@@ -133,8 +133,9 @@ suite("test_changelog_variant", "nonConcurrent") {
             SELECT l.k, l.v['a'], r.v['b'] FROM c l JOIN c r ON l.k = r.k
         """
 
-        // Only what is read from a changelog stays whole: another scan of the statement keeps its sub-path slots,
-        // which SEARCH and MATCH need.
+        // A statement that reads a Variant column from a changelog keeps every Variant column whole, so SEARCH and
+        // MATCH on a Variant sub-path of another table are not supported beside it. Without a Variant column in the
+        // changelog read, such a statement is planned as usual.
         sql "DROP TABLE IF EXISTS test_changelog_variant_indexed FORCE"
         sql """
             CREATE TABLE test_changelog_variant_indexed (
@@ -149,15 +150,45 @@ suite("test_changelog_variant", "nonConcurrent") {
         sql """INSERT INTO test_changelog_variant_indexed VALUES
             (101, parse_to_variant('{"a":"hello","b":{"c":1}}')),
             (102, parse_to_variant('{"a":"other","b":{"c":2}}'))"""
-        order_qt_search_beside_changelog """
+        sql "DROP TABLE IF EXISTS test_changelog_variant_scalar FORCE"
+        sql """
+            CREATE TABLE test_changelog_variant_scalar (k INT, c INT)
+            UNIQUE KEY(k)
+            DISTRIBUTED BY HASH(k) BUCKETS 1
+            PROPERTIES (
+                "replication_num" = "1",
+                "enable_unique_key_merge_on_write" = "true",
+                "changelog.enable" = "true"
+            )
+        """
+        sql "INSERT INTO test_changelog_variant_scalar VALUES (1, 1)"
+        sql "sync"
+        sleep(1200)
+        test {
+            sql """
+                SELECT k, v FROM test_changelog_variant_indexed WHERE search('v.a:hello')
+                UNION ALL
+                SELECT k, v FROM changelog("table" = "test_changelog_variant_same_layout")
+            """
+            exception "SEARCH index unavailable"
+        }
+        test {
+            sql """
+                SELECT k, v FROM test_changelog_variant_indexed WHERE v['a'] MATCH 'hello'
+                UNION ALL
+                SELECT k, v FROM changelog("table" = "test_changelog_variant_same_layout")
+            """
+            exception "Only support match left operand is SlotRef"
+        }
+        order_qt_search_beside_scalar_changelog """
             SELECT k FROM test_changelog_variant_indexed WHERE search('v.a:hello')
             UNION ALL
-            SELECT k FROM changelog("table" = "test_changelog_variant_same_layout")
+            SELECT k FROM changelog("table" = "test_changelog_variant_scalar")
         """
-        order_qt_match_beside_changelog """
+        order_qt_match_beside_scalar_changelog """
             SELECT k FROM test_changelog_variant_indexed WHERE v['a'] MATCH 'hello'
             UNION ALL
-            SELECT k FROM changelog("table" = "test_changelog_variant_same_layout")
+            SELECT k FROM changelog("table" = "test_changelog_variant_scalar")
         """
         order_qt_sub_paths_in_each_branch """
             SELECT k, v['a'] FROM test_changelog_variant_indexed
@@ -169,12 +200,6 @@ suite("test_changelog_variant", "nonConcurrent") {
             FROM (SELECT k, v['b'] AS s FROM test_changelog_variant_indexed
                   UNION ALL
                   SELECT k, v['b'] FROM changelog("table" = "test_changelog_variant_same_layout")) u
-        """
-        order_qt_cte_of_changelog_beside_search """
-            WITH c AS (SELECT k, v FROM changelog("table" = "test_changelog_variant_same_layout"))
-            SELECT k, v['a'] FROM c
-            UNION ALL
-            SELECT k, 'x' FROM test_changelog_variant_indexed WHERE search('v.a:hello')
         """
 
         // doc mode keeps whole values apart from typed paths, which the images could not reproduce
