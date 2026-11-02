@@ -4190,45 +4190,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 : filteredInvertedIndexes.stream().filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
         }
 
-        // subPath is not empty, means it is a variant column, find the field pattern from children.
-        // The first match wins, the same as the BE writer that picks the physical index of a subcolumn
-        // (variant_util.cpp), so a write and a query on one path land on the same index even when
-        // the predefined patterns overlap.
-        String subPathString = String.join(".", subPath);
-        String fieldPattern = "";
-        if (column.getChildren() != null) {
-            for (Column child : column.getChildren()) {
-                String childName = child.getName();
-                if (child.getFieldPatternType() == PatternType.MATCH_NAME_GLOB) {
-                    try {
-                        java.nio.file.PathMatcher matcher = java.nio.file.FileSystems.getDefault()
-                                .getPathMatcher("glob:" + childName);
-                        if (matcher.matches(java.nio.file.Paths.get(subPathString))) {
-                            fieldPattern = childName;
-                            break;
-                        }
-                    } catch (Exception e) {
-                        continue;
-                    }
-                } else if (child.getFieldPatternType() == PatternType.MATCH_NAME) {
-                    if (childName.equals(subPathString)) {
-                        fieldPattern = childName;
-                        break;
-                    }
-                }
-            }
-        }
-
-        List<Index> invertedIndexesWithFieldPattern = new ArrayList<>();
-        for (Index index : indexes.getIndexes()) {
-            if (index.getIndexType() == IndexType.INVERTED) {
-                List<String> columns = index.getColumns();
-                if (columns != null && !columns.isEmpty() && column.getName().equals(columns.get(0))
-                                        && fieldPattern.equals(index.getInvertedIndexFieldPattern())) {
-                    invertedIndexesWithFieldPattern.add(index);
-                }
-            }
-        }
+        List<Index> invertedIndexesWithFieldPattern =
+                VariantTemplateIndexBinder.getMatchingIndexes(column, subPath, invertedIndexes);
         List<Index> filteredFieldPatternIndexes = filterIndexesByAnalyzer(invertedIndexesWithFieldPattern, analyzer);
         if (filteredFieldPatternIndexes.isEmpty()) {
             return filteredInvertedIndexes.size() == 1 ? filteredInvertedIndexes.get(0)
