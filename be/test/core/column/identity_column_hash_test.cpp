@@ -128,8 +128,8 @@ TEST_F(IdentityColumnHashTest, DecimalV3ColumnsMatchScalarOracle) {
         // ColumnHelper::create_block (whose DataType default constructor has no precision).
         auto col32 = ColumnDecimal32::create(0, 0);
         const std::vector<int32_t> values32 = {0, 1, -123456};
-        col32->insert_many_fix_len_data(reinterpret_cast<const char*>(values32.data()),
-                                        values32.size());
+        col32->insert_many_raw_data(reinterpret_cast<const char*>(values32.data()),
+                                    values32.size());
         Block block32({ColumnWithTypeAndName(col32->get_ptr(),
                                              std::make_shared<DataTypeDecimal32>(9, 0), "d32")});
         auto expected = scalar_oracle(block32, mod, TYPE_DECIMAL32);
@@ -137,8 +137,8 @@ TEST_F(IdentityColumnHashTest, DecimalV3ColumnsMatchScalarOracle) {
 
         auto col64 = ColumnDecimal64::create(0, 0);
         const std::vector<int64_t> values64 = {0, 1, -123456789012345LL};
-        col64->insert_many_fix_len_data(reinterpret_cast<const char*>(values64.data()),
-                                        values64.size());
+        col64->insert_many_raw_data(reinterpret_cast<const char*>(values64.data()),
+                                    values64.size());
         Block block64({ColumnWithTypeAndName(col64->get_ptr(),
                                              std::make_shared<DataTypeDecimal64>(18, 0), "d64")});
         expected = scalar_oracle(block64, mod, TYPE_DECIMAL64);

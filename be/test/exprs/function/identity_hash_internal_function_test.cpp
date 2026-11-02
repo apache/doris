@@ -84,7 +84,7 @@ protected:
         if (_constant_cols.size() <= index) {
             _constant_cols.resize(index + 1);
         }
-        _constant_cols[index] = std::make_shared<ColumnPtrWrapper>(column);
+        _constant_cols[index] = std::make_shared<ConstantExprResult>(column);
     }
 
     DataTypes _argument_types {std::make_shared<DataTypeInt32>(),
@@ -93,7 +93,7 @@ protected:
     FunctionBasePtr _fn;
     MockRuntimeState _state;
     Block _block {make_int32_column("c1", {1, 2, 3}), make_bigint_const(8)};
-    std::vector<std::shared_ptr<ColumnPtrWrapper>> _constant_cols;
+    std::vector<std::shared_ptr<ConstantExprResult>> _constant_cols;
     Status _status;
 };
 

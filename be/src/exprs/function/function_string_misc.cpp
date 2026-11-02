@@ -1623,18 +1623,18 @@ public:
                     name);
         }
         const auto* mod_col_wrapper = context->get_constant_col(arguments.back());
-        if (mod_col_wrapper == nullptr || !mod_col_wrapper->column_ptr) {
+        if (mod_col_wrapper == nullptr || !mod_col_wrapper->column_ptr()) {
             return Status::InvalidArgument(
                     "the bucket count argument of {} must be a constant integer, but the constant "
                     "column is missing",
                     name);
         }
         // get_data_at returns a null pointer for NULL constants; reject them before dereferencing.
-        if (mod_col_wrapper->column_ptr->is_null_at(0)) {
+        if (mod_col_wrapper->column_ptr()->is_null_at(0)) {
             return Status::InvalidArgument("the bucket count argument of {} must not be NULL",
                                            name);
         }
-        auto mod_ref = mod_col_wrapper->column_ptr->get_data_at(0);
+        auto mod_ref = mod_col_wrapper->column_ptr()->get_data_at(0);
         int64_t signed_mod = 0;
         switch (block.get_by_position(arguments.back()).type->get_primitive_type()) {
         case TYPE_TINYINT:
