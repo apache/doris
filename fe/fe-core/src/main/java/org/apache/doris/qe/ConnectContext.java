@@ -403,6 +403,18 @@ public class ConnectContext {
         }
     }
 
+    /**
+     * Makes this (child) context run as the parent's session does: the current identity together
+     * with the SU narrowing state, so a privilege check on the child resolves the same role set the
+     * parent session sees. Copying getCurrentUserIdentity() alone would carry the TARGET identity
+     * without the override, i.e. the target's full role union.
+     */
+    public void inheritIdentityFrom(ConnectContext parent) {
+        this.currentUserIdentity = parent.currentUserIdentity;
+        this.authenticatedIdentity = parent.authenticatedIdentity;
+        this.sessionRoleOverride = parent.sessionRoleOverride;
+    }
+
     /** Drop SU state without restoring identity — only for paths that fully re-authenticate. */
     public void clearSessionNarrowing() {
         this.authenticatedIdentity = null;

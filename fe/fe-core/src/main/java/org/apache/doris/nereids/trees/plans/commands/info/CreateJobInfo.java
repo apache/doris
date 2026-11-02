@@ -242,6 +242,15 @@ public class CreateJobInfo {
     }
 
     protected void checkAuth() throws AnalysisException {
+        // Every task of the job re-plans the INSERT's SELECT later, on a job thread, under the stored
+        // createUser alone: the session's role narrowing cannot follow it there (the excluded roles'
+        // row policies would apply), and the job outlives the session. A session-narrowed (SU)
+        // session therefore must not mint one, in either form.
+        if (ConnectContext.get().isSessionRoleNarrowed()) {
+            ErrorReport.reportAnalysisException("CREATE JOB is not allowed in a session-narrowed (SU) session; "
+                    + "the job would run outside the session's role narrowing",
+                    ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR);
+        }
         if (streamingJob) {
             StreamingInsertJob.checkPrivilege(ConnectContext.get(), executeSql, targetDb);
             return;

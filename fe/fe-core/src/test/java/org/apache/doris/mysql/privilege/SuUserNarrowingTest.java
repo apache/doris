@@ -25,10 +25,14 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.proc.AuthProcDir;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.CreateJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateWorkloadGroupCommand;
+import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantResourcePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.SuUserCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.SetPassVarOp;
 import org.apache.doris.nereids.trees.plans.commands.info.SetUserPropertyVarOp;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -655,6 +659,72 @@ public class SuUserNarrowingTest extends TestWithFeService {
             Assertions.assertFalse(auth.checkWorkloadGroupPriv(granter, "wg_x", grantGate));
         } finally {
             Auth.clearRpcSessionNarrowing();
+        }
+    }
+
+    /**
+     * A persisted job re-plans its read later, on a job thread, under the stored identity alone,
+     * where the session's narrowing cannot follow: a narrowed session mints none (EXPORT, CREATE JOB
+     * in both forms), and a routine load's KEY references are authorized at creation under the live
+     * session. A child context built for a task thread inherits the narrowing with the identity.
+     */
+    @Test
+    public void testNarrowedSessionMintsNoPersistedExecutor() throws Exception {
+        createTable("create table test.su_job_t (k int) distributed by hash(k) buckets 1 "
+                + "properties('replication_num' = '1')");
+        addUser("job_person", true);
+        createRole("job_role");
+        grantPriv("GRANT SELECT_PRIV, LOAD_PRIV ON internal.test.* TO ROLE 'job_role';");
+        grantRole("GRANT 'job_role' TO 'job_person'@'%'");
+        grantPriv("GRANT SELECT_PRIV ON internal.perso.* TO 'job_person'@'%';");
+        UserIdentity person = ident("job_person");
+
+        ConnectContext ctx = proxySession("job_svc");
+        try {
+            new SuUserCommand(new UserIdentity("job_person", "%"),
+                    Collections.singletonList("job_role"), null).run(ctx, null);
+            ctx.setDatabase("test");
+
+            LogicalPlan export = new NereidsParser().parseSingle(
+                    "EXPORT TABLE test.su_job_t TO \"file:///tmp/su_job/\"");
+            Assertions.assertTrue(export instanceof ExportCommand);
+            AnalysisException refused = Assertions.assertThrows(AnalysisException.class,
+                    () -> ((ExportCommand) export).run(ctx, null));
+            Assertions.assertTrue(refused.getMessage().contains("session-narrowed"), refused.getMessage());
+
+            for (String sql : new String[] {
+                    "CREATE JOB su_job_s ON SCHEDULE EVERY 1 DAY DO INSERT INTO test.su_job_t"
+                            + " SELECT * FROM test.su_job_t",
+                    "CREATE JOB su_job_f ON STREAMING DO INSERT INTO test.su_job_t"
+                            + " SELECT * FROM S3(\"uri\" = \"s3://bucket/x.csv\", \"format\" = \"csv\")"}) {
+                LogicalPlan job = new NereidsParser().parseSingle(sql);
+                Assertions.assertTrue(job instanceof CreateJobCommand, sql);
+                AnalysisException jobRefused = Assertions.assertThrows(AnalysisException.class,
+                        () -> ((CreateJobCommand) job).run(ctx, null));
+                Assertions.assertTrue(jobRefused.getMessage().contains("session-narrowed"), jobRefused.getMessage());
+            }
+
+            // the KEY reference of a routine-load column mapping is authorized at creation, as the
+            // narrowed session: SHOW on perso lives only in the excluded direct grant
+            Expression mapping = new NereidsParser().parseExpression("aes_decrypt(c1, KEY perso.k)");
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> CreateRoutineLoadInfo.checkEncryptKeyRefs(mapping, ctx));
+            CreateRoutineLoadInfo.checkEncryptKeyRefs(
+                    new NereidsParser().parseExpression("aes_decrypt(c1, KEY test.k)"), ctx);
+
+            // a child context of the narrowed session (a task thread) denies what the session denies
+            ConnectContext child = new ConnectContext();
+            child.inheritIdentityFrom(ctx);
+            child.setThreadLocalInfo();
+            try {
+                Assertions.assertEquals("job_svc", child.getAuthenticatedIdentity().getQualifiedUser());
+                Assertions.assertTrue(canSelectDb(person, "test"));
+                Assertions.assertFalse(canSelectDb(person, "perso"));
+            } finally {
+                ctx.setThreadLocalInfo();
+            }
+        } finally {
+            connectContext.setThreadLocalInfo();
         }
     }
 }

@@ -145,6 +145,18 @@ suite("test_su_session_narrowing", "p0,auth") {
                 exception "already-switched"
             }
 
+            // a persisted job re-plans its read later under the stored identity, where the
+            // narrowing cannot follow: a narrowed session mints none
+            test {
+                sql """EXPORT TABLE ${roleDb}.t TO "file:///tmp/${roleDb}/" """
+                exception "session-narrowed"
+            }
+            test {
+                sql """CREATE JOB ${roleDb}_job ON SCHEDULE EVERY 1 DAY
+                       DO INSERT INTO ${roleDb}.t SELECT * FROM ${roleDb}.t"""
+                exception "session-narrowed"
+            }
+
             // the switcher is not the person: the "self" exemptions of SET PASSWORD and SET PROPERTY
             // are closed under the switch
             test {

@@ -28,10 +28,13 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
@@ -40,6 +43,9 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
 import org.apache.doris.load.routineload.RoutineLoadDataSourcePropertyFactory;
 import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.EncryptKeyRef;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadColumnClause;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadColumnDesc;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadDeleteOnClause;
@@ -55,6 +61,7 @@ import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
@@ -66,6 +73,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Predicate;
 
 /**
@@ -476,6 +484,26 @@ public class CreateRoutineLoadInfo {
     }
 
     /**
+     * A routine-load task folds every `KEY db.k` reference of the column mapping per task, on a job
+     * thread under the stored identity alone (RoutineLoadJob.plan -> RewriteEncryptKeyRef ->
+     * checkDbPriv SHOW), where the creating session's SU narrowing cannot follow. The same
+     * authorization runs here, at creation, under the live session: a narrowed session that may not
+     * read the key itself cannot create a job that resolves it.
+     */
+    @VisibleForTesting
+    public static void checkEncryptKeyRefs(Expression expression, ConnectContext ctx) throws AnalysisException {
+        Set<EncryptKeyRef> keyRefs = expression.collect(EncryptKeyRef.class::isInstance);
+        for (EncryptKeyRef keyRef : keyRefs) {
+            String dbName = Strings.isNullOrEmpty(keyRef.getDbName()) ? ctx.getDatabase() : keyRef.getDbName();
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkDbPriv(ctx, InternalCatalog.INTERNAL_CATALOG_NAME, dbName, PrivPredicate.SHOW)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED_ERROR,
+                        PrivPredicate.SHOW.getPrivs().toString(), dbName);
+            }
+        }
+    }
+
+    /**
      * check load properties
      * @param ctx connect context
      * @param loadPropertyMap load property map
@@ -515,6 +543,7 @@ public class CreateRoutineLoadInfo {
                     columnInfos = new ArrayList<>();
                     for (LoadColumnDesc columnDesc : ((LoadColumnClause) loadProperty).getColumns()) {
                         if (columnDesc.getExpression() != null) {
+                            checkEncryptKeyRefs(columnDesc.getExpression(), ctx);
                             Expr expr = PlanUtils.translateToLegacyExpr(columnDesc.getExpression(), table, ctx);
                             columnInfos.add(new ImportColumnDesc(columnDesc.getColumnName(), expr));
                         } else {
@@ -602,7 +631,7 @@ public class CreateRoutineLoadInfo {
         String inputWorkloadGroupStr = jobProperties.get(WORKLOAD_GROUP);
         if (!StringUtils.isEmpty(inputWorkloadGroupStr)) {
             ConnectContext tmpCtx = new ConnectContext();
-            tmpCtx.setCurrentUserIdentity(ConnectContext.get().getCurrentUserIdentity());
+            tmpCtx.inheritIdentityFrom(ConnectContext.get());
             tmpCtx.getSessionVariable().setWorkloadGroup(inputWorkloadGroupStr);
             if (Config.isCloudMode()) {
                 tmpCtx.setCloudCluster(ConnectContext.get().getCloudCluster());
