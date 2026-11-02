@@ -57,6 +57,8 @@ struct IOContext;
 struct RowSetSplits;
 
 class DeleteBitmap;
+class RowsetMeta;
+class ScoringDeletePredicates;
 
 class Rowset;
 class RowsetSegmentView;
@@ -71,8 +73,8 @@ using TabletSchemaSPtr = std::shared_ptr<TabletSchema>;
 // written with the delete sign, which queries filter out. Compaction removes both, on each
 // replica at its own time, so statistics counting them would differ between the replicas of a
 // tablet, and so would every BM25 score. Rows written with the delete sign are left out even when
-// the query returns them (`skip_delete_sign`, `show_hidden_columns`), and rows deleted by a delete
-// predicate (`enable_mow_light_delete`) are still counted, as the delete bitmap does not mark them.
+// the query returns them (`skip_delete_sign`, `show_hidden_columns`). Versioned DELETE predicates
+// are evaluated too: light deletes do not mark the bitmap.
 //
 // The cache flags carry the query's choices to the segment and column reads of the delete sign;
 // the file cache choices come with the I/O context.
@@ -81,6 +83,8 @@ struct MowHiddenRows {
     int64_t version = -1;
     bool use_segment_cache = true;
     bool use_page_cache = true;
+    // Borrowed only during synchronous collection; all parallel scanners share this snapshot.
+    const std::vector<std::shared_ptr<RowsetMeta>>* delete_predicates = nullptr;
 };
 
 // The `limit` smallest terms, in dictionary order, that a prefix expanded to in the segments seen
@@ -166,7 +170,9 @@ private:
                                 CollectInfoMap* collect_infos);
     Status process_segment(const RowsetSharedPtr& rowset, const RowsetSegmentView& seg,
                            const TabletSchema* tablet_schema, const CollectInfoMap& collect_infos,
-                           const MowHiddenRows* hidden_rows, io::IOContext* io_ctx);
+                           const MowHiddenRows* hidden_rows, io::IOContext* io_ctx,
+                           const ScoringDeletePredicates* delete_predicates = nullptr,
+                           RuntimeState* state = nullptr);
     Status admit_snii_scoring_segment(const std::wstring& field_name, uint64_t index_doc_count,
                                       uint64_t sum_total_term_freq, bool has_positions,
                                       bool has_norms,
