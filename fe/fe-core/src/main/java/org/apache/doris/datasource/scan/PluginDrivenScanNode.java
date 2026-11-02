@@ -2518,21 +2518,26 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         PluginDrivenSplit pluginSplit = (PluginDrivenSplit) split;
         ConnectorScanRange scanRange = pluginSplit.getConnectorScanRange();
 
-        TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
-        tableFormatFileDesc.setTableFormatType(scanRange.getTableFormatType());
+        // Split producers restore their TCCL before range conversion; pin every range callback here
+        // so eager and batch conversion cannot resolve plugin helpers from the engine loader.
+        onPluginClassLoader(resolveScanProvider(), () -> {
+            TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
+            tableFormatFileDesc.setTableFormatType(scanRange.getTableFormatType());
 
-        // Delegate format-specific Thrift construction to the connector SPI
-        scanRange.populateRangeParams(tableFormatFileDesc, rangeDesc);
-        Set<Integer> enforced = scanRange.getPartitionEnforcedConjuncts(getPartitionProofConjuncts());
-        if (!enforced.isEmpty()) {
-            rangeDesc.setPartitionEnforcedConjunctIds(new ArrayList<>(enforced));
-        }
-        if (rangeDesc.getFormatType() == TFileFormatType.FORMAT_PARQUET) {
-            // Mixed JNI/native scans must retain the Parquet contract after subsequent non-Parquet ranges.
-            params.setContainsNativeParquet(true);
-        }
+            // Delegate format-specific Thrift construction to the connector SPI
+            scanRange.populateRangeParams(tableFormatFileDesc, rangeDesc);
+            Set<Integer> enforced = scanRange.getPartitionEnforcedConjuncts(getPartitionProofConjuncts());
+            if (!enforced.isEmpty()) {
+                rangeDesc.setPartitionEnforcedConjunctIds(new ArrayList<>(enforced));
+            }
+            if (rangeDesc.getFormatType() == TFileFormatType.FORMAT_PARQUET) {
+                // Mixed JNI/native scans must retain the Parquet contract after subsequent non-Parquet ranges.
+                params.setContainsNativeParquet(true);
+            }
 
-        rangeDesc.setTableFormatParams(tableFormatFileDesc);
+            rangeDesc.setTableFormatParams(tableFormatFileDesc);
+            return null;
+        });
     }
 
     static Map<Integer, ConnectorExpression> buildPartitionProofConjuncts(List<Expr> expressions) {

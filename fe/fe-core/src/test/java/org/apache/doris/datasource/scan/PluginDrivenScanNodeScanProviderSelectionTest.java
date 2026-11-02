@@ -62,6 +62,11 @@ public class PluginDrivenScanNodeScanProviderSelectionTest {
     @Test
     public void mixedNativeRangesKeepParquetScannerContract() {
         PluginDrivenScanNode node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
+        Connector connector = Mockito.mock(Connector.class);
+        ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+        Mockito.when(connector.getScanPlanProvider(handle)).thenReturn(Mockito.mock(ConnectorScanPlanProvider.class));
+        Deencapsulation.setField(node, "connector", connector);
+        Deencapsulation.setField(node, "currentHandle", handle);
         // CALLS_REAL_METHODS skips PlanNode's field initializer; real scans start with an empty predicate list.
         Deencapsulation.setField(node, "conjuncts", Collections.emptyList());
         TFileScanRangeParams params = new TFileScanRangeParams();
