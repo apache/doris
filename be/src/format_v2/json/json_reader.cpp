@@ -385,13 +385,14 @@ Status JsonReader::get_block(Block* file_block, size_t* rows, bool* eof) {
         return Status::InternalError("JSON v2 reader is not open");
     }
 
-    const auto batch_size = _runtime_state->batch_size();
+    const auto batch_size = cast_set<size_t>(_runtime_state->batch_size());
     const auto max_block_bytes = _runtime_state->preferred_block_size_bytes();
     *rows = 0;
     *eof = false;
     _missing_fields.clear();
+    _current_block_rows = file_block->rows();
 
-    while (file_block->rows() < batch_size && !_reader_eof &&
+    while (_current_block_rows < batch_size && !_reader_eof &&
            file_block->bytes() < max_block_bytes) {
         if (_read_json_by_line && _skip_first_line) {
             RETURN_IF_ERROR(_line_reader->skip_split_prefix(
@@ -400,7 +401,7 @@ Status JsonReader::get_block(Block* file_block, size_t* rows, bool* eof) {
             continue;
         }
 
-        const size_t original_rows = file_block->rows();
+        const size_t original_rows = _current_block_rows;
         size_t size = 0;
         bool is_empty_row = false;
         Status st = Status::OK();
@@ -427,14 +428,14 @@ Status JsonReader::get_block(Block* file_block, size_t* rows, bool* eof) {
         if (!st.ok()) {
             RETURN_IF_ERROR(_handle_json_error(st, file_block, original_rows, &is_empty_row));
         }
-        // An ignored or empty JSON object can produce no row. Avoid spinning forever on a document
-        // that was consumed but produced no materialized value.
-        if (!is_empty_row && file_block->rows() == original_rows) {
+        // Progress is the accepted record count, including records with no projected file column.
+        // Consuming {"id":1} in a partition-only scan must not be mistaken for no progress.
+        if (!is_empty_row && _current_block_rows == original_rows) {
             break;
         }
     }
 
-    *rows = file_block->rows();
+    *rows = _current_block_rows;
     for (auto& [_, mask] : _missing_fields) {
         mask.resize(*rows, 0);
     }
@@ -810,7 +811,7 @@ Status JsonReader::_append_simple_json_rows(Block* block, bool* is_empty_row, bo
         _array_iter = _array.begin();
         while (_array_iter != _array.end()) {
             simdjson::ondemand::object object_value = (*_array_iter).get_object();
-            const size_t row_start = block->rows();
+            const size_t row_start = _current_block_rows;
             const auto status = _set_column_values_from_object(&object_value, block, &valid);
             if (!status.ok()) {
                 if (!_request->reject_invalid_rows) {
@@ -841,12 +842,12 @@ Status JsonReader::_append_flat_array_jsonpath_rows(Block* block, bool* is_empty
     DORIS_CHECK(block != nullptr);
     DORIS_CHECK(is_empty_row != nullptr);
     DORIS_CHECK(eof != nullptr);
-    const size_t original_rows = block->rows();
+    const size_t original_rows = _current_block_rows;
     bool valid = true;
     _array = _json_value.get_array();
     _array_iter = _array.begin();
     while (_array_iter != _array.end()) {
-        const size_t row_start = block->rows();
+        const size_t row_start = _current_block_rows;
         simdjson::ondemand::object object_value = (*_array_iter).get_object();
         if (!_parsed_from_json_root && !_parsed_json_root.empty()) {
             // Reject roots per element for loads, preserving earlier siblings and their presence
@@ -885,7 +886,7 @@ Status JsonReader::_append_flat_array_jsonpath_rows(Block* block, bool* is_empty
         }
         ++_array_iter;
     }
-    *is_empty_row = block->rows() == original_rows;
+    *is_empty_row = _current_block_rows == original_rows;
     return Status::OK();
 }
 
@@ -909,7 +910,7 @@ Status JsonReader::_set_column_values_from_object(simdjson::ondemand::object* ob
     DORIS_CHECK(block != nullptr);
     DORIS_CHECK(valid != nullptr);
     std::vector<bool> seen_columns(block->columns(), false);
-    const size_t cur_row_count = block->rows();
+    const size_t cur_row_count = _current_block_rows;
     bool has_valid_value = false;
     size_t key_index = 0;
 
@@ -960,8 +961,22 @@ Status JsonReader::_set_column_values_from_object(simdjson::ondemand::object* ob
         }
     }
     *valid = true;
-    if (!has_valid_value) {
-        return Status::OK();
+    ++_current_block_rows;
+    return Status::OK();
+}
+
+Status JsonReader::_has_matching_jsonpath(simdjson::ondemand::object* object_value,
+                                          bool* has_match) const {
+    *has_match = false;
+    for (const auto& path : _parsed_jsonpaths) {
+        simdjson::ondemand::value value;
+        const auto status = JsonFunctions::extract_from_object(*object_value, path, &value);
+        // Missing paths are nonmatches; propagate all other extraction errors.
+        if (!status.ok() && !status.is<ErrorCode::NOT_FOUND>()) {
+            return status;
+        }
+        // The whole-document path "$." matches even without an empty-name object member.
+        *has_match |= JsonFunctions::is_root_path(path) || status.ok();
     }
     return Status::OK();
 }
@@ -972,8 +987,14 @@ Status JsonReader::_write_columns_by_jsonpath(simdjson::ondemand::object* object
     DORIS_CHECK(block != nullptr);
     DORIS_CHECK(valid != nullptr);
     bool has_valid_value = false;
-    const size_t cur_row_count = block->rows();
+    const size_t cur_row_count = _current_block_rows;
     _cached_string_values.clear();
+
+    // With no output columns, paths still decide whether the object produces a record. For
+    // example, ["$.id"] accepts {"id":1} but skips {"other":1}, just as a projected scan does.
+    if (_requested_columns.empty()) {
+        RETURN_IF_ERROR(_has_matching_jsonpath(object_value, &has_valid_value));
+    }
 
     for (size_t i = 0; i < _requested_columns.size(); ++i) {
         const auto& requested = _requested_columns[i];
@@ -1031,6 +1052,7 @@ Status JsonReader::_write_columns_by_jsonpath(simdjson::ondemand::object* object
         return Status::OK();
     }
     *valid = true;
+    ++_current_block_rows;
     return Status::OK();
 }
 
@@ -1233,6 +1255,7 @@ Status JsonReader::_append_null_for_malformed_json(Block* block) {
         assert_cast<ColumnNullable*>(column.get())->insert_default();
         column_with_type.column = std::move(column);
     }
+    ++_current_block_rows;
     return Status::OK();
 }
 
@@ -1272,6 +1295,7 @@ Status JsonReader::_apply_filters(Block* file_block, size_t* rows) {
 
 void JsonReader::_truncate_block_to_rows(Block* block, size_t num_rows) {
     DORIS_CHECK(block != nullptr);
+    _current_block_rows = num_rows;
     for (int i = 0; i < block->columns(); ++i) {
         auto& column_with_type = block->get_by_position(i);
         auto column = IColumn::mutate(std::move(column_with_type.column));

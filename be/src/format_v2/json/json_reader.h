@@ -148,6 +148,7 @@ private:
     Status _append_nested_jsonpath_row(Block* block, bool* is_empty_row, bool* eof);
     Status _set_column_values_from_object(simdjson::ondemand::object* object_value, Block* block,
                                           bool* valid);
+    Status _has_matching_jsonpath(simdjson::ondemand::object* object_value, bool* has_match) const;
     Status _write_columns_by_jsonpath(simdjson::ondemand::object* object_value, Block* block,
                                       bool* valid);
     template <bool use_string_cache>
@@ -174,6 +175,9 @@ private:
     TFileCompressType::type _range_compress_type = TFileCompressType::UNKNOWN;
     std::optional<TUniqueId> _stream_load_id;
     std::vector<RequestedColumn> _requested_columns;
+    // A partition-only scan has no file columns: {"id":1} still contributes one row even
+    // though its file block has zero columns and Block::rows() returns zero.
+    size_t _current_block_rows = 0;
     std::unordered_map<std::string, size_t, TransparentStringHash, std::equal_to<>>
             _slot_name_to_index;
     std::unordered_map<std::string, size_t, CaseInsensitiveStringHash, CaseInsensitiveStringEqual>
