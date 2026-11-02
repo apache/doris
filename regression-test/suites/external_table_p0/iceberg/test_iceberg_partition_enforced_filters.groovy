@@ -23,7 +23,6 @@ suite("test_iceberg_partition_enforced_filters",
     String host = context.config.otherConfigs.get("externalEnvIp")
     String restPort = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
-    def oldScanner = sql("show variables like 'enable_file_scanner_v2'")[0][1]
     def oldBatch = sql("show variables like 'enable_external_table_batch_mode'")[0][1]
     def oldBatchSize = sql("show variables like 'num_files_in_batch_mode'")[0][1]
 
@@ -82,32 +81,30 @@ suite("test_iceberg_partition_enforced_filters",
     ]
     try {
         sql "set num_files_in_batch_mode = 1"
-        [false, true].each { scanner ->
-            sql "set enable_file_scanner_v2 = ${scanner}"
-            [false, true].each { batch ->
-                sql "set enable_external_table_batch_mode = ${batch}"
-                queries.each { query ->
-                    // The unpartitioned copy cannot supply a partition proof. Compare real rows
-                    // across old month/new day specs, scanners, projection shapes and RF joins.
-                    def expected = sql(query.replace("SOURCE_TABLE", "${db}.unpartitioned"))
-                    def actual = sql(query.replace("SOURCE_TABLE", "${db}.transformed"))
-                    assertEquals(expected, actual)
-                }
-                // Missing column bounds must not let an overflowing truncate partition remove
-                // the row filter, whether the filtered column is projected or used only by it.
-                // Golden results avoid depending on JDBC Integer/Long wrapper types.
-                ["id", "big_id"].each { column ->
-                    "qt_truncate_projected_${scanner}_${batch}_${column}"(
-                            "select ${column} from ${db}.numeric_truncated " +
-                            "where ${column} >= 0 order by ${column}")
-                    "qt_truncate_filter_only_${scanner}_${batch}_${column}"(
-                            "select sum(amount) from ${db}.numeric_truncated " +
-                            "where ${column} >= 0")
-                }
+        // FileScannerV2 is unconditional; the deprecated rollout option is no longer a test dimension.
+        [false, true].each { batch ->
+            sql "set enable_external_table_batch_mode = ${batch}"
+            queries.each { query ->
+                // The unpartitioned copy cannot supply a partition proof. Compare real rows
+                // across old month/new day specs, batch modes, projection shapes and RF joins.
+                def expected = sql(query.replace("SOURCE_TABLE", "${db}.unpartitioned"))
+                def actual = sql(query.replace("SOURCE_TABLE", "${db}.transformed"))
+                assertEquals(expected, actual)
+            }
+            // Missing column bounds must not let an overflowing truncate partition remove
+            // the row filter, whether the filtered column is projected or used only by it.
+            // Golden results avoid depending on JDBC Integer/Long wrapper types.
+            // Retain the existing V2 golden tags across the scanner rollout cleanup.
+            ["id", "big_id"].each { column ->
+                "qt_truncate_projected_true_${batch}_${column}"(
+                        "select ${column} from ${db}.numeric_truncated " +
+                        "where ${column} >= 0 order by ${column}")
+                "qt_truncate_filter_only_true_${batch}_${column}"(
+                        "select sum(amount) from ${db}.numeric_truncated " +
+                        "where ${column} >= 0")
             }
         }
     } finally {
-        sql "set enable_file_scanner_v2 = ${oldScanner}"
         sql "set enable_external_table_batch_mode = ${oldBatch}"
         sql "set num_files_in_batch_mode = ${oldBatchSize}"
     }
