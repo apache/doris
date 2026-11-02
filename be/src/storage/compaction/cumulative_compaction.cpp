@@ -121,6 +121,7 @@ Status CumulativeCompaction::execute_compact() {
     SCOPED_ATTACH_TASK(_mem_tracker);
 
     st = CompactionMixin::execute_compact();
+    record_changelog_ttl_cleanup(st.ok());
     RETURN_IF_ERROR(st);
 
     TEST_SYNC_POINT_RETURN_WITH_VALUE(
