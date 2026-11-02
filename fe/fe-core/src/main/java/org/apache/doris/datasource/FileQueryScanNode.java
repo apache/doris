@@ -159,9 +159,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
             if (batchModeEnabled && context != null) {
                 StatementContext statementContext = context.getStatementContext();
                 StatementBase statement = statementContext == null ? null : statementContext.getParsedStatement();
-                // EXPLAIN needs the full file/delete details. Scan-count rules run before execution
+                // EXPLAIN VERBOSE needs the full file/delete details. Scan-count rules run before execution
                 // and must not compare their limits with the batch path's sample/approximate counts.
-                batchModeEnabled = (statement == null || !statement.isExplain())
+                batchModeEnabled = (statement == null || !statement.isVerbose())
                         && !Env.getCurrentEnv().getSqlBlockRuleMgr()
                                 .hasScanCountLimitations(context.getQualifiedUser());
             }
@@ -497,6 +497,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
         }
 
         if (sessionVariable.getEnableExternalTableBatchMode() && isBatchMode()) {
+            long maxWaitTime = sessionVariable.getFetchSplitsMaxWaitTime();
+            Preconditions.checkArgument(maxWaitTime > 0, "fetch_splits_max_wait_time_ms must be positive");
             // File splits are generated lazily, and fetched by backends while scanning.
             // Only provide the unique ID of split source to backend.
             splitAssignment = new SplitAssignment(backendPolicy, this, this::splitToScanRange,
@@ -516,7 +518,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 throw new UserException("Approximate split number should not be negative");
             }
             totalFileSize = fileSplit.getLength() * selectedSplitNum;
-            long maxWaitTime = sessionVariable.getFetchSplitsMaxWaitTime();
             // Not accurate, only used to estimate concurrency.
             // Here, we must take the max of 1, because
             // in the case of multiple BEs, `numApproximateSplits() / backendPolicy.numBackends()` may be 0,
@@ -530,6 +531,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 TSplitSource tSource = new TSplitSource();
                 tSource.setSplitSourceId(splitSource.getUniqueId());
                 tSource.setNumSplits(numSplitsPerBE);
+                tSource.setSupportsClose(true);
                 curLocations.getScanRange().getExtScanRange().getFileScanRange().setSplitSource(tSource);
                 TScanRangeLocation location = new TScanRangeLocation();
                 location.setBackendId(backend.getId());

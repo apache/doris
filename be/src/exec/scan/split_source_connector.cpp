@@ -152,6 +152,9 @@ Status RemoteSplitSourceConnector::get_next(bool* has_next, TFileRangeDesc* rang
                                             const std::atomic_bool* scanner_stop) {
     std::lock_guard<std::mutex> l(_range_lock);
     *has_next = false;
+    if (is_stopped() || (scanner_stop && scanner_stop->load(std::memory_order_acquire))) {
+        return Status::OK();
+    }
     if (_scan_index == _scan_ranges.size() && !_last_batch) {
         SCOPED_TIMER(_get_split_timer);
         TFetchSplitBatchRequest request;
@@ -165,27 +168,19 @@ Status RemoteSplitSourceConnector::get_next(bool* has_next, TFileRangeDesc* rang
             if (is_stopped() || (scanner_stop && scanner_stop->load(std::memory_order_acquire))) {
                 return Status::OK();
             }
-            Status coord_status;
-            // Each FE call is bounded by the split-fetch wait interval. Release the client between
-            // retries so a slow listing does not reserve a connection for the whole query.
-            FrontendServiceConnection coord(_state->exec_env()->frontend_client_cache(),
-                                            _state->get_query_ctx()->coord_addr, &coord_status);
-            RETURN_IF_ERROR(coord_status);
-            try {
-                coord->fetchSplitBatch(result, request);
-                if (result.__isset.status && result.status.status_code == TStatusCode::INCOMPLETE) {
-                    // One Hive partition may have supplied the first range while another is still
-                    // listing files. FE's bounded wait is not EOF or a query failure in that case.
-                    continue;
-                }
-                if (result.__isset.status && result.status.status_code != TStatusCode::OK) {
-                    return Status::IOError<false>("Failed to get batch of split source: {}",
-                                                  result.status.error_msgs.empty()
-                                                          ? "unknown error"
-                                                          : result.status.error_msgs[0]);
-                }
-            } catch (std::exception& e) {
-                return Status::IOError<false>("Failed to get batch of split source: {}", e.what());
+            const auto fetch_status = _fetch_batch(&result, request);
+            if (is_stopped() || (scanner_stop && scanner_stop->load(std::memory_order_acquire))) {
+                return Status::OK();
+            }
+            RETURN_IF_ERROR(fetch_status);
+            if (result.__isset.status && result.status.status_code == TStatusCode::INCOMPLETE) {
+                continue;
+            }
+            if (result.__isset.status && result.status.status_code != TStatusCode::OK) {
+                return Status::IOError<false>("Failed to get batch of split source: {}",
+                                              result.status.error_msgs.empty()
+                                                      ? "unknown error"
+                                                      : result.status.error_msgs[0]);
             }
             break;
         } while (true);
@@ -204,6 +199,40 @@ Status RemoteSplitSourceConnector::get_next(bool* has_next, TFileRangeDesc* rang
                 _range_index = 0;
             }
         }
+    }
+    return Status::OK();
+}
+
+Status RemoteSplitSourceConnector::_fetch_batch(TFetchSplitBatchResult* result,
+                                                const TFetchSplitBatchRequest& request) {
+    Status status;
+    FrontendServiceConnection coord(_state->exec_env()->frontend_client_cache(),
+                                    _state->get_query_ctx()->coord_addr, &status);
+    RETURN_IF_ERROR(status);
+    try {
+        coord->fetchSplitBatch(*result, request);
+    } catch (const std::exception& e) {
+        return Status::IOError<false>("Failed to get batch of split source: {}", e.what());
+    }
+    return Status::OK();
+}
+
+Status RemoteSplitSourceConnector::close() {
+    stop();
+    // Older FEs have no bounded-queue release dependency and do not understand this request.
+    if (!_supports_close || _close_requested.exchange(true, std::memory_order_acq_rel)) {
+        return Status::OK();
+    }
+    TFetchSplitBatchRequest request;
+    request.__set_split_source_id(_split_source_id);
+    request.__set_max_num_splits(config::remote_split_source_batch_size);
+    request.__set_close_source(true);
+    TFetchSplitBatchResult result;
+    RETURN_IF_ERROR(_fetch_batch(&result, request));
+    if (result.__isset.status && result.status.status_code != TStatusCode::OK) {
+        return Status::IOError<false>(
+                "Failed to close split source {}: {}", _split_source_id,
+                result.status.error_msgs.empty() ? "unknown error" : result.status.error_msgs[0]);
     }
     return Status::OK();
 }

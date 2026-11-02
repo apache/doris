@@ -23,6 +23,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <functional>
 #include <future>
 #include <memory>
 #include <mutex>
@@ -1599,6 +1600,110 @@ TEST(FileScannerV2Test, RemoteSplitSourceStopsLocallyWithoutQueryCancellation) {
     ASSERT_FALSE(state.is_cancelled());
     ASSERT_TRUE(source.get_next(&has_next, &range, &scanner_stop).ok());
     EXPECT_FALSE(has_next);
+}
+
+class ScriptedRemoteSplitSource final : public RemoteSplitSourceConnector {
+public:
+    explicit ScriptedRemoteSplitSource(RuntimeState* state, bool supports_close = true)
+            : RemoteSplitSourceConnector(state, nullptr, 7, 1, 1, supports_close) {}
+
+    std::function<Status(TFetchSplitBatchResult*, const TFetchSplitBatchRequest&)> fetch;
+
+protected:
+    Status _fetch_batch(TFetchSplitBatchResult* result,
+                        const TFetchSplitBatchRequest& request) override {
+        return fetch(result, request);
+    }
+};
+
+TEST(FileScannerV2Test, RemoteIncompleteRetriesAndOwnerClosesTheSharedSourceOnce) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ScriptedRemoteSplitSource source(&state);
+    int fetched = 0;
+    int closed = 0;
+    source.fetch = [&](TFetchSplitBatchResult* result, const TFetchSplitBatchRequest& request) {
+        if (request.__isset.close_source && request.close_source) {
+            ++closed;
+            EXPECT_EQ(request.split_source_id, 7);
+            EXPECT_GT(request.max_num_splits, 0);
+            TStatus thrift_status;
+            thrift_status.__set_status_code(TStatusCode::OK);
+            result->__set_status(thrift_status);
+            return Status::OK();
+        }
+        if (++fetched == 1) {
+            TStatus thrift_status;
+            thrift_status.__set_status_code(TStatusCode::INCOMPLETE);
+            result->__set_status(thrift_status);
+        } else {
+            TScanRangeLocations locations;
+            locations.scan_range = scan_range_with_path("file.parquet").scan_range;
+            locations.scan_range.ext_scan_range.file_scan_range.ranges.push_back(
+                    locations.scan_range.ext_scan_range.file_scan_range.ranges.front());
+            result->__set_splits({locations});
+            TStatus thrift_status;
+            thrift_status.__set_status_code(TStatusCode::OK);
+            result->__set_status(thrift_status);
+        }
+        return Status::OK();
+    };
+    bool has_next = false;
+    TFileRangeDesc range;
+    ASSERT_TRUE(source.get_next(&has_next, &range).ok());
+    EXPECT_TRUE(has_next);
+    EXPECT_EQ(fetched, 2);
+    EXPECT_EQ(range.path, "file.parquet");
+    ASSERT_TRUE(source.close().ok());
+    ASSERT_TRUE(source.close().ok());
+    EXPECT_EQ(closed, 1);
+    ASSERT_TRUE(source.get_next(&has_next, &range).ok());
+    EXPECT_FALSE(has_next);
+    EXPECT_EQ(fetched, 2);
+}
+
+TEST(FileScannerV2Test, OldFrontendDescriptorDoesNotSendAnUnsupportedCloseRequest) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ScriptedRemoteSplitSource source(&state, false);
+    source.fetch = [](TFetchSplitBatchResult*, const TFetchSplitBatchRequest&) {
+        ADD_FAILURE() << "an old FE did not advertise source closure";
+        return Status::InternalError("unexpected close");
+    };
+    EXPECT_TRUE(source.close().ok());
+}
+
+TEST(FileScannerV2Test, OwnerCloseDoesNotWaitForTheFetchLockOrSurfaceALateFetchError) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ScriptedRemoteSplitSource source(&state);
+    std::promise<void> entered;
+    auto started = entered.get_future();
+    std::promise<void> release;
+    auto released = release.get_future().share();
+    std::atomic_int closed {0};
+    source.fetch = [&](TFetchSplitBatchResult* result, const TFetchSplitBatchRequest& request) {
+        if (request.__isset.close_source && request.close_source) {
+            ++closed;
+            TStatus thrift_status;
+            thrift_status.__set_status_code(TStatusCode::OK);
+            result->__set_status(thrift_status);
+            return Status::OK();
+        }
+        entered.set_value();
+        released.wait();
+        return Status::IOError("the source closed while this fetch was in flight");
+    };
+    bool has_next = true;
+    TFileRangeDesc range;
+    auto fetching =
+            std::async(std::launch::async, [&] { return source.get_next(&has_next, &range); });
+    EXPECT_EQ(started.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    auto closing = std::async(std::launch::async, [&] { return source.close(); });
+    EXPECT_EQ(closing.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    release.set_value();
+    EXPECT_TRUE(closing.get().ok());
+    EXPECT_EQ(fetching.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    EXPECT_TRUE(fetching.get().ok());
+    EXPECT_FALSE(has_next);
+    EXPECT_EQ(closed.load(), 1);
 }
 
 } // namespace doris

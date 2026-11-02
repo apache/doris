@@ -42,6 +42,14 @@ import java.util.concurrent.atomic.AtomicReference;
 @Timeout(30)
 class BoundedSplitDeliveryTest {
     @Test
+    void nonPositiveFetchWaitIsRejected() {
+        Backend backend = new Backend(1, "localhost", 0);
+        SplitAssignment assignment = Mockito.mock(SplitAssignment.class);
+        Assertions.assertThrows(IllegalArgumentException.class, () -> new SplitSource(backend, assignment, 0));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> new SplitSource(backend, assignment, -1));
+    }
+
+    @Test
     void defaultsAndValidation() throws Exception {
         SessionVariable variables = new SessionVariable();
         Assertions.assertEquals(1, variables.getNumPartitionsInBatchMode());
@@ -53,6 +61,9 @@ class BoundedSplitDeliveryTest {
         Assertions.assertThrows(Exception.class, () -> variables.checkSplitBatchSize("-1"));
         Assertions.assertThrows(Exception.class, () -> variables.checkSplitPartitionBatchSize("0"));
         variables.checkSplitQueueCapacity("1");
+        Assertions.assertThrows(Exception.class, () -> variables.checkFetchSplitsMaxWaitTime("0"));
+        Assertions.assertThrows(Exception.class, () -> variables.checkFetchSplitsMaxWaitTime("-1"));
+        variables.checkFetchSplitsMaxWaitTime("1");
     }
 
     @Test

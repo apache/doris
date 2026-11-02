@@ -26,6 +26,7 @@
 #include "common/config.h"
 #include "core/custom_allocator.h"
 #include "format_v2/file_scan_context.h"
+#include "gen_cpp/FrontendService_types.h"
 #include "runtime/runtime_state.h"
 #include "util/client_cache.h"
 
@@ -57,6 +58,11 @@ public:
     Status finish_source_split(const FileScanSplit& source_split,
                                std::vector<FileScanSplit> generated_splits);
     void stop();
+    // Called once by the scan operator owner after stopping all shared consumers.
+    virtual Status close() {
+        stop();
+        return Status::OK();
+    }
 
     virtual int num_scan_ranges() = 0;
 
@@ -186,6 +192,8 @@ private:
     RuntimeProfile::Counter* _get_split_timer;
     int64_t _split_source_id;
     int _num_splits;
+    const bool _supports_close;
+    std::atomic_bool _close_requested = false;
 
     DorisVector<TScanRangeLocations> _scan_ranges;
     bool _last_batch = false;
@@ -194,17 +202,25 @@ private:
 
 public:
     RemoteSplitSourceConnector(RuntimeState* state, RuntimeProfile::Counter* get_split_timer,
-                               int64_t split_source_id, int num_splits, int max_scanners)
+                               int64_t split_source_id, int num_splits, int max_scanners,
+                               bool supports_close = false)
             : _state(state),
               _get_split_timer(get_split_timer),
               _split_source_id(split_source_id),
-              _num_splits(num_splits) {
+              _num_splits(num_splits),
+              _supports_close(supports_close) {
         _max_scanners = max_scanners;
     }
 
     Status get_next(bool* has_next, TFileRangeDesc* range,
                     const std::atomic_bool* scanner_stop = nullptr) override;
+    Status close() override;
 
+protected:
+    virtual Status _fetch_batch(TFetchSplitBatchResult* result,
+                                const TFetchSplitBatchRequest& request);
+
+public:
     /*
      * Remote split source is fetched in batch mode, and the splits are generated while scanning,
      * so the number of scan ranges may not be accurate.

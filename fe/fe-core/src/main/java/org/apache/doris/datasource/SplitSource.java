@@ -52,12 +52,19 @@ public class SplitSource {
     private final long maxWaitTime;
 
     public SplitSource(Backend backend, SplitAssignment splitAssignment, long maxWaitTime) {
+        Preconditions.checkArgument(maxWaitTime > 0, "fetch_splits_max_wait_time_ms must be positive");
         this.uniqueId = UNIQUE_ID_GENERATOR.getAndIncrement();
         this.backend = backend;
         this.splitAssignment = splitAssignment;
         this.maxWaitTime = maxWaitTime;
         this.isLastBatch = new AtomicBoolean(false);
         splitAssignment.registerSource(uniqueId);
+    }
+
+    /** Close this backend's shared consumer without stopping other backends of the scan. */
+    public void close() {
+        isLastBatch.set(true);
+        splitAssignment.stopBackend(backend.getId());
     }
 
     public long getUniqueId() {
@@ -77,7 +84,8 @@ public class SplitSource {
             return Collections.emptyList();
         }
         List<TScanRangeLocations> scanRanges = Lists.newArrayListWithExpectedSize(maxBatchSize);
-        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(maxWaitTime);
+        long started = System.nanoTime();
+        long waitNanos = TimeUnit.MILLISECONDS.toNanos(maxWaitTime);
         while (scanRanges.size() < maxBatchSize) {
             BlockingQueue<TScanRangeLocations> splits = splitAssignment.getAssignedSplits(backend);
             if (splits == null) {
@@ -92,7 +100,7 @@ public class SplitSource {
             if (!scanRanges.isEmpty()) {
                 break;
             }
-            long wait = deadline - System.nanoTime();
+            long wait = waitNanos - (System.nanoTime() - started);
             if (wait <= 0) {
                 break;
             }

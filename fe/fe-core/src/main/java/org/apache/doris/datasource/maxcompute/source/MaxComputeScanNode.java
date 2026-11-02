@@ -36,6 +36,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.maxcompute.MCProperties;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileQueryScanNode;
+import org.apache.doris.datasource.SplitAssignment;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
@@ -81,10 +82,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 public class MaxComputeScanNode extends FileQueryScanNode {
@@ -207,6 +205,9 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
     @Override
     public boolean isBatchMode() {
+        if (!isBatchModeEnabled()) {
+            return false;
+        }
         if (table.getPartitionColumns().isEmpty()) {
             return false;
         }
@@ -243,52 +244,71 @@ public class MaxComputeScanNode extends FileQueryScanNode {
                 (key, value) -> requiredPartitionSpecs.add(new PartitionSpec(key))
         );
 
-        int batchNumPartitions = sessionVariable.getNumPartitionsInBatchMode();
-
         Executor scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
-        AtomicReference<UserException> batchException = new AtomicReference<>(null);
-        AtomicInteger numFinishedPartitions = new AtomicInteger(0);
+        new PartitionBatchTask(requiredPartitionSpecs.size(), sessionVariable.splitPartitionBatchSize,
+                scheduleExecutor, splitAssignment, (begin, end) -> {
+                    TableBatchReadSession session = createTableBatchReadSession(
+                            requiredPartitionSpecs.subList(begin, end));
+                    List<Split> splits = getSplitByTableSession(session);
+                    if (splitAssignment.needMoreSplit()) {
+                        splitAssignment.addToQueue(splits);
+                    }
+                }).submit();
+    }
 
-        CompletableFuture.runAsync(() -> {
-            for (int beginIndex = 0; beginIndex < requiredPartitionSpecs.size(); beginIndex += batchNumPartitions) {
-                int endIndex = Math.min(beginIndex + batchNumPartitions, requiredPartitionSpecs.size());
-                if (batchException.get() != null || splitAssignment.isStop()) {
-                    break;
-                }
-                List<PartitionSpec> requiredBatchPartitionSpecs = requiredPartitionSpecs.subList(beginIndex, endIndex);
-                int curBatchSize = endIndex - beginIndex;
+    @FunctionalInterface
+    interface PartitionBatchConsumer {
+        void accept(int begin, int end) throws Exception;
+    }
 
-                try {
-                    CompletableFuture.runAsync(() -> {
-                        try {
-                            TableBatchReadSession tableBatchReadSession =
-                                    createTableBatchReadSession(requiredBatchPartitionSpecs);
-                            List<Split> batchSplit = getSplitByTableSession(tableBatchReadSession);
+    /** One queued continuation per scan, independent of the threshold that enables batch mode. */
+    static final class PartitionBatchTask implements Runnable {
+        private final int partitionCount;
+        private final int batchSize;
+        private final Executor executor;
+        private final SplitAssignment assignment;
+        private final PartitionBatchConsumer consumer;
+        private int nextPartition;
 
-                            if (splitAssignment.needMoreSplit()) {
-                                splitAssignment.addToQueue(batchSplit);
-                            }
-                        } catch (Exception e) {
-                            batchException.set(new UserException(e.getMessage(), e));
-                        } finally {
-                            if (batchException.get() != null) {
-                                splitAssignment.setException(batchException.get());
-                            }
+        PartitionBatchTask(int partitionCount, int batchSize, Executor executor,
+                SplitAssignment assignment, PartitionBatchConsumer consumer) {
+            com.google.common.base.Preconditions.checkArgument(batchSize > 0);
+            this.partitionCount = partitionCount;
+            this.batchSize = batchSize;
+            this.executor = executor;
+            this.assignment = assignment;
+            this.consumer = consumer;
+        }
 
-                            if (numFinishedPartitions.addAndGet(curBatchSize) == requiredPartitionSpecs.size()) {
-                                splitAssignment.finishSchedule();
-                            }
-                        }
-                    }, scheduleExecutor);
-                } catch (Exception e) {
-                    batchException.set(new UserException(e.getMessage(), e));
-                }
-
-                if (batchException.get() != null) {
-                    splitAssignment.setException(batchException.get());
-                }
+        void submit() {
+            try {
+                executor.execute(this);
+            } catch (java.util.concurrent.RejectedExecutionException e) {
+                assignment.setException(new UserException(e.getMessage(), e));
+                assignment.finishSchedule();
             }
-        }, scheduleExecutor);
+        }
+
+        @Override
+        public void run() {
+            if (!assignment.needMoreSplit() || nextPartition == partitionCount) {
+                assignment.finishSchedule();
+                return;
+            }
+            int end = nextPartition + Math.min(batchSize, partitionCount - nextPartition);
+            try {
+                consumer.accept(nextPartition, end);
+                nextPartition = end;
+                if (nextPartition == partitionCount || !assignment.needMoreSplit()) {
+                    assignment.finishSchedule();
+                } else {
+                    submit();
+                }
+            } catch (Exception e) {
+                assignment.setException(new UserException(e.getMessage(), e));
+                assignment.finishSchedule();
+            }
+        }
     }
 
     @Override

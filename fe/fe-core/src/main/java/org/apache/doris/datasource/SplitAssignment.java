@@ -47,6 +47,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class SplitAssignment {
     private static final Logger LOG = LogManager.getLogger(SplitAssignment.class);
     private final Set<Long> sources = new HashSet<>();
+    private final Set<Long> stoppedBackends = ConcurrentHashMap.newKeySet();
     private final FederationBackendPolicy backendPolicy;
     private final SplitGenerator splitGenerator;
     private final ConcurrentHashMap<Long, BlockingQueue<TScanRangeLocations>> assignment
@@ -120,6 +121,9 @@ public class SplitAssignment {
 
     private void appendBatch(Multimap<Backend, Split> batch) throws UserException {
         for (Backend backend : batch.keySet()) {
+            if (stoppedBackends.contains(backend.getId())) {
+                continue;
+            }
             Collection<Split> splits = batch.get(backend);
             List<TScanRangeLocations> locations = new ArrayList<>(splits.size());
             for (Split split : splits) {
@@ -129,9 +133,13 @@ public class SplitAssignment {
             BlockingQueue<TScanRangeLocations> queue = assignment.computeIfAbsent(
                     backend.getId(), be -> new LinkedBlockingQueue<>(queueCapacity));
             for (TScanRangeLocations location : locations) {
-                while (needMoreSplit()) {
+                while (needMoreSplit() && !stoppedBackends.contains(backend.getId())) {
                     try {
                         if (queue.offer(location, 100, TimeUnit.MILLISECONDS)) {
+                            if (stoppedBackends.contains(backend.getId())) {
+                                queue.clear();
+                                break;
+                            }
                             synchronized (assignLock) {
                                 if (sampleSplit == null) {
                                     sampleSplit = splits.iterator().next();
@@ -145,6 +153,18 @@ public class SplitAssignment {
                         setException(new UserException("Interrupted while publishing scan splits", e));
                     }
                 }
+            }
+        }
+    }
+
+    public void stopBackend(long backendId) {
+        if (stoppedBackends.add(backendId)) {
+            BlockingQueue<TScanRangeLocations> queue = assignment.get(backendId);
+            if (queue != null) {
+                queue.clear();
+            }
+            if (stoppedBackends.size() == backendPolicy.numBackends()) {
+                stop();
             }
         }
     }
@@ -188,7 +208,8 @@ public class SplitAssignment {
         }
         BlockingQueue<TScanRangeLocations> splits = assignment.computeIfAbsent(backend.getId(),
                 be -> new LinkedBlockingQueue<>(queueCapacity));
-        if (scheduleFinished.get() && splits.isEmpty() || isStopped.get()) {
+        if (scheduleFinished.get() && splits.isEmpty() || isStopped.get()
+                || stoppedBackends.contains(backend.getId())) {
             return null;
         }
         return splits;

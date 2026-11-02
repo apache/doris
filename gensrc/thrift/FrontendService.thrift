@@ -1681,6 +1681,8 @@ struct TSyncQueryColumns {
 struct TFetchSplitBatchRequest {
     1: optional i64 split_source_id
     2: optional i32 max_num_splits
+    // The backend's shared scan consumer has stopped and will not fetch again.
+    3: optional bool close_source
 }
 
 struct TFetchSplitBatchResult {

@@ -2736,6 +2736,10 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true)
     public int splitPartitionBatchSize = 16;
 
+    public void checkFetchSplitsMaxWaitTime(String value) throws Exception {
+        checkFieldLongValue(FETCH_SPLITS_MAX_WAIT_TIME, 1, value);
+    }
+
     public void checkSplitBatchSize(String value) throws Exception {
         checkFieldValue(SPLIT_BATCH_SIZE, 1, value);
     }
@@ -2766,6 +2770,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(
             name = FETCH_SPLITS_MAX_WAIT_TIME,
+            checker = "checkFetchSplitsMaxWaitTime",
             description = {"batch 方式中 BE 获取 splits 的最大等待时间",
                     "The max wait time of getting splits in batch mode."},
             needForward = true)

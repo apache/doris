@@ -98,6 +98,7 @@ suite("test_iceberg_write_uuid_inputs", "p0,external,iceberg,external_docker,ext
                     // Both the UUID and NULL identity partitions must survive FE partition parsing.
                     explain {
                         sql "SELECT id, u FROM ${table}"
+                        verbose true
                         contains "partition=2/"
                     }
                     sql "INSERT OVERWRITE TABLE ${table} PARTITION(u='${compact}') VALUES (31)"

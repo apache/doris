@@ -227,10 +227,13 @@ public class HiveScanNode extends FileQueryScanNode {
             return allFiles;
         } catch (Throwable t) {
             LOG.warn("get file split failed for table: {}", hmsTable.getName(), t);
-            throw new UserException(
-                "get file split failed for table: " + hmsTable.getName() + ", err: " + Util.getRootCauseMessage(t),
-                t);
+            throw createSplitPlanningException(t);
         }
+    }
+
+    private UserException createSplitPlanningException(Throwable failure) {
+        return new UserException("get file split failed for table: " + hmsTable.getName()
+                + ", err: " + Util.getRootCauseMessage(failure), failure);
     }
 
     @Override
@@ -267,7 +270,7 @@ public class HiveScanNode extends FileQueryScanNode {
                                 splitAssignment.addToQueue(allFiles);
                             }
                         } catch (Exception e) {
-                            batchException.set(new UserException(e.getMessage(), e));
+                            batchException.set(createSplitPlanningException(e));
                         } finally {
                             splittersOnFlight.release();
                             if (batchException.get() != null) {
@@ -284,7 +287,7 @@ public class HiveScanNode extends FileQueryScanNode {
                     }, scheduleExecutor);
                 } catch (Exception e) {
                     // When submitting a task, an exception will be thrown if the task pool(scheduleExecutor) is full
-                    batchException.set(new UserException(e.getMessage(), e));
+                    batchException.set(createSplitPlanningException(e));
                     break;
                 }
             }

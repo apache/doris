@@ -177,7 +177,7 @@ public class IcebergScanNodeTest {
     public final TemporaryFolder temporaryFolder = new TemporaryFolder();
 
     @Test
-    public void testExplainRequiresExactFilePlanning() throws Exception {
+    public void testVerboseExplainRequiresExactFilePlanning() throws Exception {
         assertBatchPlanningAllowed(true, false, 0, 0, true, false);
     }
 
@@ -195,8 +195,18 @@ public class IcebergScanNodeTest {
         assertBatchPlanningAllowed(false, false, 1, 1, false, true);
     }
 
+    @Test
+    public void testOrdinaryExplainKeepsTheRealBatchPlan() throws Exception {
+        assertBatchPlanningAllowed(true, false, false, 0, 0, true, true);
+    }
+
     private void assertBatchPlanningAllowed(boolean explain, boolean global, long partitions, long splits,
             boolean enabled, boolean expected) throws Exception {
+        assertBatchPlanningAllowed(explain, explain, global, partitions, splits, enabled, expected);
+    }
+
+    private void assertBatchPlanningAllowed(boolean explain, boolean verbose, boolean global,
+            long partitions, long splits, boolean enabled, boolean expected) throws Exception {
         SessionVariable variables = new SessionVariable();
         variables.enableExternalTableBatchMode = true;
         variables.numFilesInBatchMode = 1;
@@ -227,6 +237,7 @@ public class IcebergScanNodeTest {
         StatementContext statementContext = new StatementContext();
         StatementBase statement = Mockito.mock(StatementBase.class);
         Mockito.when(statement.isExplain()).thenReturn(explain);
+        Mockito.when(statement.isVerbose()).thenReturn(verbose);
         statementContext.setParsedStatement(statement);
         context.setStatementContext(statementContext);
         context.setThreadLocalInfo();
