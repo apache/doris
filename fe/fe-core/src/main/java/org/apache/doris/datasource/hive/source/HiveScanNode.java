@@ -245,8 +245,10 @@ public class HiveScanNode extends FileQueryScanNode {
         String bindBrokerName = hmsTable.getCatalog().bindBrokerName();
         AtomicInteger numFinishedPartitions = new AtomicInteger(0);
         long startTime = System.currentTimeMillis();
+        List<List<HivePartition>> partitionBatches = Lists.partition(
+                prunedPartitions, sessionVariable.splitPartitionBatchSize);
         CompletableFuture.runAsync(() -> {
-            for (HivePartition partition : prunedPartitions) {
+            for (List<HivePartition> partitions : partitionBatches) {
                 if (batchException.get() != null || splitAssignment.isStop()) {
                     break;
                 }
@@ -256,7 +258,7 @@ public class HiveScanNode extends FileQueryScanNode {
                         try {
                             List<Split> allFiles = Lists.newArrayList();
                             getFileSplitByPartitions(
-                                    cache, Collections.singletonList(partition), allFiles, bindBrokerName,
+                                    cache, partitions, allFiles, bindBrokerName,
                                     numBackends, true);
                             if (allFiles.size() > numSplitsPerPartition.get()) {
                                 numSplitsPerPartition.set(allFiles.size());
@@ -271,7 +273,7 @@ public class HiveScanNode extends FileQueryScanNode {
                             if (batchException.get() != null) {
                                 splitAssignment.setException(batchException.get());
                             }
-                            if (numFinishedPartitions.incrementAndGet() == prunedPartitions.size()) {
+                            if (numFinishedPartitions.incrementAndGet() == partitionBatches.size()) {
                                 if (getSummaryProfile() != null) {
                                     getSummaryProfile().addExternalTableGetPartitionFilesTime(
                                             System.currentTimeMillis() - startTime);

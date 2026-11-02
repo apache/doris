@@ -84,7 +84,6 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 
-
 /**
  * System variable.
  **/
@@ -602,6 +601,10 @@ public class SessionVariable implements Serializable, Writable {
     // Target file size in bytes for Iceberg write operations
     public static final String ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES = "iceberg_write_target_file_size_bytes";
     public static final String ENABLE_ICEBERG_MERGE_PARTITIONING = "enable_iceberg_merge_partitioning";
+
+    public static final String SPLIT_BATCH_SIZE = "split_batch_size";
+    public static final String SPLIT_QUEUE_CAPACITY = "split_queue_capacity";
+    public static final String SPLIT_PARTITION_BATCH_SIZE = "split_partition_batch_size";
 
     public static final String NUM_PARTITIONS_IN_BATCH_MODE = "num_partitions_in_batch_mode";
 
@@ -2723,13 +2726,35 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES, needForward = true)
     public long icebergWriteTargetFileSizeBytes = 0L;
 
+    @VariableMgr.VarAttr(name = SPLIT_BATCH_SIZE, checker = "checkSplitBatchSize", needForward = true)
+    public int splitBatchSize = 8;
+
+    @VariableMgr.VarAttr(name = SPLIT_QUEUE_CAPACITY, checker = "checkSplitQueueCapacity", needForward = true)
+    public int splitQueueCapacity = 1024;
+
+    @VariableMgr.VarAttr(name = SPLIT_PARTITION_BATCH_SIZE, checker = "checkSplitPartitionBatchSize",
+            needForward = true)
+    public int splitPartitionBatchSize = 16;
+
+    public void checkSplitBatchSize(String value) throws Exception {
+        checkFieldValue(SPLIT_BATCH_SIZE, 1, value);
+    }
+
+    public void checkSplitQueueCapacity(String value) throws Exception {
+        checkFieldValue(SPLIT_QUEUE_CAPACITY, 1, value);
+    }
+
+    public void checkSplitPartitionBatchSize(String value) throws Exception {
+        checkFieldValue(SPLIT_PARTITION_BATCH_SIZE, 1, value);
+    }
+
     @VariableMgr.VarAttr(
             name = NUM_PARTITIONS_IN_BATCH_MODE,
             fuzzy = true,
             description = {"如果分区数量超过阈值，BE 将通过 batch 方式获取 scan ranges。作用于 Hive、Hudi、MaxCompute 表。",
                     "If the number of partitions exceeds the threshold, scan ranges will be got through batch mode."},
             needForward = true)
-    public int numPartitionsInBatchMode = 1024;
+    public int numPartitionsInBatchMode = 1;
 
     @VariableMgr.VarAttr(
             name = NUM_FILES_IN_BATCH_MODE,
@@ -2737,7 +2762,7 @@ public class SessionVariable implements Serializable, Writable {
             description = {"如果文件数量超过阈值，BE 将通过 batch 方式获取 scan ranges",
                     "If the number of files exceeds the threshold, scan ranges will be got through batch mode."},
             needForward = true)
-    public int numFilesInBatchMode = 1024;
+    public int numFilesInBatchMode = 1;
 
     @VariableMgr.VarAttr(
             name = FETCH_SPLITS_MAX_WAIT_TIME,

@@ -476,11 +476,12 @@ public abstract class FileQueryScanNode extends FileScanNode {
             admissionResult = fileCacheAdmissionCheck();
         }
 
-        if (isBatchMode()) {
+        if (sessionVariable.getEnableExternalTableBatchMode() && isBatchMode()) {
             // File splits are generated lazily, and fetched by backends while scanning.
             // Only provide the unique ID of split source to backend.
             splitAssignment = new SplitAssignment(backendPolicy, this, this::splitToScanRange,
-                    locationProperties, pathPartitionKeys, admissionResult);
+                    locationProperties, pathPartitionKeys, admissionResult,
+                    sessionVariable.splitBatchSize, sessionVariable.splitQueueCapacity);
             splitAssignment.init();
             if (executor != null) {
                 executor.getSummaryProfile().setGetSplitsFinishTime();

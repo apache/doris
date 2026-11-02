@@ -570,7 +570,8 @@ public:
     explicit RemoteStyleSplitSourceConnector(std::vector<TFileRangeDesc> ranges)
             : _ranges(std::move(ranges)) {}
 
-    Status get_next(bool* has_next, TFileRangeDesc* range) override {
+    Status get_next(bool* has_next, TFileRangeDesc* range,
+                    const std::atomic_bool* /*scanner_stop*/) override {
         std::lock_guard lock(_lock);
         ++_get_next_calls;
         *has_next = _next < _ranges.size();
@@ -599,7 +600,8 @@ public:
     explicit BlockingRemoteStyleSplitSourceConnector(TFileRangeDesc range)
             : _range(std::move(range)) {}
 
-    Status get_next(bool* has_next, TFileRangeDesc* range) override {
+    Status get_next(bool* has_next, TFileRangeDesc* range,
+                    const std::atomic_bool* /*scanner_stop*/) override {
         std::unique_lock lock(_lock);
         if (!_source_returned) {
             _source_returned = true;
@@ -1585,6 +1587,18 @@ TEST(FileScannerTest, PartitionPruningStopsAtUnsafePredicate) {
     const auto& partition_conjuncts = scanner.TEST_runtime_filter_partition_prune_ctxs();
     ASSERT_EQ(partition_conjuncts.size(), 1);
     EXPECT_EQ(partition_conjuncts[0], conjuncts[0]);
+}
+
+TEST(FileScannerV2Test, RemoteSplitSourceStopsLocallyWithoutQueryCancellation) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RemoteSplitSourceConnector source(&state, nullptr, 1, 1, 1);
+    std::atomic_bool scanner_stop {true};
+    bool has_next = true;
+    TFileRangeDesc range;
+
+    ASSERT_FALSE(state.is_cancelled());
+    ASSERT_TRUE(source.get_next(&has_next, &range, &scanner_stop).ok());
+    EXPECT_FALSE(has_next);
 }
 
 } // namespace doris

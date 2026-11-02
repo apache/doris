@@ -18,6 +18,7 @@
 #pragma once
 
 #include <algorithm>
+#include <atomic>
 #include <condition_variable>
 #include <deque>
 #include <unordered_set>
@@ -46,7 +47,8 @@ public:
      * @param has_next whether exists the next scan range
      * @param range the obtained next scan range
      */
-    virtual Status get_next(bool* has_next, TFileRangeDesc* range) = 0;
+    virtual Status get_next(bool* has_next, TFileRangeDesc* range,
+                            const std::atomic_bool* scanner_stop = nullptr) = 0;
 
     // FileScannerV2 may replace one FE split with several physical children after inspecting file
     // metadata. These methods are shared by local and remote sources so neither source can report
@@ -63,6 +65,8 @@ public:
     virtual bool all_ranges_have_table_level_row_count() const { return false; }
 
 protected:
+    bool is_stopped() const { return _stopped.load(std::memory_order_acquire); }
+
     template <typename T, typename V1 = std::vector<T>, typename V2 = std::vector<T>>
         requires(std::is_same_v<std::remove_cvref_t<V1>,
                                 std::vector<T, typename V1::allocator_type>> &&
@@ -117,7 +121,7 @@ private:
     uint64_t _next_source_split_id = 1;
     bool _source_claim_in_progress = false;
     bool _source_exhausted = false;
-    bool _stopped = false;
+    std::atomic_bool _stopped = false;
 };
 
 /**
@@ -139,7 +143,8 @@ public:
         _merge_ranges<TScanRangeParams>(_scan_ranges, scan_ranges);
     }
 
-    Status get_next(bool* has_next, TFileRangeDesc* range) override;
+    Status get_next(bool* has_next, TFileRangeDesc* range,
+                    const std::atomic_bool* scanner_stop = nullptr) override;
 
     int num_scan_ranges() override { return static_cast<int>(_scan_ranges.size()); }
 
@@ -197,7 +202,8 @@ public:
         _max_scanners = max_scanners;
     }
 
-    Status get_next(bool* has_next, TFileRangeDesc* range) override;
+    Status get_next(bool* has_next, TFileRangeDesc* range,
+                    const std::atomic_bool* scanner_stop = nullptr) override;
 
     /*
      * Remote split source is fetched in batch mode, and the splits are generated while scanning,
