@@ -59,7 +59,6 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 public class TransactionState implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(TransactionState.class);
@@ -302,12 +301,6 @@ public class TransactionState implements Writable, GsonPostProcessable {
     public class SchemaInfo {
         public List<Column> schema;
         public int schemaVersion;
-
-        public SchemaInfo(OlapTable olapTable) {
-            MaterializedIndexMeta base = olapTable.getIndexMetaByIndexId(olapTable.getBaseIndexId());
-            schema = base.getSchema().stream().map(TxnWriteSchemaSnapshot::copyColumn).collect(Collectors.toList());
-            schemaVersion = base.getSchemaVersion();
-        }
 
         private SchemaInfo(List<Column> schema, int schemaVersion) {
             this.schema = schema;
@@ -936,12 +929,12 @@ public class TransactionState implements Writable, GsonPostProcessable {
     }
 
     public boolean checkSchemaCompatibility(OlapTable olapTable) {
-        SchemaInfo currentSchemaInfo = new SchemaInfo(olapTable);
         SchemaInfo txnSchemaInfo = txnSchemas.get(olapTable.getId());
         if (txnSchemaInfo == null) {
             return true;
         }
-        if (txnSchemaInfo.schemaVersion >= currentSchemaInfo.schemaVersion) {
+        MaterializedIndexMeta currentSchema = olapTable.getIndexMetaByIndexId(olapTable.getBaseIndexId());
+        if (txnSchemaInfo.schemaVersion >= currentSchema.getSchemaVersion()) {
             return true;
         }
         for (Column txnCol : txnSchemaInfo.schema) {
@@ -949,7 +942,7 @@ public class TransactionState implements Writable, GsonPostProcessable {
                 continue;
             }
             int uniqueId = txnCol.getUniqueId();
-            Optional<Column> currentCol = currentSchemaInfo.schema.stream()
+            Optional<Column> currentCol = currentSchema.getSchema().stream()
                     .filter(col -> col.getUniqueId() == uniqueId).findFirst();
             // for now Doris's light schema change only supports adding columns,
             // dropping columns, and type conversions that increase the varchar length

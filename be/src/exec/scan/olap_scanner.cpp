@@ -699,15 +699,18 @@ Status OlapScanner::_init_changelog_read_mappings(const TOlapScanNode& scan_node
         return Status::InvalidArgument("Changelog merge scan requires explicit read mappings");
     }
     DORIS_CHECK_EQ(slots.size(), read_schema.num_block_columns());
-    std::unordered_map<int32_t, ColumnId> slot_ordinals;
-    for (ColumnId ordinal = 0; ordinal < slots.size(); ++ordinal) {
-        if (!slot_ordinals.emplace(slots[ordinal]->id(), ordinal).second) {
-            return Status::InvalidArgument("Duplicate changelog scan slot {}",
-                                           slots[ordinal]->id());
-        }
-    }
     ReadSchema::ChangelogValueColumnPairs pairs;
-    if (scan_node.__isset.changelog_column_mappings) {
+    // Ordinary scans and key-only changelog reads have no pairs to resolve.
+    if (scan_node.__isset.changelog_column_mappings &&
+        !scan_node.changelog_column_mappings.pairs.empty()) {
+        std::unordered_map<int32_t, ColumnId> slot_ordinals;
+        slot_ordinals.reserve(slots.size());
+        for (ColumnId ordinal = 0; ordinal < slots.size(); ++ordinal) {
+            if (!slot_ordinals.emplace(slots[ordinal]->id(), ordinal).second) {
+                return Status::InvalidArgument("Duplicate changelog scan slot {}",
+                                               slots[ordinal]->id());
+            }
+        }
         for (const auto& pair : scan_node.changelog_column_mappings.pairs) {
             if (!pair.__isset.current_slot_id || !pair.__isset.before_slot_id) {
                 return Status::InvalidArgument("Changelog read pair requires both slot IDs");
