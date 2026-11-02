@@ -121,6 +121,35 @@ class TimestampTzLiteralTest {
     }
 
     @Test
+    void testCalendarDaysAtUtcBoundaries() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            TimestampTzLiteral minimum = new TimestampTzLiteral(0, 1, 1, 0, 0, 0);
+            TimestampTzLiteral maximum = new TimestampTzLiteral(9999, 12, 31, 23, 0, 0);
+            context.getSessionVariable().setTimeZone("America/New_York");
+            Assertions.assertEquals(minimum, minimum.plusDays(0));
+            context.getSessionVariable().setTimeZone("+08:00");
+            Assertions.assertEquals(maximum, maximum.plusDays(0));
+            TimestampTzLiteral east = new TimestampTzLiteral(TimeStampTzType.of(6),
+                    0, 2, 28, 20, 0, 0, 123456);
+            Assertions.assertEquals(new TimestampTzLiteral(TimeStampTzType.of(6),
+                    0, 2, 27, 20, 0, 0, 123456), east.plusDays(-1));
+            context.getSessionVariable().setTimeZone("-08:00");
+            TimestampTzLiteral west = new TimestampTzLiteral(TimeStampTzType.of(6),
+                    0, 3, 1, 1, 0, 0, 123456);
+            Assertions.assertEquals(new TimestampTzLiteral(TimeStampTzType.of(6),
+                    0, 3, 2, 1, 0, 0, 123456), west.plusDays(1));
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
     void testConstructorsAndParsing() {
         TimestampTzLiteral literal;
 
