@@ -28,6 +28,7 @@ import org.apache.doris.thrift.TStatusCode;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Multimap;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.mockito.MockedStatic;
@@ -48,6 +49,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 @Timeout(30)
 class SplitConsumerCloseTest {
+    private static Env env;
+    private static FrontendServiceImpl service;
+
+    @BeforeAll
+    static void initializeRpcFixture() {
+        // Keep Env/service cold initialization outside the bounded queue-close race.
+        env = Mockito.mock(Env.class);
+        service = Mockito.mock(FrontendServiceImpl.class, Mockito.CALLS_REAL_METHODS);
+    }
+
     @Test
     @SuppressWarnings("unchecked")
     void ownerCloseReleasesAFullBackendQueueWithoutDroppingOtherBackendSplits() throws Exception {
@@ -89,9 +100,7 @@ class SplitConsumerCloseTest {
         SplitSourceManager manager = new SplitSourceManager();
         manager.registerSplitSource(stoppedSource);
         manager.registerSplitSource(liveSource);
-        Env env = Mockito.mock(Env.class);
         Mockito.when(env.getSplitSourceManager()).thenReturn(manager);
-        FrontendServiceImpl service = Mockito.mock(FrontendServiceImpl.class, Mockito.CALLS_REAL_METHODS);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         delayNext.set(true);
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
