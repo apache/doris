@@ -72,6 +72,8 @@ import org.apache.doris.mtmv.ivm.IvmIncrRefreshContext;
 import org.apache.doris.mtmv.ivm.IvmIncrRefreshManager;
 import org.apache.doris.mtmv.ivm.IvmIncrRefreshResult;
 import org.apache.doris.mtmv.ivm.IvmPlanSignature;
+import org.apache.doris.mtmv.ivm.IvmRefreshFailureStage;
+import org.apache.doris.mtmv.ivm.IvmRefreshMethod;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -104,6 +106,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
@@ -114,9 +117,11 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.stream.Stream;
 
 public class MTMVTask extends AbstractTask {
     private static final Logger LOG = LogManager.getLogger(MTMVTask.class);
@@ -125,6 +130,17 @@ public class MTMVTask extends AbstractTask {
             "MTMVTask.syncPartitionsIfNeeded.skip";
     public static final String DEBUG_POINT_SKIP_PARTITION_SYNC_FILTER =
             "MTMVTask.syncPartitionsIfNeeded.skip.filter";
+    // The fallback reason of an incremental attempt that found no refresh snapshot to catch up from.
+    public static final String INCOMPLETE_REFRESH_SNAPSHOT = "INCOMPLETE_REFRESH_SNAPSHOT";
+    // Every value ivmFallbackReason can take, and every value ivmFailureReason can take, each of which the IVM
+    // refresh metrics register a series for.
+    public static final ImmutableList<String> IVM_FALLBACK_REASONS = Stream.concat(
+            Arrays.stream(IvmFailureReason.values()).map(Enum::name), Stream.of(INCOMPLETE_REFRESH_SNAPSHOT))
+            .collect(ImmutableList.toImmutableList());
+    public static final ImmutableList<String> IVM_FAILURE_REASONS = Stream.concat(
+            Arrays.stream(IvmFailureReason.values()).map(Enum::name),
+            Arrays.stream(IvmRefreshFailureStage.values()).map(Enum::name))
+            .collect(ImmutableList.toImmutableList());
 
     private static final Gson GSON = new Gson();
 
@@ -150,7 +166,8 @@ public class MTMVTask extends AbstractTask {
             new Column("LastQueryId", ScalarType.createStringType()),
             new Column("ComputeGroup", ScalarType.createStringType()),
             new Column("IvmFallbackReason", ScalarType.createStringType()),
-            new Column("IvmRebuiltPartitions", ScalarType.createStringType()));
+            new Column("IvmRebuiltPartitions", ScalarType.createStringType()),
+            new Column("IvmRefreshMethod", ScalarType.createStringType()));
 
     public static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
 
@@ -304,6 +321,28 @@ public class MTMVTask extends AbstractTask {
     // INCREMENTAL request reports so that "the request was incremental but the work was not" is visible.
     @SerializedName("irp")
     private int ivmRebuiltPartitions;
+    // How this task refreshed an IVM MV, by the kinds of work that committed data. Decided once, as the task
+    // ends (see after()), so it is null while the task runs and for a task of a non-IVM MV.
+    @SerializedName("irm")
+    private IvmRefreshMethod ivmRefreshMethod;
+    // The reason a failed task of an IVM MV reports: the IvmFailureReason a request that may not fall back failed
+    // with, or else the IvmRefreshFailureStage the failure happened in. Null for any other task.
+    @SerializedName("ifl")
+    private String ivmFailureReason;
+    // Whether this task fell back from the incremental refresh and an attempt that replaced it committed data. Its
+    // reason is ivmFallbackReason. A fallback that committed nothing did not change how the MV was refreshed.
+    @SerializedName("ifb")
+    private boolean ivmFallback;
+    // The kinds of work this task has committed, which ivmRefreshMethod is decided from. Concurrent because a STOP
+    // decides it from the cancel thread while the worker may still be committing.
+    private transient Set<IvmRefreshMethod> committedRefreshKinds = ConcurrentHashMap.newKeySet();
+    // Set once the incremental attempt has given up for a reason that counts as a fallback: what an attempt
+    // commits after that is the fallback's work. Only the worker thread reads and writes it.
+    private transient boolean fallingBack;
+    // What this task reports as its failure reason if it fails at this point; see ivmFailureReason. Moved along as
+    // the task passes its stages, and set to an IvmFailureReason where a request that may not fall back fails.
+    // Only the worker thread writes it, and it is read as the worker reports the failure.
+    private transient String failureStage = IvmRefreshFailureStage.OTHER.name();
     private long mtmvSchemaChangeVersion;
     // Published only after a signature-mismatch fallback succeeds and its task result is accepted.
     private transient String refreshedIvmPlanSignature;
@@ -343,6 +382,7 @@ public class MTMVTask extends AbstractTask {
             }
             // Every time a task is run, the relation is regenerated because baseTables and baseViews may change,
             // such as deleting a table and creating a view with the same name
+            failureStage = IvmRefreshFailureStage.QUERY_UNUSABLE.name();
             MTMVPlanUtil.QueryAnalysisResult queryAnalysis = MTMVPlanUtil.getBaseTableFromQuery(
                     mtmv.getQuerySql(), ctx);
             this.relation = MTMVPlanUtil.generateMTMVRelation(queryAnalysis.getAllLevelTables(),
@@ -356,12 +396,15 @@ public class MTMVTask extends AbstractTask {
             // its base-table schema and partition definition. It is not part of
             // refresh fallback: incompatible MV definitions must fail directly.
             ensureQueryUsableIfNeeded(ctx, tableIfs);
+            failureStage = IvmRefreshFailureStage.OTHER.name();
             RefreshRequest request = resolveRefreshRequest();
+            failureStage = IvmRefreshFailureStage.PARTITION_SYNC_FAILED.name();
             try {
                 syncPartitionsIfNeeded(ctx, tableIfs);
             } catch (PartitionPlanningException e) {
                 throw new JobException(e.getMessage(), e);
             }
+            failureStage = IvmRefreshFailureStage.OTHER.name();
             // Partition sync has decided which partitions exist, and nothing has read a base table yet:
             // this is the point where an entry and the partition it describes become the same thing.
             // Doing it any later would let a partition that sync has just added be refreshed without an
@@ -372,6 +415,7 @@ public class MTMVTask extends AbstractTask {
             List<RefreshAttemptType> attempts = buildAttempts(request, queryAnalysis.containsOneRowRelation());
             MTMVRefreshContext refreshContext = buildRefreshContext(tableIfs);
             boolean disablePartitionRefresh = false;
+            failureStage = IvmRefreshFailureStage.EXECUTION_FAILED.name();
             for (RefreshAttemptType attemptType : attempts) {
                 switch (attemptType) {
                     case IVM:
@@ -379,6 +423,7 @@ public class MTMVTask extends AbstractTask {
                         if (ivmResult == AttemptResultType.SUCCESS) {
                             return;
                         }
+                        fallingBack = givingUpTheIncrementalAttemptIsAFallback();
                         if (ivmResult == AttemptResultType.FALLBACK_TO_COMPLETE) {
                             disablePartitionRefresh = true;
                         }
@@ -407,6 +452,7 @@ public class MTMVTask extends AbstractTask {
                         throw new JobException("Unsupported refresh attempt type: " + attemptType);
                 }
             }
+            failureStage = IvmRefreshFailureStage.OTHER.name();
             throw new JobException("No refresh attempt succeeded for mv=" + mtmv.getName());
         } catch (Throwable e) {
             if (getStatus() == TaskStatus.RUNNING) {
@@ -603,6 +649,8 @@ public class MTMVTask extends AbstractTask {
         if (request.allowFallback && mtmv.isIvm() && attempts.contains(RefreshAttemptType.IVM)
                 && hasUnusableIvmStream()) {
             ivmFallbackReason = IvmFailureReason.STREAM_UNSUPPORTED.name();
+            // The incremental attempt is given up before it runs, which is a fallback all the same.
+            fallingBack = true;
             LOG.warn("IVM stream is unusable, mv={}, taskId={}. Continuing with COMPLETE refresh.",
                     mtmv.getName(), getTaskId());
             return Lists.newArrayList(RefreshAttemptType.COMPLETE);
@@ -657,6 +705,15 @@ public class MTMVTask extends AbstractTask {
         }
         int replaced = CollectionUtils.isEmpty(completedPartitions) ? 0 : completedPartitions.size();
         ivmRebuiltPartitions = Math.max(ivmRebuiltPartitions, replaced);
+    }
+
+    /**
+     * Whether the incremental attempt giving up makes this a task that falls back: the attempts after it rebuild what
+     * the incremental refresh could not catch up. The exception is an MV no refresh has succeeded on yet, which has no
+     * baseline to catch up -- building the first one is not the incremental refresh giving up.
+     */
+    private boolean givingUpTheIncrementalAttemptIsAFallback() {
+        return !INCOMPLETE_REFRESH_SNAPSHOT.equals(ivmFallbackReason) || mtmv.hasSucceededIvmRefresh();
     }
 
     private boolean shouldUseCompleteForInitialIvmRefresh(boolean containsOneRowRelation) {
@@ -807,7 +864,7 @@ public class MTMVTask extends AbstractTask {
         // A strict INCREMENTAL request must reach IVM so the stream can establish its initial baseline.
         // Only fallback-enabled requests may rebuild a missing or invalidated snapshot with COMPLETE.
         if (!mtmv.hasRefreshSnapshot() && request.allowFallback) {
-            ivmFallbackReason = "INCOMPLETE_REFRESH_SNAPSHOT";
+            ivmFallbackReason = INCOMPLETE_REFRESH_SNAPSHOT;
             LOG.warn("IVM refresh fell back for mv={}, reason=INCOMPLETE_REFRESH_SNAPSHOT, taskId={}. "
                     + "Continuing with COMPLETE refresh.", mtmv.getName(), getTaskId());
             return AttemptResultType.FALLBACK_TO_COMPLETE;
@@ -893,12 +950,14 @@ public class MTMVTask extends AbstractTask {
                 adoptPartitionsCreatedByTheRetry(dirtyPartitions);
                 currentRefreshContext = buildRefreshContext(tableIfs);
             } catch (Exception e) {
+                failureStage = IvmRefreshFailureStage.PARTITION_SYNC_FAILED.name();
                 throw new JobException("Failed to synchronize MV partitions before IVM retry for mv="
                         + mtmv.getName(), e);
             }
             LOG.warn("Retrying IVM refresh after synchronizing MV partitions, mv={}, attempt={}/{}, taskId={}",
                     mtmv.getName(), partitionSyncRetryCount + 1, ivmAttemptLimit, getTaskId());
         }
+        failureStage = IvmFailureReason.MV_PARTITION_NOT_FOUND.name();
         throw new JobException("IVM refresh could not recover missing MV partition for mv="
                 + mtmv.getName() + ", detail=" + ivmResult.getDetailMessage());
     }
@@ -961,6 +1020,7 @@ public class MTMVTask extends AbstractTask {
                     + ", detail=" + Util.getRootCauseMessage(e), e);
         }
         if (ivmResult.isSuccess()) {
+            recordCommitted(IvmRefreshMethod.INCREMENTAL);
             this.partitionSnapshots.putAll(capturedSnapshots);
             recordRefreshCompleted(incrementalScope);
             commitCapturedEpochs(capturedEpochs);
@@ -1012,6 +1072,18 @@ public class MTMVTask extends AbstractTask {
             completedPartitions = new ConcurrentSkipListSet<>();
         }
         completedPartitions.addAll(partitions);
+    }
+
+    /**
+     * Notes that a batch of this kind of work committed data, which is what ivmRefreshMethod is decided from. What
+     * commits once the incremental attempt has given up is the fallback's work, and it is what makes this a task
+     * that fell back: a fallback that commits nothing leaves the MV as the incremental refresh would have.
+     */
+    private void recordCommitted(IvmRefreshMethod kind) {
+        committedRefreshKinds.add(kind);
+        if (fallingBack) {
+            ivmFallback = true;
+        }
     }
 
     /**
@@ -1206,6 +1278,7 @@ public class MTMVTask extends AbstractTask {
             throws JobException {
         ivmFallbackReason = ivmResult.getFailureReason().name();
         if (!request.allowFallback) {
+            failureStage = ivmResult.getFailureReason().name();
             throw new JobException(
                     "IVM incremental refresh failed for mv=" + mtmv.getName()
                     + ", reason=" + ivmResult.getFailureReason()
@@ -1246,6 +1319,7 @@ public class MTMVTask extends AbstractTask {
         if (mtmv.isIvm()
                 && hasUnusableIvmStreamForPartitions(partitionPlan.context, partitionPlan.partitions)) {
             if (!request.allowFallback) {
+                failureStage = IvmFailureReason.STREAM_UNSUPPORTED.name();
                 throw new JobException("IVM stream is unusable for the partitions of this refresh, mv="
                         + mtmv.getName());
             }
@@ -1349,6 +1423,8 @@ public class MTMVTask extends AbstractTask {
                         mtmv.getName(), getTaskId(), e);
                 throw new JobException(e.getMessage(), e);
             }
+            recordCommitted(refreshMode == RefreshMode.COMPLETE
+                    ? IvmRefreshMethod.COMPLETE : IvmRefreshMethod.PARTITION_REBUILD);
             recordRefreshCompleted(execPartitionNames);
             // What this batch may record: everything it replaced, unless the read behind it answered with a
             // base table the MV does not partition by as of an older state than that table is in now -- which
@@ -1905,6 +1981,8 @@ public class MTMVTask extends AbstractTask {
         trow.addToColumnValue(new TCell().setStringVal(
                 ivmFallbackReason == null ? FeConstants.null_string : ivmFallbackReason));
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(ivmRebuiltPartitions)));
+        trow.addToColumnValue(new TCell().setStringVal(
+                ivmRefreshMethod == null ? FeConstants.null_string : ivmRefreshMethod.name()));
         return trow;
     }
 
@@ -1926,6 +2004,16 @@ public class MTMVTask extends AbstractTask {
 
     private void after() {
         if (mtmv != null) {
+            if (mtmv.isIvm()) {
+                // Decided here, once, and before the result is journaled: a STOP publishes from the cancel thread
+                // while the worker may still commit a batch, and what the journal carries has to be what the result
+                // was recorded and counted with.
+                ivmRefreshMethod = IvmRefreshMethod.of(committedRefreshKinds);
+                if (getStatus() == TaskStatus.FAILED) {
+                    ivmFailureReason = failureStage;
+                }
+                recordIvmRefreshMetrics();
+            }
             // A copy, because this is not always the thread that fills the map: a STOP publishes from the
             // cancel thread and `cancel(false)` does not wait for the execution to stop, so the batches the
             // worker commits afterwards would otherwise land in a result that was already built -- and
@@ -1938,6 +2026,60 @@ public class MTMVTask extends AbstractTask {
                             publishedSnapshots);
         }
 
+    }
+
+    /**
+     * Counts this task in the IVM refresh metrics as it ends. Only the Master runs a task, and the replay of its
+     * result does not come here, so a follower never counts it again.
+     */
+    private void recordIvmRefreshMetrics() {
+        if (!MetricRepo.isInit) {
+            return;
+        }
+        String result;
+        switch (getStatus()) {
+            case SUCCESS:
+                result = ivmRefreshMethod == IvmRefreshMethod.NONE
+                        ? MetricRepo.IVM_REFRESH_RESULT_NO_CHANGE : MetricRepo.IVM_REFRESH_RESULT_SUCCESS;
+                break;
+            case FAILED:
+                result = MetricRepo.IVM_REFRESH_RESULT_FAILED;
+                break;
+            case CANCELED:
+                result = MetricRepo.IVM_REFRESH_RESULT_CANCELED;
+                break;
+            default:
+                throw new IllegalStateException("A task cannot end as " + getStatus() + ", taskId=" + getTaskId());
+        }
+        MetricRepo.COUNTER_IVM_REFRESH_TASKS.get(result).get(ivmRefreshMethod).increase(1L);
+        if (getStatus() == TaskStatus.CANCELED) {
+            // A canceled task has no finish time to measure it by, and a fallback it started is not one it finished.
+            return;
+        }
+        MetricRepo.COUNTER_IVM_REFRESH_DURATION_SECONDS.get(ivmRefreshMethod)
+                .increase((getFinishTimeMs() - getStartTimeMs()) / 1000.0);
+        if (ivmFallback) {
+            MetricRepo.COUNTER_IVM_FALLBACKS.get(ivmFallbackReason).increase(1L);
+        }
+        if (getStatus() == TaskStatus.FAILED) {
+            MetricRepo.COUNTER_IVM_REFRESH_FAILURES.get(ivmFailureReason).increase(1L);
+        }
+    }
+
+    /** Counts a task of an IVM MV that the full task queue turned away: it never runs, so nothing else counts it. */
+    @Override
+    public void onRejected() {
+        MTMV rejectedMv;
+        try {
+            rejectedMv = MTMVUtil.getMTMV(dbId, mtmvId);
+        } catch (UserException e) {
+            // dropped since the task was created
+            LOG.warn("can not find mv of the rejected task {}", getTaskId(), e);
+            return;
+        }
+        if (MetricRepo.isInit && rejectedMv.isIvm()) {
+            MetricRepo.COUNTER_IVM_SCHEDULE_REJECTED.increase(1L);
+        }
     }
 
     @Override
@@ -2007,6 +2149,22 @@ public class MTMVTask extends AbstractTask {
 
     public String getRefreshedIvmPlanSignature() {
         return refreshedIvmPlanSignature;
+    }
+
+    public IvmRefreshMethod getIvmRefreshMethod() {
+        return ivmRefreshMethod;
+    }
+
+    public String getIvmFailureReason() {
+        return ivmFailureReason;
+    }
+
+    public boolean isIvmFallback() {
+        return ivmFallback;
+    }
+
+    public String getIvmFallbackReason() {
+        return ivmFallbackReason;
     }
 
     @Override

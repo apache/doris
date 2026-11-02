@@ -56,6 +56,7 @@ import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mtmv.ivm.IvmInfo;
+import org.apache.doris.mtmv.ivm.IvmRefreshSummary;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
@@ -126,6 +127,10 @@ public class MTMV extends OlapTable {
      */
     @SerializedName("pst")
     private Map<String, MTMVPartitionState> partitionStates = Maps.newLinkedHashMap();
+    // What the refresh tasks of an IVM MV have come to; updated with each task result, see addTaskResult. An MV
+    // that is not an IVM MV leaves it empty.
+    @SerializedName("irs")
+    private IvmRefreshSummary ivmRefreshSummary = new IvmRefreshSummary();
     // Increased every time rewrite cache is invalidated to prevent publishing stale in-flight cache builds.
     private transient long rewriteCacheGeneration;
     private long schemaChangeVersion;
@@ -321,6 +326,19 @@ public class MTMV extends OlapTable {
     }
 
     /**
+     * Whether a refresh task of this IVM MV has ever succeeded. Until one has, the MV has no baseline for the
+     * incremental refresh to keep up, and the refresh that builds it is not the incremental refresh falling back.
+     */
+    public boolean hasSucceededIvmRefresh() {
+        readMvLock();
+        try {
+            return ivmRefreshSummary.hasSucceeded();
+        } finally {
+            readMvUnlock();
+        }
+    }
+
+    /**
      * Whether this MV is an IVM MV built as UNIQUE KEY + merge-on-write, which is one of the two table
      * models: it is maintained through the hidden row-id, and the layout its refresh reads is pinned
      * down by a plan signature. The MV's own key model is where the table model is recorded, and a key
@@ -447,6 +465,11 @@ public class MTMV extends OlapTable {
                 this.status.setRefreshState(MTMVRefreshState.FAIL);
             }
             this.jobInfo.addHistoryTask(task);
+            if (ivmInfo.isEnableIvm()) {
+                // From the task as the journal carries it, here and in the replay alike, so that the summary does
+                // not depend on how many tasks the history keeps and a follower that takes over has the same one.
+                ivmRefreshSummary.update(task);
+            }
             compatiblePctSnapshot(partitionSnapshots);
             // What this task wrote is described by the epochs just recorded, so a partition the result
             // left dirty is left out: its snapshot would otherwise come back after an invalidation
