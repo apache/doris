@@ -525,6 +525,11 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         // Views have no table snapshot. BindRelation expands their SQL and pins the base tables;
         // resolving a table handle here would load the view name through the table API.
         if (isView()) {
+            // View expansion cannot apply relation scan parameters to the base tables.
+            if (scanParams.isPresent()) {
+                throw new UnsupportedOperationException(
+                        "view not supported with scan params: @" + scanParams.get().getParamType());
+            }
             return new PluginDrivenMvccSnapshot(emptySnapshot(),
                     Collections.emptyMap(), Collections.emptyMap());
         }

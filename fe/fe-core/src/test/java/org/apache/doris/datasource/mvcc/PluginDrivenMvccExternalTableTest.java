@@ -816,6 +816,46 @@ public class PluginDrivenMvccExternalTableTest {
     }
 
     @Test
+    public void testViewSnapshotRejectsScanParamsWithoutTableMetadata() {
+        Fixture f = Fixture.partitioned();
+        PluginDrivenMvccExternalTable view = Mockito.spy(f.table);
+        Mockito.doReturn(true).when(view).isView();
+        PluginDrivenMvccSnapshot fence = new PluginDrivenMvccSnapshot(
+                ConnectorMvccSnapshot.builder().snapshotId(PINNED_SNAPSHOT_ID).build(),
+                Collections.emptyMap(), Collections.emptyMap());
+        Map<String, String> incrementalParams = new HashMap<>();
+        incrementalParams.put("startSnapshotId", "1");
+        incrementalParams.put("endSnapshotId", "5");
+        List<TableScanParams> selectors = Arrays.asList(
+                new TableScanParams(TableScanParams.BRANCH,
+                        Collections.emptyMap(), Collections.singletonList("b1")),
+                new TableScanParams(TableScanParams.BRANCH,
+                        Collections.singletonMap(TableScanParams.PARAMS_NAME, "b1"), Collections.emptyList()),
+                new TableScanParams(TableScanParams.TAG,
+                        Collections.emptyMap(), Collections.singletonList("t1")),
+                new TableScanParams(TableScanParams.TAG,
+                        Collections.singletonMap(TableScanParams.PARAMS_NAME, "t1"), Collections.emptyList()),
+                new TableScanParams(TableScanParams.INCREMENTAL_READ, incrementalParams, Collections.emptyList()),
+                new TableScanParams(TableScanParams.OPTIONS,
+                        Collections.singletonMap("scan.snapshot-id", "7"), Collections.emptyList()));
+
+        for (TableScanParams selector : selectors) {
+            List<UnsupportedOperationException> errors = Arrays.asList(
+                    Assertions.assertThrows(UnsupportedOperationException.class,
+                            () -> view.loadSnapshot(Optional.empty(), Optional.of(selector))),
+                    Assertions.assertThrows(UnsupportedOperationException.class,
+                            () -> view.loadSnapshot(Optional.empty(), Optional.of(selector), Optional.empty())),
+                    Assertions.assertThrows(UnsupportedOperationException.class,
+                            () -> view.loadSnapshot(Optional.empty(), Optional.of(selector), Optional.of(fence))));
+            for (UnsupportedOperationException error : errors) {
+                Assertions.assertEquals("view not supported with scan params: @" + selector.getParamType(),
+                        error.getMessage());
+            }
+        }
+        Mockito.verifyNoInteractions(f.metadata);
+    }
+
+    @Test
     public void testLoadSnapshotEmptyMaterializes() {
         Fixture f = Fixture.partitioned();
         MvccSnapshot snap = f.table.loadSnapshot(Optional.empty(), Optional.empty());
