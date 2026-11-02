@@ -23,7 +23,8 @@ suite("test_paimon_timestamp_ns", "p0,external,paimon") {
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String catalog = "test_paimon_timestamp_ns"
     def zone = sql("SELECT @@time_zone")[0][0]
-    def scanner = sql("SHOW VARIABLES LIKE 'enable_file_scanner_v2'")[0][1]
+    // Read the deprecated option by its stable name; SHOW VARIABLES prefixes its display name.
+    def scanner = sql("SELECT @@enable_file_scanner_v2")[0][0]
     def jni = sql("SHOW VARIABLES LIKE 'force_jni_scanner'")[0][1]
     try {
         sql "DROP CATALOG IF EXISTS ${catalog}"

@@ -35,6 +35,8 @@ public class ConstantExpressTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         connectContext.getSessionVariable().setEnableFoldConstantByBe(false);
+        // These tests assert folded values, not planning latency under concurrent CI load.
+        connectContext.getSessionVariable().enableNereidsTimeout = false;
     }
 
     private void testConstantExpressResult(String sql, String result) throws Exception {

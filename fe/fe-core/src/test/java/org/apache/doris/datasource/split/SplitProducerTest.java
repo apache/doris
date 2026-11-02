@@ -674,6 +674,7 @@ class SplitProducerTest {
             fixture.assignment.stop();
             scope.closeAll();
             release.countDown();
+            fixture.assignment.getTerminationFuture().get(5, TimeUnit.SECONDS);
             Assertions.assertTrue(source.closed.await(5, TimeUnit.SECONDS));
             Assertions.assertEquals(0, loads.get(), "the closed scope refuses the late read's load");
             Assertions.assertEquals(1, source.closeCalls.get());

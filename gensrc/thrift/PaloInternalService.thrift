@@ -542,7 +542,8 @@ struct TQueryOptions {
   // In read path, read from file cache or remote storage when execute query.
   1000: optional bool disable_file_cache = false
   1001: optional i32 file_cache_query_limit_percent = -1
-  1002: optional bool enable_file_scanner_v2 = false
+  // Deprecated: file scans always use V2. Retain the field id for wire compatibility.
+  1002: optional bool enable_file_scanner_v2 = true
   1003: optional bool enable_topn_lazy_mat_phase2_no_write_file_cache = false
   1004: optional i64 file_cache_query_limit_bytes = -1
   // SNII inverted index query reads take the REMOTE_ONLY_ON_MISS file-cache

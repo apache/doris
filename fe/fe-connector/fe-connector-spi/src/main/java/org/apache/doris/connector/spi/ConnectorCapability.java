@@ -312,5 +312,20 @@ public enum ConnectorCapability {
      * <p><b>Scope: catalog-wide only.</b> CREATE needs this answer before the target table exists.
      * This does not admit spatial MAP keys, Variant fields, or Doris internal-table storage.</p>
      */
-    SUPPORTS_NESTED_SPATIAL_TYPES
+    SUPPORTS_NESTED_SPATIAL_TYPES,
+    /**
+     * Indicates the connector's column defaults apply to writes only: they are carried by the
+     * request-scoped writer schema ({@code ConnectorWritePlanProvider.getWriteColumns}), not by the read
+     * schema (e.g. Iceberg {@code write-default}).
+     *
+     * <p>fe-core then resolves {@code DEFAULT(column)} against the writer schema a statement pinned for its
+     * write target: in INSERT VALUES, by name against the target in INSERT ... SELECT, and in the
+     * predicates of UPDATE / MERGE on the target. Anywhere else, e.g. in a plain SELECT, {@code
+     * DEFAULT(column)} on such a table is rejected instead of answering NULL from the read schema.
+     * Connectors whose read schema carries the column defaults (hive) must NOT declare it.</p>
+     *
+     * <p><b>Scope: catalog-wide OR per-table.</b> An iceberg-on-HMS table inherits it through the per-table
+     * set the gateway reflects from its sibling, exactly like {@link #SUPPORTS_NESTED_COLUMN_PRUNE}.</p>
+     */
+    SUPPORTS_WRITE_ONLY_DEFAULTS
 }

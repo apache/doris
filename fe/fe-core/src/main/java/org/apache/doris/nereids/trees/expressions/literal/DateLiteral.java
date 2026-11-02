@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.util.TimeZoneParser;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -154,6 +155,11 @@ public class DateLiteral extends Literal implements ComparableLiteral {
     }
 
     private static Result<String, AnalysisException> normalize(String s, int maxFractionDigits) {
+        return normalize(s, maxFractionDigits, TimeZoneParser.Usage.DATETIME);
+    }
+
+    private static Result<String, AnalysisException> normalize(String s, int maxFractionDigits,
+            TimeZoneParser.Usage usage) {
         // merge consecutive space
         if (s.contains("  ")) {
             s = s.replaceAll(" +", " ");
@@ -275,7 +281,10 @@ public class DateLiteral extends Literal implements ComparableLiteral {
         }
 
         // trim use to remove any blank before zone id or zone offset
-        sb.append(s.substring(i).trim());
+        String zone = s.substring(i).trim();
+        if (!zone.isEmpty()) {
+            sb.append(TimeZoneParser.normalize(zone, usage));
+        }
 
         return Result.ok(sb.toString());
     }
@@ -303,10 +312,15 @@ public class DateLiteral extends Literal implements ComparableLiteral {
 
     /** parseDateTime */
     public static Result<TemporalAccessor, AnalysisException> parseDateTime(String s) {
-        return parseDateTime(s, 7);
+        return parseDateTime(s, 7, TimeZoneParser.Usage.DATETIME);
     }
 
     static Result<TemporalAccessor, AnalysisException> parseDateTime(String s, int maxFractionDigits) {
+        return parseDateTime(s, maxFractionDigits, TimeZoneParser.Usage.DATETIME);
+    }
+
+    static Result<TemporalAccessor, AnalysisException> parseDateTime(String s, int maxFractionDigits,
+            TimeZoneParser.Usage usage) {
         String originalString = s;
         try {
             // fast parse '2022-01-01'
@@ -339,13 +353,22 @@ public class DateLiteral extends Literal implements ComparableLiteral {
             }
             if (!containsPunctuation) {
                 s = normalizeBasic(s);
+                boolean hasTimeSeparator = s.length() > 8 && s.charAt(8) == 'T';
+                int zoneStart = 0;
+                while (zoneStart < s.length() && (Character.isDigit(s.charAt(zoneStart))
+                        || (hasTimeSeparator && zoneStart == 8) || s.charAt(zoneStart) == '.')) {
+                    zoneStart++;
+                }
+                if (zoneStart < s.length() && s.charAt(zoneStart) != ' ') {
+                    s = s.substring(0, zoneStart) + TimeZoneParser.normalize(s.substring(zoneStart), usage);
+                }
                 boolean parseNanoseconds = maxFractionDigits > 7;
                 if (parseNanoseconds) {
                     s = DateUtils.truncateFractionalSecondForJavaParser(s);
                 }
                 // mysql reject "20200219 010101" "200219 010101", can't use ' ' spilt basic date time.
 
-                if (!s.contains("T")) {
+                if (!hasTimeSeparator) {
                     dateTime = (parseNanoseconds
                             ? DateTimeFormatterUtils.TIMESTAMP_NS_BASIC_FORMATTER_WITHOUT_T
                             : DateTimeFormatterUtils.BASIC_FORMATTER_WITHOUT_T).parse(s);
@@ -357,7 +380,7 @@ public class DateLiteral extends Literal implements ComparableLiteral {
                 return Result.ok(dateTime);
             }
 
-            Result<String, AnalysisException> normalizeResult = normalize(s, maxFractionDigits);
+            Result<String, AnalysisException> normalizeResult = normalize(s, maxFractionDigits, usage);
             if (normalizeResult.isError()) {
                 return normalizeResult.cast();
             }

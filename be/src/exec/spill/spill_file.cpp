@@ -27,6 +27,8 @@
 #include "exec/spill/spill_file_manager.h"
 #include "exec/spill/spill_file_reader.h"
 #include "exec/spill/spill_file_writer.h"
+#include "exec/spill/spill_s3_file_reader.h"
+#include "exec/spill/spill_s3_file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "io/fs/s3_file_system.h"
@@ -137,8 +139,13 @@ std::string SpillFile::_log_context() const {
 
 Status SpillFile::create_writer(RuntimeState* state, RuntimeProfile* profile,
                                 SpillFileWriterSPtr& writer) {
-    writer = std::make_shared<SpillFileWriter>(shared_from_this(), state, profile, _data_dir, _fs,
-                                               _spill_dir);
+    if (_data_dir->is_remote()) {
+        writer = std::make_shared<SpillS3FileWriter>(shared_from_this(), state, profile, _data_dir,
+                                                     _fs, _spill_dir);
+    } else {
+        writer = std::make_shared<SpillFileWriter>(shared_from_this(), state, profile, _data_dir,
+                                                   _fs, _spill_dir);
+    }
     // _active_writer is set in SpillFileWriter constructor via the shared_ptr
     return Status::OK();
 }
@@ -146,6 +153,10 @@ Status SpillFile::create_writer(RuntimeState* state, RuntimeProfile* profile,
 SpillFileReaderSPtr SpillFile::create_reader(RuntimeState* state, RuntimeProfile* profile) const {
     // It's a programming error to create a reader while a writer is still active.
     DCHECK(_active_writer == nullptr) << "create_reader() called while writer still active";
+    if (_data_dir->is_remote()) {
+        return std::make_shared<SpillS3FileReader>(state, profile, _data_dir, _fs, _spill_dir,
+                                                   _part_sizes);
+    }
     return std::make_shared<SpillFileReader>(state, profile, _data_dir, _fs, _spill_dir,
                                              _part_sizes);
 }

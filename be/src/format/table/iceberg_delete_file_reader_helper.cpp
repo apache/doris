@@ -18,10 +18,10 @@
 #include "format/table/iceberg_delete_file_reader_helper.h"
 
 #include <fmt/format.h>
-#include <gen_cpp/parquet_types.h>
-#include <parallel_hashmap/phmap.h>
 
+#include <algorithm>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <unordered_map>
@@ -38,15 +38,10 @@
 #include "core/data_type/data_type_string.h"
 #include "exec/common/endian.h"
 #include "exec/scan/file_scan_io_context.h"
-#include "format/orc/vorc_reader.h"
-#include "format/parquet/vparquet_column_chunk_reader.h"
-#include "format/parquet/vparquet_reader.h"
 #include "format/table/deletion_vector_reader.h"
-#include "format/table/iceberg_reader.h"
-#include "format/table/table_format_reader.h"
+#include "format_v2/table_reader.h"
 #include "io/hdfs_builder.h"
 #include "runtime/runtime_state.h"
-#include "storage/predicate/column_predicate.h"
 #include "util/debug_points.h"
 #include "util/hash_util.hpp"
 
@@ -57,10 +52,6 @@ namespace {
 constexpr const char* ICEBERG_FILE_PATH = "file_path";
 constexpr const char* ICEBERG_ROW_POS = "pos";
 constexpr size_t ICEBERG_DELETION_VECTOR_MIN_BYTES = 12;
-
-const std::vector<std::string> DELETE_COL_NAMES {ICEBERG_FILE_PATH, ICEBERG_ROW_POS};
-std::unordered_map<std::string, uint32_t> DELETE_COL_NAME_TO_BLOCK_IDX = {{ICEBERG_FILE_PATH, 0},
-                                                                          {ICEBERG_ROW_POS, 1}};
 
 Status validate_position_delete_file_format(const TIcebergDeleteFileDesc& delete_file,
                                             TFileFormatType::type* file_format) {
@@ -136,42 +127,6 @@ Status visit_position_delete_block(const Block& block, size_t read_rows,
     }
 
     return Status::InternalError("Unsupported file_path column type in position delete block");
-}
-
-Status init_parquet_delete_reader(ParquetReader* reader, bool* dictionary_coded) {
-    if (reader == nullptr || dictionary_coded == nullptr) {
-        return Status::InvalidArgument("invalid parquet delete reader arguments");
-    }
-
-    ParquetInitContext ctx;
-    ctx.column_names = DELETE_COL_NAMES;
-    ctx.col_name_to_block_idx = &DELETE_COL_NAME_TO_BLOCK_IDX;
-    ctx.filter_groups = false;
-    RETURN_IF_ERROR(reader->init_reader(&ctx));
-
-    const tparquet::FileMetaData* meta_data = reader->get_meta_data();
-    *dictionary_coded = true;
-    for (const auto& row_group : meta_data->row_groups) {
-        const auto& column_chunk = row_group.columns[0];
-        if (!(column_chunk.__isset.meta_data &&
-              IcebergTableReader::_is_fully_dictionary_encoded(column_chunk.meta_data))) {
-            *dictionary_coded = false;
-            break;
-        }
-    }
-    return Status::OK();
-}
-
-Status init_orc_delete_reader(OrcReader* reader) {
-    if (reader == nullptr) {
-        return Status::InvalidArgument("orc delete reader is null");
-    }
-
-    OrcInitContext ctx;
-    ctx.column_names = DELETE_COL_NAMES;
-    ctx.col_name_to_block_idx = &DELETE_COL_NAME_TO_BLOCK_IDX;
-    RETURN_IF_ERROR(reader->init_reader(&ctx));
-    return Status::OK();
 }
 
 Status decode_deletion_vector_buffer(const char* buf, size_t buffer_size,
@@ -285,54 +240,46 @@ Status read_iceberg_position_delete_file(const TIcebergDeleteFileDesc& delete_fi
     TFileFormatType::type file_format;
     RETURN_IF_ERROR(validate_position_delete_file_format(delete_file, &file_format));
 
-    if (file_format == TFileFormatType::FORMAT_PARQUET) {
-        ParquetReader reader(options.profile, *options.scan_params, delete_range,
-                             options.batch_size, &options.state->timezone_obj(), options.io_ctx,
-                             options.state, options.meta_cache);
-        bool dictionary_coded = false;
-        RETURN_IF_ERROR(init_parquet_delete_reader(&reader, &dictionary_coded));
-
-        bool eof = false;
-        while (!eof) {
-            Block block;
-            if (dictionary_coded) {
-                block.insert(ColumnWithTypeAndName(
-                        ColumnNullable::create(ColumnDictI32::create(), ColumnUInt8::create()),
-                        make_nullable(std::make_shared<DataTypeString>()), ICEBERG_FILE_PATH));
-            } else {
-                block.insert(ColumnWithTypeAndName(
-                        make_nullable(std::make_shared<DataTypeString>()), ICEBERG_FILE_PATH));
-            }
-            block.insert(ColumnWithTypeAndName(make_nullable(std::make_shared<DataTypeInt64>()),
-                                               ICEBERG_ROW_POS));
-            size_t read_rows = 0;
-            RETURN_IF_ERROR(reader.get_next_block(&block, &read_rows, &eof));
-            RETURN_IF_ERROR(visit_position_delete_block(block, read_rows, visitor));
-        }
-        return Status::OK();
+    const auto physical_format = file_format == TFileFormatType::FORMAT_PARQUET
+                                         ? format::FileFormat::PARQUET
+                                         : format::FileFormat::ORC;
+    auto params = *options.scan_params;
+    params.__set_format_type(file_format);
+    // Delete files have their own schema and row numbering; data-file predicates and table
+    // wrappers must not filter delete records before the visitor resolves their target files.
+    std::vector<format::ColumnDefinition> columns(2);
+    columns[0].identifier = Field::create_field<TYPE_STRING>(ICEBERG_FILE_PATH);
+    columns[0].name = ICEBERG_FILE_PATH;
+    columns[0].type = make_nullable(std::make_shared<DataTypeString>());
+    columns[1].identifier = Field::create_field<TYPE_STRING>(ICEBERG_ROW_POS);
+    columns[1].name = ICEBERG_ROW_POS;
+    columns[1].type = make_nullable(std::make_shared<DataTypeInt64>());
+    auto io_ctx = std::shared_ptr<io::IOContext>(options.io_ctx, [](io::IOContext*) {});
+    format::TableReader reader;
+    RETURN_IF_ERROR(reader.init({.projected_columns = columns,
+                                 .conjuncts = {},
+                                 .format = physical_format,
+                                 .scan_params = &params,
+                                 .io_ctx = std::move(io_ctx),
+                                 .runtime_state = options.state,
+                                 .scanner_profile = options.profile}));
+    // Rewrites request 102400 rows, but native Parquet selections use 16-bit row counts.
+    // Split large delete-file row groups rather than overflowing the physical batch contract.
+    reader.set_batch_size(
+            std::min<size_t>(options.batch_size, std::numeric_limits<uint16_t>::max()));
+    format::SplitReadOptions split;
+    split.current_range = std::move(delete_range);
+    split.current_split_format = physical_format;
+    RETURN_IF_ERROR(reader.prepare_split(split));
+    bool eof = false;
+    while (!eof) {
+        Block block;
+        block.insert(ColumnWithTypeAndName(columns[0].type, ICEBERG_FILE_PATH));
+        block.insert(ColumnWithTypeAndName(columns[1].type, ICEBERG_ROW_POS));
+        RETURN_IF_ERROR(reader.get_block(&block, &eof));
+        RETURN_IF_ERROR(visit_position_delete_block(block, block.rows(), visitor));
     }
-
-    if (file_format == TFileFormatType::FORMAT_ORC) {
-        OrcReader reader(options.profile, options.state, *options.scan_params, delete_range,
-                         options.batch_size, options.state->timezone(), options.io_ctx,
-                         options.meta_cache);
-        RETURN_IF_ERROR(init_orc_delete_reader(&reader));
-
-        bool eof = false;
-        while (!eof) {
-            Block block;
-            block.insert(ColumnWithTypeAndName(
-                    ColumnString::create(), std::make_shared<DataTypeString>(), ICEBERG_FILE_PATH));
-            block.insert(ColumnWithTypeAndName(ColumnInt64::create(),
-                                               std::make_shared<DataTypeInt64>(), ICEBERG_ROW_POS));
-            size_t read_rows = 0;
-            RETURN_IF_ERROR(reader.get_next_block(&block, &read_rows, &eof));
-            RETURN_IF_ERROR(visit_position_delete_block(block, read_rows, visitor));
-        }
-        return Status::OK();
-    }
-
-    return Status::NotSupported("Unsupported Iceberg delete file format {}", file_format);
+    return reader.close();
 }
 
 Status read_iceberg_deletion_vector(const TIcebergDeleteFileDesc& delete_file,

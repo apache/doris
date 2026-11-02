@@ -31,8 +31,6 @@
 #include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/define_primitive_type.h"
-#include "format/generic_reader.h"
-#include "format/table/table_schema_change_helper.h"
 #include "util/slice.h"
 #include "util/string_util.h"
 
