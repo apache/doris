@@ -37,6 +37,7 @@
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "cpp/sync_point.h"
 #include "load/memtable/memtable.h"
 #include "service/point_query_executor.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
