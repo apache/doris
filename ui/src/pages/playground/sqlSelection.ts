@@ -25,13 +25,18 @@ export interface SqlRange {
   to: number;
 }
 
-/** Returns the semicolon-delimited statement containing offset, ignoring quoted text and comments. */
+/** Returns editor ranges, ignoring semicolons inside quoted text and comments. */
 export function statementRanges(document: string): SqlRange[] {
+  return scanStatementRanges(document, false);
+}
+
+function scanStatementRanges(document: string, skipEmpty: boolean): SqlRange[] {
   const ranges: SqlRange[] = [];
   let start = 0;
   let quote: "'" | '"' | '`' | null = null;
   let lineComment = false;
   let blockComment = false;
+  let hasSql = false;
 
   for (let index = 0; index < document.length; index += 1) {
     const character = document[index];
@@ -61,6 +66,7 @@ export function statementRanges(document: string): SqlRange[] {
 
     if (character === "'" || character === '"' || character === '`') {
       quote = character;
+      hasSql = true;
     } else if (character === '-' && next === '-') {
       lineComment = true;
       index += 1;
@@ -71,11 +77,17 @@ export function statementRanges(document: string): SqlRange[] {
       index += 1;
     } else if (character === ';') {
       const end = index + 1;
-      ranges.push({ from: start, to: end });
+      if (!skipEmpty || hasSql) ranges.push({ from: start, to: end });
       start = end;
+      hasSql = false;
+    } else if (!hasSql && !/\s/.test(character)) {
+      hasSql = true;
     }
   }
-  if (start < document.length) ranges.push({ from: start, to: document.length });
+  // Keep unterminated block comments so the server can report the syntax error.
+  if (start < document.length && (!skipEmpty || hasSql || blockComment)) {
+    ranges.push({ from: start, to: document.length });
+  }
   return ranges;
 }
 
@@ -86,9 +98,8 @@ export function statementRangeAt(document: string, offset: number): SqlRange {
 }
 
 export function sqlStatements(document: string): string[] {
-  return statementRanges(document)
-    .map(({ from, to }) => document.slice(from, to).trim())
-    .filter(Boolean);
+  return scanStatementRanges(document, true)
+    .map(({ from, to }) => document.slice(from, to).trim());
 }
 
 export function executableSql(document: string, selection: SqlSelection): string {

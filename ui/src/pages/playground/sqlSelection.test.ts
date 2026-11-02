@@ -15,9 +15,44 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { executableSql, qualifiedName, quoteIdentifier, statementRangeAt } from './sqlSelection';
+import { executableSql, qualifiedName, quoteIdentifier, sqlStatements, statementRangeAt, statementRanges } from './sqlSelection';
 
 describe('Playground SQL selection', () => {
+  it.each([
+    '',
+    ' \r\n\t',
+    ';; ;',
+    '-- comment;\r\n# another;\n/* block; */ ;',
+    '/* first */ /* second */',
+  ])('does not execute empty or comment-only text: %j', (document) => {
+    expect(sqlStatements(document)).toEqual([]);
+  });
+
+  it('skips empty statements between queries and a trailing comment', () => {
+    const document = '; /* before */ SELECT 1;; -- between;\n; SELECT 2; -- done;';
+    expect(sqlStatements(document)).toEqual(['/* before */ SELECT 1;', 'SELECT 2;']);
+  });
+
+  it('preserves comments attached to SQL and comment markers in quoted text', () => {
+    const document = "-- heading;\nSELECT ';', '--', '#', '/* */', `a;b`; /* done */";
+    expect(sqlStatements(document)).toEqual([document.slice(0, document.indexOf('; /* done */') + 1)]);
+  });
+
+  it('keeps malformed SQL for server-side validation', () => {
+    expect(sqlStatements('/* unterminated')).toEqual(['/* unterminated']);
+    expect(sqlStatements("SELECT 'unterminated;")).toEqual(["SELECT 'unterminated;"]);
+  });
+
+  it('preserves editor ranges for empty statements and trailing comments', () => {
+    const document = ';SELECT 1; -- done';
+    expect(statementRanges(document)).toEqual([
+      { from: 0, to: 1 },
+      { from: 1, to: 10 },
+      { from: 10, to: document.length },
+    ]);
+    expect(statementRangeAt(document, document.length)).toEqual({ from: 10, to: document.length });
+  });
+
   it('executes the selected text when the selection is non-empty', () => {
     const document = 'SELECT 1;\nSELECT 2;';
     expect(executableSql(document, { from: 10, to: document.length })).toBe('SELECT 2;');
