@@ -104,15 +104,12 @@ Result<std::shared_ptr<lucene::search::IndexSearcher>> open_optional_clucene_sta
 // refuses to score the collection without it.
 Result<bool> snii_field_has_no_terms(const segment_v2::IndexFileReader& file_reader,
                                      const TabletIndex& index) {
-    const auto entries = DORIS_TRY(file_reader.snii_logical_indexes());
-    const auto entry = std::ranges::find_if(entries, [&](const auto& candidate) {
-        return candidate.index_id == static_cast<uint64_t>(index.index_id()) &&
-               candidate.index_suffix == index.get_index_suffix();
-    });
-    if (entry == entries.end()) {
+    const auto kind = DORIS_TRY(file_reader.snii_logical_index_kind(
+            static_cast<uint64_t>(index.index_id()), index.get_index_suffix()));
+    if (!kind.has_value()) {
         return !index.get_index_suffix().empty();
     }
-    return entry->kind == ::doris::snii::format::LogicalIndexKind::kBkd;
+    return *kind == ::doris::snii::format::LogicalIndexKind::kBkd;
 }
 
 } // namespace
