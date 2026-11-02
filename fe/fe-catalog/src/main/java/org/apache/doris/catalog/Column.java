@@ -426,6 +426,7 @@ public class Column implements GsonPostProcessable {
         this.comment = column.getComment();
         this.visible = column.visible;
         this.children = column.getChildren();
+        this.fieldPatternType = column.fieldPatternType;
         this.uniqueId = column.getUniqueId();
         this.reservedPassthrough = column.reservedPassthrough;
         this.defineExpr = column.getDefineExpr();
@@ -463,7 +464,10 @@ public class Column implements GsonPostProcessable {
                 // set column name as pattern
                 Column c = new Column(field.getPattern(), field.getType());
                 c.setIsAllowNull(true);
-                c.setFieldPatternType(field.getPatternType());
+                // A field replayed from an image without fpt has no pattern type; null already
+                // means MATCH_NAME_GLOB on the BE, so normalize it like gsonPostProcess does.
+                c.setFieldPatternType(field.getPatternType() == null ? PatternType.MATCH_NAME_GLOB
+                        : field.getPatternType());
                 column.addChildrenColumn(c);
             }
         }
@@ -974,7 +978,7 @@ public class Column implements GsonPostProcessable {
     public int hashCode() {
         return Objects.hash(name, getDataType(), getStrLen(), getPrecision(), getScale(), aggregationType,
                 isAggregationTypeImplicit, isKey, isAllowNull, isAutoInc, defaultValue, getComment(), children, visible,
-                realDefaultValue, clusterKeyId);
+                realDefaultValue, clusterKeyId, fieldPatternType);
     }
 
     @Override
@@ -999,6 +1003,7 @@ public class Column implements GsonPostProcessable {
                 && Objects.equals(getComment(), other.getComment())
                 && visible == other.visible
                 && Objects.equals(children, other.children)
+                && Objects.equals(fieldPatternType, other.fieldPatternType)
                 && Objects.equals(realDefaultValue, other.realDefaultValue)
                 && clusterKeyId == other.clusterKeyId;
     }
@@ -1133,6 +1138,15 @@ public class Column implements GsonPostProcessable {
         }
         if (CollectionUtils.isEmpty(children)) {
             children = null;
+        }
+        if (children != null && type.isVariantType()) {
+            // Template children written before fpt existed decode as null, which the BE already
+            // treats as MATCH_NAME_GLOB. Normalize so they equal freshly built children.
+            for (Column child : children) {
+                if (child.fieldPatternType == null) {
+                    child.fieldPatternType = PatternType.MATCH_NAME_GLOB;
+                }
+            }
         }
         if (sessionVariables == null) {
             sessionVariables = Maps.newHashMap();

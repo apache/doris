@@ -66,6 +66,55 @@ public class ColumnTest {
     }
 
     @Test
+    public void testVariantTemplatePatternEqualityAndCopy() {
+        Column exact = new Column("a", Type.INT);
+        exact.setFieldPatternType(PatternType.MATCH_NAME);
+        Column glob = new Column("a", Type.INT);
+        glob.setFieldPatternType(PatternType.MATCH_NAME_GLOB);
+        Assertions.assertNotEquals(exact, glob);
+
+        Column copy = new Column(exact);
+        Assertions.assertEquals(PatternType.MATCH_NAME, copy.getFieldPatternType());
+        Assertions.assertEquals(exact, copy);
+        Assertions.assertEquals(exact.hashCode(), copy.hashCode());
+        Column globCopy = new Column(glob);
+        Assertions.assertEquals(PatternType.MATCH_NAME_GLOB, globCopy.getFieldPatternType());
+        Assertions.assertEquals(glob, globCopy);
+        Assertions.assertEquals(glob.hashCode(), globCopy.hashCode());
+        Column ordinary = new Column("a", Type.INT);
+        Assertions.assertNull(new Column(ordinary).getFieldPatternType());
+        Assertions.assertEquals(ordinary, new Column(ordinary));
+        Assertions.assertNotEquals(ordinary, exact);
+
+        String json = GsonUtils.GSON.toJson(exact);
+        Assertions.assertTrue(json.contains("\"fpt\":\"MATCH_NAME\""));
+        Assertions.assertEquals(exact, GsonUtils.GSON.fromJson(json, Column.class));
+    }
+
+    @Test
+    public void testOldImageTemplatePatternTypeDefaultsToGlob() {
+        java.util.ArrayList<VariantField> fields = new java.util.ArrayList<>();
+        fields.add(new VariantField("a", Type.INT, ""));
+        Column fresh = new Column("v", new VariantType(fields));
+        String json = GsonUtils.GSON.toJson(fresh);
+        Assertions.assertTrue(json.contains("\"fpt\":\"MATCH_NAME_GLOB\""));
+        // An image written before fpt existed carries neither the column nor the field key.
+        String oldImage = json.replace(",\"fpt\":\"MATCH_NAME_GLOB\"", "")
+                .replace("\"fpt\":\"MATCH_NAME_GLOB\",", "");
+        Assertions.assertFalse(oldImage.contains("fpt"));
+
+        Column replayed = GsonUtils.GSON.fromJson(oldImage, Column.class);
+        Assertions.assertEquals(PatternType.MATCH_NAME_GLOB, replayed.getChildren().get(0).getFieldPatternType());
+        Assertions.assertEquals(fresh, replayed);
+        Assertions.assertEquals(fresh.hashCode(), replayed.hashCode());
+        // Children rebuilt from the replayed type (its field has a null pattern type) also match.
+        Column rebuilt = new Column("v", replayed.getType());
+        Assertions.assertEquals(PatternType.MATCH_NAME_GLOB, rebuilt.getChildren().get(0).getFieldPatternType());
+        Assertions.assertEquals(fresh, rebuilt);
+        Assertions.assertEquals(fresh.hashCode(), rebuilt.hashCode());
+    }
+
+    @Test
     public void testSchemaChangeDefaultExpressionSerialization() throws Exception {
         Column column = new Column("ts", Type.TIMESTAMP_NS, false, null, true,
                 "CURRENT_TIMESTAMP(9)", "", true, null, 1,
