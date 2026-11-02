@@ -4253,7 +4253,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         for (Index index : indexes.getIndexes()) {
             if (index.getIndexType() == IndexType.INVERTED) {
                 List<String> columns = index.getColumns();
-                if (columns != null && !columns.isEmpty() && column.getName().equals(columns.get(0))) {
+                if (columns != null && !columns.isEmpty() && column.getName().equalsIgnoreCase(columns.get(0))) {
                     invertedIndexes.add(index);
                 }
             }

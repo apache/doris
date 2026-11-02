@@ -212,4 +212,25 @@ suite("test_variant_values_index_query", "p0,nonConcurrent") {
             assertEquals(direct, sql("SELECT id FROM (SELECT id,v['obj'] AS o FROM vvi_query_subpath_alias) s WHERE o MATCH_ANY 'hello' ORDER BY id"))
         }
     }
+    sql "DROP TABLE IF EXISTS vvi_query_column_case"
+    sql """CREATE TABLE vvi_query_column_case (id INT,V VARIANT,
+        INDEX values_idx(v) USING INVERTED PROPERTIES("variant_index_scope"="values","parser"="english"))
+        DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_num"="1","inverted_index_storage_format"="SNII")"""
+    sql """INSERT INTO vvi_query_column_case VALUES
+        (1,parse_to_variant('{"s":"hello"}')),(2,parse_to_variant('{"s":"other"}')),(3,NULL)"""
+    def columnCase = [:]
+    for (String column : ["V", "v"]) {
+        compare("column_case_any", "SELECT id FROM vvi_query_column_case WHERE ${column} MATCH_ANY 'hello' ORDER BY id", columnCase, false)
+        compare("column_case_not", "SELECT id FROM vvi_query_column_case WHERE NOT(${column} MATCH_ANY 'hello') ORDER BY id", columnCase, false)
+        // Without the residual fallback, the query only runs when the values index is bound.
+        sql "SET enable_match_without_inverted_index=false"
+        try {
+            assertEquals([[1]], sql("SELECT id FROM vvi_query_column_case WHERE ${column} MATCH_ANY 'hello' ORDER BY id"))
+        } finally {
+            sql "SET enable_match_without_inverted_index=true"
+        }
+    }
+    assertEquals([[1]], columnCase.column_case_any)
+    assertEquals([[2]], columnCase.column_case_not)
 }

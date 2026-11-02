@@ -60,6 +60,27 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class OlapTableTest {
 
     @Test
+    public void testInvertedIndexLookupIgnoresColumnNameCase() {
+        Index values = new Index(1, "values_idx", List.of("v"), IndexType.INVERTED,
+                Map.of("variant_index_scope", "values", "parser", "english"), "");
+        Index path = new Index(2, "path_idx", List.of("v"), IndexType.INVERTED,
+                Map.of("parser", "english"), "");
+        Index string = new Index(3, "str_idx", List.of("s"), IndexType.INVERTED,
+                Map.of("parser", "english"), "");
+        OlapTable table = new OlapTable();
+        table.setIndexes(List.of(values, path, string));
+        for (String name : List.of("V", "v")) {
+            Column column = new Column(name, Type.VARIANT);
+            Assertions.assertTrue(table.hasVariantValuesIndex(column));
+            Assertions.assertSame(values, table.getVariantValuesIndex(column, "english"));
+            Assertions.assertSame(path, table.getInvertedIndex(column, List.of()));
+        }
+        for (String name : List.of("S", "s")) {
+            Assertions.assertSame(string, table.getInvertedIndex(new Column(name, Type.STRING), List.of()));
+        }
+    }
+
+    @Test
     public void testPartitionFormatChangeDoesNotChangeLogicalSchemaVersion() {
         List<Column> schema = Lists.newArrayList(new Column("k1", PrimitiveType.INT));
         OlapTable table = new OlapTable(1L, "tbl", schema, KeysType.DUP_KEYS,
