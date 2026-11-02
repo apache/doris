@@ -158,10 +158,12 @@ AzureAuthExpiry parse_sas_time(std::string_view value) {
         }
         if (time.size() > 8) {
             // Fractional seconds, e.g. ".1234567"; keep millisecond precision.
+            // Only the first three digits are kept, so the others are checked without being
+            // accumulated, which would overflow int64_t for a long fraction.
             std::string_view fraction = time.substr(9);
-            int64_t digits = 0;
             if (time[8] != '.' || fraction.empty() ||
-                !sas_parse_digits(fraction, 0, fraction.size(), &digits)) {
+                !std::all_of(fraction.begin(), fraction.end(),
+                             [](char c) { return c >= '0' && c <= '9'; })) {
                 return invalid;
             }
             std::string padded(fraction.substr(0, std::min<size_t>(3, fraction.size())));

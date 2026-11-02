@@ -205,6 +205,8 @@ TEST(AzureAuthExpiryTest, ParsesSasExpiryForms) {
     EXPECT_EQ(parse("se=2026-10-15T08%3A30%3A00Z"), SAS_EXPIRY_MS);
     EXPECT_EQ(parse("?se=2026-10-15T08:30Z"), SAS_EXPIRY_MS);
     EXPECT_EQ(parse("se=2026-10-15T08:30:00.1234567Z"), SAS_EXPIRY_MS + 123);
+    // A fraction longer than int64_t can hold keeps millisecond precision as well.
+    EXPECT_EQ(parse("se=2026-10-15T08:30:00.12345678901234567890123Z"), SAS_EXPIRY_MS + 123);
     EXPECT_EQ(parse("se=2026-10-15"), 1792022400000);
     EXPECT_EQ(parse("se=1999-12-31T23:59:59Z"), 946684799000);
     EXPECT_FALSE(parse("sv=2024&sig=abc").has_value());
@@ -213,6 +215,7 @@ TEST(AzureAuthExpiryTest, ParsesSasExpiryForms) {
     EXPECT_TRUE(azure_sas_token_expiry("se=2026-13-01").error.has_value());
     EXPECT_TRUE(azure_sas_token_expiry("se=2026-10-15T08:30:00").error.has_value());
     EXPECT_TRUE(azure_sas_token_expiry("se=2026-10-15T08%3").error.has_value());
+    EXPECT_TRUE(azure_sas_token_expiry("se=2026-10-15T08:30:00.12a4Z").error.has_value());
 }
 
 TEST(AzureAuthExpiryTest, RejectsExpiredSas) {
