@@ -119,6 +119,73 @@ Status get_string_utf8(JNIEnv* env, jstring value, std::string* result) {
     }
 }
 
+Status Util::create_string_array_utf8(JNIEnv* env, const std::vector<std::string>& values,
+                                      jobjectArray* result) {
+    DCHECK(*result == nullptr);
+    // JNI array lengths are signed 32-bit integers, unlike the native vector size.
+    if (values.size() > static_cast<size_t>(std::numeric_limits<jsize>::max())) {
+        return Status::InvalidArgument("String array exceeds JNI allocation bound");
+    }
+    LocalClass string_class;
+    RETURN_IF_ERROR(Util::find_class(env, "java/lang/String", &string_class));
+    // Class resolution can also fail on allocation without leaving a pending exception.
+    if (string_class.uninitialized()) {
+        return Status::JniError("Failed to resolve Java string array element class");
+    }
+    jobjectArray array = env->NewObjectArray(static_cast<jsize>(values.size()),
+                                             static_cast<jclass>(string_class.get()), nullptr);
+    RETURN_ERROR_IF_EXC(env);
+    // Allocation may return null without a pending exception.
+    if (array == nullptr) {
+        return Status::JniError("Failed to allocate JNI string array");
+    }
+    // On success transfer this local reference to the caller; on partial failure release it.
+    DEFER(env->DeleteLocalRef(array));
+    for (size_t i = 0; i < values.size(); ++i) {
+        LocalString value;
+        RETURN_IF_ERROR(LocalString::new_string_utf8(env, values[i], &value));
+        env->SetObjectArrayElement(array, static_cast<jsize>(i), value.get());
+        RETURN_ERROR_IF_EXC(env);
+    }
+    *result = array;
+    array = nullptr;
+    return Status::OK();
+}
+
+void Util::throw_java_io_exception_utf8(JNIEnv* env, const std::string& message) {
+    jclass exception_class = env->FindClass("java/io/IOException");
+    // Class resolution can fail with a pending exception; leave it for the Java caller.
+    if (exception_class == nullptr) {
+        return;
+    }
+    DEFER(env->DeleteLocalRef(exception_class));
+    LocalString java_message;
+    Status st = LocalString::new_string_utf8(env, message, &java_message);
+    // An invalid native message or allocation failure cannot be passed to ThrowNew as UTF-8.
+    if (!st.ok()) {
+        env->ThrowNew(exception_class, "Failed to convert JNI exception message to UTF-16");
+        return;
+    }
+    jmethodID constructor = env->GetMethodID(exception_class, "<init>", "(Ljava/lang/String;)V");
+    // A failed lookup leaves a pending exception; do not make another JNI call using a null ID.
+    if (constructor == nullptr) {
+        return;
+    }
+    auto* exception = static_cast<jthrowable>(
+            env->NewObject(exception_class, constructor, java_message.get()));
+    // The constructor can throw (e.g. while allocating the stack trace); preserve that exception.
+    if (env->ExceptionCheck()) {
+        return;
+    }
+    // Allocation can also return null without a pending exception.
+    if (exception == nullptr) {
+        env->ThrowNew(exception_class, "Failed to allocate JNI IOException");
+        return;
+    }
+    env->Throw(exception);
+    env->DeleteLocalRef(exception);
+}
+
 Status Env::GetJNIEnvSlowPath(JNIEnv** env) {
     DCHECK(!tls_env_) << "Call GetJNIEnv() fast path";
 

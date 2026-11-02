@@ -76,6 +76,29 @@ protected:
         callback.join();
     }
 
+    static void expect_io_exception(JNIEnv* env, const std::string& expected_message) {
+        ASSERT_TRUE(env->ExceptionCheck());
+        jthrowable exception = env->ExceptionOccurred();
+        env->ExceptionClear();
+        DEFER(env->DeleteLocalRef(exception));
+        Jni::LocalClass exception_class;
+        auto status = Jni::Util::find_class(env, "java/io/IOException", &exception_class);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_TRUE(env->IsInstanceOf(exception, static_cast<jclass>(exception_class.get())));
+        Jni::MethodId get_message;
+        status =
+                exception_class.get_method(env, "getMessage", "()Ljava/lang/String;", &get_message);
+        ASSERT_TRUE(status.ok()) << status;
+        Jni::LocalString message;
+        message._obj = env->CallObjectMethod(exception, get_message._id);
+        ASSERT_FALSE(env->ExceptionCheck());
+        ASSERT_FALSE(message.uninitialized());
+        std::string actual;
+        status = message.get_string_utf8(env, &actual);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_EQ(expected_message, actual);
+    }
+
     static void expect_string(JNIEnv* env, jobject value, const std::u16string& expected) {
         ASSERT_NE(nullptr, value);
         auto* string = static_cast<jstring>(value);

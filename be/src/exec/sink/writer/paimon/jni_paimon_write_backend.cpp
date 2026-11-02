@@ -26,7 +26,6 @@
 
 #include <algorithm>
 #include <atomic>
-#include <limits>
 #include <map>
 #include <mutex>
 #include <string_view>
@@ -51,93 +50,25 @@ namespace {
 constexpr std::string_view PAIMON_JNI_WRITER_IO_TMP_DIR = "paimon_jni_writer_io_tmp";
 } // namespace
 
-Status JniPaimonWriteBackend::_create_string_array(JNIEnv* env,
-                                                   const std::vector<std::string>& values,
-                                                   jobjectArray* result) {
-    DCHECK(*result == nullptr);
-    // JNI array lengths are signed 32-bit integers, unlike the native vector size.
-    if (values.size() > static_cast<size_t>(std::numeric_limits<jsize>::max())) {
-        return Status::InvalidArgument("Paimon string array exceeds JNI allocation bound");
-    }
-    Jni::LocalClass string_class;
-    RETURN_IF_ERROR(Jni::Util::find_class(env, "java/lang/String", &string_class));
-    // Class resolution can also fail on allocation without leaving a pending exception.
-    if (string_class.uninitialized()) {
-        return Status::JniError("Failed to resolve Paimon string array element class");
-    }
-    jobjectArray array = env->NewObjectArray(static_cast<jsize>(values.size()),
-                                             static_cast<jclass>(string_class.get()), nullptr);
-    RETURN_ERROR_IF_EXC(env);
-    // Allocation may return null without a pending exception.
-    if (array == nullptr) {
-        return Status::JniError("Failed to allocate Paimon string array");
-    }
-    // On success transfer this local reference to the caller; on partial failure release it.
-    DEFER(env->DeleteLocalRef(array));
-    for (size_t i = 0; i < values.size(); ++i) {
-        Jni::LocalString value;
-        RETURN_IF_ERROR(Jni::LocalString::new_string_utf8(env, values[i], &value));
-        env->SetObjectArrayElement(array, static_cast<jsize>(i), value.get());
-        RETURN_ERROR_IF_EXC(env);
-    }
-    *result = array;
-    array = nullptr;
-    return Status::OK();
-}
-
-void JniPaimonWriteBackend::_throw_java_io_exception(JNIEnv* env, const std::string& message) {
-    jclass exception_class = env->FindClass("java/io/IOException");
-    // Class resolution can fail with a pending exception; leave it for the Java caller.
-    if (exception_class == nullptr) {
-        return;
-    }
-    DEFER(env->DeleteLocalRef(exception_class));
-    Jni::LocalString java_message;
-    Status st = Jni::LocalString::new_string_utf8(env, message, &java_message);
-    // An invalid native message or allocation failure cannot be passed to ThrowNew as UTF-8.
-    if (!st.ok()) {
-        env->ThrowNew(exception_class, "Failed to convert Paimon JNI exception message to UTF-16");
-        return;
-    }
-    jmethodID constructor = env->GetMethodID(exception_class, "<init>", "(Ljava/lang/String;)V");
-    // A failed lookup leaves a pending exception; do not make another JNI call using a null ID.
-    if (constructor == nullptr) {
-        return;
-    }
-    auto* exception = static_cast<jthrowable>(
-            env->NewObject(exception_class, constructor, java_message.get()));
-    // The constructor can throw (e.g. while allocating the stack trace); preserve that exception.
-    if (env->ExceptionCheck()) {
-        return;
-    }
-    // Allocation can also return null without a pending exception.
-    if (exception == nullptr) {
-        env->ThrowNew(exception_class, "Failed to allocate Paimon JNI IOException");
-        return;
-    }
-    env->Throw(exception);
-    env->DeleteLocalRef(exception);
-}
-
 jobjectArray JniPaimonWriteBackend::_get_spill_directories(JNIEnv* env, jclass,
                                                            jlong spill_session_handle) {
     auto* spill_session = reinterpret_cast<ExternalSpillSession*>(spill_session_handle);
     if (spill_session == nullptr) {
-        _throw_java_io_exception(env, "Paimon external spill session is null");
+        Jni::Util::throw_java_io_exception_utf8(env, "Paimon external spill session is null");
         return nullptr;
     }
 
     std::vector<std::string> paths;
     Status st = spill_session->get_paths(&paths);
     if (!st.ok()) {
-        _throw_java_io_exception(env, st.to_string());
+        Jni::Util::throw_java_io_exception_utf8(env, st.to_string());
         return nullptr;
     }
     jobjectArray result = nullptr;
-    st = _create_string_array(env, paths, &result);
+    st = Jni::Util::create_string_array_utf8(env, paths, &result);
     // Invalid UTF-8 must fail the callback instead of returning a truncated directory list.
     if (!st.ok()) {
-        _throw_java_io_exception(env, st.to_string());
+        Jni::Util::throw_java_io_exception_utf8(env, st.to_string());
         return nullptr;
     }
     return result;
@@ -147,19 +78,20 @@ void JniPaimonWriteBackend::_reserve_spill(JNIEnv* env, jclass, jlong spill_sess
                                            jstring path, jlong bytes) {
     auto* spill_session = reinterpret_cast<ExternalSpillSession*>(spill_session_handle);
     if (spill_session == nullptr || path == nullptr) {
-        _throw_java_io_exception(env, "Paimon external spill session or path is null");
+        Jni::Util::throw_java_io_exception_utf8(env,
+                                                "Paimon external spill session or path is null");
         return;
     }
     std::string native_path;
     Status st = Jni::get_string_utf8(env, path, &native_path);
     // Unpaired surrogates cannot name a standard UTF-8 spill path.
     if (!st.ok()) {
-        _throw_java_io_exception(env, st.to_string());
+        Jni::Util::throw_java_io_exception_utf8(env, st.to_string());
         return;
     }
     st = spill_session->reserve(native_path, bytes);
     if (!st.ok()) {
-        _throw_java_io_exception(env, st.to_string());
+        Jni::Util::throw_java_io_exception_utf8(env, st.to_string());
     }
 }
 
@@ -175,7 +107,7 @@ void JniPaimonWriteBackend::_update_spill_accounting(JNIEnv* env, jclass,
     Status st = Jni::get_string_utf8(env, path, &native_path);
     // Do not silently discard accounting updates for an unencodable Java path.
     if (!st.ok()) {
-        _throw_java_io_exception(env, st.to_string());
+        Jni::Util::throw_java_io_exception_utf8(env, st.to_string());
         return;
     }
     spill_session->update_accounting(native_path, current_bytes_delta, write_bytes, read_bytes);
@@ -462,7 +394,7 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     RETURN_IF_ERROR(Jni::LocalString::new_string_utf8(env, state->timezone(), &j_time_zone));
 
     jobjectArray j_cols = nullptr;
-    RETURN_IF_ERROR(_create_string_array(env, sink.column_names, &j_cols));
+    RETURN_IF_ERROR(Jni::Util::create_string_array_utf8(env, sink.column_names, &j_cols));
 
     PaimonJniWriterOpenMode open_mode = PaimonJniWriterOpenMode::from_write_mode(sink.write_mode);
     env->CallVoidMethod(

@@ -30,6 +30,57 @@ namespace doris {
 
 class JniUtf8DeathTest : public JniJvmTest {
 protected:
+    static void check_arrays(JNIEnv* env) {
+        const std::vector<std::string> values = {"column_\U0001F600", "\u4E2D\u6587", "",
+                                                 std::string("a\0b", 3)};
+        const std::vector<std::u16string> expected = {u"column_\U0001F600", u"\u4E2D\u6587", u"",
+                                                      std::u16string(u"a\0b", 3)};
+        for (const auto& input : {std::vector<std::string> {}, values}) {
+            Jni::LocalArray array;
+            jobjectArray raw = nullptr;
+            auto status = Jni::Util::create_string_array_utf8(env, input, &raw);
+            ASSERT_TRUE(status.ok()) << status;
+            array._obj = raw;
+            jsize size = -1;
+            status = array.get_length(env, &size);
+            ASSERT_TRUE(status.ok()) << status;
+            ASSERT_EQ(input.size(), size);
+            for (jsize i = 0; i < size; ++i) {
+                Jni::LocalString value;
+                status = array.get_object_array_element(env, i, &value);
+                ASSERT_TRUE(status.ok()) << status;
+                expect_string(env, value.get(), expected[i]);
+            }
+        }
+    }
+
+    static void check_invalid_array(JNIEnv* env) {
+        jobjectArray result = nullptr;
+        auto status =
+                Jni::Util::create_string_array_utf8(env, {"valid_column", "bad\xFF"}, &result);
+        EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
+        EXPECT_EQ(nullptr, result);
+        EXPECT_FALSE(env->ExceptionCheck());
+        check_arrays(env);
+    }
+
+    static void check_exceptions(JNIEnv* env) {
+        const std::string message = "spill /\u4E2D\u6587/\U0001F600" + std::string("\0suffix", 7);
+        Jni::Util::throw_java_io_exception_utf8(env, message);
+        expect_io_exception(env, message);
+        Jni::Util::throw_java_io_exception_utf8(env, "invalid\xFF");
+        expect_io_exception(env, "Failed to convert JNI exception message to UTF-16");
+        check_arrays(env);
+    }
+
+    static void check_helpers_without_context(JNIEnv* env) {
+        on_jni_thread(env, [](JNIEnv* callback_env) {
+            check_arrays(callback_env);
+            check_invalid_array(callback_env);
+            check_exceptions(callback_env);
+        });
+    }
+
     static std::vector<std::pair<std::string, std::u16string>> valid_cases() {
         std::vector<std::pair<std::string, std::u16string>> cases = {
                 {"", u""},
@@ -282,6 +333,22 @@ TEST_F(JniUtf8DeathTest, RejectMalformedUtf16) {
     ASSERT_EXIT(run(check_invalid_utf16), testing::ExitedWithCode(0), "");
 }
 
+TEST_F(JniUtf8DeathTest, StringArraysPreserveUnicode) {
+    ASSERT_EXIT(run(check_arrays), testing::ExitedWithCode(0), "");
+}
+
+TEST_F(JniUtf8DeathTest, RejectMalformedUtf8Array) {
+    ASSERT_EXIT(run(check_invalid_array), testing::ExitedWithCode(0), "");
+}
+
+TEST_F(JniUtf8DeathTest, ExceptionMessagesPreserveUnicode) {
+    ASSERT_EXIT(run(check_exceptions), testing::ExitedWithCode(0), "");
+}
+
+TEST_F(JniUtf8DeathTest, ArrayAndExceptionHelpersWithoutThreadContext) {
+    ASSERT_EXIT(run(check_helpers_without_context), testing::ExitedWithCode(0), "");
+}
+
 TEST(JniUtf8Test, ReportAllocationFailureWithoutException) {
     JNINativeInterface_ functions {};
     functions.NewString = [](JNIEnv*, const jchar*, jsize) -> jstring { return nullptr; };
@@ -323,6 +390,32 @@ TEST(JniUtf8Test, ReportGlobalReferenceFailureWithoutException) {
     status = Jni::GlobalString::new_string(&env, "ascii", &modified);
     EXPECT_TRUE(status.is<ErrorCode::JNI_ERROR>()) << status;
     EXPECT_TRUE(modified.uninitialized());
+}
+
+TEST(JniUtf8Test, ReportArrayAllocationFailureWithoutException) {
+    _jclass string_class;
+    JNINativeInterface_ functions {};
+    functions.reserved0 = &string_class;
+    functions.FindClass = [](JNIEnv* env, const char*) -> jclass {
+        return static_cast<jclass>(env->functions->reserved0);
+    };
+    functions.NewObjectArray = [](JNIEnv*, jsize, jclass, jobject) -> jobjectArray {
+        return nullptr;
+    };
+    functions.DeleteLocalRef = [](JNIEnv*, jobject) {};
+    functions.ExceptionCheck = [](JNIEnv*) -> jboolean { return JNI_FALSE; };
+    JNIEnv env {&functions};
+    auto* previous_env = Jni::Env::tls_env_;
+    Jni::Env::tls_env_ = &env;
+    DEFER(Jni::Env::tls_env_ = previous_env);
+    jobjectArray array = nullptr;
+    auto status = Jni::Util::create_string_array_utf8(&env, {}, &array);
+    EXPECT_TRUE(status.is<ErrorCode::JNI_ERROR>()) << status;
+    EXPECT_EQ(nullptr, array);
+    functions.reserved0 = nullptr;
+    status = Jni::Util::create_string_array_utf8(&env, {}, &array);
+    EXPECT_TRUE(status.is<ErrorCode::JNI_ERROR>()) << status;
+    EXPECT_EQ(nullptr, array);
 }
 
 } // namespace doris

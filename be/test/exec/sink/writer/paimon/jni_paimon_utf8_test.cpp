@@ -35,80 +35,6 @@ namespace doris {
 
 class JniPaimonUtf8DeathTest : public JniJvmTest {
 protected:
-    static void check_arrays(JNIEnv* env) {
-        const std::vector<std::string> values = {"column_\U0001F600", "\u4E2D\u6587", "",
-                                                 std::string("a\0b", 3)};
-        const std::vector<std::u16string> expected = {u"column_\U0001F600", u"\u4E2D\u6587", u"",
-                                                      std::u16string(u"a\0b", 3)};
-        for (const auto& input : {std::vector<std::string> {}, values}) {
-            Jni::LocalArray array;
-            jobjectArray raw = nullptr;
-            auto status = JniPaimonWriteBackend::_create_string_array(env, input, &raw);
-            ASSERT_TRUE(status.ok()) << status;
-            array._obj = raw;
-            jsize size = -1;
-            status = array.get_length(env, &size);
-            ASSERT_TRUE(status.ok()) << status;
-            ASSERT_EQ(input.size(), size);
-            for (jsize i = 0; i < size; ++i) {
-                Jni::LocalString value;
-                status = array.get_object_array_element(env, i, &value);
-                ASSERT_TRUE(status.ok()) << status;
-                expect_string(env, value.get(), expected[i]);
-            }
-        }
-    }
-
-    static void check_invalid_array(JNIEnv* env) {
-        jobjectArray result = nullptr;
-        auto status = JniPaimonWriteBackend::_create_string_array(env, {"valid_column", "bad\xFF"},
-                                                                  &result);
-        EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
-        EXPECT_EQ(nullptr, result);
-        EXPECT_FALSE(env->ExceptionCheck());
-        check_arrays(env);
-    }
-
-    static void expect_io_exception(JNIEnv* env, const std::string& expected_message) {
-        ASSERT_TRUE(env->ExceptionCheck());
-        jthrowable exception = env->ExceptionOccurred();
-        env->ExceptionClear();
-        DEFER(env->DeleteLocalRef(exception));
-        Jni::LocalClass exception_class;
-        auto status = Jni::Util::find_class(env, "java/io/IOException", &exception_class);
-        ASSERT_TRUE(status.ok()) << status;
-        EXPECT_TRUE(env->IsInstanceOf(exception, static_cast<jclass>(exception_class.get())));
-        Jni::MethodId get_message;
-        status =
-                exception_class.get_method(env, "getMessage", "()Ljava/lang/String;", &get_message);
-        ASSERT_TRUE(status.ok()) << status;
-        Jni::LocalString message;
-        message._obj = env->CallObjectMethod(exception, get_message._id);
-        ASSERT_FALSE(env->ExceptionCheck());
-        ASSERT_FALSE(message.uninitialized());
-        std::string actual;
-        status = message.get_string_utf8(env, &actual);
-        ASSERT_TRUE(status.ok()) << status;
-        EXPECT_EQ(expected_message, actual);
-    }
-
-    static void check_exceptions(JNIEnv* env) {
-        const std::string message = "spill /\u4E2D\u6587/\U0001F600" + std::string("\0suffix", 7);
-        JniPaimonWriteBackend::_throw_java_io_exception(env, message);
-        expect_io_exception(env, message);
-        JniPaimonWriteBackend::_throw_java_io_exception(env, "invalid\xFF");
-        expect_io_exception(env, "Failed to convert Paimon JNI exception message to UTF-16");
-        check_arrays(env);
-    }
-
-    static void check_callbacks_without_context(JNIEnv* env) {
-        on_jni_thread(env, [](JNIEnv* callback_env) {
-            check_arrays(callback_env);
-            check_invalid_array(callback_env);
-            check_exceptions(callback_env);
-        });
-    }
-
     static void check_spill_directory(JNIEnv* env, ExternalSpillSession* session,
                                       std::string* directory) {
         auto handle = reinterpret_cast<jlong>(session);
@@ -201,50 +127,8 @@ protected:
     }
 };
 
-TEST_F(JniPaimonUtf8DeathTest, StringArraysPreserveUnicode) {
-    ASSERT_EXIT(run(check_arrays), testing::ExitedWithCode(0), "");
-}
-
-TEST_F(JniPaimonUtf8DeathTest, RejectMalformedUtf8Array) {
-    ASSERT_EXIT(run(check_invalid_array), testing::ExitedWithCode(0), "");
-}
-
-TEST_F(JniPaimonUtf8DeathTest, ExceptionMessagesPreserveUnicode) {
-    ASSERT_EXIT(run(check_exceptions), testing::ExitedWithCode(0), "");
-}
-
-TEST_F(JniPaimonUtf8DeathTest, CallbacksWithoutThreadContext) {
-    ASSERT_EXIT(run(check_callbacks_without_context), testing::ExitedWithCode(0), "");
-}
-
 TEST_F(JniPaimonUtf8DeathTest, SpillPathsRoundTripAndPreserveAccounting) {
     ASSERT_EXIT(run(check_spill_paths), testing::ExitedWithCode(0), "");
-}
-
-TEST(JniPaimonUtf8Test, ReportArrayAllocationFailureWithoutException) {
-    _jclass string_class;
-    JNINativeInterface_ functions {};
-    functions.reserved0 = &string_class;
-    functions.FindClass = [](JNIEnv* env, const char*) -> jclass {
-        return static_cast<jclass>(env->functions->reserved0);
-    };
-    functions.NewObjectArray = [](JNIEnv*, jsize, jclass, jobject) -> jobjectArray {
-        return nullptr;
-    };
-    functions.DeleteLocalRef = [](JNIEnv*, jobject) {};
-    functions.ExceptionCheck = [](JNIEnv*) -> jboolean { return JNI_FALSE; };
-    JNIEnv env {&functions};
-    auto* previous_env = Jni::Env::tls_env_;
-    Jni::Env::tls_env_ = &env;
-    DEFER(Jni::Env::tls_env_ = previous_env);
-    jobjectArray array = nullptr;
-    auto status = JniPaimonWriteBackend::_create_string_array(&env, {}, &array);
-    EXPECT_TRUE(status.is<ErrorCode::JNI_ERROR>()) << status;
-    EXPECT_EQ(nullptr, array);
-    functions.reserved0 = nullptr;
-    status = JniPaimonWriteBackend::_create_string_array(&env, {}, &array);
-    EXPECT_TRUE(status.is<ErrorCode::JNI_ERROR>()) << status;
-    EXPECT_EQ(nullptr, array);
 }
 
 } // namespace doris

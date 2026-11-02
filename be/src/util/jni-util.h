@@ -28,6 +28,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "common/status.h"
 #include "jni_md.h"
@@ -1142,6 +1143,15 @@ NonvirtualFunctionCall<NonvirtualBooleanMethod> Object<Ref>::call_nonvirtual_boo
 
 class Util {
 public:
+    // Converts standard UTF-8 strings to a Java String[]. On success the caller owns the
+    // returned local reference; *result must be null on entry and is unchanged on failure.
+    static Status create_string_array_utf8(JNIEnv* env, const std::vector<std::string>& values,
+                                           jobjectArray* result);
+
+    // Throws java.io.IOException with a standard UTF-8 message, using an ASCII fallback if
+    // message conversion fails. Exceptions from the IOException constructor are preserved.
+    static void throw_java_io_exception_utf8(JNIEnv* env, const std::string& message);
+
     static size_t get_max_jni_heap_memory_size();
 
     template <RefType Ref>

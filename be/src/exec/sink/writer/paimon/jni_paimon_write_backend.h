@@ -70,9 +70,6 @@ public:
     PaimonBackendType type() const override { return PaimonBackendType::JNI; }
 
 private:
-    static Status _create_string_array(JNIEnv* env, const std::vector<std::string>& values,
-                                       jobjectArray* result);
-    static void _throw_java_io_exception(JNIEnv* env, const std::string& message);
     static jobjectArray _get_spill_directories(JNIEnv* env, jclass, jlong spill_session_handle);
     static void _reserve_spill(JNIEnv* env, jclass, jlong spill_session_handle, jstring path,
                                jlong bytes);
