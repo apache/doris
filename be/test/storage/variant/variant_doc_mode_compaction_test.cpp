@@ -431,7 +431,7 @@ TEST_F(VariantDocModeCompactionTest, variant_doc_mode_compaction_merge_10_segmen
             EXPECT_TRUE(input_read_schema
                                 ->init_from_tablet_schema(*tablet_schema,
                                                           /*merge_by_sequence_mapping=*/false,
-                                                          /*map_row_binlog_columns=*/false)
+                                                          /*map_changelog_columns=*/false)
                                 .ok());
             RowsetReaderSharedPtr input_rs_reader;
             create_and_init_rowset_reader(rowset.get(), input_reader_context, &input_rs_reader);
@@ -484,7 +484,7 @@ TEST_F(VariantDocModeCompactionTest, variant_doc_mode_compaction_merge_10_segmen
     EXPECT_TRUE(read_schema
                         ->init_from_tablet_schema(*tablet_schema,
                                                   /*merge_by_sequence_mapping=*/false,
-                                                  /*map_row_binlog_columns=*/false)
+                                                  /*map_changelog_columns=*/false)
                         .ok());
     RowsetReaderSharedPtr output_rs_reader;
     create_and_init_rowset_reader(out_rowset.get(), reader_context, &output_rs_reader);

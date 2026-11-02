@@ -755,9 +755,9 @@ TEST(MathFunctionTest, uniform_mixed_const_probe_test) {
 
     FunctionUtils fn_utils(return_type, {input_type, input_type, input_type}, false);
     auto* fn_ctx = fn_utils.get_fn_ctx();
-    std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols {
-            std::make_shared<ColumnPtrWrapper>(block.get_by_position(0).column),
-            std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column),
+    std::vector<std::shared_ptr<ConstantExprResult>> constant_cols {
+            std::make_shared<ConstantExprResult>(block.get_by_position(0).column),
+            std::make_shared<ConstantExprResult>(block.get_by_position(1).column),
             nullptr,
     };
     fn_ctx->set_constant_cols(constant_cols);

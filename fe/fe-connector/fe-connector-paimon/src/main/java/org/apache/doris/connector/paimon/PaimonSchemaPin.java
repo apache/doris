@@ -161,10 +161,6 @@ final class PaimonSchemaPin {
                     bindRestSchema(pair.wrapped(), path, schemas),
                     bindRestSchema(pair.other(), path + "fallback.", schemas));
         }
-        if (table instanceof DelegatedFileStoreTable) {
-            return PaimonTableDecorators.replaceWrapped(table,
-                    bindRestSchema(((DelegatedFileStoreTable) table).wrapped(), path, schemas));
-        }
         TableSchema retained = table.schema();
         SchemaManager manager = table.schemaManager();
         TableSchema persisted = manager.schema(retained.id());

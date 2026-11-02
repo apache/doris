@@ -34,6 +34,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -243,6 +244,105 @@ class MetaCacheWeightGovernanceTest {
             Assertions.assertEquals(2048L, entry.metrics().getEstimatedWeight());
             Assertions.assertEquals(1L, entry.metrics().getWeightRejectCount());
             Assertions.assertEquals(1L, entry.metrics().getEvictionCount());
+            // The value reclaimed for the budget counts with the reservation it held.
+            Assertions.assertEquals(1024L, entry.metrics().getEvictionWeight());
+        }
+    }
+
+    @Test
+    void capacityEvictionCountsTheEvictedReservationButInvalidationDoesNot() {
+        MetaCacheBudgetManager manager = new MetaCacheBudgetManager(OptionalLong.of(4096L));
+        try (CatalogMetaCache owner = new CatalogMetaCache(
+                manager, 25L, "iceberg", Collections.emptyMap())) {
+            MetaCache<String, String> entry = owner.create(MetaCacheDefinition
+                    .<String, String>builder("table", CacheSpec.of(true, -1L, 1L),
+                            ignored -> ScopePath.catalog())
+                    .sizeEstimator((key, value) -> MetaCacheSizeEstimate.complete(256L))
+                    .build());
+
+            entry.put("one", "value");
+            entry.put("two", "value");
+            awaitReclaimed(entry, 1L, ENTRY_OVERHEAD + 256L);
+            Assertions.assertEquals(1L, entry.metrics().getEvictionCount());
+            Assertions.assertEquals(ENTRY_OVERHEAD + 256L, entry.metrics().getEvictionWeight());
+
+            // Either key may be the one that was evicted; invalidating the survivor is not an eviction.
+            entry.invalidateKey("one");
+            entry.invalidateKey("two");
+            Assertions.assertEquals(0L, entry.metrics().getEstimatedWeight());
+            Assertions.assertEquals(ENTRY_OVERHEAD + 256L, entry.metrics().getEvictionWeight());
+        }
+    }
+
+    @Test
+    void evictionWeightKeepsTheAdmittedBytesWhenInvalidationReleasesFirst() {
+        MetaCacheBudgetManager manager = new MetaCacheBudgetManager(OptionalLong.of(4096L));
+        MetaCacheBudgetManager.EntryBudget budget = manager.createEntryBudget(
+                28L, "iceberg", "table", "table", OptionalLong.empty(), OptionalLong.empty());
+        try (ScopedMetaCacheRegistry registry = new ScopedMetaCacheRegistry()) {
+            ScopedMetaCache<String, String> cache = registry.createCacheWithMetaRemovalListener(
+                    "table", CacheSpec.of(true, -1L, 1L), null, null, null, null,
+                    (key, value) -> MetaCacheSizeEstimate.complete(256L), budget);
+            cache.put("one", ScopePath.catalog(), "value");
+            AtomicBoolean evictedInsideTheDeferral = new AtomicBoolean();
+            // forEach defers the removals its callback causes, so the capacity eviction of either key is drained
+            // only after both exact invalidations have released the reservations, which zeroes them.
+            cache.forEach((key, value) -> {
+                if (evictedInsideTheDeferral.compareAndSet(false, true)) {
+                    cache.put("two", ScopePath.catalog(), "value");
+                    cache.invalidateKey("one");
+                    cache.invalidateKey("two");
+                }
+            });
+
+            Assertions.assertTrue(evictedInsideTheDeferral.get());
+            Assertions.assertEquals(1L, cache.metrics().getEvictionCount());
+            Assertions.assertEquals(ENTRY_OVERHEAD + 256L, cache.metrics().getEvictionWeight(),
+                    "eviction must count the bytes the evicted generation was admitted with");
+            Assertions.assertEquals(0L, manager.getGlobalUsedWeight());
+        }
+    }
+
+    @Test
+    void weightMetricsReportTheCatalogAndGlobalBudgetsOfTheEntry() {
+        MetaCacheBudgetManager manager = new MetaCacheBudgetManager(OptionalLong.of(8192L));
+        try (CatalogMetaCache owner = new CatalogMetaCache(manager, 26L, "paimon",
+                Collections.singletonMap(MetaCacheBudgetManager.CATALOG_MAX_WEIGHT_PROPERTY, "4096"));
+                CatalogMetaCache unlimitedCatalog = new CatalogMetaCache(
+                        manager, 27L, "paimon", Collections.emptyMap())) {
+            MetaCache<String, String> table = weightedStringEntry(owner, "table", 512L);
+            MetaCache<String, String> snapshot = weightedStringEntry(owner, "snapshot", 256L);
+            MetaCache<String, String> other = weightedStringEntry(unlimitedCatalog, "table", 512L);
+            table.put("t", "value");
+            snapshot.put("s", "value");
+            other.put("o", "value");
+
+            ScopedMetaCache.CacheMetrics metrics = table.metrics();
+            Assertions.assertTrue(metrics.isWeightBounded());
+            Assertions.assertEquals(4096L, metrics.getMaxWeight());
+            Assertions.assertEquals(1024L, metrics.getEstimatedWeight());
+            Assertions.assertEquals(0L, metrics.getEvictionWeight());
+            Assertions.assertEquals(4096L, metrics.getCatalogMaxWeight());
+            Assertions.assertEquals(1024L + 768L, metrics.getCatalogEstimatedWeight());
+            Assertions.assertEquals(8192L, metrics.getGlobalMaxWeight());
+            Assertions.assertEquals(1024L + 768L + 1024L, metrics.getGlobalEstimatedWeight());
+            // Without a catalog limit, the catalog level is bounded by the FE-global one.
+            Assertions.assertEquals(8192L, other.metrics().getCatalogMaxWeight());
+            Assertions.assertEquals(1024L, other.metrics().getCatalogEstimatedWeight());
+        }
+    }
+
+    @Test
+    void weightMetricsHaveNoGlobalMaximumWithoutAGlobalLimit() {
+        MetaCacheBudgetManager manager = new MetaCacheBudgetManager(OptionalLong.empty());
+        try (CatalogMetaCache owner = new CatalogMetaCache(manager, 28L, "iceberg",
+                Collections.singletonMap(MetaCacheBudgetManager.CATALOG_MAX_WEIGHT_PROPERTY, "4096"))) {
+            MetaCache<String, String> entry = weightedStringEntry(owner, "table", 512L);
+            entry.put("key", "value");
+
+            Assertions.assertEquals(4096L, entry.metrics().getCatalogMaxWeight());
+            Assertions.assertEquals(-1L, entry.metrics().getGlobalMaxWeight());
+            Assertions.assertEquals(1024L, entry.metrics().getGlobalEstimatedWeight());
         }
     }
 
@@ -329,6 +429,17 @@ class MetaCacheWeightGovernanceTest {
             Assertions.assertEquals("value", entry.getIfPresent("key"));
             Assertions.assertFalse(entry.isWeightBounded());
             Assertions.assertEquals(0, estimates.get());
+            // An entry without a weight limit has no weight to report.
+            ScopedMetaCache.CacheMetrics metrics = entry.metrics();
+            Assertions.assertFalse(metrics.isWeightBounded());
+            Assertions.assertEquals(-1L, metrics.getMaxWeight());
+            Assertions.assertEquals(-1L, metrics.getEstimatedWeight());
+            Assertions.assertEquals(-1L, metrics.getEvictionWeight());
+            Assertions.assertEquals(-1L, metrics.getWeightRejectCount());
+            Assertions.assertEquals(-1L, metrics.getCatalogMaxWeight());
+            Assertions.assertEquals(-1L, metrics.getCatalogEstimatedWeight());
+            Assertions.assertEquals(-1L, metrics.getGlobalMaxWeight());
+            Assertions.assertEquals(-1L, metrics.getGlobalEstimatedWeight());
         }
     }
 

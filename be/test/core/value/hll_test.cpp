@@ -20,7 +20,12 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <cstdint>
+#include <limits>
+#include <vector>
+
 #include "gtest/gtest_pred_impl.h"
+#include "util/coding.h"
 #include "util/hash_util.hpp"
 #include "util/slice.h"
 
@@ -204,6 +209,50 @@ TEST_F(TestHll, InvalidPtr) {
         HyperLogLog hll(Slice(buf, 1));
         EXPECT_EQ(0, hll.estimate_cardinality());
     }
+}
+
+TEST_F(TestHll, SparseRegisterIndexBoundary) {
+    uint8_t buf[8];
+    uint8_t* ptr = buf;
+    *ptr++ = HLL_DATA_SPARSE;
+    encode_fixed32_le(ptr, 1);
+    ptr += sizeof(uint32_t);
+    encode_fixed16_le(ptr, HLL_REGISTERS_COUNT - 1);
+    ptr += sizeof(uint16_t);
+    *ptr++ = 1;
+
+    Slice valid(reinterpret_cast<const char*>(buf), static_cast<size_t>(ptr - buf));
+    EXPECT_TRUE(HyperLogLog::is_valid(valid));
+    HyperLogLog valid_hll;
+    EXPECT_TRUE(valid_hll.deserialize(valid));
+
+    encode_fixed16_le(buf + 5, HLL_REGISTERS_COUNT);
+    Slice invalid(reinterpret_cast<const char*>(buf), static_cast<size_t>(ptr - buf));
+    EXPECT_FALSE(HyperLogLog::is_valid(invalid));
+    HyperLogLog invalid_hll;
+    EXPECT_FALSE(invalid_hll.deserialize(invalid));
+    EXPECT_EQ(0, invalid_hll.estimate_cardinality());
+}
+
+TEST_F(TestHll, RejectSparseCountOverflowAndOversizedPayload) {
+    std::vector<uint8_t> oversized(5 + 3 * (HLL_SPARSE_THRESHOLD + 1));
+    oversized[0] = HLL_DATA_SPARSE;
+    encode_fixed32_le(oversized.data() + 1, HLL_SPARSE_THRESHOLD + 1);
+    EXPECT_FALSE(HyperLogLog::is_valid(
+            Slice(reinterpret_cast<const char*>(oversized.data()), oversized.size())));
+
+    uint8_t buf[5] = {HLL_DATA_SPARSE};
+    encode_fixed32_le(buf + 1, std::numeric_limits<uint32_t>::max());
+    EXPECT_FALSE(HyperLogLog::is_valid(Slice(reinterpret_cast<const char*>(buf), sizeof(buf))));
+}
+
+TEST_F(TestHll, RejectTruncatedFullPayload) {
+    uint8_t buf[HLL_REGISTERS_COUNT] = {HLL_DATA_FULL};
+    Slice truncated(reinterpret_cast<const char*>(buf), sizeof(buf));
+    EXPECT_FALSE(HyperLogLog::is_valid(truncated));
+
+    HyperLogLog hll(truncated);
+    EXPECT_EQ(0, hll.estimate_cardinality());
 }
 
 } // namespace doris

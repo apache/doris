@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <span>
 
@@ -54,6 +55,10 @@ bool variant_path_type_contains_nothing(const DataTypePtr& type);
 // returns.
 class VariantPathBuilder final {
 public:
+    // Resolve inferred widening against values held outside this builder, before either side
+    // commits its cast. The resolver may replace the proposed type with JSONB.
+    using InferredPromotion = std::function<Status(DataTypePtr*)>;
+
     explicit VariantPathBuilder(PathInData path, size_t prefix_rows = 0);
     ~VariantPathBuilder();
 
@@ -62,9 +67,13 @@ public:
     VariantPathBuilder(const VariantPathBuilder&) = delete;
     VariantPathBuilder& operator=(const VariantPathBuilder&) = delete;
 
-    Status append(VariantRef value, size_t row);
+    Status append(VariantRef value, size_t row, const InferredPromotion& on_promotion = {});
     Status complete_rows(size_t rows);
-    Status convert_to(const DataTypePtr& storage_type);
+    // Inferred conversions preserve values through JSONB fallback; explicit storage coercion
+    // retains the default cast-null filtering.
+    Status convert_to(const DataTypePtr& storage_type, bool filter_cast_nulls = true);
+    // Probe inferred widening without changing values, types or rowids in retained chunks.
+    Status check_inferred_promotion(const DataTypePtr& target_type, bool* needs_jsonb) const;
 
     const PathInData& path() const;
     const DataTypePtr& type() const;
@@ -106,5 +115,8 @@ struct VariantPathSelection {
 VariantPathSelection select_variant_paths(std::span<const VariantPathSelectionCandidate> candidates,
                                           size_t max_dynamic_materialized_paths,
                                           bool typed_paths_to_sparse);
+
+// Least common type for a variant path. Used to merge types inferred by independent value chunks.
+DataTypePtr variant_path_least_common_type(const DataTypePtr& left, const DataTypePtr& right);
 
 } // namespace doris::segment_v2

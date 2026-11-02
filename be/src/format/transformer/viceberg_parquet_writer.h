@@ -44,6 +44,8 @@ public:
 
     Status collect_file_statistics_after_close(TIcebergColumnStats* stats);
 
+    Status collect_split_offsets_after_close(std::vector<int64_t>* offsets);
+
 protected:
     std::unique_ptr<ArrowBlockConvertor> _create_arrow_block_convertor(
             DataTypes types, std::vector<std::string> names, const std::string& timezone_name,

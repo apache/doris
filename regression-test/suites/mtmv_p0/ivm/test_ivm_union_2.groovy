@@ -37,8 +37,7 @@ suite("test_ivm_union_2") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -52,8 +51,7 @@ suite("test_ivm_union_2") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW"
+            "changelog.enable" = "true"
         );
     """
 
@@ -116,8 +114,7 @@ suite("test_ivm_union_2") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -131,8 +128,7 @@ suite("test_ivm_union_2") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -146,8 +142,7 @@ suite("test_ivm_union_2") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -161,8 +156,7 @@ suite("test_ivm_union_2") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -227,8 +221,7 @@ suite("test_ivm_union_2") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -242,8 +235,7 @@ suite("test_ivm_union_2") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -257,8 +249,7 @@ suite("test_ivm_union_2") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -323,8 +314,7 @@ suite("test_ivm_union_2") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -338,8 +328,7 @@ suite("test_ivm_union_2") {
         DISTRIBUTED BY HASH(k2) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -385,7 +374,7 @@ suite("test_ivm_union_2") {
     """
 
     // =========================================================
-    // Part 10: Delete in UNION ALL arm (MOW with binlog_op)
+    // Part 10: Delete in UNION ALL arm (MOW with changelog_op)
     // =========================================================
     sql """drop materialized view if exists test_ivm_union_2_delete_mv;"""
     sql """drop table if exists test_ivm_union_2_delete_t1;"""
@@ -400,8 +389,7 @@ suite("test_ivm_union_2") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -415,8 +403,7 @@ suite("test_ivm_union_2") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """

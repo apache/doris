@@ -40,7 +40,6 @@
 #include "core/field.h"
 #include "core/value/variant/variant_batch_builder.h"
 #include "exprs/function/cast/variant_v2/cast_variant_v2.h"
-#include "exprs/function_context.h"
 #include "gtest/gtest.h"
 #include "runtime/runtime_state.h"
 #include "util/jsonb_writer.h"
@@ -60,9 +59,8 @@ CastResult execute_to_variant(const ColumnPtr& source, const DataTypePtr& source
     ColumnPtr initial_result = result_type->create_column();
     Block block {{source, source_type, "source"}, {initial_result, result_type, "result"}};
     RuntimeState state;
-    auto context = FunctionContext::create_context(&state, {}, {});
-    Status status = create_cast_to_variant_v2_wrapper(source_type)(context.get(), block, {0}, 1,
-                                                                   source->size(), null_map);
+    Status status = create_cast_to_variant_v2_wrapper(source_type)(
+            &state, block.get_by_position(0), block.get_by_position(1), source->size(), null_map);
     return CastResult {.status = std::move(status),
                        .column = block.get_by_position(1).column,
                        .initial_result = std::move(initial_result)};

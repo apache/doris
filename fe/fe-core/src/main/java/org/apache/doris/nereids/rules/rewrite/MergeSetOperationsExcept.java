@@ -54,7 +54,10 @@ public class MergeSetOperationsExcept extends OneRewriteRuleFactory {
 
                     newChildren.addAll(childExcept.children());
                     newChildren.addAll(parentExcept.children().subList(1, parentExcept.children().size()));
-                    newChildrenOutputs.addAll(childExcept.getRegularChildrenOutputs());
+                    List<Integer> outputOrder = MergeSetOperations.getChildOutputOrder(parentExcept, 0, childExcept);
+                    for (List<SlotReference> outputs : childExcept.getRegularChildrenOutputs()) {
+                        newChildrenOutputs.add(MergeSetOperations.reorderOutputs(outputs, outputOrder));
+                    }
                     newChildrenOutputs.addAll(
                             parentExcept.getRegularChildrenOutputs().subList(1, parentExcept.children().size()));
 

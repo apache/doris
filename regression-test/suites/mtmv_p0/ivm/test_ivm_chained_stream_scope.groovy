@@ -104,23 +104,21 @@ suite("test_ivm_chained_stream_scope") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
         )
     """
     sql """INSERT INTO ${baseTable} VALUES (1, 10), (2, 20)"""
 
-    // The upstream MV carries row binlog, which is what the downstream MV reads its changes from.
+    // The upstream MV carries changelog, which is what the downstream MV reads its changes from.
     sql """
         CREATE MATERIALIZED VIEW ${upstreamMv}
         BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 1
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
         )
         AS SELECT * FROM ${baseTable}
     """

@@ -27,6 +27,7 @@ import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -69,6 +70,36 @@ class AdbcMetadataCacheTest {
             }
             Assertions.assertTrue(MetaCacheGovernance.catalogCaches(91002L).isEmpty());
             Assertions.assertEquals(baseline, MetaCacheGovernance.globalEstimatedWeight());
+        }
+    }
+
+    @Test
+    void wideSchemasAndLongNameListsAreCachedUnderAWeightLimit() {
+        // A walk of the whole value ran out of the 10,000-visit budget at about 2,500 Arrow fields or 10,000 names,
+        // so such a value was asked from the source on every statement once a weight limit was set. MUTATION:
+        // estimating the value as one graph -> two calls and a rejected admission -> red.
+        Map<String, String> properties = Map.of("meta.cache.max-weight", "64MB");
+        try (CatalogMetaCache owner = CatalogMetaCache.managed(91090L, "adbc", properties)) {
+            AdbcMetadataCache cache = new AdbcMetadataCache(owner, properties);
+            List<Field> fields = new ArrayList<>();
+            for (int i = 0; i < 3_000; i++) {
+                fields.add(Field.nullable("col_" + i, new ArrowType.Int(32, true)));
+            }
+            List<String> tableNames = new ArrayList<>();
+            for (int i = 0; i < 20_000; i++) {
+                tableNames.add("table_" + i);
+            }
+            Counting<Schema> schema = new Counting<>(new Schema(fields));
+            Counting<List<String>> names = new Counting<>(tableNames);
+            for (int i = 0; i < 2; i++) {
+                cache.tableSchema(MAIN_T1, schema);
+                cache.tableNames(MAIN, names);
+            }
+
+            Assertions.assertEquals(1, schema.calls);
+            Assertions.assertEquals(1, names.calls);
+            Assertions.assertEquals(0L, owner.entries().get("adbc-table-schema").metrics().getWeightRejectCount());
+            Assertions.assertEquals(0L, owner.entries().get("adbc-table-names").metrics().getWeightRejectCount());
         }
     }
 

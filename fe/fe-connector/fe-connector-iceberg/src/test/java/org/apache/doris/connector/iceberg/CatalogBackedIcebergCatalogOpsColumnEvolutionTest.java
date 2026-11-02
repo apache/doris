@@ -21,6 +21,7 @@ import org.apache.doris.connector.iceberg.IcebergCatalogOps.CatalogBackedIceberg
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.ddl.ConnectorColumnPath;
 import org.apache.doris.connector.spi.ddl.ConnectorColumnPosition;
 
 import org.apache.iceberg.DataFile;
@@ -272,14 +273,14 @@ public class CatalogBackedIcebergCatalogOpsColumnEvolutionTest {
 
     @Test
     public void testModifyColumnWidensType() {
-        ops.modifyColumn("db1", "t1", change("val", Types.LongType.get(), "c", true), true, null);
+        ops.modifyColumn("db1", "t1", change("val", Types.LongType.get(), "c", true), false, true, null);
         Assertions.assertEquals(Type.TypeID.LONG, reload().findField("val").type().typeId());
     }
 
     @Test
     public void testModifyColumnCommentOnly() {
         // VARCHAR maps to iceberg STRING; re-sending the same type with a new doc updates only the comment.
-        ops.modifyColumn("db1", "t1", change("name", Types.StringType.get(), "new comment", true), true, null);
+        ops.modifyColumn("db1", "t1", change("name", Types.StringType.get(), "new comment", true), false, true, null);
         Assertions.assertEquals("new comment", reload().findField("name").doc());
         Assertions.assertEquals(Type.TypeID.STRING, reload().findField("name").type().typeId());
     }
@@ -290,39 +291,41 @@ public class CatalogBackedIcebergCatalogOpsColumnEvolutionTest {
         // that carries no COMMENT (commentSpecified=false) must keep the column's current doc instead of
         // clearing it, for BOTH a same-type modify and a widening one; a specified comment still overrides.
         // name starts with doc "old", val with doc "" (see setUp); both are optional, so pass nullable=true.
-        ops.modifyColumn("db1", "t1", change("name", Types.StringType.get(), "", true), false, null);
+        ops.modifyColumn("db1", "t1", change("name", Types.StringType.get(), "", true), false, false, null);
         Assertions.assertEquals("old", reload().findField("name").doc(), "same-type omit must preserve doc");
 
         // Give val a doc, then widen INT -> LONG omitting the comment: the doc must survive the type change.
-        ops.modifyColumn("db1", "t1", change("val", Types.IntegerType.get(), "vdoc", true), true, null);
-        ops.modifyColumn("db1", "t1", change("val", Types.LongType.get(), "", true), false, null);
+        ops.modifyColumn("db1", "t1", change("val", Types.IntegerType.get(), "vdoc", true), false, true, null);
+        ops.modifyColumn("db1", "t1", change("val", Types.LongType.get(), "", true), false, false, null);
         Types.NestedField val = reload().findField("val");
         Assertions.assertEquals(Type.TypeID.LONG, val.type().typeId());
         Assertions.assertEquals("vdoc", val.doc(), "widening omit must preserve doc");
 
         // When the comment IS specified (commentSpecified=true), it still overrides the existing doc.
-        ops.modifyColumn("db1", "t1", change("name", Types.StringType.get(), "brand new", true), true, null);
+        ops.modifyColumn("db1", "t1", change("name", Types.StringType.get(), "brand new", true), false, true, null);
         Assertions.assertEquals("brand new", reload().findField("name").doc());
     }
 
     @Test
     public void testModifyColumnRequiredToOptional() {
         Assertions.assertFalse(reload().findField("req").isOptional());
-        ops.modifyColumn("db1", "t1", change("req", Types.IntegerType.get(), null, true), true, null);
+        // An explicit NULL (nullableSpecified) is what widens a required column.
+        ops.modifyColumn("db1", "t1", change("req", Types.IntegerType.get(), null, true), true, true, null);
         Assertions.assertTrue(reload().findField("req").isOptional());
     }
 
     @Test
     public void testModifyColumnRepositions() {
         ops.modifyColumn("db1", "t1", change("name", Types.StringType.get(), "c", true),
-                true, ConnectorColumnPosition.FIRST);
+                false, true, ConnectorColumnPosition.FIRST);
         Assertions.assertEquals("name", columnOrder().get(0));
     }
 
     @Test
     public void testModifyColumnOptionalToRequiredFailsLoud() {
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
-                () -> ops.modifyColumn("db1", "t1", change("id", Types.LongType.get(), null, false), true, null));
+                () -> ops.modifyColumn("db1", "t1", change("id", Types.LongType.get(), null, false),
+                        true, true, null));
         Assertions.assertTrue(ex.getMessage().contains("not null"));
         // schema unchanged: id stays optional.
         Assertions.assertTrue(reload().findField("id").isOptional());
@@ -331,7 +334,8 @@ public class CatalogBackedIcebergCatalogOpsColumnEvolutionTest {
     @Test
     public void testModifyMissingColumnFailsLoud() {
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
-                () -> ops.modifyColumn("db1", "t1", change("ghost", Types.IntegerType.get(), null, true), true, null));
+                () -> ops.modifyColumn("db1", "t1", change("ghost", Types.IntegerType.get(), null, true),
+                        false, true, null));
         Assertions.assertTrue(ex.getMessage().contains("does not exist"));
     }
 
@@ -378,10 +382,10 @@ public class CatalogBackedIcebergCatalogOpsColumnEvolutionTest {
     @Test
     public void testModifyVariantColumnChangesOnlyItsMetadata() {
         // A VARIANT modify only changes metadata, so it skips the file format check: a v3 ORC table can hold a
-        // VARIANT column that another engine wrote. The comment changes, the column becomes nullable and moves,
-        // and its type stays VARIANT.
+        // VARIANT column that another engine wrote. The comment changes, the column becomes nullable (an explicit
+        // NULL) and moves, and its type stays VARIANT.
         createTable("orc_variant", "3", "orc", true);
-        ops.modifyColumn("db1", "orc_variant", change("payload", Types.VariantType.get(), "new doc", true), true,
+        ops.modifyColumn("db1", "orc_variant", change("payload", Types.VariantType.get(), "new doc", true), true, true,
                 ConnectorColumnPosition.FIRST);
         Schema schema = ops.loadTable("db1", "orc_variant").schema();
         Types.NestedField payload = schema.findField("payload");
@@ -396,17 +400,85 @@ public class CatalogBackedIcebergCatalogOpsColumnEvolutionTest {
         createTable("parquet_variant", "3", "parquet", true);
         DorisConnectorException toString = Assertions.assertThrows(DorisConnectorException.class,
                 () -> ops.modifyColumn("db1", "parquet_variant",
-                        change("payload", Types.StringType.get(), null, true), true, null));
+                        change("payload", Types.StringType.get(), null, true), false, true, null));
         Assertions.assertEquals("Cannot change column type involving Iceberg VARIANT: payload: variant -> string",
                 toString.getMessage());
         DorisConnectorException toVariant = Assertions.assertThrows(DorisConnectorException.class,
                 () -> ops.modifyColumn("db1", "parquet_variant",
-                        change("id", Types.VariantType.get(), null, true), true, null));
+                        change("id", Types.VariantType.get(), null, true), false, true, null));
         Assertions.assertEquals("Cannot change column type involving Iceberg VARIANT: id: long -> variant",
                 toVariant.getMessage());
         Schema schema = ops.loadTable("db1", "parquet_variant").schema();
         Assertions.assertEquals(Types.VariantType.get(), schema.findField("payload").type());
         Assertions.assertEquals(Types.LongType.get(), schema.findField("id").type());
+    }
+
+    // ---------- row lineage names ----------
+
+    /** Creates {@code db1.<name>} at {@code formatVersion} with {@code fields} as its top-level columns. */
+    private void createTableWithFields(String name, String formatVersion, Types.NestedField... fields) {
+        Map<String, String> props = new HashMap<>(IcebergSchemaBuilder.buildTableProperties(Collections.emptyMap()));
+        props.put("format-version", formatVersion);
+        ops.createTable("db1", name, new Schema(fields), PartitionSpec.unpartitioned(), null, props);
+    }
+
+    private List<String> columnNames(String tableName) {
+        return ops.loadTable("db1", tableName).schema().columns().stream()
+                .map(Types.NestedField::name).collect(Collectors.toList());
+    }
+
+    @Test
+    public void testRejectsRowLineageNamesOnFormatThreeTable() {
+        // A format-version 3 table reads _row_id and _last_updated_sequence_number as hidden columns, so a column
+        // that takes either name makes every later read of the table fail with a duplicate column.
+        createTableWithFields("v3", "3", Types.NestedField.optional(1, "id", Types.LongType.get()),
+                Types.NestedField.optional(2, "age", Types.IntegerType.get()));
+        DorisConnectorException add = Assertions.assertThrows(DorisConnectorException.class,
+                () -> ops.addColumn("db1", "v3", change("_row_id", Types.LongType.get(), null, true), null));
+        Assertions.assertEquals("Cannot add Iceberg v3 reserved row lineage column: _row_id", add.getMessage());
+        DorisConnectorException addColumns = Assertions.assertThrows(DorisConnectorException.class,
+                () -> ops.addColumns("db1", "v3", Arrays.asList(
+                        change("extra", Types.IntegerType.get(), null, true),
+                        change("_LAST_UPDATED_SEQUENCE_NUMBER", Types.LongType.get(), null, true))));
+        Assertions.assertEquals("Cannot add Iceberg v3 reserved row lineage column: _LAST_UPDATED_SEQUENCE_NUMBER",
+                addColumns.getMessage());
+        DorisConnectorException rename = Assertions.assertThrows(DorisConnectorException.class,
+                () -> ops.renameColumn("db1", "v3", "age", "_last_updated_sequence_number"));
+        Assertions.assertEquals(
+                "Cannot rename to Iceberg v3 reserved row lineage column: _last_updated_sequence_number",
+                rename.getMessage());
+        Assertions.assertEquals(Arrays.asList("id", "age"), columnNames("v3"));
+    }
+
+    @Test
+    public void testAllowsRowLineageNamesOnFormatTwoTableAndNestedFields() {
+        // The names are reserved only for the top-level columns of a format-version 3 table.
+        createTableWithFields("v2", "2", Types.NestedField.optional(1, "id", Types.LongType.get()));
+        ops.addColumn("db1", "v2", change("_row_id", Types.LongType.get(), null, true), null);
+        ops.renameColumn("db1", "v2", "id", "_last_updated_sequence_number");
+        Assertions.assertEquals(Arrays.asList("_last_updated_sequence_number", "_row_id"), columnNames("v2"));
+
+        createTableWithFields("v3_nested", "3", Types.NestedField.optional(1, "s", Types.StructType.of(
+                Types.NestedField.optional(2, "a", Types.IntegerType.get()))));
+        ops.addNestedColumn("db1", "v3_nested", ConnectorColumnPath.of(Arrays.asList("s", "_row_id")),
+                change("_row_id", Types.LongType.get(), null, true), null);
+        ops.renameNestedColumn("db1", "v3_nested", ConnectorColumnPath.of(Arrays.asList("s", "a")),
+                "_last_updated_sequence_number");
+        Assertions.assertEquals(Arrays.asList("_last_updated_sequence_number", "_row_id"),
+                ops.loadTable("db1", "v3_nested").schema().findField("s").type().asStructType().fields().stream()
+                        .map(Types.NestedField::name).collect(Collectors.toList()));
+    }
+
+    @Test
+    public void testDropsOrRenamesAwayExistingRowLineageNamesOnFormatThreeTable() {
+        // A format-version 3 table can already hold such columns, for example one upgraded from format-version 2.
+        // Dropping them or renaming them away is how such a table becomes readable again, so both stay allowed.
+        createTableWithFields("v3_taken", "3", Types.NestedField.optional(1, "id", Types.LongType.get()),
+                Types.NestedField.optional(2, "_row_id", Types.LongType.get()),
+                Types.NestedField.optional(3, "_last_updated_sequence_number", Types.LongType.get()));
+        ops.dropColumn("db1", "v3_taken", "_row_id");
+        ops.renameColumn("db1", "v3_taken", "_last_updated_sequence_number", "seq");
+        Assertions.assertEquals(Arrays.asList("id", "seq"), columnNames("v3_taken"));
     }
 
     // ---------- reorderColumns ----------
@@ -435,7 +507,7 @@ public class CatalogBackedIcebergCatalogOpsColumnEvolutionTest {
     private void modifyComplex(String table, String colName, ConnectorType newType, boolean topNullable) {
         ops.modifyColumn("db1", table,
                 new IcebergColumnChange(colName, IcebergSchemaBuilder.buildColumnType(newType), null, null,
-                        topNullable), true, null);
+                        topNullable), false, true, null);
     }
 
     private static ConnectorType structType(List<String> names, List<ConnectorType> types,
@@ -446,7 +518,7 @@ public class CatalogBackedIcebergCatalogOpsColumnEvolutionTest {
     @Test
     public void testModifyColumnsCanonicalizeMixedCaseRootAndPosition() {
         createMixedCaseTable();
-        ops.modifyColumn("db1", "mixed", change("id", Types.LongType.get(), "identifier", true), true, null);
+        ops.modifyColumn("db1", "mixed", change("id", Types.LongType.get(), "identifier", true), false, true, null);
 
         ConnectorType requestedType = structType(
                 Arrays.asList("metric"), Arrays.asList(ConnectorType.of("BIGINT")),
@@ -455,7 +527,7 @@ public class CatalogBackedIcebergCatalogOpsColumnEvolutionTest {
         ops.modifyColumn("db1", "mixed",
                 new IcebergColumnChange("info", IcebergSchemaBuilder.buildColumnType(requestedType),
                         "updated", null, true, requestedType),
-                true, ConnectorColumnPosition.after("id"));
+                false, true, ConnectorColumnPosition.after("id"));
 
         Schema schema = reload("mixed");
         Assertions.assertEquals(Arrays.asList("Id", "Info", "Label"), schema.columns().stream()
@@ -530,7 +602,7 @@ public class CatalogBackedIcebergCatalogOpsColumnEvolutionTest {
     }
 
     @Test
-    public void testModifyStructNullabilityMatchesExistingFieldCaseInsensitively() {
+    public void testModifyStructKeepsRequiredFieldMatchedCaseInsensitively() {
         createTable("s_case_null", new ConnectorColumn("st",
                 structType(Arrays.asList("CaseSensitive"), Arrays.asList(ConnectorType.of("INT")),
                         Arrays.asList(false), Arrays.asList((String) null)), "", true, null, false));
@@ -539,9 +611,11 @@ public class CatalogBackedIcebergCatalogOpsColumnEvolutionTest {
                 structType(Arrays.asList("casesensitive"), Arrays.asList(ConnectorType.of("INT")),
                         Arrays.asList(true), Arrays.asList((String) null)), true);
 
+        // The restated field matches the persisted one regardless of case: it keeps its spelling and, as no
+        // restatement widens a nested field (#65329), stays required.
         Types.NestedField field = reload("s_case_null").findField("st").type().asStructType().fields().get(0);
         Assertions.assertEquals("CaseSensitive", field.name());
-        Assertions.assertTrue(field.isOptional());
+        Assertions.assertTrue(field.isRequired());
     }
 
     @Test
@@ -618,7 +692,9 @@ public class CatalogBackedIcebergCatalogOpsColumnEvolutionTest {
     }
 
     @Test
-    public void testModifyStructFieldWidensNotNullToNullable() {
+    public void testModifyStructKeepsNotNullField() {
+        // #65329: Doris DDL cannot spell NOT NULL inside STRUCT<>, so restating the struct with a nullable field is
+        // no request to widen it; the field stays required.
         createTable("s_null", new ConnectorColumn("st",
                 structType(Arrays.asList("a"), Arrays.asList(ConnectorType.of("INT")),
                         Arrays.asList(false), Arrays.asList((String) null)), "", true, null, false));
@@ -626,7 +702,111 @@ public class CatalogBackedIcebergCatalogOpsColumnEvolutionTest {
         modifyComplex("s_null", "st",
                 structType(Arrays.asList("a"), Arrays.asList(ConnectorType.of("INT")),
                         Arrays.asList(true), Arrays.asList((String) null)), true);
-        Assertions.assertTrue(reload("s_null").findField("st").type().asStructType().fields().get(0).isOptional());
+        Assertions.assertTrue(reload("s_null").findField("st").type().asStructType().fields().get(0).isRequired());
+    }
+
+    /**
+     * Creates {@code db1.<name>} with a required top-level {@code Id INT} and a required {@code Payload} struct
+     * whose every nested field, list element and map value is required.
+     */
+    private void createRequiredNestedTable(String name) {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "Id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "Payload", Types.StructType.of(
+                        Types.NestedField.required(3, "metric", Types.IntegerType.get()),
+                        Types.NestedField.required(4, "child", Types.StructType.of(
+                                Types.NestedField.required(5, "value", Types.IntegerType.get()))),
+                        Types.NestedField.required(6, "events", Types.ListType.ofRequired(7, Types.IntegerType.get())),
+                        Types.NestedField.required(8, "attrs", Types.MapType.ofRequired(
+                                9, 10, Types.StringType.get(), Types.IntegerType.get())))));
+        ops.createTable("db1", name, schema, PartitionSpec.unpartitioned(), null,
+                IcebergSchemaBuilder.buildTableProperties(Collections.emptyMap()));
+    }
+
+    private static ConnectorType bigintChildStruct() {
+        return structType(Arrays.asList("value"), Arrays.asList(ConnectorType.of("BIGINT")),
+                Arrays.asList(true), Arrays.asList((String) null));
+    }
+
+    /** Payload as Doris DDL restates it: every nested level nullable, every INT widened to BIGINT. */
+    private static ConnectorType bigintPayloadStruct() {
+        return structType(Arrays.asList("metric", "child", "events", "attrs"),
+                Arrays.asList(ConnectorType.of("BIGINT"), bigintChildStruct(),
+                        ConnectorType.arrayOf(ConnectorType.of("BIGINT")),
+                        ConnectorType.mapOf(ConnectorType.of("STRING"), ConnectorType.of("BIGINT"), true)),
+                Arrays.asList(true, true, true, true), Arrays.asList(null, null, null, null));
+    }
+
+    private static void assertPayloadNestedFieldsRequired(Types.StructType payload) {
+        Assertions.assertEquals(Type.TypeID.LONG, payload.field("metric").type().typeId());
+        Assertions.assertTrue(payload.field("metric").isRequired());
+        Types.NestedField child = payload.field("child");
+        Assertions.assertTrue(child.isRequired());
+        Assertions.assertEquals(Type.TypeID.LONG, child.type().asStructType().field("value").type().typeId());
+        Assertions.assertTrue(child.type().asStructType().field("value").isRequired());
+        Types.ListType events = payload.field("events").type().asListType();
+        Assertions.assertEquals(Type.TypeID.LONG, events.elementType().typeId());
+        Assertions.assertTrue(events.isElementRequired());
+        Types.MapType attrs = payload.field("attrs").type().asMapType();
+        Assertions.assertEquals(Type.TypeID.LONG, attrs.valueType().typeId());
+        Assertions.assertTrue(attrs.isValueRequired());
+    }
+
+    @Test
+    public void testModifyOmittingNullKeepsTopLevelAndNestedRequiredness() {
+        // #65329: a MODIFY that omits NULL / NOT NULL (nullable by DDL default, nullableSpecified=false) changes the
+        // types only. Neither the top-level column nor any nested field, list element or map value becomes optional.
+        createRequiredNestedTable("req_nested");
+        ops.modifyColumn("db1", "req_nested", change("id", Types.LongType.get(), null, true), false, false, null);
+        ops.modifyColumn("db1", "req_nested", new IcebergColumnChange("payload",
+                IcebergSchemaBuilder.buildColumnType(bigintPayloadStruct()), null, null, true), false, false, null);
+
+        Schema schema = reload("req_nested");
+        Assertions.assertEquals(Type.TypeID.LONG, schema.findField("Id").type().typeId());
+        Assertions.assertTrue(schema.findField("Id").isRequired());
+        Assertions.assertTrue(schema.findField("Payload").isRequired());
+        assertPayloadNestedFieldsRequired(schema.findField("Payload").type().asStructType());
+    }
+
+    @Test
+    public void testModifyExplicitNullWidensOnlyTheTargetColumn() {
+        // An explicit NULL widens the column it is written on, never the fields nested inside it.
+        createRequiredNestedTable("req_nested_null");
+        ops.modifyColumn("db1", "req_nested_null", new IcebergColumnChange("payload",
+                IcebergSchemaBuilder.buildColumnType(bigintPayloadStruct()), null, null, true), true, false, null);
+
+        Types.NestedField payload = reload("req_nested_null").findField("Payload");
+        Assertions.assertTrue(payload.isOptional());
+        assertPayloadNestedFieldsRequired(payload.type().asStructType());
+    }
+
+    @Test
+    public void testModifyNestedComplexPathKeepsRequiredChildren() {
+        // Restating a nested STRUCT / ARRAY / MAP by its path widens the child types but keeps them required.
+        createRequiredNestedTable("req_nested_path");
+        ops.modifyNestedColumn("db1", "req_nested_path", ConnectorColumnPath.of(Arrays.asList("payload", "child")),
+                new IcebergColumnChange("child", IcebergSchemaBuilder.buildColumnType(bigintChildStruct()), null,
+                        null, true), false, false, null);
+        ops.modifyNestedColumn("db1", "req_nested_path", ConnectorColumnPath.of(Arrays.asList("payload", "events")),
+                new IcebergColumnChange("events", IcebergSchemaBuilder.buildColumnType(
+                        ConnectorType.arrayOf(ConnectorType.of("BIGINT"))), null, null, true), false, false, null);
+        ops.modifyNestedColumn("db1", "req_nested_path", ConnectorColumnPath.of(Arrays.asList("payload", "attrs")),
+                new IcebergColumnChange("attrs", IcebergSchemaBuilder.buildColumnType(ConnectorType.mapOf(
+                        ConnectorType.of("STRING"), ConnectorType.of("BIGINT"), true)), null, null, true),
+                false, false, null);
+
+        Types.StructType payload = reload("req_nested_path").findField("Payload").type().asStructType();
+        Assertions.assertEquals(Type.TypeID.INTEGER, payload.field("metric").type().typeId());
+        Types.NestedField child = payload.field("child");
+        Assertions.assertTrue(child.isRequired());
+        Assertions.assertEquals(Type.TypeID.LONG, child.type().asStructType().field("value").type().typeId());
+        Assertions.assertTrue(child.type().asStructType().field("value").isRequired());
+        Types.ListType events = payload.field("events").type().asListType();
+        Assertions.assertEquals(Type.TypeID.LONG, events.elementType().typeId());
+        Assertions.assertTrue(events.isElementRequired());
+        Types.MapType attrs = payload.field("attrs").type().asMapType();
+        Assertions.assertEquals(Type.TypeID.LONG, attrs.valueType().typeId());
+        Assertions.assertTrue(attrs.isValueRequired());
     }
 
     @Test

@@ -48,9 +48,12 @@
 namespace doris {
 
 namespace io {
+class FileRangeReadContext;
+class FileRangeReadScheduler;
 class RemoteScanCacheWriteLimiter;
 } // namespace io
 
+class AIExecutionStatistics;
 class PipelineFragmentContext;
 class PipelineTask;
 class QueryTaskController;
@@ -261,6 +264,11 @@ public:
         return _remote_scan_cache_write_limiter.get();
     }
 
+    /// Return the query-wide read-ahead context, creating it from `scheduler` on first use. Query
+    /// cancellation propagates to every range registered through the returned context.
+    std::shared_ptr<io::FileRangeReadContext> get_or_create_file_range_read_context(
+            io::FileRangeReadScheduler* scheduler);
+
     // plan node id -> TFileScanRangeParams
     // only for file scan node
     std::map<int, TFileScanRangeParams> file_scan_range_params_map;
@@ -282,6 +290,10 @@ public:
         _ai_resources =
                 std::make_shared<std::map<std::string, TAIResource>>(std::move(ai_resources));
     }
+
+    // Shared by every AI evaluator in a fragment; profile collection must not create it.
+    std::shared_ptr<AIExecutionStatistics> get_ai_statistics(int fragment_id);
+    std::shared_ptr<AIExecutionStatistics> find_ai_statistics(int fragment_id) const;
 
     const std::shared_ptr<std::map<std::string, TAIResource>>& get_ai_resources() const {
         return _ai_resources;
@@ -397,6 +409,8 @@ private:
     std::unordered_map<int, std::shared_ptr<TRuntimeProfileTree>> _load_channel_profile_map;
 
     std::shared_ptr<std::map<std::string, TAIResource>> _ai_resources;
+    mutable std::mutex _ai_statistics_mutex;
+    std::unordered_map<int, std::shared_ptr<AIExecutionStatistics>> _ai_statistics;
 
     void _report_query_profile();
 
@@ -416,6 +430,9 @@ private:
     std::mutex _cte_scan_lock;
     std::shared_ptr<MemShareArbitrator> _mem_arb = nullptr;
     std::unique_ptr<io::RemoteScanCacheWriteLimiter> _remote_scan_cache_write_limiter;
+    std::mutex _file_range_read_context_mutex;
+    io::FileRangeReadScheduler* _file_range_read_scheduler = nullptr;
+    std::shared_ptr<io::FileRangeReadContext> _file_range_read_context;
 
 public:
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile

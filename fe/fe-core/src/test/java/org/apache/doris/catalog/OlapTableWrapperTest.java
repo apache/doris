@@ -37,7 +37,7 @@ import java.util.concurrent.TimeUnit;
 
 public class OlapTableWrapperTest {
 
-    private static OlapTable newTestTable(BinlogConfig binlogConfig) {
+    private static OlapTable newTestTable(ChangelogConfig changelogConfig) {
         long baseIndexId = 1L;
         Column key = new Column("k1", PrimitiveType.INT);
         key.setIsKey(true);
@@ -53,22 +53,22 @@ public class OlapTableWrapperTest {
                 TStorageType.COLUMN, KeysType.PRIMARY_KEYS, null);
         table.addIndexIdToMetaForUnitTest(baseIndexId, baseIndexMeta);
         table.addIndexNameToIdForUnitTest("base", baseIndexId);
-        table.setBinlogConfig(binlogConfig);
 
-        if (binlogConfig.isEnableForStreaming()) {
-            long rowBinlogIndexId = 2L;
-            List<Column> rowBinlogSchema = table.generateTableRowBinlogSchema();
-            MaterializedIndexMeta rowBinlogMeta = new MaterializedIndexMeta(rowBinlogIndexId, rowBinlogSchema, 1, 1,
+        if (changelogConfig.isEnable()) {
+            table.setChangelogConfig(changelogConfig);
+            long changelogIndexId = 2L;
+            List<Column> changelogSchema = table.generateTableChangelogSchema();
+            MaterializedIndexMeta changelogIndexMeta = new MaterializedIndexMeta(changelogIndexId, changelogSchema, 1, 1,
                     (short) 1, TStorageType.COLUMN, KeysType.DUP_KEYS, null, null, null, null);
-            rowBinlogMeta.initSchemaColumnUniqueId();
-            table.setRowBinlogMeta(rowBinlogMeta, "row_binlog");
+            changelogIndexMeta.initSchemaColumnUniqueId();
+            table.setChangelogIndexMeta(changelogIndexMeta, "changelog");
         }
         return table;
     }
 
     @Test
     public void testOlapTableWrapper() {
-        OlapTable table = newTestTable(BinlogTestUtils.newTestRowBinlogConfig(false, false));
+        OlapTable table = newTestTable(BinlogTestUtils.newTestChangelogConfig(false, false));
         OlapTableWrapper wrapper = new OlapTableWrapper(table);
 
         Assertions.assertEquals(table, wrapper.getOriginTable());
@@ -99,29 +99,29 @@ public class OlapTableWrapperTest {
     }
 
     @Test
-    public void testRowBinlogTableWrapper() {
-        BinlogConfig binlogConfig = BinlogTestUtils.newTestRowBinlogConfig(true, true);
-        binlogConfig.setTtlSeconds(10);
-        OlapTable table = newTestTable(binlogConfig);
-        Assertions.assertTrue(table.needRowBinlog());
-        MaterializedIndexMeta rowBinlogMeta = table.getRowBinlogMeta();
-        Assertions.assertNotNull(rowBinlogMeta);
+    public void testChangelogTableWrapper() {
+        ChangelogConfig changelogConfig = BinlogTestUtils.newTestChangelogConfig(true, true);
+        changelogConfig.setTtlSeconds(10);
+        OlapTable table = newTestTable(changelogConfig);
+        Assertions.assertTrue(table.hasChangelog());
+        MaterializedIndexMeta changelogIndexMeta = table.getChangelogIndexMeta();
+        Assertions.assertNotNull(changelogIndexMeta);
 
-        RowBinlogTableWrapper wrapper = new RowBinlogTableWrapper(table);
+        OlapChangelogTableWrapper wrapper = new OlapChangelogTableWrapper(table);
 
         // test getOriginTable
         Assertions.assertEquals(table, wrapper.getOriginTable());
 
         // test wrapped baseIndexId
-        Assertions.assertEquals(rowBinlogMeta.getIndexId(), wrapper.getBaseIndexId());
+        Assertions.assertEquals(changelogIndexMeta.getIndexId(), wrapper.getBaseIndexId());
 
         // test index name & id delegations
         Assertions.assertEquals(table.getIndexNameById(table.getBaseIndexId()), wrapper.getIndexNameById(table.getBaseIndexId()));
         Assertions.assertEquals(table.getIndexMetaByIndexId(table.getBaseIndexId()), wrapper.getIndexMetaByIndexId(table.getBaseIndexId()));
 
-        // row binlog index meta should also be reachable through delegation
-        Assertions.assertEquals(table.getIndexMetaByIndexId(rowBinlogMeta.getIndexId()),
-                wrapper.getIndexMetaByIndexId(rowBinlogMeta.getIndexId()));
+        // changelog index meta should also be reachable through delegation
+        Assertions.assertEquals(table.getIndexMetaByIndexId(changelogIndexMeta.getIndexId()),
+                wrapper.getIndexMetaByIndexId(changelogIndexMeta.getIndexId()));
 
         // test schema delegation
         Assertions.assertEquals(table.getSchemaByIndexId(table.getBaseIndexId()), wrapper.getSchemaByIndexId(table.getBaseIndexId()));
@@ -129,7 +129,7 @@ public class OlapTableWrapperTest {
     }
 
     @Test
-    public void testCloudRowBinlogWrapperRefreshesCachedEmptyPartitions() {
+    public void testCloudChangelogWrapperRefreshesCachedEmptyPartitions() {
         long stalePartitionId = 100L;
         long cachedNonEmptyPartitionId = 101L;
         List<Long> partitionIds = ImmutableList.of(stalePartitionId, cachedNonEmptyPartitionId);
@@ -142,10 +142,10 @@ public class OlapTableWrapperTest {
         Mockito.when(cachedNonEmptyPartition.getId()).thenReturn(cachedNonEmptyPartitionId);
         Mockito.when(cachedNonEmptyPartition.hasDataCached()).thenReturn(true);
 
-        OlapTable table = Mockito.spy(newTestTable(BinlogTestUtils.newTestRowBinlogConfig(true, true)));
+        OlapTable table = Mockito.spy(newTestTable(BinlogTestUtils.newTestChangelogConfig(true, true)));
         Mockito.doReturn(stalePartition).when(table).getPartition(stalePartitionId);
         Mockito.doReturn(cachedNonEmptyPartition).when(table).getPartition(cachedNonEmptyPartitionId);
-        RowBinlogTableWrapper wrapper = new RowBinlogTableWrapper(table);
+        OlapChangelogTableWrapper wrapper = new OlapChangelogTableWrapper(table);
 
         try (MockedStatic<Config> mockedConfig = Mockito.mockStatic(Config.class);
                 MockedStatic<CloudPartition> mockedPartition = Mockito.mockStatic(
@@ -165,15 +165,15 @@ public class OlapTableWrapperTest {
     }
 
     @Test
-    public void testCloudRowBinlogWrapperWithFixedVisibleVersionsUsesOriginTable() {
+    public void testCloudChangelogWrapperWithFixedVisibleVersionsUsesOriginTable() {
         long emptyPartitionId = 100L;
         long nonEmptyPartitionId = 101L;
         List<Long> partitionIds = ImmutableList.of(emptyPartitionId, nonEmptyPartitionId);
 
-        OlapTable table = Mockito.spy(newTestTable(BinlogTestUtils.newTestRowBinlogConfig(true, true)));
+        OlapTable table = Mockito.spy(newTestTable(BinlogTestUtils.newTestChangelogConfig(true, true)));
         Mockito.doReturn(ImmutableList.of(nonEmptyPartitionId)).when(table)
                 .selectNonEmptyPartitionIds(partitionIds, Optional.empty());
-        RowBinlogTableWrapper wrapper = new RowBinlogTableWrapper(table, Collections.emptyMap(),
+        OlapChangelogTableWrapper wrapper = new OlapChangelogTableWrapper(table, Collections.emptyMap(),
                 ImmutableMap.of(emptyPartitionId, Partition.PARTITION_INIT_VERSION, nonEmptyPartitionId, 2L));
 
         try (MockedStatic<Config> mockedConfig = Mockito.mockStatic(Config.class);

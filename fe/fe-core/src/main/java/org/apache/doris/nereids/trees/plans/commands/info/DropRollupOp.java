@@ -62,8 +62,8 @@ public class DropRollupOp extends AlterTableOp {
     }
 
     @Override
-    public boolean allowOpRowBinlog() {
-        // Dropping rollup index is allowed for row binlog tables.
+    public boolean allowOnChangelogTable() {
+        // Dropping rollup index is allowed for changelog tables.
         return true;
     }
 

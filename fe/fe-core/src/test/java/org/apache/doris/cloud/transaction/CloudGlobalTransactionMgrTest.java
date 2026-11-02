@@ -17,8 +17,8 @@
 
 package org.apache.doris.cloud.transaction;
 
-import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.CatalogTestUtil;
+import org.apache.doris.catalog.ChangelogConfig;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FakeEditLog;
@@ -55,6 +55,7 @@ import org.apache.doris.common.GenericPool;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingTaskTxnCommitAttachment;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
@@ -87,6 +88,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.AdditionalAnswers;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
@@ -288,11 +290,11 @@ public class CloudGlobalTransactionMgrTest {
             "normal,TXN_STATUS_COMMITTED,12345,success", "normal,TXN_STATUS_VISIBLE,-1,success",
             "normal,TXN_STATUS_VISIBLE,,success",
             "subtxn,TXN_STATUS_VISIBLE,12345,success", "2pc,TXN_STATUS_VISIBLE,12345,2pc_error"})
-    public void testDisabledRowBinlogCommitRetry(String mode, String status, Long persistedTso, String outcome)
+    public void testDisabledChangelogCommitRetry(String mode, String status, Long persistedTso, String outcome)
             throws Exception {
         long expectedTso = persistedTso == null ? -1 : persistedTso;
         boolean streamingJob = mode.equals("streaming");
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         Database db = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1);
         OlapTable plainTable = (OlapTable) db.getTableOrMetaException(CatalogTestUtil.testTableId1);
         OlapTable table = (OlapTable) db.getTableOrMetaException(CatalogTestUtil.testTableId2);
@@ -301,7 +303,6 @@ public class CloudGlobalTransactionMgrTest {
             table.addPartition(new CloudPartition(partition.getId(), partition.getName(), partition.getBaseIndex(),
                     partition.getDistributionInfo(), db.getId(), table.getId()));
         }
-        BinlogConfig originalBinlogConfig = new BinlogConfig(table.getBinlogConfig());
         MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
         ReentrantReadWriteLock jobLock = new ReentrantReadWriteLock(true);
         StreamingTaskTxnCommitAttachment attachment = streamingJob
@@ -321,11 +322,8 @@ public class CloudGlobalTransactionMgrTest {
         }
         masterTransMgr.getCallbackFactory().addCallback(callback);
         try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
-            Config.enable_feature_binlog = false;
-            BinlogConfig binlogConfig = new BinlogConfig(originalBinlogConfig);
-            binlogConfig.setEnable(true);
-            binlogConfig.setBinlogFormat(BinlogConfig.BinlogFormat.ROW);
-            table.setBinlogConfig(binlogConfig);
+            Config.enable_feature_changelog = false;
+            table.setChangelogConfig(new ChangelogConfig(true, ChangelogConfig.TTL_SECONDS, false));
             Mockito.doReturn(new TSOService()).when(masterEnv).getTSOService();
             mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
             if (status.equals("rpc_error")) {
@@ -373,7 +371,7 @@ public class CloudGlobalTransactionMgrTest {
                 } else {
                     TransactionCommitFailedException exception = Assertions.assertThrows(
                             TransactionCommitFailedException.class, commit);
-                    Assertions.assertTrue(exception.getCause().getMessage().contains("enable_feature_binlog"));
+                    Assertions.assertTrue(exception.getCause().getMessage().contains("enable_feature_changelog"));
                 }
                 Assertions.assertEquals(0, jobLock.getWriteHoldCount());
                 Assertions.assertNull(plainTable.getCommitLockOwner());
@@ -404,25 +402,27 @@ public class CloudGlobalTransactionMgrTest {
             while (jobLock.isWriteLockedByCurrentThread()) {
                 jobLock.writeLock().unlock();
             }
-            table.setBinlogConfig(originalBinlogConfig);
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            disableChangelog(table);
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
+    }
+
+    // Turns a fixture table that a test gave changelog back into a table without changelog.
+    private static void disableChangelog(OlapTable table) {
+        table.getTableProperty().modifyTableProperties(PropertyAnalyzer.PROPERTIES_CHANGELOG_ENABLE, "false");
+        table.getTableProperty().buildBinlogConfig();
     }
 
     @Test
     public void testCommitTransactionRetriesWithTsoAboveFence() throws Exception {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
                 .getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
-        BinlogConfig originalBinlogConfig = new BinlogConfig(table.getBinlogConfig());
         try {
-            Config.enable_feature_binlog = true;
+            Config.enable_feature_changelog = true;
             FakeEnv.setEnv(masterEnv);
-            BinlogConfig binlogConfig = new BinlogConfig(originalBinlogConfig);
-            binlogConfig.setEnable(true);
-            binlogConfig.setBinlogFormat(BinlogConfig.BinlogFormat.ROW);
-            table.setBinlogConfig(binlogConfig);
+            table.setChangelogConfig(new ChangelogConfig(true, ChangelogConfig.TTL_SECONDS, false));
 
             TSOService tsoService = Mockito.mock(TSOService.class);
             Mockito.when(tsoService.getCommitTSO(Mockito.eq(CatalogTestUtil.testDbId1),
@@ -466,8 +466,8 @@ public class CloudGlobalTransactionMgrTest {
             Mockito.verify(proxy, Mockito.never()).getTxn(Mockito.any());
             Mockito.verify(tsoService).markTxnFinished(CatalogTestUtil.testDbId1, 123533L);
         } finally {
-            table.setBinlogConfig(originalBinlogConfig);
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            disableChangelog(table);
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 
@@ -1110,7 +1110,8 @@ public class CloudGlobalTransactionMgrTest {
         AtomicReference<CompletableFuture<Void>> snapshotReader = new AtomicReference<>();
         try (MockedStatic<VersionHelper> versions = mockVersionHelper()) {
             versions.when(() -> VersionHelper.getVersionFromMeta(Mockito.any())).thenReturn(
-                    partitionVersion(4).toBuilder().addVersions(4).addVersionUpdateTimeMs(40).addCommitTsos(400).build());
+                    partitionVersion(4).toBuilder().addVersions(4).addVersionUpdateTimeMs(40).addCommitTsos(400)
+                            .addHasPendingTxns(false).build());
             Mockito.doAnswer(invocation -> {
                 CountDownLatch started = new CountDownLatch(1);
                 CompletableFuture<Void> reader = CompletableFuture.runAsync(() -> {
@@ -1214,6 +1215,37 @@ public class CloudGlobalTransactionMgrTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testNonBatchPartitionVersionsBypassCache(boolean waitForPendingTxns) throws Exception {
+        boolean previousBatch = Config.calc_delete_bitmap_get_versions_in_batch;
+        boolean previousWait = Config.calc_delete_bitmap_get_versions_waiting_for_pending_txns;
+        useVersionCaches();
+        CloudPartition partition = addCloudPartition(1000);
+        try (MockedStatic<VersionHelper> versions = mockVersionHelper()) {
+            Config.calc_delete_bitmap_get_versions_in_batch = false;
+            Config.calc_delete_bitmap_get_versions_waiting_for_pending_txns = waitForPendingTxns;
+            Assertions.assertEquals(2, partition.getVisibleVersion());
+            versions.verifyNoInteractions();
+            versions.when(() -> VersionHelper.getVersionFromMeta(Mockito.any())).thenAnswer(invocation -> {
+                Cloud.GetVersionRequest request = invocation.getArgument(0);
+                Assertions.assertFalse(request.getBatchMode());
+                Assertions.assertEquals(partition.getId(), request.getPartitionId());
+                Assertions.assertEquals(waitForPendingTxns, request.getWaitForPendingTxn());
+                return partitionVersion(4);
+            });
+            Method getVersions = CloudGlobalTransactionMgr.class.getDeclaredMethod("getPartitionVersions", Map.class);
+            getVersions.setAccessible(true);
+            Assertions.assertEquals(Map.of(partition.getId(), 5L),
+                    getVersions.invoke(masterTransMgr, Map.of(partition.getId(), partition)));
+            Assertions.assertEquals(4, partition.getCachedVisibleVersion());
+            versions.verify(() -> VersionHelper.getVersionFromMeta(Mockito.any()));
+        } finally {
+            Config.calc_delete_bitmap_get_versions_in_batch = previousBatch;
+            Config.calc_delete_bitmap_get_versions_waiting_for_pending_txns = previousWait;
+        }
+    }
+
     private CloudPartition addCloudPartition(long tableId) throws Exception {
         OlapTable table = new OlapTable(tableId, "version_cache_" + tableId, List.of(), KeysType.DUP_KEYS,
                 new PartitionInfo(), new RandomDistributionInfo(1));
@@ -1243,7 +1275,7 @@ public class CloudGlobalTransactionMgrTest {
 
     private Cloud.GetVersionResponse partitionVersion(long version) {
         return Cloud.GetVersionResponse.newBuilder().setVersion(version).addVersions(version)
-                .addVersionUpdateTimeMs(version * 10).addCommitTsos(version * 100).build();
+                .addVersionUpdateTimeMs(version * 10).addCommitTsos(version * 100).addHasPendingTxns(false).build();
     }
 
     private OlapTable getCloudTable(CloudPartition partition) throws Exception {

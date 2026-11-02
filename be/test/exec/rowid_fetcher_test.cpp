@@ -24,7 +24,6 @@
 
 #include "agent/cgroup_cpu_ctl.h"
 #include "common/exception.h"
-#include "exec/operator/file_scan_operator.h"
 #include "exec/scan/file_scanner_v2.h"
 #include "exec/scan/scanner_scheduler.h"
 #include "format_v2/column_mapper.h"
@@ -33,6 +32,7 @@
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/id_manager.h"
 #include "storage/rowset_id.h"
@@ -92,67 +92,6 @@ protected:
         return access_path;
     }
 };
-
-TEST_F(RowIdStorageReaderTest, ExternalScannerSelectionRespectsRolloutOption) {
-    for (auto format : {TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_ORC}) {
-        TFileScanRangeParams params;
-        params.__set_format_type(format);
-        TFileRangeDesc range;
-        for (const auto& table_format : {"hive", "iceberg", "tvf"}) {
-            TTableFormatFileDesc table;
-            table.__set_table_format_type(table_format);
-            params.__set_table_format_params(table);
-            range.__set_table_format_params(table);
-            for (int option = 0; option < 3; ++option) {
-                TQueryOptions options;
-                if (option != 0) {
-                    options.__set_enable_file_scanner_v2(option == 2);
-                } else {
-                    // An absent Thrift field must not enable V2 even if its value defaults to true.
-                    options.enable_file_scanner_v2 = true;
-                    options.__isset.enable_file_scanner_v2 = false;
-                }
-                EXPECT_EQ(RowIdStorageReader::should_use_file_scanner_v2(options, params, range),
-                          FileScanLocalState::TEST_should_use_file_scanner_v2(options, false,
-                                                                              params));
-                EXPECT_EQ(RowIdStorageReader::should_use_file_scanner_v2(options, params, range),
-                          option == 2);
-            }
-        }
-    }
-}
-
-TEST_F(RowIdStorageReaderTest, IcebergOrcDefaultWithParquetRangeKeepsTimestampContract) {
-    TQueryOptions options;
-    options.__set_enable_file_scanner_v2(false);
-    TFileScanRangeParams params;
-    params.__set_format_type(TFileFormatType::FORMAT_ORC);
-    params.__set_iceberg_scan_semantics_version(2);
-    params.__set_parquet_timestamp_semantics_version(1);
-    TFileRangeDesc range;
-    range.__set_format_type(TFileFormatType::FORMAT_PARQUET);
-    TTableFormatFileDesc table;
-    table.__set_table_format_type("iceberg");
-    range.__set_table_format_params(table);
-    // Phase two must decode the retained Parquet range with phase one's wall-clock contract.
-    EXPECT_TRUE(RowIdStorageReader::should_use_file_scanner_v2(options, params, range));
-}
-
-TEST_F(RowIdStorageReaderTest, ExternalScannerSelectionKeepsUnsupportedFormatsOnV1) {
-    TQueryOptions options;
-    options.__set_enable_file_scanner_v2(true);
-    TFileScanRangeParams params;
-    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
-    TFileRangeDesc range;
-    range.__set_format_type(TFileFormatType::FORMAT_JNI);
-    EXPECT_FALSE(RowIdStorageReader::should_use_file_scanner_v2(options, params, range));
-    range.__set_format_type(TFileFormatType::FORMAT_ORC);
-    TTableFormatFileDesc table;
-    table.__set_table_format_type("transactional_hive");
-    params.__set_table_format_params(table);
-    range.__set_table_format_params(table);
-    EXPECT_FALSE(RowIdStorageReader::should_use_file_scanner_v2(options, params, range));
-}
 
 TEST_F(RowIdStorageReaderTest, ExternalFetchPreservesIcebergFileMetadata) {
     TFileRangeDesc range;
@@ -299,6 +238,37 @@ TEST_F(RowIdStorageReaderTest, ExternalFetchPartitionSlotsPreserveHivePositionMa
             EXPECT_TRUE(reader.validate_projected_columns(context).ok());
         }
     }
+}
+
+// A request block reads each of its scan ranges with a separate reader, and its profile reports the
+// mean reader-init and block-read time over those ranges. When an RPC fetches two lazily
+// materialized tables, the second request block starts with the first block's averages in the
+// caller's variables; they must not leak into its own.
+TEST_F(RowIdStorageReaderTest, ExternalFetchProfileAveragesInitAndGetBlockTimes) {
+    std::vector<RowIdStorageReader::ExternalFetchStatistics> fetch_statistics(3);
+    fetch_statistics[0].init_reader_ms = 10;
+    fetch_statistics[0].get_block_ms = 100;
+    fetch_statistics[1].init_reader_ms = 20;
+    fetch_statistics[1].get_block_ms = 200;
+    fetch_statistics[2].init_reader_ms = 60;
+    fetch_statistics[2].get_block_ms = 600;
+    // The averages a previous request block of the same RPC left behind.
+    int64_t init_reader_avg_ms = 50;
+    int64_t get_block_avg_ms = 500;
+    RuntimeProfile profile("ExternalRowIDFetcher");
+
+    RowIdStorageReader::add_external_fetch_avg_time_profile(fetch_statistics, &profile,
+                                                            &init_reader_avg_ms, &get_block_avg_ms);
+
+    EXPECT_EQ(init_reader_avg_ms, 30);
+    EXPECT_EQ(get_block_avg_ms, 300);
+    const auto* init_reader_avg =
+            profile.get_info_string(RowIdStorageReader::InitReaderAvgTimeProfile);
+    ASSERT_NE(init_reader_avg, nullptr);
+    EXPECT_EQ(*init_reader_avg, "30ms");
+    const auto* get_block_avg = profile.get_info_string(RowIdStorageReader::GetBlockAvgTimeProfile);
+    ASSERT_NE(get_block_avg, nullptr);
+    EXPECT_EQ(*get_block_avg, "300ms");
 }
 
 TEST_F(RowIdStorageReaderTest, SameSourceColumnSharesKey) {

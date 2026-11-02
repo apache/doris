@@ -19,7 +19,7 @@
 
 namespace doris::CastWrapper {
 
-WrapperType create_timestamp_ns_wrapper(FunctionContext* context, const DataTypePtr& from_type) {
+WrapperType create_timestamp_ns_wrapper(const CastOptions& options, const DataTypePtr& from_type) {
     std::shared_ptr<CastToBase> cast_to_timestamp_ns;
 
     auto make_timestamp_ns_wrapper = [&](const auto& types) -> bool {
@@ -28,7 +28,7 @@ WrapperType create_timestamp_ns_wrapper(FunctionContext* context, const DataType
         if constexpr (IsStringType<FromDataType> || CastUtil::IsPureDigitType<FromDataType> ||
                       IsDatelikeTypes<FromDataType> ||
                       std::is_same_v<FromDataType, DataTypeTimeStampTz>) {
-            if (context->enable_strict_mode()) {
+            if (options.strict_mode) {
                 cast_to_timestamp_ns = std::make_shared<
                         CastToImpl<CastModeType::StrictMode, FromDataType, DataTypeTimeStampNs>>();
             } else {
@@ -47,11 +47,10 @@ WrapperType create_timestamp_ns_wrapper(FunctionContext* context, const DataType
                 fmt::format("CAST AS TIMESTAMP_NS not supported {}", from_type->get_name()));
     }
 
-    return [cast_to_timestamp_ns](FunctionContext* context, Block& block,
-                                  const ColumnNumbers& arguments, uint32_t result,
-                                  size_t input_rows_count,
+    return [cast_to_timestamp_ns](RuntimeState* state, const ColumnWithTypeAndName& source_column,
+                                  ColumnWithTypeAndName& target_column, size_t input_rows_count,
                                   const NullMap::value_type* null_map = nullptr) {
-        return cast_to_timestamp_ns->execute_impl(context, block, arguments, result,
+        return cast_to_timestamp_ns->execute_impl(state, source_column, target_column,
                                                   input_rows_count, null_map);
     };
 }

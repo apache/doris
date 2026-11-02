@@ -311,4 +311,124 @@ suite("test_timestamp_ns_join") {
         match_condition(l.dt >= r.dt)
         on l.id = r.id
     """
+
+    sql "drop table if exists timestamp_ns_asof_fallible_datetime"
+    sql """
+        create table timestamp_ns_asof_fallible_datetime (
+            id int,
+            k int,
+            dt datetimev2(6)
+        ) duplicate key(id)
+        distributed by hash(id) buckets 1
+        properties("replication_num" = "1")
+    """
+    sql "drop table if exists timestamp_ns_asof_fallible_timestamp"
+    sql """
+        create table timestamp_ns_asof_fallible_timestamp (
+            id int,
+            k int,
+            ts timestamp_ns
+        ) duplicate key(id)
+        distributed by hash(id) buckets 1
+        properties("replication_num" = "1")
+    """
+    sql """
+        insert into timestamp_ns_asof_fallible_datetime values
+        (1, 1, '2500-01-01 00:00:00'), (2, 1, '1600-01-01 00:00:00'),
+        (3, 1, '2024-01-01 00:00:00'), (4, 1, null)
+    """
+    sql """
+        insert into timestamp_ns_asof_fallible_timestamp values
+        (1, 1, '2024-01-01 00:00:00')
+    """
+    // Keep the build side nonempty so the probe expression is evaluated rather than short-circuited.
+    // Strict temporal casts on either side must return the original overflow, including in ASAN.
+    for (def joinType : ["asof inner join", "asof left join"]) {
+        for (def op : [">=", ">", "<=", "<"]) {
+            for (def id : [1, 2]) {
+                test {
+                    sql """
+                        select l.id, r.id
+                        from (select * from timestamp_ns_asof_fallible_datetime where id = ${id}) l
+                        ${joinType} timestamp_ns_asof_fallible_timestamp r
+                        match_condition(l.dt ${op} r.ts) on l.k = r.k
+                    """
+                    exception "TIMESTAMP_NS overflow"
+                }
+                test {
+                    sql """
+                        select l.id, r.id
+                        from timestamp_ns_asof_fallible_timestamp l
+                        ${joinType}
+                            (select * from timestamp_ns_asof_fallible_datetime where id = ${id}) r
+                        match_condition(l.ts ${op} r.dt) on l.k = r.k
+                    """
+                    exception "TIMESTAMP_NS overflow"
+                }
+            }
+        }
+    }
+    order_qt_asof_after_conversion_errors """
+        select l.id, r.id
+        from (select * from timestamp_ns_asof_fallible_datetime where id in (3, 4)) l
+        asof left join timestamp_ns_asof_fallible_timestamp r
+        match_condition(l.dt >= r.ts) on l.k = r.k
+        order by l.id, r.id
+    """
+    qt_asof_nullable_build_after_conversion_errors """
+        select l.id, r.id
+        from timestamp_ns_asof_fallible_timestamp l
+        asof left join
+            (select * from timestamp_ns_asof_fallible_datetime where id in (3, 4)) r
+        match_condition(l.ts >= r.dt) on l.k = r.k
+        order by l.id, r.id
+    """
+
+    sql "drop table if exists timestamp_ns_asof_derived_probe"
+    sql """
+        create table timestamp_ns_asof_derived_probe (
+            id int, k int, ts timestamp_ns
+        ) duplicate key(id)
+        distributed by hash(id) buckets 1
+        properties("replication_num" = "1")
+    """
+    sql "drop table if exists timestamp_ns_asof_derived_build"
+    sql """
+        create table timestamp_ns_asof_derived_build (
+            id int, k int, dt datetimev2(6) not null
+        ) duplicate key(id)
+        distributed by hash(id) buckets 1
+        properties("replication_num" = "1")
+    """
+    sql """
+        insert into timestamp_ns_asof_derived_probe values
+        (1, 1, '2024-01-01'), (2, 1, '1801-01-01'), (3, 2, '2024-01-01'), (4, 1, null)
+    """
+    sql """
+        insert into timestamp_ns_asof_derived_build values
+        (11, 1, '2200-01-01'), (12, 1, '2201-01-01'), (13, 1, '2202-01-01')
+    """
+    // Real derived keys (1800..1802) fit TIMESTAMP_NS. The NOT NULL mock dt (1970)
+    // would produce 1570 and overflow if the match expression were evaluated on it.
+    for (def joinType : ["inner", "left"]) {
+        for (def comparison : [["ge", ">="], ["gt", ">"], ["le", "<="], ["lt", "<"]]) {
+            def name = comparison[0]
+            def op = comparison[1]
+            "order_qt_asof_not_null_derived_${joinType}_${name}" """
+                select l.id, r.id, r.dt
+                from timestamp_ns_asof_derived_probe l
+                asof ${joinType} join timestamp_ns_asof_derived_build r
+                match_condition(l.ts ${op} years_sub(r.dt, 400)) on l.k = r.k
+                order by l.id, r.id
+            """
+        }
+        "order_qt_asof_not_null_derived_empty_${joinType}" """
+            select l.id, r.id
+            from timestamp_ns_asof_derived_probe l
+            asof ${joinType} join
+                (select * from timestamp_ns_asof_derived_build where id < 0) r
+            match_condition(l.ts >= years_sub(r.dt, 400)) on l.k = r.k
+            order by l.id, r.id
+        """
+    }
 }

@@ -26,8 +26,8 @@ suite("test_ivm_append_only_dup_mv_3") {
     // Part 1: an MV over a detail MV -- the chain stays append-only, and it can cross models
     // =====================================================================================
     // A detail MV is a DUP table too, so an MV over it is judged the same way: the chain keeps appending at
-    // both levels, and neither level carries an IVM hidden column. The upstream MV has to carry row binlog
-    // itself (binlog.enable on the MV) for the downstream one to read what it appended.
+    // both levels, and neither level carries an IVM hidden column. The upstream MV has to carry changelog
+    // itself (changelog.enable on the MV) for the downstream one to read what it appended.
     sql """drop materialized view if exists dup_mv_chained;"""
     sql """drop materialized view if exists dup_mv_chained_mow;"""
     sql """drop materialized view if exists dup_mv_chain_upstream;"""
@@ -41,8 +41,7 @@ suite("test_ivm_append_only_dup_mv_3") {
         DISTRIBUTED BY HASH(id) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW"
+            "changelog.enable" = "true"
         );
     """
     sql """
@@ -51,8 +50,7 @@ suite("test_ivm_append_only_dup_mv_3") {
         DISTRIBUTED BY HASH(id) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW"
+            "changelog.enable" = "true"
         )
         AS SELECT id, v1 FROM dup_base_chain;
     """
@@ -68,8 +66,7 @@ suite("test_ivm_append_only_dup_mv_3") {
         DISTRIBUTED BY HASH(id) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW"
+            "changelog.enable" = "true"
         )
         AS SELECT id, v1 FROM dup_mv_chain_upstream WHERE v1 >= 20;
     """
@@ -115,7 +112,7 @@ suite("test_ivm_append_only_dup_mv_3") {
     order_qt_dup_chained_mow_after_incremental """SELECT id, cnt, sum_v1 FROM dup_mv_chained_mow"""
 
     // A third level on top of that: an MV over a detail MV that is itself over a detail MV. The chain stays
-    // append-only at every level, since the level-2 MV now carries row binlog of its own.
+    // append-only at every level, since the level-2 MV now carries changelog of its own.
     sql """drop materialized view if exists dup_mv_chained_l3;"""
     sql """drop materialized view if exists dup_mv_chained_l3_mow;"""
     sql """
@@ -124,8 +121,7 @@ suite("test_ivm_append_only_dup_mv_3") {
         DISTRIBUTED BY HASH(id) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW"
+            "changelog.enable" = "true"
         )
         AS SELECT id, v1 FROM dup_mv_chained;
     """
@@ -146,7 +142,7 @@ suite("test_ivm_append_only_dup_mv_3") {
     order_qt_dup_chained_l3_after_incremental """SELECT id, v1 FROM dup_mv_chained_l3"""
 
     // A unique-key MV at the end of the same chain: it aggregates, so the last step crosses models, and
-    // the MV it reads carries row binlog of its own for exactly that reason.
+    // the MV it reads carries changelog of its own for exactly that reason.
     sql """
         CREATE MATERIALIZED VIEW dup_mv_chained_l3_mow
         BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
@@ -173,7 +169,7 @@ suite("test_ivm_append_only_dup_mv_3") {
     waitingMTMVTaskFinishedByMvName("dup_mv_chained_l3_mow")
     order_qt_dup_chained_l3_mow_after_incremental """SELECT id, cnt FROM dup_mv_chained_l3_mow"""
 
-    // The upstream MV has to carry row binlog itself for a downstream one to read what it appended: without
+    // The upstream MV has to carry changelog itself for a downstream one to read what it appended: without
     // it there is no stream to read, and CREATE has to say so rather than build an MV that cannot refresh.
     sql """drop materialized view if exists dup_mv_chain_nobln;"""
     sql """
@@ -191,7 +187,7 @@ suite("test_ivm_append_only_dup_mv_3") {
                 DISTRIBUTED BY HASH(id) BUCKETS 2
                 PROPERTIES ("replication_num" = "1")
                 AS SELECT id, v1 FROM dup_mv_chain_nobln"""
-        exception "row binlog is not enabled for table"
+        exception "changelog is not enabled for table"
     }
 
     // =====================================================================================
@@ -213,8 +209,7 @@ suite("test_ivm_append_only_dup_mv_3") {
         DISTRIBUTED BY HASH(id) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW"
+            "changelog.enable" = "true"
         );
     """
     sql """
@@ -276,8 +271,7 @@ suite("test_ivm_append_only_dup_mv_3") {
         DISTRIBUTED BY HASH(id) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW"
+            "changelog.enable" = "true"
         );
     """
     sql """INSERT INTO dup_base_premise VALUES (1, 'book', 10.00);"""
@@ -305,9 +299,8 @@ suite("test_ivm_append_only_dup_mv_3") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
         );
     """
     sql """INSERT INTO dup_base_premise_mow VALUES (1, 'book', 10.00);"""
@@ -318,7 +311,7 @@ suite("test_ivm_append_only_dup_mv_3") {
 
     test {
         sql """REFRESH MATERIALIZED VIEW dup_mv_premise INCREMENTAL WITH DRY RUN"""
-        exception "can only be built over duplicate-key detail tables"
+        exception "does not provide an append-only changelog"
     }
 
     // A rebuild would normalize the same way and fail the same way, so the MV is left in the state that

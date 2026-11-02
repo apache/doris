@@ -29,15 +29,15 @@ namespace doris {
 // These info are usually in heartbeat from Master FE.
 class ClusterInfo {
 public:
-    int64_t row_binlog_ttl_reference_tso() const {
-        return _row_binlog_ttl_reference_tso.load(std::memory_order_acquire);
+    int64_t changelog_ttl_reference_tso() const {
+        return _changelog_ttl_reference_tso.load(std::memory_order_acquire);
     }
 
     // Heartbeat identity validation must precede this call. Never persist this value:
     // after a restart cleanup waits for a fresh, authenticated master heartbeat.
-    void advance_row_binlog_ttl_reference_tso(int64_t tso) {
-        auto previous = _row_binlog_ttl_reference_tso.load(std::memory_order_acquire);
-        while (tso > previous && !_row_binlog_ttl_reference_tso.compare_exchange_weak(
+    void advance_changelog_ttl_reference_tso(int64_t tso) {
+        auto previous = _changelog_ttl_reference_tso.load(std::memory_order_acquire);
+        while (tso > previous && !_changelog_ttl_reference_tso.compare_exchange_weak(
                                          previous, tso, std::memory_order_acq_rel)) {
         }
     }
@@ -59,7 +59,7 @@ public:
     std::string last_auth_token = "";
 
 private:
-    std::atomic<int64_t> _row_binlog_ttl_reference_tso {0};
+    std::atomic<int64_t> _changelog_ttl_reference_tso {0};
 };
 
 } // namespace doris

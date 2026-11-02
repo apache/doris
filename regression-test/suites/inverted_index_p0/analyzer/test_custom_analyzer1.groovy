@@ -120,11 +120,11 @@ suite("test_custom_analyzer1", "p0") {
         sql "sync"
         sql """ set enable_segment_limit_pushdown = true; """
 
-        qt_sql """ select * from test_custom_analyzer1 where ch match 'with'; """
-        qt_sql """ select * from test_custom_analyzer1 where ch match 'the'; """
+        order_qt_sql """ select * from test_custom_analyzer1 where ch match 'with'; """
+        order_qt_sql """ select * from test_custom_analyzer1 where ch match 'the'; """
 
-        qt_sql """ select * from test_custom_analyzer2 where ch match 'hm'; """
-        qt_sql """ select * from test_custom_analyzer2 where ch match 'bg'; """
+        order_qt_sql """ select * from test_custom_analyzer2 where ch match 'hm'; """
+        order_qt_sql """ select * from test_custom_analyzer2 where ch match 'bg'; """
     } finally {
     }
 }

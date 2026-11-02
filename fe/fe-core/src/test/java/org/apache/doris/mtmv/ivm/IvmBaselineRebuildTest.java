@@ -78,7 +78,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         Config.enable_table_stream = true;
-        Config.enable_feature_binlog = true;
+        Config.enable_feature_changelog = true;
     }
 
     @Test
@@ -196,7 +196,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         assertNotInvalidated(mtmv, versionBefore, "a column the MV does not use must not invalidate the MV");
 
         // Dropping a column the MV uses makes the MV query unanalyzable: the change is metadata-only
-        // and emits no binlog, so an incremental refresh would silently keep the rows of the old
+        // and emits no changelog, so an incremental refresh would silently keep the rows of the old
         // column. The baseline has to be invalidated instead.
         executeSql("ALTER TABLE ivm_base DROP COLUMN v1");
         Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
@@ -293,13 +293,13 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
 
     /**
      * A renamed column is judged the same way a dropped one is, and the operation says so for itself: a row
-     * binlog table refuses a column rename outright, so this is a plain MV's path, and the re-analysis is
+     * changelog table refuses a column rename outright, so this is a plain MV's path, and the re-analysis is
      * the answer for it -- the query names the old name, or it does not name the column at all.
      */
     @Test
     public void testARenamedColumnIsJudgedByTheQuery() throws Exception {
         String db = "ivm_renamed_column";
-        createPartitionedTableWithoutRowBinlog(db);
+        createPartitionedTableWithoutChangelog(db);
         createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
                 + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
                 + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
@@ -328,7 +328,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
     @Test
     public void testAColumnChangeIsJudgedOnlyOnceTheTableHasIt() throws Exception {
         String db = "ivm_column_change_reached";
-        createPartitionedTableWithoutRowBinlog(db);
+        createPartitionedTableWithoutChangelog(db);
         OlapTable baseTable = getBaseTable(db);
 
         RenameColumnOp pendingRename = new RenameColumnOp("v1", "v1_renamed");
@@ -368,7 +368,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
     @Test
     public void testATypeChangeInvalidatesWithoutAskingTheQuery() throws Exception {
         String db = "ivm_type_change";
-        createPartitionedTableWithoutRowBinlog(db);
+        createPartitionedTableWithoutChangelog(db);
         createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
                 + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
                 + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
@@ -466,7 +466,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
     @Test
     public void testAQualifyNameIsBoundToItsColumnInTheStoredDefinition() throws Exception {
         String db = "ivm_qualify_bound_name";
-        createPartitionedTableWithoutRowBinlog(db);
+        createPartitionedTableWithoutChangelog(db);
         createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
                 + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
                 + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
@@ -609,7 +609,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
      * A base partition the partition_sync_limit window no longer covers can still have its rows in an MV
      * partition: the MV was built while that partition was inside the window, shrinking the window does not
      * touch the MV's own partitions, and widening it again makes partition sync keep the partition holding
-     * those rows. TRUNCATE emits no binlog, so nothing incremental can repair them -- the whole MV has to be
+     * those rows. TRUNCATE emits no changelog, so nothing incremental can repair them -- the whole MV has to be
      * rebuilt rather than a partition being guessed at.
      */
     @Test
@@ -635,7 +635,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
                 + "  PARTITION pThisYear VALUES [('" + thisYear + "'), ('" + recentEnd + "'))\n"
                 + ")\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
-                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+                + "PROPERTIES ('replication_num' = '1', 'changelog.enable' = 'true')");
         createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
                 + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + "PARTITION BY(dt)\n"
@@ -685,7 +685,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
                 + "  PARTITION pThisYear VALUES [('" + thisYear + "'), ('" + recentEnd + "'))\n"
                 + ")\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
-                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+                + "PROPERTIES ('replication_num' = '1', 'changelog.enable' = 'true')");
         createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
                 + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + "PARTITION BY(dt)\n"
@@ -804,8 +804,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
                 + "  PARTITION d202002 VALUES [('2020-02-01'), ('2020-03-01'))\n"
                 + ")\n"
                 + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
-                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', "
-                + "'binlog.format' = 'ROW')");
+                + "PROPERTIES ('replication_num' = '1', 'changelog.enable' = 'true')");
         // The join is on a non-partition column, so ivm_dim is a base table of the MV but not a PCT table.
         createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
                 + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
@@ -908,8 +907,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
                 + "  PARTITION p202002 VALUES [('2020-02-01'), ('2020-03-01'))\n"
                 + ")\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
-                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', "
-                + "'binlog.format' = 'ROW')");
+                + "PROPERTIES ('replication_num' = '1', 'changelog.enable' = 'true')");
         createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
                 + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + "PARTITION BY(dt)\n"
@@ -986,7 +984,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
      * the mapping describes: the recovered range is the one whose rows have to come back, and its MV
      * partition -- which partition sync adds when the recovered partition returns -- is read from a base
      * partition that the replacement does not describe at all. Narrowing to the replacement's MV
-     * partitions would leave that one out, and recovery emits no row binlog to fill it later, so the
+     * partitions would leave that one out, and recovery emits no changelog to fill it later, so the
      * whole MV has to be rebuilt.
      */
     @Test
@@ -1119,7 +1117,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
                 + ")\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true', "
-                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+                + "'changelog.enable' = 'true')");
 
         executeSql("ALTER TABLE ivm_base REPLACE WITH TABLE ivm_new_base PROPERTIES('swap' = 'false')");
 
@@ -1152,7 +1150,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
                 + "  PARTITION p202002 VALUES [('2020-02-01'), ('2020-03-01'))\n"
                 + ")\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
-                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+                + "PROPERTIES ('replication_num' = '1', 'changelog.enable' = 'true')");
         executeSql("ALTER TABLE ivm_base REPLACE WITH TABLE ivm_new_base PROPERTIES('swap' = 'false')");
 
         OlapTable replacedBaseTable = getBaseTable(db);
@@ -1188,7 +1186,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
                 + "  PARTITION p202002 VALUES [('2020-02-01'), ('2020-03-01'))\n"
                 + ")\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
-                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+                + "PROPERTIES ('replication_num' = '1', 'changelog.enable' = 'true')");
         createMvByNereids("CREATE MATERIALIZED VIEW ivm_new_mv\n"
                 + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
@@ -1408,16 +1406,16 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
                 + "  PARTITION p202002 VALUES [('2020-02-01'), ('2020-03-01'))\n"
                 + ")\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
-                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+                + "PROPERTIES ('replication_num' = '1', 'changelog.enable' = 'true')");
     }
 
     /**
-     * The same base table without row binlog. A row binlog table only accepts the operations marked as safe
+     * The same base table without changelog. A changelog table only accepts the operations marked as safe
      * for it, and a column rename or a type change is not one of them, so the changes that need one of those
      * are pinned against a plain table and a plain MV -- which is where those two operations reach the
      * shared base-table hook at all.
      */
-    private void createPartitionedTableWithoutRowBinlog(String db) throws Exception {
+    private void createPartitionedTableWithoutChangelog(String db) throws Exception {
         createDatabaseAndUse(db);
         createTable("CREATE TABLE " + db + ".ivm_base (\n"
                 + "  dt date NOT NULL,\n"

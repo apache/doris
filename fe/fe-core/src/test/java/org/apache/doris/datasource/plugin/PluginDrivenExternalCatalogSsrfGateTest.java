@@ -1,0 +1,384 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.datasource.plugin;
+
+import org.apache.doris.cloud.security.SecurityChecker;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.connector.ConnectorFactory;
+import org.apache.doris.connector.ConnectorPluginManager;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorProvider;
+import org.apache.doris.connector.spi.ConnectorSecuritySurface;
+import org.apache.doris.connector.spi.ConnectorSession;
+
+import com.google.common.net.HostAndPort;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.Mockito;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * CREATE / ALTER CATALOG must apply the operator's SSRF policy to every user-supplied endpoint the FE would
+ * connect to, rejecting an intranet target. This mirrors {@link PluginDrivenExternalCatalogDriverUrlGateTest}:
+ * the judgment is delegated to the third-party {@code SecurityChecker} SDK (absent in CI, so a recording
+ * fake stands in), the checked endpoint keys are the ones the connector declares through
+ * {@code ConnectorSecuritySurface} (looked up through the registered provider), the
+ * gate runs on CREATE ({@code checkWhenCreating}) and the {@code !isReplay} ALTER path
+ * ({@code validatePropertiesBeforeUpdate}) but never on replay, and it is a no-op when no checker is
+ * installed.
+ */
+public class PluginDrivenExternalCatalogSsrfGateTest {
+
+    private RecordingChecker checker;
+
+    @BeforeEach
+    public void setUp() {
+        checker = new RecordingChecker();
+        SecurityChecker.setInstanceForTest(checker);
+        ConnectorPluginManager manager = new ConnectorPluginManager();
+        manager.registerProvider(new ConnectorProvider() {
+            @Override
+            public String getType() {
+                return "hms";
+            }
+
+            @Override
+            public Connector create(Map<String, String> properties, ConnectorContext context) {
+                throw new AssertionError("Security-surface lookup must not initialize a connector");
+            }
+
+            @Override
+            public ConnectorSecuritySurface securitySurface() {
+                // Mirrors HiveConnectorProvider.securitySurface().
+                return ConnectorSecuritySurface.ofSsrfEndpoints("hive.metastore.uris", "uri", "metastore.thrift.uris");
+            }
+        });
+        ConnectorFactory.initPluginManager(manager);
+    }
+
+    @AfterEach
+    public void tearDown() {
+        // Revert to the Config-driven singleton so a reused surefire fork is not left with the fake.
+        SecurityChecker.setInstanceForTest(null);
+        // An empty manager, not null: a null singleton would make later tests' ConnectorFactory calls
+        // silently no-op instead of fail (same shape as the sibling driver-url gate test's tearDown).
+        ConnectorFactory.initPluginManager(new ConnectorPluginManager());
+    }
+
+    // ---- static helper: endpoint parsing ----
+
+    @Test
+    public void parseEndpointExtractsHostAndPort() {
+        HostAndPort schemed = PluginDrivenExternalCatalog.parseEndpoint("thrift://host1:9083");
+        Assertions.assertNotNull(schemed);
+        Assertions.assertEquals("host1", schemed.getHost());
+        Assertions.assertEquals(9083, schemed.getPort());
+
+        HostAndPort bare = PluginDrivenExternalCatalog.parseEndpoint("host2:9083");
+        Assertions.assertNotNull(bare);
+        Assertions.assertEquals("host2", bare.getHost());
+        Assertions.assertEquals(9083, bare.getPort());
+    }
+
+    @Test
+    public void parseEndpointReturnsNullWhenNoHostPort() {
+        Assertions.assertNull(PluginDrivenExternalCatalog.parseEndpoint(""));
+        Assertions.assertNull(PluginDrivenExternalCatalog.parseEndpoint("thrift://host-without-port"));
+        Assertions.assertNull(PluginDrivenExternalCatalog.parseEndpoint("thrift://"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"thrift://host1:9083?ignored", "thrift://host1:9083#ignored",
+            "thrift://user@host1:9083", "thrift://user:password@host1:9083/path?ignored#ignored",
+            "thrift://host1:9083/path", "host1:9083/path"})
+    public void parseEndpointUsesUriDestination(String endpoint) {
+        HostAndPort parsed = PluginDrivenExternalCatalog.parseEndpoint(endpoint);
+        Assertions.assertNotNull(parsed);
+        Assertions.assertEquals("host1", parsed.getHost());
+        Assertions.assertEquals(9083, parsed.getPort());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"thrift://[::1]:9083", "thrift://user@[::1]:9083?ignored#ignored", "[::1]:9083"})
+    public void parseEndpointPreservesIpv6Destination(String endpoint) {
+        HostAndPort parsed = PluginDrivenExternalCatalog.parseEndpoint(endpoint);
+        Assertions.assertNotNull(parsed);
+        Assertions.assertEquals("::1", parsed.getHost());
+        Assertions.assertEquals(9083, parsed.getPort());
+    }
+
+    // ---- ALTER gate ----
+
+    @Test
+    public void alterRejectsRepointingMetastoreToIntranet() {
+        checker.intranetHost = "10.0.0.1";
+        TestCatalog catalog = new TestCatalog(hms("thrift://hms.public.example.com:9083"));
+
+        // MUTATION: drop checkEndpointsAgainstSsrf from validatePropertiesBeforeUpdate -> the repoint to an
+        // intranet metastore is accepted -> red.
+        DdlException e = Assertions.assertThrows(DdlException.class,
+                () -> catalog.validatePropertiesBeforeUpdate(hms("thrift://hms.public.example.com:9083"),
+                        Collections.singletonMap("hive.metastore.uris", "thrift://10.0.0.1:9083")));
+        Assertions.assertTrue(e.getMessage().contains("SSRF policy"), e.getMessage());
+    }
+
+    @Test
+    public void alterAcceptsPublicMetastoreAndProbesIt() throws Exception {
+        TestCatalog catalog = new TestCatalog(hms("thrift://hms.public.example.com:9083"));
+
+        catalog.validatePropertiesBeforeUpdate(hms("thrift://hms.public.example.com:9083"),
+                Collections.singletonMap("hive.metastore.uris", "thrift://hms2.public.example.com:9083"));
+        Assertions.assertTrue(checker.probed.contains("hms2.public.example.com:9083"), checker.probed.toString());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"thrift://10.0.0.1:9083?ignored", "thrift://10.0.0.1:9083#ignored",
+            "thrift://user@10.0.0.1:9083", "thrift://user:password@10.0.0.1:9083/path?ignored#ignored"})
+    public void alterRejectsUriDestinationWithSuffixes(String endpoint) {
+        checker.intranetHost = "10.0.0.1";
+        TestCatalog catalog = new TestCatalog(hms("thrift://hms.public.example.com:9083"));
+
+        Assertions.assertThrows(DdlException.class,
+                () -> catalog.validatePropertiesBeforeUpdate(catalog.getProperties(),
+                        Collections.singletonMap("hive.metastore.uris", endpoint)));
+        Assertions.assertEquals(Collections.singletonList("10.0.0.1:9083"), checker.probed);
+    }
+
+    @Test
+    public void alterChecksEveryEndpointInAnHaUriList() {
+        checker.intranetHost = "192.168.0.7";
+        TestCatalog catalog = new TestCatalog(hms("thrift://hms.public.example.com:9083"));
+
+        // Second URI in the HA list resolves to an intranet host and must still be rejected.
+        Assertions.assertThrows(DdlException.class,
+                () -> catalog.validatePropertiesBeforeUpdate(hms("thrift://hms.public.example.com:9083"),
+                        Collections.singletonMap("hive.metastore.uris",
+                                "thrift://ok.public.example.com:9083,thrift://192.168.0.7:9083?ignored#ignored")));
+    }
+
+    @Test
+    public void alterTouchingOnlyModernMetastoreKeyIsProbed() {
+        // Hive 3's client reads metastore.thrift.uris before hive.metastore.uris, so this ALTER alone repoints
+        // the catalog while the stored legacy uri stays public.
+        checker.intranetHost = "127.0.0.1";
+        TestCatalog catalog = new TestCatalog(hms("thrift://hms.public.example.com:9083"));
+
+        Assertions.assertThrows(DdlException.class,
+                () -> catalog.validatePropertiesBeforeUpdate(catalog.getProperties(),
+                        Collections.singletonMap("metastore.thrift.uris", "thrift://127.0.0.1:9083")));
+        // A touched endpoint key probes every declared endpoint of the candidate, the stored legacy uri included.
+        Assertions.assertTrue(checker.probed.contains("127.0.0.1:9083"), checker.probed.toString());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"hive.metastore.uris", "metastore.thrift.uris"})
+    public void alterRejectsPlaceholderEndpointWithoutProbing(String key) {
+        // MUTATION: drop the placeholder check -> URI parsing fails, the endpoint is skipped and the ALTER is
+        // accepted although the client expands it to 127.0.0.1 -> red.
+        TestCatalog catalog = new TestCatalog(hms("thrift://hms.public.example.com:9083"));
+        Map<String, String> update = new HashMap<>();
+        update.put(key, "thrift://${hms.target}:9083");
+        update.put("hms.target", "127.0.0.1");
+
+        DdlException e = Assertions.assertThrows(DdlException.class,
+                () -> catalog.validatePropertiesBeforeUpdate(catalog.getProperties(), update));
+        Assertions.assertTrue(e.getMessage().contains("placeholder"), e.getMessage());
+        Assertions.assertTrue(checker.probed.isEmpty(), checker.probed.toString());
+    }
+
+    @Test
+    public void alterOfThePropertyAStoredPlaceholderRefersToIsRejected() {
+        // A catalog stored before a checker was configured can carry a placeholder; changing only the property
+        // it refers to repoints the client without touching an endpoint key.
+        // MUTATION: move the placeholder check after the touched guard -> the ALTER is accepted -> red.
+        Map<String, String> stored = hms("thrift://${hms.target}:9083");
+        stored.put("hms.target", "hms.public.example.com");
+        TestCatalog catalog = new TestCatalog(stored);
+
+        Assertions.assertThrows(DdlException.class,
+                () -> catalog.validatePropertiesBeforeUpdate(catalog.getProperties(),
+                        Collections.singletonMap("hms.target", "127.0.0.1")));
+        Assertions.assertTrue(checker.probed.isEmpty(), checker.probed.toString());
+    }
+
+    @Test
+    public void alterAcceptsPlaceholderWhenNoCheckerInstalled() throws Exception {
+        // MUTATION: run the placeholder check before the isEnabled() guard -> rejected -> red.
+        checker.enabled = false;
+        TestCatalog catalog = new TestCatalog(hms("thrift://hms.public.example.com:9083"));
+
+        catalog.validatePropertiesBeforeUpdate(catalog.getProperties(),
+                Collections.singletonMap("hive.metastore.uris", "thrift://${hms.target}:9083"));
+        Assertions.assertTrue(checker.probed.isEmpty(), checker.probed.toString());
+    }
+
+    @Test
+    public void alterNotTouchingMetastoreUriSkipsTheGate() throws Exception {
+        // A stored uri was gated at its own CREATE/ALTER time; an unrelated ALTER must not re-probe it.
+        // MUTATION: drop the touched-keys guard -> the stored intranet uri is probed and rejected -> red.
+        checker.intranetHost = "10.0.0.1";
+        TestCatalog catalog = new TestCatalog(hms("thrift://10.0.0.1:9083"));
+
+        catalog.validatePropertiesBeforeUpdate(hms("thrift://10.0.0.1:9083"),
+                Collections.singletonMap("only_specified_database", "true"));
+        Assertions.assertTrue(checker.probed.isEmpty(), "untouched endpoint must not be probed");
+    }
+
+    @Test
+    public void alterSkipsTheGateWhenNoCheckerInstalled() throws Exception {
+        // MUTATION: drop the isEnabled() guard -> the probe runs and the intranet repoint is rejected -> red.
+        checker.enabled = false;
+        checker.intranetHost = "10.0.0.1";
+        TestCatalog catalog = new TestCatalog(hms("thrift://hms.public.example.com:9083"));
+
+        catalog.validatePropertiesBeforeUpdate(hms("thrift://hms.public.example.com:9083"),
+                Collections.singletonMap("hive.metastore.uris", "thrift://10.0.0.1:9083"));
+        Assertions.assertTrue(checker.probed.isEmpty(), "disabled checker must not probe");
+    }
+
+    // ---- CREATE gate ----
+
+    @Test
+    public void createRejectsIntranetMetastore() {
+        checker.intranetHost = "127.0.0.1";
+        TestCatalog catalog = new TestCatalog(hms("thrift://127.0.0.1:9083"));
+
+        // MUTATION: drop checkEndpointsAgainstSsrf from checkWhenCreating -> CREATE accepts the intranet
+        // metastore -> red.
+        Assertions.assertThrows(DdlException.class, catalog::checkWhenCreating);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"thrift://127.0.0.1:9083?ignored", "thrift://127.0.0.1:9083#ignored",
+            "thrift://user@127.0.0.1:9083", "thrift://user:password@127.0.0.1:9083/path?ignored#ignored"})
+    public void createRejectsUriDestinationWithConnectionTestDisabled(String endpoint) {
+        checker.intranetHost = "127.0.0.1";
+        Map<String, String> properties = hms(endpoint);
+        properties.put("test_connection", "false");
+        TestCatalog catalog = new TestCatalog(properties);
+
+        Assertions.assertThrows(DdlException.class, catalog::checkWhenCreating);
+        Assertions.assertEquals(Collections.singletonList("127.0.0.1:9083"), checker.probed);
+    }
+
+    @Test
+    public void createProbesModernMetastoreKeyBesideLegacyKey() {
+        // The client connects to metastore.thrift.uris when both keys are set, so a public legacy uri must not
+        // be the only value probed.
+        checker.intranetHost = "127.0.0.1";
+        Map<String, String> properties = hms("thrift://hms.public.example.com:9083");
+        properties.put("metastore.thrift.uris", "thrift://127.0.0.1:9083");
+        properties.put("test_connection", "false");
+        TestCatalog catalog = new TestCatalog(properties);
+
+        Assertions.assertThrows(DdlException.class, catalog::checkWhenCreating);
+        Assertions.assertTrue(checker.probed.contains("127.0.0.1:9083"), checker.probed.toString());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"thrift://${hms.target}:9083", "${hms.target}:9083", "${hms.target}",
+            "thrift://${env.HOSTNAME}:9083"})
+    public void createRejectsPlaceholderEndpointWithConnectionTestDisabled(String endpoint) {
+        // Without the placeholder check the schemed forms fail URI parsing and are skipped, and
+        // "${hms.target}:9083" probes a host literally named "${hms.target}", whose DNS failure is ignored.
+        Map<String, String> properties = hms(endpoint);
+        properties.put("hms.target", "127.0.0.1");
+        properties.put("test_connection", "false");
+        TestCatalog catalog = new TestCatalog(properties);
+
+        Assertions.assertThrows(DdlException.class, catalog::checkWhenCreating);
+        Assertions.assertTrue(checker.probed.isEmpty(), checker.probed.toString());
+    }
+
+    private static Map<String, String> hms(String metastoreUris) {
+        Map<String, String> props = new HashMap<>();
+        props.put("type", "hms");
+        props.put("hive.metastore.uris", metastoreUris);
+        return props;
+    }
+
+    /** Records the net-hook bracket and the probed endpoints; throws SecurityException for an intranet host. */
+    private static final class RecordingChecker extends SecurityChecker {
+        private boolean enabled = true;
+        private String intranetHost;
+        private final List<String> probed = new ArrayList<>();
+
+        @Override
+        public String getSafeJdbcUrl(String originJdbcUrl) {
+            return originJdbcUrl;
+        }
+
+        @Override
+        public void startSSRFChecking(String originUri) {
+        }
+
+        @Override
+        public void startSSRFChecking() {
+        }
+
+        @Override
+        public void stopSSRFChecking() {
+        }
+
+        @Override
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        @Override
+        protected void doConnect(String host, int port, int connectTimeoutMs) throws IOException {
+            probed.add(host + ":" + port);
+            if (host.equals(intranetHost)) {
+                throw new SecurityException("simulated SSRFUnsafeConnectionException for " + host);
+            }
+        }
+    }
+
+    /** Keeps the real CREATE/ALTER validation; stubs out what needs a full FE environment. */
+    private static final class TestCatalog extends PluginDrivenExternalCatalog {
+        TestCatalog(Map<String, String> props) {
+            super(1L, "ssrf-gate-catalog", null, props, "", Mockito.mock(Connector.class));
+            this.initialized = true;
+        }
+
+        @Override
+        protected Connector createConnectorFromProperties() {
+            return null;
+        }
+
+        @Override
+        protected void initLocalObjectsImpl() {
+        }
+
+        @Override
+        public ConnectorSession buildConnectorSession() {
+            return Mockito.mock(ConnectorSession.class);
+        }
+    }
+}

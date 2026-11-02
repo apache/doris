@@ -61,7 +61,7 @@ constexpr auto kTestDir = "./ut_dir/segment_iterator_expr_zonemap_test";
 constexpr int kNumRows = 8192;
 constexpr int kRuntimeColumnRows = 8;
 constexpr int kVersionCid = 1;
-constexpr int kBinlogTimestampCid = 2;
+constexpr int kChangelogTimestampCid = 2;
 constexpr int kCommitTsoCid = 3;
 const RowsetId kRowsetId {.version = 1};
 
@@ -152,7 +152,7 @@ TabletSchemaSPtr make_runtime_column_tablet_schema() {
     tablet_schema->append_column(*create_int_key(0, false));
     tablet_schema->append_column(*make_runtime_bigint_column(kVersionCid, VERSION_COL, false, "0"));
     tablet_schema->append_column(
-            *make_runtime_bigint_column(kBinlogTimestampCid, BINLOG_TSO_COL, true));
+            *make_runtime_bigint_column(kChangelogTimestampCid, CHANGELOG_TSO_COL, true));
     tablet_schema->append_column(
             *make_runtime_bigint_column(kCommitTsoCid, COMMIT_TSO_COL, false, "0"));
     tablet_schema->set_storage_page_size(4096);
@@ -297,7 +297,7 @@ protected:
             row.mutable_field(0) = int_field(rid);
             if (write_runtime_columns) {
                 row.mutable_field(kVersionCid) = Field::create_field<TYPE_BIGINT>(0);
-                row.mutable_field(kBinlogTimestampCid) = Field();
+                row.mutable_field(kChangelogTimestampCid) = Field();
                 row.mutable_field(kCommitTsoCid) = Field::create_field<TYPE_BIGINT>(0);
             }
             st = writer.append_row(row);
@@ -521,42 +521,42 @@ TEST_F(SegmentIteratorExprZonemapTest, RuntimeColumnsUseCurrentReadOptions) {
     // Before publish, version [0-0] and TSO [-1--1] identify a physical read. Preserve the
     // placeholders written into the segment instead of requiring runtime TSO metadata.
     MutableColumnPtr version_column;
-    MutableColumnPtr binlog_timestamp_column;
+    MutableColumnPtr changelog_timestamp_column;
     MutableColumnPtr commit_tso_column;
     ASSERT_NO_FATAL_FAILURE(read_column(segment, kVersionCid, read_options, &version_column));
-    ASSERT_NO_FATAL_FAILURE(
-            read_column(segment, kBinlogTimestampCid, read_options, &binlog_timestamp_column));
+    ASSERT_NO_FATAL_FAILURE(read_column(segment, kChangelogTimestampCid, read_options,
+                                        &changelog_timestamp_column));
     ASSERT_NO_FATAL_FAILURE(read_column(segment, kCommitTsoCid, read_options, &commit_tso_column));
     ASSERT_NO_FATAL_FAILURE(expect_bigint_values(version_column, 0));
-    ASSERT_NO_FATAL_FAILURE(expect_all_null(binlog_timestamp_column));
+    ASSERT_NO_FATAL_FAILURE(expect_all_null(changelog_timestamp_column));
     ASSERT_NO_FATAL_FAILURE(expect_bigint_values(commit_tso_column, 0));
 
     // Once a non-zero version is assigned, missing TSO metadata is invalid.
     read_options.version = Version(1, 1);
     ASSERT_NO_FATAL_FAILURE(
-            expect_missing_commit_tso_error(segment, kBinlogTimestampCid, read_options));
+            expect_missing_commit_tso_error(segment, kChangelogTimestampCid, read_options));
     ASSERT_NO_FATAL_FAILURE(expect_missing_commit_tso_error(segment, kCommitTsoCid, read_options));
 
     read_options.version = Version(7, 7);
     read_options.commit_tso = TsoRange(kCommitTso1, kCommitTso1);
-    read_options.read_row_binlog = true;
+    read_options.read_changelog = true;
     ASSERT_NO_FATAL_FAILURE(read_column(segment, kVersionCid, read_options, &version_column));
-    ASSERT_NO_FATAL_FAILURE(
-            read_column(segment, kBinlogTimestampCid, read_options, &binlog_timestamp_column));
+    ASSERT_NO_FATAL_FAILURE(read_column(segment, kChangelogTimestampCid, read_options,
+                                        &changelog_timestamp_column));
     ASSERT_NO_FATAL_FAILURE(read_column(segment, kCommitTsoCid, read_options, &commit_tso_column));
     ASSERT_NO_FATAL_FAILURE(expect_bigint_values(version_column, 7));
-    ASSERT_NO_FATAL_FAILURE(expect_bigint_values(binlog_timestamp_column, kCommitTso1));
+    ASSERT_NO_FATAL_FAILURE(expect_bigint_values(changelog_timestamp_column, kCommitTso1));
     ASSERT_NO_FATAL_FAILURE(expect_bigint_values(commit_tso_column, kCommitTso1));
 
     // A second read must observe the new request values instead of a cached constant reader.
     read_options.version = Version(9, 9);
     read_options.commit_tso = TsoRange(kCommitTso2, kCommitTso2);
     ASSERT_NO_FATAL_FAILURE(read_column(segment, kVersionCid, read_options, &version_column));
-    ASSERT_NO_FATAL_FAILURE(
-            read_column(segment, kBinlogTimestampCid, read_options, &binlog_timestamp_column));
+    ASSERT_NO_FATAL_FAILURE(read_column(segment, kChangelogTimestampCid, read_options,
+                                        &changelog_timestamp_column));
     ASSERT_NO_FATAL_FAILURE(read_column(segment, kCommitTsoCid, read_options, &commit_tso_column));
     ASSERT_NO_FATAL_FAILURE(expect_bigint_values(version_column, 9));
-    ASSERT_NO_FATAL_FAILURE(expect_bigint_values(binlog_timestamp_column, kCommitTso2));
+    ASSERT_NO_FATAL_FAILURE(expect_bigint_values(changelog_timestamp_column, kCommitTso2));
     ASSERT_NO_FATAL_FAILURE(expect_bigint_values(commit_tso_column, kCommitTso2));
 }
 
@@ -572,7 +572,7 @@ TEST_F(SegmentIteratorExprZonemapTest, RangeVersionUsesPhysicalValues) {
     StorageReadOptions read_options(_stats);
     read_options.version = Version(0, 9);
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
-    read_options.read_row_binlog = true;
+    read_options.read_changelog = true;
 
     // The initial empty [0-1] rowset contributes -1 to the compaction TSO lower bound.
     // Physical values must also remain readable when range metadata has no TSO at all.
@@ -581,15 +581,15 @@ TEST_F(SegmentIteratorExprZonemapTest, RangeVersionUsesPhysicalValues) {
         SCOPED_TRACE(tso_range.to_string());
         read_options.commit_tso = tso_range;
         MutableColumnPtr version_column;
-        MutableColumnPtr binlog_timestamp_column;
+        MutableColumnPtr changelog_timestamp_column;
         MutableColumnPtr commit_tso_column;
         ASSERT_NO_FATAL_FAILURE(read_column(segment, kVersionCid, read_options, &version_column));
-        ASSERT_NO_FATAL_FAILURE(
-                read_column(segment, kBinlogTimestampCid, read_options, &binlog_timestamp_column));
+        ASSERT_NO_FATAL_FAILURE(read_column(segment, kChangelogTimestampCid, read_options,
+                                            &changelog_timestamp_column));
         ASSERT_NO_FATAL_FAILURE(
                 read_column(segment, kCommitTsoCid, read_options, &commit_tso_column));
         ASSERT_NO_FATAL_FAILURE(expect_bigint_values(version_column, 0));
-        ASSERT_NO_FATAL_FAILURE(expect_all_null(binlog_timestamp_column));
+        ASSERT_NO_FATAL_FAILURE(expect_all_null(changelog_timestamp_column));
         ASSERT_NO_FATAL_FAILURE(expect_bigint_values(commit_tso_column, 0));
     }
 }
@@ -607,7 +607,7 @@ TEST_F(SegmentIteratorExprZonemapTest, MissingPhysicalRuntimeColumnsUseReadOptio
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
 
     MutableColumnPtr version_column;
-    MutableColumnPtr binlog_timestamp_column;
+    MutableColumnPtr changelog_timestamp_column;
     MutableColumnPtr commit_tso_column;
     read_options.version = Version(0, 0);
     ASSERT_NO_FATAL_FAILURE(read_column(segment, kVersionCid, read_options, &version_column));
@@ -615,13 +615,13 @@ TEST_F(SegmentIteratorExprZonemapTest, MissingPhysicalRuntimeColumnsUseReadOptio
 
     read_options.version = Version(7, 7);
     read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
-    read_options.read_row_binlog = true;
+    read_options.read_changelog = true;
     ASSERT_NO_FATAL_FAILURE(read_column(segment, kVersionCid, read_options, &version_column));
-    ASSERT_NO_FATAL_FAILURE(
-            read_column(segment, kBinlogTimestampCid, read_options, &binlog_timestamp_column));
+    ASSERT_NO_FATAL_FAILURE(read_column(segment, kChangelogTimestampCid, read_options,
+                                        &changelog_timestamp_column));
     ASSERT_NO_FATAL_FAILURE(read_column(segment, kCommitTsoCid, read_options, &commit_tso_column));
     ASSERT_NO_FATAL_FAILURE(expect_bigint_values(version_column, 7));
-    ASSERT_NO_FATAL_FAILURE(expect_bigint_values(binlog_timestamp_column, kCommitTso));
+    ASSERT_NO_FATAL_FAILURE(expect_bigint_values(changelog_timestamp_column, kCommitTso));
     ASSERT_NO_FATAL_FAILURE(expect_bigint_values(commit_tso_column, kCommitTso));
 }
 

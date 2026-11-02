@@ -30,14 +30,14 @@ suite("test_committed_tso", "nonConcurrent") {
     sql """
         CREATE TABLE test_committed_tso (id INT)
         DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
-        PROPERTIES ("replication_num" = "1", "binlog.enable" = "true", "binlog.format" = "ROW")
+        PROPERTIES ("replication_num" = "1", "changelog.enable" = "true")
     """
     sql "INSERT INTO test_committed_tso VALUES (1), (2)"
     sql "DROP TABLE IF EXISTS test_committed_tso_unrelated"
     sql """
         CREATE TABLE test_committed_tso_unrelated (id INT)
         DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
-        PROPERTIES ("replication_num" = "1", "binlog.enable" = "true", "binlog.format" = "ROW")
+        PROPERTIES ("replication_num" = "1", "changelog.enable" = "true")
     """
     sql "INSERT INTO test_committed_tso_unrelated VALUES (10), (20)"
     sql "SET change_visible_timeout_ms = 1000"

@@ -142,12 +142,16 @@ suite("test_full_analyze_hot_value") {
     assertEquals(1, result.size())
     assertEquals("null", String.valueOf(result[0][17]))
 
-    // Test 6: Sample analyze rejects WITH HOT VALUE because it cannot honor the flag: inside a
-    // sample analyze hot values only come from the DUJ1 estimator.
-    test {
-        sql """analyze table full_hot_skew with sample rows 400 with sync with hot value"""
-        exception "Sample analyze does not support WITH HOT VALUE"
-    }
+    // Test 6: WITH HOT VALUE is accepted on a sample analyze and has no effect here: hot values are
+    // collected only for the columns the DUJ1 estimator serves, and full_hot_skew is small enough
+    // that its sample analyze falls back to a full scan (rendered with the linear template), which
+    // does not collect them.
+    sql """drop stats full_hot_skew"""
+    sql """analyze table full_hot_skew with sample rows 400 with sync with hot value"""
+    result = sql """show column stats full_hot_skew(value1)"""
+    logger.info("Test6 result: " + result)
+    assertEquals(1, result.size())
+    assertEquals("null", String.valueOf(result[0][17]))
 
     // Test 7: Explicit full analyze produces the same hot_value as a sample analyze that really
     // samples. The column value is uniform, so the sampled rows always carry the same
@@ -181,6 +185,15 @@ suite("test_full_analyze_hot_value") {
     assertEquals(1, sampleResult.size())
     // Both full and sample should produce the same hot_value entry.
     assertEquals(fullResult[0][17], sampleResult[0][17])
+
+    // WITH HOT VALUE is accepted on a sample analyze and does not interfere with the estimator:
+    // this table really samples, so DUJ1 still collects the hot value.
+    sql """drop stats full_hot_sample_agree"""
+    sql """analyze table full_hot_sample_agree with sample rows 400 with sync with hot value"""
+    result = sql """show column stats full_hot_sample_agree(value1)"""
+    logger.info("Test7 sample with hot value result: " + result)
+    assertEquals(1, result.size())
+    assertEquals("' : ;a':1.0", result[0][17])
 
     // Test 8: Explicit full analyze on empty table should produce an empty hot_value string.
     sql """drop table if exists full_hot_empty"""

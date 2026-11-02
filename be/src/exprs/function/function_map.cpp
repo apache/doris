@@ -378,7 +378,10 @@ public:
             result_col_map_offsets[row] = offset;
         }
 
-        RETURN_IF_ERROR(map_column->deduplicate_keys());
+        // A single key/value pair per row cannot contain duplicate keys.
+        if (num_element > 2) {
+            RETURN_IF_ERROR(map_column->deduplicate_keys());
+        }
         block.replace_by_position(result, std::move(result_col));
         return Status::OK();
     }

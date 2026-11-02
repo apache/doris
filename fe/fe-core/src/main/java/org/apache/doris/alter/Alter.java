@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.catalog.RowTtlConfig;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -95,6 +96,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.ReplaceTableOp;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
+import org.apache.doris.persist.EditLog.EditLogItem;
 import org.apache.doris.persist.ModifyCommentOperationLog;
 import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.ModifyTableEngineOperationLog;
@@ -229,9 +231,9 @@ public class Alter {
             currentAlterOps.checkMTMVAllow(alterOps);
         }
 
-        // For row binlog tables, only allow operations explicitly marked as safe.
-        if (olapTable.needRowBinlog()) {
-            currentAlterOps.checkRowBinlogAllow(alterOps);
+        // For changelog tables, only allow operations explicitly marked as safe.
+        if (olapTable.hasChangelog()) {
+            currentAlterOps.checkChangelogAllow(alterOps);
         }
 
         // check cluster capacity and db quota, only need to check once.
@@ -290,6 +292,15 @@ public class Alter {
             }
             // TODO(Drogon): check error
             ((SchemaChangeHandler) schemaChangeHandler).updateBinlogConfig(db, olapTable, alterOps);
+        } else if (currentAlterOps.checkChangelogConfigChange(alterOps)) {
+            if (!Config.enable_feature_changelog) {
+                throw new DdlException("Changelog feature is not enabled");
+            }
+            ((SchemaChangeHandler) schemaChangeHandler).updateChangelogConfig(db, olapTable, alterOps);
+        } else if (alterOps.size() == 1 && alterOps.get(0).getProperties() != null
+                && alterOps.get(0).getProperties().containsKey(RowTtlConfig.TTL_PROPERTY)) {
+            ((SchemaChangeHandler) schemaChangeHandler).updateRowTtl(db, olapTable,
+                    alterOps.get(0).getProperties().get(RowTtlConfig.TTL_PROPERTY));
         } else if (currentAlterOps.hasSchemaChangeOp()) {
             // schema change, or change properties that need schema change(dynamic partition, storage_medium...)
             schemaChangeHandler.process(sql, alterOps, db, olapTable);
@@ -1357,15 +1368,20 @@ public class Alter {
     public void processAlterMTMV(AlterMTMV alterMTMV, boolean isReplay) {
         TableNameInfo tbl = alterMTMV.getMvName();
         MTMV mtmv = null;
+        // ALTER_REFRESH_INFO and ALTER_STATUS journal themselves from inside the MV write lock that
+        // applies them: mutation and enqueue have to be the same step, or a record submitted in
+        // between can be replayed on either side of this one. Their journal write is awaited after the
+        // lock is released, like the other journaled MTMV changes.
+        EditLogItem editLogItem = null;
         try {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(tbl.getDb());
             mtmv = (MTMV) db.getTableOrMetaException(tbl.getTbl(), TableType.MATERIALIZED_VIEW);
             switch (alterMTMV.getOpType()) {
                 case ALTER_REFRESH_INFO:
-                    mtmv.alterRefreshInfo(alterMTMV.getRefreshInfo());
+                    editLogItem = mtmv.alterRefreshInfo(alterMTMV, isReplay);
                     break;
                 case ALTER_STATUS:
-                    mtmv.alterStatus(alterMTMV.getStatus());
+                    editLogItem = mtmv.alterStatus(alterMTMV, isReplay);
                     break;
                 case ALTER_PROPERTY:
                     // Live ALTER PROPERTY statements call processAlterMTMVProperty directly
@@ -1401,8 +1417,8 @@ public class Alter {
             if (alterMTMV.isNeedRebuildJob()) {
                 Env.getCurrentEnv().getMtmvService().alterJob(mtmv, isReplay);
             }
-            if (!isReplay) {
-                Env.getCurrentEnv().getEditLog().logAlterMTMV(alterMTMV);
+            if (editLogItem != null) {
+                editLogItem.await();
             }
         } catch (UserException e) {
             // if MTMV has been dropped, ignore this exception

@@ -420,8 +420,8 @@ public class NereidsPlanner extends Planner {
             LOG.debug("Start collect and lock table");
         }
         keepOrShowPlanProcess(showPlanProcess, () -> cascadesContext.newTableCollector(true, true).collect());
-        if (statementContext.isRowBinlogReferenceTsoRequired()) {
-            statementContext.getOrRegisterRowBinlogReferenceTso(
+        if (statementContext.isChangelogReferenceTsoRequired()) {
+            statementContext.getOrRegisterChangelogReferenceTso(
                     () -> MasterTsoProvider.getCurrentTso(statementContext.getConnectContext()));
         }
         // Read the preload result produced by the collect-phase rule before taking internal table locks.

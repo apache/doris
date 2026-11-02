@@ -74,13 +74,16 @@ public class MetricsTest {
 
     @Test
     public void testVersionMetricIsExportedWithBuildLabels() {
-        StringBuilder value = new StringBuilder()
-                .append(Version.DORIS_BUILD_VERSION_MAJOR).append(0)
-                .append(Version.DORIS_BUILD_VERSION_MINOR).append(0)
-                .append(Version.DORIS_BUILD_VERSION_PATCH);
-        if (Version.DORIS_BUILD_VERSION_HOTFIX > 0) {
-            value.append(0).append(Version.DORIS_BUILD_VERSION_HOTFIX);
-        }
+        Assertions.assertEquals(26000100L, MetricRepo.encodeVersionMetricValue(26, 0, 1, 0));
+        Assertions.assertEquals(26000101L, MetricRepo.encodeVersionMetricValue(26, 0, 1, 1));
+        Assertions.assertTrue(MetricRepo.encodeVersionMetricValue(4, 99, 0, 0)
+                < MetricRepo.encodeVersionMetricValue(5, 0, 0, 0));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> MetricRepo.encodeVersionMetricValue(26, 0, 100, 0));
+
+        long value = MetricRepo.encodeVersionMetricValue(Version.DORIS_BUILD_VERSION_MAJOR,
+                Version.DORIS_BUILD_VERSION_MINOR, Version.DORIS_BUILD_VERSION_PATCH,
+                Version.DORIS_BUILD_VERSION_HOTFIX);
 
         String expectedSample = "doris_fe_version{version=\"" + Version.DORIS_BUILD_VERSION
                 + "\", major=\"" + Version.DORIS_BUILD_VERSION_MAJOR
@@ -88,7 +91,7 @@ public class MetricsTest {
                 + "\", patch=\"" + Version.DORIS_BUILD_VERSION_PATCH
                 + "\", hotfix=\"" + Version.DORIS_BUILD_VERSION_HOTFIX
                 + "\", short_hash=\"" + Version.DORIS_BUILD_SHORT_HASH
-                + "\"} " + Long.parseLong(value.toString());
+                + "\"} " + value;
 
         String metricResult = getPrometheusMetrics();
         Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_version gauge"), metricResult);

@@ -81,7 +81,6 @@ AsyncResultWriter::QueuedBlock AsyncResultWriter::_get_block_from_queue() {
     DCHECK(!_data_queue.empty());
     auto queued = std::move(_data_queue.front());
     _data_queue.pop_front();
-    _queue_admission.begin_processing();
     DCHECK(_dependency);
     if (_data_queue_is_available()) {
         _dependency->set_ready();
@@ -90,17 +89,6 @@ AsyncResultWriter::QueuedBlock AsyncResultWriter::_get_block_from_queue() {
         _memory_used_counter->update(-queued.block->allocated_bytes());
     }
     return queued;
-}
-
-void AsyncResultWriter::_notify_block_processed() {
-    if (!_queue_admission.waits_for_processing()) {
-        return;
-    }
-    std::lock_guard l(_m);
-    _queue_admission.finish_processing();
-    if (_data_queue_is_available()) {
-        _dependency->set_ready();
-    }
 }
 
 Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* operator_profile) {
@@ -196,7 +184,6 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* opera
         if (!status.ok()) [[unlikely]] {
             thread_context()->thread_mem_tracker_mgr->shrink_reserved();
             std::unique_lock l(_m);
-            _queue_admission.finish_processing();
             _writer_status.update(status);
             if (_is_finished() || _data_queue_is_available()) {
                 _dependency->set_ready();
@@ -211,11 +198,9 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* opera
             // Some writers finalize buffered data in close(), so the EOS reservation must outlive
             // both finish() and close() instead of being released between the two callbacks.
             reservation_held_for_finalize = true;
-            _notify_block_processed();
             break;
         }
         thread_context()->thread_mem_tracker_mgr->shrink_reserved();
-        _notify_block_processed();
     }
 
     {
@@ -225,7 +210,6 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* opera
                 _memory_used_counter->update(-queued.block->allocated_bytes());
             }
         });
-        _queue_admission.finish_processing();
         _dependency->set_ready();
     }
 

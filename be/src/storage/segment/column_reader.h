@@ -87,6 +87,11 @@ class RowRanges;
 class ZoneMapIndexReader;
 class IndexIterator;
 class ColumnMetaAccessor;
+class ColumnReadAhead;
+class SegmentReadAhead;
+struct ColumnReadAheadContext;
+struct ColumnReadAheadRequest;
+struct ColumnReadAheadPlan;
 
 struct ColumnReaderOptions {
     // whether verify checksum when read page
@@ -154,7 +159,7 @@ public:
                                    uint64_t num_rows, const io::FileReaderSPtr& file_reader,
                                    std::shared_ptr<ColumnReader>* reader);
 
-    enum DictEncodingType { UNKNOWN_DICT_ENCODING, PARTIAL_DICT_ENCODING, ALL_DICT_ENCODING };
+    enum class DictEncodingType { UNKNOWN_DICT_ENCODING, PARTIAL_DICT_ENCODING, ALL_DICT_ENCODING };
 
     static bool is_compaction_reader_type(ReaderType type);
 
@@ -414,6 +419,12 @@ public:
 
     virtual Status init_prefetcher(const SegmentPrefetchParams& params) { return Status::OK(); }
 
+    /// Appends data-page plans for scalar columns. Complex iterators keep the original read path.
+    virtual Status prepare_read_ahead(const ColumnReadAheadRequest& request,
+                                      std::vector<ColumnReadAheadPlan>* plans) {
+        return Status::OK();
+    }
+
     virtual void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) {}
@@ -597,6 +608,8 @@ public:
     bool is_all_dict_encoding() const override { return _is_all_dict_encoding; }
 
     Status init_prefetcher(const SegmentPrefetchParams& params) override;
+    Status prepare_read_ahead(const ColumnReadAheadRequest& request,
+                              std::vector<ColumnReadAheadPlan>* plans) override;
     void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) override;
@@ -611,6 +624,11 @@ private:
     Status _load_next_page(bool* eos);
     Status _read_data_page(const OrdinalPageIndexIterator& iter);
     Status _read_dict_data();
+    // Materialize compressed data-page ranges from the ordinal index once. Later calls must keep
+    // the same window options and scan direction for this iterator.
+    Status _init_read_ahead(const ColumnReadAheadRequest& request);
+    // Run before PageIO so both buffered reads and Page Cache hits advance the scan window.
+    void _advance_read_ahead(int32_t page_index);
     void _trigger_prefetch_if_eligible(ordinal_t ord);
 
     std::shared_ptr<ColumnReader> _reader = nullptr;
@@ -642,6 +660,9 @@ private:
     bool _enable_prefetch {false};
     std::unique_ptr<SegmentPrefetcher> _prefetcher;
     std::shared_ptr<io::CachedRemoteFileReader> _cached_remote_file_reader {nullptr};
+    std::unique_ptr<ColumnReadAhead> _read_ahead;
+    // Set only for page-driven scans; owned by the enclosing SegmentIterator.
+    SegmentReadAhead* _read_ahead_segment {nullptr};
 };
 
 class EmptyFileColumnIterator final : public ColumnIterator {
@@ -924,6 +945,49 @@ private:
     std::unique_ptr<ColumnIterator> _item_iterator;
 
     Status _seek_by_offsets(ordinal_t ord);
+};
+
+// Reads COMPACTION_ROWID_COL by synthesizing the physical source RowLocation during compaction.
+// Its payload is RowLocation, distinct from the query-facing GlobalRowLoacationV2 format.
+class CompactionRowIdColumnIterator : public ColumnIterator {
+public:
+    CompactionRowIdColumnIterator(RowsetId rowset_id, uint32_t segment_id)
+            : _rowset_id(rowset_id), _segment_id(segment_id) {}
+
+    Status seek_to_ordinal(ordinal_t ord_idx) override {
+        _current_rowid = cast_set<uint32_t>(ord_idx);
+        return Status::OK();
+    }
+
+    Status next_batch(size_t* n, MutableColumnPtr& dst) {
+        bool has_null;
+        return next_batch(n, dst, &has_null);
+    }
+
+    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override {
+        for (size_t i = 0; i < *n; ++i) {
+            RowLocation location(_rowset_id, _segment_id, cast_set<uint32_t>(_current_rowid + i));
+            dst->insert_data(reinterpret_cast<const char*>(&location), sizeof(RowLocation));
+        }
+        _current_rowid += *n;
+        return Status::OK();
+    }
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          MutableColumnPtr& dst) override {
+        for (size_t i = 0; i < count; ++i) {
+            RowLocation location(_rowset_id, _segment_id, cast_set<uint32_t>(rowids[i]));
+            dst->insert_data(reinterpret_cast<const char*>(&location), sizeof(RowLocation));
+        }
+        return Status::OK();
+    }
+
+    ordinal_t get_current_ordinal() const override { return _current_rowid; }
+
+private:
+    uint32_t _current_rowid = 0;
+    RowsetId _rowset_id;
+    uint32_t _segment_id = 0;
 };
 
 class RowIdColumnIteratorV2 : public ColumnIterator {

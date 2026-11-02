@@ -22,21 +22,21 @@
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/index/inverted/snii/reader/snii_segment_reader.h"
-#include "storage/iterator/olap_data_convertor.h"
 #include "storage/merger.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/pending_rowset_helper.h"
 #include "storage/rowset/rowset_fwd.h"
 #include "storage/segment/segment.h"
+#include "storage/storage_layout.h"
 #include "storage/tablet/tablet_fwd.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace segment_v2 {
 class IndexColumnWriter;
 class IndexFileWriter;
 } // namespace segment_v2
-class OlapBlockDataConvertor;
 
 class StorageEngine;
 class RowsetWriter;
@@ -106,23 +106,30 @@ private:
                                            const SniiIndexRewritePlan& plan,
                                            IndexFileWriter* index_file_writer,
                                            const segment_v2::SegmentSharedPtr& seg_ptr);
-    // Feeds one converted block into the SNII build writers. group_writer_signs
-    // parallels plan.build_columns: entry g holds the writer signs fed from
-    // convertor ordinal g.
+    // Feeds one block into the SNII build writers. group_writer_signs parallels
+    // plan.build_columns: entry g holds the writer signs fed from block position g.
     Status _write_snii_index_data(
             const TabletSchemaSPtr& tablet_schema, Block* block, const SniiIndexRewritePlan& plan,
             const std::vector<std::vector<std::pair<int64_t, int64_t>>>& group_writer_signs);
     Status _write_inverted_index_data(TabletSchemaSPtr tablet_schema, int64_t segment_idx,
                                       Block* block);
-    Status _add_data(const std::string& column_name,
-                     const std::pair<int64_t, int64_t>& index_writer_sign,
-                     const TabletColumn* column, const uint8_t** ptr, size_t num_rows);
-    Status _add_nullable(const std::string& column_name,
-                         const std::pair<int64_t, int64_t>& index_writer_sign,
-                         const TabletColumn* column, const uint8_t* null_map, const uint8_t** ptr,
-                         size_t num_rows);
+    // Feeds a block's column to one index writer; `nested` has its Nullable
+    // wrapper peeled and `null_map` is that wrapper's map, or nullptr. CHAR reads
+    // back without its padding: `pad_char` feeds it padded to its length, as on
+    // load, which the CLucene and BKD writers expect; SNII cuts a value at its
+    // first '\0' and is fed CHAR as it reads back.
+    Status _add_column(const std::pair<int64_t, int64_t>& index_writer_sign,
+                       const TabletColumn& column, const IColumn& nested, const uint8_t* null_map,
+                       size_t num_rows, bool pad_char);
+    // ARRAY columns: the item column plus the per-row element counts, rebuilt
+    // once for every writer on the column with a per-block base of 0 -- the
+    // writers only read differences.
+    Status _add_array(const std::vector<std::pair<int64_t, int64_t>>& index_writer_signs,
+                      const TabletColumn* column, const IColumn& array_column, size_t num_rows);
 
 private:
+    // Storage cells of the scalar batches and array rows fed to the index writers.
+    StorageBuffers _buffers;
     StorageEngine& _engine;
     TabletSharedPtr _tablet;
     std::vector<TColumn> _columns;
@@ -134,7 +141,6 @@ private:
     std::vector<RowsetSharedPtr> _output_rowsets;
     std::vector<PendingRowsetGuard> _pending_rs_guards;
     std::vector<RowsetReaderSharedPtr> _input_rs_readers;
-    std::unique_ptr<OlapBlockDataConvertor> _olap_data_convertor;
     // "<segment_id, index_id>" -> IndexColumnWriter
     std::unordered_map<std::pair<int64_t, int64_t>, std::unique_ptr<segment_v2::IndexColumnWriter>>
             _index_column_writers;

@@ -115,7 +115,7 @@ Status assemble_mixed_strings(ColumnPtr concrete, std::span<const size_t> concre
 }
 
 template <typename ValueAt, typename CastAllConcrete>
-Status cast_values_to_string(FunctionContext* context, size_t rows, ForcedNulls forced_nulls,
+Status cast_values_to_string(RuntimeState* state, size_t rows, ForcedNulls forced_nulls,
                              ValueAt&& value_at, CastAllConcrete&& cast_all_concrete,
                              ColumnPtr* output) {
     DorisVector<size_t> concrete_rows;
@@ -138,7 +138,7 @@ Status cast_values_to_string(FunctionContext* context, size_t rows, ForcedNulls 
     auto fallback_strings = ColumnString::create();
     auto fallback_nulls = ColumnUInt8::create();
     VectorBufferWriter writer(*fallback_strings);
-    const VariantJsonFormatOptions options = variant_json_options(context);
+    const VariantJsonFormatOptions options = variant_json_options(state);
     for (size_t row : fallback_rows) {
         const bool forced = !forced_nulls.empty() && forced_nulls[row] != 0;
         append_fallback_string(forced ? VariantRef {} : value_at(row), forced, options, &writer,
@@ -155,14 +155,14 @@ Status cast_values_to_string(FunctionContext* context, size_t rows, ForcedNulls 
         concrete_values.push_back(value_at(row));
     }
     ColumnPtr concrete;
-    RETURN_IF_ERROR(cast_variant_refs_to_scalar(context, concrete_values,
+    RETURN_IF_ERROR(cast_variant_refs_to_scalar(state, concrete_values,
                                                 std::make_shared<DataTypeString>(), {}, &concrete));
     return assemble_mixed_strings(std::move(concrete), concrete_rows, std::move(fallback_strings),
                                   std::move(fallback_nulls), fallback_rows, rows, output);
 }
 
-Status cast_typed_variant_to_string(FunctionContext* context, const ColumnVariantV2& source,
-                                    size_t rows, ForcedNulls forced_nulls, ColumnPtr* output) {
+Status cast_typed_variant_to_string(RuntimeState* state, const ColumnVariantV2& source, size_t rows,
+                                    ForcedNulls forced_nulls, ColumnPtr* output) {
     const auto& typed = assert_cast<const ColumnNullable&>(source.typed_column());
     const PrimitiveType source_primitive = source.typed_type()->get_primitive_type();
     const NullMap& inner_nulls = typed.get_null_map_data();
@@ -180,12 +180,12 @@ Status cast_typed_variant_to_string(FunctionContext* context, const ColumnVarian
         }
     }
     if (concrete_rows == rows) {
-        return cast_variant_values_to_scalar(context, source, string_type, rows, {}, output);
+        return cast_variant_values_to_scalar(state, source, string_type, rows, {}, output);
     }
 
     ColumnPtr concrete;
     if (concrete_rows != 0) {
-        RETURN_IF_ERROR(cast_variant_values_to_scalar(context, source, string_type, rows,
+        RETURN_IF_ERROR(cast_variant_values_to_scalar(state, source, string_type, rows,
                                                       forced_nulls, &concrete));
     }
     const ColumnNullable* converted =
@@ -219,33 +219,32 @@ Status cast_typed_variant_to_string(FunctionContext* context, const ColumnVarian
 
 } // namespace
 
-Status cast_variant_refs_to_string(FunctionContext* context, std::span<const VariantRef> values,
+Status cast_variant_refs_to_string(RuntimeState* state, std::span<const VariantRef> values,
                                    ForcedNulls forced_nulls, ColumnPtr* output) {
     if (!forced_nulls.empty() && forced_nulls.size() != values.size()) {
         return Status::InternalError("Variant V2 STRING CAST null map has {} rows, expected {}",
                                      forced_nulls.size(), values.size());
     }
     return cast_values_to_string(
-            context, values.size(), forced_nulls, [&](size_t row) { return values[row]; },
+            state, values.size(), forced_nulls, [&](size_t row) { return values[row]; },
             [&](const DataTypePtr& string_type, ColumnPtr* result) {
-                return cast_variant_refs_to_scalar(context, values, string_type, {}, result);
+                return cast_variant_refs_to_scalar(state, values, string_type, {}, result);
             },
             output);
 }
 
-Status cast_variant_to_string(FunctionContext* context, const ColumnVariantV2& source, size_t rows,
+Status cast_variant_to_string(RuntimeState* state, const ColumnVariantV2& source, size_t rows,
                               ForcedNulls forced_nulls, ColumnPtr* output) {
     if (source.size() != rows || (!forced_nulls.empty() && forced_nulls.size() != rows)) {
         return Status::InternalError("Invalid Variant V2 input shape for STRING CAST");
     }
     if (source.is_typed()) {
-        return cast_typed_variant_to_string(context, source, rows, forced_nulls, output);
+        return cast_typed_variant_to_string(state, source, rows, forced_nulls, output);
     }
     return cast_values_to_string(
-            context, rows, forced_nulls, [&](size_t row) { return source.get_value_ref(row); },
+            state, rows, forced_nulls, [&](size_t row) { return source.get_value_ref(row); },
             [&](const DataTypePtr& string_type, ColumnPtr* result) {
-                return cast_encoded_variant_to_scalar(context, source, string_type, rows, {},
-                                                      result);
+                return cast_encoded_variant_to_scalar(state, source, string_type, rows, {}, result);
             },
             output);
 }

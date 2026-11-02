@@ -1124,7 +1124,10 @@ struct StNumPoints {
     }
 };
 
+void register_function_h3(SimpleFunctionFactory& factory);
+
 void register_function_geo(SimpleFunctionFactory& factory) {
+    register_function_h3(factory);
     factory.register_function<GeoFunction<StPoint>>();
     factory.register_function<GeoFunction<StAsText<StAsWktName>>>();
     factory.register_function<GeoFunction<StAsText<StAsTextName>>>();

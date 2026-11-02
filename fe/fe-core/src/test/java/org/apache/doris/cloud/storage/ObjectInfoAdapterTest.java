@@ -83,4 +83,20 @@ public class ObjectInfoAdapterTest {
         Assertions.assertEquals("stage-sk", oss.getSecretKey());
         Assertions.assertEquals("stage-token", oss.getSessionToken());
     }
+
+    @Test
+    public void testNativeGcpStagePreservesCredentialSourceAndImpersonation() {
+        Cloud.ObjectStoreInfoPB.Builder info = Cloud.ObjectStoreInfoPB.newBuilder()
+                .setProvider(Cloud.ObjectStoreInfoPB.Provider.GCP)
+                .setEndpoint("storage.googleapis.com").setRegion("us-east1").setBucket("stage-bucket");
+        info.getCredentialBuilder().getGcpCredentialBuilder()
+                .setCredentialProviderType(Cloud.GcpCredentialPB.CredentialProviderType.COMPUTE_ENGINE)
+                .setImpersonationServiceAccount("target@test.iam.gserviceaccount.com");
+        StorageAdapter adapter = ObjectInfoAdapter.toStorageAdapter(new ObjectInfo(info.build()));
+        Assertions.assertEquals("COMPUTE_ENGINE",
+                adapter.getBackendConfigProperties().get("gs.credential_provider_type"));
+        Assertions.assertEquals("target@test.iam.gserviceaccount.com",
+                adapter.getBackendConfigProperties().get("gs.impersonation_service_account"));
+        Assertions.assertFalse(adapter.getBackendConfigProperties().containsKey("AWS_CREDENTIALS_PROVIDER_TYPE"));
+    }
 }

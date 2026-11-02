@@ -271,20 +271,20 @@ TEST_F(TestTablet, delete_expired_stale_rowset) {
     _tablet.reset();
 }
 
-TEST_F(TestTablet, RowBinlogCompactionDoesNotDependOnCcrSwitch) {
+TEST_F(TestTablet, ChangelogCompactionDoesNotDependOnCcrSwitch) {
     const bool old_enable_feature_binlog = config::enable_feature_binlog;
     Defer restore_config {[&]() { config::enable_feature_binlog = old_enable_feature_binlog; }};
     config::enable_feature_binlog = false;
 
     ASSERT_TRUE(_data_dir->init().ok());
-    _tablet_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_ROW_BINLOG);
-    TabletSharedPtr row_binlog_tablet(
+    _tablet_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_CHANGELOG);
+    TabletSharedPtr changelog_tablet(
             new Tablet(*k_engine, _tablet_meta, _data_dir.get(), CUMULATIVE_SIZE_BASED_POLICY));
-    ASSERT_TRUE(row_binlog_tablet->init().ok());
-    EXPECT_TRUE(row_binlog_tablet->can_do_compaction(_data_dir->path_hash(),
-                                                     CompactionType::CUMU_BINLOG_COMPACTION));
-    EXPECT_FALSE(row_binlog_tablet->can_do_compaction(_data_dir->path_hash(),
-                                                      CompactionType::CUMULATIVE_COMPACTION));
+    ASSERT_TRUE(changelog_tablet->init().ok());
+    EXPECT_TRUE(changelog_tablet->can_do_compaction(_data_dir->path_hash(),
+                                                    CompactionType::CHANGELOG_COMPACTION));
+    EXPECT_FALSE(changelog_tablet->can_do_compaction(_data_dir->path_hash(),
+                                                     CompactionType::CUMULATIVE_COMPACTION));
 
     auto data_tablet_meta = new_tablet_meta(TTabletSchema());
     data_tablet_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_DATA);
@@ -292,7 +292,7 @@ TEST_F(TestTablet, RowBinlogCompactionDoesNotDependOnCcrSwitch) {
             new Tablet(*k_engine, data_tablet_meta, _data_dir.get(), CUMULATIVE_SIZE_BASED_POLICY));
     ASSERT_TRUE(data_tablet->init().ok());
     EXPECT_FALSE(data_tablet->can_do_compaction(_data_dir->path_hash(),
-                                                CompactionType::CUMU_BINLOG_COMPACTION));
+                                                CompactionType::CHANGELOG_COMPACTION));
 }
 
 TEST_F(TestTablet, pad_rowset) {

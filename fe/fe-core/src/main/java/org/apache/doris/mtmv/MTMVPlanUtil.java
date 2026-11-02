@@ -23,7 +23,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.BinlogConfig;
+import org.apache.doris.catalog.ChangelogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
@@ -215,23 +215,34 @@ public class MTMVPlanUtil {
         ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
         ctx.getState().reset();
         ctx.getState().setInternal(true);
-        ctx.setThreadLocalInfo();
-        ctx.getSessionVariable().setAffectQueryResultInPlanSessionVariables(sessionVariables);
-        // Debug session variable should be disabled when refreshed
-        ctx.getSessionVariable().skipDeletePredicate = false;
-        ctx.getSessionVariable().skipDeleteBitmap = false;
-        ctx.getSessionVariable().skipDeleteSign = false;
-        ctx.getSessionVariable().skipStorageEngineMerge = false;
-        ctx.getSessionVariable().showHiddenColumns = false;
-        ctx.getSessionVariable().allowModifyMaterializedViewData = true;
-        ctx.getSessionVariable().setDisableNereidsRules(
-                disableRules.stream().map(RuleType::name).collect(Collectors.joining(",")));
-        ctx.setStartTime();
-        if (parentContext != null) {
-            ctx.changeDefaultCatalog(parentContext.getDefaultCatalog());
-            ctx.setDatabase(parentContext.getDatabase());
+        ConnectContext previousContext = ConnectContext.get();
+        try {
+            ctx.setThreadLocalInfo();
+            ctx.getSessionVariable().setAffectQueryResultInPlanSessionVariables(sessionVariables);
+            // Debug session variable should be disabled when refreshed
+            ctx.getSessionVariable().skipDeletePredicate = false;
+            ctx.getSessionVariable().skipDeleteBitmap = false;
+            ctx.getSessionVariable().skipDeleteSign = false;
+            ctx.getSessionVariable().skipStorageEngineMerge = false;
+            ctx.getSessionVariable().showHiddenColumns = false;
+            ctx.getSessionVariable().allowModifyMaterializedViewData = true;
+            ctx.getSessionVariable().setDisableNereidsRules(
+                    disableRules.stream().map(RuleType::name).collect(Collectors.joining(",")));
+            ctx.setStartTime();
+            if (parentContext != null) {
+                ctx.changeDefaultCatalog(parentContext.getDefaultCatalog());
+                ctx.setDatabase(parentContext.getDatabase());
+            }
+            return ctx;
+        } catch (RuntimeException | Error e) {
+            // Initialization can fail before MTMVCache takes responsibility for context cleanup.
+            if (previousContext == null) {
+                ConnectContext.remove();
+            } else {
+                previousContext.setThreadLocalInfo();
+            }
+            throw e;
         }
-        return ctx;
     }
 
 
@@ -601,6 +612,12 @@ public class MTMVPlanUtil {
                 statementContext.invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
             }
             Plan analyzedPlan = planner.getAnalyzedPlan();
+            Set<TableIf> baseTables = Sets.newHashSet(statementContext.getTables().values());
+            Set<TableIf> oneLevelTables = Sets.newHashSet(statementContext.getOneLevelTables().values());
+            MTMVRelation relation = generateMTMVRelation(baseTables, oneLevelTables);
+            // Row TTL injects a time-dependent internal predicate. Report the unsupported table policy before
+            // the generic nondeterministic-expression check so the policy cannot be bypassed by MV properties.
+            MTMVUtil.checkNoRowTtlBaseTable(relation);
             // can not contain Random function
             analyzeExpressions(analyzedPlan, mvProperties);
             // can not contain partition or tablets
@@ -610,8 +627,6 @@ public class MTMVPlanUtil {
                 throw new AnalysisException("can not contain invalid expression");
             }
 
-            Set<TableIf> baseTables = Sets.newHashSet(statementContext.getTables().values());
-            Set<TableIf> oneLevelTables = Sets.newHashSet(statementContext.getOneLevelTables().values());
             for (TableIf table : baseTables) {
                 if (table.isTemporary()) {
                     throw new AnalysisException("do not support create materialized view on temporary table ("
@@ -624,7 +639,6 @@ public class MTMVPlanUtil {
                     }
                 }
             }
-            MTMVRelation relation = generateMTMVRelation(baseTables, oneLevelTables);
             MTMVPartitionInfo mvPartitionInfo = mvPartitionDefinition.analyzeAndTransferToMTMVPartitionInfo(planner);
             List<ColumnDefinition> columns = MTMVPlanUtil.generateColumns(plan, ctx, mvPartitionInfo.getPartitionCol(),
                     (distribution == null || CollectionUtils.isEmpty(distribution.getCols())) ? Sets.newHashSet()
@@ -640,13 +654,13 @@ public class MTMVPlanUtil {
                     ivmRewriteResult.orElse(null));
             properties = CreateTableInfo.addOlapHiddenColumns(columns, mvKeysType,
                     finalEnableMergeOnWrite, properties, false);
-            // A row-binlog table carries hidden columns on top of the OLAP ones above, added by
+            // A changelog table carries hidden columns on top of the OLAP ones above, added by
             // InternalCatalog#createOlapTable just before the table is built. The analyzed list has
             // to carry them too: an MTMV re-validates its schema against it whenever a base table
             // changes (MTMVPlanUtil#checkColumnIfChange), and a column missing here is
             // indistinguishable from a real schema change. Idempotent, so the table still gets one.
-            CreateTableInfo.addRowBinlogHiddenColumns(columns, mvKeysType, finalEnableMergeOnWrite,
-                    BinlogConfig.fromProperties(properties));
+            CreateTableInfo.addChangelogHiddenColumns(columns, mvKeysType, finalEnableMergeOnWrite,
+                    ChangelogConfig.fromProperties(properties));
             // analyze column
             Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
             keysSet.addAll(keys);

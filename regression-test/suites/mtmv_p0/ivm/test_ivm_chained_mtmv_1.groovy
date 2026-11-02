@@ -32,8 +32,7 @@ suite("test_ivm_chained_mtmv_1") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -46,16 +45,15 @@ suite("test_ivm_chained_mtmv_1") {
             (3, 30, 'ccc');
     """
 
-    // 3. Create MV1 on base table (IVM, with binlog enabled)
+    // 3. Create MV1 on base table (IVM, with changelog enabled)
     sql """
         CREATE MATERIALIZED VIEW mv_ivm_chained_1
         BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES (
             'replication_num' = '1',
-            'binlog.enable' = 'true',
-            'binlog.format' = 'ROW',
-            'binlog.need_historical_value' = 'true'
+            'changelog.enable' = 'true',
+            'changelog.need_historical_value' = 'true'
         )
         AS SELECT * FROM t_ivm_chained_base;
     """
@@ -67,7 +65,7 @@ suite("test_ivm_chained_mtmv_1") {
 
     order_qt_mv1_after_first_refresh """SELECT k1, v1, v2 FROM mv_ivm_chained_1"""
 
-    // 5. Create MV2 on MV1 (chained — MV2's base table is MV1 which has binlog enabled)
+    // 5. Create MV2 on MV1 (chained — MV2's base table is MV1 which has changelog enabled)
     sql """
         CREATE MATERIALIZED VIEW mv_ivm_chained_2
         BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
@@ -92,7 +90,7 @@ suite("test_ivm_chained_mtmv_1") {
     """
 
     // 8. Incremental refresh MV1, then incremental refresh MV2 — verify row-id columns
-    //    now flow through row binlog and chained IVM can reuse upstream row ids.
+    //    now flow through changelog and chained IVM can reuse upstream row ids.
     sql """REFRESH MATERIALIZED VIEW mv_ivm_chained_1 INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("mv_ivm_chained_1")
 

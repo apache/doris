@@ -28,10 +28,13 @@ import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
 import org.apache.doris.mysql.ProxyMysqlChannel;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.ConnectScheduler;
+import org.apache.doris.qe.PreparedStatementContext;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.protocol.RecordingMysqlChannel;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TResultSinkType;
@@ -137,6 +140,8 @@ public class MysqlProtocolAdapterTest {
         MysqlProtocolAdapter protocol = MysqlProtocolAdapter.of(ctx);
         ctx.setConnectAttributes(ImmutableMap.of("_client_name", "MySQL Connector/J", "_client_version", "8.2.0"));
 
+        // An older FE cannot handle FETCH. Preserve its legacy framing during an upgrade.
+        protocol.restoreFromForwardRequest(ctx, new TMasterOpRequest());
         // Only a COM_STMT_EXECUTE that asked for a cursor ...
         Assertions.assertFalse(protocol.clientConsumesCursorMetadataTerminator(ctx));
         ctx.setCursorFetchRequested(true);
@@ -149,6 +154,42 @@ public class MysqlProtocolAdapterTest {
         // The flag belongs to the statement: it is gone once the statement is over.
         ctx.clear();
         Assertions.assertFalse(ctx.isCursorFetchRequested());
+    }
+
+    @Test
+    public void testEmptyCursorOpeningAndForwardedCursorState() throws Exception {
+        RecordingMysqlChannel channel = new RecordingMysqlChannel();
+        channel.setClientDeprecatedEOF();
+        ConnectContext ctx = new ConnectContext(new MysqlProtocolAdapter(channel));
+        MysqlProtocolAdapter protocol = MysqlProtocolAdapter.of(ctx);
+        ctx.setCursorFetchRequested(true);
+        ctx.getState().setEof();
+        PreparedStatementContext prepared = new PreparedStatementContext(
+                null, ctx, new StatementContext(), "7");
+        protocol.beginPreparedExecute(prepared);
+        protocol.finishCommand(ctx, null);
+        Assertions.assertTrue(prepared.isEmptyCursorOpen());
+        Assertions.assertEquals(MysqlServerStatusFlag.SERVER_STATUS_CURSOR_EXISTS,
+                ctx.getState().serverStatus & MysqlServerStatusFlag.SERVER_STATUS_CURSOR_EXISTS);
+
+        // A row, including a binary NULL row, means this is an ordinary result, not an empty cursor.
+        protocol.beforeStatement(ctx);
+        ctx.getState().reset();
+        ctx.getState().setEof();
+        protocol.beginPreparedExecute(prepared);
+        ctx.getResultSender().sendRow(ByteBuffer.wrap(new byte[] {0, 4}));
+        protocol.finishCommand(ctx, null);
+        Assertions.assertFalse(prepared.isEmptyCursorOpen());
+
+        // The master sends CURSOR_EXISTS in its final packet; retain it on the client-facing FE.
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(executor.hasForwardedToMaster()).thenReturn(true);
+        Mockito.when(executor.getOutputPacket()).thenReturn(ByteBuffer.wrap(
+                new byte[] {(byte) 0xFE, 0, 0, 0x40, 0, 0, 0, 0}));
+        protocol.finishCommand(ctx, executor);
+        Assertions.assertTrue(prepared.isEmptyCursorOpen());
+        protocol.beginPreparedExecute(prepared);
+        Assertions.assertFalse(prepared.isEmptyCursorOpen());
     }
 
     @Test
@@ -329,6 +370,7 @@ public class MysqlProtocolAdapterTest {
         Assertions.assertEquals(flags, request.getMysqlCapability());
         Assertions.assertArrayEquals(new byte[] {7, 0, 0, 0}, request.getPrepareExecuteBuffer());
         Assertions.assertTrue(request.isCursorFetchRequested());
+        Assertions.assertTrue(request.isEmptyCursorSupported());
 
         // The master's proxy context takes them over.
         ConnectContext proxy = ConnectContext.forMysqlProxy("session-1");

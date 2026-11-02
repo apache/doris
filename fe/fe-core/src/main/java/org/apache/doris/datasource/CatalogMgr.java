@@ -65,6 +65,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -111,12 +112,12 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     }
 
     private void addCatalog(CatalogIf catalog) {
-        nameToCatalog.put(catalog.getName(), catalog);
-        idToCatalog.put(catalog.getId(), catalog);
         String catalogName = catalog.getName();
         if (!catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             ((ExternalCatalog) catalog).resetToUninitialized(false);
         }
+        nameToCatalog.put(catalog.getName(), catalog);
+        idToCatalog.put(catalog.getId(), catalog);
     }
 
     private RemovedCatalog removeCatalog(long catalogId) {
@@ -125,35 +126,85 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             return null;
         }
         String catalogName = catalog.getName();
-        Env.getCurrentEnv().getRefreshManager().removeFromRefreshMap(catalogId);
+        // Authorization lookups do not take our lock. Unpublish first so they cannot install another
+        // controller after onClose() detaches the old one. Keep the write lock until retirement finishes.
         idToCatalog.remove(catalogId);
         nameToCatalog.remove(catalogName);
+        catalog.onClose();
+        Env.getCurrentEnv().getRefreshManager().removeFromRefreshMap(catalogId);
         return new RemovedCatalog(catalog, catalogName);
+    }
+
+    @FunctionalInterface
+    private interface CatalogRemovalAction<E extends Exception> {
+        void run(CatalogIf catalog) throws E;
+    }
+
+    private <E extends Exception> void withCatalogForRemoval(Supplier<CatalogIf> lookup,
+            CatalogRemovalAction<E> action) throws E {
+        while (true) {
+            CatalogIf snapshot = lookup.get();
+            if (snapshot == null) {
+                writeLock();
+                try {
+                    if (lookup.get() != null) {
+                        continue;
+                    }
+                    action.run(null);
+                    return;
+                } finally {
+                    writeUnlock();
+                }
+            }
+            // Initialization can perform remote IO under this monitor. Wait without the manager lock.
+            synchronized (snapshot) {
+                // Other mutations still acquire manager -> catalog. Never wait for the manager while
+                // holding the catalog monitor: release it and join the manager's wait queue instead.
+                if (lock.writeLock().tryLock()) {
+                    try {
+                        if (lookup.get() != snapshot) {
+                            continue;
+                        }
+                        action.run(snapshot);
+                        return;
+                    } finally {
+                        writeUnlock();
+                    }
+                }
+            }
+            writeLock();
+            writeUnlock();
+        }
+    }
+
+    /** Records removal even if journaling fails, and cleans up after both locks have been released. */
+    private final class CatalogRemoval implements AutoCloseable {
+        private RemovedCatalog removed;
+
+        @Override
+        public void close() {
+            cleanupRemovedCatalog(removed);
+        }
     }
 
     private void cleanupRemovedCatalog(RemovedCatalog removedCatalog) {
         if (removedCatalog == null) {
             return;
         }
-        CatalogIf catalog = removedCatalog.catalog;
-        catalog.onClose();
         Env.getCurrentEnv().getConstraintManager().dropCatalogConstraints(removedCatalog.catalogName);
         ConnectContext ctx = ConnectContext.get();
         if (ctx != null) {
             ctx.removeLastDBOfCatalog(removedCatalog.catalogName);
         }
-        Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalog(removedCatalog.catalogId);
         Env.getCurrentEnv().getQueryStats().clear(removedCatalog.catalogId);
         LOG.info("Removed catalog with id {}, name {}", removedCatalog.catalogId, removedCatalog.catalogName);
     }
 
     private static final class RemovedCatalog {
-        private final CatalogIf catalog;
         private final String catalogName;
         private final long catalogId;
 
         private RemovedCatalog(CatalogIf catalog, String catalogName) {
-            this.catalog = catalog;
             this.catalogName = catalogName;
             this.catalogId = catalog.getId();
         }
@@ -291,6 +342,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (catalog instanceof ExternalCatalog) {
             try {
                 ((ExternalCatalog) catalog).checkProperties();
+                ((ExternalCatalog) catalog).checkSubmittedMetaCacheProperties(
+                        catalog.getProperties(), cmd.getProperties());
             } catch (DdlException | RuntimeException e) {
                 catalog.onCreateFailure();
                 throw e;
@@ -303,95 +356,58 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
      * Remove the catalog instance by name and write the meta log.
      */
     public void dropCatalog(String catalogName, boolean ifExists) throws UserException {
-        RemovedCatalog removedCatalog = null;
-        writeLock();
-        try {
-            if (ifExists && !nameToCatalog.containsKey(catalogName)) {
-                LOG.warn("Non catalog {} is found.", catalogName);
-                return;
+        try (CatalogRemoval removal = new CatalogRemoval()) {
+            this.<UserException>withCatalogForRemoval(() -> nameToCatalog.get(catalogName), catalog -> {
+                if (catalog == null) {
+                    if (ifExists) {
+                        LOG.warn("Non catalog {} is found.", catalogName);
+                        return;
+                    }
+                    throw new DdlException("No catalog found with name: " + catalogName);
+                }
+                CatalogLog log = new CatalogLog();
+                log.setCatalogId(catalog.getId());
+                removal.removed = removeCatalog(log.getCatalogId());
+                Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_DROP_CATALOG, log);
+            });
+            if (removal.removed != null) {
+                LOG.info("finished to drop catalog {}:{}", removal.removed.catalogName, removal.removed.catalogId);
             }
-            CatalogIf<DatabaseIf<TableIf>> catalog = nameToCatalog.get(catalogName);
-            if (catalog == null) {
-                throw new DdlException("No catalog found with name: " + catalogName);
-            }
-            CatalogLog log = new CatalogLog();
-            log.setCatalogId(catalog.getId());
-            removedCatalog = removeCatalog(log.getCatalogId());
-            Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_DROP_CATALOG, log);
-        } finally {
-            writeUnlock();
-            cleanupRemovedCatalog(removedCatalog);
         }
-        if (removedCatalog == null) {
-            return;
-        }
-        LOG.info("finished to drop catalog {}:{}", removedCatalog.catalogName, removedCatalog.catalogId);
     }
 
     /**
      * Modify the catalog name into a new one and write the meta log.
      */
     public void alterCatalogName(String catalogName, String newCatalogName) throws UserException {
-        RemovedCatalog removedCatalog = null;
-        String lastDb = null;
-        writeLock();
-        try {
-            CatalogIf catalog = nameToCatalog.get(catalogName);
-            if (catalog == null) {
-                throw new DdlException("No catalog found with name: " + catalogName);
-            }
-            if (nameToCatalog.get(newCatalogName) != null) {
-                throw new DdlException("Catalog with name " + newCatalogName + " already exist");
-            }
-            CatalogLog log = new CatalogLog();
-            log.setCatalogId(catalog.getId());
-            log.setNewCatalogName(newCatalogName);
-            ConnectContext ctx = ConnectContext.get();
-            if (ctx != null) {
-                lastDb = ctx.getLastDBOfCatalog(catalogName);
-            }
-            removedCatalog = removeCatalog(log.getCatalogId());
-        } finally {
-            writeUnlock();
-        }
-        cleanupRemovedCatalog(removedCatalog);
-        if (removedCatalog == null) {
-            throw new IllegalStateException("No catalog found with name: " + catalogName);
-        }
-
-        writeLock();
-        try {
-            DdlException ddlException = null;
-            CatalogIf catalog = removedCatalog.catalog;
-            if (nameToCatalog.get(newCatalogName) != null) {
-                addCatalog(catalog);
-                ddlException = new DdlException("Catalog with name " + newCatalogName + " already exist");
-            } else {
-                catalog.modifyCatalogName(newCatalogName);
-                addCatalog(catalog);
-
+        try (CatalogRemoval removal = new CatalogRemoval()) {
+            this.<UserException>withCatalogForRemoval(() -> nameToCatalog.get(catalogName), catalog -> {
+                if (catalog == null) {
+                    throw new DdlException("No catalog found with name: " + catalogName);
+                }
+                if (nameToCatalog.get(newCatalogName) != null) {
+                    throw new DdlException("Catalog with name " + newCatalogName + " already exist");
+                }
+                ConnectContext ctx = ConnectContext.get();
+                String lastDb = ctx == null ? null : ctx.getLastDBOfCatalog(catalogName);
+                removal.removed = renameCatalog(catalog, newCatalogName);
                 CatalogLog log = new CatalogLog();
                 log.setCatalogId(catalog.getId());
                 log.setNewCatalogName(newCatalogName);
                 Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_NAME, log);
-            }
-
-            ConnectContext ctx = ConnectContext.get();
-            if (ctx != null) {
-                if (lastDb != null) {
-                    if (ddlException == null) {
-                        ctx.addLastDBOfCatalog(newCatalogName, lastDb);
-                    } else {
-                        ctx.addLastDBOfCatalog(catalogName, lastDb);
-                    }
+                if (ctx != null && lastDb != null) {
+                    ctx.addLastDBOfCatalog(newCatalogName, lastDb);
                 }
-            }
-            if (ddlException != null) {
-                throw ddlException;
-            }
-        } finally {
-            writeUnlock();
+            });
         }
+    }
+
+    // Caller holds the catalog write lock. Only local state changes and resource detachment run here.
+    private RemovedCatalog renameCatalog(CatalogIf catalog, String newCatalogName) {
+        RemovedCatalog removedCatalog = removeCatalog(catalog.getId());
+        catalog.modifyCatalogName(newCatalogName);
+        addCatalog(catalog);
+        return removedCatalog;
     }
 
     /**
@@ -447,11 +463,17 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 }
             }
 
+            if (catalog instanceof ExternalCatalog) {
+                Map<String, String> effectiveProperties = Maps.newHashMap(oldProperties);
+                effectiveProperties.putAll(updates);
+                ((ExternalCatalog) catalog).checkSubmittedMetaCacheProperties(effectiveProperties, updates);
+            }
+
             // Filesystem binding may read Hadoop XML files. Validate the detached snapshot before
             // taking the global catalog write lock, then retry if another ALTER changed the snapshot.
             boolean validatedWithoutMutation = catalog instanceof ExternalCatalog
                     && validateCatalogPropsBeforeUpdate((ExternalCatalog) catalog, oldProperties, updates);
-            Runnable accessControllerCleanup = () -> { };
+            Runnable resourceCleanup = () -> { };
             writeLock();
             try {
                 if (nameToCatalog.get(catalogName) != catalog
@@ -461,13 +483,13 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 CatalogLog log = new CatalogLog();
                 log.setCatalogId(catalog.getId());
                 log.setNewProps(updates);
-                accessControllerCleanup = applyAlterCatalogProps(
+                resourceCleanup = applyAlterCatalogProps(
                         log, oldProperties, false, true, validatedWithoutMutation);
                 Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
                 return;
             } finally {
                 writeUnlock();
-                accessControllerCleanup.run();
+                resourceCleanup.run();
             }
         }
     }
@@ -665,40 +687,24 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
      * Reply for drop catalog event.
      */
     public void replayDropCatalog(CatalogLog log) {
-        RemovedCatalog removedCatalog;
-        writeLock();
-        try {
-            removedCatalog = removeCatalog(log.getCatalogId());
-        } finally {
-            writeUnlock();
+        try (CatalogRemoval removal = new CatalogRemoval()) {
+            withCatalogForRemoval(() -> idToCatalog.get(log.getCatalogId()), catalog -> {
+                removal.removed = removeCatalog(log.getCatalogId());
+            });
         }
-        cleanupRemovedCatalog(removedCatalog);
     }
 
     /**
      * Reply for alter catalog name event.
      */
     public void replayAlterCatalogName(CatalogLog log) {
-        RemovedCatalog removedCatalog;
-        writeLock();
-        try {
-            removedCatalog = removeCatalog(log.getCatalogId());
-        } finally {
-            writeUnlock();
-        }
-        cleanupRemovedCatalog(removedCatalog);
-
-        if (removedCatalog == null) {
-            throw new IllegalStateException("No catalog found with id: " + log.getCatalogId());
-        }
-        CatalogIf catalog = removedCatalog.catalog;
-        catalog.modifyCatalogName(log.getNewCatalogName());
-
-        writeLock();
-        try {
-            addCatalog(catalog);
-        } finally {
-            writeUnlock();
+        try (CatalogRemoval removal = new CatalogRemoval()) {
+            withCatalogForRemoval(() -> idToCatalog.get(log.getCatalogId()), catalog -> {
+                if (catalog == null) {
+                    throw new IllegalStateException("No catalog found with id: " + log.getCatalogId());
+                }
+                removal.removed = renameCatalog(catalog, log.getNewCatalogName());
+            });
         }
     }
 
@@ -734,18 +740,18 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
      */
     public void replayAlterCatalogProps(CatalogLog log, Map<String, String> oldProperties, boolean isReplay)
             throws DdlException {
-        Runnable accessControllerCleanup = () -> { };
+        Runnable resourceCleanup = () -> { };
         writeLock();
         try {
-            accessControllerCleanup = applyAlterCatalogProps(log, oldProperties, isReplay, true, false);
+            resourceCleanup = applyAlterCatalogProps(log, oldProperties, isReplay, true, false);
         } finally {
             writeUnlock();
-            accessControllerCleanup.run();
+            resourceCleanup.run();
         }
     }
 
     private Runnable applyAlterCatalogProps(CatalogLog log, Map<String, String> oldProperties,
-            boolean isReplay, boolean deferAccessControllerCleanup, boolean validatedWithoutMutation)
+            boolean isReplay, boolean deferResourceCleanup, boolean validatedWithoutMutation)
             throws DdlException {
         CatalogIf catalog = idToCatalog.get(log.getCatalogId());
         if (catalog instanceof ExternalCatalog) {
@@ -782,9 +788,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 Integer[] sec = {metadataRefreshIntervalSec, metadataRefreshIntervalSec};
                 Env.getCurrentEnv().getRefreshManager().addToRefreshMap(catalogId, sec);
             }
-            if (deferAccessControllerCleanup) {
+            if (deferResourceCleanup) {
                 return ((ExternalCatalog) catalog)
-                        .modifyCatalogPropsWithDeferredAccessControllerCleanup(log.getNewProps());
+                        .modifyCatalogPropsWithDeferredResourceCleanup(log.getNewProps());
             }
         }
         catalog.modifyCatalogProps(log.getNewProps());

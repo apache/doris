@@ -106,8 +106,32 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
             order by id
         """
 
+        // variant_smoke is append-only. This table has duplicate primary-key writes, so the scan
+        // must preserve Paimon's deduplicate semantics while materializing Variant values.
+        order_qt_primary_key_full_variant """
+            select id, payload
+            from variant_primary_key_smoke
+            order by id
+        """
+
+        order_qt_primary_key_deduplicate """
+            select id,
+                   cast(payload['name'] as string),
+                   cast(payload['version'] as int),
+                   cast(payload['active'] as boolean)
+            from variant_primary_key_smoke
+            order by id
+        """
+
+        order_qt_primary_key_subpath_predicate """
+            select id, cast(payload['name'] as string)
+            from variant_primary_key_smoke
+            where cast(payload['version'] as int) = 2
+            order by id
+        """
+
         // Exercise Paimon's metadata-marked read type against a physically shredded file. The
-        // variant_smoke cases above read unshredded files.
+        // unshredded and primary-key cases above cover Paimon's raw-value and merge fallbacks.
         order_qt_jni_shredded_projection """
             select id,
                    cast(payload['name'] as string),
@@ -351,9 +375,7 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
             sql """drop materialized view if exists ${mvName}"""
         }
 
-        // Native Parquet requires V2 regardless of the session preference, so it remains readable
-        // when the session preference is disabled. A forced JNI scan now has a real Variant carrier;
-        // unlike native Parquet, it cannot override the explicit V2 setting.
+        // The deprecated scanner option must not change native or JNI Variant reads.
         sql """set force_jni_scanner = false"""
         def nativeVariantQuery = "select * from ${catalogName}.test_paimon_spark.variant_smoke order by id"
         def nativeVariantRows = sql(nativeVariantQuery)
@@ -361,10 +383,7 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
         assertEquals(nativeVariantRows, sql(nativeVariantQuery))
 
         sql """set force_jni_scanner = true"""
-        test {
-            sql nativeVariantQuery
-            exception "External VARIANT columns require FileScannerV2"
-        }
+        assertEquals(nativeVariantRows, sql(nativeVariantQuery))
         sql """set enable_file_scanner_v2 = true"""
         assertEquals(nativeVariantRows, sql(nativeVariantQuery))
     }

@@ -61,19 +61,23 @@ protected:
         ASSERT_TRUE(KuromojiDictionaryBuilder::write_matrix(_dir + "/matrix.bin", m).ok());
 
         CharDefInput cd;
-        cd.catmap.fill(CAT_DEFAULT);
-        cd.catmap[0x6771] = CAT_KANJI; // U+6771
-        cd.catmap[0x4EAC] = CAT_KANJI; // U+4EAC
-        cd.catmap[0x5E9C] = CAT_KANJI; // U+5E9C  (not in lexicon -> unknown)
-        cd.defs.assign(CAT_CLASS_COUNT, CategoryDef {0, 0, 0});
-        cd.defs[CAT_KANJI] = CategoryDef {0, 0, 0};   // invoke=0, group=0 -> single-char unknown
-        cd.defs[CAT_DEFAULT] = CategoryDef {1, 1, 0}; // invoke=1, group=1
+        cd.catmap.fill(CharCategory::CAT_DEFAULT);
+        cd.catmap[0x6771] = CharCategory::CAT_KANJI; // U+6771
+        cd.catmap[0x4EAC] = CharCategory::CAT_KANJI; // U+4EAC
+        cd.catmap[0x5E9C] = CharCategory::CAT_KANJI; // U+5E9C  (not in lexicon -> unknown)
+        cd.defs.assign(static_cast<size_t>(CharCategory::CAT_CLASS_COUNT), CategoryDef {0, 0, 0});
+        cd.defs[static_cast<size_t>(CharCategory::CAT_KANJI)] =
+                CategoryDef {0, 0, 0}; // invoke=0, group=0 -> single-char unknown
+        cd.defs[static_cast<size_t>(CharCategory::CAT_DEFAULT)] =
+                CategoryDef {1, 1, 0}; // invoke=1, group=1
         ASSERT_TRUE(KuromojiDictionaryBuilder::write_chardef(_dir + "/chardef.bin", cd).ok());
 
         UnkDictInput unk;
-        unk.per_category.resize(CAT_CLASS_COUNT);
-        unk.per_category[CAT_KANJI].push_back({1, 1, 5000, "unknown,kanji"});
-        unk.per_category[CAT_DEFAULT].push_back({1, 1, 5000, "unknown,default"});
+        unk.per_category.resize(static_cast<size_t>(CharCategory::CAT_CLASS_COUNT));
+        unk.per_category[static_cast<size_t>(CharCategory::CAT_KANJI)].push_back(
+                {1, 1, 5000, "unknown,kanji"});
+        unk.per_category[static_cast<size_t>(CharCategory::CAT_DEFAULT)].push_back(
+                {1, 1, 5000, "unknown,default"});
         ASSERT_TRUE(KuromojiDictionaryBuilder::write_unkdict(_dir + "/unkdict.bin", unk).ok());
 
         ASSERT_TRUE(KuromojiDictionary::load(_dir, &_dict).ok());
@@ -182,21 +186,23 @@ protected:
         ASSERT_TRUE(KuromojiDictionaryBuilder::write_matrix(_dir + "/matrix.bin", m).ok());
 
         CharDefInput cd;
-        cd.catmap.fill(CAT_DEFAULT);
-        cd.catmap[0x6771] = CAT_KANJI; // U+6771
-        cd.catmap[0x4EAC] = CAT_KANJI; // U+4EAC
-        cd.catmap[0x90FD] = CAT_KANJI; // U+90FD
-        cd.catmap[0x5C71] = CAT_KANJI; // U+5C71
-        cd.catmap[0x5DDD] = CAT_KANJI; // U+5DDD
-        cd.defs.assign(CAT_CLASS_COUNT, CategoryDef {0, 0, 0});
-        cd.defs[CAT_KANJI] = CategoryDef {0, 0, 0};
-        cd.defs[CAT_DEFAULT] = CategoryDef {1, 1, 0};
+        cd.catmap.fill(CharCategory::CAT_DEFAULT);
+        cd.catmap[0x6771] = CharCategory::CAT_KANJI; // U+6771
+        cd.catmap[0x4EAC] = CharCategory::CAT_KANJI; // U+4EAC
+        cd.catmap[0x90FD] = CharCategory::CAT_KANJI; // U+90FD
+        cd.catmap[0x5C71] = CharCategory::CAT_KANJI; // U+5C71
+        cd.catmap[0x5DDD] = CharCategory::CAT_KANJI; // U+5DDD
+        cd.defs.assign(static_cast<size_t>(CharCategory::CAT_CLASS_COUNT), CategoryDef {0, 0, 0});
+        cd.defs[static_cast<size_t>(CharCategory::CAT_KANJI)] = CategoryDef {0, 0, 0};
+        cd.defs[static_cast<size_t>(CharCategory::CAT_DEFAULT)] = CategoryDef {1, 1, 0};
         ASSERT_TRUE(KuromojiDictionaryBuilder::write_chardef(_dir + "/chardef.bin", cd).ok());
 
         UnkDictInput unk;
-        unk.per_category.resize(CAT_CLASS_COUNT);
-        unk.per_category[CAT_KANJI].push_back({1, 1, 5000, "unknown"});
-        unk.per_category[CAT_DEFAULT].push_back({1, 1, 5000, "unknown"});
+        unk.per_category.resize(static_cast<size_t>(CharCategory::CAT_CLASS_COUNT));
+        unk.per_category[static_cast<size_t>(CharCategory::CAT_KANJI)].push_back(
+                {1, 1, 5000, "unknown"});
+        unk.per_category[static_cast<size_t>(CharCategory::CAT_DEFAULT)].push_back(
+                {1, 1, 5000, "unknown"});
         ASSERT_TRUE(KuromojiDictionaryBuilder::write_unkdict(_dir + "/unkdict.bin", unk).ok());
 
         ASSERT_TRUE(KuromojiDictionary::load(_dir, &_dict).ok());

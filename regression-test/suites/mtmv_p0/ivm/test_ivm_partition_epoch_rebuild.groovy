@@ -22,7 +22,7 @@ import static java.util.concurrent.TimeUnit.SECONDS
 /**
  * What a refresh does with the partitions a metadata-only base-table change left behind.
  *
- * <p>A partition drop / truncate / replace / recover emits no row binlog, so an MV partition that read those
+ * <p>A partition drop / truncate / replace / recover emits no changelog, so an MV partition that read those
  * rows keeps them forever unless it is rebuilt. Such a partition carries a raised requirement, which sends
  * it to a rebuild, while the partitions nothing changed for keep catching up incrementally -- and the
  * request does not have to ask for it: a strict INCREMENTAL refresh rebuilds what the requirement names and
@@ -97,9 +97,8 @@ suite("test_ivm_partition_epoch_rebuild") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
         )
     """
     sql """ALTER TABLE ${baseTable} ADD PARTITION p202601 VALUES [('2026-01-01'), ('2026-02-01'))"""
@@ -132,7 +131,7 @@ suite("test_ivm_partition_epoch_rebuild") {
     qt_incremental_task taskQuery(taskId)
     order_qt_incremental_mv """SELECT order_id, dt, amount FROM ${mvName}"""
 
-    // A truncated base partition emits no binlog, so the MV partition that read it keeps rows that no
+    // A truncated base partition emits no changelog, so the MV partition that read it keeps rows that no
     // longer exist anywhere. It is rebuilt; the row inserted into the other partition in the same window
     // arrives incrementally, and the refresh says it rebuilt one partition the request did not ask for.
     sql """TRUNCATE TABLE ${baseTable} PARTITION(p202601)"""

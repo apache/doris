@@ -39,8 +39,7 @@ suite("test_ivm_fallback_stream_multi_batch_dup", "nonConcurrent") {
         DISTRIBUTED BY HASH(order_id) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW"
+            "changelog.enable" = "true"
         );
     """
 
@@ -58,8 +57,7 @@ suite("test_ivm_fallback_stream_multi_batch_dup", "nonConcurrent") {
         DISTRIBUTED BY HASH(cid) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW"
+            "changelog.enable" = "true"
         );
     """
 

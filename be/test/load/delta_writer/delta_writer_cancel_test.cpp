@@ -48,7 +48,7 @@
 
 namespace doris {
 
-// Exercise both local/cloud writers, with and without row binlog, without tablet I/O.
+// Exercise both local/cloud writers, with and without changelog, without tablet I/O.
 class DeltaWriterCancelTest : public testing::TestWithParam<int> {
 protected:
     void SetUp() override {
@@ -68,15 +68,15 @@ protected:
         data_req.load_cancel_status = _load_channel->_cancel_status;
         WriteRequest group_req = data_req;
         group_req.write_req_type = WriteRequestType::GROUP;
-        WriteRequest binlog_req = data_req;
-        binlog_req.write_req_type = WriteRequestType::ROW_BINLOG;
+        WriteRequest changelog_req = data_req;
+        changelog_req.write_req_type = WriteRequestType::CHANGELOG;
         if (is_cloud()) {
             _cloud_engine = std::make_unique<CloudStorageEngine>(EngineOptions {});
             if (is_group()) {
                 _writer = std::make_unique<CloudDeltaWriter>(*_cloud_engine, group_req, data_req,
-                                                             binlog_req, nullptr, UniqueId {});
+                                                             changelog_req, nullptr, UniqueId {});
                 auto* group = static_cast<CloudGroupRowsetBuilder*>(_writer->_rowset_builder.get());
-                _builders = {group->data_builder(), group->row_binlog_builder()};
+                _builders = {group->data_builder(), group->changelog_builder()};
             } else {
                 _writer = std::make_unique<CloudDeltaWriter>(*_cloud_engine, data_req, nullptr,
                                                              UniqueId {});
@@ -85,9 +85,9 @@ protected:
             _local_engine = std::make_unique<StorageEngine>(EngineOptions {});
             if (is_group()) {
                 _writer = std::make_unique<DeltaWriter>(*_local_engine, group_req, data_req,
-                                                        binlog_req, nullptr, UniqueId {});
+                                                        changelog_req, nullptr, UniqueId {});
                 auto* group = static_cast<GroupRowsetBuilder*>(_writer->_rowset_builder.get());
-                _builders = {group->txn_rowset_builder(), group->row_binlog_builder()};
+                _builders = {group->txn_rowset_builder(), group->changelog_builder()};
             } else {
                 _writer = std::make_unique<DeltaWriter>(*_local_engine, data_req, nullptr,
                                                         UniqueId {});
@@ -145,7 +145,7 @@ protected:
         if (is_group()) {
             auto group_writer = std::make_shared<GroupRowsetWriter>();
             group_writer->set_data_writer(_builders[0]->rowset_writer());
-            group_writer->set_row_binlog_writer(_builders[1]->rowset_writer());
+            group_writer->set_changelog_writer(_builders[1]->rowset_writer());
             _writer->_rowset_builder->_rowset_writer = std::move(group_writer);
         }
     }

@@ -29,6 +29,7 @@ import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.PlanChecker;
 
@@ -366,6 +367,44 @@ public class PredicatesTest extends SqlTestBase {
     }
 
     @Test
+    public void testCoveredAggregateResidualIsRejectedWhenAggregateOutputIsRecomputed() {
+        // The view groups by id and has count(*) > 10; the scalar query aggregates the view rows again.
+        PredicateRewriteContext rewriteContext = buildRewriteContext(
+                "select id, count(*) as c from T1 group by id having count(*) > 10",
+                "select count(*) from T1 where id = 5 having count(*) > 10");
+
+        PredicateCompensation compensationCandidates = Predicates.collectCompensationCandidates(
+                rewriteContext.queryStructInfo,
+                rewriteContext.viewStructInfo,
+                rewriteContext.viewToQuerySlotMapping,
+                rewriteContext.comparisonResult,
+                rewriteContext.queryContext);
+        Assertions.assertNotNull(compensationCandidates);
+        Assertions.assertTrue(compensationCandidates.getResiduals().keySet().stream()
+                .anyMatch(expression -> expression.containsType(AggregateFunction.class)));
+
+        // The view enforced count(*) > 10 over the values it stored, while the roll up produces a new
+        // value, zero when the filter matches no view row. The covered residual can not be pruned, so the
+        // unsafe residual check refuses the rewrite.
+        Assertions.assertNull(compensatePredicates(rewriteContext, true));
+
+        // A rewrite which reads the stored values may prune the covered residual, the filter stays above a
+        // single aggregate output in both the query and the view.
+        PredicateCompensation valuePreservingCompensation = compensatePredicates(rewriteContext, false);
+        Assertions.assertNotNull(valuePreservingCompensation);
+        Assertions.assertTrue(valuePreservingCompensation.getResiduals().isEmpty());
+    }
+
+    @Test
+    public void testCoveredWindowResidualIsRejectedWhenWindowOutputIsRecomputed() {
+        String sql = "select id, score from T1 qualify sum(score) over (partition by id) > 10";
+        PredicateRewriteContext rewriteContext = buildRewriteContext(sql, sql);
+
+        // The same condition over a window output which the query computes again is not covered by the view.
+        Assertions.assertNull(compensatePredicates(rewriteContext, true));
+    }
+
+    @Test
     public void testQueryOnlyWindowResidualIsRejectedAsCompensation() {
         PredicateRewriteContext rewriteContext = buildRewriteContext(
                 "select id, score from T1",
@@ -507,12 +546,18 @@ public class PredicatesTest extends SqlTestBase {
     }
 
     private PredicateCompensation compensatePredicates(PredicateRewriteContext rewriteContext) {
+        return compensatePredicates(rewriteContext, false);
+    }
+
+    private PredicateCompensation compensatePredicates(PredicateRewriteContext rewriteContext,
+            boolean aggregateOutputRecomputed) {
         return Predicates.compensatePredicates(
                 rewriteContext.queryStructInfo,
                 rewriteContext.viewStructInfo,
                 rewriteContext.viewToQuerySlotMapping,
                 rewriteContext.comparisonResult,
-                rewriteContext.queryContext);
+                rewriteContext.queryContext,
+                aggregateOutputRecomputed);
     }
 
     private void assertResidualCompensationSucceeds(String viewPredicate, String queryPredicate,

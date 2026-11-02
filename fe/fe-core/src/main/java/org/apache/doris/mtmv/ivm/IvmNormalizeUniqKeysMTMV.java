@@ -131,7 +131,7 @@ import java.util.stream.Collectors;
  *   <li>MOW (UNIQUE_KEYS + merge-on-write): hash(uk columns) → deterministic
  *   <li>Excluded AGG_KEYS table: hash(agg key columns) → deterministic
  *   <li>DUP_KEYS: row lsn column (__DORIS_ROW_LSN_COL__) is the identity key → deterministic.
- *       DUP tables with row binlog always carry this hidden column at create time, so it is
+ *       DUP tables with changelog always carry this hidden column at create time, so it is
  *       treated like a UNIQUE table's key columns.
  *   <li>Other key types: not supported, throws.
  * </ul>
@@ -285,7 +285,7 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
     public Plan visitLogicalOlapScan(LogicalOlapScan scan, NormalizeContext context) {
         OlapTable table = scan.getTable();
         ScanRowId scanRowId = computeScanRowIdAndKeys(table, scan);
-        IvmUtil.validateBinlogEnabled(excludedTriggerTables, scan);
+        IvmUtil.validateChangelogEnabled(excludedTriggerTables, scan);
         Alias rowIdAlias = new Alias(scanRowId.mergedRowIdExpr, Column.IVM_ROW_ID_COL);
         rewriteResult.addRowId(rowIdAlias.toSlot(), scanRowId.deterministic);
         // When the scanned table's only key column is its own IVM row-id (a cascading MV
@@ -1278,10 +1278,10 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
      * Computes the scan-level IVM row-id expression, the remaining identity key slots, and
      * whether the row-id is deterministic:
      * - UNIQUE_KEYS (MOW or excluded): (row-id over the uk slots, uk slots minus row-id, true)
-     * - DUP_KEYS with row binlog: (row-id over the row lsn column, [row lsn slot], true).
+     * - DUP_KEYS with changelog: (row-id over the row lsn column, [row lsn slot], true).
      *   The row lsn slot is the identity key, exactly like a UNIQUE table's key columns.
-     * - DUP_KEYS without row binlog: (uuid_numeric(), empty, false) — legacy fallback;
-     *   validateBinlogEnabled rejects such tables unless they are excluded trigger tables.
+     * - DUP_KEYS without changelog: (uuid_numeric(), empty, false) — legacy fallback;
+     *   validateChangelogEnabled rejects such tables unless they are excluded trigger tables.
      * - Excluded AGG_KEYS: (row-id over the agg-key slots, agg-key slots, true)
      * - Other key types: throws IvmException
      *
@@ -1306,14 +1306,14 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
             }
             keyColNames = baseSchemaKeyColNames(table);
         } else if (keysType == KeysType.DUP_KEYS) {
-            if (!table.getBinlogConfig().isEnableForStreaming()) {
-                // A DUP table without row binlog has no __DORIS_ROW_LSN_COL__ column.
-                // Keep the legacy non-deterministic uuid row-id; validateBinlogEnabled
+            if (!table.hasChangelog()) {
+                // A DUP table without changelog has no __DORIS_ROW_LSN_COL__ column.
+                // Keep the legacy non-deterministic uuid row-id; validateChangelogEnabled
                 // rejects such tables right after this.
                 return new ScanRowId(new UuidNumeric(), ImmutableList.of(), false, Optional.empty());
             }
-            // DUP_KEYS with row binlog always carries __DORIS_ROW_LSN_COL__ at create time
-            // (binlog is not yet released, so no legacy table lacks it). The row lsn is the
+            // DUP_KEYS with changelog always carries __DORIS_ROW_LSN_COL__ at create time
+            // (changelog is not yet released, so no legacy table lacks it). The row lsn is the
             // stable per-row identity of a detail table, equivalent to a UNIQUE table's key
             // columns, and flows through the same deterministic row-id construction.
             keyColNames = ImmutableSet.of(Column.ROW_LSN_COL);

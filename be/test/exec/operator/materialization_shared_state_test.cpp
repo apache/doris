@@ -24,6 +24,7 @@
 #include "exec/operator/materialization_opertor.h"
 #include "exec/pipeline/dependency.h"
 #include "runtime/runtime_profile.h"
+#include "testutil/mock/mock_runtime_state.h"
 
 namespace doris {
 
@@ -35,6 +36,46 @@ void add_request_row(PRequestBlockDesc* request_block_desc, uint32_t row_id, uin
 }
 
 } // namespace
+
+TEST(MaterializationOperatorTimingTest, PushDoesNotDuplicateFrameworkExecTimer) {
+    ObjectPool pool;
+    MockRuntimeState state;
+    // Even an empty-block timing test needs a real tuple: OperatorXBase builds
+    // a RowDescriptor from the plan and requires non-empty, resolvable tuple IDs.
+    TTupleDescriptor tuple;
+    tuple.__set_id(0);
+    TDescriptorTable thrift_desc;
+    thrift_desc.__set_tupleDescriptors({tuple});
+    DescriptorTbl* desc_tbl = nullptr;
+    ASSERT_TRUE(DescriptorTbl::create(&pool, thrift_desc, &desc_tbl).ok());
+    state.set_desc_tbl(desc_tbl);
+
+    TPlanNode node;
+    node.__set_node_id(0);
+    node.__set_node_type(TPlanNodeType::MATERIALIZATION_NODE);
+    node.__set_row_tuples({0});
+    node.__set_nullable_tuples({false});
+    MaterializationOperator op(&pool, node, 0, state.desc_tbl());
+    RuntimeProfile profile("materialization_timing");
+    auto local = MaterializationLocalState::create_unique(&state, &op);
+    LocalStateInfo info {.parent_profile = &profile,
+                         .scan_ranges = {},
+                         .shared_state = nullptr,
+                         .shared_state_map = {},
+                         .task_idx = 0};
+    ASSERT_TRUE(local->init(&state, info).ok());
+    local->_materialization_state.rpc_struct_inited = true;
+    auto* timer = local->exec_time_counter();
+    state.resize_op_id_to_local_state(-1);
+    state.emplace_local_state(0, std::move(local));
+    Block block;
+    const auto before = timer->value();
+    // The framework owns ExecTime. Direct push calls must not contribute a second sample.
+    for (int i = 0; i < 100; ++i) {
+        ASSERT_TRUE(op.push(&state, &block, false).ok());
+    }
+    EXPECT_EQ(before, timer->value());
+}
 
 class MaterializationSharedStateTest : public testing::Test {
 protected:

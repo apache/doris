@@ -216,7 +216,7 @@ public class CollectRelation implements AnalysisRuleFactory {
             if (tableFrom == TableFrom.QUERY && unboundRelation.isPresent()) {
                 statementContext.registerExternalTableForPreload(table, unboundRelation.get().getTableSnapshot(),
                         Optional.ofNullable(unboundRelation.get().getScanParams()));
-                registerRowBinlogTtl(table, unboundRelation.get(), statementContext);
+                registerChangelogTtl(table, unboundRelation.get(), statementContext);
             }
             if (firstLevel) {
                 statementContext.getOneLevelTables().put(tableQualifier, table);
@@ -324,30 +324,30 @@ public class CollectRelation implements AnalysisRuleFactory {
         statementContext.getAndCacheTable(tableQualifier, tableFrom, unboundRelation);
     }
 
-    private void registerRowBinlogTtl(TableIf table, UnboundRelation relation,
+    private void registerChangelogTtl(TableIf table, UnboundRelation relation,
             StatementContext statementContext) {
         if (table instanceof OlapTable) {
             TableScanParams scanParams = relation.getScanParams();
             // IVM creates stream scans during analysis, after the collector has visited ordinary base scans.
-            // Full refresh can also reconstruct a non-PCT table at its stream snapshot using binlog.
-            boolean ivmReadsBinlog = statementContext.getIvmRewriteContext()
+            // Full refresh can also reconstruct a non-PCT table at its stream snapshot using changelog.
+            boolean ivmReadsChangelog = statementContext.getIvmRewriteContext()
                     .map(context -> context.getMode() == IvmRewriteContext.Mode.INCREMENTAL
                             || context.getMode() == IvmRewriteContext.Mode.FULL
                             && context.getFullRefreshNonPctReadMode().orElse(null) == StreamReadMode.SNAPSHOT)
                     .orElse(false);
-            if (((OlapTable) table).hasRowBinlogTtl()
-                    && (ivmReadsBinlog || scanParams != null && scanParams.incrementalRead()
+            if (((OlapTable) table).hasChangelogTtl()
+                    && (ivmReadsChangelog || scanParams != null && scanParams.incrementalRead()
                             || relation.getTableSnapshot().isPresent()
                             && ((OlapTable) table).isUniqKeyMergeOnWrite())) {
-                statementContext.requireRowBinlogReferenceTso();
+                statementContext.requireChangelogReferenceTso();
             }
             return;
         }
         if (table instanceof BaseTableStream
                 && (relation.getScanParams() == null || relation.getScanParams().isSnapshot())) {
             TableIf baseTable = ((BaseTableStream) table).getBaseTableNullable();
-            if (baseTable instanceof OlapTable && ((OlapTable) baseTable).hasRowBinlogTtl()) {
-                statementContext.requireRowBinlogReferenceTso();
+            if (baseTable instanceof OlapTable && ((OlapTable) baseTable).hasChangelogTtl()) {
+                statementContext.requireChangelogReferenceTso();
             }
         }
     }

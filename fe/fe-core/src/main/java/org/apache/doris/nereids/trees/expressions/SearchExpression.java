@@ -23,9 +23,11 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.SqlLiteralUtils;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * SearchExpression represents a search query with bound slot references.
@@ -33,11 +35,20 @@ import java.util.Objects;
  */
 public class SearchExpression extends Expression {
     private final String dslString;
+    // The second argument of search(dsl, options), kept so that toSql() reproduces the call.
+    private final Optional<String> optionsJson;
     private final SearchDslParser.QsPlan qsPlan;
 
     public SearchExpression(String dslString, SearchDslParser.QsPlan qsPlan, List<Expression> slotChildren) {
+        this(dslString, Optional.empty(), qsPlan, slotChildren);
+    }
+
+    /** Create a bound search expression that keeps the options argument of search(dsl, options). */
+    public SearchExpression(String dslString, Optional<String> optionsJson, SearchDslParser.QsPlan qsPlan,
+            List<Expression> slotChildren) {
         super(slotChildren);
         this.dslString = Objects.requireNonNull(dslString, "dslString cannot be null");
+        this.optionsJson = Objects.requireNonNull(optionsJson, "optionsJson cannot be null");
         this.qsPlan = Objects.requireNonNull(qsPlan, "qsPlan cannot be null");
     }
 
@@ -79,7 +90,7 @@ public class SearchExpression extends Expression {
                         "SearchExpression children must be SlotReference or ElementAt instances");
             }
         }
-        return new SearchExpression(dslString, qsPlan, children);
+        return new SearchExpression(dslString, optionsJson, qsPlan, children);
     }
 
     @Override
@@ -90,6 +101,13 @@ public class SearchExpression extends Expression {
     @Override
     public String toString() {
         return "search('" + dslString + "')";
+    }
+
+    @Override
+    protected String computeToSql() {
+        StringBuilder sql = new StringBuilder("search(").append(SqlLiteralUtils.quoteStringLiteral(dslString));
+        optionsJson.ifPresent(options -> sql.append(", ").append(SqlLiteralUtils.quoteStringLiteral(options)));
+        return sql.append(")").toString();
     }
 
     @Override
@@ -105,11 +123,12 @@ public class SearchExpression extends Expression {
         }
         SearchExpression that = (SearchExpression) o;
         return Objects.equals(dslString, that.dslString)
+                && Objects.equals(optionsJson, that.optionsJson)
                 && Objects.equals(qsPlan, that.qsPlan);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), dslString, qsPlan);
+        return Objects.hash(super.hashCode(), dslString, optionsJson, qsPlan);
     }
 }

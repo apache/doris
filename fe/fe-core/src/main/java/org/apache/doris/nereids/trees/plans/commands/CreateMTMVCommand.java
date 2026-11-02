@@ -93,7 +93,7 @@ public class CreateMTMVCommand extends Command implements ForwardWithSync {
     /**
      * If the MTMV enables IVM (explicit INCREMENTAL refresh), automatically
      * creates a stream for each base table so the delta rewrite path can
-     * read binlog data through the existing stream scan infrastructure.
+     * read changelog data through the existing stream scan infrastructure.
      */
     private void createIvmStreams(ConnectContext ctx,
             List<String> createdStreamNames) throws Exception {

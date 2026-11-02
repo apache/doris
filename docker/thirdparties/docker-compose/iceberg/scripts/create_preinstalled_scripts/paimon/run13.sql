@@ -70,3 +70,29 @@ alter table variant_mixed_su unset tblproperties (
 );
 insert into variant_mixed_su values
     (2, date '2026-07-01', parse_json('{"name":"bob","age":30,"layout":"unshredded"}'));
+
+-- Keep a primary-key table separate from variant_smoke so the regression covers both Paimon
+-- append-only reads and deduplicate merge reads with Variant payloads.
+drop table if exists variant_primary_key_smoke;
+create table variant_primary_key_smoke (
+    id BIGINT,
+    payload VARIANT
+) using paimon
+tblproperties (
+    'primary-key' = 'id',
+    'bucket' = '1',
+    'merge-engine' = 'deduplicate',
+    'file.format' = 'parquet'
+);
+
+insert into variant_primary_key_smoke values
+    (1, parse_json('{"name":"alice","version":1,"active":false,"profile":{"city":"beijing"}}')),
+    (2, parse_json('{"name":"bob","version":1,"tags":["old"]}')),
+    (3, parse_json('[10,"original"]'));
+
+-- A second snapshot updates two existing keys and inserts a new key. Doris should expose only the
+-- latest logical row for ids 1 and 2.
+insert into variant_primary_key_smoke values
+    (1, parse_json('{"name":"alice-updated","version":2,"active":true,"profile":{"city":"hangzhou"}}')),
+    (2, parse_json('{"name":"bob","version":2,"tags":["new","primary-key"]}')),
+    (4, parse_json('{"name":"carol","version":1,"active":true}'));

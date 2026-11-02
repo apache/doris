@@ -49,8 +49,8 @@ public class AddPartitionLikeOp extends AlterTableOp {
     }
 
     @Override
-    public boolean allowOpRowBinlog() {
-        // Adding partition like is allowed for row binlog tables.
+    public boolean allowOnChangelogTable() {
+        // Adding partition like is allowed for changelog tables.
         return true;
     }
 

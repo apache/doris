@@ -35,10 +35,10 @@ suite("test_cloud_table_stream_check_meta_orphan", "docker,check_meta") {
     options.recyclerNum = 1
     options.feConfigs += [
         "enable_table_stream=true",
-        "enable_feature_binlog=true",
+        "enable_feature_changelog=true",
     ]
     options.beConfigs += [
-        "enable_feature_binlog=true",
+        "enable_feature_changelog=true",
     ]
     options.msConfigs += [
         "http_token=${token}",

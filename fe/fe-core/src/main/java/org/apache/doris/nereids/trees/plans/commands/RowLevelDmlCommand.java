@@ -17,10 +17,14 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Status;
+import org.apache.doris.common.UserException;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.insert.BaseExternalTableInsertExecutor;
@@ -34,8 +38,12 @@ import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Throwables;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+import java.util.OptionalLong;
 import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Generic shell for row-level DML ({@code DELETE}/{@code UPDATE}/{@code MERGE INTO}) against external tables.
@@ -52,6 +60,8 @@ import java.util.concurrent.Callable;
  * own (those stay on the dispatching commands, preserving their per-op differences).</p>
  */
 public class RowLevelDmlCommand {
+
+    private static final Logger LOG = LogManager.getLogger(RowLevelDmlCommand.class);
 
     private final RowLevelDmlTransform transform;
     private final RowLevelDmlArgs args;
@@ -80,9 +90,36 @@ public class RowLevelDmlCommand {
             Callable<Void> execute = () -> {
                 LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(plan, ctx.getStatementContext());
                 NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
+                boolean tryMetadataDelete =
+                        op == RowLevelDmlOp.DELETE && args.getPartitions().isEmpty() && !args.isTempPart();
+                AtomicReference<Plan> metadataDeletePlan = new AtomicReference<>();
+                if (tryMetadataDelete) {
+                    captureAnalyzedPlan(ctx, metadataDeletePlan);
+                }
                 planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
                 stmtExecutor.setPlanner(planner);
                 stmtExecutor.checkBlockRules();
+
+                // Whole-file metadata delete (Spark/StarRocks-style): when the connector can satisfy the DELETE
+                // by dropping whole data files, it commits that remote metadata operation here and the
+                // row-level scan/sink never runs. Skipped for a PARTITION(...) scope, whose row restriction is
+                // carried by the scan rather than by the statement predicate the connector receives.
+                if (tryMetadataDelete) {
+                    // The ordinary row-level path replays this retained cancellation when the executor publishes
+                    // its coordinator; this branch has no coordinator, so do it explicitly before touching the
+                    // remote table.
+                    throwIfCancelled(stmtExecutor);
+                    OptionalLong metadataDeletedRows =
+                            transform.deleteUsingMetadata(ctx, args, metadataDeletePlan.get(),
+                                    () -> stmtExecutor.getPendingCancelReason() != null);
+                    if (metadataDeletedRows.isPresent()) {
+                        reportMetadataDelete(ctx, table, metadataDeletedRows.getAsLong());
+                        return null;
+                    }
+                    // The connector aborts before committing when the query was cancelled; surface the original
+                    // cancellation instead of falling back to a row-level write.
+                    throwIfCancelled(stmtExecutor);
+                }
 
                 PhysicalSink<?> physicalSink = transform.requirePhysicalSink(planner, op);
                 PlanFragment fragment = planner.getFragments().get(0);
@@ -179,5 +216,55 @@ public class RowLevelDmlCommand {
     private static boolean childIsEmptyRelation(PhysicalSink<?> sink) {
         return sink.children() != null && sink.children().size() == 1
                 && sink.child(0) instanceof PhysicalEmptyRelation;
+    }
+
+    /** Replays a cancellation retained by the executor before the statement may mutate the remote table. */
+    @VisibleForTesting
+    static void throwIfCancelled(StmtExecutor stmtExecutor) throws UserException {
+        Status cancelReason = stmtExecutor.getPendingCancelReason();
+        if (cancelReason != null) {
+            throw new UserException(cancelReason.getErrorMsg());
+        }
+    }
+
+    /**
+     * Registers the analyzed-plan capture the whole-file DELETE fast path consumes.
+     *
+     * <p>{@link NereidsPlanner} only retains {@code analyzedPlan} for {@code EXPLAIN ANALYZED}/{@code ALL} or when
+     * a {@link PlannerHook} records it; a plain DELETE leaves {@code getAnalyzedPlan()} null, which would make
+     * {@code extractCompletePredicate} return empty and silently disable the optimization. Keep the capture local
+     * to the metadata-delete attempt: publishing it through {@link NereidsPlanner#setAnalyzedPlan} would also
+     * activate the ordinary row-level conflict-filter consumer when this fast path falls back.</p>
+     */
+    @VisibleForTesting
+    static void captureAnalyzedPlan(ConnectContext ctx, AtomicReference<Plan> analyzedPlan) {
+        ctx.getStatementContext().addPlannerHook(new PlannerHook() {
+            @Override
+            public void afterAnalyze(NereidsPlanner planner) {
+                if (planner.getCascadesContext() != null
+                        && planner.getCascadesContext().getRewritePlan() != null) {
+                    analyzedPlan.set(planner.getCascadesContext().getRewritePlan());
+                }
+            }
+        });
+    }
+
+    /**
+     * Publishes the result of a whole-file metadata delete. The connector has already committed the remote
+     * delete as one atomic metadata operation, so no coordinator or connector transaction is involved here:
+     * mirror the surfaces the row-level path's {@code afterExec} feeds — {@link org.apache.doris.qe.QueryState}
+     * for the client's "Query OK, N rows affected" and the fe.audit.log return-rows counter — plus its
+     * post-commit refresh, which a remote commit needs so later queries do not read a stale cached snapshot.
+     */
+    private static void reportMetadataDelete(ConnectContext ctx, TableIf table, long deletedRows) {
+        ctx.getState().setOk(deletedRows, 0, "{'status':'COMMITTED'}");
+        ctx.updateReturnRows((int) deletedRows);
+        try {
+            Env.getCurrentEnv().getRefreshManager().refreshTableAfterExternalMutation((ExternalTable) table);
+        } catch (Exception e) {
+            // The remote delete is already durable: a refresh failure must not make the client retry it.
+            LOG.warn("Post-commit refresh failed for table {}. Data was committed successfully.",
+                    table.getName(), e);
+        }
     }
 }

@@ -605,6 +605,8 @@ set(CMAKE_CXX_FLAGS "${CXX_COMMON_FLAGS} ${CMAKE_CXX_FLAGS} ${EXTRA_CXX_FLAGS}")
 
 set(CMAKE_C_FLAGS ${CMAKE_CXX_FLAGS})
 
+add_subdirectory(${CONTRIB_PATH}/h3-cmake ${PROJECT_BINARY_DIR}/h3)
+
 # Set include dirs
 include_directories(
     ${CONTRIB_PATH}/apache-orc/c++/include
@@ -690,7 +692,7 @@ set(DORIS_LINK_LIBS
 )
 
 set(absl_DIR ${THIRDPARTY_DIR}/lib/cmake/absl)
-find_package(absl)
+find_package(absl CONFIG REQUIRED PATHS ${absl_DIR} NO_DEFAULT_PATH)
 
 # COMMON_THIRDPARTY are thirdparty dependencies that can run on all platform
 # When adding new dependencies, If you don’t know if it can run on all platforms,
@@ -720,6 +722,14 @@ add_definitions(-DUSE_DORIS_HADOOP_HDFS)
 if (absl_FOUND)
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}
+        # Public dependencies of the statically linked google-cloud-cpp common library.
+        absl::base
+        absl::memory
+        absl::optional
+        absl::span
+        absl::str_format
+        absl::time
+        absl::variant
         absl::cord
         absl::cord_internal
         absl::cordz_functions
@@ -768,6 +778,7 @@ set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ic)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-core-static)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-shared-static)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-contribs-lib)
+set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} h3)
 
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${WL_END_GROUP})
 
@@ -1193,6 +1204,10 @@ if (BUILD_BENCHMARK)
         # without tcmalloc (see the MALLOCLIB branch above).
         ${BASE_DIR}/test/testutil/gperftools_stubs.cpp)
     set_target_properties(benchmark_test PROPERTIES COMPILE_FLAGS "-fno-access-control")
+    if (DEFINED ENV{DORIS_BENCHMARK_HEADER} AND NOT "$ENV{DORIS_BENCHMARK_HEADER}" STREQUAL "")
+        target_compile_definitions(benchmark_test PRIVATE
+            DORIS_BENCHMARK_HEADER="$ENV{DORIS_BENCHMARK_HEADER}")
+    endif()
     target_link_libraries(benchmark_test ${DORIS_LINK_LIBS})
     message(STATUS "Add benchmark to build")
     install(TARGETS benchmark_test DESTINATION ${OUTPUT_DIR}/lib)

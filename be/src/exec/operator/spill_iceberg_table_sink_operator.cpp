@@ -22,6 +22,7 @@
 #include "exec/operator/iceberg_table_sink_operator.h"
 #include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
+#include "runtime/runtime_profile_counter_names.h"
 
 namespace doris {
 
@@ -45,15 +46,15 @@ SpillIcebergTableSinkLocalState::SpillIcebergTableSinkLocalState(DataSinkOperato
 
 Status SpillIcebergTableSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
-    // Admission samples async sorter state, so the next block must wait until the prior append publishes it.
-    _writer->wait_for_processing_before_next_sink();
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
 
     _init_spill_counters();
+    _writer = std::make_unique<VIcebergTableWriter>(info.tsink, _output_vexpr_ctxs);
+    _writer->defer_file_cleanup_until_outer_close();
 
-    auto& p = _parent->cast<Parent>();
-    RETURN_IF_ERROR(_writer->init_properties(p._pool, p._row_desc));
+    auto& parent = _parent->cast<Parent>();
+    RETURN_IF_ERROR(_writer->init_properties(parent._pool, parent._row_desc));
     return Status::OK();
 }
 
@@ -61,7 +62,74 @@ Status SpillIcebergTableSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_open_timer);
     RETURN_IF_ERROR(Base::open(state));
-    return Status::OK();
+
+    auto& parent = _parent->cast<Parent>();
+    _output_vexpr_ctxs.resize(parent._output_vexpr_ctxs.size());
+    for (size_t i = 0; i < _output_vexpr_ctxs.size(); ++i) {
+        RETURN_IF_ERROR(parent._output_vexpr_ctxs[i]->clone(state, _output_vexpr_ctxs[i]));
+    }
+    return _writer->open(state, operator_profile());
+}
+
+Status SpillIcebergTableSinkLocalState::sink(RuntimeState* state, Block* block, bool eos) {
+    if (block->rows() > 0) {
+        DCHECK(_writer);
+        RETURN_IF_ERROR(_writer->write(state, *block));
+    }
+    if (!eos) {
+        return Status::OK();
+    }
+
+    // Finish sorting and spill merging here so they run under the EOS reservation.
+    Status close_status = Status::OK();
+    if (state->is_cancelled()) {
+        close_status = state->cancel_reason();
+    }
+    return _close_writer(close_status);
+}
+
+Status SpillIcebergTableSinkLocalState::_close_writer(Status close_status) {
+    DCHECK(_writer);
+    if (!_writer_closed) {
+        _writer_close_status = _writer->close(close_status);
+        _writer_closed = true;
+    }
+    if (close_status.ok() && !_writer_close_status.ok()) {
+        close_status = _writer_close_status;
+    }
+    return close_status;
+}
+
+Status SpillIcebergTableSinkLocalState::close(RuntimeState* state, Status exec_status) {
+    if (_closed) {
+        return Status::OK();
+    }
+
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_close_timer);
+
+    Status final_status = exec_status;
+    // Observe cancellation before close so a known-cancelled write is not finalized as successful.
+    if (final_status.ok() && state->is_cancelled()) {
+        final_status = state->cancel_reason();
+    }
+    final_status = _close_writer(final_status);
+    // close() may block on sort/merge/file I/O, so cancellation can arrive while it is running.
+    if (final_status.ok() && state->is_cancelled()) {
+        final_status = state->cancel_reason();
+    }
+    DCHECK(_writer);
+    _writer->finish_deferred_file_cleanup(final_status);
+    {
+        std::lock_guard lock(_writer_mutex);
+        _writer.reset();
+    }
+
+    Status base_status = Base::close(state, final_status);
+    if (final_status.ok() && !base_status.ok()) {
+        final_status = base_status;
+    }
+    return final_status;
 }
 
 bool SpillIcebergTableSinkLocalState::is_blockable() const {
@@ -70,9 +138,7 @@ bool SpillIcebergTableSinkLocalState::is_blockable() const {
 
 size_t SpillIcebergTableSinkLocalState::get_reserve_mem_size(RuntimeState* state, bool eos,
                                                              const Block* block) {
-    if (!_writer) {
-        return 0;
-    }
+    DCHECK(_writer);
     std::vector<IcebergSorterReserveMemory> per_partition_reservations;
     const size_t incoming_rows = block == nullptr ? 0 : block->rows();
     const size_t incoming_bytes = block == nullptr ? 0 : block->allocated_bytes();
@@ -89,7 +155,7 @@ size_t SpillIcebergTableSinkLocalState::get_reserve_mem_size(RuntimeState* state
         }
     }
     // Column growth remains in every touched sorter, while sorting workspace is reused by serial dispatch.
-    // The final queued item may contain rows and also owns the reservation used by async finish().
+    // The EOS block may contain rows, and its reservation also covers the writer close in sink().
     const size_t incoming_reserve =
             block == nullptr ? state->minimum_operator_memory_required_bytes()
                              : iceberg_cold_writer_reserve_size(
@@ -99,12 +165,16 @@ size_t SpillIcebergTableSinkLocalState::get_reserve_mem_size(RuntimeState* state
 }
 
 size_t SpillIcebergTableSinkLocalState::get_revocable_mem_size(RuntimeState* state) const {
-    if (!_writer) {
-        return 0;
+    // Retain the published container while the pipeline task may replace the current snapshot.
+    std::shared_ptr<VIcebergTableWriter::ActiveWriterSnapshot> active_writers;
+    {
+        std::lock_guard lock(_writer_mutex);
+        if (!_writer) {
+            return 0;
+        }
+        active_writers = _writer->active_writers();
     }
     size_t revocable_size = 0;
-    // Retain the published container while the async writer may replace the current snapshot.
-    auto active_writers = _writer->active_writers();
     for (const auto& writer : *active_writers) {
         if (auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(writer.get())) {
             revocable_size += sort_writer->data_size();
@@ -115,13 +185,17 @@ size_t SpillIcebergTableSinkLocalState::get_revocable_mem_size(RuntimeState* sta
 
 Status SpillIcebergTableSinkLocalState::revoke_memory(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
-    if (!_writer) {
-        return Status::OK();
+    // Retain the published container while the pipeline task may replace the current snapshot.
+    std::shared_ptr<VIcebergTableWriter::ActiveWriterSnapshot> active_writers;
+    {
+        std::lock_guard lock(_writer_mutex);
+        if (!_writer) {
+            return Status::OK();
+        }
+        active_writers = _writer->active_writers();
     }
     std::shared_ptr<IPartitionWriterBase> largest_writer;
     size_t largest_size = 0;
-    // Retain the published container while the async writer may replace the current snapshot.
-    auto active_writers = _writer->active_writers();
     for (const auto& writer : *active_writers) {
         if (auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(writer.get())) {
             size_t size = sort_writer->data_size();
@@ -196,6 +270,9 @@ void SpillIcebergTableSinkLocalState::_init_spill_counters() {
     ADD_COUNTER_WITH_LEVEL(profile, "SpillWriteFileBytes", TUnit::BYTES, 1);
     ADD_COUNTER_WITH_LEVEL(profile, "SpillWriteRows", TUnit::UNIT, 1);
     ADD_COUNTER_WITH_LEVEL(profile, "SpillWriteFileTotalCount", TUnit::UNIT, 1);
+    ADD_COUNTER_WITH_LEVEL(profile, profile::SPILL_REMOTE_UPLOAD_BYTES, TUnit::BYTES, 1);
+    ADD_TIMER_WITH_LEVEL(profile, profile::SPILL_REMOTE_UPLOAD_TIME, 1);
+    ADD_TIMER_WITH_LEVEL(profile, profile::SPILL_REMOTE_UPLOAD_WAIT_TIME, 1);
 
     //seems init_spill_read_counters()
     ADD_TIMER_WITH_LEVEL(profile, "SpillTotalTime", 1);
@@ -210,6 +287,7 @@ void SpillIcebergTableSinkLocalState::_init_spill_counters() {
     ADD_COUNTER_WITH_LEVEL(profile, "SpillReadFileBytes", TUnit::BYTES, 1);
     ADD_COUNTER_WITH_LEVEL(profile, "SpillReadRows", TUnit::UNIT, 1);
     ADD_COUNTER_WITH_LEVEL(profile, "SpillReadFileCount", TUnit::UNIT, 1);
+    ADD_COUNTER_WITH_LEVEL(profile, profile::SPILL_REMOTE_READ_REQUESTS, TUnit::UNIT, 1);
     ADD_COUNTER_WITH_LEVEL(profile, "SpillWriteFileCurrentBytes", TUnit::BYTES, 1);
 }
 

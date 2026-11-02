@@ -74,6 +74,22 @@ public final class ConnectorColumn {
     private final String defaultValueSql;
     // Optional semantic type for textual write input, separate from the exposed binary column type.
     private final ConnectorType stringWriteType;
+    // The nullability the SOURCE schema declares (its required/optional flag), which is what the engine's
+    // metadata statements show: DESC, SHOW CREATE TABLE, SHOW [FULL] COLUMNS, information_schema.columns and
+    // the field list a MySQL client asks for. It is deliberately separate from the read nullability above:
+    // a connector may read a source-required column as nullable (iceberg/paimon do, because a row written
+    // before the column existed reads back NULL under schema-evolution default-fill) while the source
+    // contract still declares it NOT NULL. Execution — scans, the optimizer, write validation, the BE
+    // descriptor — always follows `nullable`, never this field.
+    //
+    // Defaults to `nullable`, so every connector that does not opt in keeps display == read and this field
+    // changes nothing. Set via withSourceNullable().
+    //
+    // Excluded from equals()/hashCode() like the "specified" markers above: it is a presentation fact that
+    // never round-trips (a column converted back from a Doris Column carries no source contract), so it must
+    // not become part of column identity — otherwise a MODIFY COLUMN would look like a change just because
+    // the request-side column lacks the display flag.
+    private final boolean sourceNullable;
 
     public ConnectorColumn(String name, ConnectorType type, String comment,
             boolean nullable, String defaultValue) {
@@ -94,14 +110,14 @@ public final class ConnectorColumn {
             boolean nullable, String defaultValue, boolean isKey, boolean isAutoInc,
             boolean isAggregated) {
         this(name, type, comment, nullable, defaultValue, isKey, isAutoInc, isAggregated, false, true,
-                UNSET_UNIQUE_ID, false, false, false, null, null);
+                UNSET_UNIQUE_ID, false, false, false, null, null, nullable);
     }
 
     private ConnectorColumn(String name, ConnectorType type, String comment,
             boolean nullable, String defaultValue, boolean isKey, boolean isAutoInc,
             boolean isAggregated, boolean withTimeZone, boolean visible, int uniqueId,
             boolean reservedPassthrough, boolean nullableSpecified, boolean commentSpecified,
-            String defaultValueSql, ConnectorType stringWriteType) {
+            String defaultValueSql, ConnectorType stringWriteType, boolean sourceNullable) {
         this.name = Objects.requireNonNull(name, "name");
         this.type = Objects.requireNonNull(type, "type");
         this.comment = comment;
@@ -118,6 +134,7 @@ public final class ConnectorColumn {
         this.commentSpecified = commentSpecified;
         this.defaultValueSql = defaultValueSql;
         this.stringWriteType = stringWriteType;
+        this.sourceNullable = sourceNullable;
     }
 
     /**
@@ -128,7 +145,7 @@ public final class ConnectorColumn {
     public ConnectorColumn withTimeZone() {
         return new ConnectorColumn(name, type, comment, nullable, defaultValue,
                 isKey, isAutoInc, isAggregated, true, visible, uniqueId, reservedPassthrough,
-                nullableSpecified, commentSpecified, defaultValueSql, stringWriteType);
+                nullableSpecified, commentSpecified, defaultValueSql, stringWriteType, sourceNullable);
     }
 
     /**
@@ -138,7 +155,7 @@ public final class ConnectorColumn {
     public ConnectorColumn invisible() {
         return new ConnectorColumn(name, type, comment, nullable, defaultValue,
                 isKey, isAutoInc, isAggregated, withTimeZone, false, uniqueId, reservedPassthrough,
-                nullableSpecified, commentSpecified, defaultValueSql, stringWriteType);
+                nullableSpecified, commentSpecified, defaultValueSql, stringWriteType, sourceNullable);
     }
 
     /**
@@ -150,7 +167,7 @@ public final class ConnectorColumn {
     public ConnectorColumn reservedPassthrough() {
         return new ConnectorColumn(name, type, comment, nullable, defaultValue,
                 isKey, isAutoInc, isAggregated, withTimeZone, visible, uniqueId, true,
-                nullableSpecified, commentSpecified, defaultValueSql, stringWriteType);
+                nullableSpecified, commentSpecified, defaultValueSql, stringWriteType, sourceNullable);
     }
 
     /**
@@ -161,7 +178,7 @@ public final class ConnectorColumn {
     public ConnectorColumn withSpecified(boolean nullableSpecified, boolean commentSpecified) {
         return new ConnectorColumn(name, type, comment, nullable, defaultValue,
                 isKey, isAutoInc, isAggregated, withTimeZone, visible, uniqueId, reservedPassthrough,
-                nullableSpecified, commentSpecified, defaultValueSql, stringWriteType);
+                nullableSpecified, commentSpecified, defaultValueSql, stringWriteType, sourceNullable);
     }
 
     /**
@@ -173,7 +190,7 @@ public final class ConnectorColumn {
     public ConnectorColumn withUniqueId(int uniqueId) {
         return new ConnectorColumn(name, type, comment, nullable, defaultValue,
                 isKey, isAutoInc, isAggregated, withTimeZone, visible, uniqueId, reservedPassthrough,
-                nullableSpecified, commentSpecified, defaultValueSql, stringWriteType);
+                nullableSpecified, commentSpecified, defaultValueSql, stringWriteType, sourceNullable);
     }
 
     /**
@@ -182,7 +199,7 @@ public final class ConnectorColumn {
     public ConnectorColumn withDefaultValueSql(String defaultValueSql) {
         return new ConnectorColumn(name, type, comment, nullable, defaultValue,
                 isKey, isAutoInc, isAggregated, withTimeZone, visible, uniqueId, reservedPassthrough,
-                nullableSpecified, commentSpecified, defaultValueSql, stringWriteType);
+                nullableSpecified, commentSpecified, defaultValueSql, stringWriteType, sourceNullable);
     }
 
     /**
@@ -193,11 +210,21 @@ public final class ConnectorColumn {
     public ConnectorColumn withStringWriteType(ConnectorType stringWriteType) {
         return new ConnectorColumn(name, type, comment, nullable, defaultValue,
                 isKey, isAutoInc, isAggregated, withTimeZone, visible, uniqueId, reservedPassthrough,
-                nullableSpecified, commentSpecified, defaultValueSql, stringWriteType);
+                nullableSpecified, commentSpecified, defaultValueSql, stringWriteType, sourceNullable);
     }
 
     public ConnectorType getStringWriteType() {
         return stringWriteType;
+    }
+
+    /**
+     * Returns a copy carrying the nullability the source schema declares, for metadata statements only.
+     * See {@link #isSourceNullable()}; execution keeps following {@link #isNullable()}.
+     */
+    public ConnectorColumn withSourceNullable(boolean sourceNullable) {
+        return new ConnectorColumn(name, type, comment, nullable, defaultValue,
+                isKey, isAutoInc, isAggregated, withTimeZone, visible, uniqueId, reservedPassthrough,
+                nullableSpecified, commentSpecified, defaultValueSql, stringWriteType, sourceNullable);
     }
 
     public String getName() {
@@ -260,6 +287,14 @@ public final class ConnectorColumn {
 
     public String getDefaultValueSql() {
         return defaultValueSql;
+    }
+
+    /**
+     * The nullability the source schema declares, used by metadata statements only; see the field comment.
+     * Defaults to {@link #isNullable()}. Execution always follows {@link #isNullable()}.
+     */
+    public boolean isSourceNullable() {
+        return sourceNullable;
     }
 
     @Override

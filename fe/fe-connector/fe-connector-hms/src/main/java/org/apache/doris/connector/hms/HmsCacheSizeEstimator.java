@@ -32,7 +32,12 @@ final class HmsCacheSizeEstimator {
     }
 
     static MetaCacheSizeEstimate estimateTable(Object key, HmsTableInfo value) {
-        return complete(key, value);
+        // A whole-value walk of a wide table would exhaust the visit budget and keep the table out of a weighted
+        // cache, so each column is estimated on its own.
+        return MetaCacheSizeEstimate.complete(add(
+                ReflectiveObjectSizeEstimator.estimateComplete(key),
+                ReflectiveObjectSizeEstimator.estimateCompletePerElement(
+                        value, value.getColumns(), value.getPartitionKeys())));
     }
 
     static MetaCacheSizeEstimate estimatePartition(Object key, HmsPartitionInfo value) {

@@ -371,7 +371,7 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
 
         // Shared-table scans must have equivalent row-domain semantics.
         // Table.getId() equality alone is insufficient: wrappers
-        // (RowBinlogTableWrapper, OlapTableStreamWrapper) share the base
+        // (OlapChangelogTableWrapper, OlapTableStreamWrapper) share the base
         // table ID but read different rows.  Likewise, two scans of the
         // same base table can differ by @incr params, partition/tablet
         // selection, index, snapshot, or sample.
@@ -448,7 +448,7 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
     /**
      * Verify that every pair of outer/inner scans sharing the same table ID
      * has equivalent row-domain semantics.  Table.getId() equality alone is
-     * insufficient — wrappers (RowBinlogTableWrapper, OlapTableStreamWrapper)
+     * insufficient — wrappers (OlapChangelogTableWrapper, OlapTableStreamWrapper)
      * share the base table ID but read different rows, and even two scans of
      * the same base table can differ by {@code @incr} params, partition/tablet
      * selection, index, snapshot, or table sample.
@@ -461,7 +461,7 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
                     continue;
                 }
                 // Different table objects with the same ID means one is a
-                // wrapper (RowBinlogTableWrapper, OlapTableStreamWrapper, …)
+                // wrapper (OlapChangelogTableWrapper, OlapTableStreamWrapper, …)
                 // and the other is the base table.  They read different rows.
                 if (innerTable.getTable() != outerTable.getTable()) {
                     return false;

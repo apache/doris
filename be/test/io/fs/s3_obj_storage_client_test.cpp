@@ -25,6 +25,17 @@
 
 namespace doris {
 
+TEST(S3ObjStorageSignedUrlTest, DelegatesProviderSpecificSigning) {
+    S3ObjStorageClient client(nullptr, {}, [](const ObjStoragePath& path, int64_t expiration) {
+        EXPECT_EQ(path.bucket, "bucket");
+        EXPECT_EQ(path.key, "nested/key");
+        EXPECT_EQ(expiration, 300);
+        return std::string {"https://storage.googleapis.com/bucket/nested/key?signed"};
+    });
+    EXPECT_EQ(client.generate_presigned_url({.bucket = "bucket", .key = "nested/key"}, 300),
+              "https://storage.googleapis.com/bucket/nested/key?signed");
+}
+
 class S3ObjStorageClientTest : public testing::Test {
 protected:
     static std::shared_ptr<ObjStorageClient> obj_storage_client;

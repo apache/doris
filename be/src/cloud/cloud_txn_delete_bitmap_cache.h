@@ -44,13 +44,13 @@ public:
                                std::shared_ptr<PartialUpdateInfo>* partial_update_info,
                                std::shared_ptr<PublishStatus>* publish_status,
                                TxnPublishInfo* previous_publish_info,
-                               RowBinlogTxnInfo* attach_row_binlog = nullptr);
+                               ChangelogTxnInfo* attach_changelog = nullptr);
 
     void set_tablet_txn_info(TTransactionId transaction_id, int64_t tablet_id,
                              DeleteBitmapPtr delete_bitmap, const RowsetIdUnorderedSet& rowset_ids,
                              RowsetSharedPtr rowset, int64_t txn_expirationm,
                              std::shared_ptr<PartialUpdateInfo> partial_update_info,
-                             const RowBinlogTxnInfo& attach_row_binlog = {});
+                             const ChangelogTxnInfo& attach_changelog = {});
 
     Status update_tablet_txn_info(TTransactionId transaction_id, int64_t tablet_id,
                                   DeleteBitmapPtr delete_bitmap,
@@ -111,17 +111,17 @@ private:
         std::shared_ptr<PublishStatus> publish_status = nullptr;
         // used to determine if the retry needs to re-calculate the delete bitmap
         TxnPublishInfo publish_info;
-        RowBinlogTxnInfo attach_row_binlog;
+        ChangelogTxnInfo attach_changelog;
         TxnVal() : txn_expiration(0) {};
         TxnVal(RowsetSharedPtr rowset_, int64_t txn_expiration_,
                std::shared_ptr<PartialUpdateInfo> partial_update_info_,
                std::shared_ptr<PublishStatus> publish_status_,
-               const RowBinlogTxnInfo& attach_row_binlog_)
+               const ChangelogTxnInfo& attach_changelog_)
                 : rowset(std::move(rowset_)),
                   txn_expiration(txn_expiration_),
                   partial_update_info(std::move(partial_update_info_)),
                   publish_status(std::move(publish_status_)),
-                  attach_row_binlog(attach_row_binlog_) {}
+                  attach_changelog(attach_changelog_) {}
     };
 
     std::map<TxnKey, TxnVal> _txn_map;

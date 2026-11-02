@@ -58,7 +58,10 @@ suite("test_ttl_lru_evict") {
     logger.info("getS3SK:${getS3SK()}");
     logger.info("getS3Endpoint:${getS3Endpoint()}");
 
-    def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="150") """
+    // Long enough that the first loads are still TTL when the TTL queue overflows. How many loads
+    // that takes depends on the cache capacity of the environment.
+    def ttlSeconds = 300
+    def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="${ttlSeconds}") """
     String[][] backends = sql """ show backends """
     String backendId;
     def backendIdToBackendIP = [:]
@@ -206,65 +209,53 @@ suite("test_ttl_lru_evict") {
         }
     }
 
+    // Values of every metric line whose name contains the given name, one per cache path.
+    def getMetricValues = { String name ->
+        def values = []
+        getMetricsMethod.call() {
+            respCode, body ->
+                assertEquals("${respCode}".toString(), "200")
+                for (String line in "${body}".toString().split('\n')) {
+                    if (line.startsWith("#") || !line.contains(name)) {
+                        continue
+                    }
+                    values.add(line.substring(line.indexOf(' ')).trim().toLong())
+                }
+        }
+        assertTrue(!values.isEmpty(), "metric ${name} not found")
+        return values
+    }
+
     clearFileCache.call() {
         respCode, body -> {}
     }
 
-    long ttl_cache_evict_size_begin = 0;
-    getMetricsMethod.call() {
-        respCode, body ->
-            assertEquals("${respCode}".toString(), "200")
-            String out = "${body}".toString()
-            def strs = out.split('\n')
-            Boolean flag1 = false;
-            for (String line in strs) {
-                if (flag1) break;
-                if (line.contains("ttl_cache_evict_size")) {
-                    if (line.startsWith("#")) {
-                        continue
-                    }
-                    def i = line.indexOf(' ')
-                    ttl_cache_evict_size_begin = line.substring(i).toLong()
-                    flag1 = true
-                }
-            }
-            assertTrue(flag1)
-    }
+    long ttl_cache_evict_size_begin = getMetricValues("ttl_cache_evict_size")[0]
+    long ttl_cache_size_begin = getMetricValues("ttl_cache_size")[0]
+    long cache_capacity = getMetricValues("file_cache_capacity").sum()
 
-    // load for MANY times to this dup table to make cache full enough to evict
-    // It will takes huge amount of time, so it should be p1/p2 level case.
-    // But someone told me it is the right place. Never mind just do it!
-
-    for (int i = 0; i < 10; i++) {
+    // first, we test whether ttl evict actively.
+    // Load to this dup table until the TTL queue overflows. A fixed number of loads only
+    // overflows it on a small enough cache, so keep loading, bounded by the cache capacity.
+    long evicted = 0
+    long loads = 0
+    long max_loads = 10
+    while (evicted <= 238860800 && loads < max_loads) {
         load_customer_once("customer_ttl")
+        loads++
+        if (loads == 1) {
+            long bytes_per_load = getMetricValues("ttl_cache_size")[0] - ttl_cache_size_begin
+            assertTrue(bytes_per_load > 0, "the first load did not add any TTL cache")
+            // The TTL queue is part of the capacity, so this many loads overflow it for sure.
+            max_loads = Math.max(max_loads, cache_capacity.intdiv(bytes_per_load) + 2)
+            logger.info("cache capacity: ${cache_capacity}, TTL bytes per load: ${bytes_per_load}, " +
+                    "max loads: ${max_loads}")
+        }
+        evicted = getMetricValues("ttl_cache_evict_size")[0] - ttl_cache_evict_size_begin
+        logger.info("ttl evict diff after ${loads} loads: ${evicted}")
     }
-    sleep(10000) // 10s
-    // first, we test whether ttl evict actively
-    long ttl_cache_evict_size_end = 0;
-    getMetricsMethod.call() {
-        respCode, body ->
-            assertEquals("${respCode}".toString(), "200")
-            String out = "${body}".toString()
-            def strs = out.split('\n')
-            Boolean flag1 = false;
-            for (String line in strs) {
-                if (flag1) break;
-                if (line.contains("ttl_cache_evict_size")) {
-                    if (line.startsWith("#")) {
-                        continue
-                    }
-                    def i = line.indexOf(' ')
-                    ttl_cache_evict_size_end = line.substring(i).toLong()
-                    flag1 = true
-                }
-            }
-            assertTrue(flag1)
-    }
-    // Note: this only applies when the case is run
-    // sequentially, coz we don't know what other cases are
-    // doing with TTL cache
-    logger.info("ttl evict diff:" + (ttl_cache_evict_size_end - ttl_cache_evict_size_begin).toString())
-    assertTrue((ttl_cache_evict_size_end - ttl_cache_evict_size_begin) > 238860800)
+    assertTrue(evicted > 238860800,
+            "TTL cache evicted only ${evicted} bytes after ${loads} loads, capacity ${cache_capacity}")
 
     // then we test skip_cache count when doing query when ttl cache is full
     // we expect it to be rare
@@ -324,29 +315,19 @@ suite("test_ttl_lru_evict") {
 
     // finally, we test whether LRU queue clean itself up when all ttl
     // cache evict after expiration
-    sleep(200000)
-    getMetricsMethod.call() {
-        respCode, body ->
-            assertEquals("${respCode}".toString(), "200")
-            String out = "${body}".toString()
-            def strs = out.split('\n')
-            Boolean flag1 = false;
-            for (String line in strs) {
-                if (flag1) break;
-                if (line.contains("ttl_cache_lru_queue_size")) {
-                    if (line.startsWith("#")) {
-                        continue
-                    }
-                    def i = line.indexOf(' ')
-                    // all ttl will expire, so the ttl LRU queue set to 0
-                    // Note: this only applies when the case is run
-                    // sequentially, coz we don't know what other cases are
-                    // doing with TTL cache
-                    assertEquals(line.substring(i).toLong(), 0)
-                    flag1 = true
-                }
-            }
-            assertTrue(flag1)
+    // Note: this only applies when the case is run
+    // sequentially, coz we don't know what other cases are
+    // doing with TTL cache
+    long ttl_queue_size = -1
+    long deadline = System.currentTimeMillis() + (ttlSeconds + 120) * 1000L
+    while (System.currentTimeMillis() < deadline) {
+        // all ttl will expire, so the ttl LRU queue set to 0
+        ttl_queue_size = getMetricValues("ttl_cache_lru_queue_size")[0]
+        if (ttl_queue_size == 0) {
+            break
+        }
+        sleep(10000)
     }
+    assertEquals(0, ttl_queue_size)
     }
 }

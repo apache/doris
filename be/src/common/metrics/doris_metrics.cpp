@@ -112,10 +112,14 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(base_compaction_task_running_total, MetricU
                                      compaction_task_state_total, Labels({{"type", "base"}}));
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(base_compaction_task_pending_total, MetricUnit::ROWSETS, "",
                                      compaction_task_state_total, Labels({{"type", "base"}}));
-DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(binlog_compaction_task_running_total, MetricUnit::ROWSETS, "",
-                                     compaction_task_state_total, Labels({{"type", "binlog"}}));
-DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(binlog_compaction_task_pending_total, MetricUnit::ROWSETS, "",
-                                     compaction_task_state_total, Labels({{"type", "binlog"}}));
+// ATTN(changelog-rename): formerly "type"="binlog"
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(changelog_compaction_task_running_total, MetricUnit::ROWSETS,
+                                     "", compaction_task_state_total,
+                                     Labels({{"type", "changelog"}}));
+// ATTN(changelog-rename): formerly "type"="binlog"
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(changelog_compaction_task_pending_total, MetricUnit::ROWSETS,
+                                     "", compaction_task_state_total,
+                                     Labels({{"type", "changelog"}}));
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(cumulative_compaction_task_running_total, MetricUnit::ROWSETS,
                                      "", compaction_task_state_total,
                                      Labels({{"type", "cumulative"}}));
@@ -198,7 +202,8 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_cumulative_max_compaction_score, Metri
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_size_based_max_compaction_score, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_time_series_max_compaction_score, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_base_max_compaction_score, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_binlog_max_compaction_score, MetricUnit::NOUNIT);
+// ATTN(changelog-rename): formerly "tablet_binlog_max_compaction_score"
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_changelog_max_compaction_score, MetricUnit::NOUNIT);
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(all_rowsets_num, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(all_segments_num, MetricUnit::NOUNIT);
@@ -358,8 +363,8 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, base_compaction_task_running_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, base_compaction_task_pending_total);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, binlog_compaction_task_running_total);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, binlog_compaction_task_pending_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, changelog_compaction_task_running_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, changelog_compaction_task_pending_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, cumulative_compaction_task_running_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, cumulative_compaction_task_pending_total);
 
@@ -397,7 +402,7 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, tablet_size_based_max_compaction_score);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, tablet_time_series_max_compaction_score);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, tablet_base_max_compaction_score);
-    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, tablet_binlog_max_compaction_score);
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, tablet_changelog_max_compaction_score);
 
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, all_rowsets_num);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, all_segments_num);

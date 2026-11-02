@@ -101,7 +101,7 @@ public:
 
     inline size_t written_len() const override { return _iceberg_partition_writer->written_len(); }
 
-    size_t data_size() const;
+    virtual size_t data_size() const;
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) const;
 
@@ -112,9 +112,11 @@ public:
                                                         size_t incoming_bytes) const;
 
     // Called by the memory management system to trigger spilling data to disk
-    Status trigger_spill();
+    virtual Status trigger_spill();
 
 private:
+    friend class IcebergTableSinkOperatorTest;
+
     void _include_spill_merge_reservation(RuntimeState* state, bool eos,
                                           SorterReserveMemory* reservation) const;
 
@@ -161,6 +163,8 @@ private:
     // Create the final merger that merges all remaining spill streams
     Status _create_final_merger();
 
+    size_t _final_merge_batch_row_count() const;
+
     // Release all spill stream resources (both pending and currently merging)
     void _cleanup_spill_streams();
 
@@ -179,12 +183,12 @@ private:
     std::unique_ptr<FullSorter> _sorter;
     std::unique_ptr<VSortedRunMerger> _merger;
 
-    // Serialize all accesses to _sorter because async writes and revoke spills run on
-    // different thread pools but touch the same FullSorter instance.
+    // Serialize all accesses to _sorter because pipeline-task writes and revoke spills run on
+    // different threads but touch the same FullSorter instance.
     mutable std::mutex _sorter_mutex;
 
     // Set to true once close() has finished tearing down the sorter / underlying writer.
-    // Late-arriving revoke spills (which run on a different thread than the async writer)
+    // Late-arriving revoke spills (which run on a different thread than the pipeline task)
     // must become no-ops after close, otherwise they would write to a fresh spill stream
     // whose data never gets merged out (close has already produced the final output and
     // cleaned up spill files).

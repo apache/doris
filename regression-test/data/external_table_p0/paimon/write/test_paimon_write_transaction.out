@@ -37,6 +37,28 @@
 -- !txn_empty_overwrite_limit_zero --
 0
 
+-- !txn_dynamic_bucket_empty_overwrite_plan --
+PhysicalConnectorTableSink
+--PhysicalEmptyRelation
+
+-- !txn_dynamic_bucket_empty_overwrite --
+0
+
+-- !txn_dynamic_bucket_empty_overwrite_snapshots --
+1	APPEND
+2	OVERWRITE
+
+-- !txn_dynamic_bucket_empty_static_overwrite_plan --
+PhysicalConnectorTableSink
+--PhysicalEmptyRelation
+
+-- !txn_dynamic_bucket_empty_static_overwrite --
+2	west_old	west
+
+-- !txn_dynamic_bucket_empty_static_overwrite_snapshots --
+1	APPEND
+2	OVERWRITE
+
 -- !txn_static_partition --
 10	east_new	east
 2	west_old	west

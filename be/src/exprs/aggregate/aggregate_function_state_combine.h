@@ -240,6 +240,10 @@ public:
                 previous_is_nul, end_is_nul, has_null, use_null_result, could_use_previous_result);
     }
 
+    void set_ai_statistics(std::shared_ptr<AIExecutionStatistics> statistics) override {
+        _function->set_ai_statistics(std::move(statistics));
+    }
+
     void set_query_context(QueryContext* context) override {
         _function->set_query_context(context);
     }

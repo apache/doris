@@ -173,13 +173,15 @@ public class BackupCommand extends Command implements ForwardWithSync {
     }
 
     private void analyzeProperties() throws AnalysisException {
+        Map<String, String> copiedProperties = Maps.newHashMap(properties);
+
         // timeout
-        if (properties.containsKey("timeout")) {
+        if (copiedProperties.containsKey(PROP_TIMEOUT)) {
             try {
-                timeoutMs = Long.valueOf(properties.get(PROP_TIMEOUT));
+                timeoutMs = Long.valueOf(copiedProperties.get(PROP_TIMEOUT));
             } catch (NumberFormatException e) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
-                        "Invalid timeout format: " + properties.get(PROP_TIMEOUT));
+                        "Invalid timeout format: " + copiedProperties.get(PROP_TIMEOUT));
             }
 
             if (timeoutMs * 1000 < MIN_TIMEOUT_MS) {
@@ -187,12 +189,11 @@ public class BackupCommand extends Command implements ForwardWithSync {
             }
 
             timeoutMs = timeoutMs * 1000;
-            properties.remove(PROP_TIMEOUT);
+            copiedProperties.remove(PROP_TIMEOUT);
         } else {
             timeoutMs = Config.backup_job_default_timeout_ms;
         }
 
-        Map<String, String> copiedProperties = Maps.newHashMap(properties);
         // type
         String typeProp = copiedProperties.get(PROP_TYPE);
         if (typeProp != null) {

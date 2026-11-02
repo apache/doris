@@ -30,8 +30,7 @@ suite("test_time_travel_dup", "nonConcurrent") {
         DISTRIBUTED BY HASH(k) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW"
+            "changelog.enable" = "true"
         )
     """
 
@@ -69,15 +68,15 @@ suite("test_time_travel_dup", "nonConcurrent") {
     assertEquals([[1, 10], [2, 20]], r1c)
     order_qt_future_after_compaction "SELECT k, v FROM test_time_travel_dup FOR VERSION AS OF 9223372036854775807"
 
-    // ---- error path: AS OF on a table without row binlog ----
-    sql "DROP TABLE IF EXISTS test_time_travel_dup_nobinlog FORCE"
+    // ---- error path: AS OF on a table without changelog ----
+    sql "DROP TABLE IF EXISTS test_time_travel_dup_nochangelog FORCE"
     sql """
-        CREATE TABLE test_time_travel_dup_nobinlog (k INT, v INT)
+        CREATE TABLE test_time_travel_dup_nochangelog (k INT, v INT)
         DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
         PROPERTIES ("replication_num" = "1")
     """
     test {
-        sql "SELECT * FROM test_time_travel_dup_nobinlog FOR VERSION AS OF 100"
-        exception "requires row binlog"
+        sql "SELECT * FROM test_time_travel_dup_nochangelog FOR VERSION AS OF 100"
+        exception "requires changelog"
     }
 }

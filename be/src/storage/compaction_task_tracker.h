@@ -25,6 +25,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "storage/compaction_task_types.h"
+
 namespace doris {
 
 // Standardized compaction type enum covering base / cumulative / full.
@@ -45,13 +47,6 @@ enum class CompactionTaskStatus : uint8_t {
 };
 
 const char* to_string(CompactionTaskStatus status);
-
-// How the compaction was triggered.
-enum class TriggerMethod : uint8_t {
-    AUTO = 0,
-    MANUAL = 1,
-    LOAD_TRIGGERED = 2,
-};
 
 const char* to_string(TriggerMethod method);
 
@@ -130,7 +125,7 @@ struct CompactionTaskInfo {
     int64_t output_segments_num {0};
     std::string output_version; // e.g. "[0-5]"
     bool is_ordered_data_compaction {
-            false}; // ordered/meta-link compaction path, including binlog quick path
+            false}; // ordered/meta-link compaction path, including changelog quick path
 
     // ===== Merge performance =====
     int64_t merge_latency_ms {0}; // merge rowsets latency (ms; 0 for ordered path)

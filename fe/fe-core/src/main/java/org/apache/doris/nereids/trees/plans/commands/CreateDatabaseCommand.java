@@ -20,7 +20,9 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.BinlogConfig;
+import org.apache.doris.catalog.ChangelogConfig;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -58,8 +60,10 @@ public class CreateDatabaseCommand extends Command implements ForwardWithSync, N
         this.dbName = dbName.getDb();
         this.properties = properties == null ? new HashMap<>() : properties;
 
+        // CCR binlog and changelog are mutually exclusive: a database that sets changelog is not forced to binlog.
         if (Config.force_enable_feature_binlog
-                && !this.properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE)) {
+                && !this.properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE)
+                && !this.properties.containsKey(PropertyAnalyzer.PROPERTIES_CHANGELOG_ENABLE)) {
             this.properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, "true");
         }
     }
@@ -81,10 +85,13 @@ public class CreateDatabaseCommand extends Command implements ForwardWithSync, N
         FeNameFormat.checkDbName(dbName);
         InternalDatabaseUtil.checkDatabase(dbName, ConnectContext.get());
         PropertyAnalyzer.analyzeBinlogConfig(new HashMap<>(properties));
-        PropertyAnalyzer.normalizeBinlogFormat(properties);
-        BinlogConfig config = BinlogConfig.fromProperties(properties);
-        if (config.isEnableForStreaming() && properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS)) {
-            config.applyExplicitRowTtl(config.getTtlSeconds());
+        PropertyAnalyzer.analyzeChangelogConfig(new HashMap<>(properties));
+        ChangelogConfig changelogConfig = ChangelogConfig.fromProperties(properties);
+        if (changelogConfig.isEnable()) {
+            changelogConfig.applyExplicitTtl(changelogConfig.getTtlSeconds());
+            if (BinlogConfig.fromProperties(properties).isEnableForCCR()) {
+                throw new AnalysisException("Database " + dbName + " can not enable both binlog and changelog");
+            }
         }
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkDbPriv(ConnectContext.get(), ctlName, dbName, PrivPredicate.CREATE)) {

@@ -166,7 +166,7 @@ Status CloudCumulativeCompaction::prepare_compact() {
         st = cloud_tablet()->sync_rowsets();
         RETURN_IF_ERROR(st);
     }
-    snapshot_row_binlog_ttl();
+    snapshot_changelog_ttl();
 
     // pick rowsets to compact
     st = pick_rowsets_to_compact();
@@ -368,7 +368,7 @@ Status CloudCumulativeCompaction::modify_rowsets() {
         } else if (!_enable_parallel_cumu_compaction ||
                    _output_rowset->start_version() == input_cumulative_point) {
             new_cumulative_point =
-                    _engine.cumu_compaction_policy(compaction_policy)
+                    _engine.cumu_compaction_policy(compaction_policy, cloud_tablet()->tablet_id())
                             ->new_cumulative_point(cloud_tablet(), _output_rowset,
                                                    _last_delete_version, input_cumulative_point);
         }
@@ -494,8 +494,8 @@ Status CloudCumulativeCompaction::modify_rowsets() {
                 "CumulativeCompaction.modify_rowsets.trigger_abort_job_failed for tablet_id {}",
                 cloud_tablet()->tablet_id());
     });
-    if (_row_binlog_ttl_filtered_rows > 0) {
-        compaction_job->set_row_binlog_ttl_seconds(_row_binlog_ttl_seconds);
+    if (_changelog_ttl_filtered_rows > 0) {
+        compaction_job->set_changelog_ttl_seconds(_changelog_ttl_seconds);
     }
     cloud::FinishTabletJobResponse resp;
     auto st = _engine.meta_mgr().commit_tablet_job(job, &resp);
@@ -655,8 +655,8 @@ Status CloudCumulativeCompaction::advance_cumulative_point_before_pick(
         return Status::OK();
     }
 
-    auto compaction_policy =
-            _engine.cumu_compaction_policy(cloud_tablet()->tablet_meta()->compaction_policy());
+    auto compaction_policy = _engine.cumu_compaction_policy(
+            cloud_tablet()->tablet_meta()->compaction_policy(), cloud_tablet()->tablet_id());
     int64_t input_cumulative_point;
     int64_t output_cumulative_point;
     std::vector<RowsetSharedPtr> candidates;
@@ -684,8 +684,8 @@ Status CloudCumulativeCompaction::advance_cumulative_point_before_pick(
         }
 
         auto rowset_meta = rowset->rowset_meta();
-        if (_row_binlog_ttl_cutoff_tso >= 0 &&
-            row_binlog_rowset_expired(*rowset_meta, _row_binlog_ttl_cutoff_tso)) {
+        if (_changelog_ttl_cutoff_tso >= 0 &&
+            changelog_rowset_expired(*rowset_meta, _changelog_ttl_cutoff_tso)) {
             break;
         }
         if (rowset_meta->has_delete_predicate()) {
@@ -720,7 +720,7 @@ Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
 
     int64_t min_conflict_version = _min_conflict_version;
     int64_t max_conflict_version = _max_conflict_version;
-    if (_row_binlog_ttl_cutoff_tso >= 0) {
+    if (_changelog_ttl_cutoff_tso >= 0) {
         std::vector<RowsetSharedPtr> ttl_candidates;
         {
             std::shared_lock rlock(_tablet->get_header_lock());
@@ -737,7 +737,7 @@ Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
                     });
         }
         std::ranges::sort(ttl_candidates, Rowset::comparator);
-        if (pick_expired_row_binlog_rowset(ttl_candidates)) {
+        if (pick_expired_changelog_rowset(ttl_candidates)) {
             return Status::OK();
         }
     }
@@ -769,12 +769,12 @@ Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
             DCHECK(false) << st;
             return st;
         }
-        if (pick_expired_row_binlog_rowset(candidates)) {
+        if (pick_expired_changelog_rowset(candidates)) {
             return Status::OK();
         }
 
         size_t compaction_score = 0;
-        _engine.cumu_compaction_policy(compaction_policy)
+        _engine.cumu_compaction_policy(compaction_policy, cloud_tablet()->tablet_id())
                 ->pick_input_rowsets(cloud_tablet(), candidates, max_score,
                                      config::cumulative_compaction_min_deltas, &_input_rowsets,
                                      &_last_delete_version, &compaction_score);
@@ -857,7 +857,7 @@ Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
 }
 
 Status CloudCumulativeCompaction::prepare_merge_input_rowsets(MergeInputRowsetsResult* result) {
-    if (_row_binlog_ttl_filtered_rows > 0 ||
+    if (_changelog_ttl_filtered_rows > 0 ||
         !_single_rowset_compaction_segment_group_size.has_value()) {
         return Status::OK();
     }

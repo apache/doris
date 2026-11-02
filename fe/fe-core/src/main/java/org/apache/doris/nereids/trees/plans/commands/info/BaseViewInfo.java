@@ -294,8 +294,8 @@ public class BaseViewInfo {
             // obtain the statement's TTL reference before BindRelation needs it.
             cascadesContext.newTableCollector(true).collect();
             StatementContext statementContext = cascadesContext.getStatementContext();
-            if (statementContext.isRowBinlogReferenceTsoRequired()) {
-                statementContext.getOrRegisterRowBinlogReferenceTso(
+            if (statementContext.isChangelogReferenceTsoRequired()) {
+                statementContext.getOrRegisterChangelogReferenceTso(
                         () -> MasterTsoProvider.getCurrentTso(statementContext.getConnectContext()));
             }
             cascadesContext.setCteContext(new CTEContext());

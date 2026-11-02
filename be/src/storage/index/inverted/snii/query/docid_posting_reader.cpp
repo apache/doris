@@ -172,7 +172,7 @@ Status decode_window_prefix_plan(const io::BatchRangeFetcher& fetcher, const Win
             RETURN_IF_ERROR(sink->append_range(first, static_cast<uint64_t>(meta.last_docid) + 1));
             continue;
         }
-        docs.clear();
+        // docs is decoded over, not cleared: a resize zero-fills only what it adds.
         positions.clear();
         RETURN_IF_ERROR(reader::decode_window_slices(meta, dd_region, Slice(),
                                                      /*want_positions=*/false, &docs, &positions));

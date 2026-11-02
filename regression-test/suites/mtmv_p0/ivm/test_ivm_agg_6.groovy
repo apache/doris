@@ -46,8 +46,7 @@ suite("test_ivm_agg_6") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -78,7 +77,7 @@ suite("test_ivm_agg_6") {
         SELECT min_v1, max_v1, cnt, sum_v1 FROM ivm_agg_mm_zero_mv
     """
 
-    // Step 2: Delete ALL rows via binlog_op=1
+    // Step 2: Delete ALL rows via changelog_op=1
     // Non-null count for MIN/MAX drops to 0 → guard bypassed → MIN/MAX = NULL
     sql """DELETE FROM ivm_agg_mm_zero_base WHERE k1 = 1;"""
     sql """DELETE FROM ivm_agg_mm_zero_base WHERE k1 = 2;"""
@@ -111,8 +110,7 @@ suite("test_ivm_agg_6") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """

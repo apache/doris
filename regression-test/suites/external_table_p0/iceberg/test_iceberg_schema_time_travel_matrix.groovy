@@ -443,13 +443,22 @@ suite("test_iceberg_schema_time_travel_matrix",
                     from ${dorisNestedTable}@tag(doris_nested_cp0)
                     order by id
                 """))
-        // Negative contract: an old branch currently leaks the latest BIGINT nested types.
+        // A branch read uses the table's current schema, so an old branch reads the promoted BIGINT
+        // nested types.
         assertEquals([[1, 10L, 100L, 1000L]],
                 sql("""
                     select id, info.metric, events[1].score, attrs['k'].code
                     from ${dorisNestedTable}@branch(doris_nested_cp0_branch)
                     order by id
                 """))
+        // Named branches keep their head rows but expose renamed fields from the current schema.
+        qt_doris_nested_branch_current_schema """
+            select id, info.metric, info.renamed,
+                   events[1].score, events[1].renamed,
+                   attrs['k'].code, attrs['k'].renamed
+            from ${dorisNestedTable}@branch(doris_nested_cp0_branch)
+            order by id
+        """
         assertUnknownColumn("""
             select info.renamed
             from ${dorisNestedTable} for version as of ${dorisNestedCp0}
@@ -546,7 +555,8 @@ suite("test_iceberg_schema_time_travel_matrix",
             from ${topTable}@tag(top_cp0)
             order by id
         """))
-        // Negative contract: an old branch is currently analyzed with the latest rename schema.
+        // A branch read uses the table's current schema, so the old name is unknown on an old branch
+        // and the current names read the branch head rows.
         test {
             sql """
                 select id, old_name, victim, metric
@@ -555,6 +565,11 @@ suite("test_iceberg_schema_time_travel_matrix",
             """
             exception "Unknown column 'old_name'"
         }
+        qt_top_branch_current_schema """
+            select id, MixedName, victim, metric
+            from ${topTable}@branch(top_cp0_branch)
+            order by id
+        """
         assertUnknownColumn("""
             select MixedName from ${topTable} for version as of ${topCp0}
         """, "MixedName")

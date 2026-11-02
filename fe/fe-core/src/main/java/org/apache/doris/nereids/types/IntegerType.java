@@ -18,8 +18,12 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.types.coercion.Int32OrLessType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
+
+import java.util.Optional;
 
 /**
  * Integer data type in Nereids.
@@ -66,5 +70,10 @@ public class IntegerType extends IntegralType implements Int32OrLessType {
     @Override
     public int range() {
         return RANGE;
+    }
+
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.of(new IntegerLiteral(0));
     }
 }

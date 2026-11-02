@@ -33,7 +33,6 @@
 #include "core/data_type/data_type_variant.h"
 #include "core/value/variant/variant_batch_builder.h"
 #include "exprs/function/cast/variant_v2/cast_variant_v2.h"
-#include "exprs/function_context.h"
 #include "gtest/gtest.h"
 #include "runtime/runtime_state.h"
 
@@ -57,9 +56,8 @@ ColumnPtr cast_from_variant(const ColumnPtr& source, const DataTypePtr& target_t
                  {target_type->create_column(), target_type, "result"}};
     RuntimeState state;
     state.set_timezone("UTC");
-    auto context = FunctionContext::create_context(&state, {}, {});
-    Status status = create_cast_from_variant_v2_wrapper(target_type)(context.get(), block, {0}, 1,
-                                                                     source->size(), nullptr);
+    Status status = create_cast_from_variant_v2_wrapper(target_type, CastOptions {})(
+            &state, block.get_by_position(0), block.get_by_position(1), source->size(), nullptr);
     if (!status.ok()) {
         throw Exception(status);
     }
@@ -71,9 +69,8 @@ ColumnPtr cast_to_variant(const ColumnPtr& source, const DataTypePtr& source_typ
     Block block {{source, source_type, "source"},
                  {variant_type->create_column(), variant_type, "result"}};
     RuntimeState state;
-    auto context = FunctionContext::create_context(&state, {}, {});
-    Status status = create_cast_to_variant_v2_wrapper(source_type)(context.get(), block, {0}, 1,
-                                                                   source->size(), nullptr);
+    Status status = create_cast_to_variant_v2_wrapper(source_type)(
+            &state, block.get_by_position(0), block.get_by_position(1), source->size(), nullptr);
     if (!status.ok()) {
         throw Exception(status);
     }

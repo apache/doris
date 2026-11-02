@@ -217,17 +217,28 @@ public:
 
     void set_scoring_stats(IndexScoringStats stats) { _scoring_stats = stats; }
 
-    Status scoring_stats(IndexScoringStats* out) const override {
-        // Most fixtures do not score expansions and deliberately provide no source statistics.
-        if (!_scoring_stats.has_value()) {
-            return IndexSource::scoring_stats(out);
-        }
-        *out = *_scoring_stats;
-        return Status::OK();
-    }
-
     uint32_t doc_count() const override { return _doc_count; }
     bool batches_reads() const override { return batches; }
+
+    Status scoring_stats(IndexScoringStats* out) const override {
+        // Expansion fixtures can override statistics; conjunction fixtures derive the source's
+        // posting shape below so docs-only terms do not enter positional batch scoring.
+        if (_scoring_stats.has_value()) {
+            *out = *_scoring_stats;
+            return Status::OK();
+        }
+        uint64_t tokens = 0;
+        for (const auto& [term, postings] : _terms) {
+            for (const auto& posting : postings) {
+                tokens += std::max<size_t>(1, posting.positions.size());
+            }
+        }
+        *out = {.doc_count = _doc_count,
+                .token_count = tokens,
+                .has_positions = has_positions,
+                .has_norms = !norms.empty()};
+        return Status::OK();
+    }
 
     Status prepare_terms(std::span<const std::string> terms) override {
         prepared.emplace_back(terms.begin(), terms.end());
@@ -236,6 +247,10 @@ public:
 
     Status open_term(std::string_view term, bool positions, bool scoring,
                      std::unique_ptr<PostingsCursor>* out) override {
+        // Model a docs-only keyword source so positional scoring requests fail in tests.
+        if (positions && !has_positions) {
+            return Status::NotSupported("fake: the index holds no positions");
+        }
         opened.emplace_back(term);
         *out = _cursor(term, positions, scoring);
         return Status::OK();
@@ -243,6 +258,10 @@ public:
 
     Status open_terms(std::span<const std::string> terms, bool positions, bool scoring,
                       std::vector<std::unique_ptr<PostingsCursor>>* out) override {
+        // Model a docs-only keyword source so positional scoring requests fail in tests.
+        if (positions && !has_positions) {
+            return Status::NotSupported("fake: the index holds no positions");
+        }
         opened_together.emplace_back(terms.begin(), terms.end());
         out->clear();
         for (const std::string& term : terms) {
@@ -304,6 +323,7 @@ public:
     bool is_live(uint32_t doc) const override { return !_deleted.contains(doc); }
 
     bool batches = false;
+    bool has_positions = true;
     // The decode work per document every cursor reports for its positions.
     uint64_t position_work = 0;
     // What every expansion returns before it enumerates.

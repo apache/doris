@@ -26,7 +26,6 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
@@ -199,7 +198,12 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
     /** analyze */
     public Expression analyze(Expression expression, ExpressionRewriteContext context) {
-        return expression.accept(this, context);
+        Expression analyzed = expression.accept(this, context);
+        // Inspect the bound tree to include parser-bound functions and expanded alias UDF bodies.
+        if (context != null && analyzed.containsNondeterministic()) {
+            context.cascadesContext.getStatementContext().setHasNondeterministic(true);
+        }
+        return analyzed;
     }
 
     @Override
@@ -459,8 +463,13 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         lambdaFunction = analyzeLambdaFunction(lambdaFunction, binding.getAnalysisSlots(), context);
         Lambda lambdaClosure = binding.close(lambdaFunction);
 
-        // We don't add the ArrayExpression in high order function at all
-        return unboundFunction.withChildren(ImmutableList.of(lambdaClosure));
+        // The array inputs live in the lambda argument references, so they are not added as
+        // function children. A binding may still keep a scalar configuration input, such as the
+        // ascending flag of array_sorted_merge.
+        ImmutableList.Builder<Expression> functionChildren = ImmutableList.builder();
+        functionChildren.add(lambdaClosure);
+        functionChildren.addAll(binding.getExtraInputs());
+        return unboundFunction.withChildren(functionChildren.build());
     }
 
     private Expression analyzeLambdaFunction(Expression lambdaFunction,
@@ -620,14 +629,13 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             });
         }
 
+        if (builder instanceof AliasUdfBuilder && context != null) {
+            context.cascadesContext.getStatementContext().recordAliasUdf();
+        }
         Pair<? extends Expression, ? extends BoundFunction> buildResult = builder.build(functionName, arguments);
         buildResult.second.checkOrderExprIsValid();
         Optional<SqlCacheContext> sqlCacheContext = Optional.empty();
 
-        if (!buildResult.second.isDeterministic() && context != null) {
-            StatementContext statementContext = context.cascadesContext.getStatementContext();
-            statementContext.setHasNondeterministic(true);
-        }
         if (wantToParseSqlFromSqlCache) {
             sqlCacheContext = context.cascadesContext.getStatementContext().getSqlCacheContext();
             if (builder instanceof AliasUdfBuilder

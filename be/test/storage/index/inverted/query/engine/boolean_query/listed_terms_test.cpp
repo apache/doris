@@ -687,6 +687,32 @@ TEST_F(ListedTermsTest, AScoredConjunctionScoresTheRowsItLists) {
     EXPECT_TRUE(listed->opened.empty());
 }
 
+// A batching keyword source has no positions: its term scorers use frequency and norm 1.
+TEST_F(ListedTermsTest, AScoredDocsOnlyConjunctionUsesUnitFrequencyWithoutPositions) {
+    for (bool batches : {false, true}) {
+        auto keyword = std::make_shared<FakeIndexSource>();
+        keyword->batches = batches;
+        keyword->has_positions = false;
+        keyword->set_doc_count(10);
+        keyword->add("a", std::vector<uint32_t> {1, 2, 3});
+        keyword->add("b", std::vector<uint32_t> {2, 3, 4});
+        auto expected = summed({"a", "b"}, keyword);
+        expected.erase(1);
+        expected.erase(4);
+        keyword->opened.clear();
+        const auto actual = scored(
+                [&] {
+                    return boolean(OperatorType::OP_AND, {term("a"), term("b")});
+                },
+                keyword);
+        expect_scores_eq(actual, expected);
+        EXPECT_EQ(keys(actual), (std::vector<uint32_t> {2, 3}));
+        EXPECT_GT(actual.at(2), 0.0F);
+        EXPECT_EQ(keyword->opened, (std::vector<std::string> {"a", "b"}));
+        EXPECT_TRUE(keyword->opened_together.empty());
+    }
+}
+
 // The chain lists the rarer term whole and the other on its rows; then both read the positions
 // of the rows holding every term, in one round.
 TEST_F(ListedTermsTest, AScoredConjunctionReadsTheListedRowsPositionsInOneRound) {

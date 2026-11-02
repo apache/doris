@@ -4,3 +4,11 @@
 2	\N	\N	[]	\N	["b", null]
 3	[1, 2, null]	[null]	[null, 2]	[null, null, 3]	[null, "aaaab", "ccc"]
 
+-- !null_subarray --
+1	[null, [9]]	[9]	[9]
+2	[[201], [9]]	[201, 9]	[9]
+
+-- !null_subarray_nested --
+1	[9]
+2	[201, 9]
+

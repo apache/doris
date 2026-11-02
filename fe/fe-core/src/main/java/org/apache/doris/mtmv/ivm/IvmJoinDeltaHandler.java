@@ -118,18 +118,18 @@ class IvmJoinDeltaHandler {
         if (join.getJoinType().isOuterJoin()) {
             SideInput leftInput = deltaOnLeft
                     ? sideInput(join.left(), delta.plan)
-                    : sideInput(join.left(), IvmDeltaRewriter.postSnapshot(join.left(), rewriteState));
+                    : sideInput(join.left(), helper.postSnapshot(join.left(), rewriteState));
             SideInput rightInput = deltaOnLeft
-                    ? sideInput(join.right(), IvmDeltaRewriter.preSnapshot(join.right(), rewriteState))
+                    ? sideInput(join.right(), helper.preSnapshot(join.right(), rewriteState))
                     : sideInput(join.right(), delta.plan);
             return rewriteOuterContribution(join, deltaOnLeft, delta, leftInput, rightInput, rewriteState);
         } else if (deltaOnLeft) {
-            Pair<Plan, Map<Slot, Slot>> rightPreSnapshot = IvmDeltaRewriter.preSnapshot(join.right(), rewriteState);
+            Pair<Plan, Map<Slot, Slot>> rightPreSnapshot = helper.preSnapshot(join.right(), rewriteState);
             return rewriteInnerJoinContribution(join, delta.plan,
                     helper.mapBusinessOutputs(join.left().getOutput(), delta.plan.getOutput()),
                     rightPreSnapshot.first, rightPreSnapshot.second, delta);
         } else {
-            Pair<Plan, Map<Slot, Slot>> leftPostSnapshot = IvmDeltaRewriter.postSnapshot(join.left(), rewriteState);
+            Pair<Plan, Map<Slot, Slot>> leftPostSnapshot = helper.postSnapshot(join.left(), rewriteState);
             return rewriteInnerJoinContribution(join, leftPostSnapshot.first,
                     helper.mapBusinessOutputs(join.left().getOutput(), leftPostSnapshot.first.getOutput()), delta.plan,
                     helper.mapBusinessOutputs(join.right().getOutput(), delta.plan.getOutput()), delta);
@@ -146,8 +146,8 @@ class IvmJoinDeltaHandler {
         }
         Plan deltaSideChild = deltaOnLeft ? join.left() : join.right();
         return rewriteNullSideDelta(new NullSideDeltaContext(join, deltaOnLeft, delta, leftInput, rightInput,
-                IvmDeltaRewriter.preSnapshot(deltaSideChild, rewriteState),
-                IvmDeltaRewriter.postSnapshot(deltaSideChild, rewriteState),
+                helper.preSnapshot(deltaSideChild, rewriteState),
+                helper.postSnapshot(deltaSideChild, rewriteState),
                 rewriteState, delta.maxDeltaIndex));
     }
 

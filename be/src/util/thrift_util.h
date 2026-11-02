@@ -178,6 +178,6 @@ bool t_network_address_comparator(const TNetworkAddress& a, const TNetworkAddres
 std::string to_string(const TUniqueId& id);
 
 bool _has_inverted_index_v1_or_partial_update(TOlapTableSink sink);
-bool _has_row_binlog(const TOlapTableSink& sink);
+bool _has_changelog(const TOlapTableSink& sink);
 
 } // namespace doris

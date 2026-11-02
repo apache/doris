@@ -31,9 +31,8 @@ suite("test_time_travel_mow_complex", "nonConcurrent") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
         )
     """
 
@@ -43,7 +42,7 @@ suite("test_time_travel_mow_complex", "nonConcurrent") {
     def t1 = sql("SELECT MAX(__DORIS_COMMIT_TSO_COL__) FROM test_time_travel_mow_complex")[0][0] as Long
     sql "SET show_hidden_columns = false"
 
-    // changes after t1, covering merge-on-read collapse corner cases for the binlog before-image:
+    // changes after t1, covering merge-on-read collapse corner cases for the changelog before-image:
     //   k2: updated multiple times 20 -> 200 -> 300 (must restore the earliest before value 20)
     //   k3: deleted (must restore the pre-delete value 30)
     //   k4: brand-new insert (must NOT appear at t1)

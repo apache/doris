@@ -176,8 +176,8 @@ public class OlapTableWrapper extends OlapTable {
     }
 
     @Override
-    public boolean needRowBinlog() {
-        return originTable.needRowBinlog();
+    public boolean hasChangelog() {
+        return originTable.hasChangelog();
     }
 
     @Override

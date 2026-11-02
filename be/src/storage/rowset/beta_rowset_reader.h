@@ -38,7 +38,6 @@
 namespace doris {
 class RuntimeProfile;
 class ReadSchema;
-struct RowLocation;
 struct RowsetReaderContext;
 
 class BetaRowsetReader : public RowsetReader {
@@ -84,10 +83,6 @@ public:
     uint64_t merged_rows() override { return *(_read_context->merged_rows); }
 
     RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }
-
-    Status current_block_row_locations(std::vector<RowLocation>* locations) override {
-        return _iterator->current_block_row_locations(locations);
-    }
 
     void update_profile(RuntimeProfile* profile) override;
 

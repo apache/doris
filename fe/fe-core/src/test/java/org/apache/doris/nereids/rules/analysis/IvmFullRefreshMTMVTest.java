@@ -72,7 +72,7 @@ public class IvmFullRefreshMTMVTest extends TestWithFeService {
         FeConstants.runningUnitTest = true;
         Config.allow_replica_on_same_host = true;
         Config.enable_table_stream = true;
-        Config.enable_feature_binlog = true;
+        Config.enable_feature_changelog = true;
 
         createDatabaseAndUse(DB_NAME);
         createTable("CREATE TABLE " + BASE_TABLE_NAME + " (k1 int, v1 int)\n"
@@ -82,8 +82,7 @@ public class IvmFullRefreshMTMVTest extends TestWithFeService {
                 + " PARTITION p2 VALUES LESS THAN (\"200\"))\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true',"
-                + " 'binlog.enable' = 'true', 'binlog.need_historical_value' = 'true',"
-                + " 'binlog.format' = 'ROW')");
+                + " 'changelog.enable' = 'true', 'changelog.need_historical_value' = 'true')");
         createTable("CREATE STREAM `" + streamName(baseTable())
                 + "` ON TABLE " + BASE_TABLE_NAME);
         createTable("CREATE TABLE wrong_base_tbl (k1 int, v1 int)\n"

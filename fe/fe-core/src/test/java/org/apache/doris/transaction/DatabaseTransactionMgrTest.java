@@ -19,6 +19,7 @@ package org.apache.doris.transaction;
 
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.CatalogTestUtil;
+import org.apache.doris.catalog.ChangelogConfig;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FakeEditLog;
@@ -942,12 +943,18 @@ public class DatabaseTransactionMgrTest {
     }
 
     /**
-     * Sets table binlog format so tests can control table-level TSO without the legacy enable_tso property.
+     * Enables changelog on the table so tests can control table-level TSO without the legacy enable_tso property.
      */
-    private void setTableBinlogFormat(OlapTable table, BinlogConfig.BinlogFormat binlogFormat) {
+    private void enableChangelog(OlapTable table) {
+        table.setChangelogConfig(new ChangelogConfig(true, ChangelogConfig.TTL_SECONDS, false));
+    }
+
+    /**
+     * Enables CCR binlog on the table, which does not give it table-level TSO.
+     */
+    private void enableCcrBinlog(OlapTable table) {
         BinlogConfig binlogConfig = new BinlogConfig(table.getBinlogConfig());
         binlogConfig.setEnable(true);
-        binlogConfig.setBinlogFormat(binlogFormat);
         table.setBinlogConfig(binlogConfig);
     }
 
@@ -1023,23 +1030,23 @@ public class DatabaseTransactionMgrTest {
     @CsvSource({"normal,false,false", "normal,true,false", "2pc,false,false", "2pc,true,false",
             "subtxn,false,false", "subtxn,true,false", "normal,false,true", "normal,true,true",
             "2pc,false,true", "2pc,true,true", "subtxn,false,true", "subtxn,true,true"})
-    public void testRowBinlogCommitBoundaries(String mode, boolean logOutsideLock, boolean abortDuringTso)
+    public void testChangelogCommitBoundaries(String mode, boolean logOutsideLock, boolean abortDuringTso)
             throws Exception {
         boolean twoPhase = mode.equals("2pc");
         boolean multiTable = mode.equals("subtxn");
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         boolean originalLogOutsideLock = Config.enable_txn_log_outside_lock;
         try {
             Config.enable_txn_log_outside_lock = logOutsideLock;
-            Config.enable_feature_binlog = false;
+            Config.enable_feature_changelog = false;
             FakeEnv.setEnv(masterEnv);
             Database db = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1);
             OlapTable table = (OlapTable) db.getTableOrMetaException(CatalogTestUtil.testTableId1);
-            setTableBinlogFormat(table, BinlogConfig.BinlogFormat.ROW);
+            enableChangelog(table);
             setEnvTSOService(masterEnv, new TSOService());
 
             long txnId = masterTransMgr.beginTransaction(db.getId(), Lists.newArrayList(table.getId()),
-                    "disabled_row_binlog", transactionSource, LoadJobSourceType.FRONTEND,
+                    "disabled_changelog", transactionSource, LoadJobSourceType.FRONTEND,
                     Config.stream_load_default_timeout_second);
             TransactionState transactionState = masterTransMgr.getTransactionState(db.getId(), txnId);
             List<Table> tables = Lists.newArrayList(table);
@@ -1051,7 +1058,7 @@ public class DatabaseTransactionMgrTest {
             }
             if (multiTable) {
                 OlapTable ccrTable = (OlapTable) db.getTableOrMetaException(CatalogTestUtil.testTableId2);
-                setTableBinlogFormat(ccrTable, BinlogConfig.BinlogFormat.STATEMENT_AND_SNAPSHOT);
+                enableCcrBinlog(ccrTable);
                 tables.add(ccrTable);
                 subTransactions.addAll(GlobalTransactionMgrTest.generateSubTransactionStates(
                         masterTransMgr, transactionState, Lists.newArrayList(
@@ -1079,7 +1086,7 @@ public class DatabaseTransactionMgrTest {
             TransactionCommitFailedException exception = Assertions.assertThrows(
                     TransactionCommitFailedException.class, commit);
 
-            Assertions.assertTrue(exception.getCause().getMessage().contains("enable_feature_binlog"));
+            Assertions.assertTrue(exception.getCause().getMessage().contains("enable_feature_changelog"));
             Mockito.verify(callback, Mockito.never()).beforeCommitted(Mockito.any());
             Assertions.assertEquals(twoPhase ? TransactionStatus.PRECOMMITTED : TransactionStatus.PREPARE,
                     transactionState.getTransactionStatus());
@@ -1089,7 +1096,7 @@ public class DatabaseTransactionMgrTest {
             Assertions.assertEquals(nextVersion,
                     table.getPartition(CatalogTestUtil.testPartitionId1).getNextVersion());
 
-            Config.enable_feature_binlog = true;
+            Config.enable_feature_changelog = true;
             if (abortDuringTso) {
                 checkAbortDuringCommitTso(tables, transactionState, commit);
                 return;
@@ -1112,7 +1119,7 @@ public class DatabaseTransactionMgrTest {
             Assertions.assertEquals(nextVersion, table.getPartition(CatalogTestUtil.testPartitionId1).getNextVersion());
             Mockito.verifyNoInteractions(callback, masterEnv.getEditLog(), tsoService);
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
             Config.enable_txn_log_outside_lock = originalLogOutsideLock;
         }
     }
@@ -1120,15 +1127,15 @@ public class DatabaseTransactionMgrTest {
     @ParameterizedTest
     @ValueSource(strings = {"disabled", "replay"})
     public void testCommitTransactionSetsCommitTSOWhenEnableTso(String mode) throws Exception {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         try {
-            Config.enable_feature_binlog = true;
+            Config.enable_feature_changelog = true;
             FakeEnv.setEnv(masterEnv);
 
             OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
                     .getDbOrMetaException(CatalogTestUtil.testDbId1)
                     .getTableOrMetaException(CatalogTestUtil.testTableId1);
-            setTableBinlogFormat(table, BinlogConfig.BinlogFormat.ROW);
+            enableChangelog(table);
 
             long expectedCommitTSO = 12345L;
             TSOService tsoService = Mockito.mock(TSOService.class);
@@ -1153,7 +1160,7 @@ public class DatabaseTransactionMgrTest {
             Assertions.assertEquals(expectedCommitTSO, tableCommitInfo.getCommitTSO());
 
             boolean replay = mode.equals("replay");
-            Config.enable_feature_binlog = false;
+            Config.enable_feature_changelog = false;
             GlobalTransactionMgr transactionMgr = masterTransMgr;
             Env publishEnv = masterEnv;
             if (replay) {
@@ -1161,7 +1168,7 @@ public class DatabaseTransactionMgrTest {
                 transactionMgr = slaveTransMgr;
                 table = (OlapTable) slaveEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                         .getTableOrMetaException(table.getId());
-                setTableBinlogFormat(table, BinlogConfig.BinlogFormat.ROW);
+                enableChangelog(table);
             }
             FakeEnv.setEnv(publishEnv);
             setEnvTSOService(publishEnv, new TSOService());
@@ -1180,17 +1187,17 @@ public class DatabaseTransactionMgrTest {
                     table.getPartition(CatalogTestUtil.testPartitionId1).getVisibleVersion());
             Assertions.assertEquals(12345L, table.getPartition(CatalogTestUtil.testPartitionId1).getTso());
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 
     @ParameterizedTest
     @CsvSource({"true,true", "false,true", "false,false"})
-    public void testCommitTransactionCommitTSORemainsMinusOneWhenTableDisableTso(boolean rowFeature, boolean ccrEnabled)
+    public void testCommitTransactionCommitTSORemainsMinusOneWhenTableDisableTso(boolean changelogFeature, boolean ccrEnabled)
             throws Exception {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         try {
-            Config.enable_feature_binlog = rowFeature;
+            Config.enable_feature_changelog = changelogFeature;
             FakeEnv.setEnv(masterEnv);
 
             OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
@@ -1220,21 +1227,21 @@ public class DatabaseTransactionMgrTest {
             Assertions.assertNotNull(tableCommitInfo);
             Assertions.assertEquals(-1L, tableCommitInfo.getCommitTSO());
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 
     @Test
     public void testCommitTransactionFailsWhenGetTSOInvalid() throws Exception {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         try {
-            Config.enable_feature_binlog = true;
+            Config.enable_feature_changelog = true;
             FakeEnv.setEnv(masterEnv);
 
             OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
                     .getDbOrMetaException(CatalogTestUtil.testDbId1)
                     .getTableOrMetaException(CatalogTestUtil.testTableId1);
-            setTableBinlogFormat(table, BinlogConfig.BinlogFormat.ROW);
+            enableChangelog(table);
 
             TSOService tsoService = Mockito.mock(TSOService.class);
             Mockito.when(tsoService.getTSO()).thenReturn(-1L);
@@ -1255,7 +1262,7 @@ public class DatabaseTransactionMgrTest {
                 Assertions.assertTrue(e.getMessage().contains("failed to get TSO"));
             }
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 

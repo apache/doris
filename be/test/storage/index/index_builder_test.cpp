@@ -20,30 +20,41 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <bit>
+#include <cstdint>
 #include <filesystem>
+#include <limits>
 #include <optional>
 #include <set>
+#include <type_traits>
 
 #include "common/config.h"
 #include "core/assert_cast.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "storage/index/clucene_terms.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_writer.h"
 #include "storage/index/inverted/snii/snii_query_oracle.h"
+#include "storage/iterators.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/comparison_predicate.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_writer_context.h"
+#include "storage/segment/array_index_input.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/segment.h"
 #include "storage/storage_engine.h"
+#include "storage/storage_layout.h"
 #include "storage/tablet/tablet_fwd.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet/tablet_schema_helper.h"
 #include "storage/utils.h"
 #include "util/debug_points.h"
+#include "util/defer_op.h"
 
 namespace doris {
 using namespace testing;
@@ -412,6 +423,107 @@ protected:
         RETURN_IF_ERROR(builder.do_build_inverted_index());
         *output_rowsets = builder._output_rowsets;
         return Status::OK();
+    }
+
+    // More [] rows than one BUILD INDEX read batch (block_row_max) holds, so the builder's
+    // first block is all [].
+    static int32_t empty_rows_before_items() {
+        OlapReaderStatistics stats;
+        const StorageReadOptions options(stats);
+        return static_cast<int32_t>(options.block_row_max) + 32;
+    }
+
+    // A tablet whose NOT NULL ARRAY<VARCHAR> column `tags` (unique id 2) holds
+    // empty_rows_before_items() rows of [], then ["a"] and ["b", "a"], in one rowset.
+    void create_rows_after_all_empty_block(InvertedIndexStorageFormatPB format, int64_t id,
+                                           TabletSharedPtr* tablet) {
+        const auto tablet_path = _absolute_dir + "/" + std::to_string(id);
+        TabletSchemaPB schema_pb;
+        schema_pb.set_keys_type(DUP_KEYS);
+        schema_pb.set_inverted_index_storage_format(format);
+        auto tablet_schema = std::make_shared<TabletSchema>();
+        tablet_schema->init_from_pb(schema_pb);
+
+        TabletColumn key_column;
+        key_column.set_unique_id(1);
+        key_column.set_name("k1");
+        key_column.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+        key_column.set_length(4);
+        key_column.set_index_length(4);
+        key_column.set_is_key(true);
+        key_column.set_is_nullable(false);
+        tablet_schema->append_column(key_column);
+
+        TabletColumn array_column;
+        array_column.set_unique_id(2);
+        array_column.set_name("tags");
+        array_column.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+        array_column.set_is_nullable(false);
+        TabletColumn item_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                                 FieldType::OLAP_FIELD_TYPE_VARCHAR, true);
+        item_column.set_length(64);
+        array_column.add_sub_column(item_column);
+        tablet_schema->append_column(array_column);
+
+        ASSERT_TRUE(create_snii_drop_tablet(tablet_schema, tablet_path, tablet).ok());
+
+        RowsetWriterContext writer_context;
+        writer_context.rowset_id.init(id);
+        writer_context.tablet_id = (*tablet)->tablet_id();
+        writer_context.tablet_schema_hash = (*tablet)->schema_hash();
+        writer_context.partition_id = 10;
+        writer_context.rowset_type = BETA_ROWSET;
+        writer_context.tablet_path = tablet_path;
+        writer_context.rowset_state = VISIBLE;
+        writer_context.tablet_schema = tablet_schema;
+        writer_context.version = Version(10, 10);
+        auto res = RowsetFactory::create_rowset_writer(*_engine_ref, writer_context, false);
+        ASSERT_TRUE(res.has_value()) << res.error();
+        auto rowset_writer = std::move(res).value();
+
+        const int32_t empty_rows = empty_rows_before_items();
+        Block block = tablet_schema->create_storage_block();
+        auto columns = std::move(block).mutate_columns();
+        for (int32_t i = 0; i < empty_rows + 2; ++i) {
+            columns[0]->insert_data(reinterpret_cast<const char*>(&i), sizeof(i));
+            Array arr;
+            if (i == empty_rows) {
+                arr.push_back(Field::create_field<TYPE_STRING>("a"));
+            } else if (i == empty_rows + 1) {
+                arr.push_back(Field::create_field<TYPE_STRING>("b"));
+                arr.push_back(Field::create_field<TYPE_STRING>("a"));
+            }
+            columns[1]->insert(Field::create_field<TYPE_ARRAY>(arr));
+        }
+        block = tablet_schema->create_storage_block();
+        block.set_columns(std::move(columns));
+        ASSERT_TRUE(rowset_writer->add_block(&block).ok());
+        ASSERT_TRUE(rowset_writer->flush().ok());
+        RowsetSharedPtr source_rowset;
+        ASSERT_TRUE(rowset_writer->build(source_rowset).ok());
+        ASSERT_TRUE((*tablet)->add_rowset(source_rowset).ok());
+    }
+
+    // Every term of the CLucene index index_id on rowset's first segment, in term order, each
+    // with the documents holding it.
+    static std::vector<std::pair<std::string, std::vector<int>>> clucene_terms(
+            const RowsetSharedPtr& rowset, int32_t column_unique_id, int64_t index_id) {
+        const TabletIndex* index_meta = nullptr;
+        for (const auto* candidate : rowset->tablet_schema()->inverted_indexs(column_unique_id)) {
+            if (candidate->index_id() == index_id) {
+                index_meta = candidate;
+            }
+        }
+        EXPECT_NE(index_meta, nullptr) << "index " << index_id << " missing from the schema";
+        auto segment_path = rowset->segment_path(0);
+        EXPECT_TRUE(segment_path.has_value()) << segment_path.error();
+        if (index_meta == nullptr || !segment_path.has_value()) {
+            return {};
+        }
+        return segment_v2::clucene_terms(
+                std::string {segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(
+                        segment_path.value())},
+                rowset->tablet_schema()->get_inverted_index_storage_format(), index_meta);
     }
 
     static std::string snii_index_path_of(const RowsetSharedPtr& rowset) {
@@ -2697,7 +2809,7 @@ TEST_F(IndexBuilderTest, NonNullIndexDataTest) {
     EXPECT_TRUE(status.ok()) << status.to_string();
     EXPECT_EQ(builder._alter_index_ids.size(), 1);
 
-    // 9. Build index - should trigger _add_data rather than _add_nullable
+    // 9. Build index - should take _add_column without a null map
     status = builder.do_build_inverted_index();
     EXPECT_TRUE(status.ok()) << status.to_string();
 
@@ -3254,6 +3366,339 @@ TEST_F(IndexBuilderTest, ArrayTypeIndexTest) {
         EXPECT_TRUE(io::global_local_filesystem()->exists(index_path, &exists).ok());
         EXPECT_TRUE(exists) << "Index file not found: " << index_path;
     }
+}
+
+// The values an index writer is fed, std::nullopt for a NULL row or item.
+class RecordingIndexColumnWriter final : public segment_v2::IndexColumnWriter {
+public:
+    Status init() override { return Status::OK(); }
+    explicit RecordingIndexColumnWriter(FieldType type = FieldType::OLAP_FIELD_TYPE_CHAR)
+            : _type(type) {}
+    Status add_values(const uint8_t* data, size_t n) override {
+        last_values = data;
+        max_batch_size = std::max(max_batch_size, n);
+        for (size_t i = 0; i < n; ++i) {
+            if (field_is_slice_type(_type)) {
+                values.emplace_back(reinterpret_cast<const Slice*>(data)[i].to_string());
+            } else {
+                const size_t width = field_type_size(_type);
+                values.emplace_back(
+                        std::string(reinterpret_cast<const char*>(data) + i * width, width));
+            }
+        }
+        return Status::OK();
+    }
+    Status add_array_values(size_t field_size, const uint8_t* data, const uint8_t* null_map,
+                            const uint64_t* offsets_ptr, size_t num_rows) override {
+        const auto* offsets = offsets_ptr;
+        const auto* cells = reinterpret_cast<const char*>(data);
+        EXPECT_NE(data, nullptr);
+        last_values = data;
+        array_batch_rows.push_back(num_rows);
+        array_nulls.resize(array_nulls.size() + num_rows, 0);
+        for (size_t i = 0; i < num_rows; ++i) {
+            array_sizes.push_back(offsets[i + 1] - offsets[i]);
+        }
+        max_batch_size = std::max<size_t>(max_batch_size, offsets[num_rows] - offsets[0]);
+        for (uint64_t j = 0; j < offsets[num_rows] - offsets[0]; ++j) {
+            if (null_map != nullptr && null_map[j] != 0) {
+                values.emplace_back(std::nullopt);
+            } else {
+                if (field_is_slice_type(_type)) {
+                    values.emplace_back(reinterpret_cast<const Slice*>(data)[j].to_string());
+                } else {
+                    values.emplace_back(std::string(cells + j * field_size, field_size));
+                }
+            }
+        }
+        return Status::OK();
+    }
+    Status add_nulls(uint32_t count) override {
+        values.insert(values.end(), count, std::nullopt);
+        return Status::OK();
+    }
+    Status add_array_nulls(const uint8_t* null_map, size_t num_rows) override {
+        std::copy(null_map, null_map + num_rows, array_nulls.end() - num_rows);
+        return Status::OK();
+    }
+    Status finish() override { return Status::OK(); }
+    int64_t size() const override { return 0; }
+    void close_on_error() override {}
+
+    std::vector<std::optional<std::string>> values;
+    size_t max_batch_size = 0;
+    const uint8_t* last_values = nullptr;
+    std::vector<size_t> array_batch_rows;
+    std::vector<size_t> array_sizes;
+    std::vector<uint8_t> array_nulls;
+
+private:
+    FieldType _type;
+};
+
+TEST(ArrayIndexInputTest, FeedsWholeRowsAsOneBatch) {
+    constexpr size_t first_item = 3;
+    const std::vector<uint64_t> row_offsets {500, 501, 501, 1101, 2601, 2601, 2603};
+    const std::vector<uint8_t> outer_nulls {0, 1, 0, 0, 1, 0};
+    auto offsets = ColumnOffset64::create();
+    offsets->get_data().assign(row_offsets.begin(), row_offsets.end());
+    auto dates = ColumnDate::create();
+    auto nulls = ColumnUInt8::create();
+    std::vector<std::optional<std::string>> expected;
+    const size_t n = row_offsets.back() - row_offsets.front();
+    for (size_t i = 0; i < first_item + n; ++i) {
+        const VecDateTimeValue value(false, TIME_DATE, 0, 0, 0, 2024, 1,
+                                     static_cast<uint8_t>(i % 28 + 1));
+        dates->insert_value(value);
+        const bool is_null = i == 0 || i == first_item + 605;
+        nulls->insert_value(is_null);
+        if (i < first_item) {
+            continue;
+        }
+        if (is_null) {
+            expected.emplace_back(std::nullopt);
+        } else {
+            const auto stored = StorageLayout<FieldType::OLAP_FIELD_TYPE_DATE>::to_storage(value);
+            expected.emplace_back(
+                    std::string(reinterpret_cast<const char*>(&stored), sizeof(stored)));
+        }
+    }
+    auto items = ColumnNullable::create(std::move(dates), std::move(nulls));
+    StorageBuffers buffer;
+    RecordingIndexColumnWriter writer(FieldType::OLAP_FIELD_TYPE_DATE);
+    ASSERT_TRUE(segment_v2::feed_array_index(&writer, FieldType::OLAP_FIELD_TYPE_DATE, *items,
+                                             first_item, *offsets, outer_nulls.data(), buffer)
+                        .ok());
+    EXPECT_EQ(writer.values, expected);
+    EXPECT_EQ(writer.array_batch_rows, (std::vector<size_t> {6}));
+    EXPECT_EQ(writer.array_sizes, (std::vector<size_t> {1, 0, 600, 1500, 0, 2}));
+    EXPECT_EQ(writer.array_nulls, outer_nulls);
+    EXPECT_EQ(writer.max_batch_size, n);
+    EXPECT_EQ(buffer.bytes.size(), n * sizeof(uint24_t));
+}
+
+TEST(ArrayIndexInputTest, EmptyRowsStillAdvanceDocumentsAndNullPositions) {
+    constexpr size_t rows = 2051;
+    auto items = ColumnInt32::create();
+    auto offsets = ColumnOffset64::create(rows + 1, 900);
+    std::vector<uint8_t> nulls(rows, 0);
+    nulls[1024] = nulls[rows - 1] = 1;
+    StorageBuffers buffer;
+    RecordingIndexColumnWriter writer(FieldType::OLAP_FIELD_TYPE_INT);
+    ASSERT_TRUE(segment_v2::feed_array_index(&writer, FieldType::OLAP_FIELD_TYPE_INT, *items, 0,
+                                             *offsets, nulls.data(), buffer)
+                        .ok());
+    EXPECT_TRUE(writer.values.empty());
+    EXPECT_EQ(writer.array_batch_rows, (std::vector<size_t> {rows}));
+    EXPECT_EQ(writer.array_sizes, std::vector<size_t>(rows, 0));
+    EXPECT_EQ(writer.array_nulls, nulls);
+    // No element is read, but the SNII BKD writer requires a non-null value pointer.
+    EXPECT_NE(writer.last_values, nullptr);
+}
+
+TEST(ArrayIndexInputTest, BorrowsUnchangedFixedWidthItems) {
+    auto items = ColumnInt32::create();
+    for (int32_t value : {1, 2, 10, 20, 30}) {
+        items->insert_value(value);
+    }
+    auto offsets = ColumnOffset64::create();
+    for (uint64_t value : {100, 102, 103}) {
+        offsets->insert_value(value);
+    }
+    StorageBuffers buffer;
+    RecordingIndexColumnWriter writer(FieldType::OLAP_FIELD_TYPE_INT);
+    ASSERT_TRUE(segment_v2::feed_array_index(&writer, FieldType::OLAP_FIELD_TYPE_INT, *items, 2,
+                                             *offsets, nullptr, buffer)
+                        .ok());
+    EXPECT_EQ(writer.last_values, reinterpret_cast<const uint8_t*>(items->get_data().data() + 2));
+    EXPECT_TRUE(buffer.bytes.empty());
+    EXPECT_EQ(writer.array_sizes, (std::vector<size_t> {2, 1}));
+}
+
+// BUILD INDEX reads CHAR back without its padding, so it pads the rows for a CLucene index, and
+// the items of an ARRAY<CHAR> for every index, to their length, as a load does. The value under a
+// NULL is longer than the CHAR, as load lets it be, and is not read.
+TEST_F(IndexBuilderTest, BuildIndexFeedsCharPaddedToItsLength) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    TabletColumn char_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                             FieldType::OLAP_FIELD_TYPE_CHAR, true);
+    char_column.set_unique_id(1);
+    char_column.set_name("c_char");
+    char_column.set_length(4);
+    tablet_schema->append_column(char_column);
+    TabletColumn array_column;
+    array_column.set_unique_id(2);
+    array_column.set_name("c_array_char");
+    array_column.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+    array_column.set_is_nullable(false);
+    TabletColumn item_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                             FieldType::OLAP_FIELD_TYPE_CHAR, true);
+    item_column.set_length(4);
+    array_column.add_sub_column(item_column);
+    tablet_schema->append_column(array_column);
+
+    std::vector<TOlapTableIndex> indexes(2);
+    for (int32_t i = 0; i < 2; ++i) {
+        indexes[i].index_id = i + 1;
+        indexes[i].index_name = fmt::format("index_{}", i + 1);
+        indexes[i].columns = {tablet_schema->column(i).name()};
+        indexes[i].column_unique_ids = {i + 1};
+        indexes[i].index_type = TIndexType::type::INVERTED;
+    }
+    IndexBuilder builder(*_engine_ref, nullptr, {}, indexes, false);
+    auto chars = std::make_unique<RecordingIndexColumnWriter>();
+    auto items = std::make_unique<RecordingIndexColumnWriter>();
+    const auto& char_values = chars->values;
+    const auto& item_values = items->values;
+    builder._index_column_writers.emplace(std::make_pair(0, 1), std::move(chars));
+    builder._index_column_writers.emplace(std::make_pair(0, 2), std::move(items));
+
+    Block block = tablet_schema->create_storage_block();
+    auto columns = std::move(block).mutate_columns();
+    auto& nullable_chars = assert_cast<ColumnNullable&>(*columns[0]);
+    for (const auto& [value, is_null] : std::vector<std::pair<std::string, uint8_t>> {
+                 {"ab", 0}, {"longer than four", 1}, {"cd", 0}}) {
+        nullable_chars.get_nested_column().insert_data(value.data(), value.size());
+        nullable_chars.get_null_map_data().push_back(is_null);
+    }
+    for (const auto& row : std::vector<std::vector<std::optional<std::string>>> {
+                 {"x"}, {"ab", std::nullopt}, {"abcd"}}) {
+        Array array;
+        for (const auto& item : row) {
+            array.push_back(item ? Field::create_field<TYPE_STRING>(*item) : Field());
+        }
+        columns[1]->insert(Field::create_field<TYPE_ARRAY>(array));
+    }
+    block.set_columns(std::move(columns));
+
+    const Status st = builder._write_inverted_index_data(tablet_schema, 0, &block);
+    ASSERT_TRUE(st.ok()) << st;
+    using Values = std::vector<std::optional<std::string>>;
+    EXPECT_EQ(char_values,
+              (Values {std::string("ab\0\0", 4), std::nullopt, std::string("cd\0\0", 4)}));
+    EXPECT_EQ(item_values,
+              (Values {std::string("x\0\0\0", 4), std::string("ab\0\0", 4), std::nullopt, "abcd"}));
+}
+
+TEST_F(IndexBuilderTest, BuildIndexKeepsNullRowsAcrossRuns) {
+    constexpr size_t rows = 3077;
+    TabletColumn field(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                       FieldType::OLAP_FIELD_TYPE_DATE, true);
+    field.set_name("c_date");
+    auto dates = ColumnDate::create();
+    std::vector<uint8_t> null_map(rows, 0);
+    null_map[0] = null_map[2050] = null_map[rows - 1] = 1;
+    std::vector<std::optional<std::string>> expected;
+    for (size_t i = 0; i < rows; ++i) {
+        const VecDateTimeValue value(false, TIME_DATE, 0, 0, 0, 2024, 1,
+                                     static_cast<uint8_t>(i % 28 + 1));
+        dates->insert_value(value);
+        if (null_map[i]) {
+            expected.emplace_back(std::nullopt);
+        } else {
+            const auto stored = StorageLayout<FieldType::OLAP_FIELD_TYPE_DATE>::to_storage(value);
+            expected.emplace_back(
+                    std::string(reinterpret_cast<const char*>(&stored), sizeof(stored)));
+        }
+    }
+    IndexBuilder builder(*_engine_ref, nullptr, {}, {}, false);
+    auto recorder = std::make_unique<RecordingIndexColumnWriter>(field.type());
+    const auto* recorded = recorder.get();
+    builder._index_column_writers.emplace(std::make_pair(0, 1), std::move(recorder));
+    ASSERT_TRUE(builder._add_column({0, 1}, field, *dates, null_map.data(), rows, /*pad_char=*/true)
+                        .ok());
+    EXPECT_EQ(recorded->values, expected);
+    // The longest run of non-NULL rows is converted at once.
+    EXPECT_EQ(recorded->max_batch_size, 2049);
+    EXPECT_LE(builder._buffers.bytes.size(), 2049 * sizeof(uint24_t));
+}
+
+TEST_F(IndexBuilderTest, BuildIndexReusesStringDescriptorsAcrossNullRuns) {
+    constexpr size_t rows = 3077;
+    TabletColumn field(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                       FieldType::OLAP_FIELD_TYPE_VARCHAR, true);
+    field.set_name("c_string");
+    auto strings = ColumnString::create();
+    std::vector<uint8_t> null_map(rows);
+    std::vector<std::optional<std::string>> expected;
+    for (size_t row = 0; row < rows; ++row) {
+        const auto value = std::to_string(row);
+        strings->insert_data(value.data(), value.size());
+        null_map[row] = row % 2 == 0;
+        expected.emplace_back(null_map[row] ? std::nullopt : std::optional(value));
+    }
+    IndexBuilder builder(*_engine_ref, nullptr, {}, {}, false);
+    auto recorder = std::make_unique<RecordingIndexColumnWriter>(field.type());
+    auto* recorded = recorder.get();
+    builder._index_column_writers.emplace(std::make_pair(0, 1), std::move(recorder));
+    ASSERT_TRUE(
+            builder._add_column({0, 1}, field, *strings, null_map.data(), rows, /*pad_char=*/true)
+                    .ok());
+    EXPECT_EQ(recorded->values, expected);
+    const auto* descriptors = builder._buffers.cells.data();
+    const auto allocated = builder._buffers.cells.allocated_bytes();
+    recorded->values.clear();
+    ASSERT_TRUE(
+            builder._add_column({0, 1}, field, *strings, null_map.data(), rows, /*pad_char=*/true)
+                    .ok());
+    EXPECT_EQ(recorded->values, expected);
+    EXPECT_EQ(builder._buffers.cells.data(), descriptors);
+    EXPECT_EQ(builder._buffers.cells.allocated_bytes(), allocated);
+}
+
+TEST_F(IndexBuilderTest, FloatingPointBuildIndexBorrowsCleanRunsAndPreservesSource) {
+    auto check = [&]<FieldType FT>() {
+        using Value = typename StorageTypeTraits<FT>::StorageType;
+        using UInt = std::conditional_t<sizeof(Value) == sizeof(uint32_t), uint32_t, uint64_t>;
+        using Column =
+                typename PrimitiveTypeTraits<storage_field_type_to_primitive_type(FT)>::ColumnType;
+        constexpr size_t rows = 2051;
+        const Value nan = std::numeric_limits<Value>::quiet_NaN();
+        auto values = Column::create();
+        for (size_t i = 0; i < rows; ++i) {
+            values->insert_value(i == 0 || i == rows - 1 ? nan
+                                                         : static_cast<Value>(i) * Value(0.5));
+        }
+        std::vector<uint8_t> nulls(rows, 0);
+        nulls.front() = nulls.back() = 1;
+        TabletColumn field(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, FT, true);
+        field.set_name("c_float");
+        IndexBuilder builder(*_engine_ref, nullptr, {}, {}, false);
+        auto recorder = std::make_unique<RecordingIndexColumnWriter>(FT);
+        const auto* recorded = recorder.get();
+        builder._index_column_writers.emplace(std::make_pair(0, 1), std::move(recorder));
+
+        ASSERT_TRUE(
+                builder._add_column({0, 1}, field, *values, nulls.data(), rows, /*pad_char=*/true)
+                        .ok());
+        // The run of rows [1, rows - 1) has no NaN and is borrowed from the source.
+        EXPECT_EQ(builder._buffers.bytes.allocated_bytes(), 0);
+        EXPECT_EQ(recorded->last_values,
+                  reinterpret_cast<const uint8_t*>(values->get_data().data() + 1));
+        ASSERT_EQ(recorded->values.size(), rows);
+        EXPECT_EQ(recorded->values.front(), std::nullopt);
+        EXPECT_EQ(recorded->values.back(), std::nullopt);
+        for (size_t i = 1; i + 1 < rows; ++i) {
+            const Value value = static_cast<Value>(i) * Value(0.5);
+            EXPECT_EQ(recorded->values[i],
+                      std::string(reinterpret_cast<const char*>(&value), sizeof(value)));
+        }
+
+        // A non-NULL NaN requires owned canonical bytes for its whole run; the source
+        // keeps its payload.
+        const Value payload_nan = -nan;
+        values->get_data()[512] = payload_nan;
+        ASSERT_TRUE(
+                builder._add_column({0, 1}, field, *values, nulls.data(), rows, /*pad_char=*/true)
+                        .ok());
+        EXPECT_GT(builder._buffers.bytes.allocated_bytes(), 0);
+        EXPECT_EQ(recorded->last_values, builder._buffers.bytes.data());
+        EXPECT_EQ(recorded->values[rows + 512],
+                  std::string(reinterpret_cast<const char*>(&nan), sizeof(nan)));
+        EXPECT_EQ(std::bit_cast<UInt>(values->get_data()[512]), std::bit_cast<UInt>(payload_nan));
+    };
+    check.template operator()<FieldType::OLAP_FIELD_TYPE_FLOAT>();
+    check.template operator()<FieldType::OLAP_FIELD_TYPE_DOUBLE>();
 }
 
 TEST_F(IndexBuilderTest, UniqueKeysTableIndexTest) {
@@ -4089,6 +4534,107 @@ TEST_F(IndexBuilderTest, SniiBuildFailureCommitsNoRowset) {
     auto rowset = tablet->get_rowset_by_version(Version(10, 10));
     ASSERT_NE(rowset, nullptr);
     EXPECT_EQ(rowset->rowset_id(), source_rowset->rowset_id());
+}
+
+// A NOT NULL array block whose rows are all [] adds no term but still owns its
+// row ids; the rows of the next block must not slide back onto them.
+TEST_F(IndexBuilderTest, SniiBuildArrayIndexAfterAllEmptyBlock) {
+    TabletSharedPtr tablet;
+    ASSERT_NO_FATAL_FAILURE(
+            create_rows_after_all_empty_block(InvertedIndexStorageFormatPB::SNII, 15701, &tablet));
+    std::vector<RowsetSharedPtr> output_rowsets;
+    ASSERT_TRUE(build_snii_index(tablet, {create_build_index(1, "idx_tags", "tags", 2, {})},
+                                 &output_rowsets)
+                        .ok());
+    ASSERT_EQ(output_rowsets.size(), 1U);
+    const auto first = static_cast<uint32_t>(empty_rows_before_items());
+    assert_snii_term(output_rowsets.front(), tablet->tablet_id(), 2, 1, "a", {first, first + 1});
+    assert_snii_term(output_rowsets.front(), tablet->tablet_id(), 2, 1, "b", {first + 1});
+}
+
+// The same through a CLucene index, which numbers a document for every row it is given.
+TEST_F(IndexBuilderTest, BuildArrayIndexAfterAllEmptyBlock) {
+    TabletSharedPtr tablet;
+    ASSERT_NO_FATAL_FAILURE(
+            create_rows_after_all_empty_block(InvertedIndexStorageFormatPB::V2, 15702, &tablet));
+    std::vector<RowsetSharedPtr> output_rowsets;
+    ASSERT_TRUE(build_snii_index(tablet, {create_build_index(1, "idx_tags", "tags", 2, {})},
+                                 &output_rowsets)
+                        .ok());
+    ASSERT_EQ(output_rowsets.size(), 1U);
+    const int first = empty_rows_before_items();
+    EXPECT_EQ(clucene_terms(output_rowsets.front(), 2, 1),
+              (std::vector<std::pair<std::string, std::vector<int>>> {{"a", {first, first + 1}},
+                                                                      {"b", {first + 1}}}));
+}
+
+// A NOT NULL array read batch whose rows are all [] reaches an ANN index too, and a 0-element
+// row is no vector of the index's dim, so the build fails rather than skipping the batch and
+// sliding the vectors after it onto its row ids.
+TEST_F(IndexBuilderTest, BuildAnnIndexRejectsAllEmptyBlock) {
+    // The [] rows must fill exactly the first read batch, which the adaptive predictor could cut
+    // short of block_row_max.
+    const bool saved_adaptive = config::enable_adaptive_batch_size;
+    Defer restore_config {[&] { config::enable_adaptive_batch_size = saved_adaptive; }};
+    config::enable_adaptive_batch_size = false;
+
+    const auto tablet_path = _absolute_dir + "/15703";
+    auto tablet_schema = create_ann_tablet_schema();
+    TabletSharedPtr tablet;
+    ASSERT_TRUE(create_snii_drop_tablet(tablet_schema, tablet_path, &tablet).ok());
+
+    RowsetWriterContext writer_context;
+    writer_context.rowset_id.init(15703);
+    writer_context.tablet_id = tablet->tablet_id();
+    writer_context.tablet_schema_hash = tablet->schema_hash();
+    writer_context.partition_id = 10;
+    writer_context.rowset_type = BETA_ROWSET;
+    writer_context.tablet_path = tablet_path;
+    writer_context.rowset_state = VISIBLE;
+    writer_context.tablet_schema = tablet_schema;
+    writer_context.version = Version(10, 10);
+    auto res = RowsetFactory::create_rowset_writer(*_engine_ref, writer_context, false);
+    ASSERT_TRUE(res.has_value()) << res.error();
+    auto rowset_writer = std::move(res).value();
+
+    // No vector shares a read batch with a [] row, so only the all-[] batch can fail the build.
+    OlapReaderStatistics stats;
+    const StorageReadOptions options(stats);
+    const auto empty_rows = static_cast<int32_t>(options.block_row_max);
+    Block block = tablet_schema->create_storage_block();
+    auto columns = std::move(block).mutate_columns();
+    for (int32_t i = 0; i < empty_rows; ++i) {
+        columns[0]->insert(Field::create_field<TYPE_ARRAY>(Array()));
+    }
+    for (const auto& row : {std::vector<float> {1.0F, 2.0F, 3.0F, 4.0F},
+                            std::vector<float> {5.0F, 6.0F, 7.0F, 8.0F}}) {
+        Array arr;
+        for (float value : row) {
+            arr.push_back(Field::create_field<TYPE_FLOAT>(value));
+        }
+        columns[0]->insert(Field::create_field<TYPE_ARRAY>(arr));
+    }
+    block = tablet_schema->create_storage_block();
+    block.set_columns(std::move(columns));
+    ASSERT_TRUE(rowset_writer->add_block(&block).ok());
+    ASSERT_TRUE(rowset_writer->flush().ok());
+    RowsetSharedPtr source_rowset;
+    ASSERT_TRUE(rowset_writer->build(source_rowset).ok());
+    ASSERT_TRUE(tablet->add_rowset(source_rowset).ok());
+
+    TOlapTableIndex ann_index;
+    ann_index.__set_index_id(1);
+    ann_index.__set_columns({"arr1"});
+    ann_index.__set_index_name("arr1_ann_index");
+    ann_index.__set_index_type(TIndexType::ANN);
+    ann_index.__set_properties({{"index_type", "hnsw"},
+                                {"metric_type", "l2_distance"},
+                                {"dim", "4"},
+                                {"max_degree", "16"}});
+    std::vector<RowsetSharedPtr> output_rowsets;
+    const Status status = build_snii_index(tablet, {ann_index}, &output_rowsets);
+    EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
+    EXPECT_EQ(status.msg(), "Ann index expect array with 4 dim, got 0.");
 }
 
 } // namespace doris

@@ -38,6 +38,13 @@ suite("test_version_metrics") {
             }
             assertEquals(requiredVersionLabels, labels.keySet())
             parsedMetric = [labels: labels, value: Long.parseLong(matcher.group(2))]
+            def components = [labels.major, labels.minor, labels.patch, labels.hotfix]
+                    .collect { Long.parseLong(it) }
+            components.each { component ->
+                assertTrue(component >= 0 && component < 100)
+            }
+            def expectedValue = components.inject(0L) { encoded, component -> encoded * 100 + component }
+            assertEquals(expectedValue, parsedMetric.value)
             break
         }
         assertNotNull(parsedMetric)

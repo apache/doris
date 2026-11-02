@@ -81,7 +81,7 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
         FeConstants.runningUnitTest = true;
         Config.allow_replica_on_same_host = true;
         Config.enable_table_stream = true;
-        Config.enable_feature_binlog = true;
+        Config.enable_feature_changelog = true;
 
         createDatabase("test_stream");
         connectContext.setDatabase("test_stream");
@@ -97,8 +97,8 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
                 + "distributed by hash(k1) buckets 1\n"
                 + "properties(\"replication_num\"=\"1\","
                 + "\"enable_unique_key_merge_on_write\"=\"true\","
-                + "\"binlog.enable\"=\"true\",\"binlog.format\"=\"ROW\","
-                + "\"binlog.need_historical_value\"=\"true\")";
+                + "\"changelog.enable\"=\"true\","
+                + "\"changelog.need_historical_value\"=\"true\")";
         createTable(createBaseTable);
 
         String createTargetTable = "create table test_stream.tbl_target (\n"
@@ -127,8 +127,8 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
                 + "distributed by hash(k1) buckets 1\n"
                 + "properties(\"replication_num\"=\"1\","
                 + "\"enable_unique_key_merge_on_write\"=\"true\","
-                + "\"binlog.enable\"=\"true\",\"binlog.format\"=\"ROW\","
-                + "\"binlog.need_historical_value\"=\"true\")";
+                + "\"changelog.enable\"=\"true\","
+                + "\"changelog.need_historical_value\"=\"true\")";
         createTable(createCloudMvEmptyTable);
 
         String createCloudMvEmptyStream = "create stream test_stream.s_cloud_mv_empty "
@@ -828,7 +828,7 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
                 checker.getCascadesContext().getStatementContext().setForceRecordTmpPlan(true);
                 // PlanChecker bypasses the planner prefetch; match the mock read-state clock.
                 checker.getCascadesContext().getStatementContext()
-                        .getOrRegisterRowBinlogReferenceTso(() -> 130L);
+                        .getOrRegisterChangelogReferenceTso(() -> 130L);
                 checker.rewrite();
 
                 List<Plan> tmpPlans = checker.getCascadesContext().getStatementContext()
@@ -907,7 +907,7 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
                 Deencapsulation.invoke(CloudTableStreamReadStateHook.class, "installReadStates", analyzedPlan);
                 // PlanChecker bypasses the planner prefetch; match the mock read-state clock.
                 checker.getCascadesContext().getStatementContext()
-                        .getOrRegisterRowBinlogReferenceTso(() -> 130L);
+                        .getOrRegisterChangelogReferenceTso(() -> 130L);
                 checker.rewrite();
 
                 List<TableStreamUpdateInfo> updates = StreamConsumptionInfoExtractor.extract(analyzedPlan);

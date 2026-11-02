@@ -36,7 +36,7 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/packed_file_system.h"
 #include "runtime/exec_env.h"
-#include "storage/binlog.h"
+#include "storage/changelog.h"
 #include "storage/olap_define.h"
 #include "storage/partial_update_info.h"
 #include "storage/segment/historical_row_retriever.h"
@@ -116,6 +116,11 @@ struct RowsetWriterContext {
     // coexist in a single pass. V2/V3 keep columns_to_do_index_compaction:
     // their per-column CLucene directories cannot split an index off a column.
     std::set<std::pair<int32_t, int64_t>> snii_indexes_to_do_compaction;
+
+    bool has_index_compaction() const {
+        return !columns_to_do_index_compaction.empty() || !snii_indexes_to_do_compaction.empty();
+    }
+
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
     // need to figure out the sub type of compaction
     ReaderType compaction_type = ReaderType::UNKNOWN;
@@ -196,7 +201,7 @@ struct RowsetWriterContext {
     std::string job_id;
 
     // Per-segment LSNs allocated before memtable flush. The same storage feeds
-    // both the base row LSN column and row-binlog LSN column.
+    // both the base row LSN column and changelog LSN column.
     std::shared_ptr<segment_v2::SegmentAllocatedLsnMap> allocated_lsn_map = nullptr;
     bool _need_allocate_lsn = false;
 
@@ -323,31 +328,31 @@ struct RowsetWriterContext {
         return opts;
     }
 
-    struct BinlogOptions {
+    struct ChangelogOptions {
     public:
         bool enable = false;
 
         void set_need_before(bool need_before) {
             this->_need_before = need_before;
-            _segment_write_binlog_opt.write_before = need_before;
+            _segment_write_changelog_opt.write_before = need_before;
         }
 
-        segment_v2::SegmentWriteBinlogOptions& write_binlog_config() {
-            return _segment_write_binlog_opt;
+        segment_v2::SegmentWriteChangelogOptions& write_changelog_config() {
+            return _segment_write_changelog_opt;
         }
 
-        const segment_v2::SegmentWriteBinlogOptions& write_binlog_config() const {
-            return _segment_write_binlog_opt;
+        const segment_v2::SegmentWriteChangelogOptions& write_changelog_config() const {
+            return _segment_write_changelog_opt;
         }
 
     private:
         bool _need_before = false;
-        segment_v2::SegmentWriteBinlogOptions _segment_write_binlog_opt;
-    } _write_binlog_opt;
+        segment_v2::SegmentWriteChangelogOptions _segment_write_changelog_opt;
+    } _write_changelog_opt;
 
-    BinlogOptions& write_binlog_opt() { return _write_binlog_opt; }
+    ChangelogOptions& write_changelog_opt() { return _write_changelog_opt; }
 
-    const BinlogOptions& write_binlog_opt() const { return _write_binlog_opt; }
+    const ChangelogOptions& write_changelog_opt() const { return _write_changelog_opt; }
 };
 
 inline segment_v2::HistoricalRowRetrieverContext

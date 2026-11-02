@@ -66,7 +66,6 @@ private:
     std::vector<Rune> runes_;
     SmartForest* branch_;
 
-    uint8_t status_ = 0;
     size_t root_ = 0;
     size_t i_ = 0;
     bool is_back_ = false;

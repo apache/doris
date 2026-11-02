@@ -32,6 +32,7 @@
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "util/string_util.h"
+#include "util/time.h"
 
 namespace doris {
 
@@ -119,12 +120,18 @@ public:
         THROW_IF_ERROR(
                 _ai_adapter->build_request_payload(inputs, system_prompt.c_str(), request_body));
         THROW_IF_ERROR(send_request_to_ai(request_body, response));
-        THROW_IF_ERROR(_ai_adapter->parse_response(response, results, false /* expand_batch */));
-
-        if (results.size() != 1) [[unlikely]] {
-            throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "AI aggregate expected one result but got {}", results.size());
+        const auto& statistics = _request_executor->statistics();
+        const auto parse_start = statistics ? MonotonicNanos() : 0;
+        Status parse_status =
+                _ai_adapter->parse_response(response, results, false /* expand_batch */);
+        if (parse_status.ok() && results.size() != 1) [[unlikely]] {
+            parse_status = Status::InternalError("AI aggregate expected one result but got {}",
+                                                 results.size());
         }
+        if (statistics) {
+            statistics->record_parse(MonotonicNanos() - parse_start, !parse_status.ok());
+        }
+        THROW_IF_ERROR(parse_status);
         return results.front();
     }
 
@@ -260,6 +267,17 @@ public:
         }
     }
 
+    void set_ai_statistics(std::shared_ptr<AIExecutionStatistics> statistics) override {
+        // Called during evaluator prepare, before clones and group states share the executor.
+        _request_executor = std::make_shared<AIRequestExecutor>(std::move(statistics));
+    }
+
+    void record_null_input(size_t rows) const {
+        if (const auto& statistics = _request_executor->statistics()) {
+            statistics->record_input(rows, rows);
+        }
+    }
+
     String get_name() const override { return "ai_agg"; }
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeString>(); }
@@ -274,6 +292,9 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
+        if (const auto& statistics = _request_executor->statistics()) {
+            statistics->record_input(1, 0);
+        }
         data(place).prepare(
                 assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[0])
                         .get_data_at(0),
@@ -286,6 +307,9 @@ public:
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
                                 Arena& arena) const override {
+        if (const auto& statistics = _request_executor->statistics()) {
+            statistics->record_input(batch_size, 0);
+        }
         if (!data(place).inited) {
             data(place).prepare(
                     assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[0])

@@ -42,14 +42,14 @@ CloudDeltaWriter::CloudDeltaWriter(CloudStorageEngine& engine, const WriteReques
 
 CloudDeltaWriter::CloudDeltaWriter(CloudStorageEngine& engine, const WriteRequest& group_build_req,
                                    const WriteRequest& sub_data_req,
-                                   const WriteRequest& sub_row_binlog_req, RuntimeProfile* profile,
+                                   const WriteRequest& sub_changelog_req, RuntimeProfile* profile,
                                    const UniqueId& load_id)
         : BaseDeltaWriter(group_build_req, profile, load_id) {
     DCHECK(group_build_req.write_req_type == WriteRequestType::GROUP &&
            sub_data_req.write_req_type == WriteRequestType::DATA &&
-           sub_row_binlog_req.write_req_type == WriteRequestType::ROW_BINLOG);
+           sub_changelog_req.write_req_type == WriteRequestType::CHANGELOG);
     _rowset_builder = std::make_unique<CloudGroupRowsetBuilder>(
-            engine, group_build_req, sub_data_req, sub_row_binlog_req, profile);
+            engine, group_build_req, sub_data_req, sub_changelog_req, profile);
     _resource_ctx = thread_context()->resource_ctx();
 }
 

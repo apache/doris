@@ -496,11 +496,12 @@ public final class IcebergNestedColumnEvolution {
         return schema.asStruct().caseInsensitiveField(columnName);
     }
 
-    static NestedField findFieldForErrorUpgrade(Schema schema, ConnectorColumnPath columnPath) {
+    static NestedField findModifyTarget(Schema schema, ConnectorColumnPath columnPath) {
         try {
             return resolveColumnPath(schema, columnPath, "modify").getField();
         } catch (DorisConnectorException ignored) {
-            // Error-message upgrading is best-effort and must not replace the original type-build failure.
+            // Building a modify against the current type is best-effort and must not replace the original
+            // type-build failure.
             return null;
         }
     }

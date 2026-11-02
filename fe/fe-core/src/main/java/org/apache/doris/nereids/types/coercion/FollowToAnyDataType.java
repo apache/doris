@@ -18,9 +18,11 @@
 package org.apache.doris.nereids.types.coercion;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.DataType;
 
 import java.util.Locale;
+import java.util.Optional;
 
 /**
  * FollowToAnyDataType is used to auto compute the return type by the AnyDataType in signature.
@@ -70,5 +72,10 @@ public class FollowToAnyDataType extends DataType {
     @Override
     public int width() {
         return -1;
+    }
+
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.empty();
     }
 }

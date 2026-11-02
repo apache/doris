@@ -19,13 +19,18 @@ package org.apache.doris.connector;
 
 import org.apache.doris.extension.loader.ClassLoadingPolicy;
 import org.apache.doris.extension.loader.PluginLoader;
+import org.apache.doris.kerberos.HadoopKerberosAuthenticator;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.hadoop.security.authentication.util.KerberosName;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.InvocationTargetException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Files;
@@ -81,6 +86,44 @@ public class ConnectorPluginHadoopPatchTest {
     }
 
     @Test
+    public void kerberosInitializationCanRetryThroughAnotherPlugin() throws Exception {
+        String originalRealm = System.getProperty("java.security.krb5.realm");
+        String originalKdc = System.getProperty("java.security.krb5.kdc");
+        System.setProperty("java.security.krb5.realm", "DEFAULT.EXAMPLE");
+        System.setProperty("java.security.krb5.kdc", "localhost");
+        UserGroupInformation.reset();
+        String entry = "org/apache/doris/kerberos/HadoopKerberosAuthenticator.class";
+        Path jar = jarWith(entry, classBytes(entry, false), "kerberos.jar");
+        try (URLClassLoader first = (URLClassLoader) loaderOver(jar,
+                ConnectorPluginManager.CONNECTOR_PARENT_FIRST_PREFIXES, getClass().getClassLoader());
+                URLClassLoader second = (URLClassLoader) loaderOver(jar,
+                        ConnectorPluginManager.CONNECTOR_PARENT_FIRST_PREFIXES, getClass().getClassLoader())) {
+            Class<?> firstAuth = first.loadClass(HadoopKerberosAuthenticator.class.getName());
+            Class<?> secondAuth = second.loadClass(HadoopKerberosAuthenticator.class.getName());
+            Assertions.assertSame(HadoopKerberosAuthenticator.class, firstAuth);
+            Assertions.assertSame(firstAuth, secondAuth);
+            UserGroupInformation.setConfiguration(new Configuration(false));
+            Configuration invalid = new Configuration(false);
+            invalid.set("hadoop.security.authentication", "kerberos");
+            invalid.set("hadoop.security.auth_to_local", "RULE:[2:$1]s/^hdfs$/old-user/");
+            invalid.set("hadoop.kerberos.min.seconds.before.relogin", "oops");
+            InvocationTargetException failure = Assertions.assertThrows(InvocationTargetException.class,
+                    () -> firstAuth.getMethod("initializeAuthConfig", Configuration.class).invoke(null, invalid));
+            Assertions.assertInstanceOf(IllegalArgumentException.class, failure.getCause());
+
+            Configuration corrected = new Configuration(invalid);
+            corrected.unset("hadoop.kerberos.min.seconds.before.relogin");
+            corrected.set("hadoop.security.auth_to_local", "RULE:[2:$1]s/^hdfs$/new-user/");
+            secondAuth.getMethod("initializeAuthConfig", Configuration.class).invoke(null, corrected);
+            Assertions.assertEquals("new-user", new KerberosName("hdfs/host@FIRST.EXAMPLE").getShortName());
+        } finally {
+            UserGroupInformation.reset();
+            restoreProperty("java.security.krb5.realm", originalRealm);
+            restoreProperty("java.security.krb5.kdc", originalKdc);
+        }
+    }
+
+    @Test
     public void testParentFirstFallsBackToThePluginWhenTheKernelHasNothingToOffer() throws Exception {
         // The prefix is a delegation ORDER, not an exclusive claim. It is what keeps the entry from
         // stranding a plugin whose hadoop the kernel does not carry (hbase under hudi, the
@@ -101,6 +144,14 @@ public class ConnectorPluginHadoopPatchTest {
 
     private ClassLoader pluginLoaderFor(List<String> parentFirstPrefixes) throws IOException {
         return loaderOver(vanillaFileSystemJar(), parentFirstPrefixes, getClass().getClassLoader());
+    }
+
+    private static void restoreProperty(String name, String value) {
+        if (value == null) {
+            System.clearProperty(name);
+        } else {
+            System.setProperty(name, value);
+        }
     }
 
     private ClassLoader loaderOver(Path jar, List<String> parentFirstPrefixes, ClassLoader parent)

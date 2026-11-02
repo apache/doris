@@ -38,8 +38,7 @@ suite("test_ivm_agg_4") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -157,8 +156,7 @@ suite("test_ivm_agg_4") {
         DISTRIBUTED BY HASH(id) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -216,7 +214,7 @@ suite("test_ivm_agg_4") {
         SELECT k1, cnt, sum_v1 FROM test_ivm_agg_4_nullkey1_mv ORDER BY k1
     """
 
-    // Delete from k1=1 group via binlog_op=1
+    // Delete from k1=1 group via changelog_op=1
     sql """DELETE FROM test_ivm_agg_4_nullkey1_base WHERE k1 = 1;"""
     // Dirty partition with another insert
     sql """INSERT INTO test_ivm_agg_4_nullkey1_base VALUES (7, 2, 70);"""
@@ -239,7 +237,7 @@ suite("test_ivm_agg_4") {
         SELECT k1, cnt, sum_v1 FROM test_ivm_agg_4_nullkey1_mv ORDER BY k1
     """
 
-    // Delete from NULL group via binlog_op=1 and verify NULL-key group updates correctly.
+    // Delete from NULL group via changelog_op=1 and verify NULL-key group updates correctly.
     sql """DELETE FROM test_ivm_agg_4_nullkey1_base WHERE id = 1;"""
     // Dirty partition and resurrect k1=1 with a fresh row.
     sql """INSERT INTO test_ivm_agg_4_nullkey1_base VALUES (8, 1, 80);"""
@@ -282,8 +280,7 @@ suite("test_ivm_agg_4") {
         DISTRIBUTED BY HASH(id) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -370,8 +367,7 @@ suite("test_ivm_agg_4") {
         DISTRIBUTED BY HASH(id) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """

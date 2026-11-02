@@ -19,10 +19,12 @@ package org.apache.doris.job.offset.s3;
 
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.GlobListing;
 import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.spi.ObjectStorageGlob;
 import org.apache.doris.filesystem.spi.S3CompatibleFileSystem;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
@@ -126,6 +128,31 @@ public class S3SourceOffsetProviderTest {
     }
 
     @Test
+    public void testListingRefreshesFileSizeAndModificationTime() throws Exception {
+        FileSystem fs = Mockito.mock(FileSystem.class);
+        try (MockedStatic<FileSystemFactory> factory = Mockito.mockStatic(FileSystemFactory.class)) {
+            factory.when(() -> FileSystemFactory.getFileSystem(Mockito.any(StorageAdapter.class))).thenReturn(fs);
+            for (S3SourceOffsetProvider provider : List.of(
+                    new S3SourceOffsetProvider(), new S3SourceOffsetProvider(ONCE_PROPS))) {
+                Mockito.when(fs.globListWithLimit(Mockito.any(Location.class), Mockito.isNull(),
+                        Mockito.anyLong(), Mockito.anyLong())).thenReturn(
+                                new GlobListing(List.of(new FileEntry(Location.of("s3://bucket/data/a.csv"),
+                                        19, false, 1767225600000L, null)), "bucket", "data/", "data/a.csv"),
+                                new GlobListing(List.of(new FileEntry(Location.of("s3://bucket/data/a.csv"),
+                                        170, false, 1767225601000L, null)), "bucket", "data/", "data/a.csv"));
+
+                TBrokerFileStatus first = provider.getNextOffset(ONCE_PROPS, TVF_PROPS).getFileStatuses().get(0);
+                Assertions.assertEquals(19, first.getSize());
+                Assertions.assertEquals(1767225600000L, first.getModificationTime());
+                // An uncommitted batch must pick up an overwrite on the next attempt.
+                TBrokerFileStatus retried = provider.getNextOffset(ONCE_PROPS, TVF_PROPS).getFileStatuses().get(0);
+                Assertions.assertEquals(170, retried.getSize());
+                Assertions.assertEquals(1767225601000L, retried.getModificationTime());
+            }
+        }
+    }
+
+    @Test
     public void testEmptyAndListingErrorRemainDistinct() throws Exception {
         FileSystem fs = Mockito.mock(FileSystem.class);
         try (MockedStatic<FileSystemFactory> factory = Mockito.mockStatic(FileSystemFactory.class)) {
@@ -202,6 +229,55 @@ public class S3SourceOffsetProviderTest {
         }
         for (String key : otherKeys) {
             Assertions.assertFalse(matcher.matcher(key).matches(), "Unexpected file: " + key);
+        }
+    }
+
+    @Test
+    void hasMoreDataToConsumeUsesUtf8BinaryOrder() {
+        String privateUseKey = "data/" + Character.toString(0xE000) + "/file.csv";
+        String emojiKey = "data/" + Character.toString(0x1F600) + "/file.csv";
+        Assertions.assertTrue(privateUseKey.compareTo(emojiKey) > 0);
+        Assertions.assertTrue(ObjectStorageGlob.compareUtf8Binary(privateUseKey, emojiKey) < 0);
+
+        S3Offset currentOffset = new S3Offset();
+        currentOffset.setEndFile(privateUseKey);
+        S3SourceOffsetProvider provider = new S3SourceOffsetProvider();
+        provider.currentOffset = currentOffset;
+        provider.maxEndFile = emojiKey;
+
+        Assertions.assertTrue(provider.hasMoreDataToConsume());
+    }
+
+    @Test
+    void hasMoreDataToConsumeUsesAzureStringOrder() throws Exception {
+        String emojiKey = "data/" + Character.toString(0x1F600) + "/file.csv";
+        String fullwidthKey = "data/" + Character.toString(0xFF21) + "/file.csv";
+        StorageAdapter adapter = Mockito.mock(StorageAdapter.class);
+        Mockito.when(adapter.getType()).thenReturn(StorageTypeId.AZURE);
+        Mockito.when(adapter.validateAndGetUri(Mockito.anyMap())).thenReturn("s3://bucket/data/*/file.csv");
+        Mockito.when(adapter.validateAndNormalizeUri(Mockito.anyString())).thenReturn("s3://bucket/data/*/file.csv");
+        FileSystem fs = Mockito.mock(FileSystem.class);
+        Mockito.when(fs.globListWithLimit(Mockito.any(Location.class), Mockito.eq(emojiKey),
+                Mockito.anyLong(), Mockito.anyLong())).thenReturn(page(fullwidthKey, fullwidthKey));
+
+        try (MockedStatic<StorageAdapter> adapters = Mockito.mockStatic(StorageAdapter.class);
+                MockedStatic<FileSystemFactory> factory = Mockito.mockStatic(FileSystemFactory.class)) {
+            adapters.when(() -> StorageAdapter.of(Mockito.anyMap())).thenReturn(adapter);
+            factory.when(() -> FileSystemFactory.getFileSystem(adapter)).thenReturn(fs);
+            for (boolean metadataProbe : List.of(true, false)) {
+                S3Offset offset = new S3Offset();
+                offset.setEndFile(emojiKey);
+                S3SourceOffsetProvider provider = new S3SourceOffsetProvider();
+                provider.currentOffset = offset;
+                if (metadataProbe) {
+                    provider.fetchRemoteMeta(TVF_PROPS);
+                } else {
+                    provider.getNextOffset(ONCE_PROPS, TVF_PROPS);
+                }
+                Assertions.assertTrue(provider.hasMoreDataToConsume());
+                offset.setEndFile(fullwidthKey);
+                Assertions.assertFalse(provider.hasMoreDataToConsume());
+            }
         }
     }
 }

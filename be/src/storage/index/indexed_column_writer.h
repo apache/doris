@@ -79,7 +79,7 @@ public:
     Status init();
 
     // add a single not-null value
-    Status add(const void* value);
+    Status add(const uint8_t* value);
 
     Status finish(IndexedColumnMetaPB* meta);
 

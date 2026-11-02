@@ -295,4 +295,63 @@ public class NereidsToConnectorExpressionConverterTest {
     public void nullInputReturnsNull() {
         Assertions.assertNull(NereidsToConnectorExpressionConverter.convert(null));
     }
+
+    // ---- strict variant: never drops an arm (the whole-file metadata-delete predicate) ----
+
+    @Test
+    public void strictConversionRefusesToDropAnAndArm() {
+        // The loose variant drops the column-to-column arm, which is safe only for a consumer that treats the
+        // result as an over-approximation (a conflict-detection filter). The whole-file delete fast path consumes
+        // the result as the exact statement predicate instead, so the strict variant must refuse the whole AND.
+        SlotReference a = slot("a", ScalarType.INT);
+        SlotReference b = slot("b", ScalarType.INT);
+        SlotReference c = slot("c", ScalarType.INT);
+        And and = new And(new EqualTo(a, new IntegerLiteral(1)), new EqualTo(b, c));
+
+        ConnectorExpression loose = NereidsToConnectorExpressionConverter.convert(and);
+        Assertions.assertInstanceOf(ConnectorComparison.class, loose, "the loose variant keeps the arm it can");
+
+        Assertions.assertNull(NereidsToConnectorExpressionConverter.convertStrict(and),
+                "the strict variant must not widen an exact predicate");
+    }
+
+    @Test
+    public void strictConversionKeepsFullyRepresentablePredicates() {
+        SlotReference a = slot("a", ScalarType.INT);
+        SlotReference b = slot("b", ScalarType.INT);
+
+        ConnectorExpression strict = NereidsToConnectorExpressionConverter.convertStrict(
+                new And(new EqualTo(a, new IntegerLiteral(1)), new GreaterThan(b, new IntegerLiteral(2))));
+
+        Assertions.assertInstanceOf(ConnectorAnd.class, strict);
+        Assertions.assertEquals(2, ((ConnectorAnd) strict).getConjuncts().size());
+        Assertions.assertEquals(NereidsToConnectorExpressionConverter.convert(
+                        new And(new EqualTo(a, new IntegerLiteral(1)), new GreaterThan(b, new IntegerLiteral(2)))),
+                strict, "with nothing to drop, strict and loose agree");
+    }
+
+    @Test
+    public void strictConversionCommutesLiteralLeftComparisons() {
+        // Analysis keeps the operand order as written, so `1 < id` reaches the converter literal-first. The
+        // exact delete predicate must become `id > 1`; keeping `<` would select the wrong files.
+        SlotReference id = slot("id", ScalarType.INT);
+
+        ConnectorComparison strict = (ConnectorComparison) NereidsToConnectorExpressionConverter.convertStrict(
+                new LessThan(new IntegerLiteral(1), id));
+
+        Assertions.assertEquals(ConnectorComparison.Operator.GT, strict.getOperator());
+        Assertions.assertEquals("id", ((ConnectorColumnRef) strict.getLeft()).getColumnName());
+    }
+
+    @Test
+    public void strictConversionRejectsSqlUnsafeNegations() {
+        // NOT(col = 1) becomes iceberg notEqual, which treats NULL-only files as matching, while SQL
+        // NOT(UNKNOWN) deletes nothing. IS NOT NULL is the only negation that keeps SQL semantics.
+        SlotReference id = slot("id", ScalarType.INT);
+
+        Assertions.assertNull(NereidsToConnectorExpressionConverter.convertStrict(
+                new Not(new EqualTo(id, new IntegerLiteral(1)))));
+        Assertions.assertInstanceOf(ConnectorNot.class,
+                NereidsToConnectorExpressionConverter.convertStrict(new Not(new IsNull(id))));
+    }
 }

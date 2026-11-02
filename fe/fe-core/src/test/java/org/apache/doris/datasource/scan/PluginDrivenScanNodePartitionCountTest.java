@@ -49,6 +49,28 @@ import java.util.OptionalLong;
  */
 public class PluginDrivenScanNodePartitionCountTest {
 
+    @Test
+    void selectionPublishesCountsBeforeStreamingStarts() {
+        PluginDrivenScanNode scan = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
+        scan.setSelectedPartitions(SelectedPartitions.NATIVE);
+        Assertions.assertEquals(-1, scan.getSelectedPartitionNum());
+        scan.setSelectedPartitions(new SelectedPartitions(3,
+                items(1), false));
+        Assertions.assertEquals(1, scan.getSelectedPartitionNum());
+    }
+
+    @Test
+    public void testNativePlanningIsUnknownRatherThanEmpty() {
+        SelectedPartitions selection = SelectedPartitions.NATIVE;
+        Assertions.assertFalse(selection.isPruned);
+        Assertions.assertNotEquals(SelectedPartitions.NOT_PRUNED, selection);
+        Assertions.assertArrayEquals(new long[] {-1, -1},
+                PluginDrivenScanNode.displayPartitionCounts(selection));
+        Assertions.assertNull(PluginDrivenScanNode.resolveRequiredPartitions(selection, false));
+        Assertions.assertNull(PluginDrivenScanNode.resolveRequiredPartitions(selection, true));
+        Assertions.assertFalse(PluginDrivenScanNode.partitionsPrunedToEmpty(selection, true));
+    }
+
     private static Map<String, PartitionItem> items(int count) {
         Map<String, PartitionItem> items = new LinkedHashMap<>();
         for (int i = 0; i < count; i++) {

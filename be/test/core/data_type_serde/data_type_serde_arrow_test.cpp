@@ -957,9 +957,8 @@ TEST(DataTypeSerDeArrowTest, PlainArrowConverterDoesNotInferIcebergUuid) {
 
 TEST(DataTypeSerDeArrowTest, IcebergVariantExtensionAndParquetSchema) {
     auto make_variant_column = []() {
-        JsonStringToVariantEncoder encoder({.max_json_key_length = 1024,
-                                            .throw_on_invalid_json = true,
-                                            .check_duplicate_json_path = false});
+        JsonStringToVariantEncoder encoder(
+                {.max_json_key_length = 1024, .throw_on_invalid_json = true});
         for (std::string_view json :
              {std::string_view {R"({"name":"doris","n":1})"}, std::string_view {"null"},
               std::string_view {R"([1,true,"x"])"}}) {
@@ -1054,9 +1053,8 @@ TEST(DataTypeSerDeArrowTest, IcebergVariantExtensionAndParquetSchema) {
 
 TEST(DataTypeSerDeArrowTest, NestedIcebergVariantExtensionsAndParquetSchema) {
     auto make_variant_column = [](std::initializer_list<std::string_view> json_values) {
-        JsonStringToVariantEncoder encoder({.max_json_key_length = 1024,
-                                            .throw_on_invalid_json = true,
-                                            .check_duplicate_json_path = false});
+        JsonStringToVariantEncoder encoder(
+                {.max_json_key_length = 1024, .throw_on_invalid_json = true});
         for (std::string_view json : json_values) {
             encoder.add_json({json.data(), json.size()});
         }

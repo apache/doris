@@ -684,9 +684,14 @@ build_gperftools() {
         ./autogen.sh
     fi
 
-    CPPFLAGS="-I${TP_INCLUDE_DIR}" \
-        LDFLAGS="-L${TP_LIB_DIR}" \
-        LD_LIBRARY_PATH="${TP_LIB_DIR}" \
+    local cppflags="-I${TP_INCLUDE_DIR}"
+    if [[ "${KERNEL}" == "Linux" && "$(uname -m)" == "aarch64" ]]; then
+        # --enable-frame-pointers only selects the FP unwinder on x86 in 2.18.1.
+        # Keep ARM64 SIGPROF callbacks out of libgcc and its loader locks.
+        cppflags+=" -DTCMALLOC_DONT_PREFER_LIBUNWIND=1"
+    fi
+
+    CPPFLAGS="${cppflags}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         LD_LIBRARY_PATH="${TP_LIB_DIR}" \
         ./configure --prefix="${TP_INSTALL_DIR}/gperftools" --disable-shared --enable-static --disable-libunwind --with-pic --enable-frame-pointers

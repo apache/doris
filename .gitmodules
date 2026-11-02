@@ -32,6 +32,9 @@
 [submodule "contrib/datasketches-cpp"]
 	path = contrib/datasketches-cpp
 	url = https://github.com/apache/datasketches-cpp.git
+[submodule "contrib/h3"]
+	path = contrib/h3
+	url = https://github.com/uber/h3.git
 [submodule "doris-skills"]
 	path = doris-skills
 	url = https://github.com/apache/doris-skills

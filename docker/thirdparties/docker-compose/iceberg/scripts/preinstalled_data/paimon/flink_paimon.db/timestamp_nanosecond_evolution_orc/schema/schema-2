@@ -1,0 +1,27 @@
+{
+  "version" : 3,
+  "id" : 2,
+  "fields" : [ {
+    "id" : 0,
+    "name" : "id",
+    "type" : "INT"
+  }, {
+    "id" : 1,
+    "name" : "ts",
+    "type" : "TIMESTAMP(0)"
+  }, {
+    "id" : 2,
+    "name" : "ltz",
+    "type" : "TIMESTAMP(0) WITH LOCAL TIME ZONE"
+  } ],
+  "highestFieldId" : 2,
+  "partitionKeys" : [ ],
+  "primaryKeys" : [ ],
+  "options" : {
+    "write-only" : "true",
+    "file.format" : "orc",
+    "orc.timestamp-ltz.legacy.type" : "false"
+  },
+  "comment" : "",
+  "timeMillis" : 1791801821222
+}

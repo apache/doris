@@ -40,8 +40,6 @@ struct TTabletStat {
     9: optional i64 local_segment_size = 0    // .dat
     10: optional i64 remote_index_size = 0    // .idx
     11: optional i64 remote_segment_size = 0  // .dat
-    // 12: deprecated binlog_size
-    // 13: deprecated binlog_file_num
 }
 
 struct TTabletStatResult {

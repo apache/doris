@@ -83,6 +83,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayShuffle;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySlice;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySort;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySortBy;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySortedMerge;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySplit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayUnion;
@@ -163,6 +164,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CutIpv6;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CutToFirstSignificantSubdomain;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DamerauLevenshteinDistance;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DataSketchesHllDownsample;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateDiff;
@@ -239,6 +241,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.GetVariantTyp
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Grouping;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingId;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.H3CellToBoundary;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.H3CellToLatLng;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.H3LatLngToCell;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HammingDistance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllCardinality;
@@ -636,6 +641,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             lambdaScalar(ArrayMatchAny.class, LambdaBindingSpecs.ARRAY_ZIP, "array_match_any"),
             lambdaScalar(ArrayReverseSplit.class, LambdaBindingSpecs.ARRAY_ZIP, "array_reverse_split"),
             lambdaScalar(ArraySort.class, LambdaBindingSpecs.ARRAY_COMPARATOR, "array_sort"),
+            lambdaScalar(ArraySortedMerge.class, LambdaBindingSpecs.ARRAY_SORTED_MERGE, "array_sorted_merge"),
             lambdaScalar(ArraySortBy.class, LambdaBindingSpecs.ARRAY_ZIP, "array_sortby"),
             lambdaScalar(ArraySplit.class, LambdaBindingSpecs.ARRAY_ZIP, "array_split"),
             lambdaScalar(MapAll.class, LambdaBindingSpecs.MAP_ENTRIES, "map_all"),
@@ -770,6 +776,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(CutIpv6.class, "cut_ipv6"),
             scalar(CutToFirstSignificantSubdomain.class, "cut_to_first_significant_subdomain"),
             scalar(DamerauLevenshteinDistance.class, "damerau_levenshtein_distance"),
+            scalar(DataSketchesHllDownsample.class, "datasketches_hll_downsample"),
             scalar(Database.class, "database", "schema", "current_database"),
             scalar(Date.class, "date"),
             scalar(DateDiff.class, "datediff"),
@@ -1130,6 +1137,9 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(StLinefromtext.class, "st_linefromtext"),
             scalar(StLinestringfromtext.class, "st_linestringfromtext"),
             scalar(StPoint.class, "st_point"),
+            scalar(H3CellToBoundary.class, "h3_cell_to_boundary"),
+            scalar(H3CellToLatLng.class, "h3_cell_to_lat_lng"),
+            scalar(H3LatLngToCell.class, "h3_lat_lng_to_cell"),
             scalar(StPolyfromtext.class, "st_polyfromtext"),
             scalar(StPolygon.class, "st_polygon"),
             scalar(StPolygonfromtext.class, "st_polygonfromtext"),

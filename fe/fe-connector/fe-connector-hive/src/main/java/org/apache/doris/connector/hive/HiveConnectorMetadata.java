@@ -100,6 +100,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.function.ToLongBiFunction;
@@ -123,11 +124,8 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     private static final Logger LOG = LogManager.getLogger(HiveConnectorMetadata.class);
     static final String TABLE_INFO_NAMESPACE = "hms.table-info";
 
-    /**
-     * The HMS table parameter iceberg writes its table comment into (mirrored from the iceberg table property
-     * of the same name on every commit).
-     */
-    private static final String ICEBERG_TABLE_COMMENT_PARAM = "comment";
+    /** The HMS table parameter that stores a table comment, including comments mirrored from Iceberg. */
+    private static final String HMS_TABLE_COMMENT_PARAM = "comment";
 
     // ===== CREATE TABLE / CREATE DATABASE statement property keys =====
     // These are statement properties, not catalog properties: they arrive on the DDL request, and this class
@@ -776,33 +774,17 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Returns the table comment. Overridden here for one reason: an iceberg-on-HMS table would otherwise report
-     * no comment at all.
-     *
-     * <p>Every other foreign-table operation is diverted to the embedded iceberg sibling by the concrete handle
-     * type, but this method addresses a table by NAME and never receives a handle, so there is nothing to
-     * discriminate on. It is answered directly instead: iceberg's HMS catalog mirrors the table's iceberg
-     * properties into the HMS table parameters on every commit, {@code comment} included &mdash; the same
-     * parameter {@code HiveShowCreateTableRenderer} lifts into the {@code COMMENT} clause &mdash; so the single
-     * (cached) {@code getTable} this connector already performs carries it, with no sibling build and no
-     * iceberg metadata load. Without this, the same table shows its comment through a dedicated iceberg catalog
-     * and shows nothing through an HMS gateway catalog, in {@code SHOW CREATE TABLE},
-     * {@code information_schema.tables.TABLE_COMMENT} and {@code SHOW TABLE STATUS}.</p>
-     *
-     * <p>Deliberately restricted to iceberg tables: a plain hive table keeps the empty comment that legacy
-     * {@code HMSExternalTable.getComment} returned, so nothing about plain hive changes. A missing or
-     * unreadable table degrades to the empty comment rather than failing the caller, matching
-     * {@link #viewExists} &mdash; this is an opportunistic display value, not a user-requested operation.</p>
+     * Returns the comment stored in the HMS table parameters for Hive and foreign tables alike. This uses the
+     * same {@code comment} parameter as {@link HiveShowCreateTableRenderer}, so a Hive table's comment is also
+     * visible through {@code information_schema.tables} and {@code SHOW TABLE STATUS}. Iceberg-on-HMS tables
+     * mirror their comment into this parameter, allowing the gateway to answer without loading the sibling
+     * connector. A missing or unreadable table retains the empty display value.
      */
     @Override
     public String getTableComment(ConnectorSession session, String dbName, String tableName) {
         try {
             HmsTableInfo tableInfo = hmsClient.getTable(dbName, tableName);
-            if (HiveTableFormatDetector.detect(tableInfo) != HiveTableType.ICEBERG) {
-                return "";
-            }
-            Map<String, String> params = tableInfo.getParameters();
-            String comment = params == null ? null : params.get(ICEBERG_TABLE_COMMENT_PARAM);
+            String comment = tableInfo.getParameters().get(HMS_TABLE_COMMENT_PARAM);
             return comment == null ? "" : comment;
         } catch (HmsClientException e) {
             LOG.debug("Table comment lookup: '{}.{}' not readable: {}", dbName, tableName, e.getMessage());
@@ -2147,6 +2129,21 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         }
         // hive: no per-table row-level DML mode constraint (SPI default no-op). A hive handle MUST stay
         // permissive here -- a throw would newly reject legal plain-hive row-level DML.
+    }
+
+    /**
+     * A foreign Iceberg handle must use the sibling's whole-file metadata-delete implementation. The Hive gateway
+     * itself has no data-file delete contract, so a real Hive handle keeps the SPI default of falling back.
+     */
+    @Override
+    public OptionalLong deleteUsingMetadata(ConnectorSession session, ConnectorTableHandle handle,
+            Optional<ConnectorExpression> predicate, String boundWriteMetadataIdentity,
+            BooleanSupplier isCancelled) {
+        if (!(handle instanceof HiveTableHandle)) {
+            return siblingMetadata(session, handle).deleteUsingMetadata(
+                    session, handle, predicate, boundWriteMetadataIdentity, isCancelled);
+        }
+        return OptionalLong.empty();
     }
 
     /**

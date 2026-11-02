@@ -17,11 +17,17 @@
 
 package org.apache.doris.connector.es;
 
+import org.apache.doris.connector.spi.DorisConnectorException;
+
+import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
@@ -33,6 +39,60 @@ import java.util.concurrent.atomic.AtomicInteger;
  * - AtomicInteger-based node rotation (P0-3)
  */
 public class EsConnectorRestClientTest {
+
+    @Test
+    void mixedEightAndNineNodesAreDiscoveredDuringUpgrade() throws Exception {
+        String nodes = "{\"nodes\":{"
+                + "\"eight\":{\"version\":\"8.19.0\",\"name\":\"eight\",\"roles\":[\"data\",\"ingest\"],"
+                + "\"http\":{\"publish_address\":\"127.0.0.1:9200\"}},"
+                + "\"nine\":{\"version\":\"9.0.0\",\"name\":\"nine\",\"roles\":[\"data\"],"
+                + "\"http\":{\"publish_address\":\"node/[::1]:9201\"}},"
+                + "\"no-http\":{\"version\":\"9.0.0\",\"name\":\"master\",\"roles\":[\"master\"]}}}";
+        byte[] body = nodes.getBytes(StandardCharsets.UTF_8);
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/_nodes/http", exchange -> {
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        try {
+            EsConnectorRestClient client = new EsConnectorRestClient(
+                    new String[]{"http://127.0.0.1:" + server.getAddress().getPort()}, null, null, false, null);
+            Map<String, EsNodeInfo> discovered = client.getHttpNodes();
+            Assertions.assertEquals(Set.of("eight", "nine"), discovered.keySet());
+            Assertions.assertEquals("127.0.0.1:9200", discovered.get("eight").getPublishAddress());
+            Assertions.assertEquals("[::1]:9201", discovered.get("nine").getPublishAddress());
+            Assertions.assertTrue(discovered.get("nine").isData());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    public void indexAbsenceRequiresNotFoundResponse() throws Exception {
+        AtomicInteger status = new AtomicInteger(200);
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/t/_mapping", exchange -> {
+            exchange.sendResponseHeaders(status.get(), -1);
+            exchange.close();
+        });
+        server.start();
+        EsConnectorRestClient client = new EsConnectorRestClient(
+                new String[]{"http://127.0.0.1:" + server.getAddress().getPort()}, null, null, false, null);
+        try {
+            Assertions.assertTrue(client.existIndex("t"));
+            status.set(404);
+            Assertions.assertFalse(client.existIndex("t"));
+            for (int failure : new int[]{401, 403, 500}) {
+                status.set(failure);
+                Assertions.assertThrows(DorisConnectorException.class, () -> client.existIndex("t"));
+            }
+        } finally {
+            server.stop(0);
+        }
+        Assertions.assertThrows(DorisConnectorException.class, () -> client.existIndex("t"));
+    }
 
     @Test
     public void testConstructorWithAuth() throws Exception {
