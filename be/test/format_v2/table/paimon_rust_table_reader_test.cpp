@@ -455,6 +455,28 @@ TEST_F(PaimonRustTableReaderTest, ConvertScoreToDistanceInnerProductIsIdentity) 
 
 // ---------------------------------------------------------------- metric parsing
 
+TEST_F(PaimonRustTableReaderTest, TvfDistancesPreserveLanceMetricContract) {
+    for (bool nullable : {false, true}) {
+        auto l2 = _score_block({1.0F, 0.2F, 0.1F}, nullable);
+        ScoreTransform transform;
+        ASSERT_TRUE(
+                PaimonRustTableReader::parse_score_transform(TVectorMetric::L2, &transform, true)
+                        .ok());
+        PaimonRustTableReader::_convert_score_to_distance(&l2, 0, 0, 3, transform);
+        EXPECT_FLOAT_EQ(0.0F, _score_at(l2, 0));
+        EXPECT_FLOAT_EQ(4.0F, _score_at(l2, 1));
+        EXPECT_FLOAT_EQ(9.0F, _score_at(l2, 2));
+        auto dot = _score_block({-2.0F, 0.0F, 3.0F}, nullable);
+        ASSERT_TRUE(PaimonRustTableReader::parse_score_transform(TVectorMetric::DOT_PRODUCT,
+                                                                 &transform, true)
+                            .ok());
+        PaimonRustTableReader::_convert_score_to_distance(&dot, 0, 1, 2, transform);
+        EXPECT_FLOAT_EQ(-2.0F, _score_at(dot, 0));
+        EXPECT_FLOAT_EQ(0.0F, _score_at(dot, 1));
+        EXPECT_FLOAT_EQ(-3.0F, _score_at(dot, 2));
+    }
+}
+
 TEST_F(PaimonRustTableReaderTest, ParseScoreTransformAcceptsSupportedMetrics) {
     ScoreTransform transform = INNER_PRODUCT;
     ASSERT_TRUE(PaimonRustTableReader::parse_score_transform(TVectorMetric::L2, &transform).ok());

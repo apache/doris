@@ -39,6 +39,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "exec/common/endian.h"
+#include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
 #include "format_v2/column_mapper.h"
@@ -640,7 +641,7 @@ Status PaimonRustTableReader::_open_vector_split_reader(const TFileRangeDesc& ra
     // distances. __isset was checked by _validate_external_search_request; the
     // value is rejected here if unsupported.
     ScoreTransform transform;
-    RETURN_IF_ERROR(parse_score_transform(vector.metric, &transform));
+    RETURN_IF_ERROR(parse_score_transform(vector.metric, &transform, _is_tvf_search()));
     _score_transform = transform;
 
     // 1. The per-split payload is the serialized BucketVectorSearchSplit (raw
@@ -735,8 +736,8 @@ Status PaimonRustTableReader::_open_vector_split_reader(const TFileRangeDesc& ra
     }
     projection.push_back(nullptr);
     LOG(INFO) << "paimon-rust vector search: projection=[" << join(read_columns, ", ") << "] ("
-              << read_columns.size() << " column(s), distance column '"
-              << kPaimonSearchDistanceColumn << "' produced by the reader)";
+              << read_columns.size() << " column(s), distance column '" << _distance_column_name()
+              << "' produced by the reader)";
     if (paimon_error* err =
                 paimon_vector_search_builder_with_projection(vb.get(), projection.data())) {
         return Status::InternalError("paimon-rust set vector projection failed: {}",
@@ -748,20 +749,43 @@ Status PaimonRustTableReader::_open_vector_split_reader(const TFileRangeDesc& ra
     // PushDownVectorTopNIntoPaimonScan): the Rust candidate search stage applies
     // the filter together with deletion vectors, and a table shape Rust cannot
     // handle correctly is Rust's responsibility to reject.
-    if (!_conjuncts.empty()) {
+    VExprContextSPtrs search_filters;
+    if (_is_tvf_search()) {
+        // A TVF's outer WHERE runs after candidate generation. Only its explicit prefilter
+        // may enter the index; reusing scanner conjuncts here changes the relation's meaning.
+        if (request.paimon_options.__isset.prefilter) {
+            RETURN_IF_ERROR(
+                    VExpr::create_expr_trees(request.paimon_options.prefilter, search_filters));
+            RowDescriptor row_desc(_runtime_state->desc_tbl(), {_scan_params->dest_tuple_id},
+                                   {false});
+            for (auto& filter : search_filters) {
+                RETURN_IF_ERROR(filter->prepare(_runtime_state, row_desc));
+                RETURN_IF_ERROR(filter->open(_runtime_state));
+            }
+        }
+    } else {
+        search_filters = _conjuncts;
+    }
+    if (!search_filters.empty()) {
         std::vector<std::string> names;
         std::vector<DataTypePtr> types;
         names.reserve(_projected_columns.size());
         types.reserve(_projected_columns.size());
         for (const auto& col : _projected_columns) {
-            if (col.is_partition_key || col.name == kPaimonSearchDistanceColumn) {
+            if (col.is_partition_key || col.name == _distance_column_name()) {
                 continue;
             }
             names.push_back(col.name);
             types.push_back(col.type);
         }
         PaimonRustPredicateConverter converter(names, types, _handles->table.get());
-        paimon_predicate* predicate = converter.build(_conjuncts);
+        paimon_predicate* predicate = converter.build(search_filters);
+        if (_is_tvf_search() && converter.converted_conjuncts() != search_filters.size()) {
+            if (predicate != nullptr) {
+                paimon_predicate_free(predicate);
+            }
+            return Status::NotSupported("Paimon TVF prefilter could not be fully converted");
+        }
         if (predicate != nullptr) {
             // with_filter consumes the predicate on every path.
             if (paimon_error* err = paimon_vector_search_builder_with_filter(vb.get(), predicate)) {
@@ -829,6 +853,16 @@ Status PaimonRustTableReader::_open_vector_split_reader(const TFileRangeDesc& ra
     return Status::OK();
 }
 
+bool PaimonRustTableReader::_is_tvf_search() const {
+    return _scan_params != nullptr && _scan_params->__isset.external_search_request &&
+           _scan_params->external_search_request.__isset.paimon_options &&
+           _scan_params->external_search_request.paimon_options.tvf_distance;
+}
+
+const char* PaimonRustTableReader::_distance_column_name() const {
+    return _is_tvf_search() ? "_distance" : kPaimonSearchDistanceColumn;
+}
+
 std::string PaimonRustTableReader::arrow_field_to_block_column(const std::string& arrow_name) {
     std::string name = to_lower(arrow_name);
     if (name == kPaimonRustScoreField) {
@@ -838,13 +872,14 @@ std::string PaimonRustTableReader::arrow_field_to_block_column(const std::string
 }
 
 Status PaimonRustTableReader::parse_score_transform(TVectorMetric::type metric,
-                                                    ScoreTransform* transform) {
+                                                    ScoreTransform* transform, bool tvf_distance) {
     switch (metric) {
     case TVectorMetric::L2:
-        *transform = ScoreTransform::L2;
+        *transform = tvf_distance ? ScoreTransform::SquaredL2 : ScoreTransform::L2;
         return Status::OK();
     case TVectorMetric::DOT_PRODUCT:
-        *transform = ScoreTransform::InnerProduct;
+        *transform =
+                tvf_distance ? ScoreTransform::NegativeInnerProduct : ScoreTransform::InnerProduct;
         return Status::OK();
     default:
         // Includes COSINE: paimon-rust does define a score for it
@@ -868,6 +903,8 @@ void PaimonRustTableReader::_convert_score_to_distance(Block* block, uint32_t bl
         // either: the value is unconstrained by definition (it may be negative).
         return;
     case ScoreTransform::L2:
+    case ScoreTransform::SquaredL2:
+    case ScoreTransform::NegativeInnerProduct:
         break;
     }
 
@@ -891,6 +928,10 @@ void PaimonRustTableReader::_convert_score_to_distance(Block* block, uint32_t bl
             continue;
         }
         const float score = (*data)[i];
+        if (transform == ScoreTransform::NegativeInnerProduct) {
+            (*data)[i] = -score;
+            continue;
+        }
         // score is in (0, 1] whenever d is finite and non-negative, and within that
         // range the radicand is provably non-negative: a real value above 1 cannot
         // round down to below 1.0F in f32, so 1/score >= 1. The useful range
@@ -928,7 +969,9 @@ void PaimonRustTableReader::_convert_score_to_distance(Block* block, uint32_t bl
         } else {
             // score == 1.0F gives exactly 0 here -- a legal exact hit, which is why
             // this must not share a branch with the negative-radicand case.
-            (*data)[i] = std::sqrt(1.0F / score - 1.0F);
+            const float squared_distance = 1.0F / score - 1.0F;
+            (*data)[i] = transform == ScoreTransform::SquaredL2 ? squared_distance
+                                                                : std::sqrt(squared_distance);
         }
     }
     // mutate() may have unshared a reference-counted column; put the (possibly
@@ -1029,12 +1072,12 @@ Status PaimonRustTableReader::_fill_block_from_record_batch(
     std::optional<size_t> distance_output_idx;
     size_t distance_row_offset = 0;
     if (_score_transform.has_value()) {
-        auto it = _output_name_to_idx.find(kPaimonSearchDistanceColumn);
+        auto it = _output_name_to_idx.find(_distance_column_name());
         if (it == _output_name_to_idx.end()) {
             return Status::InternalError(
                     "paimon-rust vector search: block has no '{}' column (FE/BE column name "
                     "contract broken)",
-                    kPaimonSearchDistanceColumn);
+                    _distance_column_name());
         }
         distance_output_idx = it->second;
         // Must be read BEFORE the fill loop: read_column_from_arrow appends, and the
@@ -1056,7 +1099,10 @@ Status PaimonRustTableReader::_fill_block_from_record_batch(
             // mixed-case Rust output by folding here as well. The score field is
             // additionally renamed onto the distance column it feeds (see
             // arrow_field_to_block_column).
-            const std::string block_name = arrow_field_to_block_column(field->name());
+            const std::string block_name =
+                    _is_tvf_search() && to_lower(field->name()) == kPaimonRustScoreField
+                            ? _distance_column_name()
+                            : arrow_field_to_block_column(field->name());
             auto it = _output_name_to_idx.find(field->name());
             if (it == _output_name_to_idx.end()) {
                 it = _output_name_to_idx.find(block_name);
@@ -1088,7 +1134,7 @@ Status PaimonRustTableReader::_fill_block_from_record_batch(
                             "float32 -- the block's '{}' column is FLOAT and the arrow buffer "
                             "is reinterpreted as f32 without conversion",
                             field->name(), batch->column(c)->type()->ToString(),
-                            kPaimonSearchDistanceColumn);
+                            _distance_column_name());
                 }
             }
             if (!materialized_indices.emplace(output_idx).second) {
@@ -1126,7 +1172,7 @@ Status PaimonRustTableReader::_fill_block_from_record_batch(
                     "paimon-rust vector search: '{}' column grew from {} to {}, expected {} "
                     "(batch has {} rows) -- either the row offset was captured after the fill "
                     "loop, or the arrow batch is missing the '{}' field",
-                    kPaimonSearchDistanceColumn, distance_row_offset, size_after,
+                    _distance_column_name(), distance_row_offset, size_after,
                     distance_row_offset + rows, rows, kPaimonRustScoreField);
         }
         _convert_score_to_distance(block, static_cast<uint32_t>(*distance_output_idx),
@@ -1331,7 +1377,7 @@ std::vector<std::string> PaimonRustTableReader::_build_read_columns() const {
         // __paimon_search_score_to_dis is also a legal Paimon user column name, and
         // skipping it on an ordinary rust scan would drop the real column and
         // fill NULLs through _fill_non_arrow_columns.
-        if (_is_vector_mode(_current_range) && column.name == kPaimonSearchDistanceColumn) {
+        if (_is_vector_mode(_current_range) && column.name == _distance_column_name()) {
             continue;
         }
         columns.emplace_back(column.name);

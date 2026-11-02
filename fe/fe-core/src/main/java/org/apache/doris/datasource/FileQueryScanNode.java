@@ -42,6 +42,7 @@ import org.apache.doris.datasource.hive.source.HiveSplit;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.datasource.paimon.source.PaimonScanNode;
 import org.apache.doris.datasource.paimon.source.PaimonVectorSearch;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.planner.PlanNodeId;
@@ -387,7 +388,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
             // catalog, and a REAL column sharing the name (a Hive text table can
             // legally define one) must keep its normal position mapping — skipping it
             // would emit fewer column_idxs than the file has and fail the BE reader.
-            if (PaimonVectorSearch.SEARCH_DISTANCE_COLUMN.equalsIgnoreCase(colName)
+            if ((PaimonVectorSearch.SEARCH_DISTANCE_COLUMN.equalsIgnoreCase(colName)
+                    || (this instanceof PaimonScanNode
+                            && ((PaimonScanNode) this).isExternalSearch()
+                            && "_distance".equalsIgnoreCase(colName)))
                     && columnNames.stream().noneMatch(n -> n.equalsIgnoreCase(colName))) {
                 continue;
             }

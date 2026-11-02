@@ -87,8 +87,9 @@ suite("test_paimon_pk_vector_ann", "p0,external") {
                    transform(sequence(0, 15),
                        i -> CAST(((id * 17 + i * 13) % 521 - 260) AS FLOAT) / 260.0)
             FROM (SELECT explode(sequence(1, ${rows})) AS id)"""
-        [false, true].each { innerProduct ->
-            def table = innerProduct ? "ann_ip" : "ann_l2"
+        [["ann_l2", false, 2], ["ann_ip", true, 2], ["ann_l2_single", false, 1]].each { fixture ->
+            def table = fixture[0]
+            boolean innerProduct = fixture[1]
             def metric = innerProduct ? "inner_product" : "l2"
             spark_paimon_multi """
                 CREATE DATABASE IF NOT EXISTS paimon.${database};
@@ -96,7 +97,7 @@ suite("test_paimon_pk_vector_ann", "p0,external") {
                 CREATE TABLE paimon.${database}.${table} (
                     id BIGINT, tag INT, embedding ARRAY<FLOAT>
                 ) USING paimon TBLPROPERTIES (
-                    'primary-key' = 'id', 'bucket' = '2',
+                    'primary-key' = 'id', 'bucket' = '${fixture[2]}',
                     'merge-engine' = 'partial-update',
                     'deletion-vectors.enabled' = 'true',
                     'deletion-vectors.merge-on-read' = 'false',
@@ -185,6 +186,53 @@ suite("test_paimon_pk_vector_ann", "p0,external") {
         def bruteTop5 = idsOf(sql("""select id from ann_l2
                 order by l2_distance_approximate(embedding, ${probe}) limit 5""")).sort()
         assertEquals(bruteTop5, noRewrite, "without FileScannerV2 the query must brute-force")
+
+        // Both SQL entry points share the Paimon reader. The TVF exposes squared L2
+        // and negative dot product, while the existing scalar functions keep their values.
+        def tvf = { String table, String metric, int topK, String extra ->
+            return """vector_search('table'='${catalogName}.${database}.${table}',
+                    'column'='embedding', 'query_vector'='${probe}', 'metric'='${metric}',
+                    'top_k'='${topK}', 'nprobes'='4' ${extra})"""
+        }
+        [false, true].each { boolean innerProduct ->
+            String table = innerProduct ? "ann_ip" : "ann_l2"
+            String metric = innerProduct ? "dot" : "l2"
+            String fn = innerProduct ? "inner_product" : "l2_distance"
+            String direction = innerProduct ? "desc" : "asc"
+            sql "set enable_paimon_rust_reader=0"
+            def expected = idsOf(sql("""select id from ${table}
+                    order by ${fn}(embedding, ${probe}) ${direction} limit 5""")).sort()
+            sql "set enable_paimon_rust_reader=1"
+            def result = sql("""select id, _distance, ${fn}(embedding, ${probe})
+                    from ${tvf(table, metric, 5, "")} order by _distance, id""")
+            assertEquals(expected, idsOf(result).sort(), "TVF Top-K must match exhaustive search")
+            result.each { row ->
+                double reference = innerProduct ? -row[2].doubleValue() : Math.pow(row[2].doubleValue(), 2)
+                assertTrue(Math.abs(row[1].doubleValue() - reference) < 1e-3,
+                        "TVF distance must follow the selected metric")
+            }
+            def offsetRows = sql("""select id from ${tvf(table, metric, 3, ", 'offset'='1'")}
+                    order by _distance, id""")
+            assertEquals(3, offsetRows.size(), "offset is applied once after global merging")
+            def flat = idsOf(sql("""select id from ${tvf(table, metric, 5, ", 'use_index'='false'")}
+                    order by _distance, id""")).sort()
+            assertEquals(expected, flat, "use_index=false must preserve exhaustive Top-K")
+        }
+        def tvfFiltered = idsOf(sql("""select id from ${tvf("ann_l2", "l2", 5,
+                ", 'filter'='tag < 3', 'prefilter'='true'")} order by _distance, id""")).sort()
+        assertEquals(bruteFiltered, tvfFiltered, "TVF prefilter must restrict candidate generation")
+
+        // A single bucket makes refill observable: its only candidate is the probe row.
+        // Moving an outer WHERE into ANN would incorrectly replace that row with another neighbor.
+        def postfiltered = sql("""select id from ${tvf("ann_l2_single", "l2", 1, "")}
+                where id <> 7""")
+        assertEquals(0, postfiltered.size(), "outer WHERE must not refill ANN candidates")
+        assertEquals(0, sql("""select id from ${tvf("ann_l2_single", "l2", 1,
+                ", 'filter'='id <> 7', 'prefilter'='false'")}""").size())
+        def prefiltered = sql("""select id from ${tvf("ann_l2_single", "l2", 1,
+                ", 'filter'='id <> 7', 'prefilter'='true'")}""")
+        assertEquals(1, prefiltered.size(), "explicit prefilter searches among matching rows")
+        assertTrue(prefiltered[0][0] != 7L)
 
         // ------------------------------------------------------------------
         // Bounded-search soundness (review feedback on the rewrite):

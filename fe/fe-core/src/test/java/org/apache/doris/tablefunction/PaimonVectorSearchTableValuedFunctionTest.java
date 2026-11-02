@@ -1,0 +1,279 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.tablefunction;
+
+import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
+import org.apache.doris.datasource.paimon.PaimonMvccSnapshot;
+import org.apache.doris.datasource.paimon.PaimonSnapshot;
+import org.apache.doris.datasource.paimon.PaimonSnapshotCacheValue;
+import org.apache.doris.datasource.paimon.source.PaimonScanNode;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.processor.post.materialize.MaterializeProbeVisitor;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.Properties;
+import org.apache.doris.nereids.trees.expressions.functions.table.VectorSearch;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
+import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TExternalSearchRequest;
+import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TVectorMetric;
+
+import com.google.common.collect.ImmutableMap;
+import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.FloatType;
+import org.apache.paimon.types.IntType;
+import org.apache.paimon.types.RowType;
+import org.apache.paimon.types.VectorType;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+public class PaimonVectorSearchTableValuedFunctionTest {
+    private static final class Fixture implements AutoCloseable {
+        private final ConnectContext previous = ConnectContext.get();
+        private final MockedStatic<Env> lookup;
+        private final FileStoreTable table = Mockito.mock(FileStoreTable.class);
+        private final PaimonExternalTable external = Mockito.mock(PaimonExternalTable.class);
+
+        private Fixture(String metric) throws Exception {
+            MemoTestUtils.createConnectContext();
+            Env realEnv = Env.getCurrentEnv();
+            Env env = Mockito.mock(Env.class, Mockito.RETURNS_DEEP_STUBS);
+            Mockito.when(env.getFunctionRegistry()).thenReturn(realEnv.getFunctionRegistry());
+            CatalogMgr catalogs = Mockito.mock(CatalogMgr.class);
+            Mockito.when(env.getCatalogMgr()).thenReturn(catalogs);
+            Mockito.when(env.getAccessManager().checkTblPriv(Mockito.any(ConnectContext.class),
+                    Mockito.any(TableName.class), Mockito.eq(PrivPredicate.SELECT))).thenReturn(true);
+            PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class, Mockito.RETURNS_DEEP_STUBS);
+            Mockito.when(catalogs.getCatalog("paimon_catalog")).thenReturn(catalog);
+            org.apache.doris.datasource.ExternalDatabase<?> database = catalog.getDbOrAnalysisException("db");
+            Mockito.doReturn(external).when(database).getTableOrAnalysisException("items");
+            Mockito.when(external.getCatalog()).thenReturn(catalog);
+            Mockito.doReturn(database).when(external).getDatabase();
+            Mockito.when(database.getCatalog()).thenReturn(catalog);
+            Mockito.when(catalog.getName()).thenReturn("paimon_catalog");
+            Mockito.when(database.getFullName()).thenReturn("db");
+            Mockito.when(external.getName()).thenReturn("items");
+            Mockito.when(external.getPaimonTable(Mockito.<Optional<org.apache.doris.datasource.mvcc.MvccSnapshot>>any()))
+                    .thenReturn(table);
+            Map<String, String> options = new HashMap<>(ImmutableMap.of("pk-vector.index.columns", "embedding",
+                    "fields.embedding.pk-vector.distance.metric", metric,
+                    "fields.embedding.pk-vector.index.type", "ivf-rq"));
+            options.put("deletion-vectors.enabled", "true");
+            options.put("deletion-vectors.merge-on-read", "false");
+            List<DataField> fields = Arrays.asList(new DataField(0, "id", new IntType()),
+                    new DataField(1, "embedding", new VectorType(2, new FloatType())));
+            Mockito.when(table.rowType()).thenReturn(new RowType(fields));
+            Mockito.when(table.options()).thenReturn(options);
+            Mockito.when(table.partitionKeys()).thenReturn(Collections.emptyList());
+            Mockito.when(table.schema()).thenReturn(new TableSchema(1, fields, 1,
+                    Collections.emptyList(), Collections.singletonList("id"), options, null));
+            Mockito.when(table.copy(Mockito.anyMap())).thenReturn(table);
+            Mockito.when(table.copyWithoutTimeTravel(Mockito.anyMap())).thenReturn(table);
+            Mockito.when(external.loadSnapshot(Mockito.any(), Mockito.any())).thenReturn(
+                    new PaimonMvccSnapshot(new PaimonSnapshotCacheValue(null,
+                            new PaimonSnapshot(7L, 1L, table))));
+            lookup = Mockito.mockStatic(Env.class);
+            lookup.when(Env::getCurrentEnv).thenReturn(env);
+        }
+
+        private PaimonVectorSearchTableValuedFunction function(Map<String, String> overrides) {
+            Map<String, String> properties = new HashMap<>(ImmutableMap.of(
+                    "table", "paimon_catalog.db.items", "column", "embedding", "query_vector", "[1,2]"));
+            properties.putAll(overrides);
+            return Assertions.assertInstanceOf(PaimonVectorSearchTableValuedFunction.class,
+                    new VectorSearch(new Properties(properties)).getCatalogFunction());
+        }
+
+        @Override
+        public void close() {
+            lookup.close();
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testPaimonCatalogDispatchAndOutputSchema() throws Exception {
+        try (Fixture fixture = new Fixture("l2")) {
+            PaimonVectorSearchTableValuedFunction function = fixture.function(Collections.emptyMap());
+            Assertions.assertEquals(Arrays.asList("id", "embedding", "_distance"),
+                    function.getTableColumns().stream().map(column -> column.getName())
+                            .collect(java.util.stream.Collectors.toList()));
+            TExternalSearchRequest request = function.getSearchRequest();
+            Assertions.assertTrue(request.getPaimonOptions().isTvfDistance());
+            Assertions.assertEquals(TVectorMetric.L2, request.getSearchQuery().getVectorSearch().getMetric());
+            Assertions.assertEquals(1.0f, ByteBuffer.wrap(request.getSearchQuery().getVectorSearch()
+                    .getQueryVector().getValues()).order(ByteOrder.LITTLE_ENDIAN).getFloat());
+        }
+    }
+
+    @Test
+    public void testSearchOptionsAndDotMetric() throws Exception {
+        try (Fixture fixture = new Fixture("inner_product")) {
+            PaimonVectorSearchTableValuedFunction function = fixture.function(ImmutableMap.of(
+                    "metric", "dot", "nprobes", "4", "refine_factor", "8", "use_index", "false"));
+            TExternalSearchRequest request = function.getSearchRequest();
+            Assertions.assertEquals(TVectorMetric.DOT_PRODUCT, request.getSearchQuery().getVectorSearch().getMetric());
+            Assertions.assertEquals(ImmutableMap.of("ivf.nprobe", "4", "refine_factor", "8",
+                    "vector-index.search-mode", "full"), request.getPaimonOptions().getOptions());
+            request.getPaimonOptions().setTvfDistance(false);
+            Assertions.assertTrue(function.getSearchRequest().getPaimonOptions().isTvfDistance());
+        }
+    }
+
+    @Test
+    public void testRejectUnsupportedMetricDimensionAndOptions() throws Exception {
+        try (Fixture fixture = new Fixture("l2")) {
+            for (Map<String, String> properties : Arrays.asList(
+                    ImmutableMap.of("metric", "cosine"), ImmutableMap.of("metric", "dot"),
+                    ImmutableMap.of("query_vector", "[1]"), ImmutableMap.of("query_vector", "[1,null]"),
+                    ImmutableMap.of("query_vector", "[1,1e100]"), ImmutableMap.of("top_k", "0"),
+                    ImmutableMap.of("offset", "-1"), ImmutableMap.of("nprobes", "0"),
+                    ImmutableMap.of("ef", "8"), ImmutableMap.of("top_k", "100000", "offset", "1"),
+                    ImmutableMap.of("refine_factor", "2147483647"))) {
+                Assertions.assertThrows(RuntimeException.class, () -> fixture.function(properties),
+                        properties.toString());
+            }
+        }
+    }
+
+    @Test
+    public void testAnalyzedTvfRetainsGlobalBoundsAndFilter() throws Exception {
+        try (Fixture fixture = new Fixture("l2")) {
+            LogicalPlan plan = new NereidsParser().parseSingle(
+                    "select id, _distance from vector_search('table'='paimon_catalog.db.items',"
+                            + "'column'='embedding','query_vector'='[1,2]','top_k'='3','offset'='2',"
+                            + "'filter'='id > 1','prefilter'='true')");
+            CascadesContext cascades = CascadesContext.initContext(
+                    MemoTestUtils.createStatementContext(ConnectContext.get(), ""), plan, PhysicalProperties.ANY);
+            cascades.newAnalyzer().analyze();
+            List<LogicalTopN> bounds = cascades.getRewritePlan().collectToList(LogicalTopN.class::isInstance);
+            Assertions.assertEquals(1, bounds.size());
+            Assertions.assertEquals(3, bounds.get(0).getLimit());
+            Assertions.assertEquals(2, bounds.get(0).getOffset());
+            LogicalTVFRelation relation = cascades.getRewritePlan().<LogicalTVFRelation>collectToList(
+                    LogicalTVFRelation.class::isInstance).get(0);
+            PaimonVectorSearchTableValuedFunction function = Assertions.assertInstanceOf(
+                    PaimonVectorSearchTableValuedFunction.class, relation.getFunction().getCatalogFunction());
+            PaimonScanNode node = createScanNode(function);
+            TFileScanRangeParams params = new TFileScanRangeParams();
+            Deencapsulation.setField(node, "params", params);
+            Deencapsulation.invoke(node, "setExternalSearchRequest");
+            Assertions.assertEquals(1, params.getExternalSearchRequest().getPaimonOptions().getPrefilterSize());
+        }
+    }
+
+    @Test
+    public void testPaimonDoesNotUseLanceRowIdMaterialization() throws Exception {
+        try (Fixture fixture = new Fixture("l2")) {
+            PaimonVectorSearchTableValuedFunction function = fixture.function(Collections.emptyMap());
+            VectorSearch expression = Mockito.mock(VectorSearch.class);
+            Mockito.when(expression.getName()).thenReturn(VectorSearchTableValuedFunction.NAME);
+            Mockito.when(expression.getTVFProperties()).thenReturn(new Properties(Collections.emptyMap()));
+            Mockito.when(expression.getCatalogFunction()).thenReturn(function);
+            PhysicalTVFRelation relation = Mockito.mock(PhysicalTVFRelation.class);
+            Mockito.when(relation.getFunction()).thenReturn(expression);
+            boolean supported = Deencapsulation.invoke(new MaterializeProbeVisitor(),
+                    "checkTVFRelationTableSupportedType", relation);
+            Assertions.assertFalse(supported, "Paimon cannot fetch Lance row IDs");
+        }
+    }
+
+    @Test
+    public void testEmptySnapshotDoesNotPlanAgainstNewLatest() throws Exception {
+        try (Fixture fixture = new Fixture("l2")) {
+            Mockito.when(fixture.external.loadSnapshot(Mockito.any(), Mockito.any())).thenReturn(
+                    new PaimonMvccSnapshot(new PaimonSnapshotCacheValue(null,
+                            new PaimonSnapshot(PaimonSnapshot.INVALID_SNAPSHOT_ID, 1L, fixture.table))));
+            PaimonScanNode node = createScanNode(fixture.function(Collections.emptyMap()));
+            Assertions.assertTrue(node.getVectorSearchSplits().isEmpty());
+            Mockito.verify(fixture.table, Mockito.never()).newBatchVectorSearchBuilder();
+        }
+    }
+
+    @Test
+    public void testExplicitVersionLoadsSnapshotWithoutOrdinaryRelation() throws Exception {
+        try (Fixture fixture = new Fixture("l2")) {
+            fixture.function(ImmutableMap.of("version", "7"));
+            Mockito.verify(fixture.external).loadSnapshot(
+                    Mockito.argThat(snapshot -> snapshot.isPresent()
+                            && "7".equals(snapshot.get().getValue())), Mockito.eq(Optional.empty()));
+        }
+    }
+
+    @Test
+    public void testScanUsesPaimonAndFoldsOffsetOnlyForCandidateRetrieval() throws Exception {
+        try (Fixture fixture = new Fixture("l2")) {
+            PaimonVectorSearchTableValuedFunction function = fixture.function(
+                    ImmutableMap.of("top_k", "3", "offset", "2"));
+            PaimonScanNode node = createScanNode(function);
+            Assertions.assertTrue(node.isExternalSearch());
+            Assertions.assertTrue(node.isVectorSearch());
+            TFileScanRangeParams params = new TFileScanRangeParams();
+            Deencapsulation.setField(node, "params", params);
+            Deencapsulation.invoke(node, "setExternalSearchRequest");
+            Assertions.assertEquals(5, params.getExternalSearchRequest().getSearchQuery().getVectorSearch().getTopK());
+            Assertions.assertEquals(0, params.getExternalSearchRequest().getSearchQuery().getVectorSearch().getOffset());
+            Assertions.assertEquals(3, function.getTopK());
+            Assertions.assertEquals(2, function.getOffset());
+        }
+    }
+
+    private static PaimonScanNode createScanNode(PaimonVectorSearchTableValuedFunction function) throws Exception {
+        DescriptorTable descriptors = new DescriptorTable();
+        TupleDescriptor tuple = descriptors.createTupleDescriptor();
+        tuple.setTable(function.getTable());
+        for (org.apache.doris.catalog.Column column : function.getTableColumns()) {
+            SlotDescriptor slot = descriptors.addSlotDescriptor(tuple);
+            slot.setColumn(column);
+            slot.setType(column.getType());
+        }
+        return Assertions.assertInstanceOf(PaimonScanNode.class,
+                function.getScanNode(new PlanNodeId(0), tuple, ConnectContext.get().getSessionVariable()));
+    }
+}

@@ -595,6 +595,11 @@ struct TVectorSearchOptions {
 // Paimon's algorithm options).
 struct TPaimonVectorSearchOptions {
     1: optional map<string, string> options
+    // TVFs expose Lance-compatible _distance: squared L2 or negative inner product.
+    // Unset preserves the ordinary SQL distance functions and their existing output column.
+    2: optional bool tvf_distance = false
+    // Only the TVF's explicit prefilter affects candidate generation; outer WHERE stays residual.
+    3: optional list<Exprs.TExpr> prefilter
 }
 
 // The active union field identifies the logical search kind. A future hybrid field can contain both

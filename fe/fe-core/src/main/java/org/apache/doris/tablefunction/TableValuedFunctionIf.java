@@ -107,7 +107,7 @@ public abstract class TableValuedFunctionIf {
             case HttpTableValuedFunction.NAME:
                 return new HttpTableValuedFunction(params);
             case VectorSearchTableValuedFunction.NAME:
-                return new VectorSearchTableValuedFunction(params);
+                return VectorSearchTableValuedFunction.create(params, false);
             case FullTextSearchTableValuedFunction.NAME:
                 return new FullTextSearchTableValuedFunction(params);
             default:

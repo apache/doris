@@ -254,6 +254,9 @@ public class PaimonScanNode extends FileQueryScanNode {
     // Primary-key vector (ANN) top-N info pushed down from Nereids. When set, the
     // scan is planned as a vector search (index-only): splits are produced by
     // Paimon's newBatchVectorSearchBuilder and BE returns __paimon_search_score_to_dis.
+    private TExternalSearchRequest tvfSearchRequest;
+    private List<Expr> tvfPrefilter = Collections.emptyList();
+    private boolean tvfEmptySnapshot;
     private float[] annSortQueryVector = null;
     private String annSortColumnName = null;
     private long annSortLimit = -1;
@@ -281,9 +284,35 @@ public class PaimonScanNode extends FileQueryScanNode {
                 scanContext, needCheckColumnPriv, sv);
         // Some branch-4.1 callers construct the scan node before attaching a table descriptor;
         // defer source creation for them while preserving eager setup for normal planned scans.
-        if (desc.getTable() != null) {
+        if (desc.getTable() instanceof PaimonExternalTable
+                || desc.getTable() instanceof PaimonSysExternalTable) {
             source = new PaimonSource(desc);
         }
+    }
+
+    public static PaimonScanNode forExternalSearch(PlanNodeId id, TupleDescriptor desc,
+            PaimonExternalTable externalTable, Table boundTable, TExternalSearchRequest request,
+            List<Expr> prefilter, boolean emptySnapshot, SessionVariable sv) {
+        PaimonScanNode node = new PaimonScanNode(id, desc, false, sv,
+                ScanContext.builder().clusterName(sv.resolveCloudClusterName()).build());
+        node.source = new PaimonSource(desc, externalTable, boundTable);
+        node.tvfSearchRequest = request.deepCopy();
+        node.tvfPrefilter = new ArrayList<>(prefilter);
+        node.tvfEmptySnapshot = emptySnapshot;
+        TVectorSearchParams vector = request.getSearchQuery().getVectorSearch();
+        ByteBuffer bytes = ByteBuffer.wrap(vector.getQueryVector().getValues()).order(ByteOrder.LITTLE_ENDIAN);
+        node.annSortQueryVector = new float[vector.getQueryVector().getDimension()];
+        for (int i = 0; i < node.annSortQueryVector.length; i++) {
+            node.annSortQueryVector[i] = bytes.getFloat();
+        }
+        node.annSortColumnName = vector.getColumn();
+        node.annMetric = vector.getMetric();
+        node.annSortLimit = vector.getTopK() + vector.getOffset();
+        return node;
+    }
+
+    public boolean isExternalSearch() {
+        return tvfSearchRequest != null;
     }
 
     @Override
@@ -388,6 +417,10 @@ public class PaimonScanNode extends FileQueryScanNode {
      * the push-down; Doris still evaluates it, so results are unaffected.
      */
     private List<Expr> getPaimonConvertibleConjuncts() {
+        if (isExternalSearch()) {
+            // Outer WHERE predicates filter the ANN candidates and must never change candidate generation.
+            return tvfPrefilter;
+        }
         List<Expr> convertible = new ArrayList<>(conjuncts.size());
         for (Expr conjunct : conjuncts) {
             List<SlotRef> slotRefs = new ArrayList<>();
@@ -404,7 +437,7 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     protected List<String> getFileColumnNames() {
-        if (scanParams != null && scanParams.isOptions()) {
+        if (isExternalSearch() || (scanParams != null && scanParams.isOptions())) {
             // Relation-scoped options may select a historical schema, so its slots must be
             // positioned against the same processed table that is serialized to the reader.
             return processedTable.rowType().getFieldNames();
@@ -497,6 +530,15 @@ public class PaimonScanNode extends FileQueryScanNode {
             }
         } catch (Exception e) {
             LOG.warn("Failed to resolve PK-vector index options for column {}", annSortColumnName, e);
+        }
+        if (isExternalSearch()) {
+            Map<String, String> overrides = tvfSearchRequest.getPaimonOptions().getOptions();
+            Map<String, String> options = new HashMap<>();
+            if (request.isSetPaimonOptions() && request.getPaimonOptions().isSetOptions()) {
+                options.putAll(request.getPaimonOptions().getOptions());
+            }
+            options.putAll(overrides);
+            request.setPaimonOptions(tvfSearchRequest.getPaimonOptions().deepCopy().setOptions(options));
         }
         params.setExternalSearchRequest(request);
     }
@@ -1598,6 +1640,9 @@ public class PaimonScanNode extends FileQueryScanNode {
      */
     @VisibleForTesting
     public List<Split> getVectorSearchSplits() throws UserException {
+        if (tvfEmptySnapshot) {
+            return Collections.emptyList();
+        }
         // The relation may have bound the pinned-empty generation (no commit existed
         // at binding). The ordinary path fences that state to an empty result; the
         // vector builder would resolve the table's LATEST here and expose a first
@@ -2055,7 +2100,7 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     public TableIf getTargetTable() {
-        return desc.getTable();
+        return isExternalSearch() ? source.getTargetTable() : desc.getTable();
     }
 
     @Override

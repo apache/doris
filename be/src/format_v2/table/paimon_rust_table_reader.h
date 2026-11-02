@@ -79,6 +79,9 @@ public:
         L2,
         // score = the inner product itself. Inverse: identity.
         InnerProduct,
+        // TVFs keep the Lance convention: every metric is a lower-is-better distance.
+        SquaredL2,
+        NegativeInnerProduct,
     };
 
     // Map an Arrow field name onto the block column name that receives its values.
@@ -100,7 +103,8 @@ public:
     // metrics (including COSINE) are an error rather than a silent fallback: guessing
     // would return wrong distances instead of failing the query. Takes the thrift enum
     // directly so there is no string round-trip between FE and the ScoreTransform enum.
-    static Status parse_score_transform(TVectorMetric::type metric, ScoreTransform* transform);
+    static Status parse_score_transform(TVectorMetric::type metric, ScoreTransform* transform,
+                                        bool tvf_distance = false);
 
     // Rewrite the reader-produced __paimon_search_score_to_dis column in place,
     // turning paimon-rust's score back into the distance the Doris function is
@@ -179,6 +183,9 @@ private:
     // Opaque holder for the paimon-rust C handles (defined in the .cpp so that
     // paimon_rust/paimon.h does not leak into other translation units).
     struct PaimonHandles;
+
+    bool _is_tvf_search() const;
+    const char* _distance_column_name() const;
 
     // Fail fast (without filesystem IO) when the schema-json pipeline fields are
     // missing from the split; the error text points at an FE/BE protocol mismatch.

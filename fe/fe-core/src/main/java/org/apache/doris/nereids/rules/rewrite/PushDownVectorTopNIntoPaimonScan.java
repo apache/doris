@@ -502,7 +502,7 @@ public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
      * design: forms outside this whitelist may well be convertible, but the query
      * then simply runs un-rewritten, which is always correct.
      */
-    private static boolean conjunctsRideIntoVectorSearch(LogicalFilter<?> filter) {
+    public static boolean conjunctsRideIntoVectorSearch(LogicalFilter<?> filter) {
         for (Expression conjunct : filter.getConjuncts()) {
             if (!conjunctRidesIntoVectorSearch(conjunct)) {
                 return false;
