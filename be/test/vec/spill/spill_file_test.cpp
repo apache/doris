@@ -26,6 +26,7 @@
 #include <numeric>
 #include <set>
 #include <string>
+#include <typeinfo>
 #include <vector>
 
 #include "common/config.h"
@@ -39,6 +40,8 @@
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
+#include "runtime/runtime_profile_counter_names.h"
+#include "runtime/workload_management/io_context.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_query_context.h"
 #include "testutil/mock/mock_runtime_state.h"
@@ -80,6 +83,8 @@ protected:
         ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillReadFileBytes", TUnit::UNIT, 1);
         ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillReadRows", TUnit::UNIT, 1);
         ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillReadFileCount", TUnit::UNIT, 1);
+        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), profile::SPILL_REMOTE_READ_REQUESTS,
+                               TUnit::UNIT, 1);
         ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillWriteFileTotalCount", TUnit::UNIT, 1);
         ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillWriteFileCurrentCount", TUnit::UNIT, 1);
         ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillWriteFileCurrentBytes", TUnit::UNIT, 1);
@@ -210,6 +215,8 @@ TEST_F(SpillFileTest, CreateWriterAndReader) {
     st = spill_file->create_writer(_runtime_state.get(), _profile.get(), writer);
     ASSERT_TRUE(st.ok()) << st.to_string();
     ASSERT_TRUE(writer != nullptr);
+    SpillFileWriter* raw_writer = writer.get();
+    ASSERT_EQ(typeid(*raw_writer), typeid(SpillFileWriter));
 
     // Close writer with no data written
     st = writer->close();
@@ -219,6 +226,8 @@ TEST_F(SpillFileTest, CreateWriterAndReader) {
     // Create reader on empty file (0 parts)
     auto reader = spill_file->create_reader(_runtime_state.get(), _profile.get());
     ASSERT_TRUE(reader != nullptr);
+    SpillFileReader* raw_reader = reader.get();
+    ASSERT_EQ(typeid(*raw_reader), typeid(SpillFileReader));
 
     st = reader->open();
     ASSERT_TRUE(st.ok()) << st.to_string();
@@ -1802,6 +1811,11 @@ TEST_F(SpillFileTest, ReadCounters) {
     auto* read_file_size = _custom_profile->get_counter("SpillReadFileBytes");
     ASSERT_TRUE(read_file_size != nullptr);
     ASSERT_GT(read_file_size->value(), 0);
+    auto* io_ctx = _runtime_state->get_query_ctx()->resource_ctx()->io_context();
+    ASSERT_EQ(io_ctx->spill_read_bytes_from_local_storage(), read_file_size->value());
+    ASSERT_EQ(io_ctx->spill_read_bytes_from_remote_storage(), 0);
+    ASSERT_EQ(io_ctx->spill_remote_read_requests(), 0);
+    ASSERT_EQ(_custom_profile->get_counter(profile::SPILL_REMOTE_READ_REQUESTS)->value(), 0);
 }
 
 // Regression test: SpillFileReader used to look up the deserialize timer under a
