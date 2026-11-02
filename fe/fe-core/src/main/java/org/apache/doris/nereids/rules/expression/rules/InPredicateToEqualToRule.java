@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
+import org.apache.doris.nereids.spm.SPMPlanTreeSupport;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
@@ -46,7 +47,14 @@ public class InPredicateToEqualToRule implements ExpressionPatternRuleFactory {
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
                 matchesType(InPredicate.class)
-                    .when(in -> in.getOptions().size() == 1)
+                    // An SPM IN-list placeholder (SpmConstList) is a hidden multi-value
+                    // list marker, not a single option: "x IN (_spm_const_list(id))" must
+                    // never be rewritten to "x = _spm_const_list(id)". Type coercion wraps
+                    // the placeholder in a CAST (x IN (CAST(_spm_const_list(id) AS ...))),
+                    // so the check must detect the placeholder THROUGH the wrapper (aligned
+                    // with SR's isSPMFunctions which inspects the IN child recursively).
+                    .when(in -> in.getOptions().size() == 1
+                            && !SPMPlanTreeSupport.containsPlaceholder(in.getOptions().get(0)))
                     .then(in -> new EqualTo(in.getCompareExpr(), in.getOptions().get(0)))
                     .toRule(ExpressionRuleType.IN_PREDICATE_TO_EQUAL_TO)
         );

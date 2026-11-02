@@ -50,7 +50,6 @@ import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -135,7 +134,10 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
     }
 
     private static Set<LogicalCTEConsumer> collectCteConsumers(Plan outer, CTEId cteId) {
-        Set<LogicalCTEConsumer> cteConsumers = Sets.newHashSet();
+        // SPM needs a DETERMINISTIC consumer order: the plan digest (and with it the baseline
+        // identity) must not change between two runs of the same query, so the set is a
+        // LinkedHashSet - the traversal order of the plan decides it, not the hash of the nodes
+        Set<LogicalCTEConsumer> cteConsumers = Sets.newLinkedHashSet();
         outer.foreach(p -> {
             if (p instanceof LogicalCTEConsumer) {
                 LogicalCTEConsumer logicalCTEConsumer = (LogicalCTEConsumer) p;
@@ -277,17 +279,17 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
             return child;
         }
         int filterSize = cascadesContext.getCteIdToConsumers().get(cteId).size();
-        Set<Expression> conjuncts = new HashSet<>();
+        Set<Expression> conjuncts = Sets.newLinkedHashSet();
         for (Expression f : someone) {
             int matchCount = 0;
             Set<SlotReference> slots = f.collect(e -> e instanceof SlotReference);
-            Set<Expression> mightBeJoined = new HashSet<>();
+            Set<Expression> mightBeJoined = Sets.newLinkedHashSet();
             for (Set<Expression> another : filtersAboveEachConsumer) {
                 if (another.equals(someone)) {
                     matchCount++;
                     continue;
                 }
-                Set<Expression> matched = new HashSet<>();
+                Set<Expression> matched = Sets.newLinkedHashSet();
                 for (Expression e : another) {
                     Set<SlotReference> otherSlots = e.collect(ae -> ae instanceof SlotReference);
                     if (otherSlots.equals(slots)) {

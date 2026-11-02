@@ -66,6 +66,8 @@ public class FunctionRegistry {
 
     private final Map<String, List<FunctionBuilder>> name2BuiltinBuilders;
     private final Map<String, Map<String, List<FunctionBuilder>>> name2UdfBuilders;
+    /** Monotonic version of the UDF definitions, guarded by {@link #name2UdfBuilders}. */
+    private long udfModifyVersion;
 
     public FunctionRegistry() {
         name2BuiltinBuilders = new ConcurrentHashMap<>();
@@ -322,6 +324,7 @@ public class FunctionRegistry {
             Map<String, List<FunctionBuilder>> builders = name2UdfBuilders
                     .computeIfAbsent(dbName, k -> Maps.newHashMap());
             builders.computeIfAbsent(name, k -> Lists.newArrayList()).add(builder);
+            udfModifyVersion++;
         }
     }
 
@@ -342,6 +345,7 @@ public class FunctionRegistry {
             if (builders.getOrDefault(name, Lists.newArrayList()).isEmpty()) {
                 builders.remove(name);
             }
+            udfModifyVersion++;
         }
     }
 
@@ -351,6 +355,27 @@ public class FunctionRegistry {
         }
         synchronized (name2UdfBuilders) {
             name2UdfBuilders.remove(dbName);
+            udfModifyVersion++;
+        }
+    }
+
+    /**
+     * A MONOTONIC version of the UDF definitions of this registry, bumped by every
+     * {@link #addUdf} / {@link #dropUdf} / {@link #dropUdfByDb}.
+     *
+     * SPM certifies a frozen baseline against the definitions its bind text resolved to: it
+     * snapshots the derived entries before analysis and compares them afterwards. Two
+     * snapshots that AGREE still do not prove nothing changed in between - a definition
+     * re-created and then restored to the original body leaves both snapshots identical while
+     * the expansion inlined the INTERMEDIATE one (round-79 #9). The version is the missing
+     * "did anything move" signal: it needs no per-function comparison and cannot be fooled by
+     * a redefinition that ends where it started.
+     *
+     * @return the current version (bumped under the same lock the definitions are mutated under)
+     */
+    public long getUdfModifyVersion() {
+        synchronized (name2UdfBuilders) {
+            return udfModifyVersion;
         }
     }
 

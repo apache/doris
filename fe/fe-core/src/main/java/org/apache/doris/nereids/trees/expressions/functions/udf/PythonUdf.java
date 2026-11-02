@@ -124,6 +124,11 @@ public class PythonUdf extends ScalarFunction implements ExplicitlyCastableSigna
     }
 
     @Override
+    public String getDbName() {
+        return dbName;
+    }
+
+    @Override
     public VolatileIdentity getVolatileIdentity() {
         return volatileIdentity;
     }
