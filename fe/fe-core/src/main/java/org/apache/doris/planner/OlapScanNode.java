@@ -165,6 +165,8 @@ public class OlapScanNode extends ScanNode {
     private long totalTabletsNum = 0;
     private long selectedIndexId = -1;
     private Collection<Long> selectedPartitionIds = Lists.newArrayList();
+
+    private final Map<Long, Long> sqlCachePartitionVersions = Maps.newHashMap();
     private long totalBytes = 0;
     // tablet id to single replica bytes
     private Map<Long, Long> tabletBytes = Maps.newLinkedHashMap();
@@ -474,6 +476,7 @@ public class OlapScanNode extends ScanNode {
             final List<Tablet> tablets = selectedTable.getTablets();
             Long visibleVersion = visibleVersionMap.get(partitionId);
             assert visibleVersion != null : "the acquried version is not exists in the visible version map";
+            sqlCachePartitionVersions.put(partitionId, visibleVersion);
             String visibleVersionStr = String.valueOf(visibleVersion);
             for (Tablet tablet : tablets) {
                 TScanRangeLocations locations = locationsMap.get(tablet.getId());
@@ -491,6 +494,10 @@ public class OlapScanNode extends ScanNode {
         return tabletBytes.get(tabletId);
     }
 
+    public Map<Long, Long> getSqlCachePartitionVersions() {
+        return sqlCachePartitionVersions;
+    }
+
     public long getMaxVersion() {
         return maxVersion;
     }
@@ -506,6 +513,7 @@ public class OlapScanNode extends ScanNode {
         }
         // for non-cloud mode. for cloud mode see `updateScanRangeVersions`
         maxVersion = Math.max(maxVersion, visibleVersion);
+        sqlCachePartitionVersions.put(partition.getId(), visibleVersion);
 
         int useFixReplica = -1;
         boolean skipMissingVersion = false;
