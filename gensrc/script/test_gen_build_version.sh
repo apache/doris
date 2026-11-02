@@ -51,3 +51,40 @@ if [[ "${actual}" != "5.6.7.8" ]]; then
     exit 1
 fi
 echo "Cached version consumer observes refreshed numeric metadata"
+
+# Exercise the packaging function with a JDK selected only through PATH.
+eval "$(sed -n '/^function stamp_fe_build_version() {$/,/^}$/p' "${script_dir}/../../build.sh")"
+mkdir -p "${test_root}/gensrc/script" "${test_root}/lib" "${test_root}/jdk-bin"
+cp "${script_dir}/gen_build_version.sh" "${test_root}/gensrc/script/"
+"${JAVA_HOME}/bin/jar" cf "${test_root}/lib/fe-common-test.jar" -C "${test_root}/classes" org/apache/doris/common/Version.class
+export VERSION_TEST_JDK_BIN="${JAVA_HOME}/bin"
+export VERSION_TEST_TOOL_LOG="${test_root}/jdk-tools.log"
+for tool in java javac jar; do
+    cat >"${test_root}/jdk-bin/${tool}" <<'TOOL'
+#!/usr/bin/env bash
+printf '%s\n' "${0##*/}" >>"${VERSION_TEST_TOOL_LOG}"
+exec "${VERSION_TEST_JDK_BIN}/${0##*/}" "$@"
+TOOL
+    chmod +x "${test_root}/jdk-bin/${tool}"
+done
+unset JAVA_HOME JDK_17
+export PATH="${test_root}/jdk-bin:${PATH}"
+(
+    # Match build.sh, which permits unset optional environment variables.
+    set +u
+    DORIS_BUILD_VERSION_MAJOR=9 DORIS_BUILD_VERSION_MINOR=10 \
+    DORIS_BUILD_VERSION_PATCH=11 DORIS_BUILD_VERSION_HOTFIX=12 \
+        stamp_fe_build_version "${test_root}/lib"
+)
+for tool in javac jar; do
+    if ! grep -qx "${tool}" "${VERSION_TEST_TOOL_LOG}"; then
+        echo "FE version stamping bypassed the PATH-selected ${tool}" >&2
+        exit 1
+    fi
+done
+actual="$(java -cp "${test_root}/lib/fe-common-test.jar:${test_root}/classes" VersionReader)"
+if [[ "${actual}" != "9.10.11.12" ]]; then
+    echo "Stamped FE jar retained ${actual}; expected refreshed metadata 9.10.11.12" >&2
+    exit 1
+fi
+echo "FE version stamping uses the PATH-selected JDK and refreshes the deployed jar"

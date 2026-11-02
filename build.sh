@@ -1200,9 +1200,10 @@ function stamp_fe_build_version() {
     rm -f "${version_java}"
     bash "${DORIS_HOME}/gensrc/script/gen_build_version.sh"
     mkdir -p "${version_classes}"
-    "${JAVA_HOME}/bin/javac" --release 17 -encoding UTF-8 -d "${version_classes}" "${version_java}"
+    # env.sh also accepts Java 17 from PATH with JAVA_HOME unset; use the same selection here.
+    "${JAVA_HOME:+${JAVA_HOME}/bin/}javac" --release 17 -encoding UTF-8 -d "${version_classes}" "${version_java}"
     for common_jar in "$1"/fe-common-*.jar; do
-        "${JAVA_HOME}/bin/jar" uf "${common_jar}" -C "${version_classes}" org/apache/doris/common/Version.class
+        "${JAVA_HOME:+${JAVA_HOME}/bin/}jar" uf "${common_jar}" -C "${version_classes}" org/apache/doris/common/Version.class
     done
 }
 
