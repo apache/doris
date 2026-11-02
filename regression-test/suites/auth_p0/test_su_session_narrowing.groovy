@@ -133,6 +133,11 @@ suite("test_su_session_narrowing", "p0,auth") {
             assertEquals(1, visibleRole[0][0] as int)
             def visibleOwn = sql """SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '${ownDb}'"""
             assertEquals(0, visibleOwn[0][0] as int)
+            // placement listings agree on both legs: SHOW WORKLOAD GROUPS (answered by this FE) and
+            // information_schema.workload_groups (answered through the BE) list the same groups
+            def shownGroups = sql """SHOW WORKLOAD GROUPS"""
+            def scannedGroups = sql """SELECT COUNT(*) FROM information_schema.workload_groups"""
+            assertEquals(shownGroups.size(), scannedGroups[0][0] as int)
 
             // one-shot: a switched session cannot switch again, not even to itself
             test {

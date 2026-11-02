@@ -122,8 +122,8 @@ public class SuUserCommand extends Command implements NoForward {
         ctx.setCurrentUserIdentity(userIdentity);
         ctx.setSessionRoleOverride(ImmutableSet.copyOf(roles));
         // Placement only. USAGE on the session's workload group (this clause, or the target's
-        // default_workload_group when omitted) is checked per query against the narrowed set
-        // widened with the target's own granted roles (Auth.getRolesForPlacementCheck): the
+        // default_workload_group when omitted) is checked per query against the narrowed set, then
+        // through the USAGE grants of the target's own roles (Auth.placementOnlyRoles): the
         // person's lane follows the person. An omitted clause therefore CLEARS any group the
         // switcher's session had set, so the per-query resolution falls through to the target's
         // default instead of keeping the switcher's lane.

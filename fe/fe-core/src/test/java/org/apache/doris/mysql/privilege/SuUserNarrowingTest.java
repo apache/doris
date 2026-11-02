@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
@@ -605,5 +606,55 @@ public class SuUserNarrowingTest extends TestWithFeService {
         }
         Assertions.assertEquals(Sets.newHashSet("spi_tenant_a", "spi_tenant_b"),
                 bridge.rolesOf(AccessTranslation.subjectOf(person)));
+    }
+
+    /**
+     * The placement widening answers "may this session run here?" and nothing else: a direct
+     * GRANT_PRIV on a workload group (which lives in the person's default role, outside the
+     * narrowed set) lets the person's own session grant the group to others, but never the narrowed
+     * session -- GRANT/REVOKE ... ON WORKLOAD GROUP stays on the narrowed set. Both legs of the
+     * answer, the live session and the narrowing a BE->FE RPC carries, agree.
+     */
+    @Test
+    public void testPlacementWideningNeverReachesTheGrantGate() throws Exception {
+        addUser("wg_granter", true);
+        addUser("wg_mallory", true);
+        createRole("wg_tenant");
+        grantRole("GRANT 'wg_tenant' TO 'wg_granter'@'%'");
+        createWorkloadGroup("wg_x");
+        grantWorkloadGroupUsage("GRANT USAGE_PRIV, GRANT_PRIV ON WORKLOAD GROUP 'wg_x' TO 'wg_granter'@'%';");
+        UserIdentity granter = ident("wg_granter");
+        PrivPredicate grantGate = PrivPredicate.of(PrivBitSet.of(Privilege.USAGE_PRIV, Privilege.GRANT_PRIV),
+                Operator.AND);
+        Auth auth = Env.getCurrentEnv().getAuth();
+
+        ConnectContext ctx = new ConnectContext();
+        ctx.setCurrentUserIdentity(granter);
+        ctx.setThreadLocalInfo();
+        try {
+            // the person's own session may use the group and grant it
+            Assertions.assertTrue(canUseWorkloadGroup(granter, "wg_x"));
+            Assertions.assertTrue(auth.checkWorkloadGroupPriv(granter, "wg_x", grantGate));
+
+            ctx.setSessionRoleOverride(Collections.singleton("wg_tenant"));
+            // placement follows the person ...
+            Assertions.assertTrue(canUseWorkloadGroup(granter, "wg_x"));
+            // ... but the GRANT gate stays on the narrowed set: the direct GRANT_PRIV is inert
+            Assertions.assertFalse(auth.checkWorkloadGroupPriv(granter, "wg_x", grantGate));
+            Assertions.assertThrows(AnalysisException.class, () -> grantWorkloadGroupUsage(
+                    "GRANT USAGE_PRIV ON WORKLOAD GROUP 'wg_x' TO 'wg_mallory'@'%';"));
+            Assertions.assertFalse(canUseWorkloadGroup(ident("wg_mallory"), "wg_x"));
+        } finally {
+            connectContext.setThreadLocalInfo();
+        }
+
+        // the RPC leg (no ConnectContext on the handler thread) answers the same
+        Auth.setRpcSessionNarrowing(granter, Collections.singleton("wg_tenant"));
+        try {
+            Assertions.assertTrue(canUseWorkloadGroup(granter, "wg_x"));
+            Assertions.assertFalse(auth.checkWorkloadGroupPriv(granter, "wg_x", grantGate));
+        } finally {
+            Auth.clearRpcSessionNarrowing();
+        }
     }
 }

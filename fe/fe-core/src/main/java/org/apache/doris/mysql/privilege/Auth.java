@@ -33,6 +33,7 @@ import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.AuthorizationException;
@@ -93,6 +94,7 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 
@@ -450,33 +452,89 @@ public class Auth implements Writable {
     }
 
     /**
-     * The role set consulted for PLACEMENT privilege checks: WORKLOAD GROUP usage and, in cloud
-     * mode, compute-group (CLUSTER) usage. Identical to {@link #getRolesByUserWithLdap} for a
-     * normal session. In an SU-narrowed session the narrowed set is widened with the effective
-     * identity's own granted roles (its default role (where direct grants live) plus explicit
-     * and LDAP roles), so the narrowed session may use exactly the workload groups and compute
-     * groups the person's own session could use. Placement is not data authority: the narrowed
-     * session runs in the target's default workload group and compute group (the same
-     * resolution as the person's own session), and the person's USAGE on them is typically a
-     * direct grant that narrowing would otherwise drop. Only the two placement predicates (and
-     * the SHOW output that enumerates them) read this set; table, database, resource, stage and
-     * storage-vault checks stay on the narrowed set, so data access cannot widen through it.
+     * The SU narrowing in force for this identity on this thread -- the live session's override,
+     * or the subset a BE->FE metadata RPC carried -- or null when it is not narrowed. The two
+     * legs of every placement answer (this FE's SHOW output, the information_schema scan through
+     * the BE) read the same narrowing, so they agree.
      */
-    private Set<Role> getRolesForPlacementCheck(UserIdentity userIdentity) {
-        Set<Role> roles = getRolesByUserWithLdap(userIdentity);
-        ConnectContext ctx = ConnectContext.get();
-        if (ctx == null || !ctx.isSessionRoleNarrowed()
-                || !userIdentity.equals(ctx.getCurrentUserIdentity())) {
-            return roles;
+    private static Set<String> narrowingOf(UserIdentity userIdentity) {
+        Map<UserIdentity, Set<String>> rpcNarrow = RPC_SESSION_NARROWING.get();
+        if (rpcNarrow != null && rpcNarrow.containsKey(userIdentity)) {
+            return rpcNarrow.get(userIdentity);
         }
-        Set<Role> widened = Sets.newHashSet(roles);
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && userIdentity.equals(ctx.getCurrentUserIdentity()) && ctx.isSessionRoleNarrowed()) {
+            return ctx.getSessionRoleOverride();
+        }
+        return null;
+    }
+
+    /**
+     * PLACEMENT widening: in an SU-narrowed session, the effective identity's own granted roles
+     * that the override left out (its default role, where direct grants live, plus explicit and
+     * LDAP roles). Placement is not data authority: the narrowed session runs in the person's
+     * workload group and compute group, and the person's USAGE on them is typically a direct grant
+     * that narrowing would otherwise drop, so the person's lane follows the person. Only the USAGE
+     * bit of these roles' workload-group and compute-group grants reaches through
+     * ({@link #placementUsageThroughOwnRoles}): never their global privileges, never GRANT_PRIV.
+     * GRANT/REVOKE ... ON WORKLOAD GROUP / CLUSTER, the listings of grants (SHOW GRANTS,
+     * workload_group_privileges) and every data check stay on the narrowed set. Empty for a
+     * session that is not narrowed.
+     */
+    private Set<Role> placementOnlyRoles(UserIdentity userIdentity) {
+        Set<String> override = narrowingOf(userIdentity);
+        if (override == null) {
+            return Collections.emptySet();
+        }
+        Set<Role> ownRoles = Sets.newHashSet();
         for (String roleName : getGrantedRoleNames(userIdentity)) {
+            if (override.contains(roleName)) {
+                continue;
+            }
             Role role = roleManager.getRole(roleName);
             if (role != null) {
-                widened.add(role);
+                ownRoles.add(role);
             }
         }
-        return widened;
+        return ownRoles;
+    }
+
+    /**
+     * The one question the placement widening answers: "may this session run here?". Consulted
+     * after the narrowed set said no, and only when the predicate is satisfiable by USAGE alone,
+     * so an administrative predicate (the GRANT gate's USAGE+GRANT) never reaches it; each own
+     * role contributes its workload-group / compute-group grant on the named group and nothing
+     * else.
+     */
+    private boolean placementUsageThroughOwnRoles(UserIdentity currentUser, PrivPredicate wanted,
+            Predicate<Role> grantsUsage) {
+        if (!Privilege.satisfy(PrivBitSet.of(Privilege.USAGE_PRIV), wanted)) {
+            return false;
+        }
+        for (Role role : placementOnlyRoles(currentUser)) {
+            if (grantsUsage.test(role)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean grantsWorkloadGroupUsage(Role role, String workloadGroupName) {
+        PrivBitSet privs = PrivBitSet.of();
+        role.getWorkloadGroupPrivTable().getPrivs(workloadGroupName, privs);
+        return privs.containsPrivs(Privilege.USAGE_PRIV);
+    }
+
+    private static boolean grantsComputeGroupUsage(Role role, String computeGroupName) {
+        PrivBitSet privs = PrivBitSet.of();
+        role.getCloudClusterPrivTable().getPrivs(computeGroupName, privs);
+        // a grant on the owning virtual compute group covers its members (Role.checkCloudPriv)
+        String virtualComputeGroup = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .ownedByVirtualComputeGroup(computeGroupName);
+        if (virtualComputeGroup != null) {
+            role.getCloudClusterPrivTable().getPrivs(virtualComputeGroup, privs);
+        }
+        return privs.containsPrivs(Privilege.USAGE_PRIV);
     }
 
     /**
@@ -778,14 +836,16 @@ public class Auth implements Writable {
                 return true;
             }
 
-            Set<Role> roles = getRolesForPlacementCheck(currentUser);
+            Set<Role> roles = getRolesByUserWithLdap(currentUser);
             PrivBitSet savedPrivs = PrivBitSet.of();
             for (Role role : roles) {
                 if (role.checkWorkloadGroupPriv(workloadGroupName, wanted, savedPrivs)) {
                     return true;
                 }
             }
-            return false;
+            // placement: USAGE through the person's own roles in an SU-narrowed session
+            return placementUsageThroughOwnRoles(currentUser, wanted,
+                    role -> grantsWorkloadGroupUsage(role, workloadGroupName));
         } finally {
             readUnlock();
         }
@@ -802,17 +862,18 @@ public class Auth implements Writable {
                     return true;
                 }
             }
-            // compute-group USAGE is placement (see getRolesForPlacementCheck); stage and
-            // storage-vault usage are data access and stay on the narrowed set
-            Set<Role> roles = type == ResourceTypeEnum.CLUSTER
-                    ? getRolesForPlacementCheck(currentUser) : getRolesByUserWithLdap(currentUser);
+            Set<Role> roles = getRolesByUserWithLdap(currentUser);
             PrivBitSet savedPrivs = PrivBitSet.of();
             for (Role role : roles) {
                 if (role.checkCloudPriv(cloudName, wanted, type, savedPrivs)) {
                     return true;
                 }
             }
-            return false;
+            // compute-group USAGE is placement (see placementOnlyRoles); stage and storage-vault
+            // usage are data access and stay on the narrowed set
+            return type == ResourceTypeEnum.CLUSTER
+                    && placementUsageThroughOwnRoles(currentUser, wanted,
+                            role -> grantsComputeGroupUsage(role, cloudName));
         } finally {
             readUnlock();
         }
@@ -1956,14 +2017,9 @@ public class Auth implements Writable {
 
             Set<String> currentUserRole = null;
             if (!isCurrentUserAdmin) {
-                // the same role set the USAGE check consults: an SU-narrowed session lists the
-                // placement set, not the identity's full role union
-                currentUserRole = new HashSet<>();
-                for (Role role : getRolesForPlacementCheck(currentUserIdentity)) {
-                    if (!role.getRoleName().startsWith(RoleManager.DEFAULT_ROLE_PREFIX)) {
-                        currentUserRole.add(role.getRoleName());
-                    }
-                }
+                // a listing of GRANTS: the narrowed set in an SU-narrowed session (the lanes the
+                // session may run in are answered by the USAGE check, not listed here)
+                currentUserRole = getRoleNamesByUserWithLdap(currentUserIdentity, false);
             }
             roleManager.getRoleWorkloadGroupPrivs(result, currentUserRole);
         } finally {
@@ -1973,8 +2029,8 @@ public class Auth implements Writable {
 
     private ResourcePrivTable getUserCloudClusterPrivTable(UserIdentity userIdentity) {
         ResourcePrivTable table = new ResourcePrivTable();
-        // the same role set checkCloudPriv consults for compute groups (placement)
-        for (Role role : getRolesForPlacementCheck(userIdentity)) {
+        // a listing of GRANTS: the narrowed set, like every other SHOW GRANTS column
+        for (Role role : getRolesByUserWithLdap(userIdentity)) {
             table.merge(role.getCloudClusterPrivTable());
         }
         return table;
