@@ -196,7 +196,8 @@ public:
             std::unordered_map<int32_t, PathToNoneNullValues>* uid_to_path_stats);
 
     // Build the temporary schema for compaction, this will reduce the memory usage of compacting
-    // variant columns. `paths` receives that schema's variant path layout.
+    // variant columns. Collect read-only input metadata, reconcile each column, select its budget,
+    // then build columns. `paths` receives that schema's variant path layout.
     static Status get_extended_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
                                                  TabletSchemaSPtr& target,
                                                  VariantCompactionPathsMap& paths);
@@ -207,7 +208,7 @@ public:
 
     // Check if the path stats are consistent between inputs rowsets and output rowset.
     // Used to check the correctness of compaction.
-    static Status check_path_stats(const std::vector<RowsetSharedPtr>& intputs,
+    static Status check_path_stats(const std::vector<RowsetSharedPtr>& inputs,
                                    RowsetSharedPtr output, BaseTabletSPtr tablet);
 
     // Calculate statistics about variant data paths from the encoded sparse column
@@ -227,11 +228,14 @@ public:
                                                           const PathToDataTypes& path_to_data_types,
                                                           TabletSchemaSPtr& output_schema);
 
-    static Status get_compaction_typed_columns(const TabletSchemaSPtr& target,
-                                               const std::unordered_set<std::string>& typed_paths,
-                                               const TabletColumnPtr parent_column,
-                                               TabletSchemaSPtr& output_schema,
-                                               VariantCompactionPaths& paths_set_info);
+    // Test-only since compaction planning moved to build_compaction_columns; production code
+    // must not call get_compaction_typed_columns or get_compaction_nested_columns. Kept for
+    // schema_util_test coverage of the per-kind materialization helpers.
+    static Status get_compaction_typed_columns(
+            const TabletSchemaSPtr& target,
+            const std::unordered_set<std::string>& input_typed_paths,
+            const TabletColumnPtr parent_column, TabletSchemaSPtr& output_schema,
+            VariantCompactionPaths& paths_set_info);
 
     static Status get_compaction_nested_columns(
             const std::unordered_set<PathInData, PathInData::Hash>& nested_paths,
