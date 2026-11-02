@@ -336,8 +336,8 @@ Status VIcebergMergeSink::close(Status close_status) {
         table_status = _table_writer->close(close_status);
     }
     if (_delete_writer) {
-        _delete_writer->set_delete_only_rows(static_cast<int64_t>(_delete_only_row_count));
-        delete_status = _delete_writer->close(close_status);
+        delete_status =
+                _delete_writer->close(close_status, static_cast<int64_t>(_delete_only_row_count));
     }
 
     if (_written_rows_counter != nullptr) {

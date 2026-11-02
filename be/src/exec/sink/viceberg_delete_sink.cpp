@@ -251,6 +251,10 @@ Status VIcebergDeleteSink::write(RuntimeState* state, Block& block) {
 }
 
 Status VIcebergDeleteSink::close(Status close_status) {
+    return close(std::move(close_status), std::nullopt);
+}
+
+Status VIcebergDeleteSink::close(Status close_status, std::optional<int64_t> delete_only_rows) {
     SCOPED_TIMER(_close_timer);
 
     if (!close_status.ok()) {
@@ -277,7 +281,11 @@ Status VIcebergDeleteSink::close(Status close_status) {
         return write_status;
     }
 
-    _apply_delete_only_rows();
+    // MERGE supplies its sink-wide action count, including zero for UPDATE-only input. Ordinary
+    // DELETE leaves it unset. Attach it to one item so multiple files do not multiply the count.
+    if (delete_only_rows.has_value() && !_commit_data_list.empty()) {
+        _commit_data_list.front().__set_delete_only_rows(*delete_only_rows);
+    }
 
     // Update counters
     if (_delete_file_count_counter) {
@@ -302,14 +310,6 @@ Status VIcebergDeleteSink::close(Status close_status) {
     }
 
     return Status::OK();
-}
-
-void VIcebergDeleteSink::_apply_delete_only_rows() {
-    // Attach the sink-wide count to one commit item. Every BE sink instance reports its own partial
-    // count, and FE sums those partial counts across instances.
-    if (_delete_only_rows.has_value() && !_commit_data_list.empty()) {
-        _commit_data_list.front().__set_delete_only_rows(*_delete_only_rows);
-    }
 }
 
 void VIcebergDeleteSink::finish_deferred_file_cleanup(Status outer_status) {

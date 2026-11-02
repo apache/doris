@@ -78,7 +78,7 @@ public:
 
     Status close(Status) override;
 
-    void set_delete_only_rows(int64_t rows) { _delete_only_rows = rows; }
+    Status close(Status close_status, std::optional<int64_t> delete_only_rows);
 
     void defer_file_cleanup_until_outer_close() { _defer_file_cleanup_until_outer_close = true; }
 
@@ -136,7 +136,6 @@ private:
                                         const std::vector<int64_t>& positions, Block& output_block);
     Status _init_position_delete_output_exprs();
     std::string _get_file_extension() const;
-    void _apply_delete_only_rows();
     void _cleanup_created_files();
     void _transfer_created_files_to_report_cleanup();
 
@@ -151,9 +150,6 @@ private:
 
     // Collected commit data from all writers
     std::vector<TIcebergCommitData> _commit_data_list;
-    // Set only by the MERGE sink. FE adds this statement-level count to the data rows instead of
-    // summing physical deletes, which would double-count UPDATE's internal delete row.
-    std::optional<int64_t> _delete_only_rows;
     // MERGE owns both data and delete objects until both inner sinks close successfully.
     std::vector<std::pair<std::shared_ptr<io::FileSystem>, std::string>> _created_files;
     bool _defer_file_cleanup_until_outer_close = false;
