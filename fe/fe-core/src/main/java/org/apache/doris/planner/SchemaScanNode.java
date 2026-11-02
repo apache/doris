@@ -108,7 +108,7 @@ public class SchemaScanNode extends ScanNode {
         }
         TableIf tableIf = desc.getTable();
         if (ConnectContext.get().isSessionRoleNarrowed() && tableIf instanceof SchemaTable
-                && ((SchemaTable) tableIf).shouldFetchAllFe() && !allAliveFrontendsRunSameBuild()) {
+                && ((SchemaTable) tableIf).shouldFetchAllFe() && !Env.getCurrentEnv().aliveFrontendsRunSameBuild()) {
             throw new UserException(mixedBuildMessage("every alive FE"));
         }
     }
@@ -126,16 +126,11 @@ public class SchemaScanNode extends ScanNode {
                 + "Retry once the rolling upgrade completes.";
     }
 
-    private static boolean allAliveFrontendsRunSameBuild() {
-        String local = Frontend.localBuildVersion();
-        for (Frontend fe : Env.getCurrentEnv().getFrontends(null)) {
-            if (fe.isAlive() && !local.equals(fe.getVersion())) {
-                return false;
-            }
+        if (ConnectContext.get().isSessionRoleNarrowed() && tableIf instanceof SchemaTable
+                && ((SchemaTable) tableIf).shouldFetchAllFe() && !Env.getCurrentEnv().aliveFrontendsRunSameBuild()) {
+            throw new UserException(mixedBuildMessage("every alive FE"));
         }
-        return true;
     }
-
     private void setFeAddrList(TPlanNode msg) {
         List<TNetworkAddress> feAddrList = new ArrayList();
         TableIf tableIf = desc.getTable();

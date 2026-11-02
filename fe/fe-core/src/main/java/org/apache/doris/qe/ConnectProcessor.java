@@ -41,6 +41,7 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConnectionException;
 import org.apache.doris.common.ErrorCode;
@@ -96,7 +97,6 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -552,15 +552,22 @@ public abstract class ConnectProcessor {
     /**
      * Install the SU narrowing a forwarded statement carries (is_su_user + current_roles) on this
      * proxy session, so every privilege check on the master resolves the same narrowed role set the
-     * origin FE would. Fail closed: a switched session that carries no role list narrows to the
-     * empty set (the information_schema/mysql baseline only), never to the target's full roles.
+     * origin FE would. Fail closed: a switched session that names no role subset is refused rather
+     * than narrowed to nothing, so an installed override is never empty and the wire field has one
+     * meaning on every side -- absent means "not narrowed" (the BE forwards a plan's current_roles
+     * only when the set is non-empty; the FE grammar requires at least one role).
      */
     @VisibleForTesting
-    static void applyForwardedSessionNarrowing(ConnectContext ctx, TMasterOpRequest request) {
+    static void applyForwardedSessionNarrowing(ConnectContext ctx, TMasterOpRequest request)
+            throws AuthorizationException {
         if (!request.isSetIsSuUser() || !request.isIsSuUser()) {
             return;
         }
-        Set<String> roles = request.isSetCurrentRoles() ? request.getCurrentRoles() : Collections.emptySet();
+        if (!request.isSetCurrentRoles() || request.getCurrentRoles().isEmpty()) {
+            throw new AuthorizationException("A forwarded statement of a session-narrowed (SU) session names no "
+                    + "role subset; refusing to run it against the target's full role union");
+        }
+        Set<String> roles = request.getCurrentRoles();
         ctx.setSessionRoleOverride(roles);
         if (request.isSetAuthenticatedUserIdent()) {
             // audit only: the master's row names the account that authenticated the connection
@@ -584,7 +591,6 @@ public abstract class ConnectProcessor {
         } else {
             ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(request.user, "%"));
         }
-        applyForwardedSessionNarrowing(ctx, request);
         if (request.isFoldConstantByBe()) {
             ctx.getSessionVariable().setEnableFoldConstantByBe(request.foldConstantByBe);
         }
@@ -608,6 +614,8 @@ public abstract class ConnectProcessor {
         ctx.setThreadLocalInfo();
         StmtExecutor executor = null;
         try {
+            // the narrowing, or the refusal of a switched request that names none, before anything runs
+            applyForwardedSessionNarrowing(ctx, request);
             MysqlProtocolAdapter.of(ctx).restoreFromForwardRequest(ctx, request);
             // 0 for compatibility.
             int idx = request.isSetStmtIdx() ? request.getStmtIdx() : 0;
@@ -676,6 +684,10 @@ public abstract class ConnectProcessor {
             } else {
                 executor.queryRetry(queryId);
             }
+        } catch (AuthorizationException e) {
+            // a switched forward that names no role subset: refused, reported to the origin FE as such
+            LOG.warn("forwarded statement refused: {}", e.getMessage());
+            ctx.getState().setError(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, e.getMessage());
         } catch (IOException e) {
             // Client failed.
             LOG.warn("Process one query failed because IOException: ", e);

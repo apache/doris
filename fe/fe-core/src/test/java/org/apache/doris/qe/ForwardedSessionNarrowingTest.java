@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ha.FrontendNodeType;
@@ -142,18 +143,30 @@ public class ForwardedSessionNarrowingTest extends TestWithFeService {
         Assertions.assertTrue(canSelectDb(bob, "perso"));
     }
 
+    /**
+     * A switched request that names no role subset (or an empty one) is refused, never narrowed to
+     * nothing: an installed override is never empty, so "absent = not narrowed" is the one meaning of
+     * current_roles on every side of the wire.
+     */
     @Test
-    public void testMasterFailsClosedWhenSwitchedRequestCarriesNoRoles() {
-        TMasterOpRequest request = new TMasterOpRequest();
-        request.setIsSuUser(true);
+    public void testMasterRefusesASwitchedRequestWithoutRoles() {
+        TMasterOpRequest noRoles = new TMasterOpRequest();
+        noRoles.setIsSuUser(true);
         ConnectContext proxy = new ConnectContext();
-        ConnectProcessor.applyForwardedSessionNarrowing(proxy, request);
-        Assertions.assertNotNull(proxy.getSessionRoleOverride());
-        Assertions.assertTrue(proxy.getSessionRoleOverride().isEmpty());
+        Assertions.assertThrows(AuthorizationException.class,
+                () -> ConnectProcessor.applyForwardedSessionNarrowing(proxy, noRoles));
+        Assertions.assertFalse(proxy.isSessionRoleNarrowed());
+
+        TMasterOpRequest emptyRoles = new TMasterOpRequest();
+        emptyRoles.setIsSuUser(true);
+        emptyRoles.setCurrentRoles(Sets.newHashSet());
+        Assertions.assertThrows(AuthorizationException.class,
+                () -> ConnectProcessor.applyForwardedSessionNarrowing(proxy, emptyRoles));
+        Assertions.assertFalse(proxy.isSessionRoleNarrowed());
     }
 
     @Test
-    public void testUnswitchedRequestLeavesProxySessionUnnarrowed() {
+    public void testUnswitchedRequestLeavesProxySessionUnnarrowed() throws Exception {
         ConnectContext proxy = new ConnectContext();
         ConnectProcessor.applyForwardedSessionNarrowing(proxy, new TMasterOpRequest());
         Assertions.assertNull(proxy.getSessionRoleOverride());

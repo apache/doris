@@ -433,8 +433,9 @@ struct TMasterOpRequest {
 
     // Session-narrowed (SU) session: the active role subset that REPLACES the target's role
     // union while the master executes this statement, and the flag that the session is
-    // switched. A switched session that carries no role list narrows to the empty set on the
-    // master (fail closed). Ids 34/35 were reserved for exactly these fields.
+    // switched. A switched session that carries no (or an empty) role list is refused by the
+    // master (fail closed): an installed narrowing is never empty. Ids 34/35 were reserved
+    // for exactly these fields.
     34: optional set<string> current_roles
     35: optional bool is_su_user
     36: optional string connectingFeLocalResourceGroup

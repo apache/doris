@@ -5643,6 +5643,21 @@ public class Env {
      * responses (HbPackage, FrontendHbResponse.version), which the other FEs replay. An FE this FE
      * does not know, or a dead one, counts as a different build.
      */
+    /**
+     * Whether every alive FE reports the same build as this FE (see {@link #frontendRunsSameBuild}):
+     * the gate of a session-narrowed (SU) session's requests that fan out to every FE, which an FE
+     * of an older build would answer against the target's full role union.
+     */
+    public boolean aliveFrontendsRunSameBuild() {
+        String local = Frontend.localBuildVersion();
+        for (Frontend fe : frontends.values()) {
+            if (fe.isAlive() && !local.equals(fe.getVersion())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     public boolean frontendRunsSameBuild(String host, int rpcPort) {
         if (host.equals(selfNode.getHost()) && rpcPort == Config.rpc_port) {
             return true;
