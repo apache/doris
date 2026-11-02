@@ -451,24 +451,26 @@ public class NereidsSqlCacheManager {
             TableIf tableIf = findTableIf(env, scanTable.getKey().tableName);
             if (tableIf == null) {
                 return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
-            } else if (tableIf.isTemporary()) {
+            }
+            if (tableIf.isTemporary()) {
                 return IsChanged.CHANGED_BUT_NOT_INVALIDATE_CACHE;
-            } else if (tableVersion.id != tableIf.getId()) { // should after isTemporary condition
+            }
+            if (tableVersion.id != tableIf.getId()) { // should after isTemporary condition
                 return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
             }
             if (tableIf instanceof OlapTable) {
                 OlapTable olapTable = (OlapTable) tableIf;
-                long currentTableVersion = 0L;
                 try {
-                    currentTableVersion = olapTable.getVisibleVersion();
+                    long currentTableVersion = olapTable.getVisibleVersion();
+                    boolean versionMatches = currentTableVersion == tableVersion.version;
+                    if (tableVersion.olapVersion != null && tableVersion.olapVersion.isUsable()) {
+                        versionMatches = tableVersion.olapVersion.matches(olapTable, currentTableVersion);
+                    }
+                    if (!versionMatches) {
+                        return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
+                    }
                 } catch (RpcException e) {
                     LOG.warn("table {}, in cloud getVisibleVersion exception", olapTable.getName(), e);
-                    return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
-                }
-                long cacheTableVersion = tableVersion.version;
-                // some partitions have been dropped, or delete or updated or replaced,
-                // or insert rows into new partition?
-                if (currentTableVersion != cacheTableVersion) {
                     return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
                 }
                 if (tableIf instanceof MTMV) {
