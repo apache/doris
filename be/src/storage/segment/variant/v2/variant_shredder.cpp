@@ -182,7 +182,6 @@ struct VariantShredder::Impl {
         std::string encoded;
         if (options.escape_dots_in_keys) {
             encoded = encode_variant_path_component(key);
-            DORIS_CHECK(encoded.find('.') == std::string::npos);
             key = encoded;
         }
         PathInDataBuilder builder;

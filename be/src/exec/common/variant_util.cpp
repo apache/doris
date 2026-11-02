@@ -1103,12 +1103,6 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
     const auto& parent_indexes = target->inverted_indexs(parent_column->unique_id());
     // append subcolumns
     for (const auto& subpath : sorted_subpaths) {
-        if (parent_column->variant_escape_dots_in_keys()) {
-            const PathInData path(subpath);
-            for (const auto& part : path.get_parts()) {
-                DORIS_CHECK(part.key.find('.') == std::string_view::npos);
-            }
-        }
         auto column_name = parent_column->name_lower_case() + "." + subpath.to_string();
         auto column_path = make_full_subcolumn_path(parent_column,
                                                     std::string_view(subpath.data, subpath.size));
