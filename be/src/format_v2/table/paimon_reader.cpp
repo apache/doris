@@ -31,7 +31,6 @@
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
-#include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
@@ -49,58 +48,6 @@
 
 namespace doris::format::paimon {
 namespace {
-
-DataTypePtr nullable_like_original(const DataTypePtr& original, DataTypePtr nested) {
-    return original != nullptr && original->is_nullable() ? make_nullable(nested) : nested;
-}
-
-// Unannotated INT96 cannot distinguish Paimon TIMESTAMP from TIMESTAMP_LTZ. Apply the
-// table schema's instant marker to each timestamp leaf, then rebuild its containers so the
-// parent type agrees with the children. Preserve precision and the original nullability.
-Status apply_paimon_timestamp_semantics(format::ColumnDefinition* column) {
-    DORIS_CHECK(column != nullptr);
-    DORIS_CHECK(column->type != nullptr);
-    const auto primitive = remove_nullable(column->type)->get_primitive_type();
-    // Validate before changing children: silently skipping a malformed parent leaves stale types.
-    if ((primitive == TYPE_ARRAY && column->children.size() != 1) ||
-        (primitive == TYPE_MAP && column->children.size() != 2)) {
-        return Status::InvalidArgument("Invalid Paimon {} column '{}': {} children",
-                                       column->type->get_name(), column->name,
-                                       column->children.size());
-    }
-    if (column->timestamp_is_adjusted_to_utc.has_value() &&
-        (primitive == TYPE_DATETIMEV2 || primitive == TYPE_TIMESTAMPTZ)) {
-        const auto target =
-                *column->timestamp_is_adjusted_to_utc ? TYPE_TIMESTAMPTZ : TYPE_DATETIMEV2;
-        column->type = DataTypeFactory::instance().create_data_type(
-                target, column->type->is_nullable(), 0, column->type->get_scale());
-        return Status::OK();
-    }
-
-    std::vector<DataTypePtr> child_types;
-    child_types.reserve(column->children.size());
-    for (auto& child : column->children) {
-        RETURN_IF_ERROR(apply_paimon_timestamp_semantics(&child));
-        child_types.push_back(child.type);
-    }
-    if (primitive == TYPE_ARRAY) {
-        column->type = nullable_like_original(column->type,
-                                              std::make_shared<DataTypeArray>(child_types.front()));
-    } else if (primitive == TYPE_MAP) {
-        column->type = nullable_like_original(
-                column->type, std::make_shared<DataTypeMap>(make_nullable(child_types[0]),
-                                                            make_nullable(child_types[1])));
-    } else if (primitive == TYPE_STRUCT) {
-        Strings child_names;
-        child_names.reserve(column->children.size());
-        for (const auto& child : column->children) {
-            child_names.push_back(child.name);
-        }
-        column->type = nullable_like_original(
-                column->type, std::make_shared<DataTypeStruct>(child_types, child_names));
-    }
-    return Status::OK();
-}
 
 ColumnDefinition* find_file_column(const ColumnDefinition& table_column,
                                    std::vector<ColumnDefinition>* file_schema,
@@ -288,8 +235,10 @@ Status PaimonReader::annotate_file_schema(std::vector<format::ColumnDefinition>*
                                                                   file_schema));
     }
     if (_format == format::FileFormat::PARQUET) {
+        // Unannotated INT96 cannot distinguish Paimon TIMESTAMP from TIMESTAMP_LTZ; the markers
+        // copied from the split's history schema decide.
         for (auto& column : *file_schema) {
-            RETURN_IF_ERROR(apply_paimon_timestamp_semantics(&column));
+            RETURN_IF_ERROR(format::apply_file_timestamp_semantics(&column));
         }
         const bool projects_variant =
                 std::ranges::any_of(_projected_columns, contains_variant_type);
