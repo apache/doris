@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
@@ -25,6 +26,8 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantResourcePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.SuUserCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.SetPassVarOp;
+import org.apache.doris.nereids.trees.plans.commands.info.SetUserPropertyVarOp;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
@@ -85,6 +88,25 @@ public class SuUserNarrowingTest extends TestWithFeService {
         LogicalPlan plan = new NereidsParser().parseSingle(sql);
         Assertions.assertTrue(plan instanceof GrantResourcePrivilegeCommand);
         ((GrantResourcePrivilegeCommand) plan).run(connectContext, null);
+    }
+
+    /** A session of a service account that holds nothing but the right to switch. */
+    private ConnectContext proxySession(String switcher) throws Exception {
+        addUser(switcher, true);
+        grantPriv("GRANT PROXY_PRIV ON *.*.* TO '" + switcher + "'@'%';");
+        ConnectContext ctx = new ConnectContext();
+        ctx.setCurrentUserIdentity(ident(switcher));
+        ctx.setRemoteIP("127.0.0.1");
+        ctx.setThreadLocalInfo();
+        return ctx;
+    }
+
+    private static void assertSwitchRefused(ConnectContext ctx, UserIdentity target, String role) {
+        Assertions.assertThrows(AnalysisException.class, () ->
+                new SuUserCommand(target, Collections.singletonList(role), null).run(ctx, null));
+        // a refused switch leaves the session exactly as it was
+        Assertions.assertNull(ctx.getAuthenticatedIdentity());
+        Assertions.assertFalse(ctx.isSessionRoleNarrowed());
     }
 
     @Test
@@ -354,5 +376,100 @@ public class SuUserNarrowingTest extends TestWithFeService {
         }
         // cleared -> full roles restored (no leak of the narrowing to later requests on this thread)
         Assertions.assertTrue(canSelectDb(rpcuser, "perso"));
+    }
+
+    /**
+     * PROXY_PRIV is a lesser privilege than ADMIN_PRIV: the built-in accounts are never a target, the
+     * built-in administrative roles and the per-user default role are never requested, and a role that
+     * confers a global ADMIN_PRIV / NODE_PRIV / GRANT_PRIV is refused unless the switching account
+     * already holds that bit itself.
+     */
+    @Test
+    public void testSwitchNeverClimbsTheAdministrativeLadder() throws Exception {
+        addUser("ladder_person", true);
+        addUser("ladder_admin_holder", true);
+        createRole("ladder_plain");
+        createRole("ladder_ops_admin");
+        createRole("ladder_granter");
+        grantRole("GRANT 'ladder_plain','ladder_ops_admin','ladder_granter' TO 'ladder_person'@'%'");
+        grantRole("GRANT 'admin' TO 'ladder_admin_holder'@'%'");
+        grantPriv("GRANT ADMIN_PRIV ON *.*.* TO ROLE 'ladder_ops_admin';");
+        grantPriv("GRANT GRANT_PRIV ON *.*.* TO ROLE 'ladder_granter';");
+        UserIdentity person = new UserIdentity("ladder_person", "%");
+
+        ConnectContext ctx = proxySession("ladder_svc");
+        try {
+            // the built-in accounts are never a target, whatever role is named
+            assertSwitchRefused(ctx, new UserIdentity("admin", "%"), "admin");
+            assertSwitchRefused(ctx, new UserIdentity("root", "%"), "operator");
+            // the built-in administrative roles and the default role are never requested, even when
+            // the target holds them
+            assertSwitchRefused(ctx, new UserIdentity("ladder_admin_holder", "%"), "admin");
+            assertSwitchRefused(ctx, person, "operator");
+            assertSwitchRefused(ctx, person, "default_role_rbac_ladder_person@%");
+            // a granted role that confers a global administrative bit the switcher does not hold
+            assertSwitchRefused(ctx, person, "ladder_ops_admin");
+            assertSwitchRefused(ctx, person, "ladder_granter");
+            // an identity that does not analyze never reaches the switch
+            assertSwitchRefused(ctx, new UserIdentity("bad user", "%"), "ladder_plain");
+            // the plain role is what PROXY_PRIV buys
+            new SuUserCommand(person, Collections.singletonList("ladder_plain"), null).run(ctx, null);
+            Assertions.assertEquals("ladder_person", ctx.getQualifiedUser());
+            Assertions.assertFalse(Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN));
+            Assertions.assertFalse(Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.GRANT));
+        } finally {
+            connectContext.setThreadLocalInfo();
+        }
+
+        // an administrator already holds every bit: narrowing a person to an administrative role is
+        // no escalation for it
+        ConnectContext admin = new ConnectContext();
+        admin.setCurrentUserIdentity(ident("root"));
+        admin.setThreadLocalInfo();
+        try {
+            new SuUserCommand(person, Collections.singletonList("ladder_ops_admin"), null).run(admin, null);
+            Assertions.assertEquals("ladder_person", admin.getQualifiedUser());
+        } finally {
+            connectContext.setThreadLocalInfo();
+        }
+    }
+
+    /**
+     * After the switch the current identity IS the target, but the switcher is not the person: the
+     * "self" exemptions of SET PASSWORD and SET PROPERTY are closed under the switch, so a credential
+     * or account-default change needs the GRANT / ADMIN privilege of the narrowed set.
+     */
+    @Test
+    public void testSelfBranchesAreClosedUnderTheSwitch() throws Exception {
+        addUser("self_person", true);
+        createRole("self_role");
+        grantRole("GRANT 'self_role' TO 'self_person'@'%'");
+        UserIdentity person = new UserIdentity("self_person", "%");
+
+        // the person's own session keeps both self branches
+        ConnectContext own = new ConnectContext();
+        own.setCurrentUserIdentity(ident("self_person"));
+        own.setThreadLocalInfo();
+        try {
+            new SetPassVarOp(null, new PassVar("", true)).validate(own);
+            new SetPassVarOp(new UserIdentity("self_person", "%"), new PassVar("", true)).validate(own);
+            new SetUserPropertyVarOp("self_person", "default_init_catalog", "internal").validate(own);
+        } finally {
+            connectContext.setThreadLocalInfo();
+        }
+
+        ConnectContext ctx = proxySession("self_svc");
+        try {
+            new SuUserCommand(person, Collections.singletonList("self_role"), null).run(ctx, null);
+            Assertions.assertEquals("self_person", ctx.getQualifiedUser());
+            Assertions.assertThrows(AnalysisException.class, () ->
+                    new SetPassVarOp(null, new PassVar("", true)).validate(ctx));
+            Assertions.assertThrows(AnalysisException.class, () ->
+                    new SetPassVarOp(new UserIdentity("self_person", "%"), new PassVar("", true)).validate(ctx));
+            Assertions.assertThrows(AnalysisException.class, () ->
+                    new SetUserPropertyVarOp("self_person", "default_init_catalog", "internal").validate(ctx));
+        } finally {
+            connectContext.setThreadLocalInfo();
+        }
     }
 }

@@ -21,9 +21,13 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -79,12 +83,20 @@ public class SuUserCommand extends Command implements NoForward {
             throw new AnalysisException("SU is not allowed in an already-switched session");
         }
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.PROXY)) {
-            throw new AnalysisException("Access denied: SU requires PROXY_PRIV (or ADMIN_PRIV)");
+            // the access-denied error code (1227) like every sibling privilege gate; the token is what
+            // clients and the regression suite match
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "PROXY_PRIV");
         }
 
         userIdentity.analyze();
+        // The built-in accounts are never a proxy target, the same rule as COM_CHANGE_USER: the admin
+        // account holds the admin role, so a switch to it would hand every PROXY_PRIV holder ADMIN_PRIV.
+        if (userIdentity.isSystemUser()) {
+            throw new AnalysisException("SU to root or admin is forbidden");
+        }
         for (String role : roles) {
-            FeNameFormat.checkRoleName(role, true /* can be admin */, "Invalid role in SU");
+            // the built-in operator/admin roles carry NODE_PRIV/ADMIN_PRIV: a switch never confers them
+            FeNameFormat.checkRoleName(role, false /* admin not allowed */, "Invalid role in SU");
         }
 
         Auth auth = Env.getCurrentEnv().getAuth();
@@ -100,6 +112,10 @@ public class SuUserCommand extends Command implements NoForward {
                         + " -- SU can only narrow, never mint authority");
             }
         }
+        // PROXY_PRIV is a lesser privilege than ADMIN_PRIV: the switch may never move the switcher up
+        // the administrative ladder. A requested role that confers a global ADMIN_PRIV, NODE_PRIV or
+        // GRANT_PRIV is refused unless the switching account already holds that bit itself.
+        checkNoAdministrativeEscalation(ctx, auth.getGlobalPrivsOfRoles(roles));
 
         UserIdentity authenticated = ctx.getCurrentUserIdentity();
         ctx.setAuthenticatedIdentity(authenticated);
@@ -117,6 +133,22 @@ public class SuUserCommand extends Command implements NoForward {
         LOG.info("SU: connection {} narrowed. authenticated={} effective={} roles={} workloadGroup={}",
                 ctx.getConnectionId(), authenticated, userIdentity, roles,
                 Strings.isNullOrEmpty(workloadGroup) ? "<target default>" : workloadGroup);
+    }
+
+    private static void checkNoAdministrativeEscalation(ConnectContext ctx, PrivBitSet conferred)
+            throws AnalysisException {
+        refuseConferredPrivilege(ctx, conferred, Privilege.ADMIN_PRIV, PrivPredicate.ADMIN);
+        refuseConferredPrivilege(ctx, conferred, Privilege.NODE_PRIV, PrivPredicate.OPERATOR);
+        refuseConferredPrivilege(ctx, conferred, Privilege.GRANT_PRIV, PrivPredicate.GRANT);
+    }
+
+    private static void refuseConferredPrivilege(ConnectContext ctx, PrivBitSet conferred, Privilege privilege,
+            PrivPredicate heldBySwitcher) throws AnalysisException {
+        if (conferred.containsPrivs(privilege)
+                && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, heldBySwitcher)) {
+            throw new AnalysisException("SU roles confer global " + privilege + " which the switching account"
+                    + " does not hold -- SU can only narrow, never mint authority");
+        }
     }
 
     @Override

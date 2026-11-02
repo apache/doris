@@ -84,6 +84,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -371,6 +372,27 @@ public class Auth implements Writable {
             }
         }
         return roles;
+    }
+
+    /**
+     * The global privilege bits the named roles confer, union-ed; a name that is not a role
+     * contributes nothing. Used by the SU escalation check: a switch may not confer an
+     * administrative bit the switching account does not already hold.
+     */
+    public PrivBitSet getGlobalPrivsOfRoles(Collection<String> roleNames) {
+        readLock();
+        try {
+            PrivBitSet conferred = PrivBitSet.of();
+            for (String roleName : roleNames) {
+                Role role = roleManager.getRole(roleName);
+                if (role != null) {
+                    role.getGlobalPrivTable().getPrivs(conferred);
+                }
+            }
+            return conferred;
+        } finally {
+            readUnlock();
+        }
     }
 
     /**

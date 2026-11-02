@@ -90,6 +90,16 @@ suite("test_su_session_narrowing", "p0,auth") {
                 sql """SU '${person}'@'%' WITH ROLES ('${otherRole}')"""
                 exception "not granted"
             }
+            // PROXY_PRIV is a lesser privilege than ADMIN_PRIV: the built-in accounts are never a
+            // target and the built-in administrative roles are never requested
+            test {
+                sql """SU 'admin'@'%' WITH ROLES ('admin')"""
+                exception "forbidden"
+            }
+            test {
+                sql """SU '${person}'@'%' WITH ROLES ('operator')"""
+                exception "Invalid role"
+            }
         }
 
         connect(svc, pwd, context.config.jdbcUrl) {
@@ -128,6 +138,17 @@ suite("test_su_session_narrowing", "p0,auth") {
             test {
                 sql """SU '${svc}'@'%' WITH ROLES ('${tenantRole}')"""
                 exception "already-switched"
+            }
+
+            // the switcher is not the person: the "self" exemptions of SET PASSWORD and SET PROPERTY
+            // are closed under the switch
+            test {
+                sql """SET PASSWORD = PASSWORD('${pwd}')"""
+                exception "denied"
+            }
+            test {
+                sql """SET PROPERTY 'default_init_catalog' = 'internal'"""
+                exception "denied"
             }
         }
 
