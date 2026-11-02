@@ -320,6 +320,37 @@ public class PushDownProjectTest implements MemoPatternMatchSupported {
                 new ElementAt(innerSlot, Literal.of(1)),
                 ImmutableList.of(innerRef)));
         Assertions.assertFalse(PushDownProject.hasFreeLambdaArgument(independentInnerArrayMap));
+
+        // 7. Deeply nested lambda chain with scoped binding add/remove:
+        //    - closed chain has no free lambda arguments;
+        //    - sub-chain whose leaf still references outer 'p' has a free lambda argument until wrapped by outer 'p'.
+        Expression nestedClosedChain = new ElementAt(innerSlot, Literal.of(1));
+        Expression nestedCapturingChain = new Add(
+                freeElementAt, new ElementAt(innerSlot, Literal.of(1)));
+        for (int depth = 0; depth < 32; depth++) {
+            ArrayItemReference levelRef = new ArrayItemReference(
+                    new ExprId(100 + depth), "v" + depth, otherArrSlot);
+            Expression levelElem = new ElementAt(levelRef.toSlot(), Literal.of(1));
+            nestedClosedChain = new ElementAt(
+                    new ArrayMap(new Lambda(
+                            ImmutableList.of("v" + depth),
+                            new Add(levelElem, nestedClosedChain),
+                            ImmutableList.of(levelRef))),
+                    Literal.of(1));
+            nestedCapturingChain = new ElementAt(
+                    new ArrayMap(new Lambda(
+                            ImmutableList.of("v" + depth),
+                            new Add(levelElem, nestedCapturingChain),
+                            ImmutableList.of(levelRef))),
+                    Literal.of(1));
+        }
+        Assertions.assertFalse(PushDownProject.hasFreeLambdaArgument(
+                new ArrayMap(new Lambda(ImmutableList.of("x"), nestedClosedChain, ImmutableList.of(innerRef)))));
+        ArrayMap wrappedButMissingOuterP = new ArrayMap(
+                new Lambda(ImmutableList.of("x"), nestedCapturingChain, ImmutableList.of(innerRef)));
+        Assertions.assertTrue(PushDownProject.hasFreeLambdaArgument(wrappedButMissingOuterP));
+        Assertions.assertFalse(PushDownProject.hasFreeLambdaArgument(
+                new ArrayMap(new Lambda(ImmutableList.of("p"), wrappedButMissingOuterP, ImmutableList.of(outerRef)))));
     }
 
     @Test

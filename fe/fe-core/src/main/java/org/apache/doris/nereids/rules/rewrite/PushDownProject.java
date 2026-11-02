@@ -51,6 +51,7 @@ import com.google.common.collect.Multimap;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -168,11 +169,14 @@ public class PushDownProject implements RewriteRuleFactory, NormalizeToSlot {
         List<Expression> newExpressions = new ArrayList<>();
         for (Expression expression : expressions) {
             Expression newExpression = expression.rewriteDownShortCircuit(e -> {
-                if (e instanceof PreferPushDownProject && !hasFreeLambdaArgument(e)) {
+                if (e instanceof PreferPushDownProject) {
                     List<Plan> children = plan.children();
                     for (int i = 0; i < children.size(); i++) {
                         Plan child = children.get(i);
                         if (child.getOutputSet().containsAll(e.getInputSlots())) {
+                            if (hasFreeLambdaArgument(e)) {
+                                break;
+                            }
                             Alias alias = new Alias(context.getNextExprId(), e);
                             Slot slot = alias.toSlot();
                             List<NamedExpression> namedExpressions
@@ -355,7 +359,10 @@ public class PushDownProject implements RewriteRuleFactory, NormalizeToSlot {
      */
     @VisibleForTesting
     static boolean hasFreeLambdaArgument(Expression expression) {
-        return hasFreeLambdaArgument(expression, ImmutableSet.of());
+        if (!expression.containsType(ArrayItemSlot.class)) {
+            return false;
+        }
+        return hasFreeLambdaArgument(expression, new HashSet<>());
     }
 
     private static boolean hasFreeLambdaArgument(Expression expression, Set<ExprId> boundLambdaArgs) {
@@ -369,17 +376,26 @@ public class PushDownProject implements RewriteRuleFactory, NormalizeToSlot {
             Lambda lambda = (Lambda) expression;
             // The array expression iterated by each lambda argument is evaluated in the outer scope,
             // before this lambda's own parameters are bound.
-            for (ArrayItemReference arg : lambda.getLambdaArguments()) {
+            List<ArrayItemReference> lambdaArgs = lambda.getLambdaArguments();
+            for (ArrayItemReference arg : lambdaArgs) {
                 if (hasFreeLambdaArgument(arg.getArrayExpression(), boundLambdaArgs)) {
                     return true;
                 }
             }
-            ImmutableSet.Builder<ExprId> nextBoundArgs = ImmutableSet.<ExprId>builder()
-                    .addAll(boundLambdaArgs);
-            for (ArrayItemReference arg : lambda.getLambdaArguments()) {
-                nextBoundArgs.add(arg.getExprId());
+            List<ExprId> newlyBoundArgs = new ArrayList<>(lambdaArgs.size());
+            for (ArrayItemReference arg : lambdaArgs) {
+                ExprId exprId = arg.getExprId();
+                if (boundLambdaArgs.add(exprId)) {
+                    newlyBoundArgs.add(exprId);
+                }
             }
-            return hasFreeLambdaArgument(lambda.getLambdaFunction(), nextBoundArgs.build());
+            try {
+                return hasFreeLambdaArgument(lambda.getLambdaFunction(), boundLambdaArgs);
+            } finally {
+                for (ExprId exprId : newlyBoundArgs) {
+                    boundLambdaArgs.remove(exprId);
+                }
+            }
         }
         for (Expression child : expression.children()) {
             if (hasFreeLambdaArgument(child, boundLambdaArgs)) {
@@ -438,11 +454,14 @@ public class PushDownProject implements RewriteRuleFactory, NormalizeToSlot {
             }
 
             Expression newExpression = expression.rewriteDownShortCircuit(e -> {
-                if (e instanceof PreferPushDownProject && !hasFreeLambdaArgument(e)) {
+                if (e instanceof PreferPushDownProject) {
                     List<Plan> children = plan.children();
                     for (int i = 0; i < children.size(); i++) {
                         Plan child = children.get(i);
                         if (child.getOutputSet().containsAll(e.getInputSlots())) {
+                            if (hasFreeLambdaArgument(e)) {
+                                break;
+                            }
                             Alias alias = new Alias(statementContext.getNextExprId(), e);
                             Slot slot = alias.toSlot();
                             childToPushDownProjects.put(child, alias);
