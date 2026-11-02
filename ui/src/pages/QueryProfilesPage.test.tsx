@@ -110,6 +110,26 @@ describe('Query Profiles page', () => {
     expect(screen.getByText('2 of 2')).toBeInTheDocument();
   });
 
+  it('selects original profile text after Unicode case expansion and wraps search navigation', async () => {
+    const profile = "SQL: SELECT 'İ';\nExecTime: 1ms\nExecTime: 2ms\n";
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(json({ code: 0, msg: 'success', data: profile }));
+    renderPage('/query-profiles/profile-unicode');
+    const viewer = await screen.findByLabelText('Query Profile text');
+    if (!(viewer instanceof HTMLTextAreaElement)) throw new Error('Expected the Profile text viewer to be a textarea.');
+    fireEvent.change(screen.getByLabelText('Search profile text'), { target: { value: ' exectime ' } });
+
+    for (const offset of [profile.indexOf('ExecTime'), profile.lastIndexOf('ExecTime'), profile.indexOf('ExecTime')]) {
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+      await waitFor(() => expect(viewer.selectionStart).toBe(offset));
+      expect(profile.slice(viewer.selectionStart, viewer.selectionEnd)).toBe('ExecTime');
+    }
+    expect(screen.getByText('1 of 2')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Previous' }));
+    await waitFor(() => expect(viewer.selectionStart).toBe(profile.lastIndexOf('ExecTime')));
+    expect(profile.slice(viewer.selectionStart, viewer.selectionEnd)).toBe('ExecTime');
+    expect(screen.getByText('2 of 2')).toBeInTheDocument();
+  });
+
   it('finds non-overlapping matches case-insensitively', () => {
     expect(findProfileMatches('ExecTime EXECTIME exec', 'exectime')).toEqual([0, 9]);
     expect(findProfileMatches('anything', '  ')).toEqual([]);
