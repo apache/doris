@@ -19,12 +19,12 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <optional>
 #include <string>
 #include <variant>
 
 #include "common/status.h"
 #include "cpp/aws_common.h"
+#include "cpp/obj-client/auth/azure/azure_auth.h"
 #include "cpp/obj-client/auth/obj_credential.h"
 #include "cpp/obj-client/obj_storage_client.h"
 
@@ -93,38 +93,8 @@ struct S3ClientConfig {
     bool operator==(const S3ClientConfig&) const = default;
 };
 
-struct AzureSharedKeyConfig {
-    std::string account_key;
-
-    bool operator==(const AzureSharedKeyConfig&) const = default;
-};
-
-struct AzureSasConfig {
-    // SAS query string without the leading '?'.
-    std::string token;
-    // Expiry given by the upstream credential source, in Unix milliseconds, when known. The
-    // expiry encoded in the token ("se") is checked as well; the earlier one applies.
-    std::optional<int64_t> expires_at_ms;
-
-    bool operator==(const AzureSasConfig&) const = default;
-};
-
-// Entra ID client credentials flow. The SDK credential requests and refreshes the access
-// token itself, from authority_host.
-struct AzureClientSecretConfig {
-    std::string tenant_id;
-    std::string client_id;
-    std::string client_secret;
-    // Empty means the SDK default authority (Azure public cloud).
-    std::string authority_host;
-
-    bool operator==(const AzureClientSecretConfig&) const = default;
-};
-
-// One alternative per Azure authentication method, so a SharedKey key and a SAS token can
-// never be carried together.
-using AzureAuthConfig = std::variant<AzureSharedKeyConfig, AzureSasConfig, AzureClientSecretConfig>;
-
+// The authentication is the AzureAuthConfig shared with Recycler (common/cpp,
+// azure/azure_auth.h), which owns its methods and their rules; BE only adds the storage target.
 struct AzureClientConfig {
     std::string endpoint;
     // Required by SharedKey, which signs requests with the account name; may be empty for

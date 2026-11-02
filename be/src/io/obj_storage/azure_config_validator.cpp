@@ -35,34 +35,18 @@ Status require_azure_field(bool present, const char* field) {
     return Status::OK();
 }
 
-Status validate_azure_auth_fields(const AzureClientConfig& config,
-                                  const AzureSharedKeyConfig& shared_key) {
-    RETURN_IF_ERROR(require_azure_field(!config.account.empty(), "account_name for SharedKey"));
-    return require_azure_field(!shared_key.account_key.empty(), "account_key for SharedKey");
-}
-
-Status validate_azure_auth_fields(const AzureClientConfig& /*config*/, const AzureSasConfig& sas) {
-    return require_azure_field(!sas.token.empty(), "token for SAS");
-}
-
-Status validate_azure_auth_fields(const AzureClientConfig& /*config*/,
-                                  const AzureClientSecretConfig& client_secret) {
-    RETURN_IF_ERROR(
-            require_azure_field(!client_secret.tenant_id.empty(), "tenant_id for client secret"));
-    RETURN_IF_ERROR(
-            require_azure_field(!client_secret.client_id.empty(), "client_id for client secret"));
-    return require_azure_field(!client_secret.client_secret.empty(),
-                               "client_secret for client secret");
-}
-
 } // namespace
 
 Status AzureConfigValidator::validate(const AzureClientConfig& config) {
     RETURN_IF_ERROR(require_azure_field(!config.endpoint.empty(), "endpoint"));
     RETURN_IF_ERROR(require_azure_field(!config.container.empty(), "container"));
-    RETURN_IF_ERROR(
-            std::visit([&](const auto& auth) { return validate_azure_auth_fields(config, auth); },
-                       config.auth));
+    // Typed input never asks for anonymous access, which an empty SharedKey pair means.
+    if (std::holds_alternative<AzureSharedKeyConfig>(config.auth)) {
+        RETURN_IF_ERROR(require_azure_field(!config.account.empty(), "account_name for SharedKey"));
+    }
+    if (auto error = validate_azure_auth(config.account, config.auth); error.has_value()) {
+        return Status::InvalidArgument<false>(*error);
+    }
 
     std::string_view host_account = ObjStorageUri::azure_account_of_endpoint(config.endpoint);
     if (!config.account.empty() && !host_account.empty() &&

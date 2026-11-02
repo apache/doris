@@ -196,7 +196,7 @@ protected:
                     .endpoint = config_->get_endpoint(),
                     .account = config_->get_access_key(),
                     .container = config_->get_bucket(),
-                    .auth = io::AzureSharedKeyConfig {.account_key = config_->get_secret_key()},
+                    .auth = AzureSharedKeyConfig {.account_key = config_->get_secret_key()},
             };
         } else if (config_->use_instance_profile()) {
             auto& auth = std::get<io::S3ClientConfig>(s3_conf.client.backend).auth;

@@ -23,9 +23,9 @@
 #include <string_view>
 #include <variant>
 
+#include "cpp/obj-client/auth/azure/azure_auth.h"
 #include "io/obj_storage/azure_config_codec.h"
 #include "io/obj_storage/azure_config_validator.h"
-#include "io/obj_storage/azure_credential_validator.h"
 #include "io/obj_storage/obj_storage_config.h"
 #include "io/obj_storage/obj_storage_config_resolver.h"
 #include "io/obj_storage/obj_storage_uri.h"
@@ -69,6 +69,15 @@ TAzureCredential client_secret_credential() {
     TAzureCredential credential;
     credential.__set_client_secret(secret);
     return credential;
+}
+
+AzureClientSecretConfig client_secret_config() {
+    return AzureClientSecretConfig {
+            .tenant_id = "tenant",
+            .client_id = "client",
+            .client_secret = "secret",
+            .authority_host = "",
+    };
 }
 
 AzureClientConfig make_azure(AzureAuthConfig auth) {
@@ -185,11 +194,12 @@ TEST(AzureConfigValidatorTest, AccountMustMatchStandardEndpoint) {
     EXPECT_TRUE(AzureConfigValidator::validate(custom).ok());
 }
 
-TEST(AzureCredentialValidatorTest, ParsesSasExpiryForms) {
+// The SAS expiry rules live in common (azure_auth.h) and are shared with Recycler.
+TEST(AzureAuthExpiryTest, ParsesSasExpiryForms) {
     auto parse = [](std::string_view token) {
-        auto result = AzureCredentialValidator::sas_expiry_ms(token);
-        EXPECT_TRUE(result.has_value()) << result.error();
-        return result.has_value() ? *result : std::optional<int64_t>(-1);
+        auto result = azure_sas_token_expiry(token);
+        EXPECT_FALSE(result.error.has_value()) << *result.error;
+        return result.error.has_value() ? std::optional<int64_t>(-1) : result.expires_at_ms;
     };
     EXPECT_EQ(parse("sv=2024&se=2026-10-15T08:30:00Z&sig=abc"), SAS_EXPIRY_MS);
     EXPECT_EQ(parse("se=2026-10-15T08%3A30%3A00Z"), SAS_EXPIRY_MS);
@@ -199,28 +209,52 @@ TEST(AzureCredentialValidatorTest, ParsesSasExpiryForms) {
     EXPECT_EQ(parse("se=1999-12-31T23:59:59Z"), 946684799000);
     EXPECT_FALSE(parse("sv=2024&sig=abc").has_value());
 
-    EXPECT_FALSE(
-            AzureCredentialValidator::sas_expiry_ms("se=2026-10-15&se=2026-10-16").has_value());
-    EXPECT_FALSE(AzureCredentialValidator::sas_expiry_ms("se=2026-13-01").has_value());
-    EXPECT_FALSE(AzureCredentialValidator::sas_expiry_ms("se=2026-10-15T08:30:00").has_value());
-    EXPECT_FALSE(AzureCredentialValidator::sas_expiry_ms("se=2026-10-15T08%3").has_value());
+    EXPECT_TRUE(azure_sas_token_expiry("se=2026-10-15&se=2026-10-16").error.has_value());
+    EXPECT_TRUE(azure_sas_token_expiry("se=2026-13-01").error.has_value());
+    EXPECT_TRUE(azure_sas_token_expiry("se=2026-10-15T08:30:00").error.has_value());
+    EXPECT_TRUE(azure_sas_token_expiry("se=2026-10-15T08%3").error.has_value());
 }
 
-TEST(AzureCredentialValidatorTest, RejectsExpiredSas) {
+TEST(AzureAuthExpiryTest, RejectsExpiredSas) {
     AzureSasConfig sas {.token = "se=2026-10-15T08:30:00Z&sig=abc", .expires_at_ms = std::nullopt};
-    EXPECT_TRUE(AzureCredentialValidator::validate(sas, SAS_EXPIRY_MS - 1).ok());
-    EXPECT_FALSE(AzureCredentialValidator::validate(sas, SAS_EXPIRY_MS).ok());
+    EXPECT_FALSE(validate_azure_auth_expiry(sas, SAS_EXPIRY_MS - 1).has_value());
+    EXPECT_TRUE(validate_azure_auth_expiry(sas, SAS_EXPIRY_MS).has_value());
 
     // The earlier of the upstream expiry and the token expiry applies.
     sas.expires_at_ms = SAS_EXPIRY_MS - 1000;
-    EXPECT_FALSE(AzureCredentialValidator::validate(sas, SAS_EXPIRY_MS - 1).ok());
+    EXPECT_TRUE(validate_azure_auth_expiry(sas, SAS_EXPIRY_MS - 1).has_value());
+    EXPECT_EQ(azure_auth_expiry(sas).expires_at_ms, SAS_EXPIRY_MS - 1000);
 
     // Without any known expiry there is nothing to reject locally.
     AzureSasConfig no_expiry {.token = "sig=abc", .expires_at_ms = std::nullopt};
-    EXPECT_TRUE(AzureCredentialValidator::validate(no_expiry, SAS_EXPIRY_MS).ok());
+    EXPECT_FALSE(validate_azure_auth_expiry(no_expiry, SAS_EXPIRY_MS).has_value());
 
-    EXPECT_TRUE(
-            AzureCredentialValidator::validate(AzureSharedKeyConfig {"key"}, SAS_EXPIRY_MS).ok());
+    // A malformed expiry is an error, not "never expires".
+    AzureSasConfig malformed {.token = "se=2026-13-01&sig=abc", .expires_at_ms = std::nullopt};
+    EXPECT_TRUE(validate_azure_auth_expiry(malformed, SAS_EXPIRY_MS - 1).has_value());
+
+    EXPECT_FALSE(
+            validate_azure_auth_expiry(AzureSharedKeyConfig {"key"}, SAS_EXPIRY_MS).has_value());
+    EXPECT_FALSE(azure_auth_expiry(client_secret_config()).expires_at_ms.has_value());
+}
+
+TEST(AzureAuthExpiryTest, RequiresFieldsOfEachMethod) {
+    EXPECT_FALSE(validate_azure_auth(
+                         "", AzureSasConfig {.token = "sig=abc", .expires_at_ms = std::nullopt})
+                         .has_value());
+    EXPECT_TRUE(validate_azure_auth("", AzureSasConfig {.token = "", .expires_at_ms = std::nullopt})
+                        .has_value());
+    EXPECT_FALSE(validate_azure_auth("", client_secret_config()).has_value());
+    auto no_tenant = client_secret_config();
+    no_tenant.tenant_id.clear();
+    EXPECT_TRUE(validate_azure_auth("", no_tenant).has_value());
+
+    // Names and the endpoint-info key never expose a token or a secret.
+    AzureAuthConfig sas = AzureSasConfig {.token = "sig=abc", .expires_at_ms = std::nullopt};
+    EXPECT_EQ(azure_auth_type_name(sas), "sas");
+    EXPECT_EQ(azure_auth_account_key(sas), "");
+    EXPECT_EQ(azure_auth_type_name(client_secret_config()), "client_secret");
+    EXPECT_EQ(azure_auth_account_key(client_secret_config()), "");
 }
 
 ObjStorageUri parse_location(const std::string& location) {

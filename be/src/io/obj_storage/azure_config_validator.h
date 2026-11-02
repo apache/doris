@@ -22,9 +22,11 @@
 
 namespace doris::io {
 
-// Structural rules of a decoded AzureClientConfig: required fields of the selected
-// authentication method, and the account name against a standard Azure endpoint. Rules that
-// depend on time live in AzureCredentialValidator.
+// Rules of an AzureClientConfig decoded from TAzureClientConfig: the storage target (endpoint,
+// container, the account name against a standard Azure endpoint), a SharedKey that is never
+// anonymous, and the required fields of the selected method, which are the rules shared with
+// Recycler (validate_azure_auth). The SAS expiry is checked by AzureClientProvider when a client
+// is requested (validate_azure_auth_expiry).
 class AzureConfigValidator {
 public:
     // Example: SharedKey with account "acct" and endpoint https://other.blob.core.windows.net
