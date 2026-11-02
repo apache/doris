@@ -20,10 +20,16 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
+#include <tuple>
+
+#include "core/data_type/data_type_date.h"
 #include "core/data_type/data_type_number.h"
+#include "exec/runtime_filter/utils.h"
 #include "exprs/bloom_filter_func.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/minmax_predicate.h"
+#include "exprs/vexpr.h"
+#include "exprs/vliteral.h"
 #include "testutil/column_helper.h"
 
 namespace doris {
@@ -325,6 +331,46 @@ TEST_F(RuntimeFilterWrapperTest, TestMinMaxAssign) {
     APPLY_FOR_PRIMITIVE_BASE_TYPE(TYPE_IPV6);
 #undef APPLY_FOR_PRIMITIVE_TYPE
 #undef APPLY_FOR_PRIMITIVE_BASE_TYPE
+}
+
+TEST_F(RuntimeFilterWrapperTest, TestDateMinMaxAssign) {
+    for (auto [column_type, min_value, max_value, expected_time_type] :
+         {std::tuple {TYPE_DATE, "2020-01-01", "2020-01-02", TimeType::TIME_DATE},
+          std::tuple {TYPE_DATETIME, "2020-01-01 01:02:03", "2020-01-02 04:05:06",
+                      TimeType::TIME_DATETIME}}) {
+        RuntimeFilterParams params {.filter_id = 0,
+                                    .filter_type = RuntimeFilterType::MINMAX_FILTER,
+                                    .column_return_type = column_type,
+                                    .null_aware = false};
+        auto wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
+        PMergeFilterRequest request;
+        request.set_filter_type(PFilterType::MINMAX_FILTER);
+        request.mutable_minmax_filter()->mutable_min_val()->set_stringval(min_value);
+        request.mutable_minmax_filter()->mutable_max_val()->set_stringval(max_value);
+        ASSERT_TRUE(wrapper->assign(request, nullptr).ok());
+
+        const auto* min_date =
+                static_cast<const VecDateTimeValue*>(wrapper->minmax_func()->get_min());
+        const auto* max_date =
+                static_cast<const VecDateTimeValue*>(wrapper->minmax_func()->get_max());
+        EXPECT_EQ(min_date->type(), expected_time_type);
+        EXPECT_EQ(max_date->type(), expected_time_type);
+        char min_buffer[30];
+        char max_buffer[30];
+        min_date->to_string(min_buffer);
+        max_date->to_string(max_buffer);
+        EXPECT_STREQ(min_buffer, min_value);
+        EXPECT_STREQ(max_buffer, max_value);
+
+        if (column_type == TYPE_DATE) {
+            VExprSPtr literal;
+            ASSERT_TRUE(create_literal(std::make_shared<DataTypeDate>(), min_date, literal).ok());
+            ASSERT_TRUE(literal->is_literal());
+            EXPECT_EQ(literal->data_type()->get_primitive_type(), TYPE_DATE);
+            const auto& literal_column = static_cast<const VLiteral&>(*literal).get_column_ptr();
+            EXPECT_EQ((*literal_column)[0].get_type(), TYPE_DATE);
+        }
+    }
 }
 
 TEST_F(RuntimeFilterWrapperTest, TestBloom) {

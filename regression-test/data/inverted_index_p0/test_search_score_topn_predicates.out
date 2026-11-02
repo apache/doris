@@ -2,6 +2,9 @@
 -- !single_search --
 1
 
+-- !single_search_without_common_pushdown --
+1
+
 -- !search_with_equal_predicate --
 3
 
@@ -32,6 +35,9 @@
 3
 
 -- !nested_search_with_other_predicate --
+7
+
+-- !nested_search_without_common_pushdown --
 7
 
 -- !not_search_with_other_search --

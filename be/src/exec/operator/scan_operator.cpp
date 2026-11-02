@@ -68,6 +68,14 @@ namespace doris {
         return;                              \
     }
 
+static bool contains_search_expr(const VExpr& expr) {
+    if (expr.node_type() == TExprNodeType::SEARCH_EXPR) {
+        return true;
+    }
+    return std::ranges::any_of(expr.children(),
+                               [](const auto& child) { return contains_search_expr(*child); });
+}
+
 template <typename Derived>
 bool ScanLocalState<Derived>::should_run_serial() const {
     return _parent->cast<typename Derived::Parent>()._should_run_serial;
@@ -321,7 +329,8 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
             RETURN_IF_ERROR(_normalize_predicate(conjunct.get(), conjunct->root(), new_root));
             if (new_root) {
                 conjunct->set_root(new_root);
-                if (_should_push_down_common_expr() &&
+                if ((_should_push_down_common_expr() ||
+                     (_storage_no_merge() && contains_search_expr(*conjunct->root()))) &&
                     VExpr::is_acting_on_a_slot(*(conjunct->root()))) {
                     _common_expr_ctxs_push_down.emplace_back(conjunct);
                     it = _conjuncts.erase(it);

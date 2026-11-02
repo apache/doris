@@ -67,6 +67,17 @@ suite("test_search_score_topn_predicates", "p0,nonConcurrent") {
         ORDER BY id
     """
 
+    qt_single_search_without_common_pushdown """
+        SELECT /*+ SET_VAR(enable_common_expr_pushdown=false, enable_common_expr_pushdown_for_inverted_index=false) */ id FROM (
+            SELECT id, score() AS s
+            FROM test_search_score_topn_predicates
+            WHERE search('title:apple')
+            ORDER BY s DESC
+            LIMIT 1
+        ) t
+        ORDER BY id
+    """
+
     qt_search_with_equal_predicate """
         SELECT id FROM (
             SELECT id, score() AS s
@@ -168,6 +179,17 @@ suite("test_search_score_topn_predicates", "p0,nonConcurrent") {
 
     qt_nested_search_with_other_predicate """
         SELECT id FROM (
+            SELECT id, score() AS s
+            FROM test_search_score_topn_predicates
+            WHERE (search('title:cherry') OR category MATCH 'special') AND status = 'keep'
+            ORDER BY s DESC
+            LIMIT 1
+        ) t
+        ORDER BY id
+    """
+
+    qt_nested_search_without_common_pushdown """
+        SELECT /*+ SET_VAR(enable_common_expr_pushdown=false, enable_common_expr_pushdown_for_inverted_index=false) */ id FROM (
             SELECT id, score() AS s
             FROM test_search_score_topn_predicates
             WHERE (search('title:cherry') OR category MATCH 'special') AND status = 'keep'
