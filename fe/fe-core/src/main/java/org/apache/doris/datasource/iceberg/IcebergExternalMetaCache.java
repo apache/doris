@@ -68,6 +68,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import javax.annotation.Nullable;
 
 /**
@@ -99,6 +100,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
     public static final String ENGINE = "iceberg";
     public static final String ENTRY_TABLE = "table";
     public static final String ENTRY_SNAPSHOT = "snapshot";
+    public static final String ENTRY_PARTITION = "partition";
     public static final String ENTRY_VIEW = "view";
     public static final String ENTRY_MANIFEST = "manifest";
     public static final String ENTRY_SCHEMA = "schema";
@@ -107,6 +109,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
     private final EntryHandle<NameMapping, IcebergTableCacheValue> tableEntry;
     private final EntryHandle<IcebergSnapshotEntryKey, IcebergSnapshotCacheValue> snapshotEntry;
     private final EntryHandle<NameMapping, View> viewEntry;
+    private final EntryHandle<IcebergSnapshotEntryKey, IcebergPartitionInfo> partitionEntry;
     private final EntryHandle<IcebergManifestEntryKey, ManifestCacheValue> manifestEntry;
     private final EntryHandle<IcebergSchemaCacheKey, SchemaCacheValue> schemaEntry;
 
@@ -131,6 +134,12 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                 IcebergSnapshotEntryKey.class, IcebergSnapshotCacheValue.class, defaultEntryCacheSpec(),
                 MetaCacheEntryInvalidation.forNameMapping(IcebergSnapshotEntryKey::getNameMapping))
                 .withSizeEstimator((key, value) -> value.prepareForCachePublication(key)));
+        partitionEntry = registerEntry(MetaCacheEntryDef.contextualOnly(ENTRY_PARTITION,
+                IcebergSnapshotEntryKey.class, IcebergPartitionInfo.class, defaultEntryCacheSpec(),
+                MetaCacheEntryInvalidation.forNameMapping(IcebergSnapshotEntryKey::getNameMapping))
+                .withSizeEstimator((key, value) -> IcebergCacheSizeEstimator.estimateSnapshotEntry(key,
+                        new IcebergSnapshotCacheValue(value,
+                                new IcebergSnapshot(key.getSnapshotId(), 0)))));
         viewEntry = registerEntry(MetaCacheEntryDef.of(ENTRY_VIEW, NameMapping.class, View.class, this::loadView,
                 defaultEntryCacheSpec(), MetaCacheEntryInvalidation.forNameMapping(nameMapping -> nameMapping)));
         manifestEntry = registerEntry(MetaCacheEntryDef.contextualOnly(ENTRY_MANIFEST, IcebergManifestEntryKey.class,
@@ -384,7 +393,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
     private IcebergSnapshotCacheValue getSnapshotCache(
             ExternalTable dorisTable, NameMapping nameMapping, IcebergTableCacheValue tableValue) {
         Table retainedTable = tableValue.getRetainedIcebergTable();
-        java.util.Optional<IcebergSnapshotEntryKey> optionalKey =
+        Optional<IcebergSnapshotEntryKey> optionalKey =
                 IcebergSnapshotEntryKey.tryCreate(nameMapping, retainedTable);
         if (IcebergUtils.useSessionCatalog(dorisTable) || !optionalKey.isPresent()) {
             boolean isolateForQueries = tableValue.isQueryIsolationPrepared();
@@ -990,6 +999,11 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         if (snapshots != null) {
             snapshots.invalidateIf(key -> key.getNameMapping().equals(nameMapping));
         }
+        MetaCacheEntry<IcebergSnapshotEntryKey, IcebergPartitionInfo> partitions =
+                partitionEntry.getIfInitialized(nameMapping.getCtlId());
+        if (partitions != null) {
+            partitions.invalidateIf(key -> key.getNameMapping().equals(nameMapping));
+        }
         MetaCacheEntry<IcebergSchemaCacheKey, SchemaCacheValue> schemas =
                 schemaEntry.getIfInitialized(nameMapping.getCtlId());
         if (schemas != null) {
@@ -1167,27 +1181,41 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         }
         try {
             IcebergSnapshot latestIcebergSnapshot = IcebergUtils.getLatestIcebergSnapshot(projectionTable);
-            IcebergPartitionInfo icebergPartitionInfo;
-            // The projection and its partition eligibility must be classified from the same
-            // retained table generation. The no-argument method performs another cache lookup,
-            // which can cross a concurrent refresh/reset boundary.
+            // Ordinary scans and SQL-cache versions need only this frozen metadata generation.
+            // Partition consumers load the separate, generation-keyed and budgeted view on demand.
+            IcebergPartitionInfo icebergPartitionInfo = IcebergPartitionInfo.empty();
             boolean validRelatedTable = IcebergUtils.isValidRelatedTable(projectionTable);
-            if (!validRelatedTable) {
-                icebergPartitionInfo = IcebergPartitionInfo.empty();
-            } else {
-                icebergPartitionInfo = IcebergUtils.loadPartitionInfo(dorisTable, projectionTable,
-                        latestIcebergSnapshot.getSnapshotId(), latestIcebergSnapshot.getSchemaId(), authenticator,
-                        enableMappingVarbinary, enableMappingTimestampTz);
-            }
             Optional<Map<Integer, List<String>>> nameMapping =
                     IcebergUtils.getNameMapping(projectionTable);
-            return isolateForQueries
+            IcebergSnapshotCacheValue value = isolateForQueries
                     ? new IcebergSnapshotCacheValue(
                             icebergPartitionInfo, latestIcebergSnapshot, nameMapping,
                             retainedTable, retainedCurrentSnapshotJson)
                     : new IcebergSnapshotCacheValue(
                             icebergPartitionInfo, latestIcebergSnapshot, nameMapping,
                             retainedTable);
+            if (validRelatedTable) {
+                NameMapping tableIdentity = dorisTable.getOrBuildNameMapping();
+                String displayName = dorisTable.getCatalog().getName() + "." + dorisTable.getDbName()
+                        + "." + dorisTable.getName();
+                Optional<IcebergSnapshotEntryKey> key = IcebergSnapshotEntryKey.tryCreate(tableIdentity, retainedTable);
+                MetaCacheEntry<IcebergSnapshotEntryKey, IcebergPartitionInfo> partitions =
+                        key.isPresent() ? partitionEntry.get(key.get().getNameMapping().getCtlId()) : null;
+                Supplier<IcebergPartitionInfo> loader = () -> {
+                    try {
+                        Table table = IcebergSnapshotCacheValue.createQueryScopedTable(
+                                retainedTable, retainedCurrentSnapshotJson);
+                        return IcebergUtils.loadPartitionInfo(tableIdentity, this, displayName, table,
+                                latestIcebergSnapshot.getSnapshotId(), latestIcebergSnapshot.getSchemaId(),
+                                authenticator, enableMappingVarbinary, enableMappingTimestampTz);
+                    } catch (AnalysisException e) {
+                        throw new RuntimeException(e.getMessage(), e);
+                    }
+                };
+                value.withPartitionInfoLoader(key.isPresent() && !IcebergUtils.useSessionCatalog(dorisTable)
+                        ? () -> partitions.get(key.get(), ignored -> loader.get()) : loader);
+            }
+            return value;
         } catch (AnalysisException e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
         } catch (UserException e) {

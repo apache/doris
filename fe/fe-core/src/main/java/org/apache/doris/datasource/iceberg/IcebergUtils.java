@@ -2320,6 +2320,17 @@ public class IcebergUtils {
     static IcebergPartitionInfo loadPartitionInfo(ExternalTable dorisTable, Table table, long snapshotId,
             long schemaId, ExecutionAuthenticator authenticator,
             boolean enableMappingVarbinary, boolean enableMappingTimestampTz) throws AnalysisException {
+        String displayName = dorisTable.getCatalog().getName() + "." + dorisTable.getDbName()
+                + "." + dorisTable.getName();
+        return loadPartitionInfo(dorisTable.getOrBuildNameMapping(), icebergExternalMetaCache(dorisTable),
+                displayName, table, snapshotId, schemaId, authenticator,
+                enableMappingVarbinary, enableMappingTimestampTz);
+    }
+
+    static IcebergPartitionInfo loadPartitionInfo(org.apache.doris.datasource.NameMapping nameMapping,
+            IcebergExternalMetaCache cache,
+            String displayName, Table table, long snapshotId, long schemaId, ExecutionAuthenticator authenticator,
+            boolean enableMappingVarbinary, boolean enableMappingTimestampTz) throws AnalysisException {
         if (snapshotId == IcebergUtils.UNKNOWN_SNAPSHOT_ID) {
             return IcebergPartitionInfo.empty();
         }
@@ -2327,8 +2338,8 @@ public class IcebergUtils {
         try {
             icebergPartitions = authenticator.execute(() -> loadIcebergPartition(table, snapshotId));
         } catch (Exception e) {
-            String errorMsg = String.format("Failed to get iceberg partition info, table: %s.%s.%s, snapshotId: %s",
-                    dorisTable.getCatalog().getName(), dorisTable.getDbName(), dorisTable.getName(), snapshotId);
+            String errorMsg = String.format("Failed to get iceberg partition info, table: %s, snapshotId: %s",
+                    displayName, snapshotId);
             LOG.warn(errorMsg, e);
             throw new AnalysisException(errorMsg, e);
         }
@@ -2336,8 +2347,8 @@ public class IcebergUtils {
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
         long retainedPayloadBytes = 0L;
 
-        List<Column> partitionColumns = icebergExternalMetaCache(dorisTable).getIcebergSchemaCacheValue(
-                dorisTable.getOrBuildNameMapping(), schemaId, table, authenticator,
+        List<Column> partitionColumns = cache.getIcebergSchemaCacheValue(
+                nameMapping, schemaId, table, authenticator,
                 enableMappingVarbinary, enableMappingTimestampTz).getPartitionColumns();
         for (IcebergPartition partition : icebergPartitions) {
             nameToPartition.put(partition.getPartitionName(), partition);

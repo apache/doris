@@ -789,6 +789,13 @@ public class IcebergExternalMetaCacheTest {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor);
         IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+        NameMapping tableIdentity = NameMapping.createForTest(1L, "db", "tbl");
+        IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
+        Mockito.when(dorisTable.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("ice");
+        Mockito.when(dorisTable.getDbName()).thenReturn("db");
+        Mockito.when(dorisTable.getName()).thenReturn("tbl");
+        Mockito.when(dorisTable.getOrBuildNameMapping()).thenReturn(tableIdentity);
         Table projectionTable = Mockito.mock(Table.class);
         Snapshot snapshot = Mockito.mock(Snapshot.class);
         Schema schema = Mockito.mock(Schema.class);
@@ -806,7 +813,7 @@ public class IcebergExternalMetaCacheTest {
         try (MockedStatic<IcebergUtils> icebergUtils = Mockito.mockStatic(
                 IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
             icebergUtils.when(() -> IcebergUtils.loadPartitionInfo(
-                            dorisTable, projectionTable, 11L, 3L, capturedAuthenticator, true, false))
+                            tableIdentity, cache, "ice.db.tbl", projectionTable, 11L, 3L, capturedAuthenticator, true, false))
                     .thenReturn(IcebergPartitionInfo.empty());
             icebergUtils.when(() -> IcebergUtils.getNameMapping(projectionTable))
                     .thenReturn(Optional.empty());
@@ -814,13 +821,67 @@ public class IcebergExternalMetaCacheTest {
                     .thenReturn(true);
             icebergUtils.clearInvocations();
 
-            loader.invoke(cache, dorisTable, projectionTable, projectionTable,
+            IcebergSnapshotCacheValue value = (IcebergSnapshotCacheValue) loader.invoke(
+                    cache, dorisTable, projectionTable, projectionTable,
                     null, false, capturedAuthenticator, true, false);
 
             icebergUtils.verify(() -> IcebergUtils.loadPartitionInfo(
-                    dorisTable, projectionTable, 11L, 3L, capturedAuthenticator, true, false));
+                    tableIdentity, cache, "ice.db.tbl", projectionTable, 11L, 3L, capturedAuthenticator, true, false), Mockito.never());
+            value.getPartitionInfo();
+            icebergUtils.verify(() -> IcebergUtils.loadPartitionInfo(
+                    tableIdentity, cache, "ice.db.tbl", projectionTable, 11L, 3L, capturedAuthenticator, true, false));
             icebergUtils.verify(() -> IcebergUtils.isValidRelatedTable(projectionTable));
             Mockito.verify(dorisTable, Mockito.never()).isValidRelatedTable();
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testPartitionViewLoadsOncePerPhysicalGenerationAndRefreshInvalidatesIt() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor);
+        cache.initCatalog(1L, Collections.emptyMap());
+        NameMapping identity = NameMapping.createForTest(1L, "db", "tbl");
+        IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+        IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
+        Mockito.when(dorisTable.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("ice");
+        Mockito.when(dorisTable.getDbName()).thenReturn("db");
+        Mockito.when(dorisTable.getName()).thenReturn("tbl");
+        Mockito.when(dorisTable.getOrBuildNameMapping()).thenReturn(identity);
+        Table first = tableWithMetadataLocation("/metadata/partition-v1.json");
+        Table second = tableWithMetadataLocation("/metadata/partition-v2.json");
+        ExecutionAuthenticator authenticator = new ExecutionAuthenticator() { };
+        java.util.concurrent.atomic.AtomicInteger loads = new java.util.concurrent.atomic.AtomicInteger();
+        Method loader = IcebergExternalMetaCache.class.getDeclaredMethod(
+                "loadSnapshotProjection", ExternalTable.class, Table.class, Table.class,
+                String.class, boolean.class, ExecutionAuthenticator.class, boolean.class, boolean.class);
+        loader.setAccessible(true);
+        try (MockedStatic<IcebergUtils> utils = Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            utils.when(() -> IcebergUtils.isValidRelatedTable(Mockito.any(Table.class))).thenReturn(true);
+            utils.when(() -> IcebergUtils.loadPartitionInfo(Mockito.eq(identity), Mockito.same(cache),
+                    Mockito.eq("ice.db.tbl"), Mockito.any(Table.class), Mockito.anyLong(), Mockito.anyLong(),
+                    Mockito.same(authenticator), Mockito.eq(false), Mockito.eq(false)))
+                    .thenAnswer(call -> {
+                        loads.incrementAndGet();
+                        return IcebergPartitionInfo.empty();
+                    });
+            IcebergSnapshotCacheValue one = (IcebergSnapshotCacheValue) loader.invoke(cache, dorisTable,
+                    first, first, null, false, authenticator, false, false);
+            IcebergSnapshotCacheValue same = (IcebergSnapshotCacheValue) loader.invoke(cache, dorisTable,
+                    first, first, null, false, authenticator, false, false);
+            Assert.assertEquals(0, loads.get());
+            Assert.assertSame(one.getPartitionInfo(), same.getPartitionInfo());
+            Assert.assertEquals(1, loads.get());
+            cache.invalidateTable(1L, "db", "tbl");
+            one.getPartitionInfo();
+            Assert.assertEquals(2, loads.get());
+            IcebergSnapshotCacheValue newer = (IcebergSnapshotCacheValue) loader.invoke(cache, dorisTable,
+                    second, second, null, false, authenticator, false, false);
+            newer.getPartitionInfo();
+            Assert.assertEquals(3, loads.get());
         } finally {
             cache.close();
             executor.shutdownNow();

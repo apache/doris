@@ -44,11 +44,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 import javax.annotation.Nullable;
 
 public class IcebergSnapshotCacheValue {
 
     private final IcebergPartitionInfo partitionInfo;
+    private Supplier<IcebergPartitionInfo> partitionInfoLoader;
     private final IcebergSnapshot snapshot;
     private final Optional<Map<Integer, List<String>>> nameMapping;
     private Optional<Table> icebergTable;
@@ -137,7 +139,16 @@ public class IcebergSnapshotCacheValue {
     }
 
     public IcebergPartitionInfo getPartitionInfo() {
+        return partitionInfoLoader == null ? partitionInfo : partitionInfoLoader.get();
+    }
+
+    IcebergPartitionInfo getRetainedPartitionInfo() {
         return partitionInfo;
+    }
+
+    IcebergSnapshotCacheValue withPartitionInfoLoader(Supplier<IcebergPartitionInfo> loader) {
+        this.partitionInfoLoader = loader;
+        return this;
     }
 
     public IcebergSnapshot getSnapshot() {
@@ -222,7 +233,7 @@ public class IcebergSnapshotCacheValue {
     }
 
     IcebergSnapshotCacheValue withoutRetainedTable() {
-        return new IcebergSnapshotCacheValue(partitionInfo, snapshot, nameMapping);
+        return new IcebergSnapshotCacheValue(getPartitionInfo(), snapshot, nameMapping);
     }
 
     public Optional<Table> getIcebergTable() {

@@ -44,6 +44,8 @@ import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.nereids.trees.plans.commands.info.SortFieldInfo;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.cache.SqlCacheVersion;
+import org.apache.doris.qe.cache.SqlCacheVersionProvider;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ExternalAnalysisTask;
@@ -56,9 +58,11 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.view.SQLViewRepresentation;
 import org.apache.iceberg.view.View;
 import org.apache.iceberg.view.ViewVersion;
@@ -71,7 +75,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTableIf, MTMVBaseTableIf, MvccTable {
+public class IcebergExternalTable extends ExternalTable
+        implements MTMVRelatedTableIf, MTMVBaseTableIf, MvccTable, SqlCacheVersionProvider {
 
     private boolean isValidRelatedTableCached = false;
     private boolean isValidRelatedTable = false;
@@ -82,6 +87,27 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     public IcebergExternalTable(long id, String name, String remoteName, IcebergExternalCatalog catalog,
             IcebergExternalDatabase db) {
         super(id, name, remoteName, catalog, db, TableType.ICEBERG_EXTERNAL_TABLE);
+    }
+
+    @Override
+    public Optional<SqlCacheVersion> getSqlCacheVersion(Optional<MvccSnapshot> snapshot) {
+        return IcebergUtils.withSnapshotCacheValue(snapshot, this, IcebergExternalTable::sqlCacheVersionOf);
+    }
+
+    static Optional<SqlCacheVersion> sqlCacheVersionOf(IcebergSnapshotCacheValue value) {
+        Optional<Table> table = value.getIcebergTable();
+        if (!table.isPresent() || !(table.get() instanceof HasTableOperations)) {
+            return Optional.empty();
+        }
+        TableMetadata metadata = ((HasTableOperations) table.get())
+                .operations().current();
+        if (metadata.uuid() == null || metadata.metadataFileLocation() == null) {
+            return Optional.empty();
+        }
+        IcebergSnapshot selected = value.getSnapshot();
+        String identity = metadata.uuid() + "|" + metadata.metadataFileLocation()
+                + "|" + selected.getSnapshotId() + "|" + selected.getSchemaId();
+        return Optional.of(new SqlCacheVersion(identity, metadata.lastUpdatedMillis()));
     }
 
     @Override

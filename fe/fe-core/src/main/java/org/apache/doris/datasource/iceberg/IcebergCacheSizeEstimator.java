@@ -169,7 +169,7 @@ final class IcebergCacheSizeEstimator {
         bytes = MetaCacheWeightUtils.saturatedAdd(bytes,
                 MetaCacheWeightUtils.estimatedStringBytes(key.getMetadataFileLocation()));
 
-        IcebergPartitionInfo partitionInfo = value.getPartitionInfo();
+        IcebergPartitionInfo partitionInfo = value.getRetainedPartitionInfo();
         bytes = addCount(bytes, partitionInfo.getNameToPartitionItem().size(), PARTITION_WEIGHT);
         bytes = addCount(bytes, partitionInfo.getNameToIcebergPartition().size(), PARTITION_WEIGHT);
         bytes = addCount(bytes, partitionInfo.getNameToIcebergPartitionNames().size(),
