@@ -23,11 +23,15 @@ import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.blockrule.SqlBlockRule;
+import org.apache.doris.blockrule.SqlBlockRuleMgr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -65,6 +69,7 @@ import org.apache.doris.datasource.iceberg.cache.IcebergManifestCacheLoader;
 import org.apache.doris.datasource.iceberg.cache.ManifestCacheValue;
 import org.apache.doris.datasource.iceberg.helper.IcebergWriterHelper;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -103,6 +108,7 @@ import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.MetadataTableType;
@@ -123,6 +129,7 @@ import org.apache.iceberg.TableScan;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.hadoop.HadoopTables;
 import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.ScanTaskUtil;
 import org.apache.thrift.TDeserializer;
@@ -168,6 +175,76 @@ public class IcebergScanNodeTest {
 
     @Rule
     public final TemporaryFolder temporaryFolder = new TemporaryFolder();
+
+    @Test
+    public void testExplainRequiresExactFilePlanning() throws Exception {
+        assertBatchPlanningAllowed(true, false, 0, 0, true, false);
+    }
+
+    @Test
+    public void testSqlScanLimitsRequireExactFilePlanning() throws Exception {
+        assertBatchPlanningAllowed(false, false, 1, 0, true, false);
+        assertBatchPlanningAllowed(false, false, 0, 1, true, false);
+        assertBatchPlanningAllowed(false, true, 1, 0, true, false);
+        assertBatchPlanningAllowed(false, true, 0, 1, true, false);
+    }
+
+    @Test
+    public void testUnrestrictedQueriesKeepBatchPlanning() throws Exception {
+        assertBatchPlanningAllowed(false, false, 0, 0, true, true);
+        assertBatchPlanningAllowed(false, false, 1, 1, false, true);
+    }
+
+    private void assertBatchPlanningAllowed(boolean explain, boolean global, long partitions, long splits,
+            boolean enabled, boolean expected) throws Exception {
+        SessionVariable variables = new SessionVariable();
+        variables.enableExternalTableBatchMode = true;
+        variables.numFilesInBatchMode = 1;
+        TestIcebergScanNode node = new TestIcebergScanNode(variables);
+        Table table = Mockito.mock(Table.class);
+        FileIO io = Mockito.mock(FileIO.class);
+        TableScan scan = Mockito.mock(TableScan.class);
+        Snapshot snapshot = Mockito.mock(Snapshot.class);
+        ManifestFile manifest = Mockito.mock(ManifestFile.class);
+        Mockito.when(table.io()).thenReturn(io);
+        Mockito.when(table.specs()).thenReturn(Collections.singletonMap(0, PartitionSpec.unpartitioned()));
+        Mockito.when(scan.table()).thenReturn(table);
+        Mockito.when(scan.schema()).thenReturn(PartitionSpec.unpartitioned().schema());
+        Mockito.when(scan.snapshot()).thenReturn(snapshot);
+        Mockito.when(scan.filter()).thenReturn(Expressions.alwaysTrue());
+        Mockito.when(snapshot.schemaId()).thenReturn(0);
+        Mockito.when(snapshot.dataManifests(io)).thenReturn(Collections.singletonList(manifest));
+        Mockito.when(manifest.partitionSpecId()).thenReturn(0);
+        Mockito.when(manifest.hasAddedFiles()).thenReturn(true);
+        Mockito.when(manifest.addedFilesCount()).thenReturn(2);
+        Mockito.when(manifest.existingFilesCount()).thenReturn(0);
+        node.setTableScan(scan);
+        setIcebergTable(node, table);
+        setPreExecutionAuthenticator(node, new ExecutionAuthenticator() {});
+
+        ConnectContext context = new ConnectContext();
+        context.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("batch_rule_user", "%"));
+        StatementContext statementContext = new StatementContext();
+        StatementBase statement = Mockito.mock(StatementBase.class);
+        Mockito.when(statement.isExplain()).thenReturn(explain);
+        statementContext.setParsedStatement(statement);
+        context.setStatementContext(statementContext);
+        context.setThreadLocalInfo();
+        Env env = Mockito.mock(Env.class);
+        Auth auth = Mockito.mock(Auth.class);
+        SqlBlockRuleMgr rules = new SqlBlockRuleMgr();
+        rules.getNameToSqlBlockRuleMap().put("scan_limit", new SqlBlockRule(
+                "scan_limit", "NULL", "NULL", partitions, splits, 0L, false, global, enabled));
+        Mockito.when(env.getAuth()).thenReturn(auth);
+        Mockito.when(env.getSqlBlockRuleMgr()).thenReturn(rules);
+        Mockito.when(auth.getSqlBlockRules("batch_rule_user")).thenReturn(new String[] {"scan_limit"});
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assert.assertEquals(expected, node.isRealBatchMode());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
 
     @Test
     public void testDoesNotUseHiveParquetInt96TimeZone() {

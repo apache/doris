@@ -296,6 +296,9 @@ public class HiveScanNode extends FileQueryScanNode {
 
     @Override
     public boolean isBatchMode() {
+        if (!isBatchModeEnabled()) {
+            return false;
+        }
         if (!partitionInit) {
             try {
                 prunedPartitions = getPartitions();

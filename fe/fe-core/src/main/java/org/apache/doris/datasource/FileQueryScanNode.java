@@ -18,6 +18,7 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
@@ -118,6 +119,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
     protected TableScanParams scanParams;
     private Optional<MvccSnapshot> relationSnapshot = Optional.empty();
     private boolean relationSnapshotInitialized = false;
+    private Boolean batchModeEnabled;
 
     protected FileSplitter fileSplitter;
     protected SummaryProfile summaryProfile;
@@ -147,6 +149,24 @@ public abstract class FileQueryScanNode extends FileScanNode {
         StatementContext statementContext = context == null ? null : context.getStatementContext();
         this.externalScanTaskCache = statementContext == null
                 ? null : statementContext.getExternalScanTaskCache();
+    }
+
+    /** Freeze the planning mode before asynchronous split conversion loses the query thread context. */
+    protected boolean isBatchModeEnabled() {
+        if (batchModeEnabled == null) {
+            batchModeEnabled = sessionVariable.getEnableExternalTableBatchMode();
+            ConnectContext context = ConnectContext.get();
+            if (batchModeEnabled && context != null) {
+                StatementContext statementContext = context.getStatementContext();
+                StatementBase statement = statementContext == null ? null : statementContext.getParsedStatement();
+                // EXPLAIN needs the full file/delete details. Scan-count rules run before execution
+                // and must not compare their limits with the batch path's sample/approximate counts.
+                batchModeEnabled = (statement == null || !statement.isExplain())
+                        && !Env.getCurrentEnv().getSqlBlockRuleMgr()
+                                .hasScanCountLimitations(context.getQualifiedUser());
+            }
+        }
+        return batchModeEnabled;
     }
 
     /** Whether statement-scoped scan-task reuse is active for this node. */

@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.hive.source;
 
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
@@ -59,6 +60,29 @@ import java.util.concurrent.ThreadPoolExecutor;
 
 public class HiveScanNodeTest {
     private static final long MB = 1024L * 1024L;
+
+    @Test
+    public void testExplainUsesExactFilePlanning() throws Exception {
+        HiveScanNode node = createHiveScanNode();
+        Field initialized = HiveScanNode.class.getDeclaredField("partitionInit");
+        initialized.setAccessible(true);
+        initialized.set(node, true);
+        Field partitions = HiveScanNode.class.getDeclaredField("prunedPartitions");
+        partitions.setAccessible(true);
+        partitions.set(node, Collections.singletonList(Mockito.mock(HivePartition.class)));
+        ConnectContext context = new ConnectContext();
+        StatementContext statementContext = new StatementContext();
+        StatementBase statement = Mockito.mock(StatementBase.class);
+        Mockito.when(statement.isExplain()).thenReturn(true);
+        statementContext.setParsedStatement(statement);
+        context.setStatementContext(statementContext);
+        context.setThreadLocalInfo();
+        try {
+            Assert.assertFalse(node.isBatchMode());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
 
     @Test
     public void testStatementCacheReusesListingOnlyForSamePartitionIdentity() throws Exception {
