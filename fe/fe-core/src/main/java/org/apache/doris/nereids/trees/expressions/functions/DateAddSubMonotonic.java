@@ -17,12 +17,23 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.types.TimeStampTzType;
+import org.apache.doris.nereids.util.DateUtils;
 
 /** monotonicity for XX_ADD XX_SUB */
 public interface DateAddSubMonotonic extends Monotonic {
     @Override
     default boolean isMonotonic(Literal lower, Literal upper) {
+        // At a fall-back, 01:50-04 precedes 01:10-05, but adding one local day
+        // reverses their UTC order. Fixed-offset sessions retain the original guarantee.
+        if ((this instanceof DaysAdd || this instanceof DaysSub)
+                && child(0).getDataType() instanceof TimeStampTzType
+                && !DateUtils.getTimeZone().getRules().isFixedOffset()) {
+            return false;
+        }
         return MonotonicityUtils.hasConstantOtherArguments(this, 0);
     }
 
