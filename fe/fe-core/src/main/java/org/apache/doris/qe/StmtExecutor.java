@@ -1920,6 +1920,15 @@ public class StmtExecutor {
 
             if (!context.isReturnResultFromLocal()) {
                 profile.getSummaryProfile().setTempStartTime();
+                if (coordBase == coord) {
+                    // A BE whose DoGet stream the client aborts reports it through cancelFlightQuery;
+                    // keep the query's backends so that call can cancel the query on every one of
+                    // them after the coordinator below is closed.
+                    context.getFlightSqlChannel().registerRemoteQuery(coord.getQueryId(),
+                            context.getFlightSqlEndpointsLocations().stream()
+                                    .map(endpoint -> endpoint.getFinstId()).distinct().collect(Collectors.toList()),
+                            coord.getBackendBrpcAddresses(), coord.getQueryOptions().getExecutionTimeout());
+                }
                 // The client pulls the results from the BE later (Arrow Flight SQL's DoGet). Only a
                 // scan the BE keeps depending on the FE for still needs the coordinator after this
                 // point: an external-table scan in batch mode fetches its splits lazily from the

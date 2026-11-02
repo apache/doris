@@ -30,6 +30,7 @@
 #include "format/arrow/arrow_row_batch.h"
 #include "format/arrow/arrow_utils.h"
 #include "runtime/exec_env.h"
+#include "runtime/frontend_info.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/runtime_profile.h"
@@ -37,6 +38,7 @@
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"
 #include "util/brpc_closure.h"
+#include "util/client_cache.h"
 
 namespace doris::flight {
 
@@ -102,6 +104,37 @@ void ArrowFlightBatchReaderBase::close(const Status& reason) {
     if (_statement->result_addr.hostname == BackendOptions::get_localhost() &&
         _statement->result_addr.port == config::brpc_port) {
         env->result_mgr()->cancel_arrow_flight_query(_statement->query_id, reason);
+    }
+    // A result endpoint can outlive its local fragment. Find the owning FE by buffer ID,
+    // then use its query-wide cancellation route, including for older result BEs.
+    for (const auto& [address, info] : env->get_running_frontends()) {
+        Status status;
+        // One retry: the FE keeps the route when an attempt fails (for example a BE missed the
+        // FE's one-second deadline), and a cached connection to the FE may have gone stale.
+        for (int attempt = 0; attempt < 2; ++attempt) {
+            FrontendServiceConnection client(env->frontend_client_cache(), address, 2000, &status);
+            if (status.ok()) {
+                try {
+                    TStatus result;
+                    client->cancelFlightQuery(result, _statement->query_id);
+                    status = Status::create(result);
+                    if (status.ok()) {
+                        return;
+                    }
+                    if (result.status_code == TStatusCode::NOT_FOUND) {
+                        // Only the FE that planned the query holds its route. With two FEs, the
+                        // other one answers NOT_FOUND, so move on to the next FE.
+                        break;
+                    }
+                } catch (const apache::thrift::TException& e) {
+                    status = Status::RpcError("Flight cancellation failed: {}", e.what());
+                    // Discard a transport that may contain an incomplete response.
+                    static_cast<void>(client.reopen(1000));
+                }
+            }
+            LOG(WARNING) << "Failed to cancel Flight result " << print_id(_statement->query_id)
+                         << " through FE " << address << ": " << status;
+        }
     }
 }
 
