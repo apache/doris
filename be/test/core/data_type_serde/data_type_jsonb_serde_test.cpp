@@ -40,6 +40,7 @@
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/string_buffer.hpp"
 #include "core/types.h"
 #include "storage/olap_common.h"
 #include "testutil/test_util.h"
@@ -318,6 +319,26 @@ TEST_F(DataTypeJsonbSerDeTest, FixedSizeBinaryReadColumnFromArrowWithNonZeroStar
         ASSERT_TRUE(st.ok());
         buffer_writer.commit();
         EXPECT_EQ(serialized_column->get_data_at(0).to_string(), values[i + 1]);
+    }
+}
+
+TEST(DataTypeJsonbNestedSerDeTest, JsonValuesKeepTheirOwnQuotesAtEveryNestingLevel) {
+    const std::array<std::string, 6> values {R"({"a":1})", R"("x\"y")", "null",
+                                             "[]",         "123.125",   "true"};
+    DataTypeSerDe::FormatOptions options;
+    for (int level : {1, 2, 3}) {
+        DataTypeJsonbSerDe serde(level);
+        for (const auto& text : values) {
+            auto column = ColumnString::create();
+            Slice slice(text.data(), text.size());
+            const auto status = serde.deserialize_one_cell_from_json(*column, slice, options);
+            ASSERT_TRUE(status.ok()) << status;
+            auto output = ColumnString::create();
+            BufferWritable writer(*output);
+            serde.to_string(*column, 0, writer, options);
+            writer.commit();
+            EXPECT_EQ(output->get_data_at(0).to_string(), text) << "nesting level " << level;
+        }
     }
 }
 

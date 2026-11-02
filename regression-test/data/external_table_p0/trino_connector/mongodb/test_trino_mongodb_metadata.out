@@ -6,9 +6,12 @@ mysql
 
 -- !tables --
 _schema_alternate
+empty_json_records
 empty_records
 inferred_records
+invalid_json_records
 invalid_schema
+json_records
 large_records
 mixed_values
 numeric_limits

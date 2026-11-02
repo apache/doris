@@ -75,12 +75,41 @@ schema("mixed_values", [["seq", "bigint"], ["value", "bigint"]]);
 const bulk = [];
 for (let i = 0; i < 2081; i++) {
     bulk.push({_id: oid(1000 + i), seq: NumberLong(String(i)), bucket: NumberLong(String(i % 7)),
-        owner: i % 7 === 0 ? null : special, payload: "row-" + i});
+        owner: i % 7 === 0 ? null : special, payload: "row-" + i,
+        json_payload: i % 7 === 0 ? null : {seq: i, text: "row-" + i, nested: {active: i % 2 === 0}}});
 }
 fixture.large_records.insertMany(bulk);
-schema("large_records", [["seq", "bigint"], ["bucket", "bigint"], ["owner", "ObjectId"], ["payload", "varchar"]]);
+schema("large_records", [["seq", "bigint"], ["bucket", "bigint"], ["owner", "ObjectId"],
+    ["payload", "varchar"], ["json_payload", "json"]]);
 fixture.invalid_schema.insertOne({_id: oid(401), payload: "unsupported"});
-schema("invalid_schema", [["payload", "json"]]);
+schema("invalid_schema", [["payload", "interval day to second"]]);
+
+fixture.json_records.insertMany([
+    {_id: oid(601), seq: NumberLong("1"),
+     payload: {city: "北京", n: NumberInt(7), active: true, items: [1, "two", null],
+         nested: {key: "value"}, empty_object: {}, empty_array: [], owner: oid(101)},
+     json_array: [{x: 1}, '"text"', "null", null, "[1,2]"],
+     json_row: {payload: {x: 9}}, json_map: {a: {x: 3}, b: "null", c: null}},
+    {_id: oid(602), seq: NumberLong("2"), payload: '[1,"two",null,{"ok":true}]',
+     json_array: [], json_row: null, json_map: {}},
+    {_id: oid(603), seq: NumberLong("3"), payload: JSON.stringify('中文-é"\\\n\u0000'),
+     json_array: null, json_row: {payload: null}, json_map: null},
+    {_id: oid(604), seq: NumberLong("4"), payload: "true"},
+    {_id: oid(605), seq: NumberLong("5"), payload: "-9223372036854775808"},
+    {_id: oid(606), seq: NumberLong("6"), payload: "123.125"},
+    {_id: oid(607), seq: NumberLong("7"), payload: "null"},
+    {_id: oid(608), seq: NumberLong("8"), payload: null},
+    {_id: oid(609), seq: NumberLong("9")},
+    {_id: oid(610), seq: NumberLong("10"), payload: {}},
+    {_id: oid(611), seq: NumberLong("11"), payload: "[]"},
+    {_id: oid(612), seq: NumberLong("12"), payload: [{x: 1}, {x: 2}]}
+]);
+schema("json_records", [["seq", "bigint"], ["payload", "json"], ["json_array", "array(json)"],
+    ["json_row", 'row("payload" json)'], ["json_map", "map(varchar,json)"]]);
+fixture.createCollection("empty_json_records");
+schema("empty_json_records", [["seq", "bigint"], ["payload", "json"], ["json_array", "array(json)"]]);
+fixture.invalid_json_records.insertOne({_id: oid(620), seq: NumberLong("1"), payload: "{"});
+schema("invalid_json_records", [["seq", "bigint"], ["payload", "json"]]);
 
 fixture.readonly_inferred_records.insertOne({_id: oid(501), seq: NumberLong("1")});
 db.getSiblingDB("admin").createUser({user: "mongodb_readonly", pwd: "mongodb_readonly",

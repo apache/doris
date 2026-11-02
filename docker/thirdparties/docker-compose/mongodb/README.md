@@ -32,7 +32,22 @@ bash run-regression-test.sh --run -d external_table_p0/trino_connector/mongodb
 | `test_trino_mongodb_types` | ObjectId and ordinary Binary, numerical/date/string values, unicode, null/missing fields, nullable nested rows, arrays, mixed numeric types and empty collections |
 | `test_trino_mongodb_queries` | Scalar filters, null logic, residual predicates with Limit, projections, sort/offset, aggregates, joins, subqueries, CTEs, unions, windows, array expansion, views, joins with internal tables and hexadecimal materialization |
 | `test_trino_mongodb_batches` | 2,081 documents across Mongo cursor and Trino page boundaries, exact byte conversion, aggregates and repeated early termination |
+| `test_trino_mongodb_json` | Native JSON values and functions, BSON documents, JSON null versus SQL NULL, nested JSON in arrays/maps/rows, multi-page reads, views and internal-table materialization |
 
 ObjectId maps to `VARBINARY(12)`, retaining the original bytes. Use `from_binary(_id)` for a deterministic hexadecimal string in filters, joins and grouping. Native scalar VARBINARY comparisons, grouping and join keys retain their existing Doris restrictions and are covered by negative tests. These suites do not claim arbitrary BSON-to-VARIANT support, CDC, writes, transactions, replica-set failover or parallel range splitting.
 
-Most collections have explicit `_schema` records; `inferred_records` intentionally exercises automatic initialization. The connector may write to `_schema` even for read queries. The invalid schema fixture intentionally declares an unsupported `json` column to verify error reporting. Metadata refreshes must account for both Doris and connector caches; refresh tests here re-read an unchanged schema and do not claim immediate invalidation of the connector cache after external changes.
+Most collections have explicit `_schema` records; `inferred_records` intentionally exercises automatic initialization. The connector may write to `_schema` even for read queries. The invalid schema fixture intentionally declares an unsupported interval column to verify error reporting. Metadata refreshes must account for both Doris and connector caches; refresh tests here re-read an unchanged schema and do not claim immediate invalidation of the connector cache after external changes.
+
+## JSON columns
+
+Fields explicitly declared as `json` in the connector's `_schema` collection map to native Doris `JSON`. This also applies to JSON fields inside Trino `array`, `map` and `row` types. JNI transfers the connector's UTF-8 JSON text and parses it into Doris JSONB; SQL NULL and the JSON value `null` remain distinct. Scalar JSON supports JSON functions and internal-table materialization. Nested JSON can be queried through the catalog; internal-table creation retains the engine's existing complex-type restrictions, including rejecting `ARRAY<JSON>`.
+
+For example, the fixture declares `json_records.payload` as `json`. Its BSON document is queryable with:
+
+```sql
+SELECT seq, json_extract_string(payload, '$.city')
+FROM mongodb_catalog.doris_mongodb_test.json_records
+WHERE json_extract_int(payload, '$.n') = 7;
+```
+
+Automatic schema inference still maps BSON documents to Trino `row` / Doris `STRUCT`. Use an explicit `json` declaration when a field should be read as a whole JSON value. BSON documents use the connector's Extended JSON representation, so embedded ObjectIds appear as `{"$oid":"..."}` objects. For BSON string values declared as `json`, their contents must be valid JSON text; malformed text fails the query. The JSON suite covers both real BSON documents and valid JSON text, plus a malformed-text negative case.

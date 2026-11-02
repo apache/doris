@@ -36,6 +36,7 @@ import io.trino.spi.type.TinyintType;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.VarbinaryType;
 import io.trino.spi.type.VarcharType;
+import io.trino.type.JsonType;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -74,6 +75,9 @@ public final class TrinoTypeMapping {
             return new ConnectorType("CHAR");
         } else if (type instanceof VarcharType) {
             return new ConnectorType("STRING");
+        } else if (type instanceof JsonType) {
+            // Keep JSON logical so JNI parses its UTF-8 carrier into Doris JSONB, including nested values.
+            return new ConnectorType("JSONB");
         } else if (type instanceof io.trino.spi.type.UuidType) {
             // Preserve the logical type instead of exposing its physical 16-byte storage.
             return ConnectorType.of("UUID");
