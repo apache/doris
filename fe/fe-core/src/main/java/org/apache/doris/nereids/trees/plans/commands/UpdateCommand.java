@@ -146,7 +146,8 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         Expression setExpr = null;
         for (Column column : targetTable.getFullSchema()) {
             // if it sets sequence column in stream load phase, the sequence map column is null, we query it.
-            if (!column.isVisible() && !column.isSequenceColumn()) {
+            if (!column.isVisible() && !column.isSequenceColumn()
+                    && !(column.isTtlColumn() && targetTable.isDirectRowTtl())) {
                 continue;
             }
             if (colNameToExpression.containsKey(column.getName())) {
@@ -179,7 +180,10 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
                     + String.join(", ", colNameToExpression.keySet()));
         }
 
+        // Read unchanged columns in the query for TTL tables; BE partial updates cannot rely
+        // on an expired row still being physically present after compaction.
         boolean isPartialUpdate = targetTable.getEnableUniqueKeyMergeOnWrite()
+                && !targetTable.hasRowTtl()
                 && selectItems.size() < targetTable.getColumns().size()
                 && targetTable.getSequenceCol() == null
                 && partialUpdateColNameToExpression.size() <= targetTable.getFullSchema().size() * 3 / 10

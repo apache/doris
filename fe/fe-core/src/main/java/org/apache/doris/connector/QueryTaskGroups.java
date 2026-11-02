@@ -98,6 +98,11 @@ final class QueryTaskGroups implements Closeable {
         }
 
         @Override
+        public void remove(Runnable task) {
+            delegate.remove(task);
+        }
+
+        @Override
         public void execute(Runnable task) {
             delegate.execute(task);
         }

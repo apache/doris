@@ -282,6 +282,16 @@ suite('test_clean_tablet_when_drop_force_table', 'docker') {
             }
         }
 
+        // Auto compaction is disabled, so nothing else syncs version 3 into the BE tablets.
+        // DROP only recycles the file cache of rowsets already loaded on the BE, so query
+        // here to load version 3 before collecting its cache dirs.
+        for (int i = 0; i < 5; i++) {
+            def rows = sql """
+                select count(*) from $tableName
+            """
+            assertEquals(160000L, rows[0][0] as long)
+        }
+
         // before drop table force
         def beforeGetFromFe = getTabletAndBeHostFromFe(tableName)
         def beforeGetFromBe = getTabletAndBeHostFromBe(cluster.getAllBackends())

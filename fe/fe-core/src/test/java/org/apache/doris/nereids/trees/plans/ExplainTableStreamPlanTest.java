@@ -840,18 +840,6 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
                 exception.getMessage());
     }
 
-    private Plan normalizeStreamRead(String sql, long referenceTso, Optional<IvmRewriteContext> ivmRewriteContext) {
-        PlanChecker checker = PlanChecker.from(connectContext).parse(sql);
-        StatementContext statementContext = checker.getCascadesContext().getStatementContext();
-        // Direct rewrite tests bypass the planner's statement reference initialization.
-        statementContext.getOrRegisterChangelogReferenceTso(() -> referenceTso);
-        checker.analyze();
-        // Installed after the analysis, whose IVM rules would rewrite the query as an MV's: only how the stream
-        // read treats its offset inside an IVM statement is under test.
-        statementContext.setIvmRewriteContext(ivmRewriteContext);
-        return checker.applyTopDown(new NormalizeOlapTableStreamScan()).getCascadesContext().getRewritePlan();
-    }
-
     @Test
     public void testChangelogTtlDisablesQueryCache() throws Exception {
         ConnectContext ctx = createDefaultCtx();

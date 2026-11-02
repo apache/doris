@@ -30,6 +30,8 @@ suite('constant_propagation') {
     multi_sql """
         SET enable_nereids_planner=true;
         SET enable_fallback_to_original_planner=false;
+        set enable_spill = false;
+        set enable_force_spill = false;
         SET disable_nereids_rules='PRUNE_EMPTY_PARTITION';
         SET detail_shape_nodes='PhysicalProject,PhysicalHashAggregate,PhysicalQuickSort';
         SET ignore_shape_nodes='PhysicalDistribute';

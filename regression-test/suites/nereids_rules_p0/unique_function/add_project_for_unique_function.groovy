@@ -21,6 +21,8 @@ suite('add_project_for_unique_function') {
     sql 'SET runtime_filter_mode=OFF'
     sql 'SET disable_join_reorder=true'
     sql 'SET enable_fallback_to_original_planner=false'
+    sql "set enable_spill = false"
+    sql "set enable_force_spill = false"
     sql "SET ignore_shape_nodes='PhysicalDistribute'"
     sql "SET detail_shape_nodes='PhysicalProject,PhysicalOneRowRelation,PhysicalUnion,PhysicalQuickSort,PhysicalHashAggregate'"
     sql 'SET disable_nereids_rules=PRUNE_EMPTY_PARTITION'

@@ -1,0 +1,1035 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "io/cache/partial_block_writeback_manager.h"
+
+#include <algorithm>
+#include <chrono>
+#include <cstring>
+#include <iterator>
+#include <optional>
+#include <utility>
+#include <vector>
+
+#include "common/logging.h"
+#include "cpp/sync_point.h"
+#include "io/cache/hole_fill_planner.h"
+#include "io/cache/inflight_write_buffer_index.h"
+#include "io/fs/read_ahead_metrics.h"
+#include "io/fs/read_io_trace.h"
+#include "util/countdown_latch.h"
+#include "util/defer_op.h"
+#include "util/thread.h"
+#include "util/threadpool.h"
+#include "util/time.h"
+
+namespace doris::io {
+namespace {
+
+using namespace std::chrono_literals;
+
+constexpr auto kCapacityRetryInterval = 10ms;
+constexpr size_t kMaxHoleFillWorkerCount = 128;
+
+} // namespace
+
+size_t PartialBlockWritebackManager::BlockKeyHash::operator()(const BlockKey& key) const {
+    const size_t manager_hash = std::hash<AsyncCacheWriteManager*> {}(key.write_manager);
+    const size_t file_hash = KeyHash {}(key.cache_hash);
+    const size_t offset_hash = std::hash<size_t> {}(key.block_offset);
+    return manager_hash ^ (file_hash << 1) ^ (offset_hash << 2);
+}
+
+// Per-call diagnostics only. Keep the request identity alive across moves into a Task and emit
+// once, after every manager/fragment lock has left scope. The disabled path reads no clocks.
+struct PartialBlockWritebackManager::SubmitTrace : HoleSubmitTiming {
+    explicit SubmitTrace(const PartialBlockWritebackRequest& request) {
+        if (ReadIOTrace::enabled()) {
+            start_ns = MonotonicNanos();
+            context = request.io_context;
+            reader = request.source_reader;
+            offset = request.block_offset + request.fragment_offset;
+            size = request.data.size;
+        }
+    }
+
+    ~SubmitTrace() {
+        if (start_ns != 0) {
+            ReadIOTrace::record({.event = "hole_submit",
+                                 .context = &context.io_context,
+                                 .file = reader->path().native(),
+                                 .id = task_id,
+                                 .parent_id = context.io_context.read_trace_id,
+                                 .offset = offset,
+                                 .size = size,
+                                 .time_ns = MonotonicNanos(),
+                                 .start_ns = start_ns,
+                                 .outcome = outcome,
+                                 .hole_submit_timing = this});
+        }
+    }
+
+    int64_t now() const { return start_ns != 0 ? MonotonicNanos() : 0; }
+
+    PartialBlockSubmitResult finish(PartialBlockSubmitResult result) {
+        switch (result) {
+        case PartialBlockSubmitResult::QUEUED:
+            outcome = "queued";
+            break;
+        case PartialBlockSubmitResult::MERGED:
+            outcome = "merged";
+            break;
+        case PartialBlockSubmitResult::ACTIVE_DEDUPLICATED:
+            outcome = "active_deduplicated";
+            break;
+        case PartialBlockSubmitResult::CACHE_BLOCK_PRESENT:
+            outcome = "cache_block_present";
+            break;
+        case PartialBlockSubmitResult::STALE_EPOCH:
+            outcome = "stale_epoch";
+            break;
+        case PartialBlockSubmitResult::BUFFER_ALLOCATION_FAILED:
+            outcome = "allocation_failed";
+            break;
+        case PartialBlockSubmitResult::REJECTED:
+            outcome = "rejected";
+            break;
+        }
+        return result;
+    }
+
+    int64_t start_ns {0};
+    FileRangeReadIOContext context;
+    FileReaderSPtr reader;
+    size_t offset {0};
+    size_t size {0};
+    uint64_t task_id {0};
+    std::string_view outcome;
+};
+
+// One record per locked scan, not per entry. No JSON formatting or trace-writer locking is done
+// under the queue mutex. CV sleep and its mutex reacquisition are excluded from scan time.
+struct PartialBlockWritebackManager::QueueScanTrace : HoleQueueScanStats {
+    int64_t start_ns {0};
+    int64_t end_ns {0};
+
+    void record(bool activated) const {
+        if (start_ns != 0) {
+            ReadIOTrace::record({.event = "hole_queue_scan",
+                                 .time_ns = end_ns,
+                                 .start_ns = start_ns,
+                                 .outcome = activated ? "activated" : "no_runnable_task",
+                                 .queue_scan = this});
+        }
+    }
+};
+
+struct PartialBlockWritebackManager::Task {
+    // Allocate one tracked block buffer and copy the first fragment into it.
+    static TaskPtr create(PartialBlockWritebackRequest request, const BlockKey& task_key,
+                          size_t block_size, SubmitTrace& trace);
+
+    // A queued task may merge while the manager lock is free. Once activate() wins, later
+    // fragments are deduplicated and the worker obtains their bytes from the source read instead.
+    std::optional<PartialBlockSubmitResult> try_merge(size_t fragment_offset, Slice data,
+                                                      const IOContext& fragment_context,
+                                                      SubmitTrace& trace) {
+        const auto lock_start = trace.now();
+        std::lock_guard lock(fragment_mutex);
+        const auto locked_at = trace.now();
+        trace.fragment_lock_wait_ns += locked_at - lock_start;
+        Defer hold_time {[&] { trace.fragment_lock_hold_ns += trace.now() - locked_at; }};
+        trace.task_id = io_context.io_context.read_trace_id;
+        if (is_active()) {
+            const auto trace_start = trace.now();
+            trace_fragment("fragment_ignored_active", fragment_offset, data.size, fragment_context);
+            trace.lifecycle_trace_ns += trace.now() - trace_start;
+            return PartialBlockSubmitResult::ACTIVE_DEDUPLICATED;
+        }
+        if (!key.write_manager->is_current_write_epoch(write_epoch)) {
+            return std::nullopt;
+        }
+
+        TEST_SYNC_POINT("PartialBlockWritebackManager::try_submit:before_merge_copy");
+        const auto copy_start = trace.now();
+        std::memcpy(buffer->data() + fragment_offset, data.data, data.size);
+        trace.copy_ns += trace.now() - copy_start;
+        trace.copied_bytes += data.size;
+        covered_intervals.emplace_back(
+                FileRange {.offset = key.block_offset + fragment_offset, .size = data.size});
+        const auto trace_start = trace.now();
+        trace_fragment("fragment_merged", fragment_offset, data.size, fragment_context);
+        trace.lifecycle_trace_ns += trace.now() - trace_start;
+        return PartialBlockSubmitResult::MERGED;
+    }
+
+    void trace_fragment(std::string_view event, size_t offset, size_t size,
+                        const IOContext& fragment_context) const {
+        if (ReadIOTrace::enabled()) {
+            ReadIOTrace::record({.event = event,
+                                 .context = &fragment_context,
+                                 .file = source_reader->path().native(),
+                                 .id = io_context.io_context.read_trace_id,
+                                 .parent_id = fragment_context.read_trace_id,
+                                 .offset = key.block_offset + offset,
+                                 .size = size});
+        }
+    }
+
+    // Activation closes the merge window. Taking fragment_mutex here also includes a merge that
+    // entered just before activation, so covered_intervals is stable for the hole complement.
+    Status plan_hole_reads(const FileRangeCoalesceOptions& options,
+                           std::vector<FileRange>* read_ranges) {
+        DORIS_CHECK(is_active());
+        std::lock_guard lock(fragment_mutex);
+        const FileRange block {.offset = key.block_offset, .size = block_valid_size};
+        return HoleFillPlanner::plan(block, covered_intervals, options, read_ranges);
+    }
+
+    // Read a single range on the block worker; submit multiple ranges through its reusable token
+    // and join them, including on failure.
+    Status read_holes(const std::vector<FileRange>& read_ranges, ThreadPoolToken& token);
+
+    void activate() {
+        activation_trace_ns = ReadIOTrace::enabled() ? MonotonicNanos() : 0;
+        bool expected = false;
+        DORIS_CHECK(active.compare_exchange_strong(expected, true, std::memory_order_acq_rel));
+    }
+
+    bool is_active() const { return active.load(std::memory_order_acquire); }
+
+    // Only inspect epoch and inflight state under the queue mutex. Full cache probing follows
+    // task activation, outside that mutex.
+    bool should_discard_before_read() const {
+        if (!key.write_manager->accepting() ||
+            !key.write_manager->is_current_write_epoch(write_epoch)) {
+            return true;
+        }
+        return inflight_index != nullptr &&
+               inflight_index->lookup(key.cache_hash, key.block_offset) != nullptr;
+    }
+
+    BlockKey key;
+    InflightWriteBufferIndex* inflight_index {nullptr};
+    FileReaderSPtr source_reader;
+    size_t block_valid_size {0};
+    AsyncCacheWriteBufferPtr buffer;
+    std::vector<FileRange> covered_intervals;
+    CacheAdmissionContext admission_ctx;
+    AsyncCacheWriteEpoch write_epoch;
+    FileRangeReadIOContext io_context;
+    // Set at successful queue admission under the manager mutex; merges leave it unchanged.
+    std::chrono::steady_clock::time_point enqueued_at;
+    int64_t activation_trace_ns {0}; // only read by the worker after taking the task
+    // Valid only while this task is in the manager queue; accessed under the manager mutex.
+    Queue::iterator queue_position;
+    // A queued task may absorb foreground fragments while unrelated queue operations proceed.
+    std::mutex fragment_mutex;
+    std::atomic<bool> active {false};
+
+private:
+    // Read one buffer slice with per-call IO statistics on a block worker or remote-read thread.
+    Status _read_hole(const FileRange& range);
+};
+
+class PartialBlockWritebackManager::Worker : public std::enable_shared_from_this<Worker> {
+public:
+    explicit Worker(PartialBlockWritebackManager& manager) : _manager(manager) {}
+
+    Status start() {
+        auto self = shared_from_this();
+        return _manager._worker_pool->submit_func([self = std::move(self)]() { self->_run(); });
+    }
+
+    // The caller holds the manager mutex so the changed wait predicate and notification are
+    // published atomically to an idle worker.
+    void request_stop() { _stop_requested.store(true, std::memory_order_release); }
+
+    bool stop_requested() const { return _stop_requested.load(std::memory_order_acquire); }
+
+    void wait_until_stopped() { _stopped.wait(); }
+
+private:
+    void _run() {
+        _manager._running_worker_count.fetch_add(1, std::memory_order_relaxed);
+        Defer mark_stopped {[this]() {
+            const size_t old_running =
+                    _manager._running_worker_count.fetch_sub(1, std::memory_order_relaxed);
+            DCHECK_GT(old_running, 0);
+            _stopped.count_down();
+        }};
+
+        // Destroy the token before mark_stopped lets shutdown release the remote-read pool.
+        auto remote_read_token =
+                _manager._remote_read_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT);
+        while (!stop_requested()) {
+            auto task = _manager._take_ready_task(*this);
+            if (task == nullptr) {
+                return;
+            }
+            _manager._process_task(task, *remote_read_token);
+        }
+    }
+
+    PartialBlockWritebackManager& _manager;
+    std::atomic<bool> _stop_requested {false};
+    CountDownLatch _stopped {1};
+};
+
+Status PartialBlockWritebackOptions::validate() const {
+    RETURN_IF_ERROR(hole_fill_coalesce.validate());
+    if (block_size == 0) {
+        return Status::InvalidArgument("partial block writeback block size must be positive");
+    }
+    if (worker_count == 0 || worker_count > kMaxHoleFillWorkerCount) {
+        return Status::InvalidArgument("partial block writeback worker count {} is invalid",
+                                       worker_count);
+    }
+    if (remote_read_thread_count <= 0) {
+        return Status::InvalidArgument("partial block remote-read thread count must be positive");
+    }
+    if (merge_delay_ms < 0) {
+        return Status::InvalidArgument("partial block merge delay must be nonnegative");
+    }
+    if (max_pending_bytes < block_size) {
+        return Status::InvalidArgument(
+                "partial block writeback pending bytes {} must hold at least one block of {} bytes",
+                max_pending_bytes, block_size);
+    }
+    return Status::OK();
+}
+
+PartialBlockWritebackManager::PartialBlockWritebackManager(PartialBlockWritebackOptions options)
+        : _options(std::move(options)),
+          _max_pending_tasks(_options.max_pending_bytes / _options.block_size),
+          _merge_delay(_options.merge_delay_ms),
+          _configured_worker_count(_options.worker_count) {
+    DORIS_CHECK(_max_pending_tasks > 0);
+    read_ahead_bvars().hole_fill_pending_bytes << 0;
+}
+
+PartialBlockWritebackManager::~PartialBlockWritebackManager() {
+    shutdown();
+}
+
+Status PartialBlockWritebackManager::create(
+        const PartialBlockWritebackOptions& options,
+        std::unique_ptr<PartialBlockWritebackManager>* output_manager) {
+    DORIS_CHECK(output_manager != nullptr);
+    RETURN_IF_ERROR(options.validate());
+    auto manager = std::unique_ptr<PartialBlockWritebackManager>(
+            new PartialBlockWritebackManager(options));
+    RETURN_IF_ERROR(manager->_start());
+    *output_manager = std::move(manager);
+    return Status::OK();
+}
+
+Status PartialBlockWritebackManager::_start() {
+    std::lock_guard lifecycle_lock(_lifecycle_mutex);
+    DORIS_CHECK(_worker_pool == nullptr);
+    const size_t worker_count = _configured_worker_count.load(std::memory_order_acquire);
+    RETURN_IF_ERROR(ThreadPoolBuilder("HoleFillWorkerPool")
+                            .set_min_threads(static_cast<int>(worker_count))
+                            .set_max_threads(static_cast<int>(worker_count))
+                            .set_max_queue_size(static_cast<int>(kMaxHoleFillWorkerCount))
+                            .build(&_worker_pool));
+    RETURN_IF_ERROR(ThreadPoolBuilder("HoleFillRemoteReadPool")
+                            // Keep a reader available even if creating additional threads fails.
+                            .set_min_threads(1)
+                            .set_max_threads(_options.remote_read_thread_count)
+                            .build(&_remote_read_pool));
+    {
+        std::lock_guard lock(_mutex);
+        DORIS_CHECK(!_accepting);
+        _accepting = true;
+    }
+    RETURN_IF_ERROR(_resize_workers_locked(worker_count));
+    return Thread::create(
+            "hole fill", "HoleFillDispatch", [this] { _dispatch_loop(); }, &_dispatch_thread);
+}
+
+PartialBlockSubmitResult PartialBlockWritebackManager::try_submit(
+        PartialBlockWritebackRequest request) {
+    SubmitTrace trace(request);
+    request.sanity_check(_options.block_size);
+
+    if (!request.write_manager->accepting()) {
+        return trace.finish(PartialBlockSubmitResult::REJECTED);
+    }
+    if (!request.write_manager->check_write_epoch(request.write_epoch)) {
+        return trace.finish(PartialBlockSubmitResult::STALE_EPOCH);
+    }
+    const auto probe_start = trace.now();
+    const bool skip = request.write_manager->should_skip_block_writeback(
+            request.cache_hash, request.block_offset, request.block_valid_size,
+            request.admission_ctx, request.inflight_index);
+    trace.cache_probe_ns += trace.now() - probe_start;
+    if (skip) {
+        return trace.finish(PartialBlockSubmitResult::CACHE_BLOCK_PRESENT);
+    }
+
+    const BlockKey key {.write_manager = request.write_manager,
+                        .cache_hash = request.cache_hash,
+                        .block_offset = request.block_offset};
+    const size_t fragment_offset = request.fragment_offset;
+    const Slice fragment = request.data;
+    // Retain the submitting query/range identity even when a different query owns the task.
+    const IOContext fragment_context = request.io_context.io_context;
+
+    TaskPtr existing;
+    {
+        const auto lock_start = trace.now();
+        TEST_SYNC_POINT("PartialBlockWritebackManager::try_submit:before_queue_lock");
+        std::lock_guard lock(_mutex);
+        const auto locked_at = trace.now();
+        trace.queue_lock_wait_ns += locked_at - lock_start;
+        Defer hold_time {[&] { trace.queue_lock_hold_ns += trace.now() - locked_at; }};
+        trace.queue_size = _queue.size();
+        if (!_accepting) {
+            return trace.finish(PartialBlockSubmitResult::REJECTED);
+        }
+        const auto entry = _tasks.find(key);
+        if (entry != _tasks.end()) {
+            existing = entry->second;
+        } else if (_tasks.size() == _max_pending_tasks && _queue.empty()) {
+            return trace.finish(PartialBlockSubmitResult::REJECTED);
+        }
+    }
+    if (existing != nullptr) {
+        DORIS_CHECK(existing->block_valid_size == request.block_valid_size);
+        if (auto result = existing->try_merge(fragment_offset, fragment, fragment_context, trace);
+            result.has_value()) {
+            return trace.finish(*result);
+        }
+    }
+
+    auto candidate = Task::create(std::move(request), key, _options.block_size, trace);
+    if (candidate == nullptr) {
+        return trace.finish(PartialBlockSubmitResult::BUFFER_ALLOCATION_FAILED);
+    }
+
+    while (true) {
+        existing.reset();
+        switch (_enqueue_or_get_existing(candidate, &existing, trace)) {
+        case EnqueueResult::QUEUED:
+            trace.task_id = candidate->io_context.io_context.read_trace_id;
+            if (ReadIOTrace::enabled()) {
+                const auto trace_start = trace.now();
+                ReadIOTrace::record(
+                        {.event = "hole_queued",
+                         .context = &fragment_context,
+                         .file = candidate->source_reader->path().native(),
+                         .id = candidate->io_context.io_context.read_trace_id,
+                         .parent_id = fragment_context.read_trace_id,
+                         .offset = key.block_offset + fragment_offset,
+                         .size = fragment.size,
+                         .time_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                            candidate->enqueued_at.time_since_epoch())
+                                            .count()});
+                trace.lifecycle_trace_ns += trace.now() - trace_start;
+            }
+            return trace.finish(PartialBlockSubmitResult::QUEUED);
+        case EnqueueResult::REJECTED:
+            return trace.finish(PartialBlockSubmitResult::REJECTED);
+        case EnqueueResult::EXISTING:
+            DORIS_CHECK(existing != nullptr);
+            if (auto result =
+                        existing->try_merge(fragment_offset, fragment, fragment_context, trace);
+                result.has_value()) {
+                return trace.finish(*result);
+            }
+            break;
+        }
+    }
+}
+
+void PartialBlockWritebackRequest::sanity_check(size_t block_size) const {
+    DORIS_CHECK(write_manager != nullptr);
+    DORIS_CHECK(source_reader != nullptr);
+    DORIS_CHECK(write_epoch.key_token != nullptr);
+    DORIS_CHECK(block_offset % block_size == 0);
+    DORIS_CHECK(block_valid_size > 0);
+    DORIS_CHECK(block_valid_size <= block_size);
+    DORIS_CHECK(block_offset <= source_reader->size());
+    DORIS_CHECK(block_valid_size <= source_reader->size() - block_offset);
+    DORIS_CHECK(data.data != nullptr);
+    DORIS_CHECK(data.size > 0);
+    DORIS_CHECK(fragment_offset < block_valid_size);
+    DORIS_CHECK(data.size <= block_valid_size - fragment_offset);
+}
+
+PartialBlockWritebackManager::TaskPtr PartialBlockWritebackManager::Task::create(
+        PartialBlockWritebackRequest request, const BlockKey& task_key, size_t block_size,
+        SubmitTrace& trace) {
+    AsyncCacheWriteBufferPtr buffer;
+    const auto allocate_start = trace.now();
+    const auto status = request.write_manager->allocate_tracked_buffer(block_size, &buffer);
+    trace.allocation_ns += trace.now() - allocate_start;
+    if (!status.ok()) {
+        return nullptr;
+    }
+    const auto copy_start = trace.now();
+    std::memcpy(buffer->data() + request.fragment_offset, request.data.data, request.data.size);
+    trace.copy_ns += trace.now() - copy_start;
+    trace.copied_bytes += request.data.size;
+
+    auto task = std::make_shared<Task>();
+    task->key = task_key;
+    task->inflight_index = request.inflight_index;
+    task->source_reader = std::move(request.source_reader);
+    task->block_valid_size = request.block_valid_size;
+    task->buffer = std::move(buffer);
+    task->covered_intervals = {FileRange {.offset = request.block_offset + request.fragment_offset,
+                                          .size = request.data.size}};
+    task->admission_ctx = std::move(request.admission_ctx);
+    task->write_epoch = std::move(request.write_epoch);
+    task->io_context = std::move(request.io_context);
+    task->io_context.io_context.should_stop = false;
+    task->io_context.io_context.bypass_peer_read = true;
+    task->io_context.io_context.read_trace_source = FileReadTraceSource::HOLE_FILL;
+    task->io_context.io_context.read_trace_id = ReadIOTrace::next_id();
+    return task;
+}
+
+PartialBlockWritebackManager::EnqueueResult PartialBlockWritebackManager::_enqueue_or_get_existing(
+        const TaskPtr& candidate, TaskPtr* existing, SubmitTrace& trace) {
+    DORIS_CHECK(candidate != nullptr);
+    DORIS_CHECK(existing != nullptr);
+    DORIS_CHECK(!candidate->is_active());
+    existing->reset();
+
+    // Keep a removed task alive until the manager mutex is released. Its tracked block buffer and
+    // retained reader can have nontrivial destructors.
+    TaskPtr discarded_task;
+    {
+        const auto lock_start = trace.now();
+        std::lock_guard lock(_mutex);
+        const auto locked_at = trace.now();
+        trace.queue_lock_wait_ns += locked_at - lock_start;
+        Defer hold_time {[&] { trace.queue_lock_hold_ns += trace.now() - locked_at; }};
+        trace.queue_size = _queue.size();
+        if (!_accepting) {
+            return EnqueueResult::REJECTED;
+        }
+
+        auto existing_entry = _tasks.find(candidate->key);
+        if (existing_entry != _tasks.end()) {
+            auto task = existing_entry->second;
+            DORIS_CHECK(task->block_valid_size == candidate->block_valid_size);
+            if (task->is_active() ||
+                task->key.write_manager->is_current_write_epoch(task->write_epoch)) {
+                *existing = std::move(task);
+                return EnqueueResult::EXISTING;
+            }
+
+            discarded_task = std::move(task);
+            const auto queue_position = discarded_task->queue_position;
+            DORIS_CHECK(*queue_position == discarded_task);
+            *queue_position = candidate;
+            candidate->queue_position = queue_position;
+            // The replacement starts a new merge window; retain admission order for deadline scans.
+            _queue.splice(_queue.end(), _queue, queue_position);
+            existing_entry->second = candidate;
+        } else {
+            DORIS_CHECK_LE(_tasks.size(), _max_pending_tasks);
+            if (_tasks.size() == _max_pending_tasks) {
+                // Queued tasks may all become active while the candidate buffer is allocated.
+                if (_queue.empty()) {
+                    return EnqueueResult::REJECTED;
+                }
+                discarded_task = _queue.front();
+                const size_t erased = _tasks.erase(discarded_task->key);
+                DORIS_CHECK(erased == 1);
+                _queue.pop_front();
+            }
+            _queue.push_back(candidate);
+            candidate->queue_position = std::prev(_queue.end());
+            const auto [entry, inserted] = _tasks.emplace(candidate->key, candidate);
+            DORIS_CHECK(inserted);
+            static_cast<void>(entry);
+        }
+        candidate->enqueued_at = std::chrono::steady_clock::now();
+        if (discarded_task != nullptr) {
+            read_ahead_bvars().hole_fill_dropped_blocks << 1;
+        } else {
+            read_ahead_bvars().hole_fill_pending_bytes << static_cast<int64_t>(_options.block_size);
+        }
+        _notify_dispatcher_locked(candidate->enqueued_at + _merge_delay);
+    }
+    return EnqueueResult::QUEUED;
+}
+
+void PartialBlockWritebackManager::shutdown() {
+    std::lock_guard lifecycle_lock(_lifecycle_mutex);
+    if (_worker_pool == nullptr) {
+        return;
+    }
+
+    Queue queued;
+    Queue dispatched;
+    {
+        std::lock_guard lock(_mutex);
+        _accepting = false;
+        queued.splice(queued.end(), _queue);
+        dispatched.splice(dispatched.end(), _ready_queue);
+        for (const auto& task : queued) {
+            DORIS_CHECK(!task->is_active());
+            const size_t erased = _tasks.erase(task->key);
+            DORIS_CHECK(erased == 1);
+        }
+        read_ahead_bvars().hole_fill_pending_bytes
+                << -static_cast<int64_t>(queued.size() * _options.block_size);
+        read_ahead_bvars().hole_fill_dropped_blocks << static_cast<int64_t>(queued.size());
+    }
+    queued.clear();
+    _queue_cv.notify_all();
+    _dispatch_cv.notify_one();
+    // Startup may fail before creating the dispatcher.
+    if (_dispatch_thread != nullptr) {
+        _dispatch_thread->join();
+        _dispatch_thread.reset();
+    }
+    for (const auto& task : dispatched) {
+        _complete_task(task);
+        read_ahead_bvars().hole_fill_dropped_blocks << 1;
+    }
+    dispatched.clear();
+    _stop_workers_locked(0);
+    // Workers finish their GETs and release their tokens before signalling completion.
+    // The remote-read pool may be absent if startup failed.
+    if (_remote_read_pool != nullptr) {
+        _remote_read_pool->shutdown();
+        _remote_read_pool.reset();
+    }
+    _worker_pool->shutdown();
+    _worker_pool.reset();
+    {
+        std::lock_guard lock(_mutex);
+        DORIS_CHECK(_queue.empty());
+        DORIS_CHECK(_ready_queue.empty());
+        DORIS_CHECK(_tasks.empty());
+        DORIS_CHECK(_active_hole_fill_slots_by_writer.empty());
+        DORIS_CHECK(!_next_wakeup.has_value());
+    }
+}
+
+Status PartialBlockWritebackManager::resize_workers(size_t worker_count) {
+    if (worker_count == 0 || worker_count > kMaxHoleFillWorkerCount) {
+        return Status::InvalidArgument("partial block writeback worker count {} is invalid",
+                                       worker_count);
+    }
+
+    std::lock_guard lifecycle_lock(_lifecycle_mutex);
+    {
+        std::lock_guard lock(_mutex);
+        if (!_accepting) {
+            return Status::InternalError("partial block writeback manager is shutting down");
+        }
+        // Dispatch waits on this limit under the same mutex.
+        _configured_worker_count.store(worker_count, std::memory_order_release);
+    }
+    auto status = _resize_workers_locked(worker_count);
+    _dispatch_cv.notify_one();
+    return status;
+}
+
+Status PartialBlockWritebackManager::_resize_workers_locked(size_t worker_count) {
+    DORIS_CHECK(_worker_pool != nullptr);
+    if (worker_count < _workers.size()) {
+        _stop_workers_locked(worker_count);
+        RETURN_IF_ERROR(_worker_pool->set_min_threads(static_cast<int>(worker_count)));
+        RETURN_IF_ERROR(_worker_pool->set_max_threads(static_cast<int>(worker_count)));
+        return Status::OK();
+    }
+
+    RETURN_IF_ERROR(_worker_pool->set_max_threads(static_cast<int>(worker_count)));
+    // Each Worker owns one long-lived pool task. Create the backing pool threads before submitting
+    // more workers so accepted worker tasks cannot remain queued behind other worker loops.
+    RETURN_IF_ERROR(_worker_pool->set_min_threads(static_cast<int>(worker_count)));
+    while (_workers.size() < worker_count) {
+        auto worker = std::make_shared<Worker>(*this);
+        RETURN_IF_ERROR(worker->start());
+        _workers.emplace_back(std::move(worker));
+    }
+    return Status::OK();
+}
+
+Status PartialBlockWritebackManager::resize_remote_read_threads(int remote_read_thread_count) {
+    if (remote_read_thread_count <= 0) {
+        return Status::InvalidArgument("partial block remote-read thread count must be positive");
+    }
+    std::lock_guard lifecycle_lock(_lifecycle_mutex);
+    if (_remote_read_pool == nullptr) {
+        return Status::InternalError("partial block writeback manager is shut down");
+    }
+    return _remote_read_pool->set_max_threads(remote_read_thread_count);
+}
+
+void PartialBlockWritebackManager::set_merge_delay_ms(int32_t merge_delay_ms) {
+    DORIS_CHECK(merge_delay_ms >= 0);
+    {
+        std::lock_guard lock(_mutex);
+        _merge_delay = std::chrono::milliseconds(merge_delay_ms);
+    }
+    _dispatch_cv.notify_one();
+}
+
+void PartialBlockWritebackManager::_stop_workers_locked(size_t keep_worker_count) {
+    DORIS_CHECK(keep_worker_count <= _workers.size());
+    if (keep_worker_count == _workers.size()) {
+        return;
+    }
+
+    {
+        std::lock_guard lock(_mutex);
+        for (size_t index = keep_worker_count; index < _workers.size(); ++index) {
+            _workers[index]->request_stop();
+        }
+    }
+    _queue_cv.notify_all();
+    for (size_t index = keep_worker_count; index < _workers.size(); ++index) {
+        _workers[index]->wait_until_stopped();
+    }
+    _workers.resize(keep_worker_count);
+}
+
+bool PartialBlockWritebackManager::accepting() const {
+    std::lock_guard lock(_mutex);
+    return _accepting;
+}
+
+size_t PartialBlockWritebackManager::pending_count() const {
+    std::lock_guard lock(_mutex);
+    return _tasks.size();
+}
+
+size_t PartialBlockWritebackManager::pending_bytes() const {
+    std::lock_guard lock(_mutex);
+    return _tasks.size() * _options.block_size;
+}
+
+size_t PartialBlockWritebackManager::queued_count() const {
+    std::lock_guard lock(_mutex);
+    return _queue.size();
+}
+
+size_t PartialBlockWritebackManager::active_count() const {
+    std::lock_guard lock(_mutex);
+    DCHECK_LE(_queue.size(), _tasks.size());
+    return _tasks.size() - _queue.size();
+}
+
+void PartialBlockWritebackManager::_dispatch_loop() {
+    while (true) {
+        // Spliced tasks release their tracked buffers after the manager mutex leaves scope.
+        Queue discarded_tasks;
+        bool dispatched = false;
+        QueueScanTrace scan;
+        {
+            std::unique_lock lock(_mutex);
+            _dispatch_cv.wait(lock, [this]() {
+                return !_accepting ||
+                       (!_queue.empty() && _tasks.size() - _queue.size() < worker_count());
+            });
+            if (!_accepting) {
+                return;
+            }
+
+            auto next_wakeup = std::chrono::steady_clock::time_point::max();
+            dispatched = _dispatch_task_locked(&discarded_tasks, &next_wakeup,
+                                               ReadIOTrace::enabled() ? &scan : nullptr);
+            if (!dispatched && discarded_tasks.empty()) {
+                // A queued task must have supplied an aggregation deadline or a capacity retry time.
+                DCHECK(next_wakeup != std::chrono::steady_clock::time_point::max());
+                _next_wakeup = next_wakeup;
+                _dispatch_cv.wait_until(lock, next_wakeup);
+                _next_wakeup.reset();
+            }
+        }
+        if (dispatched) {
+            _queue_cv.notify_one();
+        }
+        scan.record(dispatched);
+    }
+}
+
+PartialBlockWritebackManager::TaskPtr PartialBlockWritebackManager::_take_ready_task(
+        const Worker& worker) {
+    TEST_SYNC_POINT("PartialBlockWritebackManager::_take_ready_task:before_lock");
+    std::unique_lock lock(_mutex);
+    _queue_cv.wait(lock, [this, &worker]() {
+        return !_accepting || worker.stop_requested() || !_ready_queue.empty();
+    });
+    if (!_accepting || worker.stop_requested()) {
+        return nullptr;
+    }
+    auto task = std::move(_ready_queue.front());
+    _ready_queue.pop_front();
+    return task;
+}
+
+void PartialBlockWritebackManager::_notify_dispatcher_locked(
+        std::chrono::steady_clock::time_point ready_at) {
+    if (_tasks.size() - _queue.size() < worker_count() &&
+        (!_next_wakeup.has_value() || ready_at < *_next_wakeup)) {
+        _dispatch_cv.notify_one();
+    }
+}
+
+bool PartialBlockWritebackManager::_dispatch_task_locked(
+        Queue* discarded_tasks, std::chrono::steady_clock::time_point* next_wakeup,
+        QueueScanTrace* trace) {
+    DORIS_CHECK(discarded_tasks != nullptr);
+    if (trace != nullptr) {
+        trace->start_ns = MonotonicNanos();
+        trace->queue_size = _queue.size();
+    }
+    Defer scan_time {[&] {
+        if (trace != nullptr) {
+            trace->end_ns = MonotonicNanos();
+        }
+    }};
+    const auto now = std::chrono::steady_clock::now();
+    for (auto iterator = _queue.begin(); iterator != _queue.end();) {
+        const auto& candidate = *iterator;
+        DORIS_CHECK(!candidate->is_active());
+        if (trace != nullptr) {
+            ++trace->scanned;
+        }
+        const auto ready_at = candidate->enqueued_at + _merge_delay;
+        if (now < ready_at) {
+            if (trace != nullptr) {
+                ++trace->delayed;
+            }
+            // Admission order and a shared delay make every following deadline at least this late.
+            // Leave delayed tasks mergeable without probing their epoch or inflight buffer.
+            *next_wakeup = std::min(*next_wakeup, ready_at);
+            break;
+        }
+
+        const auto check_start = trace != nullptr ? MonotonicNanos() : 0;
+        const bool discard = candidate->should_discard_before_read();
+        if (trace != nullptr) {
+            trace->discard_check_ns += MonotonicNanos() - check_start;
+        }
+        if (discard) {
+            if (trace != nullptr) {
+                ++trace->discarded;
+            }
+            const auto discarded = iterator++;
+            _discard_queued_task_locked(discarded, discarded_tasks);
+            continue;
+        }
+
+        const auto capacity_start = trace != nullptr ? MonotonicNanos() : 0;
+        const size_t available_slots =
+                candidate->key.write_manager->available_slots_without_eviction(_options.block_size);
+        if (trace != nullptr) {
+            trace->capacity_check_ns += MonotonicNanos() - capacity_start;
+        }
+        const auto active_entry =
+                _active_hole_fill_slots_by_writer.find(candidate->key.write_manager);
+        const size_t active_hole_fill_slots =
+                active_entry == _active_hole_fill_slots_by_writer.end() ? 0 : active_entry->second;
+        if (active_hole_fill_slots < available_slots) {
+            auto task = candidate;
+            task->activate();
+            _ready_queue.splice(_ready_queue.end(), _queue, iterator);
+            ++_active_hole_fill_slots_by_writer[task->key.write_manager];
+            read_ahead_bvars().hole_fill_active_blocks << 1;
+            return true;
+        }
+        if (trace != nullptr) {
+            ++trace->capacity_waits;
+        }
+        // Another due task may target a different cache writer with available capacity.
+        *next_wakeup = std::min(*next_wakeup, now + kCapacityRetryInterval);
+        ++iterator;
+    }
+    return false;
+}
+
+void PartialBlockWritebackManager::_discard_queued_task_locked(Queue::iterator iterator,
+                                                               Queue* discarded_tasks) {
+    const auto& task = *iterator;
+    DORIS_CHECK(!task->is_active());
+    const size_t erased = _tasks.erase(task->key);
+    DORIS_CHECK(erased == 1);
+    discarded_tasks->splice(discarded_tasks->end(), _queue, iterator);
+    read_ahead_bvars().hole_fill_pending_bytes << -static_cast<int64_t>(_options.block_size);
+    read_ahead_bvars().hole_fill_dropped_blocks << 1;
+}
+
+void PartialBlockWritebackManager::_process_task(const TaskPtr& task, ThreadPoolToken& token) {
+    if (ReadIOTrace::enabled()) {
+        ReadIOTrace::record({.event = "hole_active",
+                             .context = &task->io_context.io_context,
+                             .file = task->source_reader->path().native(),
+                             .id = task->io_context.io_context.read_trace_id,
+                             .offset = task->key.block_offset,
+                             .size = task->block_valid_size,
+                             .time_ns = task->activation_trace_ns});
+    }
+    bool write_submitted = false;
+    std::string_view trace_outcome = "skipped_before_read";
+    Defer complete {[&]() {
+        if (ReadIOTrace::enabled()) {
+            ReadIOTrace::record({.event = "hole_done",
+                                 .context = &task->io_context.io_context,
+                                 .file = task->source_reader->path().native(),
+                                 .id = task->io_context.io_context.read_trace_id,
+                                 .offset = task->key.block_offset,
+                                 .size = task->block_valid_size,
+                                 .outcome = trace_outcome});
+        }
+        if (!write_submitted) {
+            read_ahead_bvars().hole_fill_dropped_blocks << 1;
+        }
+        _complete_task(task);
+    }};
+    // Recheck after queueing, outside the manager mutex. Once started, execute the hole-read plan.
+    if (!task->key.write_manager->accepting() ||
+        !task->key.write_manager->check_write_epoch(task->write_epoch) ||
+        task->key.write_manager->should_skip_block_writeback(
+                task->key.cache_hash, task->key.block_offset, task->block_valid_size,
+                task->admission_ctx, task->inflight_index)) {
+        return;
+    }
+
+    std::vector<FileRange> read_ranges;
+    Status status = task->plan_hole_reads(_options.hole_fill_coalesce, &read_ranges);
+    if (!status.ok()) {
+        trace_outcome = "plan_failed";
+        read_ahead_bvars().hole_fill_failed_blocks << 1;
+        LOG(WARNING) << "Plan partial block hole-fill reads failed, hash="
+                     << task->key.cache_hash.to_string() << ", offset=" << task->key.block_offset
+                     << ", status=" << status;
+        return;
+    }
+
+    // This snapshot follows activation and the final queued merge. Its ranges are precisely
+    // what the remote-read pool will read; later fragments cannot change this plan.
+    if (ReadIOTrace::enabled()) {
+        for (const auto& range : read_ranges) {
+            ReadIOTrace::record({.event = "hole_plan",
+                                 .context = &task->io_context.io_context,
+                                 .file = task->source_reader->path().native(),
+                                 .id = task->io_context.io_context.read_trace_id,
+                                 .offset = range.offset,
+                                 .size = range.size});
+        }
+    }
+
+    status = task->read_holes(read_ranges, token);
+    if (!status.ok()) {
+        trace_outcome = "read_failed";
+        read_ahead_bvars().hole_fill_failed_blocks << 1;
+        LOG(WARNING) << "Read partial block holes failed, hash=" << task->key.cache_hash.to_string()
+                     << ", block_offset=" << task->key.block_offset << ", status=" << status;
+        return;
+    }
+
+    const auto result =
+            task->key.write_manager->try_submit_owned_block(AsyncCacheWriteOwnedBlockRequest {
+                    .cache_hash = task->key.cache_hash,
+                    .file_offset = task->key.block_offset,
+                    .write_size = task->block_valid_size,
+                    .buffer = std::move(task->buffer),
+                    .admission_ctx = std::move(task->admission_ctx),
+                    .write_epoch = std::move(task->write_epoch),
+                    .admission_mode = AsyncCacheWriteAdmissionMode::REQUIRE_SPARE_CAPACITY,
+                    .inflight_index = task->inflight_index,
+            });
+    write_submitted = result == AsyncCacheWriteBlockSubmitResult::SUBMITTED;
+    trace_outcome = write_submitted ? "write_submitted" : "write_not_submitted";
+    if (write_submitted) {
+        read_ahead_bvars().hole_fill_write_submitted_blocks << 1;
+    }
+}
+
+Status PartialBlockWritebackManager::Task::read_holes(const std::vector<FileRange>& read_ranges,
+                                                      ThreadPoolToken& token) {
+    if (read_ranges.empty()) {
+        return Status::OK();
+    }
+    if (read_ranges.size() == 1) {
+        return _read_hole(read_ranges.front());
+    }
+    std::vector<Status> results(read_ranges.size());
+    for (size_t index = 0; index < read_ranges.size(); ++index) {
+        Status status = token.submit_func(
+                [&, index]() { results[index] = _read_hole(read_ranges[index]); });
+        if (!status.ok()) {
+            results[index] = std::move(status);
+            break;
+        }
+    }
+    // Even a failed submission/read must join accepted GETs before releasing the block buffer.
+    token.wait();
+    for (const auto& result : results) {
+        RETURN_IF_ERROR(result);
+    }
+    return Status::OK();
+}
+
+Status PartialBlockWritebackManager::Task::_read_hole(const FileRange& range) {
+    FileCacheStatistics file_cache_stats;
+    FileReaderStats file_reader_stats;
+    auto read_context = io_context;
+    read_context.io_context.file_cache_stats = &file_cache_stats;
+    read_context.io_context.file_reader_stats = &file_reader_stats;
+    size_t bytes_read = 0;
+    int64_t read_ns = 0;
+    Status status;
+    read_ahead_bvars().hole_fill_remote_requests << 1;
+    {
+        SCOPED_RAW_TIMER(&read_ns);
+        status = source_reader->read_at(
+                range.offset, Slice(buffer->data() + range.offset - key.block_offset, range.size),
+                &bytes_read, &read_context.io_context);
+    }
+    read_ahead_bvars().hole_fill_remote_read_time_ns << read_ns;
+    read_ahead_bvars().hole_fill_remote_bytes << static_cast<int64_t>(bytes_read);
+    if (!status.ok() || bytes_read != range.size) {
+        return Status::IOError("read_offset={}, read_size={}, bytes_read={}, status={}",
+                               range.offset, range.size, bytes_read, status.to_string());
+    }
+    return Status::OK();
+}
+
+void PartialBlockWritebackManager::_complete_task(const TaskPtr& task) {
+    {
+        std::lock_guard lock(_mutex);
+        DORIS_CHECK(task->is_active());
+        const size_t erased = _tasks.erase(task->key);
+        DORIS_CHECK(erased == 1);
+        auto active_entry = _active_hole_fill_slots_by_writer.find(task->key.write_manager);
+        DORIS_CHECK(active_entry != _active_hole_fill_slots_by_writer.end());
+        DORIS_CHECK(active_entry->second > 0);
+        if (--active_entry->second == 0) {
+            _active_hole_fill_slots_by_writer.erase(active_entry);
+        }
+        read_ahead_bvars().hole_fill_pending_bytes << -static_cast<int64_t>(_options.block_size);
+        read_ahead_bvars().hole_fill_active_blocks << -1;
+        if (!_queue.empty()) {
+            // Capacity release matters for due tasks; preserve a future head's existing timer.
+            _notify_dispatcher_locked(_queue.front()->enqueued_at + _merge_delay);
+        }
+    }
+}
+
+} // namespace doris::io

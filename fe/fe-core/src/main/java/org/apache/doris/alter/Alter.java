@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.catalog.RowTtlConfig;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -296,6 +297,10 @@ public class Alter {
                 throw new DdlException("Changelog feature is not enabled");
             }
             ((SchemaChangeHandler) schemaChangeHandler).updateChangelogConfig(db, olapTable, alterOps);
+        } else if (alterOps.size() == 1 && alterOps.get(0).getProperties() != null
+                && alterOps.get(0).getProperties().containsKey(RowTtlConfig.TTL_PROPERTY)) {
+            ((SchemaChangeHandler) schemaChangeHandler).updateRowTtl(db, olapTable,
+                    alterOps.get(0).getProperties().get(RowTtlConfig.TTL_PROPERTY));
         } else if (currentAlterOps.hasSchemaChangeOp()) {
             // schema change, or change properties that need schema change(dynamic partition, storage_medium...)
             schemaChangeHandler.process(sql, alterOps, db, olapTable);

@@ -868,6 +868,7 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
     LOG(INFO) << "get update tablet meta task. signature=" << req.signature;
 
     Status status;
+    int64_t row_ttl_config_version = -1;
     const auto& update_tablet_meta_req = req.update_tablet_meta_info_req;
     for (const auto& tablet_meta_info : update_tablet_meta_req.tabletMetaInfos) {
         auto tablet = engine.tablet_manager()->get_tablet(tablet_meta_info.tablet_id);
@@ -875,9 +876,25 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             status = Status::NotFound("tablet not found");
             LOG(WARNING) << "could not find tablet when update tablet meta. tablet_id="
                          << tablet_meta_info.tablet_id;
+            // A later success in this batch must not acknowledge a failed TTL update.
+            if (tablet_meta_info.__isset.row_ttl_config) {
+                break;
+            }
             continue;
         }
         bool need_to_save = false;
+        if (tablet_meta_info.__isset.row_ttl_config) {
+            RowTtlConfigPB config;
+            config.set_duration_us(tablet_meta_info.row_ttl_config.duration_us);
+            config.set_config_version(tablet_meta_info.row_ttl_config.config_version);
+            std::unique_lock lock(tablet->get_header_lock());
+            status = tablet->tablet_meta()->update_row_ttl_config(config);
+            if (!status.ok()) {
+                break;
+            }
+            tablet->save_meta();
+            row_ttl_config_version = config.config_version();
+        }
         if (tablet_meta_info.__isset.partition_id) {
             // for fix partition_id = 0
             LOG(WARNING) << "change be tablet id: " << tablet->tablet_meta()->tablet_id()
@@ -1042,6 +1059,9 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
     LOG(INFO) << "finish update tablet meta task. signature=" << req.signature;
     if (req.signature != -1) {
         TFinishTaskRequest finish_task_request;
+        if (row_ttl_config_version >= 0) {
+            finish_task_request.__set_row_ttl_config_version(row_ttl_config_version);
+        }
         finish_task_request.__set_task_status(status.to_thrift());
         finish_task_request.__set_backend(BackendOptions::get_local_backend());
         finish_task_request.__set_task_type(req.task_type);

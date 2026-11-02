@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans;
 
+import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -99,6 +100,38 @@ public class UpdateCommandTest extends TestWithFeService implements PlanPatternM
                                 )
                         )
                 );
+    }
+
+    @Test
+    public void testDirectRowTtlUpdate() throws Exception {
+        createTable("create table ttl_update(k int, v int, a int, b int, c int, d int) unique key(k) "
+                + "distributed by hash(k) buckets 1 properties('replication_num'='1', "
+                + "'enable_unique_key_merge_on_write'='true', 'function_column.enable_row_ttl'='true')");
+        for (String assignment : new String[] {"v = v + 1", "__DORIS_TTL_COL__ = NULL",
+                "__DORIS_TTL_COL__ = cast('2099-01-01 00:00:00.123456' as datetime(6))"}) {
+            UpdateCommand command = (UpdateCommand) new NereidsParser()
+                    .parseSingle("update ttl_update set " + assignment + " where k=1");
+            LogicalPlan plan = command.completeQueryPlan(connectContext, command.getLogicalQuery());
+            Assertions.assertFalse(((UnboundTableSink<?>) plan).isPartialUpdate());
+            String rewritten = PlanChecker.from(connectContext, plan).analyze(plan).rewrite().getPlan().treeString();
+            Assertions.assertTrue(rewritten.contains("__DORIS_TTL_COL__"), rewritten);
+        }
+    }
+
+    @Test
+    public void testSourceRowTtlUpdateUsesFullRow() throws Exception {
+        createTable("create table ttl_source_update(k int, event_time datetimev2(6), v int, a int, b int, c int) "
+                + "unique key(k) distributed by hash(k) buckets 1 properties('replication_num'='1', "
+                + "'enable_unique_key_merge_on_write'='true', 'function_column.enable_row_ttl'='true', "
+                + "'function_column.ttl_col'='event_time', 'function_column.ttl'='0', "
+                + "'function_column.ttl_time_zone'='+00:00')");
+        UpdateCommand command = (UpdateCommand) new NereidsParser()
+                .parseSingle("update ttl_source_update set v=v+1 where k=1");
+        LogicalPlan plan = command.completeQueryPlan(connectContext, command.getLogicalQuery());
+        Assertions.assertFalse(((UnboundTableSink<?>) plan).isPartialUpdate());
+        String rewritten = PlanChecker.from(connectContext, plan).analyze(plan).rewrite().getPlan().treeString();
+        Assertions.assertTrue(rewritten.contains("event_time"), rewritten);
+        Assertions.assertTrue(rewritten.contains("__DORIS_TTL_COL__"), rewritten);
     }
 
     @Test

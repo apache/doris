@@ -94,6 +94,13 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
         if (properties == null || properties.isEmpty()) {
             throw new AnalysisException("Properties is not set");
         }
+        String rowTtlPrefix = PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                + PropertyAnalyzer.PROPERTIES_TTL;
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_ROW_TTL)
+                || properties.keySet().stream().anyMatch(key -> key.startsWith(rowTtlPrefix)
+                        && !key.equals(rowTtlPrefix))) {
+            throw new AnalysisException("TTL properties can only be specified when creating a table");
+        }
 
         if (tableName != null && !InternalCatalog.INTERNAL_CATALOG_NAME.equals(tableName.getCtl())) {
             validateExternalTableProperties();
@@ -109,7 +116,9 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
                     "Can only set one table property(without dynamic partition && binlog) at a time");
         }
 
-        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH)) {
+        if (properties.containsKey(rowTtlPrefix)) {
+            PropertyAnalyzer.parseRowTtlDurationMicros(properties.get(rowTtlPrefix));
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH)) {
             // do nothing, colocate property will be processed in SchemaChangeHandler
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_TYPE)) {
             if (!properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_TYPE).equalsIgnoreCase("column")) {

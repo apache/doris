@@ -64,6 +64,23 @@ import java.util.function.Supplier;
 public class ConnectorStatementScopeTest {
 
     @Test
+    public void activeSplitProducersDeferStatementResourceClosure() {
+        ConnectorStatementScopeImpl scope = new ConnectorStatementScopeImpl();
+        AtomicInteger closes = new AtomicInteger();
+        scope.computeIfAbsent("metadata", () -> (AutoCloseable) closes::incrementAndGet);
+        Runnable releaseFirst = scope.retain();
+        Runnable releaseSecond = scope.retain();
+        scope.closeAll();
+        Assertions.assertEquals(0, closes.get());
+        releaseFirst.run();
+        Assertions.assertEquals(0, closes.get());
+        releaseSecond.run();
+        Assertions.assertEquals(1, closes.get());
+        scope.closeAll();
+        Assertions.assertEquals(1, closes.get());
+    }
+
+    @Test
     public void lookupDoesNotLoadAndRespectsPlanningAndStatementCleanup() {
         ConnectorStatementScopeImpl scope = new ConnectorStatementScopeImpl();
         Assertions.assertNull(scope.getIfPresent("missing"));

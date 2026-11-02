@@ -78,6 +78,7 @@ struct TFinishTaskRequest {
     19: optional map<i64, map<i64, i64>> table_id_to_tablet_id_to_delta_num_rows
     // for Cloud mow table only, used by FE to check if the response is for the latest request
     20: optional list<AgentService.TCalcDeleteBitmapPartitionInfo> resp_partitions;
+    21: optional i64 row_ttl_config_version
 }
 
 struct TTablet {
