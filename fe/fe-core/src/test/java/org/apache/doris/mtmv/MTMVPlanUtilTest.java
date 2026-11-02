@@ -22,10 +22,12 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
@@ -55,6 +57,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.List;
@@ -379,6 +382,45 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         Assertions.assertDoesNotThrow(
                 () -> MTMVPlanUtil.ensureMTMVQueryUsable(mtmv,
                         MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE)));
+    }
+
+    /**
+     * The effective creation zone of an EXPR-partitioned MTMV must be derived from the analyzed base
+     * partition column, not from the MTMV output columns: an aliased definition projects only
+     * date_trunc(ts, 'day') AS day_ts, so the source column name (ts) is not among the outputs and its
+     * TIMESTAMPTZ type would never be seen there. A raw TIMESTAMPTZ slot partition (FOLLOW_BASE_TABLE) and
+     * a DATETIME base partition column keep the creation zone.
+     */
+    @Test
+    public void testUsesUtcTimeStampTzPartitionFromBaseColumn() {
+        BaseTableInfo tableInfo = Mockito.mock(BaseTableInfo.class);
+        MTMVRelatedTableIf relatedTable = Mockito.mock(MTMVRelatedTableIf.class);
+        MTMVPartitionInfo partitionInfo = Mockito.mock(MTMVPartitionInfo.class);
+        Mockito.when(partitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.EXPR);
+        Mockito.when(partitionInfo.getPctInfos())
+                .thenReturn(Lists.newArrayList(new BaseColInfo("ts", tableInfo)));
+
+        try (MockedStatic<MTMVUtil> mtmvUtil = Mockito.mockStatic(MTMVUtil.class);
+                MockedStatic<MvccUtil> mvccUtil = Mockito.mockStatic(MvccUtil.class)) {
+            mtmvUtil.when(() -> MTMVUtil.getRelatedTable(tableInfo)).thenReturn(relatedTable);
+            mvccUtil.when(() -> MvccUtil.getSnapshotFromContext(relatedTable)).thenReturn(Optional.empty());
+
+            // a TIMESTAMPTZ base partition column makes the UTC-aligned boundaries effective for the MV
+            Mockito.when(relatedTable.getPartitionColumns(Optional.empty())).thenReturn(
+                    Lists.newArrayList(new Column("ts", ScalarType.createTimeStampTzType(6))));
+            Assertions.assertTrue(MTMVPlanUtil.usesUtcTimeStampTzPartition(partitionInfo));
+
+            // a DATETIME base partition column does not need the UTC normalization
+            Mockito.when(relatedTable.getPartitionColumns(Optional.empty())).thenReturn(
+                    Lists.newArrayList(new Column("ts", ScalarType.createDatetimeV2Type(6))));
+            Assertions.assertFalse(MTMVPlanUtil.usesUtcTimeStampTzPartition(partitionInfo));
+
+            // a raw TIMESTAMPTZ slot partition is not an EXPR partition: the stored instant is zone
+            // independent, so the creation zone must be preserved
+            Mockito.when(partitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.FOLLOW_BASE_TABLE);
+            Assertions.assertFalse(MTMVPlanUtil.usesUtcTimeStampTzPartition(partitionInfo));
+            Assertions.assertFalse(MTMVPlanUtil.usesUtcTimeStampTzPartition(null));
+        }
     }
 
     @Test

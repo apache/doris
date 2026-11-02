@@ -44,11 +44,13 @@ import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
@@ -61,10 +63,16 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.TableId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -220,6 +228,23 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             MaterializationContext materializationContext) throws AnalysisException {
         List<Plan> rewriteResults = new ArrayList<>();
         StructInfo viewStructInfo = materializationContext.getStructInfo();
+        // A guarded rewrite cache is built when the query session differs from the MV creation session for
+        // some affectQueryResult family (e.g. a different time zone). A cache guard in a row-set /
+        // grouping-affecting position (filter or join predicate, group-by, order-by, window partition or
+        // order key) is an unconditional dependency: the materialized rows / groups were computed in the
+        // creation session, so a query in a different session can never compensate them and must not be
+        // rewritten. Guards on a pure projection output are only a dependency when the query actually
+        // reads that column; that is decided later, after the output mapping is known
+        // (see rewrittenPlanReadsGuardedOutput), so an unused guarded projection does not block a
+        // projection-subset rewrite (e.g. a UTC MV with a guarded date_trunc output column and a query
+        // that selects only the zone-invariant columns).
+        if (containsCacheGuardInRowAffectingExpressions(viewStructInfo.getOriginalPlan())) {
+            materializationContext.recordFailReason(queryStructInfo,
+                    "Materialized view cache carries a session-variable guard in a predicate or grouping",
+                    () -> String.format("the cache was built for a different session, plan is %s",
+                            viewStructInfo.getOriginalPlan().treeString()));
+            return rewriteResults;
+        }
         MatchMode matchMode = decideMatchMode(queryStructInfo.getRelations(), viewStructInfo.getRelations(),
                 cascadesContext);
         if (MatchMode.COMPLETE != matchMode && MatchMode.QUERY_PARTIAL != matchMode) {
@@ -305,6 +330,21 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             // Rewrite query by view
             rewrittenPlan = rewriteQueryByView(matchMode, queryStructInfo, viewStructInfo, viewToQuerySlotMapping,
                     rewrittenPlan, materializationContext, cascadesContext);
+            // Deferred cache-guard rejection: the rewrite's dependencies (which view outputs the query maps
+            // to, and which predicates get compensated) are only known now. A rewrite that reads a
+            // cache-guarded value would silently return the creation-session materialization (e.g. the UTC
+            // day boundary of a date_trunc output column), so it is rejected; a guard on a view output the
+            // query does not read never reaches the rewritten plan and is harmless, and recomputing the same
+            // value from the independent raw scan columns is evaluated in the query session and stays valid.
+            if (rewrittenPlan != null && rewrittenPlanReadsGuardedOutput(
+                    rewrittenPlan, materializationContext)) {
+                Plan guardedRewrittenPlan = rewrittenPlan;
+                materializationContext.recordFailReason(queryStructInfo,
+                        "Materialized view cache carries a session-variable guard",
+                        () -> String.format("the rewritten plan reads a guarded value, plan is %s",
+                                guardedRewrittenPlan.treeString()));
+                continue;
+            }
             // This is needed whenever by pre rbo mv rewrite or final cbo rewrite, because the following optimize
             // has the partition prune, this is important for the baseTableNeedUnionPartitionNameSet.addAll code
             // in method calcInvalidPartitions, such as mv has 17, 18, 19 three partitions, 18 is invalid as insert data
@@ -1070,6 +1110,207 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     protected boolean checkIfRewritten(Plan plan, MaterializationContext context) {
         return plan.getGroupExpression().isPresent()
                 && context.alreadyRewrite(plan.getGroupExpression().get().getOwnerGroup().getGroupId());
+    }
+
+    /**
+     * Whether the materialized view plan carries a cache guard in a row-set / grouping / ordering
+     * affecting position: a filter or join predicate (including a mark-join conjunct), a HAVING
+     * predicate, a group-by key (including the grouping-set keys of a repeat), an order-by key or a window
+     * partition/order key. Such a guard means the materialized rows / groups were derived with the
+     * creation session semantics, so a query in a different session can never compensate them and the
+     * rewrite must be rejected regardless of which outputs the query selects.
+     */
+    static boolean containsCacheGuardInRowAffectingExpressions(Plan plan) {
+        Map<Slot, Expression> slotProducers = slotProducers(plan);
+        for (Plan node : plan.<Plan>collectToList(p -> true)) {
+            List<Expression> expressions = new ArrayList<>();
+            if (node instanceof LogicalFilter) {
+                expressions.addAll(((LogicalFilter<?>) node).getConjuncts());
+            } else if (node instanceof LogicalHaving) {
+                // HAVING is a filter above the aggregation: a guard there decides which groups survive.
+                expressions.addAll(((LogicalHaving<?>) node).getConjuncts());
+            } else if (node instanceof LogicalJoin) {
+                LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) node;
+                expressions.addAll(join.getHashJoinConjuncts());
+                expressions.addAll(join.getOtherJoinConjuncts());
+                // A mark join conjunct evaluates to a three-valued mark that is part of the row, e.g. the
+                // output of a correlated subquery, so a guarded one carries the creation-session value into
+                // the materialized rows as well.
+                expressions.addAll(join.getMarkJoinConjuncts());
+            } else if (node instanceof LogicalAggregate) {
+                expressions.addAll(((LogicalAggregate<?>) node).getGroupByExpressions());
+            } else if (node instanceof LogicalRepeat) {
+                // The grouping sets of a repeat own the group-by keys of every grouping, so a guarded key
+                // there decides the grouping of the whole materialized result.
+                ((LogicalRepeat<?>) node).getGroupingSets().forEach(expressions::addAll);
+            } else if (node instanceof LogicalSort) {
+                ((LogicalSort<?>) node).getOrderKeys().stream()
+                        .map(OrderKey::getExpr).forEach(expressions::add);
+            } else if (node instanceof LogicalTopN) {
+                // A TopN orders and then truncates, so a guarded order key selects WHICH rows survive: the MV
+                // picked them under its creation session, which a query in another session cannot undo. It is
+                // as row-affecting as a plain sort and must be scanned as well, otherwise an MTMV whose
+                // definition orders by a guarded expression (e.g. date_trunc on a timestamptz column) and
+                // limits the result could be rewritten into a cross-zone query and return another row.
+                ((LogicalTopN<?>) node).getOrderKeys().stream()
+                        .map(OrderKey::getExpr).forEach(expressions::add);
+            } else if (node instanceof LogicalWindow) {
+                expressions.addAll(((LogicalWindow<?>) node).getWindowExpressions());
+            }
+            if (containsCacheGuard(expressions) || producesCacheGuard(expressions, slotProducers)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The expression that materializes each slot of {@code plan}. An alias output is mapped to the expression
+     * it names, so a row-affecting predicate that only mentions the slot can be traced to the expression
+     * producing it - possibly through several nested projects and subqueries.
+     *
+     * <p>The scan uses the node expressions rather than the node output: a project's output is already
+     * reduced to slots, which loses the alias and with it the definition of the produced value.
+     */
+    private static Map<Slot, Expression> slotProducers(Plan plan) {
+        Map<Slot, Expression> producers = new HashMap<>();
+        for (Plan node : plan.<Plan>collectToList(p -> true)) {
+            for (Expression expression : node.getExpressions()) {
+                if (expression instanceof Alias) {
+                    Alias alias = (Alias) expression;
+                    // The first definition wins: an outer project can only re-alias a slot of an inner one,
+                    // and following the outermost definition is what reaches the guarded expression.
+                    producers.putIfAbsent(alias.toSlot(), alias.child());
+                }
+            }
+        }
+        return producers;
+    }
+
+    /**
+     * Whether any slot of the row-affecting expressions is materialized by an expression carrying a cache
+     * guard. A predicate such as {@code d = boundary} only references the slot, while the creation-session
+     * semantics live in the project that computes {@code d} (e.g. a guarded date_trunc). Without following
+     * that lineage the rows filtered by such a predicate would look unguarded, so a query that selects only
+     * an aggregate (and hence maps no guarded scan column) could reuse the creation-session row set.
+     */
+    private static boolean producesCacheGuard(Collection<? extends Expression> expressions,
+            Map<Slot, Expression> slotProducers) {
+        Set<Slot> visited = new HashSet<>();
+        List<Slot> pending = new ArrayList<>();
+        for (Expression expression : expressions) {
+            pending.addAll(expression.collectToSet(Slot.class::isInstance));
+        }
+        while (!pending.isEmpty()) {
+            Slot slot = pending.remove(pending.size() - 1);
+            if (!visited.add(slot)) {
+                continue;
+            }
+            Expression producer = slotProducers.get(slot);
+            if (producer == null) {
+                continue;
+            }
+            if (containsCacheGuard(ImmutableList.of(producer))) {
+                return true;
+            }
+            pending.addAll(producer.collectToSet(Slot.class::isInstance));
+        }
+        return false;
+    }
+
+    /**
+     * Whether the rewritten plan consumes a cache-guarded value. The cache guard lives on the view's
+     * logical output expression (e.g. Alias(SessionVarGuardExpr(date_trunc(...)))) and its key in the
+     * shuttled output to MV scan mapping. The fence follows the MV scan-column lineage the rewritten plan
+     * actually reads: a scan column that materializes a cache-guarded view output (e.g. mv_scan.d, the
+     * creation-session day boundary) carries the creation-session materialization and must be rejected,
+     * whether it is read directly or as an input of a further expression. A recomputation of the same
+     * value from independent, unguarded scan columns (e.g. date_trunc(mv_scan.ts, 'day') over the raw
+     * instant) is NOT rejected: it is evaluated in the current query session, so it returns exactly what
+     * the direct query would compute, and a query that selects only such value shapes must keep rewriting.
+     * Guards on view outputs the query does not read never reach the rewritten plan and are harmless,
+     * which is what makes a projection-subset rewrite (selecting only the zone-invariant columns of a UTC
+     * MV) safe.
+     */
+    private static boolean rewrittenPlanReadsGuardedOutput(Plan rewrittenPlan,
+            MaterializationContext materializationContext) {
+        if (containsCacheGuard(rewrittenPlan)) {
+            // a cache guard survived into the rewritten plan, e.g. a compensated predicate that reads the
+            // creation-session value directly
+            return true;
+        }
+        Set<Slot> guardedScanSlots = guardedScanSlots(materializationContext);
+        if (guardedScanSlots.isEmpty()) {
+            return false;
+        }
+        for (Plan node : rewrittenPlan.<Plan>collectToList(p -> true)) {
+            for (Expression expr : node.getExpressions()) {
+                // the guard is transparent for the value it wraps, so compare its stripped form
+                Set<Slot> strippedSlots = stripSessionVarGuards(expr).collectToSet(Slot.class::isInstance);
+                for (Slot slot : strippedSlots) {
+                    if (guardedScanSlots.contains(slot)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The MV scan columns that materialize a cache-guarded view output, e.g. mv_scan.d for the guarded
+     * output date_trunc(ts, 'day'). Reading any of them consumes the creation-session materialization.
+     */
+    private static Set<Slot> guardedScanSlots(MaterializationContext materializationContext) {
+        ExpressionMapping shuttledExprToScanExprMapping = materializationContext.getShuttledExprToScanExprMapping();
+        if (shuttledExprToScanExprMapping == null) {
+            return ImmutableSet.of();
+        }
+        Set<Slot> guardedScanSlots = new HashSet<>();
+        for (Map.Entry<Expression, Expression> entry
+                : shuttledExprToScanExprMapping.getExpressionMapping().entries()) {
+            Optional<SessionVarGuardExpr> guard = entry.getKey()
+                    .collectFirst(SessionVarGuardExpr.class::isInstance);
+            if (!guard.isPresent() || !guard.get().isCacheGuard()) {
+                continue;
+            }
+            Set<Slot> scanSlots = entry.getValue().collectToSet(Slot.class::isInstance);
+            guardedScanSlots.addAll(scanSlots);
+        }
+        return guardedScanSlots;
+    }
+
+    /**
+     * Remove every {@link SessionVarGuardExpr} wrapper from the expression tree. The guard is a
+     * transparent wrapper: it only decides the session the child was rewritten under, so the value the
+     * plan computes is the stripped expression evaluated in the current session.
+     */
+    private static Expression stripSessionVarGuards(Expression expr) {
+        return expr.rewriteDownShortCircuit(e -> e instanceof SessionVarGuardExpr
+                ? ((SessionVarGuardExpr) e).child(0) : e);
+    }
+
+    /**
+     * Whether the materialized view plan carries a cache guard: a {@link SessionVarGuardExpr} added by
+     * MTMVCache.from for a guard family that differs between the query session and the MV creation session.
+     */
+    private static boolean containsCacheGuard(Plan plan) {
+        for (Plan node : plan.<Plan>collectToList(p -> true)) {
+            if (containsCacheGuard(node.getExpressions())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean containsCacheGuard(Collection<? extends Expression> expressions) {
+        for (Expression expr : expressions) {
+            Optional<SessionVarGuardExpr> guard = expr.collectFirst(SessionVarGuardExpr.class::isInstance);
+            if (guard.isPresent() && guard.get().isCacheGuard()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // check mv plan is valid or not, this can use cache for performance

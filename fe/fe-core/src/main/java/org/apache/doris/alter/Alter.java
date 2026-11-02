@@ -58,6 +58,7 @@ import org.apache.doris.mtmv.MTMVPropertyUtil;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mtmv.ivm.IvmUtil;
+import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
@@ -888,6 +889,11 @@ public class Alter {
 
     private void modifyViewDef(Database db, View view, String inlineViewDef, Map<String, String> variables,
                                List<Column> newFullSchema, String comment) throws DdlException {
+        // A new definition is persisted with the plan variables that produced it, including the session
+        // time zone; a still-alive older FE would rebuild the view without the time-zone guard.
+        if (!Strings.isNullOrEmpty(inlineViewDef)) {
+            SessionVarGuardRewriter.checkClusterSupportsPlanTimeZoneFence();
+        }
         db.writeLockOrDdlException();
         try {
             view.writeLockOrDdlException();
