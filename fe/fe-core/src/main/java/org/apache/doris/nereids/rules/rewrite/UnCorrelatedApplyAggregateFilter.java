@@ -2837,6 +2837,30 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
      * with the same correlation key would share one evaluation), while the value of sum(random()) is
      * accepted when nothing reads it, for example ... select count(*), sum(random()) as c2 from t2
      * where t2.c1 = t1.c1 having count(*) = 0.
+     *
+     * The values which two evaluations of the same domain do not have to compute identically are
+     * rejected as well, although they are not volatile (see containsNonRepeatableExpression): an
+     * any_value returns the value of an arbitrary row of its group, and a window which assigns the
+     * value of a row from its position among the tied rows returns the value of an arbitrary row of
+     * its partition. The rewrite reports the value which one evaluation of the key computed for
+     * every outer row which owns that key, while the original subquery evaluates the value of every
+     * outer row on its own, so the subquery of
+     *
+     *     select o.k, (select any_value(i.v) from i where i.k < o.k) from o
+     *
+     * is reported: the two rows of o with the same k would show the any_value of one evaluation
+     * twice, while the two evaluations of the original subquery are free to pick different rows of
+     * the same domain. The values are followed through the slots of the plan (see
+     * collectSensitiveSlots) the way the volatile ones are: a value which decides the rows of a
+     * node, the grouping of the aggregation or the value of a pulled predicate is rejected, and so
+     * is the value which the subquery returns, while a value which only decorates an output that
+     * nothing reads is accepted.
+     *
+     * The count(*)/any_value(*) aggregation which SubqueryToApply adds to a correlated scalar
+     * subquery whose output is used and which has no top level scalar aggregation is accepted: its
+     * assert_true fails the query when the correlated domain has two rows, so its any_value picks
+     * the value of the only row of the domain, and the count(*) is its first output column (see
+     * exposesNonRepeatableValue).
      */
     private static boolean containsSensitiveSubqueryExpression(LogicalApply<?, ?> apply,
             CorrelatedAggregatePredicates predicates) {
@@ -2848,7 +2872,33 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
             }
         }
         Set<Slot> volatileSlots = collectVolatileSlots(apply.right());
-        return volatileSlots == null || usesVolatile(predicates.havingPredicates(), volatileSlots);
+        if (volatileSlots == null || usesVolatile(predicates.havingPredicates(), volatileSlots)) {
+            return true;
+        }
+        Set<Slot> nonRepeatableSlots = collectSensitiveSlots(apply.right(),
+                UnCorrelatedApplyAggregateFilter::containsNonRepeatableExpression);
+        return nonRepeatableSlots == null
+                || usesSensitive(predicates.havingPredicates(), nonRepeatableSlots,
+                        UnCorrelatedApplyAggregateFilter::containsNonRepeatableExpression)
+                || exposesNonRepeatableValue(apply, nonRepeatableSlots);
+    }
+
+    /**
+     * Whether the value which the subquery returns is computed from one of the given non-repeatable
+     * slots (see containsSensitiveSubqueryExpression).
+     *
+     * The value which the subquery returns is the first column of the output of the right side of
+     * the apply (the keys are appended after the outputs of the subquery, see
+     * pullUpCorrelatedPredicateByAggregatingOuter): an IN subquery compares the outer expression
+     * with that column and a scalar subquery exposes it. An EXISTS subquery only reads whether the
+     * subquery returns a row, so its output columns are not observable.
+     */
+    private static boolean exposesNonRepeatableValue(LogicalApply<?, ?> apply, Set<Slot> nonRepeatableSlots) {
+        if (apply.isExist() || nonRepeatableSlots.isEmpty()) {
+            return false;
+        }
+        List<Slot> output = apply.right().getOutput();
+        return !output.isEmpty() && nonRepeatableSlots.contains(output.get(0));
     }
 
     /**

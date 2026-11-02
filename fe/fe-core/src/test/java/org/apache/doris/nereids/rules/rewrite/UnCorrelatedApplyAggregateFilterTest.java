@@ -721,6 +721,71 @@ class UnCorrelatedApplyAggregateFilterTest {
     }
 
     @Test
+    public void testAnyValueOfTheSubqueryIsRejected() {
+        // The subquery of the query
+        //
+        //     select o.k, (select any_value(i.v) from i where i.k < o.k) from o
+        //
+        // returns the value of an arbitrary row of the domain of an outer row. The rewrite
+        // evaluates the subquery once for every correlation key, so the rows of the outer query
+        // which own the same key share one any_value, while the original subquery evaluates the
+        // any_value of every outer row on its own and may pick a different row for each of them
+        // (see containsSensitiveSubqueryExpression and exposesNonRepeatableValue).
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "o", 1);
+        Slot x = left.getOutput().get(0); // o.id
+        LogicalOlapScan right = PlanConstructor.newLogicalOlapScan(1, "i", 1);
+        Slot r1 = right.getOutput().get(0); // i.id
+        Slot r2 = right.getOutput().get(1); // i.name
+
+        LogicalFilter<LogicalOlapScan> where = new LogicalFilter<>(ImmutableSet.of(new LessThan(r1, x)), right);
+        Alias anyValue = new Alias(new AnyValue(r2), "av");
+        LogicalAggregate<LogicalFilter<LogicalOlapScan>> subquery =
+                new LogicalAggregate<>(ImmutableList.of(), ImmutableList.of(anyValue), where);
+        LogicalApply<LogicalOlapScan, LogicalAggregate<LogicalFilter<LogicalOlapScan>>> apply =
+                new LogicalApply<>(ImmutableList.of(x), LogicalApply.SubQueryType.SCALAR_SUBQUERY, false,
+                        Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                        true, false, left, subquery);
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> applyTheRule(apply));
+        Assertions.assertTrue(exception.getMessage().contains("Unsupported correlated subquery"),
+                "unexpected message: " + exception.getMessage());
+    }
+
+    @Test
+    public void testAnyValueInAPulledHavingPredicateIsRejected() {
+        // The HAVING predicate of the subquery
+        //
+        //     select o.id from o where exists (
+        //         select count(*) from i where i.id < o.id group by i.name
+        //         having any_value(count(*)) > o.id)
+        //
+        // was pulled into the apply (it references the outer row), and it reads an any_value of the
+        // aggregation of the domain: the any_value of one correlation key is evaluated once by the
+        // rewrite, while the original subquery evaluates it for every outer row which owns that key.
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "o", 1);
+        Slot x = left.getOutput().get(0); // o.id
+        LogicalOlapScan right = PlanConstructor.newLogicalOlapScan(1, "i", 1);
+        Slot r1 = right.getOutput().get(0); // i.id
+        Slot r2 = right.getOutput().get(1); // i.name
+
+        LogicalFilter<LogicalOlapScan> where = new LogicalFilter<>(ImmutableSet.of(new LessThan(r1, x)), right);
+        Alias count = new Alias(new Count(), "c");
+        LogicalAggregate<LogicalFilter<LogicalOlapScan>> subquery = new LogicalAggregate<>(
+                ImmutableList.of(r2), ImmutableList.of(r2, count), where);
+        Expression pulledHaving = new GreaterThan(new AnyValue(count.toSlot()), x);
+        LogicalApply<LogicalOlapScan, LogicalAggregate<LogicalFilter<LogicalOlapScan>>> apply =
+                new LogicalApply<>(ImmutableList.of(x), LogicalApply.SubQueryType.EXITS_SUBQUERY, false,
+                        Optional.empty(), Optional.empty(), Optional.of(pulledHaving), Optional.empty(),
+                        false, false, left, subquery);
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> applyTheRule(apply));
+        Assertions.assertTrue(exception.getMessage().contains("Unsupported correlated subquery"),
+                "unexpected message: " + exception.getMessage());
+    }
+
+    @Test
     public void testVolatilePredicateOfTheOuterPlanIsRejected() {
         LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
         Slot x = left.getOutput().get(0); // t1.id

@@ -417,6 +417,15 @@ suite("correlated_in_scalar_aggregate") {
                 " WHERE i.k = o.k GROUP BY GROUPING SETS ((i.g), ()))"
         exception "access outer query's column before grouping sets is not supported"
     }
+    // The grouping sets of the subquery read the outer column themselves: the correlation of such
+    // a subquery is stored in the grouping expression of its repeat instead of a predicate below
+    // the repeat, so no correlation predicate reaches the apply which pairs an outer row with the
+    // aggregation of its domain, and the subquery is rejected when it is analyzed
+    test {
+        sql "SELECT o.k FROM cisa_o o WHERE o.k IN (SELECT count(*) FROM cisa_i i" +
+                " GROUP BY GROUPING SETS ((o.k), ()))"
+        exception "access outer query's column before grouping sets is not supported"
+    }
     // The join combines the rows of the domain of an outer row with the rows of its other side, and
     // the rewrite reads the aggregation of that domain from below the join: the join would be
     // evaluated once for the rows of every correlation key together, so the subquery is rejected

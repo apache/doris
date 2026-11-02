@@ -157,6 +157,17 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
         // of the domain of every outer row, the empty correlated domain included, so that the value
         // which the IN compares exists for every outer row
         if (analyzedResult.isCorrelated()) {
+            // A repeat whose own grouping sets read the outer slot (see
+            // containsARepeatAboveTheCorrelatedPredicate) is reported before the nodes of the subquery
+            // are validated: no correlation predicate of such a subquery reaches the apply which
+            // pairs the outer rows with its aggregation, so the error of the repeat is the one which
+            // tells why the subquery cannot be unnested.
+            if (containsARepeatAboveTheCorrelatedPredicate(analyzedResult.getLogicalPlan(),
+                    ImmutableSet.copyOf(analyzedResult.correlatedSlots))) {
+                throw new AnalysisException(
+                        "access outer query's column before grouping sets is not supported "
+                                + analyzedResult.getLogicalPlan());
+            }
             // The rewrite only carries the outer slots through the filters of the subquery: it keeps
             // the aggregation of the domain as it is (the outer predicate becomes the condition
             // which pairs the outer row with the rows of the domain) and it reads the value which
@@ -209,12 +220,6 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
             // from the rows of another correlation key.
             rejectTheWrappersWhichTheRewriteCannotRebuild(analyzedResult.getLogicalPlan(),
                     ImmutableSet.copyOf(analyzedResult.correlatedSlots));
-            if (containsARepeatAboveTheCorrelatedPredicate(analyzedResult.getLogicalPlan(),
-                    ImmutableSet.copyOf(analyzedResult.correlatedSlots))) {
-                throw new AnalysisException(
-                        "access outer query's column before grouping sets is not supported "
-                                + analyzedResult.getLogicalPlan());
-            }
             if (containsAJoinAboveTheCorrelatedPredicate(analyzedResult.getLogicalPlan(),
                     ImmutableSet.copyOf(analyzedResult.correlatedSlots))) {
                 // The join interleaves the rows of the domain of an outer row with the rows of its
@@ -726,12 +731,13 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
     /**
      * Whether a repeat of the subtree computes the grouping sets of the rows of the correlated domain
      * of one outer row (see visitInSubquery): that is the case for a repeat which sits above the
-     * correlated predicate, whose rows the predicate selects below it. The rewrite which unnests a
-     * correlated subquery reads the aggregation of the domain of an outer row from below the repeat
-     * (see locateAggregate of UnCorrelatedApplyAggregateFilter), because the repeat of the subquery
-     * duplicates the rows of its child into the grouping sets which the aggregation above it
-     * aggregates: a repeat above the correlated predicate would duplicate the rows of every
-     * correlation key together, so the subquery of
+     * correlated predicate, whose rows the predicate selects below it, and for a repeat whose own
+     * grouping sets read an outer slot. The rewrite which unnests a correlated subquery reads the
+     * aggregation of the domain of an outer row from below the repeat (see locateAggregate of
+     * UnCorrelatedApplyAggregateFilter), because the repeat of the subquery duplicates the rows of
+     * its child into the grouping sets which the aggregation above it aggregates: a repeat above the
+     * correlated predicate would duplicate the rows of every correlation key together, so the
+     * subquery of
      *
      *     select k from o where k in (
      *         select count(*) from i where i.k = o.k group by grouping sets ((i.g), ()))
@@ -745,10 +751,22 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
      *         where x.k = o.k)
      *
      * is accepted.
+     *
+     * The grouping sets of the repeat may read the outer slots themselves as well, without a
+     * correlated predicate below the repeat: the subquery of
+     *
+     *     select k from o where k in (
+     *         select count(*) from i group by grouping sets ((o.k), ()))
+     *
+     * has the outer slot o.k in the grouping expression of its repeat, and its aggregation groups
+     * the rows of every correlation key which the grouping expression of the repeat produced. No
+     * correlation predicate of that subquery reaches the apply which pairs the outer rows with the
+     * aggregation, so the rewrite would leave the outer slot in the right side of the apply (see
+     * InApplyToJoin), and the subquery is reported here instead. The check therefore reads the plan
+     * node's own expressions together with the rows of its children.
      */
     private static boolean containsARepeatAboveTheCorrelatedPredicate(Plan plan, Set<Slot> correlatedSlots) {
-        if (plan instanceof LogicalRepeat && plan.children().stream()
-                .anyMatch(child -> subtreeReadsTheCorrelatedSlots(child, correlatedSlots))) {
+        if (plan instanceof LogicalRepeat && subtreeReadsTheCorrelatedSlots(plan, correlatedSlots)) {
             return true;
         }
         return plan.children().stream()

@@ -557,6 +557,28 @@ suite("correlated_scalar_subquery") {
         exception "correlate scalar subquery must return only 1 row"
     }
 
+    // The subquery returns the any_value of the domain of an outer row, that is the value of an
+    // arbitrary row of that domain: the rewrite evaluates the subquery once for every correlation
+    // key, so the duplicate c1 values of correlated_scalar_t1 would share one any_value, while the
+    // original subquery evaluates the any_value of every outer row on its own and may pick a
+    // different row for each of them, so the subquery is reported instead of rewriting it
+    test {
+        sql """
+            select c1, (select any_value(correlated_scalar_t2.c2) from correlated_scalar_t2
+                where correlated_scalar_t2.c2 < correlated_scalar_t1.c1) from correlated_scalar_t1;
+        """
+        exception "Unsupported correlated subquery with grouping and/or aggregation"
+    }
+    // the same any_value as the value which an IN subquery compares with the outer expression
+    test {
+        sql """
+            select c1 from correlated_scalar_t1 where c1 in
+                (select any_value(correlated_scalar_t2.c2) from correlated_scalar_t2
+                 where correlated_scalar_t2.c2 < correlated_scalar_t1.c2);
+        """
+        exception "Unsupported correlated subquery with grouping and/or aggregation"
+    }
+
     // The grouping sets of the subquery are computed by a repeat node above the aggregation of the
     // domain, and the rewrite which unnests the subquery reads the aggregation of that domain from
     // below the repeat: the grouping sets of a repeat above the correlated predicate would be

@@ -452,6 +452,21 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
+    public void testInSubqueryWithTheOuterColumnInItsGroupingSetsIsRejected() {
+        // The grouping sets of the subquery read the outer column themselves: T1.id is stored in the
+        // grouping expression of the repeat instead of being read by a predicate below it, so no
+        // correlation predicate of the subquery reaches the apply which pairs an outer row with the
+        // aggregation of its domain (see containsARepeatAboveTheCorrelatedPredicate), and the outer
+        // slot would stay below the right subtree of the apply.
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(
+                        "SELECT T1.id FROM T1 WHERE T1.id IN (SELECT count(*) FROM T2"
+                                + " GROUP BY GROUPING SETS ((T1.id), ()))"));
+        Assertions.assertTrue(exception.getMessage().contains("before grouping sets"),
+                "unexpected message: " + exception.getMessage());
+    }
+
+    @Test
     public void testGroupingSetsBelowTheCorrelatedPredicateIsAccepted() {
         // a repeat below the correlated predicate computes the rows which that predicate selects, so
         // the rewrite keeps its evaluation domain unchanged
