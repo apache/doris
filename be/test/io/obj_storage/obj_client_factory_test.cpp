@@ -30,6 +30,7 @@
 
 #include "cloud/config.h"
 #include "common/config.h"
+#include "cpp/obj-client/rate_limited_obj_storage_client.h"
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
 #include "io/fs/obj_storage_file_system.h"
@@ -37,6 +38,7 @@
 #include "io/obj_storage/obj_storage_config.h"
 #include "io/obj_storage/obj_storage_config_resolver.h"
 #include "io/obj_storage/obj_storage_uri.h"
+#include "util/defer_op.h"
 #include "util/s3_util.h"
 
 namespace doris::io {
@@ -205,6 +207,44 @@ TEST_F(ObjClientFactoryTest, RejectsNativeCredentialOnAzureFromMetadataSources) 
             << from_vault.error();
 }
 
+TEST_F(ObjClientFactoryTest, ConvertsGcpCredentialFromMetadataSources) {
+    // A native GCP credential reaches S3AuthConfig::credential from a resource and a vault, as
+    // it does from FE properties (S3ClientFactoryTest covers those).
+    const GcpCredentialConfig expected {
+            .provider_type = GcpCredentialProviderType::ComputeEngine,
+            .impersonation_service_account = "reader@project.iam.gserviceaccount.com",
+    };
+
+    TGcpCredential gcp_credential;
+    gcp_credential.__set_credential_provider_type(TGcpCredentialProviderType::COMPUTE_ENGINE);
+    gcp_credential.__set_impersonation_service_account(expected.impersonation_service_account);
+    TCredential credential;
+    credential.__set_gcp_credential(gcp_credential);
+    auto param = make_s3_param("storage.googleapis.com");
+    param.__set_provider(TObjStorageType::GCP);
+    param.__set_credential(credential);
+    auto from_param = TEST_TRY(ObjStorageConfigResolver::from_storage_param(param));
+    const auto& param_s3 = std::get<S3ClientConfig>(from_param.client.backend);
+    EXPECT_EQ(param_s3.vendor, ObjStorageProvider::GCP);
+    ASSERT_TRUE(std::holds_alternative<GcpCredentialConfig>(param_s3.auth.credential));
+    EXPECT_EQ(std::get<GcpCredentialConfig>(param_s3.auth.credential), expected);
+
+    cloud::ObjectStoreInfoPB vault;
+    vault.set_endpoint("storage.googleapis.com");
+    vault.set_region("us");
+    vault.set_bucket("gcp-vault-bucket");
+    vault.set_provider(cloud::ObjectStoreInfoPB_Provider_GCP);
+    auto* vault_gcp = vault.mutable_credential()->mutable_gcp_credential();
+    vault_gcp->set_credential_provider_type(
+            cloud::GcpCredentialPB_CredentialProviderType_COMPUTE_ENGINE);
+    vault_gcp->set_impersonation_service_account(expected.impersonation_service_account);
+    auto from_vault = TEST_TRY(ObjStorageConfigResolver::from_object_store_info(vault));
+    const auto& vault_s3 = std::get<S3ClientConfig>(from_vault.client.backend);
+    EXPECT_EQ(vault_s3.vendor, ObjStorageProvider::GCP);
+    ASSERT_TRUE(std::holds_alternative<GcpCredentialConfig>(vault_s3.auth.credential));
+    EXPECT_EQ(std::get<GcpCredentialConfig>(vault_s3.auth.credential), expected);
+}
+
 TEST_F(ObjClientFactoryTest, IdentityOnlyCoversFieldsOfTheSelectedBackend) {
     // Azure never read region, token or the AWS role, so they do not split Azure clients.
     auto azure_param = make_azure_param("identity-azure.example.com");
@@ -344,6 +384,35 @@ TEST_F(ObjClientFactoryTest, AzureProviderCacheIsBounded) {
 #endif
 }
 
+TEST_F(ObjClientFactoryTest, AzureClientsFollowTheBeRateLimitPolicy) {
+#ifdef USE_AZURE
+    const auto deploy_mode = config::deploy_mode;
+    const auto cloud_unique_id = config::cloud_unique_id;
+    Defer restore([&] {
+        config::deploy_mode = deploy_mode;
+        config::cloud_unique_id = cloud_unique_id;
+    });
+    // The policy S3 clients follow (apply_rate_limit_policy): every client outside cloud mode,
+    // only internal storage in cloud mode. Each case has its own endpoint because the provider
+    // cache is process-wide.
+    auto check = [](bool cloud_mode, ClientUsage usage, bool expect_limited, std::string endpoint) {
+        config::deploy_mode = cloud_mode ? "cloud" : "";
+        config::cloud_unique_id.clear();
+        auto client_config = resolve(make_azure_param(std::move(endpoint)));
+        client_config.usage = usage;
+        auto client = ObjClientFactory::instance().get_or_create(client_config);
+        ASSERT_TRUE(client.has_value()) << client.error();
+        EXPECT_EQ(std::dynamic_pointer_cast<RateLimitedObjStorageClient>(client.value()) != nullptr,
+                  expect_limited);
+    };
+    check(false, ClientUsage::EXTERNAL_ACCESS, true, "non-cloud-external-azure.example.com");
+    check(true, ClientUsage::INTERNAL_STORAGE, true, "cloud-internal-azure.example.com");
+    check(true, ClientUsage::EXTERNAL_ACCESS, false, "cloud-external-azure.example.com");
+#else
+    GTEST_SKIP() << "Azure is not built";
+#endif
+}
+
 const std::string& secret_key_of(const ObjClientConfig& config) {
     return std::get<S3ClientConfig>(config.backend).auth.secret_key;
 }
@@ -420,6 +489,21 @@ TEST_F(ObjClientFactoryTest, ResetMergeKeepsTheStorageTarget) {
     EXPECT_FALSE(s3.use_virtual_addressing);
     EXPECT_EQ(merged->connection.max_connections, 7);
 
+    // Azure keeps its endpoint; the account, container and key follow the update, so a key
+    // rotation is not merged away into an unchanged config.
+    auto current_azure = resolve(make_azure_param("merge-azure.example.com"));
+    auto azure_update_param = make_azure_param("other-azure.example.com");
+    azure_update_param.__set_ak("other-account");
+    azure_update_param.__set_sk("rotated-azure-key");
+    azure_update_param.__set_bucket("other-container");
+    auto merged_azure = merge_obj_client_config(current_azure, resolve(azure_update_param));
+    ASSERT_TRUE(merged_azure.has_value()) << merged_azure.error();
+    const auto& azure = std::get<AzureClientConfig>(merged_azure->backend);
+    EXPECT_EQ(azure.endpoint, "merge-azure.example.com");
+    EXPECT_EQ(azure.account, "other-account");
+    EXPECT_EQ(azure.container, "other-container");
+    EXPECT_EQ(std::get<AzureSharedKeyConfig>(azure.auth).account_key, azure_update_param.sk);
+
     // Another backend is another storage target, which needs a new binding.
     auto as_azure =
             merge_obj_client_config(current, resolve(make_azure_param("merge-target.example.com")));
@@ -482,6 +566,18 @@ TEST_F(ObjClientFactoryTest, FactoryValidatesBeforeBuilding) {
     auto result = factory.get_or_create(resolve(azure_no_key));
     ASSERT_FALSE(result.has_value());
     EXPECT_TRUE(result.error().is<ErrorCode::INVALID_ARGUMENT>()) << result.error();
+
+    // Neither backend builds a client without an endpoint.
+    auto s3_no_endpoint = factory.get_or_create(resolve(make_s3_param("")));
+    ASSERT_FALSE(s3_no_endpoint.has_value());
+    EXPECT_TRUE(s3_no_endpoint.error().is<ErrorCode::INVALID_ARGUMENT>()) << s3_no_endpoint.error();
+    EXPECT_NE(s3_no_endpoint.error().to_string().find("empty endpoint"), std::string::npos);
+    auto azure_no_endpoint = factory.get_or_create(resolve(make_azure_param("")));
+    ASSERT_FALSE(azure_no_endpoint.has_value());
+    EXPECT_TRUE(azure_no_endpoint.error().is<ErrorCode::INVALID_ARGUMENT>())
+            << azure_no_endpoint.error();
+    EXPECT_NE(azure_no_endpoint.error().to_string().find("empty endpoint"), std::string::npos);
+    EXPECT_EQ(_s3_builds, 1);
 }
 
 TEST_F(ObjClientFactoryTest, ResolvesPropertiesAndVaults) {
@@ -535,12 +631,19 @@ TEST_F(ObjClientFactoryTest, ResolvesPropertiesAndVaults) {
     vault.set_bucket("vault-bucket");
     vault.set_prefix("vault-prefix");
     vault.set_provider(cloud::ObjectStoreInfoPB_Provider_COS);
+    vault.set_role_arn("vault-role");
+    vault.set_external_id("vault-external-id");
+    vault.set_cred_provider_type(cloud::CredProviderTypePB::INSTANCE_PROFILE);
     auto from_vault = TEST_TRY(ObjStorageConfigResolver::from_object_store_info(vault));
     EXPECT_EQ(from_vault.bucket, "vault-bucket");
     EXPECT_EQ(from_vault.prefix, "vault-prefix");
     // A storage vault is a Doris internal bucket.
     EXPECT_EQ(from_vault.client.usage, ClientUsage::INTERNAL_STORAGE);
     EXPECT_EQ(from_vault.client.provider(), ObjStorageProvider::COS);
+    const auto& vault_auth = std::get<S3ClientConfig>(from_vault.client.backend).auth;
+    EXPECT_EQ(vault_auth.role_arn, "vault-role");
+    EXPECT_EQ(vault_auth.external_id, "vault-external-id");
+    EXPECT_EQ(vault_auth.provider_type, CredProviderType::InstanceProfile);
 }
 
 TEST_F(ObjClientFactoryTest, ExpiredSasFailsBeforeAnyClientIsBuilt) {

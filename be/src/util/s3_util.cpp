@@ -17,53 +17,21 @@
 
 #include "util/s3_util.h"
 
-#include <aws/core/auth/AWSAuthSigner.h>
-#include <aws/core/auth/AWSCredentials.h>
-#include <aws/core/auth/AWSCredentialsProviderChain.h>
-#include <aws/core/client/DefaultRetryStrategy.h>
-#include <aws/core/http/URI.h>
 #include <aws/core/utils/logging/LogLevel.h>
 #include <aws/core/utils/logging/LogSystemInterface.h>
-#include <aws/core/utils/memory/stl/AWSStringStream.h>
-#include <aws/s3/S3Client.h>
-
-#include "util/string_util.h"
 
 #ifdef USE_AZURE
 #include <azure/core/diagnostics/logger.hpp>
-#include <azure/core/http/curl_transport.hpp>
-#include <azure/storage/blobs/blob_container_client.hpp>
 #endif
-#include <cstdlib>
-#include <filesystem>
-#include <fstream>
-#include <functional>
 #include <memory>
-#include <ostream>
 #include <utility>
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/status.h"
-#include "cpp/obj-client/auth/aws_credential_factory.h"
-#ifdef USE_AZURE
-#include "cpp/obj-client/auth/azure_auth_factory.h"
-#include "cpp/obj-client/azure_obj_storage_client.h"
-#endif
-#include "cloud/config.h"
 #include "cpp/aws_logger.h"
-#include "cpp/obj-client/auth/gcp/gcp_token_provider.h"
-#include "cpp/obj-client/auth/obj_credential.h"
-#include "cpp/obj-client/auth/obj_s3_client_factory.h"
-#include "cpp/obj-client/rate_limited_obj_storage_client.h"
-#include "cpp/obj-client/s3_obj_storage_client.h"
-#include "cpp/obj_retry_strategy.h"
-#include "cpp/sync_point.h"
-#include "cpp/util.h"
-#include "exec/scan/scanner_scheduler.h"
+#include "cpp/obj-client/auth/aws_credential_factory.h"
 #include "io/obj_storage/obj_storage_config.h"
-#include "runtime/exec_env.h"
-#include "util/s3_rate_limiter_manager.h"
+#include "util/string_util.h"
 
 namespace doris {
 
@@ -74,11 +42,12 @@ AwsSdkManager::AwsSdkManager() {
     _aws_options.loggingOptions.logger_create_fn = [logLevel] {
         return std::make_shared<DorisAWSLogger>(logLevel);
     };
-    Aws::InitAPI(_aws_options);
     // Object keys must be encoded strictly by RFC 3986 in request URIs. The setting is global
-    // to the SDK, so it is applied once here; every object storage client is built after this
-    // factory (ObjClientFactory initializes it first).
-    Aws::Http::SetCompliantRfc3986Encoding(true);
+    // to the SDK, and InitAPI sets it from these options, so it is not reset to the SDK default
+    // false; every object storage client is built after this factory (ObjClientFactory
+    // initializes it first).
+    _aws_options.httpOptions.compliantRfc3986Encoding = true;
+    Aws::InitAPI(_aws_options);
     _get_ca_cert_file_path();
 
 #ifdef USE_AZURE

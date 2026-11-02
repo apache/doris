@@ -107,6 +107,32 @@ ObjStorageProvider backend_provider(const AzureClientConfig&) {
     return ObjStorageProvider::AZURE;
 }
 
+// Adapter from the storage-domain provider to the credential layer's own provider identity,
+// used where a provider-native credential is validated.
+ObjCredentialProvider to_obj_credential_provider(ObjStorageProvider provider) {
+    switch (provider) {
+    case ObjStorageProvider::AWS:
+        return ObjCredentialProvider::Aws;
+    case ObjStorageProvider::AZURE:
+        return ObjCredentialProvider::Azure;
+    case ObjStorageProvider::BOS:
+        return ObjCredentialProvider::Bos;
+    case ObjStorageProvider::COS:
+        return ObjCredentialProvider::Cos;
+    case ObjStorageProvider::GCP:
+        return ObjCredentialProvider::Gcp;
+    case ObjStorageProvider::OBS:
+        return ObjCredentialProvider::Obs;
+    case ObjStorageProvider::OSS:
+        return ObjCredentialProvider::Oss;
+    case ObjStorageProvider::TOS:
+        return ObjCredentialProvider::Tos;
+    case ObjStorageProvider::UNKNOWN:
+        return ObjCredentialProvider::Unknown;
+    }
+    return ObjCredentialProvider::Unknown;
+}
+
 // The rules every client request is checked against before anything is built or looked up;
 // they are the checks the former S3ClientFactory::create applied to the flat configuration.
 Status validate_client_backend(const S3ClientConfig& s3) {
@@ -142,7 +168,9 @@ Status validate_client_backend(const S3ClientConfig& s3) {
 }
 
 Status validate_azure_auth(const AzureClientConfig& azure, const AzureSharedKeyConfig& shared_key) {
-    // Either both are provided or both are empty, as for the flat ak/sk.
+    // Either both are provided or both are empty. Unlike the flat ak/sk rule there is no
+    // role_arn exemption: Azure has no role authentication, so SharedKey always needs the
+    // account name and the key together.
     if (!azure.account.empty() && shared_key.account_key.empty()) {
         return Status::InvalidArgument<false>("Invalid azure conf, empty account key");
     }
@@ -190,30 +218,6 @@ void merge_client_backend(AzureClientConfig& merged, const AzureClientConfig& up
 }
 
 } // namespace
-
-ObjCredentialProvider to_obj_credential_provider(ObjStorageProvider provider) {
-    switch (provider) {
-    case ObjStorageProvider::AWS:
-        return ObjCredentialProvider::Aws;
-    case ObjStorageProvider::AZURE:
-        return ObjCredentialProvider::Azure;
-    case ObjStorageProvider::BOS:
-        return ObjCredentialProvider::Bos;
-    case ObjStorageProvider::COS:
-        return ObjCredentialProvider::Cos;
-    case ObjStorageProvider::GCP:
-        return ObjCredentialProvider::Gcp;
-    case ObjStorageProvider::OBS:
-        return ObjCredentialProvider::Obs;
-    case ObjStorageProvider::OSS:
-        return ObjCredentialProvider::Oss;
-    case ObjStorageProvider::TOS:
-        return ObjCredentialProvider::Tos;
-    case ObjStorageProvider::UNKNOWN:
-        return ObjCredentialProvider::Unknown;
-    }
-    return ObjCredentialProvider::Unknown;
-}
 
 uint64_t ObjClientConfig::hash() const {
     uint64_t hash_code = std::visit([](const auto& b) { return hash_backend(b); }, backend);
