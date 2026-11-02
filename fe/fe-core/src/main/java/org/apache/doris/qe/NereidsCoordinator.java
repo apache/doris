@@ -442,6 +442,13 @@ public class NereidsCoordinator extends Coordinator {
     }
 
     @Override
+    public void stopSplitGeneration() {
+        for (ScanNode scanNode : coordinatorContext.scanNodes) {
+            scanNode.stopSplitGeneration();
+        }
+    }
+
+    @Override
     public void close() {
         // NOTE: all close method should be no exception
         if (coordinatorContext.getQueryQueue().isPresent() && coordinatorContext.getQueueToken().isPresent()) {

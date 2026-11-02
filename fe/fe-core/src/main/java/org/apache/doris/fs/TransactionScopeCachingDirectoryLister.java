@@ -70,16 +70,25 @@ public class TransactionScopeCachingDirectoryLister implements DirectoryLister {
     @Override
     public RemoteIterator<RemoteFile> listFiles(FileSystem fs, boolean recursive, TableIf table, String location)
             throws FileSystemIOException {
-        return listInternal(fs, recursive, table, new TransactionDirectoryListingCacheKey(transactionId, location));
+        return listFiles(fs, recursive, table, location, () -> {});
+    }
+
+    @Override
+    public RemoteIterator<RemoteFile> listFiles(FileSystem fs, boolean recursive, TableIf table, String location,
+            Runnable checkCancelled) throws FileSystemIOException {
+        checkCancelled.run();
+        return listInternal(fs, recursive, table, new TransactionDirectoryListingCacheKey(transactionId, location),
+                checkCancelled);
     }
 
     private RemoteIterator<RemoteFile> listInternal(FileSystem fs, boolean recursive, TableIf table,
-                                                    TransactionDirectoryListingCacheKey cacheKey)
+            TransactionDirectoryListingCacheKey cacheKey, Runnable checkCancelled)
             throws FileSystemIOException {
         FetchingValueHolder cachedValueHolder;
         try {
             cachedValueHolder = cache.get(cacheKey,
-                    () -> new FetchingValueHolder(createListingRemoteIterator(fs, recursive, table, cacheKey)));
+                    () -> new FetchingValueHolder(delegate.listFiles(
+                            fs, recursive, table, cacheKey.getPath(), checkCancelled)));
         } catch (ExecutionException | UncheckedExecutionException e) {
             Throwable throwable = e.getCause();
             Throwables.throwIfInstanceOf(throwable, FileSystemIOException.class);
@@ -93,14 +102,6 @@ public class TransactionScopeCachingDirectoryLister implements DirectoryLister {
 
         return cachingRemoteIterator(cachedValueHolder, cacheKey);
     }
-
-    private RemoteIterator<RemoteFile> createListingRemoteIterator(FileSystem fs, boolean recursive,
-                                                                   TableIf table,
-                                                                   TransactionDirectoryListingCacheKey cacheKey)
-            throws FileSystemIOException {
-        return delegate.listFiles(fs, recursive, table, cacheKey.getPath());
-    }
-
 
     private RemoteIterator<RemoteFile> cachingRemoteIterator(FetchingValueHolder cachedValueHolder,
                                                              TransactionDirectoryListingCacheKey cacheKey) {

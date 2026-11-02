@@ -61,6 +61,7 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FileScanNode;
+import org.apache.doris.datasource.SplitAssignment;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.metric.MetricRepo;
@@ -164,6 +165,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -192,6 +194,8 @@ public class StmtExecutor {
 
     @Setter
     private volatile Coordinator coord = null;
+    private volatile QueryScanTaskScope scanTaskScope = new QueryScanTaskScope();
+    private final AtomicReference<Status> pendingCoordinatorCancelReason = new AtomicReference<>();
     // Arrow Flight SQL: when true, this query's coordinator is kept alive past GetFlightInfo and
     // is finalized later by ConnectContext (see #62259), so the eager close in executeAndSendResult
     // is skipped.
@@ -552,7 +556,8 @@ public class StmtExecutor {
                     // so we just handle these errors, and throw exception for other errors.
                     throw e;
                 }
-                if (this.coord != null && this.coord.isQueryCancelled()) {
+                if (pendingCoordinatorCancelReason.get() != null
+                        || (this.coord != null && this.coord.isQueryCancelled())) {
                     throw e;
                 }
                 disableCloudVersionCacheOnRetry = shouldDisableCloudVersionCacheOnRetry(e.getMessage());
@@ -606,6 +611,7 @@ public class StmtExecutor {
     }
 
     public void execute(TUniqueId queryId) throws Exception {
+        scanTaskScope = new QueryScanTaskScope();
         SessionVariable sessionVariable = context.getSessionVariable();
         context.setEffectiveCloudCluster(null);
         if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
@@ -634,6 +640,10 @@ public class StmtExecutor {
                 throw e;
             }
         } finally {
+            if (!deferredForArrowFlight) {
+                scanTaskScope.close();
+                QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
+            }
             // Preserve the effective per-query compute group before SET_VAR values are reverted.
             // Audit logging runs after this method returns and otherwise sees the session value.
             if (Config.isCloudMode()) {
@@ -1010,6 +1020,7 @@ public class StmtExecutor {
                 coord.close();
             }
         } finally {
+            scanTaskScope.close();
             finalizeQuery();
         }
     }
@@ -1060,7 +1071,8 @@ public class StmtExecutor {
                     throw e;
                 }
                 // If the previous try is timeout or cancelled, then do not need try again.
-                if (this.coord != null && (this.coord.isQueryCancelled() || this.coord.isTimeout())) {
+                if (pendingCoordinatorCancelReason.get() != null
+                        || (this.coord != null && (this.coord.isQueryCancelled() || this.coord.isTimeout()))) {
                     throw e;
                 }
                 LOG.warn("retry due to exception {}. retried {} times. is rpc error: {}, is user error: {}.",
@@ -1224,6 +1236,8 @@ public class StmtExecutor {
 
     // Because this is called by other thread
     public void cancel(Status cancelReason, boolean needWaitCancelComplete) {
+        pendingCoordinatorCancelReason.compareAndSet(null, cancelReason);
+        scanTaskScope.cancel(pendingCoordinatorCancelReason.get());
         if (masterOpExecutor != null) {
             try {
                 masterOpExecutor.cancel();
@@ -1248,6 +1262,20 @@ public class StmtExecutor {
             // Wait for the command to run or cancel completion
             insertOverwriteTableCommand.get().waitNotRunning();
         }
+    }
+
+    public void registerSplitAssignment(SplitAssignment assignment, Runnable unregister) {
+        QueryScanTaskScope scope = scanTaskScope;
+        scope.register(assignment, unregister);
+        QeProcessorImpl.INSTANCE.registerSplitTermination(context.queryId(), assignment.getTerminationFuture());
+        Status reason = pendingCoordinatorCancelReason.get();
+        if (reason != null) {
+            scope.cancel(reason);
+        }
+    }
+
+    public Status getPendingCancelReason() {
+        return pendingCoordinatorCancelReason.get();
     }
 
     public void cancel(Status cancelReason) {
@@ -1452,6 +1480,11 @@ public class StmtExecutor {
         }
 
         try {
+            Status cancelReason = pendingCoordinatorCancelReason.get();
+            if (cancelReason != null) {
+                coordBase.cancel(cancelReason);
+                throw new UserException(cancelReason.getErrorMsg());
+            }
             if (outFileClause != null) {
                 deleteExistingOutfileFilesInFe(outFileClause);
             }

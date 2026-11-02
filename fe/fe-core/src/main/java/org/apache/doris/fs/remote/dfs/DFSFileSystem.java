@@ -86,11 +86,21 @@ public class DFSFileSystem extends RemoteFileSystem {
 
     @Override
     public Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result) {
+        return listFiles(remotePath, recursive, result, () -> {});
+    }
+
+    @Override
+    public Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result, Runnable checkCancelled) {
+        checkCancelled.run();
         try {
             Path locatedPath = new Path(remotePath);
             org.apache.hadoop.fs.FileSystem fileSystem = nativeFileSystem(locatedPath);
             RemoteIterator<LocatedFileStatus> locatedFiles = getLocatedFiles(recursive, fileSystem, locatedPath);
-            while (locatedFiles.hasNext()) {
+            while (true) {
+                checkCancelled.run();
+                if (!locatedFiles.hasNext()) {
+                    break;
+                }
                 LocatedFileStatus fileStatus = locatedFiles.next();
                 RemoteFile location = new RemoteFile(
                         fileStatus.getPath(), fileStatus.isDirectory(), fileStatus.getLen(),

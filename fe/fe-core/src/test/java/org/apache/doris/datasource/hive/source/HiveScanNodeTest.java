@@ -24,6 +24,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.NameMapping;
+import org.apache.doris.datasource.SplitAssignment;
+import org.apache.doris.datasource.SplitScanContext;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.hive.HMSCachedClient;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
@@ -35,6 +37,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TFileFormatType;
@@ -200,10 +203,17 @@ public class HiveScanNodeTest {
             Mockito.when(catalog.bindBrokerName()).thenReturn("");
             HiveScanNode firstNode = createHiveScanNode(0, table);
             HiveScanNode secondNode = createHiveScanNode(1, table);
+            SplitScanContext scanContext = new SplitScanContext();
+            SplitAssignment assignment = Mockito.mock(SplitAssignment.class);
+            Mockito.when(assignment.getScanContext()).thenReturn(scanContext);
+            Field assignmentField = ScanNode.class.getDeclaredField("splitAssignment");
+            assignmentField.setAccessible(true);
+            assignmentField.set(firstNode, assignment);
+            assignmentField.set(secondNode, assignment);
             HiveExternalMetaCache cache = Mockito.mock(HiveExternalMetaCache.class);
             Mockito.when(cache.getFilesByPartitions(
-                    Mockito.anyList(), Mockito.anyBoolean(), Mockito.anyBoolean(),
-                    Mockito.isNull(), Mockito.eq(table))).thenReturn(Collections.emptyList());
+                    Mockito.anyList(), Mockito.anyBoolean(), Mockito.isNull(),
+                    Mockito.eq(table), Mockito.same(scanContext))).thenReturn(Collections.emptyList());
             List<HivePartition> partitions = Collections.singletonList(new HivePartition(
                     null, false, "parquet", "hdfs://warehouse/t/p=1",
                     Collections.singletonList("1"), Collections.emptyMap()));
@@ -212,8 +222,8 @@ public class HiveScanNodeTest {
             invokeGetFileSplitByPartitions(secondNode, cache, partitions, true);
 
             Mockito.verify(cache, Mockito.times(2)).getFilesByPartitions(
-                    Mockito.same(partitions), Mockito.anyBoolean(), Mockito.eq(false),
-                    Mockito.isNull(), Mockito.eq(table));
+                    Mockito.same(partitions), Mockito.anyBoolean(), Mockito.isNull(),
+                    Mockito.eq(table), Mockito.same(scanContext));
         } finally {
             statementContext.close();
             ConnectContext.remove();
@@ -369,14 +379,16 @@ public class HiveScanNodeTest {
 
             HiveExternalMetaCache cache = Mockito.mock(HiveExternalMetaCache.class);
             Mockito.when(cache.getFilesByTransaction(
-                    Collections.emptyList(), validWriteIds, true, null))
+                    Mockito.eq(Collections.emptyList()), Mockito.eq(validWriteIds), Mockito.eq(true),
+                    Mockito.isNull(), Mockito.any(Runnable.class)))
                     .thenReturn(Collections.emptyList());
 
             invokeGetFileSplitByPartitions(node, cache, Collections.emptyList());
             invokeGetFileSplitByPartitions(node, cache, Collections.emptyList());
 
             Mockito.verify(cache, Mockito.times(2)).getFilesByTransaction(
-                    Collections.emptyList(), validWriteIds, true, null);
+                    Mockito.eq(Collections.emptyList()), Mockito.eq(validWriteIds), Mockito.eq(true),
+                    Mockito.isNull(), Mockito.any(Runnable.class));
             Mockito.verifyNoMoreInteractions(cache);
         } finally {
             statementContext.close();

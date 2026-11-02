@@ -25,6 +25,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.profile.ProfileManager;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.datasource.SplitTaskCleanup;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -45,6 +46,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -53,6 +55,12 @@ public final class QeProcessorImpl implements QeProcessor {
 
     private static final Logger LOG = LogManager.getLogger(QeProcessorImpl.class);
     private Map<TUniqueId, QueryInfo> coordinatorMap;
+    private final Map<TUniqueId, CompletableFuture<Void>> splitTerminations = new ConcurrentHashMap<>();
+
+    @Override
+    public void registerSplitTermination(TUniqueId queryId, CompletableFuture<Void> termination) {
+        splitTerminations.merge(queryId, termination, CompletableFuture::allOf);
+    }
 
     private Map<TUniqueId, Integer> queryToInstancesNum;
     private Map<String, AtomicInteger> userToInstancesCount;
@@ -208,8 +216,21 @@ public final class QeProcessorImpl implements QeProcessor {
             }
         }
 
-        // commit hive tranaction if needed
-        Env.getCurrentHiveTransactionMgr().deregister(DebugUtil.printId(queryId));
+        CompletableFuture<Void> splits = splitTerminations.get(queryId);
+        if (splits == null) {
+            Env.getCurrentHiveTransactionMgr().deregister(DebugUtil.printId(queryId));
+            return;
+        }
+        // Keep the entry until actual termination: unregisterQuery can run more than once.
+        // Removing it earlier would let a repeated unregister release Hive ACID locks under a worker.
+        splits.thenRunAsync(() -> {
+            splitTerminations.remove(queryId, splits);
+            Env.getCurrentHiveTransactionMgr().deregister(DebugUtil.printId(queryId));
+        }, SplitTaskCleanup.executor()).whenComplete((ignored, failure) -> {
+            if (failure != null) {
+                LOG.warn("Failed to release read resources for query {}", DebugUtil.printId(queryId), failure);
+            }
+        });
     }
 
     @Override

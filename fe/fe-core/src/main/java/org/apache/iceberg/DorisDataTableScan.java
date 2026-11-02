@@ -17,8 +17,13 @@
 
 package org.apache.iceberg;
 
+import org.apache.iceberg.io.FileIO;
+
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.function.UnaryOperator;
 
 /** Keeps partition pruning aligned with the schema selected by the Doris relation. */
 public class DorisDataTableScan extends DataTableScan {
@@ -32,6 +37,33 @@ public class DorisDataTableScan extends DataTableScan {
         }
         DataTableScan dataScan = (DataTableScan) scan;
         return new DorisDataTableScan(dataScan.table(), dataScan.tableSchema(), dataScan.context());
+    }
+
+    /**
+     * Gives native local manifest planning a request-local FileIO, preserving the complete scan context.
+     * Custom tables/scans may implement different planning semantics and must keep their original behavior.
+     */
+    public static Optional<TableScan> withFileIO(TableScan scan, UnaryOperator<FileIO> wrapIO,
+            ExecutorService executor) {
+        if ((scan.getClass() != DataTableScan.class && scan.getClass() != DorisDataTableScan.class)
+                || scan.table().getClass() != BaseTable.class) {
+            return Optional.empty();
+        }
+        BaseTable table = (BaseTable) scan.table();
+        FileIO io = wrapIO.apply(table.io());
+        Table view = new BaseTable(table.operations(), table.name(), table.reporter()) {
+            @Override
+            public FileIO io() {
+                return io;
+            }
+        };
+        DataTableScan nativeScan = (DataTableScan) scan;
+        // schema() may be a projection excluding predicate columns. Keep the original binding schema too.
+        TableScan scoped = scan.getClass() == DorisDataTableScan.class
+                ? new DorisDataTableScan(view, nativeScan.tableSchema(), nativeScan.context())
+                : new DataTableScan(view, nativeScan.tableSchema(), nativeScan.context());
+        // An explicit planWith would override the SDK's plan-in-worker-pool=false setting.
+        return Optional.of(nativeScan.shouldPlanWithExecutor() ? scoped.planWith(executor) : scoped);
     }
 
     /** Rebinds snapshot specs by field ID to the full schema selected for the scan. */
