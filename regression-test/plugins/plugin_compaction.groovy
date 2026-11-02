@@ -69,7 +69,7 @@ Suite.metaClass.be_run_full_compaction_by_table_id = { String ip, String port, S
 logger.info("Added 'be_run_full_compaction' function to Suite")
 Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compaction_type, int timeout_seconds=300,
                                                 String[] ignored_errors=[], Collection tablet_ids=[],
-                                                String[] retryable_errors=[] ->
+                                                String[] retryable_errors=[], boolean require_success=false ->
     if (!(compaction_type in ["cumulative", "base", "full"])) {
         throw new IllegalArgumentException("invalid compaction type: ${compaction_type}, supported types: cumulative, base, full")
     }
@@ -89,6 +89,10 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
 
     def auto_compaction_disabled = sql("show create table ${table_name}")[0][1].contains('"disable_auto_compaction" = "true"')
     def is_time_series_compaction = sql("show create table ${table_name}")[0][1].contains('"compaction_policy" = "time_series"')
+
+    // Time-series compaction has no reliable success timestamp to verify in strict mode.
+    assert !require_success || !is_time_series_compaction:
+            "require_success is not supported for time-series compaction"
 
     // 1. cache compaction status
     def be_tablet_compaction_status = [:]
@@ -155,6 +159,11 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
             }
             break
         }
+    }
+
+    if (require_success) {
+        assert !triggered_tablets.isEmpty() && triggered_tablets.size() == tablets.size():
+                "compaction was not triggered for every requested tablet: ${table_name}"
     }
 
     // 3. wait all compaction finished
@@ -224,6 +233,10 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                 if (running) {
                     logger.info("compaction is still running, be host: ${be_host}, tablet id: ${tablet.TabletId}, run status: ${compactionStatus.run_status}, old status: ${oldStatus}, new status: ${tabletStatus}")
                     return false
+                }
+                if (require_success) {
+                    assert !successTimeUnchanged || completedByBaseCompactionAfterDeleteVersion:
+                            "compaction finished without success: ${tabletStatus}"
                 }
             } else {
                 // Time series compaction sometimes doesn't update compaction success time,
