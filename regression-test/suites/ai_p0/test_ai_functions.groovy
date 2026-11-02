@@ -80,21 +80,8 @@ suite("test_ai_functions") {
         exception "AI_AGG must accept literal for the task."
     }
 
-    // Test for normal call
-    // test the default resource
-    try {
-        sql """set query_timeout=1;"""
-        sql """set default_ai_resource='${resourceName}';"""
-        test {
-            sql """${sentiment_query}"""
-            exception "timeout"
-        }
-    } finally {
-        sql """UNSET VARIABLE query_timeout;"""
-        sql """UNSET VARIABLE default_ai_resource;"""
-    }
-
-    def test_query_timeout_exception = { sql_text ->
+    // Dummy API keys may produce an HTTP error before the query timeout.
+    def test_ai_request_exception = { sql_text ->
         try {
             sql """set query_timeout=1;"""
             sql """${sql_text}"""
@@ -109,17 +96,25 @@ suite("test_ai_functions") {
         }
     }
 
-    test_query_timeout_exception("SELECT AI_TRANSLATE('${resourceName}', text, 'zh-CN') FROM ${test_table_for_ai_functions};")
-    test_query_timeout_exception("SELECT AI_CLASSIFY('${resourceName}', text, label) FROM ${test_table_for_ai_functions};")
-    test_query_timeout_exception("SELECT AI_EXTRACT('${resourceName}', 'this is a test', ['task']) FROM ${test_table_for_ai_functions};")
-    test_query_timeout_exception("SELECT AI_FIXGRAMMAR('${resourceName}', text) FROM ${test_table_for_ai_functions};")
-    test_query_timeout_exception("SELECT AI_GENERATE('${resourceName}', 'generate something');")
-    test_query_timeout_exception("SELECT AI_SUMMARIZE('${resourceName}', 'test,test,test,test')")
-    test_query_timeout_exception("SELECT AI_SENTIMENT('${resourceName}', 'this is a test');")
-    test_query_timeout_exception("SELECT AI_MASK('${resourceName}', 'this is a test', label) FROM ${test_table_for_ai_functions};")
-    test_query_timeout_exception("SELECT AI_FILTER('${resourceName}', text) FROM ${test_table_for_ai_functions};")
-    test_query_timeout_exception("SELECT AI_SIMILARITY('${resourceName}', 'this is a similarity test', text) FROM ${test_table_for_ai_functions};")
-    test_query_timeout_exception("SELECT AI_AGG('${resourceName}', text, 'this is a test') FROM ${test_table_for_ai_functions};")
+    // Exercise the default-resource form with the same error expectations.
+    try {
+        sql """set default_ai_resource='${resourceName}';"""
+        test_ai_request_exception(sentiment_query)
+    } finally {
+        sql """UNSET VARIABLE default_ai_resource;"""
+    }
+
+    test_ai_request_exception("SELECT AI_TRANSLATE('${resourceName}', text, 'zh-CN') FROM ${test_table_for_ai_functions};")
+    test_ai_request_exception("SELECT AI_CLASSIFY('${resourceName}', text, label) FROM ${test_table_for_ai_functions};")
+    test_ai_request_exception("SELECT AI_EXTRACT('${resourceName}', 'this is a test', ['task']) FROM ${test_table_for_ai_functions};")
+    test_ai_request_exception("SELECT AI_FIXGRAMMAR('${resourceName}', text) FROM ${test_table_for_ai_functions};")
+    test_ai_request_exception("SELECT AI_GENERATE('${resourceName}', 'generate something');")
+    test_ai_request_exception("SELECT AI_SUMMARIZE('${resourceName}', 'test,test,test,test')")
+    test_ai_request_exception("SELECT AI_SENTIMENT('${resourceName}', 'this is a test');")
+    test_ai_request_exception("SELECT AI_MASK('${resourceName}', 'this is a test', label) FROM ${test_table_for_ai_functions};")
+    test_ai_request_exception("SELECT AI_FILTER('${resourceName}', text) FROM ${test_table_for_ai_functions};")
+    test_ai_request_exception("SELECT AI_SIMILARITY('${resourceName}', 'this is a similarity test', text) FROM ${test_table_for_ai_functions};")
+    test_ai_request_exception("SELECT AI_AGG('${resourceName}', text, 'this is a test') FROM ${test_table_for_ai_functions};")
 
     String embedResourceName = "embedResourceName"
     try_sql("""DROP RESOURCE IF EXISTS '${embedResourceName}'""")
@@ -136,7 +131,7 @@ suite("test_ai_functions") {
     res = sql """SHOW RESOURCES WHERE NAME = '${embedResourceName}'"""
     assertTrue(res.size() > 0)
 
-    test_query_timeout_exception("SELECT EMBED('${embedResourceName}', text) FROM ${test_table_for_ai_functions};")
+    test_ai_request_exception("SELECT EMBED('${embedResourceName}', text) FROM ${test_table_for_ai_functions};")
 
     try_sql("""DROP TABLE IF EXISTS ${test_table_for_ai_functions}""")
     try_sql("""DROP RESOURCE IF EXISTS '${resourceName}'""")

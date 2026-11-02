@@ -26,6 +26,7 @@
 #include "core/data_type/primitive_type.h"
 #include "exprs/function/ai/ai_functions.h"
 #include "runtime/runtime_state.h"
+#include "util/defer_op.h"
 #include "util/jsonb_utils.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
@@ -77,6 +78,8 @@ public:
             VectorizedUtils::update_null_map(result_null_map->get_data(),
                                              nullable.get_null_map_data(), is_const);
         }
+
+        record_input(context, input_rows_count, result_null_map);
 
         if (result_null_map &&
             !simd::contain_zero(result_null_map->get_data().data(), input_rows_count)) {
@@ -259,6 +262,14 @@ private:
         RETURN_IF_ERROR(
                 this->send_request_to_llm(request_body, response, config, adapter, context));
 
+        const auto& statistics = get_executor(context)->statistics();
+        const auto parse_start = statistics ? MonotonicNanos() : 0;
+        bool parse_failed = true;
+        Defer record_parse([&] {
+            if (statistics) {
+                statistics->record_parse(MonotonicNanos() - parse_start, parse_failed);
+            }
+        });
         RETURN_IF_ERROR(adapter->parse_embedding_response(response, results));
         if (results.empty()) {
             return Status::InternalError("AI returned empty result");
@@ -268,6 +279,7 @@ private:
                     "AI embedding returned {} results, but {} inputs were sent", results.size(),
                     expected_size);
         }
+        parse_failed = false;
         return Status::OK();
     }
 
