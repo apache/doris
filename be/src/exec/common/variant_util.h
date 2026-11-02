@@ -175,6 +175,13 @@ Status update_least_schema_internal(const std::map<PathInData, DataTypes>& subco
                                     const std::map<std::string, TabletColumnPtr>& typed_columns,
                                     std::set<PathInData>* path_set = nullptr);
 
+// An ordinary template VARIANT root: it has templates and none of the DOC, nested-group or
+// typed-paths-to-sparse layouts. This reads the column flags only. Compaction planning must also
+// treat a root with old-rowset nested-group evidence (collect_nested_group_compaction_root_uids)
+// as nested-group, because that history routes through the NG writer; other callers (write-time
+// stats, the carrier writer, write-schema resolution) see only C8's output and the flags suffice.
+bool is_ordinary_template_variant(const TabletColumn& column);
+
 bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
                               const std::string& path,
                               TabletSchema::SubColumnInfo* sub_column_info);
@@ -220,7 +227,8 @@ public:
     static void get_compaction_subcolumns_from_subpaths(
             VariantCompactionPaths& paths_set_info, const TabletColumnPtr parent_column,
             const TabletSchemaSPtr& target, const PathToDataTypes& path_to_data_types,
-            const std::unordered_set<std::string>& sparse_paths, TabletSchemaSPtr& output_schema);
+            const std::unordered_set<std::string>& sparse_paths, TabletSchemaSPtr& output_schema,
+            const PathSet& carrier_paths = {});
 
     static void get_compaction_subcolumns_from_data_types(VariantCompactionPaths& paths_set_info,
                                                           const TabletColumnPtr parent_column,

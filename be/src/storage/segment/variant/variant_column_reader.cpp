@@ -1160,6 +1160,8 @@ Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
     return Status::OK();
 }
 
+// collect_sparse_keys (variant_util.cpp) repeats this root/children meta traversal to read sparse
+// map keys during compaction planning; keep both in sync.
 Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAccessor* accessor,
                                  const std::shared_ptr<SegmentFooterPB>& footer, int32_t column_uid,
                                  uint64_t num_rows, io::FileReaderSPtr file_reader,

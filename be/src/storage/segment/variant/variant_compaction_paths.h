@@ -38,6 +38,10 @@ struct VariantCompactionPaths {
     PathSet sub_path_set;
     // paths left to the sparse column
     PathSet sparse_path_set;
+    // Template-owned paths with old dynamic/sparse cells (pre-ADD history or copied partial
+    // update values). Each is also in sub_path_set and is written as a pinned untyped VARIANT
+    // slot instead of the template type. Planned once from segment typedness.
+    PathSet carrier_path_set;
 };
 
 // Parent variant column unique id -> that column's layout. Shared, and read-only once built: a
