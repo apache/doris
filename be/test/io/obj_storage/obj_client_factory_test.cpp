@@ -80,7 +80,9 @@ TS3StorageParam make_azure_param(std::string endpoint) {
 }
 
 ObjClientConfig resolve(const TS3StorageParam& param) {
-    return ObjStorageConfigResolver::from_storage_param(param).client;
+    auto storage = ObjStorageConfigResolver::from_storage_param(param);
+    EXPECT_TRUE(storage.has_value()) << storage.error();
+    return std::move(storage).value().client;
 }
 
 } // namespace
@@ -125,7 +127,7 @@ TEST_F(ObjClientFactoryTest, ResolvesS3ParamIntoS3Backend) {
     param.__set_conn_timeout_ms(30);
     param.__set_root_path("root");
 
-    auto storage = ObjStorageConfigResolver::from_storage_param(param);
+    auto storage = TEST_TRY(ObjStorageConfigResolver::from_storage_param(param));
     EXPECT_EQ(storage.bucket, "bucket");
     EXPECT_EQ(storage.prefix, "root");
     const auto& config = storage.client;
@@ -165,6 +167,42 @@ TEST_F(ObjClientFactoryTest, ResolvesAzureParamIntoAzureBackend) {
     EXPECT_EQ(std::get<AzureSharedKeyConfig>(azure.auth).account_key, param.sk);
     EXPECT_EQ(config.usage, ClientUsage::EXTERNAL_ACCESS);
     EXPECT_EQ(config.provider(), ObjStorageProvider::AZURE);
+}
+
+TEST_F(ObjClientFactoryTest, RejectsNativeCredentialOnAzureFromMetadataSources) {
+    // Only the S3 backend has a field for a provider-native credential, and a resource or a
+    // vault can still arrive with one next to provider AZURE. It is an invalid configuration
+    // like any other, not a broken invariant.
+    TGcpCredential gcp_credential;
+    gcp_credential.__set_credential_provider_type(TGcpCredentialProviderType::DEFAULT);
+    TCredential credential;
+    credential.__set_gcp_credential(gcp_credential);
+    auto param = make_azure_param("credential-azure.example.com");
+    param.__set_credential(credential);
+    auto from_param = ObjStorageConfigResolver::from_storage_param(param);
+    ASSERT_FALSE(from_param.has_value());
+    EXPECT_TRUE(from_param.error().is<ErrorCode::INVALID_ARGUMENT>()) << from_param.error();
+    EXPECT_NE(from_param.error().to_string().find("provider=GCP"), std::string::npos)
+            << from_param.error();
+
+    // The same credential is accepted on the provider it belongs to.
+    param.__set_provider(TObjStorageType::GCP);
+    EXPECT_TRUE(ObjStorageConfigResolver::from_storage_param(param).has_value());
+
+    cloud::ObjectStoreInfoPB vault;
+    vault.set_endpoint("credential-vault.example.com");
+    vault.set_region("r");
+    vault.set_ak("account");
+    vault.set_sk("vault-sk");
+    vault.set_bucket("container");
+    vault.set_provider(cloud::ObjectStoreInfoPB_Provider_AZURE);
+    vault.mutable_credential()->mutable_gcp_credential()->set_credential_provider_type(
+            cloud::GcpCredentialPB_CredentialProviderType_DEFAULT);
+    auto from_vault = ObjStorageConfigResolver::from_object_store_info(vault);
+    ASSERT_FALSE(from_vault.has_value());
+    EXPECT_TRUE(from_vault.error().is<ErrorCode::INVALID_ARGUMENT>()) << from_vault.error();
+    EXPECT_NE(from_vault.error().to_string().find("provider=GCP"), std::string::npos)
+            << from_vault.error();
 }
 
 TEST_F(ObjClientFactoryTest, IdentityOnlyCoversFieldsOfTheSelectedBackend) {
@@ -462,7 +500,7 @@ TEST_F(ObjClientFactoryTest, ResolvesPropertiesAndVaults) {
     vault.set_bucket("vault-bucket");
     vault.set_prefix("vault-prefix");
     vault.set_provider(cloud::ObjectStoreInfoPB_Provider_COS);
-    auto from_vault = ObjStorageConfigResolver::from_object_store_info(vault);
+    auto from_vault = TEST_TRY(ObjStorageConfigResolver::from_object_store_info(vault));
     EXPECT_EQ(from_vault.bucket, "vault-bucket");
     EXPECT_EQ(from_vault.prefix, "vault-prefix");
     // A storage vault is a Doris internal bucket.

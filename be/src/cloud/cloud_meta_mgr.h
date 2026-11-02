@@ -53,9 +53,11 @@ class TabletIndexPB;
 class HostLevelMSRpcRateLimiters;
 class MSBackpressureHandler;
 
-using StorageVaultInfos =
-        std::vector<std::tuple<std::string, std::variant<io::ObjStorageConfig, HdfsVaultInfo>,
-                               StorageVaultPB_PathFormat>>;
+// An object storage vault whose configuration is rejected keeps its place with the error: in
+// non-vault mode the last entry is the latest storage, so dropping it would select an older one.
+using StorageVaultInfos = std::vector<
+        std::tuple<std::string, std::variant<Result<io::ObjStorageConfig>, HdfsVaultInfo>,
+                   StorageVaultPB_PathFormat>>;
 
 // run tasks in bthread with concurrency and wait until all tasks done
 // it stops running tasks if there are any tasks return !ok, leaving some tasks untouched
