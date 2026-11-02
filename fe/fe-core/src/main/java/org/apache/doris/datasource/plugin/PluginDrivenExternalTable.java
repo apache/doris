@@ -140,7 +140,10 @@ public class PluginDrivenExternalTable extends ExternalTable {
             }
         });
         String dbName = db != null ? db.getRemoteName() : "";
-        Optional<ConnectorTableHandle> handle = metadata.getTableHandle(session, dbName, getRemoteName());
+        // Some catalogs reject table requests for views with non-404 errors. Classify views before
+        // probing the table endpoint so snapshot loading can continue to view expansion.
+        Optional<ConnectorTableHandle> handle = supportsView() && isView()
+                ? Optional.empty() : metadata.getTableHandle(session, dbName, getRemoteName());
         // A view has no table handle. Check live view existence before treating an empty handle as a
         // dropped table; the cached isView flag can outlive a remote view deletion.
         if (!handle.isPresent() && !metadata.viewExists(session, dbName, getRemoteName())) {
