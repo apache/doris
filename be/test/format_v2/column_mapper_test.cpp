@@ -707,12 +707,10 @@ void expect_localized_whole_struct_filter(const FileScanRequest& request) {
     EXPECT_EQ(request.predicate_columns[0].column_id(), LocalColumnId(7));
 }
 
-void check_whole_struct_filter(const ColumnDefinition& table_struct,
-                               const ColumnDefinition& file_struct, const VExprSPtr& predicate,
-                               bool runtime_filter, bool should_localize) {
+void check_struct_filter(const ColumnDefinition& table_struct, const ColumnDefinition& file_struct,
+                         const VExprSPtr& predicate, bool runtime_filter, bool should_localize) {
     TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
     ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
-    EXPECT_EQ(mapper.mappings()[0].child_mappings[0].file_local_id.has_value(), should_localize);
     auto root = runtime_filter ? runtime_filter_wrapper_expr(predicate) : predicate;
     TableFilter filter {.conjunct = VExprContext::create_shared(std::move(root)),
                         .global_indices = {GlobalIndex(0)}};
@@ -2222,8 +2220,8 @@ TEST(ColumnMapperLocalizeFiltersTest, PartiallyMappedWholeStructShortcutsStayAbo
             for (const bool runtime_filter : {false, true}) {
                 SCOPED_TRACE(::testing::Message() << name << " default=" << has_default
                                                   << " runtime_filter=" << runtime_filter);
-                check_whole_struct_filter(table_struct, file_struct, predicate, runtime_filter,
-                                          /*should_localize=*/false);
+                check_struct_filter(table_struct, file_struct, predicate, runtime_filter,
+                                    /*should_localize=*/false);
             }
         }
     }
@@ -2237,8 +2235,8 @@ TEST(ColumnMapperLocalizeFiltersTest, FullyMappedWholeStructShortcutsRemainLocal
          whole_struct_filter_exprs(table_struct.type, Field::create_field<TYPE_INT>(0))) {
         for (const bool runtime_filter : {false, true}) {
             SCOPED_TRACE(::testing::Message() << name << " runtime_filter=" << runtime_filter);
-            check_whole_struct_filter(table_struct, file_struct, predicate, runtime_filter,
-                                      /*should_localize=*/true);
+            check_struct_filter(table_struct, file_struct, predicate, runtime_filter,
+                                /*should_localize=*/true);
         }
     }
 }
@@ -2261,6 +2259,94 @@ TEST(ColumnMapperLocalizeFiltersTest, MappedStructLeafWithMissingSiblingRemainsL
 
     EXPECT_EQ(request.conjuncts.size(), 1);
     EXPECT_TRUE(request.residual_predicate_columns.empty());
+}
+
+TEST(ColumnMapperLocalizeFiltersTest, PartiallyMappedNestedStructResultStaysAboveFileReader) {
+    for (const bool has_default : {true, false}) {
+        auto inner = field_id_col("inner", 3, make_nullable(i32()));
+        if (has_default) {
+            inner.default_expr = VExprContext::create_shared(
+                    literal(inner.type, Field::create_field<TYPE_INT>(0)));
+        }
+        const auto nested = struct_col("a", 2, {inner});
+        const auto table_struct = struct_col("s", 1, {nested});
+        const auto file_nested = struct_col("a", 2, {name_col("inner", inner.type, 0)}, 0);
+        const auto file_struct = struct_col("s", 1, {file_nested}, 7);
+        for (const bool use_element_at : {false, true}) {
+            for (const bool same_type_cast : {false, true}) {
+                for (const bool runtime_filter : {false, true}) {
+                    SCOPED_TRACE(::testing::Message()
+                                 << "default=" << has_default << " element_at=" << use_element_at
+                                 << " same_type_cast=" << same_type_cast
+                                 << " runtime_filter=" << runtime_filter);
+                    auto slot = table_slot(11, 0, table_struct.type, "s");
+                    auto selected = use_element_at ? element_at(slot, nested.type, "a")
+                                                   : struct_element(slot, nested.type, "a");
+                    if (same_type_cast) {
+                        selected = cast_expr(selected, nested.type);
+                    }
+                    auto predicate =
+                            like_expr(cast_expr(selected, str()), has_default ? "%0%" : "%null%");
+                    check_struct_filter(table_struct, file_struct, predicate, runtime_filter,
+                                        /*should_localize=*/false);
+                }
+            }
+        }
+    }
+}
+
+TEST(ColumnMapperLocalizeFiltersTest, FullyMappedNestedStructResultRemainsLocalized) {
+    const auto inner = field_id_col("inner", 3, make_nullable(i32()));
+    const auto nested = struct_col("a", 2, {inner});
+    const auto table_struct = struct_col("s", 1, {nested});
+    const auto file_nested = struct_col("a", 2, {field_id_col("inner", 3, inner.type, 0)}, 0);
+    const auto file_struct = struct_col("s", 1, {file_nested}, 7);
+    for (const bool use_element_at : {false, true}) {
+        for (const bool same_type_cast : {false, true}) {
+            for (const bool runtime_filter : {false, true}) {
+                SCOPED_TRACE(::testing::Message() << "element_at=" << use_element_at
+                                                  << " same_type_cast=" << same_type_cast
+                                                  << " runtime_filter=" << runtime_filter);
+                auto slot = table_slot(11, 0, table_struct.type, "s");
+                auto selected = use_element_at ? element_at(slot, nested.type, "a")
+                                               : struct_element(slot, nested.type, "a");
+                if (same_type_cast) {
+                    selected = cast_expr(selected, nested.type);
+                }
+                auto predicate = like_expr(cast_expr(selected, str()), "%0%");
+                check_struct_filter(table_struct, file_struct, predicate, runtime_filter,
+                                    /*should_localize=*/true);
+            }
+        }
+    }
+}
+
+TEST(ColumnMapperLocalizeFiltersTest, MappedNestedStructLeafWithMissingSiblingRemainsLocalized) {
+    auto missing = field_id_col("missing", 4, i32());
+    missing.default_expr =
+            VExprContext::create_shared(literal(i32(), Field::create_field<TYPE_INT>(0)));
+    const auto nested = struct_col("a", 2, {field_id_col("kept", 3, i32()), missing});
+    const auto table_struct = struct_col("s", 1, {nested});
+    const auto file_nested = struct_col("a", 2, {field_id_col("kept", 3, i32(), 0)}, 0);
+    const auto file_struct = struct_col("s", 1, {file_nested}, 7);
+    for (const bool runtime_filter : {false, true}) {
+        auto selected = element_at(table_slot(11, 0, table_struct.type, "s"), nested.type, "a");
+        auto leaf = element_at(selected, i32(), "kept");
+        check_struct_filter(table_struct, file_struct, int_gt(leaf, 0), runtime_filter,
+                            /*should_localize=*/true);
+    }
+}
+
+TEST(ColumnMapperLocalizeFiltersTest, SchemaOnlyNestedStructResultRemainsLocalized) {
+    const auto inner = field_id_col("inner", 3, make_nullable(i32()));
+    const auto nested = struct_col("a", 2, {inner});
+    auto table_struct = struct_col("s", 1, {nested});
+    table_struct.children.clear();
+    const auto file_nested = struct_col("a", 2, {field_id_col("inner", 3, inner.type, 0)}, 0);
+    const auto file_struct = struct_col("s", 1, {file_nested}, 7);
+    auto selected = element_at(table_slot(11, 0, table_struct.type, "s"), nested.type, "a");
+    check_struct_filter(table_struct, file_struct, like_expr(cast_expr(selected, str()), "%0%"),
+                        /*runtime_filter=*/false, /*should_localize=*/true);
 }
 
 TEST(ColumnMapperLocalizeFiltersTest, VarbinaryFilterStaysAboveFileReader) {

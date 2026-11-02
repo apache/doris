@@ -976,6 +976,22 @@ static const ColumnMapping* find_projected_child_mapping(const ColumnMapping& ma
     return child_it == mapping.child_mappings.end() ? nullptr : &*child_it;
 }
 
+static bool nested_result_has_unmapped_child(const ColumnMapping& mapping,
+                                             const LocalColumnIndex& path) {
+    if (path.children.empty()) {
+        return mapping_slot_has_unmapped_child(mapping);
+    }
+    DORIS_CHECK(path.children.size() == 1);
+    const auto& child_path = path.children.front();
+    const auto* child = find_projected_child_mapping(mapping, child_path.local_id());
+    if (child == nullptr) {
+        // Schema-only descriptors can resolve a path without child mappings. They carry no
+        // missing-child metadata; the existing type/nullability checks still apply to that path.
+        return false;
+    }
+    return nested_result_has_unmapped_child(*child, child_path);
+}
+
 static bool projected_mapping_allows_file_filtering(const ColumnMapping& mapping,
                                                     const LocalColumnIndex* projection) {
     if (!can_filter_before_table_nullability_alignment(mapping.file_type, mapping.table_type)) {
@@ -1060,6 +1076,13 @@ static bool rewrite_struct_element_path_to_file_expr(
     // required or narrowing sibling.
     if (!projected_mapping_allows_file_filtering(*rewrite_it->second.root_mapping,
                                                  &rewrite_it->second.scan_projection)) {
+        return false;
+    }
+    if (nested_result_has_unmapped_child(*rewrite_it->second.root_mapping,
+                                         resolved.file_projection)) {
+        // A selected complex value must include its default/NULL-filled descendants before any
+        // wrapper consumes it. Missing siblings outside the selected result do not affect a mapped
+        // scalar leaf, so check the result subtree rather than the whole root.
         return false;
     }
     for (size_t idx = 0; idx < struct_element_chain.size(); ++idx) {
