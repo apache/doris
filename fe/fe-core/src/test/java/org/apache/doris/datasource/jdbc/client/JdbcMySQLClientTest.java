@@ -38,6 +38,11 @@ public class JdbcMySQLClientTest {
         field.setDataTypeName(Optional.of("VECTOR"));
         for (int jdbcType : new int[] {Types.OTHER, Types.LONGVARBINARY}) {
             field.setDataType(jdbcType);
+            Assertions.assertEquals(Type.UNSUPPORTED, client.jdbcTypeToDoris(field));
+        }
+        client.enableVectorMapping();
+        for (int jdbcType : new int[] {Types.OTHER, Types.LONGVARBINARY}) {
+            field.setDataType(jdbcType);
             Assertions.assertEquals(ArrayType.create(Type.FLOAT, true), client.jdbcTypeToDoris(field));
         }
         field.setDataTypeName(Optional.of("UNKNOWN"));

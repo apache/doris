@@ -28,6 +28,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
+import org.apache.doris.datasource.jdbc.client.JdbcMySQLClient;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.exception.JobException;
@@ -80,16 +81,21 @@ public class StreamingJobUtilsTest {
     public void testMetadataJdbcUrlDoesNotChangeSourceProperties(
             DataSourceType sourceType, String sourceUrl, String metadataUrl) {
         Map<String, String> properties = Map.of(DataSourceConfigKeys.JDBC_URL, sourceUrl);
+        JdbcClient expectedClient = sourceType == DataSourceType.MYSQL
+                ? Mockito.mock(JdbcMySQLClient.class) : jdbcClient;
         try (MockedStatic<JdbcClient> factory = Mockito.mockStatic(JdbcClient.class)) {
             factory.when(() -> JdbcClient.createJdbcClient(ArgumentMatchers.any(JdbcClientConfig.class)))
                     .thenAnswer(invocation -> {
                         JdbcClientConfig config = invocation.getArgument(0);
                         Assertions.assertEquals(metadataUrl, config.getJdbcUrl());
-                        return jdbcClient;
+                        return expectedClient;
                     });
 
-            Assertions.assertSame(jdbcClient, StreamingJobUtils.getJdbcClient(sourceType, properties));
+            Assertions.assertSame(expectedClient, StreamingJobUtils.getJdbcClient(sourceType, properties));
             Assertions.assertEquals(sourceUrl, properties.get(DataSourceConfigKeys.JDBC_URL));
+            if (sourceType == DataSourceType.MYSQL) {
+                Mockito.verify((JdbcMySQLClient) expectedClient).enableVectorMapping();
+            }
         }
     }
 

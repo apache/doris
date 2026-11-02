@@ -37,6 +37,7 @@ import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
+import org.apache.doris.datasource.jdbc.client.JdbcMySQLClient;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 import org.apache.doris.job.common.DataSourceType;
@@ -279,7 +280,11 @@ public class StreamingJobUtils {
             jdbcUrl = StreamingJdbcUrlNormalizer.appendDefaultParam(jdbcUrl, "useInformationSchema", "true");
         }
         config.setJdbcUrl(jdbcUrl);
-        return JdbcClient.createJdbcClient(config);
+        JdbcClient jdbcClient = JdbcClient.createJdbcClient(config);
+        if (sourceType == DataSourceType.MYSQL) {
+            ((JdbcMySQLClient) jdbcClient).enableVectorMapping();
+        }
+        return jdbcClient;
     }
 
     public static Backend selectBackend(String cloudCluster) throws JobException {
