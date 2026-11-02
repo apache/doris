@@ -144,8 +144,6 @@ public:
     // return type name , such as "BOOL", "BIGINT", "ARRAY<DATE>"
     virtual std::string get_name() const = 0;
 
-    // Includes Nullable(JSONB): complex SQL text must preserve JSON quotes and distinguish nulls.
-    virtual bool is_jsonb() const { return false; }
     // Text serialization/deserialization of data types depend on some settings witch we define
     // in formatOptions.
     struct FormatOptions {
@@ -341,6 +339,14 @@ public:
                                            const FormatOptions& options) const {
         return from_string(str, column, options);
     }
+
+    // Parse a complete child token from ARRAY/MAP/STRUCT text. Scalar parsers normally
+    // receive unquoted text; types whose syntax owns the quotes override this entry point.
+    virtual Status from_string_as_nested(StringRef& str, IColumn& column,
+                                         const FormatOptions& options, bool is_strict_mode) const;
+
+    // Nullable uses the same marker when reading and writing a child SQL NULL.
+    virtual StringRef get_nested_null_format() const { return {"null", 4}; }
 
     // Override functions with _batch suffix only when performance is critical
     // Only used for basic data types, such as Ip, Date, Number, etc.

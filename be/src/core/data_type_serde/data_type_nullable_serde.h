@@ -36,7 +36,8 @@ public:
 
     std::string get_name() const override { return "Nullable(" + nested_serde->get_name() + ")"; }
 
-    bool is_jsonb() const override { return nested_serde->is_jsonb(); }
+    Status from_string_as_nested(StringRef& str, IColumn& column, const FormatOptions& options,
+                                 bool is_strict_mode) const override;
 
     Status from_string(StringRef& str, IColumn& column,
                        const FormatOptions& options) const override;
