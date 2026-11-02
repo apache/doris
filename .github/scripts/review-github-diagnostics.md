@@ -15,6 +15,7 @@ under REVIEW_GITHUB_DIAGNOSTICS_DIR. Records include the command exit status or
 timeout, the last HTTP method/path/status, GitHub request ID, rate-limit and
 retry headers, gh version, and bounded response/stdout/stderr excerpts. A
 successful gh exit followed by a Python JSON decode error is also recorded.
+GraphQL errors returned with HTTP 200 are recorded as failures as well.
 A transport failure without a response has status: null; it is not inferred
 to be an HTTP error.
 
@@ -46,3 +47,38 @@ RUN_GH_HTTP_TESTS=1 python3 -m unittest discover -s .github/scripts -p 'test_*.p
 The opt-in HTTP test uses real gh only against a loopback server, with fake
 tokens and a temporary config; it never sends a request to GitHub. Linux-only
 process-supervision tests require a Linux host.
+
+## Staged final review submission
+
+When a review has inline findings, submit_review.py creates one PENDING review,
+adds each finding with a separate addPullRequestReviewThread mutation, verifies
+the full draft comment set, then submits the review once. This avoids asking
+the bulk REST create-review endpoint to resolve all targeted file diffs in one
+request. The input still uses path/position/body; line and side are derived
+from the authoritative local pr.diff before any write. A summary-only review
+keeps the direct REST submission path.
+
+The invocation marker, frozen head/base guards, exclusive review-submission.json
+intent and complete final readback remain required. A pending review, partial
+comment set or local journal never proves delivery. No write is automatically
+retried. A lost final-submit response may be recovered by exact readback of the
+already submitted review, without another submission event.
+
+failed-code-review-* now also includes review-draft.json: the current stage,
+owned review ID, confirmed thread IDs and current finding index/location. This
+is diagnostic progress, not a resume instruction. Before publication, an error
+triggers best-effort deletion only of the uniquely identified pending draft
+with this invocation's exact body, bot author and head. Foreign or modified
+drafts and submitted reviews are never deleted.
+
+An ambiguous publish attempt is not deleted or repeated. If it remains PENDING,
+or cleanup cannot finish because of an API outage, exhausted budget or process
+termination, inspect the journal and GitHub state before manually clearing the
+owned draft and starting a new run. Never remove the submission intent to
+force a retry. The pipeline must fail rather than report partial delivery.
+
+The motivating #68499 experiment accepted all five original findings in one
+draft via sequential GraphQL mutations, while bulk REST creation rejected the
+same set with 422. That experiment used a personal account and deleted the
+draft; formal publication and the Actions identity still require live rollout
+validation. The exact GitHub internal diff limit is not established.
