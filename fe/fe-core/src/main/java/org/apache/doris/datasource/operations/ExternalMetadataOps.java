@@ -51,7 +51,7 @@ public interface ExternalMetadataOps {
     default boolean createDb(String dbName, boolean ifNotExists, Map<String, String> properties) throws DdlException {
         boolean res = createDbImpl(dbName, ifNotExists, properties);
         if (!res) {
-            afterCreateDb();
+            afterCreateDb(dbName);
         }
         return res;
     }
@@ -68,6 +68,10 @@ public interface ExternalMetadataOps {
     boolean createDbImpl(String dbName, boolean ifNotExists, Map<String, String> properties) throws DdlException;
 
     default void afterCreateDb() {
+    }
+
+    default void afterCreateDb(String dbName) {
+        afterCreateDb();
     }
 
 
@@ -118,6 +122,13 @@ public interface ExternalMetadataOps {
      * {@code afterDropDb} here could turn an absent name into catalog-wide invalidation.
      */
     default void afterDropDbNoOp(String dbName) {
+    }
+
+    /**
+     * Whether a no-op drop still needs to be journaled so follower FEs replay its cache cleanup.
+     */
+    default boolean shouldJournalDropDbNoOp() {
+        return false;
     }
 
     /**

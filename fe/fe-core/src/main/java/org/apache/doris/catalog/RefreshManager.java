@@ -231,6 +231,16 @@ public class RefreshManager {
                 invalidateColdReplayDatabase(catalog, log);
                 return;
             }
+            if (!Strings.isNullOrEmpty(log.getNewTableName())) {
+                // this is a rename table op
+                db.get().unregisterTableForReplay(log.getTableName());
+                if (db.get().getTableForReplay(log.getNewTableName()).isPresent()
+                        || db.get().hasLocalTableName(log.getNewTableName())) {
+                    db.get().unregisterTableForReplay(log.getNewTableName());
+                }
+                db.get().resetMetaCacheNames();
+                return;
+            }
             Optional<? extends ExternalTable> table;
             if (!Strings.isNullOrEmpty(log.getTableName())) {
                 table = db.get().getTableForReplay(log.getTableName());
@@ -278,55 +288,49 @@ public class RefreshManager {
                 invalidatePaimonCatalogForReplay(catalog);
                 return;
             }
-            if (!Strings.isNullOrEmpty(log.getNewTableName())) {
-                // this is a rename table op
-                db.get().unregisterTable(log.getTableName());
-                db.get().resetMetaCacheNames();
-            } else {
-                List<String> modifiedPartNames = log.getPartitionNames();
-                List<String> newPartNames = log.getNewPartitionNames();
-                if (catalog instanceof HMSExternalCatalog
-                        && ((modifiedPartNames != null && !modifiedPartNames.isEmpty())
-                        || (newPartNames != null && !newPartNames.isEmpty()))) {
-                    // Partition-level cache invalidation, only for hive catalog. Fence the held table
-                    // before the hive(...) lookup can lazily initialize the group and throw; otherwise
-                    // a failed acquisition skips the row-count fence and the full-table fallback.
+            List<String> modifiedPartNames = log.getPartitionNames();
+            List<String> newPartNames = log.getNewPartitionNames();
+            if (catalog instanceof HMSExternalCatalog
+                    && ((modifiedPartNames != null && !modifiedPartNames.isEmpty())
+                    || (newPartNames != null && !newPartNames.isEmpty()))) {
+                // Partition-level cache invalidation, only for hive catalog. Fence the held table
+                // before the hive(...) lookup can lazily initialize the group and throw; otherwise
+                // a failed acquisition skips the row-count fence and the full-table fallback.
+                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(table.get());
+                try {
+                    HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                            .hive(catalog.getId());
+                    cache.refreshAffectedPartitionsCache((HMSExternalTable) table.get(), modifiedPartNames,
+                            newPartNames);
+                    // The held HMS table also caches the pre-insert table parameters.
+                    table.get().unsetObjectCreated();
+                    // Close the admission window the opening fence left open: a load admitted after
+                    // it can publish the pre-insert value from the still-resident file list.
                     Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(table.get());
+                } catch (RuntimeException e) {
+                    // The insert is already committed. A partial or failed selective refresh must not
+                    // leave stale Hive partition/file entries, so fall back to the same conservative
+                    // full-table invalidation the leader uses.
+                    LOG.warn("failed to refresh affected partitions when replaying refresh table for {}",
+                            table.get().getNameWithFullQualifiers(), e);
                     try {
-                        HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                                .hive(catalog.getId());
-                        cache.refreshAffectedPartitionsCache((HMSExternalTable) table.get(), modifiedPartNames,
-                                newPartNames);
-                        // The held HMS table also caches the pre-insert table parameters.
+                        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(table.get());
+                    } finally {
                         table.get().unsetObjectCreated();
-                        // Close the admission window the opening fence left open: a load admitted after
-                        // it can publish the pre-insert value from the still-resident file list.
                         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(table.get());
-                    } catch (RuntimeException e) {
-                        // The insert is already committed. A partial or failed selective refresh must not
-                        // leave stale Hive partition/file entries, so fall back to the same conservative
-                        // full-table invalidation the leader uses.
-                        LOG.warn("failed to refresh affected partitions when replaying refresh table for {}",
-                                table.get().getNameWithFullQualifiers(), e);
-                        try {
-                            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(table.get());
-                        } finally {
-                            table.get().unsetObjectCreated();
-                            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(table.get());
-                        }
                     }
-                    if (table.get() instanceof HMSExternalTable && log.getLastUpdateTime() > 0) {
-                        ((HMSExternalTable) table.get()).setUpdateTime(log.getLastUpdateTime());
-                    }
-                    LOG.info("replay refresh partitions for table {}, "
-                                    + "modified partitions count: {}, "
-                                    + "new partitions count: {}",
-                            table.get().getName(), modifiedPartNames == null ? 0 : modifiedPartNames.size(),
-                            newPartNames == null ? 0 : newPartNames.size());
-                } else {
-                    // Full table cache invalidation
-                    refreshTableInternal(db.get(), table.get(), log.getLastUpdateTime());
                 }
+                if (table.get() instanceof HMSExternalTable && log.getLastUpdateTime() > 0) {
+                    ((HMSExternalTable) table.get()).setUpdateTime(log.getLastUpdateTime());
+                }
+                LOG.info("replay refresh partitions for table {}, "
+                                + "modified partitions count: {}, "
+                                + "new partitions count: {}",
+                        table.get().getName(), modifiedPartNames == null ? 0 : modifiedPartNames.size(),
+                        newPartNames == null ? 0 : newPartNames.size());
+            } else {
+                // Full table cache invalidation
+                refreshTableInternal(db.get(), table.get(), log.getLastUpdateTime());
             }
         });
     }
