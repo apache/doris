@@ -54,6 +54,12 @@ struct VariantShredderOptions {
             BeConsts::DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATS_SIZE;
     uint32_t doc_bucket_count = 1;
     size_t doc_materialization_min_rows = 0;
+    // Set only when this writer stores a VARIANT copied verbatim from history by a fixed partial
+    // update (the column is in missing_cids). A typed template path is then materialized typed
+    // only when its inferred type is losslessly representable in the template storage type;
+    // otherwise the path is written untyped for this segment so the copied value is not cast.
+    // See variant_copied_value_fits_template.
+    bool preserve_copied_values = false;
 };
 
 struct VariantShreddedColumns {

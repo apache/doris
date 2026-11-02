@@ -40,18 +40,27 @@
 #include <gtest/gtest.h>
 
 #include <map>
+#include <optional>
+#include <string>
+#include <string_view>
 #include <tuple>
 #include <utility>
 #include <vector>
 
 #include "common/config.h"
 #include "core/column/column_complex.h"
+#include "core/column/column_string.h"
+#include "core/column/variant_v2/column_variant_v2.h"
+#include "core/data_type_serde/data_type_serde.h"
+#include "core/data_type_serde/data_type_variant_v2_serde.h"
+#include "core/string_buffer.hpp"
 #include "core/value/bitmap_value.h"
 #include "storage/mow/mow_transform_test_base.h"
 #include "storage/partial_update_info.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/transform/block_transform.h"
 #include "storage/transform/partial_update_fill.h"
+#include "testutil/variant_util.h"
 
 namespace doris {
 
@@ -1560,6 +1569,143 @@ TEST_F(FlexiblePartialUpdateTest, VerticalWriterPersistsRowsAcrossSegments) {
     EXPECT_EQ(read_int(next_update, 0, 0), 2);
     EXPECT_EQ(read_int(next_update, 1, 0), 22);
     EXPECT_EQ(read_int(next_update, 2, 0), 9);
+}
+
+// ===========================================================================
+// ADD-carrier qualification (C10): a flexible partial update that skips the variant
+// fills it from a row written before the template ADD; the historical value is kept.
+// ===========================================================================
+
+class FlexibleAddedTemplateVariantTest : public FlexiblePartialUpdateTest {
+protected:
+    // k(0) v VARIANT(1) delete-sign(2) vv INT(3) skip-bitmap(4); typed adds template a:INT.
+    TabletSchemaSPtr flexible_variant_schema(bool typed_template) {
+        TabletSchemaPB pb;
+        create_variant_schema()->to_schema_pb(&pb);
+        pb.set_next_column_unique_id(11);
+        pb.set_schema_version(typed_template ? 1 : 0);
+        ColumnPB* vv = pb.add_column();
+        vv->set_unique_id(3);
+        vv->set_name("vv");
+        vv->set_type("INT");
+        vv->set_is_key(false);
+        vv->set_length(4);
+        vv->set_index_length(4);
+        vv->set_is_nullable(true);
+        vv->set_aggregation("NONE");
+        vv->set_default_value("0");
+        ColumnPB* skip = pb.add_column();
+        skip->set_unique_id(4);
+        skip->set_name(SKIP_BITMAP_COL);
+        skip->set_type("BITMAP");
+        skip->set_is_key(false);
+        skip->set_length(16);
+        skip->set_index_length(16);
+        skip->set_is_nullable(false);
+        skip->set_aggregation("NONE");
+        pb.set_delete_sign_idx(2);
+        pb.set_skip_bitmap_col_idx(4);
+        auto schema = std::make_shared<TabletSchema>();
+        schema->init_from_pb(pb);
+        if (typed_template) {
+            ColumnPB typed_path_pb;
+            typed_path_pb.set_unique_id(-1);
+            typed_path_pb.set_name("a");
+            typed_path_pb.set_type("INT");
+            typed_path_pb.set_is_nullable(true);
+            typed_path_pb.set_pattern_type(PatternTypePB::MATCH_NAME);
+            TabletColumn typed_path;
+            typed_path.init_from_pb(typed_path_pb);
+            schema->mutable_column_by_uid(1).add_sub_column(typed_path);
+        }
+        return schema;
+    }
+
+    static void fill_row(Block& block, int32_t key, std::string_view json, int32_t vv,
+                         std::optional<int32_t> skipped_uid) {
+        auto guard = block.mutate_columns_scoped();
+        auto& cols = guard.mutable_columns();
+        int8_t zero8 = 0;
+        cols[0]->insert_data(reinterpret_cast<const char*>(&key), sizeof(key));
+        VariantUtil::insert_json_rows(*assert_cast<ColumnVariantV2*>(cols[1].get()),
+                                      {std::string(json)});
+        cols[2]->insert_data(reinterpret_cast<const char*>(&zero8), sizeof(zero8));
+        cols[3]->insert_data(reinterpret_cast<const char*>(&vv), sizeof(vv));
+        BitmapValue skip;
+        if (skipped_uid.has_value()) {
+            skip.add(static_cast<uint64_t>(*skipped_uid));
+        }
+        assert_cast<ColumnBitmap*>(cols[4].get())->insert_value(std::move(skip));
+    }
+
+    static std::string variant_json(const Block& block, size_t row) {
+        const auto* parsed =
+                assert_cast<const ColumnVariantV2*>(block.get_by_position(1).column.get());
+        DataTypeSerDe::FormatOptions options;
+        DataTypeVariantV2SerDe serde;
+        ColumnString json_column;
+        BufferWritable buffer(json_column);
+        EXPECT_TRUE(serde.serialize_one_cell_to_json(*parsed, row, buffer, options).ok());
+        buffer.commit();
+        std::string json(json_column.get_data_at(0).to_string());
+        std::erase(json, ' ');
+        return json;
+    }
+
+    static void expect_historical(const std::string& json, std::string_view where) {
+        EXPECT_NE(json.find(R"("a":"001")"), std::string::npos) << where << ": " << json;
+        EXPECT_EQ(json.find(R"("a":1)"), std::string::npos) << where << ": " << json;
+        EXPECT_EQ(json.find(R"("a")"), json.rfind(R"("a")")) << where << ": " << json;
+    }
+};
+
+TEST_F(FlexibleAddedTemplateVariantTest, SkippedVariantFillKeepsHistoricalCarrier) {
+    auto old_schema = flexible_variant_schema(false);
+    auto new_schema = flexible_variant_schema(true);
+    ASSERT_EQ(new_schema->column_by_uid(1).get_sub_columns().size(), 1);
+    TabletSharedPtr tablet;
+    auto historical = write_rowset_block(
+            old_schema, 3901, 2,
+            [&](Block& block) { fill_row(block, 1, R"({"a":"001"})", 7, std::nullopt); }, &tablet);
+    Block persisted_old;
+    ASSERT_TRUE(read_rowset(historical, old_schema, &persisted_old).ok());
+    expect_historical(variant_json(persisted_old, 0), "historical column");
+
+    auto mow = make_mow_context(100, {historical});
+    auto pui = make_flexible_pui(new_schema);
+    RowsetId new_rsid;
+    new_rsid.init(3902);
+    RowsetWriterContext rwc;
+    fill_rowset_ctx(&rwc, new_schema, tablet, pui, new_rsid);
+    TransformExecContext ctx = make_exec_ctx(new_schema, tablet, mow, pui, &rwc, new_rsid);
+
+    Block block = new_schema->create_storage_block();
+    fill_row(block, 1, R"({"a":5})", 100, new_schema->column(1).unique_id());
+    ASSERT_TRUE(run_flexible_fill(ctx, &block).ok());
+    ASSERT_EQ(block.rows(), 1);
+    EXPECT_EQ(read_int(block, 3, 0), 100);
+    expect_historical(variant_json(block, 0), "filled block");
+
+    TabletSharedPtr unused_rewrite_tablet;
+    auto rewritten = write_rowset_block(
+            new_schema, 3903, 3,
+            [&](Block& dst) {
+                for (size_t cid = 0; cid < dst.columns(); ++cid) {
+                    dst.replace_by_position(cid, block.get_by_position(cid).column);
+                }
+            },
+            &unused_rewrite_tablet);
+    Block persisted_new;
+    ASSERT_TRUE(read_rowset(rewritten, new_schema, &persisted_new).ok());
+    ASSERT_EQ(persisted_new.rows(), 1);
+    // BE-only coverage: FE rejects flexible partial update on tables with VARIANT columns
+    // (OlapTable "Flexible partial update can only support table without variant columns"), so
+    // the C10b carrier rule opts out explicitly and the persisted rewrite keeps master behavior
+    // (the template casts). This pins that behavior; enabling flexible PU for VARIANT must
+    // revisit preserves_fixed_partial_update_copied_variant first.
+    const std::string persisted_json = variant_json(persisted_new, 0);
+    EXPECT_NE(persisted_json.find(R"("a":1)"), std::string::npos) << persisted_json;
+    EXPECT_EQ(persisted_json.find(R"("a")"), persisted_json.rfind(R"("a")")) << persisted_json;
 }
 
 } // namespace doris

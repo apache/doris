@@ -54,6 +54,7 @@
 #include "core/value/timestamptz_value.h"
 #include "core/value/uuid_value.h"
 #include "core/value/vdatetime_value.h"
+#include "exec/common/variant_template_type.h"
 #include "exec/common/variant_util.h"
 #include "exprs/function/parse/variant_jsonb_parse.h"
 #include "util/jsonb_document.h"
@@ -1062,6 +1063,71 @@ DataTypePtr normalize_variant_path_integer_widths(const DataTypePtr& type) {
     default:
         return base;
     }
+}
+
+namespace {
+
+// JSON kind a value of `type` reads back as. Arrays compare element kinds.
+bool same_json_kind(const DataTypePtr& lhs, const DataTypePtr& rhs) {
+    const auto* lhs_array = typeid_cast<const DataTypeArray*>(remove_nullable(lhs).get());
+    const auto* rhs_array = typeid_cast<const DataTypeArray*>(remove_nullable(rhs).get());
+    if (lhs_array != nullptr || rhs_array != nullptr) {
+        return lhs_array != nullptr && rhs_array != nullptr &&
+               same_json_kind(lhs_array->get_nested_type(), rhs_array->get_nested_type());
+    }
+    const auto kind = [](PrimitiveType type) {
+        if (type == TYPE_BOOLEAN) {
+            return 1;
+        }
+        return is_int(type) || is_float_or_double(type) || is_decimal(type) ? 2 : 0;
+    };
+    return kind(remove_nullable(lhs)->get_primitive_type()) ==
+           kind(remove_nullable(rhs)->get_primitive_type());
+}
+
+} // namespace
+
+// A path stays typed iff storing every copied value under the template loses nothing: the JSON
+// kind is kept (string "12" into INT or 5 into STRING would change it), CAST to the template
+// introduces no NULL (overflow, unparsable), and CAST back to the value's own type yields the
+// identical value (string "001" -> INT -> "1" differs; "2024-01-01 00:00:00" -> DATETIME -> same
+// string; BIGINT 5 -> INT -> 5). FLOAT/DOUBLE templates compare in the template's domain: the
+// value fits iff its shortest text equals the stored float's shortest text, so DOUBLE 0.1 (how a
+// row store reparses FLOAT 0.1) fits FLOAT, while 0.1000000001 or 16777217 into FLOAT does not.
+bool variant_copied_value_fits_template(const ColumnPtr& column, const DataTypePtr& type,
+                                        const DataTypePtr& storage_type) {
+    const DataTypePtr target = remove_nullable(storage_type);
+    if (variant_util::stored_type_equals_template(type, target) ||
+        target->get_primitive_type() == TYPE_JSONB || variant_path_type_contains_nothing(type)) {
+        return true;
+    }
+    if (!same_json_kind(type, target)) {
+        return false;
+    }
+    const DataTypePtr source_type = make_nullable(type);
+    ColumnPtr typed;
+    if (!variant_util::cast_column({column, source_type, ""}, make_nullable(target), &typed).ok() ||
+        cast_introduced_null(*column, *typed)) {
+        return false;
+    }
+    // Floats compare as shortest text; everything else casts back to the value's own type.
+    const bool float_target = is_float_or_double(target->get_primitive_type());
+    const DataTypePtr compare_type =
+            float_target ? make_nullable(std::make_shared<DataTypeString>()) : source_type;
+    ColumnPtr original = column;
+    ColumnPtr round_trip;
+    if ((float_target &&
+         !variant_util::cast_column({column, source_type, ""}, compare_type, &original).ok()) ||
+        !variant_util::cast_column({typed, make_nullable(target), ""}, compare_type, &round_trip)
+                 .ok()) {
+        return false;
+    }
+    for (size_t row = 0; row < column->size(); ++row) {
+        if (original->compare_at(row, row, *round_trip, 1) != 0) {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool variant_path_type_contains_nothing(const DataTypePtr& type) {

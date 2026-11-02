@@ -22,6 +22,7 @@
 
 #include <limits>
 #include <numeric>
+#include <set>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -37,6 +38,7 @@
 #include "core/field.h"
 #include "core/string_buffer.hpp"
 #include "cpp/sync_point.h"
+#include "exec/common/variant_util.h"
 #include "storage/mow/mow_transform_test_base.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/tablet/base_tablet.h"
@@ -922,4 +924,335 @@ TEST_F(VariantRowStoreTest, RowStoreFillAfterPartialUpdate) {
     EXPECT_EQ(read_int(d1, 1, 0), 22);
 }
 
+// ===========================================================================
+// ADD-carrier qualification (C10): rows written before a template ADD keep their
+// historical values when a fixed partial update copies them under the new schema.
+// ===========================================================================
+
+namespace {
+// (k, v VARIANT, delete-sign, vv INT, row-store). `row_store_uids` empty = full row store.
+TabletSchemaSPtr variant_pu_row_store_schema(TabletSchemaSPtr pu_schema, bool typed_template,
+                                             const std::vector<int32_t>& row_store_uids,
+                                             const std::string& template_type = "INT",
+                                             int32_t template_length = 0) {
+    TabletSchemaPB pb;
+    pu_schema->to_schema_pb(&pb);
+    pb.set_store_row_column(true);
+    for (int32_t uid : row_store_uids) {
+        pb.add_row_store_column_unique_ids(uid);
+    }
+    pb.set_schema_version(typed_template ? 1 : 0);
+    ColumnPB* row_store = pb.add_column();
+    row_store->set_unique_id(10);
+    row_store->set_name(BeConsts::ROW_STORE_COL);
+    row_store->set_type("STRING");
+    row_store->set_is_key(false);
+    row_store->set_length(2147483643);
+    row_store->set_index_length(4);
+    row_store->set_is_nullable(false);
+    row_store->set_aggregation("NONE");
+    auto schema = std::make_shared<TabletSchema>();
+    schema->init_from_pb(pb);
+    if (typed_template) {
+        ColumnPB typed_path_pb;
+        typed_path_pb.set_unique_id(-1);
+        typed_path_pb.set_name("a");
+        typed_path_pb.set_type(template_type);
+        if (template_length > 0) {
+            typed_path_pb.set_length(template_length);
+        }
+        if (template_type == "DATETIMEV2") {
+            typed_path_pb.set_frac(0);
+        }
+        typed_path_pb.set_is_nullable(true);
+        typed_path_pb.set_pattern_type(PatternTypePB::MATCH_NAME);
+        TabletColumn typed_path;
+        typed_path.init_from_pb(typed_path_pb);
+        schema->mutable_column_by_uid(1).add_sub_column(typed_path);
+    }
+    return schema;
+}
+} // namespace
+
+class VariantRowStoreAddedTemplateTest : public VariantRowStoreTest,
+                                         public testing::WithParamInterface<bool> {
+protected:
+    void fill_row(Block& block, int32_t key, std::string_view json, int32_t vv) {
+        int8_t delete_sign = 0;
+        block.get_by_position(0).column->assert_mutable()->insert_data(
+                reinterpret_cast<const char*>(&key), sizeof(key));
+        insert_variant_json(block, 1, json);
+        block.get_by_position(2).column->assert_mutable()->insert_data(
+                reinterpret_cast<const char*>(&delete_sign), sizeof(delete_sign));
+        block.get_by_position(3).column->assert_mutable()->insert_data(
+                reinterpret_cast<const char*>(&vv), sizeof(vv));
+        block.get_by_position(4).column->assert_mutable()->insert_default();
+    }
+
+    static void expect_historical(const std::string& json, std::string_view where) {
+        EXPECT_NE(json.find(R"("a":"001")"), std::string::npos) << where << ": " << json;
+        EXPECT_EQ(json.find(R"("a":1)"), std::string::npos) << where << ": " << json;
+        // D2: the path materializes once in the row (no duplicated destination).
+        EXPECT_EQ(json.find(R"("a")"), json.rfind(R"("a")")) << where << ": " << json;
+    }
+
+    // Writes `history` (k=1) with `history_schema`, then runs the fixed partial update on vv
+    // (v copied) under `schema` through fill, transform chain and a persisted transient rewrite.
+    RowsetSharedPtr fixed_pu_rewrite(const TabletSchemaSPtr& history_schema,
+                                     const TabletSchemaSPtr& schema, std::string_view history,
+                                     int64_t tablet_id_base, bool variant_updated = false) {
+        TabletSharedPtr unused;
+        auto historical = write_rowset_block(
+                history_schema, tablet_id_base, 2,
+                [&](Block& block) { fill_row(block, 1, history, 7); }, &unused);
+        auto update = write_rowset_block(
+                schema, tablet_id_base + 1, 3,
+                [&](Block& block) { fill_row(block, 1, R"({"z":5})", 100); }, &unused);
+        if (historical == nullptr || update == nullptr) {
+            return nullptr;
+        }
+        auto info = std::make_shared<PartialUpdateInfo>();
+        const std::set<std::string> update_cols = variant_updated
+                                                          ? std::set<std::string> {"k", "v"}
+                                                          : std::set<std::string> {"k", "vv"};
+        EXPECT_TRUE(info->init(kTabletId, 1, *schema, UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS,
+                               PartialUpdateNewRowPolicyPB::APPEND, update_cols, false, 0, 0, "UTC",
+                               "")
+                            .ok());
+        if (variant_updated) {
+            // v is in the update set: the new value written under the schema casts normally.
+            return write_rowset_block(
+                    schema, tablet_id_base + 2, 4,
+                    [&](Block& block) { fill_row(block, 1, history, 7); }, &unused, info);
+        }
+        FixedReadPlan plan_update;
+        plan_update.prepare_to_read(RowLocation {update->rowset_id(), 0, 0}, 0);
+        FixedReadPlan plan_historical;
+        plan_historical.prepare_to_read(RowLocation {historical->rowset_id(), 0, 0}, 0);
+        std::map<RowsetId, RowsetSharedPtr> rowsets {{update->rowset_id(), update},
+                                                     {historical->rowset_id(), historical}};
+        auto rebuilt = schema->create_storage_block();
+        EXPECT_TRUE(BaseTablet::generate_new_block_for_partial_update(
+                            schema, info.get(), plan_historical, plan_update, rowsets, &rebuilt)
+                            .ok());
+        RowsetWriterContext transient_context = direct_rwc(schema);
+        transient_context.partial_update_info = info;
+        transient_context.is_transient_rowset_writer = true;
+        auto chain = build_transform_chain(transient_context);
+        auto transform_context = exec_ctx(schema, &transient_context);
+        EXPECT_TRUE(chain.apply(transform_context, &rebuilt).ok());
+        EXPECT_TRUE(materialize_derived_columns(transform_context.derived_column, &rebuilt).ok());
+        return write_rowset_block(
+                schema, tablet_id_base + 2, 4,
+                [&](Block& block) {
+                    for (size_t cid = 0; cid < block.columns(); ++cid) {
+                        block.replace_by_position(cid, rebuilt.get_by_position(cid).column);
+                    }
+                },
+                &unused, info);
+    }
+
+    // Segment layout of path "a" of v: typed (template) or not, and its stored types.
+    static bool a_is_typed(const RowsetSharedPtr& rowset) {
+        std::unordered_map<int32_t, variant_util::VariantExtendedInfo> collected;
+        EXPECT_TRUE(variant_util::VariantCompactionUtil::aggregate_variant_extended_info(rowset,
+                                                                                         &collected)
+                            .ok());
+        EXPECT_TRUE(collected.contains(1));
+        return collected[1].typed_paths.contains("a");
+    }
+};
+
+// Old row {"a":"001"} written before ADD of template a:INT; a fixed partial update on vv
+// copies v from that row under the new (version 1) schema. The copied cell, its row-store
+// image, and the persisted rewrite must all keep the historical string (D1, D2).
+TEST_P(VariantRowStoreAddedTemplateTest, FixedPartialUpdateKeepsHistoricalCarrier) {
+    const bool partial_row_store = GetParam();
+    const std::vector<int32_t> row_store_uids =
+            partial_row_store ? std::vector<int32_t> {0, 1} : std::vector<int32_t> {};
+    auto old_schema =
+            variant_pu_row_store_schema(create_variant_pu_schema(), false, row_store_uids);
+    auto new_schema = variant_pu_row_store_schema(create_variant_pu_schema(), true, row_store_uids);
+    ASSERT_EQ(new_schema->column_by_uid(1).get_sub_columns().size(), 1);
+    ASSERT_EQ(new_schema->row_columns_uids().size(), row_store_uids.size());
+
+    TabletSharedPtr unused_historical_tablet;
+    auto historical_rowset = write_rowset_block(
+            old_schema, 8402, 2, [&](Block& block) { fill_row(block, 1, R"({"a":"001"})", 7); },
+            &unused_historical_tablet);
+    Block persisted_old;
+    ASSERT_TRUE(read_rowset(historical_rowset, old_schema, &persisted_old).ok());
+    expect_historical(variant_row_json(persisted_old, 1, 0), "historical column");
+    const auto& old_row_store =
+            assert_cast<const ColumnString&>(*persisted_old.get_by_position(4).column);
+    expect_historical(
+            variant_row_json(decode_row_store_cell(old_schema, old_row_store.get_data_at(0)), 1, 0),
+            "historical row store");
+
+    TabletSharedPtr tablet;
+    auto update_rowset = write_rowset_block(
+            new_schema, 8401, 3, [&](Block& block) { fill_row(block, 1, R"({"a":5})", 100); },
+            &tablet);
+
+    auto partial_update_info = std::make_shared<PartialUpdateInfo>();
+    ASSERT_TRUE(partial_update_info
+                        ->init(kTabletId, /*txn_id=*/1, *new_schema,
+                               UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS,
+                               PartialUpdateNewRowPolicyPB::APPEND, {"k", "vv"},
+                               /*is_strict_mode=*/false, /*timestamp_ms=*/0,
+                               /*nano_seconds=*/0, "UTC", "")
+                        .ok());
+    FixedReadPlan read_plan_update;
+    read_plan_update.prepare_to_read(
+            RowLocation {update_rowset->rowset_id(), /*segment_id=*/0, /*row_id=*/0},
+            /*dst_pos=*/0);
+    FixedReadPlan read_plan_historical;
+    read_plan_historical.prepare_to_read(
+            RowLocation {historical_rowset->rowset_id(), /*segment_id=*/0, /*row_id=*/0},
+            /*dst_pos=*/0);
+    std::map<RowsetId, RowsetSharedPtr> rowsets {
+            {update_rowset->rowset_id(), update_rowset},
+            {historical_rowset->rowset_id(), historical_rowset}};
+
+    auto rebuilt = new_schema->create_storage_block();
+    ASSERT_TRUE(BaseTablet::generate_new_block_for_partial_update(
+                        new_schema, partial_update_info.get(), read_plan_historical,
+                        read_plan_update, rowsets, &rebuilt)
+                        .ok());
+    expect_historical(variant_row_json(rebuilt, 1, 0), "rebuilt block");
+
+    RowsetWriterContext transient_context = direct_rwc(new_schema);
+    transient_context.partial_update_info = partial_update_info;
+    transient_context.is_transient_rowset_writer = true;
+    auto chain = build_transform_chain(transient_context);
+    auto transform_context = exec_ctx(new_schema, &transient_context);
+    ASSERT_TRUE(chain.apply(transform_context, &rebuilt).ok());
+    ASSERT_TRUE(materialize_derived_columns(transform_context.derived_column, &rebuilt).ok());
+    const auto& rebuilt_row_store =
+            assert_cast<const ColumnString&>(*rebuilt.get_by_position(4).column);
+    expect_historical(
+            variant_row_json(decode_row_store_cell(new_schema, rebuilt_row_store.get_data_at(0)), 1,
+                             0),
+            "rebuilt row store");
+
+    // Persist the rewrite under the new schema and read it back.
+    TabletSharedPtr unused_rewrite_tablet;
+    auto rewritten = write_rowset_block(
+            new_schema, 8403, 4,
+            [&](Block& block) {
+                for (size_t cid = 0; cid < block.columns(); ++cid) {
+                    block.replace_by_position(cid, rebuilt.get_by_position(cid).column);
+                }
+            },
+            &unused_rewrite_tablet, partial_update_info);
+    Block persisted_new;
+    ASSERT_TRUE(read_rowset(rewritten, new_schema, &persisted_new).ok());
+    ASSERT_EQ(persisted_new.rows(), 1);
+    expect_historical(variant_row_json(persisted_new, 1, 0), "persisted rewrite column");
+    const auto& new_row_store =
+            assert_cast<const ColumnString&>(*persisted_new.get_by_position(4).column);
+    expect_historical(
+            variant_row_json(decode_row_store_cell(new_schema, new_row_store.get_data_at(0)), 1, 0),
+            "persisted rewrite row store");
+}
+
+// Never-altered tables keep master's typed layout: the row store reparses string-shaped
+// templates (DATETIME, IPV4, UUID, VARCHAR(n)) as JSON strings, which round-trip exactly, and
+// FLOAT/DOUBLE as DOUBLE, which round-trips as shortest text.
+TEST_P(VariantRowStoreAddedTemplateTest, NeverAlteredFixedPartialUpdateKeepsTypedTemplate) {
+    const std::vector<int32_t> row_store_uids =
+            GetParam() ? std::vector<int32_t> {0, 1} : std::vector<int32_t> {};
+    struct Case {
+        std::string type;
+        int32_t length;
+        std::string json;
+        std::string expected; // value spelling read back from the typed column
+    };
+    const std::vector<Case> cases {
+            // The typed DATETIME reads back in the test JSON helper's datetime spelling.
+            {"DATETIMEV2", 8, R"({"a":"2024-01-02 03:04:05"})", "03:04:05"},
+            {"IPV4", 4, R"({"a":"1.2.3.4"})", R"("a":"1.2.3.4")"},
+            {"UUID", 16, R"({"a":"123e4567-e89b-12d3-a456-426614174000"})",
+             R"("a":"123e4567-e89b-12d3-a456-426614174000")"},
+            {"VARCHAR", 10, R"({"a":"abc"})", R"("a":"abc")"},
+            {"INT", 0, R"({"a":5})", R"("a":5)"},
+            // The row store reparses FLOAT/DOUBLE as DOUBLE; shortest-text equality keeps them typed.
+            {"FLOAT", 4, R"({"a":1.1})", R"("a":1.1)"},
+            {"DOUBLE", 8, R"({"a":0.1})", R"("a":0.1)"},
+    };
+    int64_t tablet_id = 8500;
+    for (const auto& c : cases) {
+        SCOPED_TRACE(c.type);
+        auto schema = variant_pu_row_store_schema(create_variant_pu_schema(), true, row_store_uids,
+                                                  c.type, c.length);
+        auto rewritten = fixed_pu_rewrite(schema, schema, c.json, tablet_id);
+        tablet_id += 10;
+        ASSERT_NE(rewritten, nullptr);
+        EXPECT_TRUE(a_is_typed(rewritten));
+        Block persisted;
+        ASSERT_TRUE(read_rowset(rewritten, schema, &persisted).ok());
+        ASSERT_EQ(persisted.rows(), 1);
+        const std::string json = variant_row_json(persisted, 1, 0);
+        EXPECT_NE(json.find(c.expected), std::string::npos) << json;
+    }
+}
+
+// Pre-ADD values the template cannot hold losslessly become carriers (values kept, one
+// destination), and compaction schema planning picks the carrier up through C8.
+TEST_P(VariantRowStoreAddedTemplateTest, LossyCopiedValuesBecomeCarriersForCompaction) {
+    const std::vector<int32_t> row_store_uids =
+            GetParam() ? std::vector<int32_t> {0, 1} : std::vector<int32_t> {};
+    auto old_schema =
+            variant_pu_row_store_schema(create_variant_pu_schema(), false, row_store_uids);
+    auto new_schema = variant_pu_row_store_schema(create_variant_pu_schema(), true, row_store_uids);
+    int64_t tablet_id = 8600;
+    for (const std::string json : {R"({"a":"001"})", R"({"a":3000000000})"}) {
+        SCOPED_TRACE(json);
+        auto rewritten = fixed_pu_rewrite(old_schema, new_schema, json, tablet_id);
+        tablet_id += 10;
+        ASSERT_NE(rewritten, nullptr);
+        EXPECT_FALSE(a_is_typed(rewritten));
+        Block persisted;
+        ASSERT_TRUE(read_rowset(rewritten, new_schema, &persisted).ok());
+        const std::string value = variant_row_json(persisted, 1, 0);
+        EXPECT_NE(value.find(json.substr(1, json.size() - 2)), std::string::npos) << value;
+        EXPECT_EQ(value.find(R"("a")"), value.rfind(R"("a")")) << value;
+
+        auto compaction_schema = std::make_shared<TabletSchema>(*new_schema);
+        VariantCompactionPathsMap paths;
+        ASSERT_TRUE(variant_util::VariantCompactionUtil::get_extended_compaction_schema(
+                            {rewritten}, compaction_schema, paths)
+                            .ok());
+        size_t a_columns = 0;
+        for (const auto& column : compaction_schema->columns()) {
+            if (column->is_extracted_column() && column->parent_unique_id() == 1 &&
+                column->path_info_ptr()->get_path() == "v.a") {
+                ++a_columns;
+                EXPECT_EQ(column->type(), FieldType::OLAP_FIELD_TYPE_VARIANT); // C8 carrier slot
+            }
+        }
+        EXPECT_EQ(a_columns, 1);
+    }
+}
+
+// v in the update set: new values are not copies, so the template casts them as on master.
+TEST_P(VariantRowStoreAddedTemplateTest, VariantInUpdateSetCastsNormally) {
+    const std::vector<int32_t> row_store_uids =
+            GetParam() ? std::vector<int32_t> {0, 1} : std::vector<int32_t> {};
+    auto old_schema =
+            variant_pu_row_store_schema(create_variant_pu_schema(), false, row_store_uids);
+    auto new_schema = variant_pu_row_store_schema(create_variant_pu_schema(), true, row_store_uids);
+    auto rewritten = fixed_pu_rewrite(old_schema, new_schema, R"({"a":"001"})", 8700,
+                                      /*variant_updated=*/true);
+    ASSERT_NE(rewritten, nullptr);
+    EXPECT_TRUE(a_is_typed(rewritten));
+    Block persisted;
+    ASSERT_TRUE(read_rowset(rewritten, new_schema, &persisted).ok());
+    EXPECT_NE(variant_row_json(persisted, 1, 0).find(R"("a":1)"), std::string::npos);
+}
+
+INSTANTIATE_TEST_SUITE_P(RowStoreLayout, VariantRowStoreAddedTemplateTest, testing::Bool(),
+                         [](const testing::TestParamInfo<bool>& info) {
+                             return std::string(info.param ? "PartialRowStore" : "FullRowStore");
+                         });
 } // namespace doris

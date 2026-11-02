@@ -49,6 +49,12 @@ Status make_variant_shredder_options(const TabletSchema& tablet_schema,
                                      VariantShredderPhysicalLayout physical_layout,
                                      VariantShredderOptions* options);
 
+// True when `parent_column` is written by a fixed partial update that copies it from history (it
+// is in missing_cids) into an ordinary, non typed-to-sparse layout. Flexible partial update
+// returns false explicitly: FE rejects it for tables with VARIANT columns.
+bool preserves_fixed_partial_update_copied_variant(const RowsetWriterContext* rowset_ctx,
+                                                   const TabletColumn& parent_column);
+
 Status classify_variant_writer_input(const IColumn& column, VariantWriterInputFormat current_format,
                                      std::string_view writer_description,
                                      VariantWriterInputFormat* input_format);
@@ -89,7 +95,8 @@ Status prepare_subcolumn_writer_target(
         int64_t none_null_value_size, size_t num_rows,
         const TabletSchema::SubColumnInfo* existing_subcolumn_info, bool check_storage_type,
         TabletIndexes* out_subcolumn_indexes, ColumnWriterOptions* out_subcolumn_opts,
-        std::unique_ptr<ColumnWriter>* out_writer, TabletColumn* out_tablet_column);
+        std::unique_ptr<ColumnWriter>* out_writer, TabletColumn* out_tablet_column,
+        bool resolve_template = true);
 
 } // namespace variant_writer_helpers
 

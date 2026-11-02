@@ -34,10 +34,17 @@
 #include "core/column/column_vector.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_ipv4.h"
+#include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_nothing.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_timestamp_ns.h"
+#include "core/data_type/data_type_uuid.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type_serde/data_type_serde.h"
@@ -60,9 +67,11 @@
 #include "runtime/runtime_profile.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
+#include "storage/partial_update_info.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_reader.h"
+#include "storage/rowset/rowset_writer_context.h"
 #include "storage/schema.h"
 #include "storage/segment/column_meta_accessor.h"
 #include "storage/segment/column_reader.h"
@@ -3551,6 +3560,211 @@ TEST_F(VariantColumnWriterReaderTest, v2_shredder_drops_typed_cast_null_from_spa
     EXPECT_EQ(sparse.get_offsets()[1], 1);
     ASSERT_TRUE(shredded.statistics.sparse_column_non_null_size.contains("bad"));
     EXPECT_EQ(shredded.statistics.sparse_column_non_null_size.at("bad"), 1);
+}
+
+namespace {
+// Nullable column of `type` holding `cells` (std::nullopt = NULL); strings or raw fixed bytes.
+template <typename T>
+ColumnPtr copied_cells(const DataTypePtr& type, const std::vector<std::optional<T>>& cells) {
+    auto column = make_nullable(type)->create_column();
+    for (const auto& cell : cells) {
+        if (!cell.has_value()) {
+            column->insert_default();
+        } else if constexpr (std::is_same_v<T, std::string>) {
+            column->insert_data(cell->data(), cell->size());
+        } else {
+            column->insert_data(reinterpret_cast<const char*>(&*cell), sizeof(T));
+        }
+    }
+    return column;
+}
+} // namespace
+
+TEST(VariantPathBuilderTest, CopiedValueFitsTemplateRule) {
+    using segment_v2::variant_copied_value_fits_template;
+    using Strings = std::vector<std::optional<std::string>>;
+    const DataTypePtr i32 = std::make_shared<DataTypeInt32>();
+    const DataTypePtr i64 = std::make_shared<DataTypeInt64>();
+    const DataTypePtr f32 = std::make_shared<DataTypeFloat32>();
+    const DataTypePtr f64 = std::make_shared<DataTypeFloat64>();
+    const DataTypePtr str = std::make_shared<DataTypeString>();
+    const DataTypePtr datetime = std::make_shared<DataTypeDateTimeV2>(0);
+    const DataTypePtr ipv4 = std::make_shared<DataTypeIPv4>();
+    const DataTypePtr uuid = std::make_shared<DataTypeUUID>();
+    const DataTypePtr dec_10_2 = std::make_shared<DataTypeDecimal64>(10, 2);
+    const auto fits = [](const DataTypePtr& type, const ColumnPtr& column,
+                         const DataTypePtr& target) {
+        return variant_copied_value_fits_template(column, make_nullable(type), target);
+    };
+    const auto ints = [&](std::vector<std::optional<int64_t>> cells) {
+        return copied_cells<int64_t>(i64, cells);
+    };
+    const auto doubles = [&](std::vector<std::optional<double>> cells) {
+        return copied_cells<double>(f64, cells);
+    };
+    const auto strings = [&](Strings cells) { return copied_cells<std::string>(str, cells); };
+
+    // Encoded JSON integers infer BIGINT; narrower values stay typed, overflow is a carrier.
+    EXPECT_TRUE(fits(i64, ints({5, std::nullopt, -7}), i32));
+    EXPECT_FALSE(fits(i64, ints({5, 3000000000LL}), i32));
+    // Kind changes are carriers even when the text would round-trip.
+    EXPECT_FALSE(fits(str, strings({"001"}), i32));
+    EXPECT_FALSE(fits(str, strings({"12"}), i32));
+    EXPECT_FALSE(fits(i64, ints({5}), str));
+    // Row-store reparsed string-shaped templates of never-altered tables stay typed.
+    EXPECT_TRUE(fits(str, strings({"2024-01-02 03:04:05", std::nullopt}), datetime));
+    EXPECT_FALSE(fits(str, strings({"2024-01-02"}), datetime)); // re-rendered with time
+    EXPECT_FALSE(fits(str, strings({"not a time"}), datetime));
+    EXPECT_TRUE(fits(str, strings({"1.2.3.4"}), ipv4));
+    EXPECT_FALSE(fits(str, strings({"1.2.3.256"}), ipv4));
+    EXPECT_TRUE(fits(str, strings({"123e4567-e89b-12d3-a456-426614174000"}), uuid));
+    EXPECT_FALSE(fits(str, strings({"not-a-uuid"}), uuid));
+    // Decimals compare in the value's own representation.
+    EXPECT_TRUE(fits(f64, doubles({1.5, 2.25}), dec_10_2));
+    EXPECT_FALSE(fits(f64, doubles({1.234}), dec_10_2));
+    // Floats compare as shortest text in the template's domain: a row store reparses FLOAT 0.1
+    // as DOUBLE 0.1, which still fits; genuine precision loss is a carrier.
+    EXPECT_TRUE(fits(f64, doubles({0.5, 0.1, 1.1, std::nullopt}), f32));
+    EXPECT_FALSE(fits(f64, doubles({0.1000000001}), f32));
+    EXPECT_FALSE(fits(i64, ints({16777217}), f32));
+    EXPECT_TRUE(fits(i64, ints({5, -7}), f64));
+    EXPECT_TRUE(fits(i64, ints({5}), dec_10_2));
+    EXPECT_TRUE(fits(str, strings({"abc"}), str));
+    EXPECT_TRUE(fits(str, strings({"001"}), std::make_shared<DataTypeJsonb>()));
+}
+
+TEST(VariantWriterHelpersTest, FixedPartialUpdateCopiedVariantDecision) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::UNIQUE_KEYS);
+    construct_column(schema_pb.add_column(), 0, "INT", "k", 1, true);
+    construct_column(schema_pb.add_column(), 1, "VARIANT", "v", 1);
+    construct_column(schema_pb.add_column(), 2, "INT", "vv", 1);
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->init_from_pb(schema_pb);
+    const TabletColumn& variant = tablet_schema->column_by_uid(1);
+
+    RowsetWriterContext ctx;
+    ctx.tablet_schema = tablet_schema;
+    EXPECT_FALSE(
+            variant_writer_helpers::preserves_fixed_partial_update_copied_variant(&ctx, variant));
+    EXPECT_FALSE(variant_writer_helpers::preserves_fixed_partial_update_copied_variant(nullptr,
+                                                                                       variant));
+
+    auto info = std::make_shared<PartialUpdateInfo>();
+    ctx.partial_update_info = info;
+    info->partial_update_mode = UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS;
+    info->update_cids = {0, 2};
+    info->missing_cids = {1};
+    EXPECT_TRUE(
+            variant_writer_helpers::preserves_fixed_partial_update_copied_variant(&ctx, variant));
+
+    // v in the update set: new values cast through the template as before.
+    info->update_cids = {0, 1};
+    info->missing_cids = {2};
+    EXPECT_FALSE(
+            variant_writer_helpers::preserves_fixed_partial_update_copied_variant(&ctx, variant));
+
+    // Flexible partial update is rejected by FE for VARIANT tables; the helper never opts in.
+    info->partial_update_mode = UniqueKeyUpdateModePB::UPDATE_FLEXIBLE_COLUMNS;
+    info->update_cids = {0, 2};
+    info->missing_cids = {1};
+    EXPECT_FALSE(
+            variant_writer_helpers::preserves_fixed_partial_update_copied_variant(&ctx, variant));
+}
+
+namespace {
+segment_v2::VariantShreddedColumns shred_with_int_template(
+        const TabletSchema& schema, bool preserve_copied_values,
+        std::initializer_list<std::string_view> rows) {
+    auto source = ColumnVariantV2::create();
+    DataTypeVariantV2SerDe serde;
+    DataTypeSerDe::FormatOptions format_options;
+    for (const std::string_view json : rows) {
+        Slice slice(json.data(), json.size());
+        EXPECT_TRUE(serde.deserialize_one_cell_from_json(*source, slice, format_options).ok());
+    }
+    segment_v2::VariantShredder shredder({
+            .tablet_schema = &schema,
+            .parent_column_unique_id = 1,
+            .max_subcolumns_count = 4,
+            .sparse_bucket_count = 1,
+            .preserve_copied_values = preserve_copied_values,
+    });
+    EXPECT_TRUE(shredder.append(source->read_view(), 0, source->size()).ok());
+    segment_v2::VariantShreddedColumns shredded;
+    EXPECT_TRUE(shredder.finish(&shredded).ok());
+    return shredded;
+}
+
+const segment_v2::VariantPathColumn* find_materialized(
+        const segment_v2::VariantShreddedColumns& shredded, std::string_view path) {
+    const segment_v2::VariantPathColumn* found = nullptr;
+    for (const auto& column : shredded.materialized) {
+        if (column.path.get_path() == path) {
+            EXPECT_EQ(found, nullptr) << "D2: path materialized twice: " << path;
+            found = &column;
+        }
+    }
+    return found;
+}
+} // namespace
+
+TEST_F(VariantColumnWriterReaderTest, v2_shredder_copied_values_keep_template_only_when_lossless) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    construct_column(schema_pb.add_column(), 1, "VARIANT", "v", 1);
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->init_from_pb(schema_pb);
+    auto typed_path = make_int_typed_path_template("a");
+    tablet_schema->mutable_column_by_uid(1).add_sub_column(typed_path);
+
+    // Never-altered template: copied history was written through the template, so values
+    // (narrow ints after row-store reparse included) stay on the typed INT layout.
+    {
+        auto shredded = shred_with_int_template(*tablet_schema, true, {R"({"a":1})", R"({"a":7})"});
+        const auto* a = find_materialized(shredded, "a");
+        ASSERT_NE(a, nullptr);
+        EXPECT_EQ(remove_nullable(a->type)->get_primitive_type(), TYPE_INT);
+        EXPECT_FALSE(a->is_template_carrier);
+    }
+    // Integers beyond the template width cannot be stored without a cast: carrier.
+    {
+        auto shredded = shred_with_int_template(*tablet_schema, true, {R"({"a":3000000000})"});
+        const auto* a = find_materialized(shredded, "a");
+        ASSERT_NE(a, nullptr);
+        EXPECT_TRUE(a->is_template_carrier);
+        EXPECT_EQ(a->type->to_string(*a->column, 0), "3000000000");
+    }
+    // Pre-ADD history "001" copied into a segment under template a:INT: untyped carrier, no cast.
+    {
+        auto shredded = shred_with_int_template(*tablet_schema, true, {R"({"a":"001"})"});
+        const auto* a = find_materialized(shredded, "a");
+        ASSERT_NE(a, nullptr);
+        EXPECT_EQ(remove_nullable(a->type)->get_primitive_type(), TYPE_STRING);
+        EXPECT_TRUE(a->is_template_carrier);
+        EXPECT_EQ(a->type->to_string(*a->column, 0), "001");
+    }
+    // Mixed pre-ADD + post-ADD history in one batch: one untyped destination, both values kept.
+    {
+        auto shredded =
+                shred_with_int_template(*tablet_schema, true, {R"({"a":"001"})", R"({"a":5})"});
+        const auto* a = find_materialized(shredded, "a");
+        ASSERT_NE(a, nullptr);
+        EXPECT_NE(remove_nullable(a->type)->get_primitive_type(), TYPE_INT);
+        EXPECT_TRUE(a->is_template_carrier);
+        ASSERT_EQ(a->column->size(), 2);
+        EXPECT_NE(a->type->to_string(*a->column, 0).find("001"), std::string::npos);
+        EXPECT_NE(a->type->to_string(*a->column, 1).find("5"), std::string::npos);
+    }
+    // Ordinary (non-copied) writes keep master behavior: the template casts.
+    {
+        auto shredded = shred_with_int_template(*tablet_schema, false, {R"({"a":"001"})"});
+        const auto* a = find_materialized(shredded, "a");
+        ASSERT_NE(a, nullptr);
+        EXPECT_EQ(remove_nullable(a->type)->get_primitive_type(), TYPE_INT);
+        EXPECT_EQ(a->type->to_string(*a->column, 0), "1");
+        EXPECT_FALSE(a->is_template_carrier);
+    }
 }
 
 static TabletColumn make_jsonb_array_typed_path_template(std::string_view path) {

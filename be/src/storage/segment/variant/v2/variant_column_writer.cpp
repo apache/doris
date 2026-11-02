@@ -124,6 +124,10 @@ Status VariantV2ColumnWriter::init() {
     VariantShredderOptions options;
     RETURN_IF_ERROR(variant_writer_helpers::make_variant_shredder_options(
             *_opts.rowset_ctx->tablet_schema, *_tablet_column, physical_layout, &options));
+    options.preserve_copied_values =
+            physical_layout == VariantShredderPhysicalLayout::ORDINARY &&
+            variant_writer_helpers::preserves_fixed_partial_update_copied_variant(_opts.rowset_ctx,
+                                                                                  *_tablet_column);
     _shredder = std::make_unique<VariantShredder>(std::move(options));
     return Status::OK();
 }
@@ -221,7 +225,7 @@ Status VariantV2ColumnWriter::_write_materialized(const VariantShreddedColumns& 
         RETURN_IF_ERROR(variant_writer_helpers::prepare_subcolumn_writer_target(
                 _opts, *_tablet_column, current_column_id, path_column.path, path_column.type,
                 cast_set<int64_t>(path_column.rowids.size()), _num_rows, nullptr, true, &indexes,
-                &opts, &writer, &tablet_column));
+                &opts, &writer, &tablet_column, !path_column.is_template_carrier));
         RETURN_IF_ERROR(variant_writer_helpers::append_sparse_column(
                 tablet_column, writer.get(), path_column.type, path_column.column,
                 path_column.rowids, _num_rows));

@@ -98,6 +98,9 @@ struct VariantShredder::Impl {
         size_t candidate_index = 0;
     };
 
+    // Builders demoted from a template by preserve_copied_values; consulted at publication.
+    doris::flat_hash_set<const VariantPathBuilder*> template_carriers;
+
     explicit Impl(VariantShredderOptions options_) : options(std::move(options_)) {
         paths.emplace_back(PathInData());
         if (options.physical_layout == VariantShredderPhysicalLayout::ORDINARY &&
@@ -271,6 +274,16 @@ struct VariantShredder::Impl {
                 }
             }
             DORIS_CHECK_GT(builder->non_null_rows(), 0);
+            // Fixed partial update copies the historical VARIANT verbatim. A template added
+            // after that history was written must not rewrite it (e.g. "001" into INT), so such
+            // a path stays untyped in this segment and compaction reconciles it as a carrier.
+            if (is_typed_path && options.preserve_copied_values &&
+                !variant_copied_value_fits_template(builder->column(), builder->type(),
+                                                    storage_type)) {
+                is_typed_path = false;
+                storage_type.reset();
+                template_carriers.insert(builder);
+            }
             RETURN_IF_ERROR(
                     builder->convert_to(normalize_variant_path_integer_widths(builder->type())));
             if (builder->non_null_rows() != 0 &&
@@ -310,10 +323,12 @@ struct VariantShredder::Impl {
                             : raw_path;
             const std::span<const uint32_t> compact_rowids = builder.rowids();
             DorisVector<uint32_t> rowids(compact_rowids.begin(), compact_rowids.end());
-            result->materialized.push_back({.path = publication_path,
-                                            .type = builder.type(),
-                                            .column = builder.column(),
-                                            .rowids = std::move(rowids)});
+            result->materialized.push_back(
+                    {.path = publication_path,
+                     .type = builder.type(),
+                     .column = builder.column(),
+                     .rowids = std::move(rowids),
+                     .is_template_carrier = template_carriers.contains(&builder)});
         }
         return Status::OK();
     }

@@ -90,6 +90,26 @@ Status make_variant_shredder_options(const TabletSchema& tablet_schema,
     return Status::OK();
 }
 
+bool preserves_fixed_partial_update_copied_variant(const RowsetWriterContext* rowset_ctx,
+                                                   const TabletColumn& parent_column) {
+    if (rowset_ctx == nullptr || rowset_ctx->partial_update_info == nullptr ||
+        rowset_ctx->tablet_schema == nullptr) {
+        return false;
+    }
+    const PartialUpdateInfo& info = *rowset_ctx->partial_update_info;
+    if (info.is_flexible_partial_update() || !info.is_fixed_partial_update()) {
+        return false;
+    }
+    if (parent_column.variant_enable_doc_mode() ||
+        parent_column.variant_enable_typed_paths_to_sparse() ||
+        parent_column.variant_enable_nested_group()) {
+        return false;
+    }
+    const int32_t cid = rowset_ctx->tablet_schema->field_index(parent_column.unique_id());
+    return cid >= 0 &&
+           std::ranges::find(info.missing_cids, cast_set<uint32_t>(cid)) != info.missing_cids.end();
+}
+
 Status classify_variant_writer_input(const IColumn& column, VariantWriterInputFormat current_format,
                                      std::string_view writer_description,
                                      VariantWriterInputFormat* input_format) {
@@ -345,7 +365,8 @@ Status prepare_subcolumn_writer_target(
         int64_t none_null_value_size, size_t num_rows,
         const TabletSchema::SubColumnInfo* existing_subcolumn_info, bool check_storage_type,
         TabletIndexes* out_subcolumn_indexes, ColumnWriterOptions* out_subcolumn_opts,
-        std::unique_ptr<ColumnWriter>* out_writer, TabletColumn* out_tablet_column) {
+        std::unique_ptr<ColumnWriter>* out_writer, TabletColumn* out_tablet_column,
+        bool resolve_template) {
     if (out_subcolumn_indexes == nullptr || out_subcolumn_opts == nullptr ||
         out_writer == nullptr || out_tablet_column == nullptr) {
         return Status::InvalidArgument("subcolumn writer target output is null");
@@ -360,7 +381,8 @@ Status prepare_subcolumn_writer_target(
         resolved_from_schema = true;
     } else {
         TabletSchema::SubColumnInfo sub_column_info;
-        if (variant_util::generate_sub_column_info(*base_opts.rowset_ctx->tablet_schema,
+        if (resolve_template &&
+            variant_util::generate_sub_column_info(*base_opts.rowset_ctx->tablet_schema,
                                                    parent_column.unique_id(),
                                                    relative_path.get_path(), &sub_column_info)) {
             tablet_column = std::move(sub_column_info.column);

@@ -600,9 +600,15 @@ protected:
     // column layout MowRow cannot express.
     RowsetSharedPtr write_rowset_block(const TabletSchemaSPtr& schema, int64_t rowset_numeric_id,
                                        int64_t version, const std::function<void(Block&)>& fill,
-                                       TabletSharedPtr* out_tablet) {
+                                       TabletSharedPtr* out_tablet,
+                                       std::shared_ptr<PartialUpdateInfo> transient_pui = nullptr) {
         RowsetWriterContext ctx;
         make_rowset_ctx(schema, rowset_numeric_id, version, &ctx, out_tablet);
+        if (transient_pui != nullptr) {
+            // Publish-time rewrite: a transient writer carrying the partial-update info.
+            ctx.partial_update_info = std::move(transient_pui);
+            ctx.is_transient_rowset_writer = true;
+        }
         auto rw = RowsetFactory::create_rowset_writer(*_engine, ctx, false);
         EXPECT_TRUE(rw.has_value()) << rw.error();
         auto writer = std::move(rw).value();

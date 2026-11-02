@@ -41,6 +41,10 @@ struct VariantPathColumn {
     // column for every selected path.
     ColumnPtr column;
     DorisVector<uint32_t> rowids;
+    // A template-matching path written untyped for this segment (fixed partial update copied
+    // value that the template cannot represent losslessly). The storage writer must not resolve
+    // its column from the template; it is written like a dynamic path.
+    bool is_template_carrier = false;
 };
 
 // Storage publication normalizes integer widths consistently for both shredded paths and
@@ -48,6 +52,12 @@ struct VariantPathColumn {
 // predefined storage type resolves it.
 DataTypePtr normalize_variant_path_integer_widths(const DataTypePtr& type);
 bool variant_path_type_contains_nothing(const DataTypePtr& type);
+// Pure template-typing rule for VARIANT values copied verbatim from history (fixed partial
+// update): true iff casting every non-null value of `column` (of `type`) to the template
+// `storage_type` is lossless and round-trips to the identical value of the same JSON kind.
+// See variant_util::stored_type_equals_template for how this relates to the type-level rule.
+bool variant_copied_value_fits_template(const ColumnPtr& column, const DataTypePtr& type,
+                                        const DataTypePtr& storage_type);
 
 // An incrementally promotable builder for one flattened Variant path. Present leaves are stored
 // compactly beside their ordered logical row ids; a storage writer fills row-id gaps with SQL NULL
