@@ -411,7 +411,7 @@ public class OlapScanNode extends ScanNode {
                 Range<ColumnBound> range = filterRange.getRangeSet().get().span();
                 LiteralExpr lowerBound = range.lowerEndpoint().getValue();
                 LiteralExpr upperBound = range.upperEndpoint().getValue();
-                cachedPartitionPruner.update(keyItemMap);
+                cachedPartitionPruner.update(keyItemMap, olapTable.getPartitionTopologyVersion());
                 return cachedPartitionPruner.prune(lowerBound, upperBound);
             }
             partitionPruner = new RangePartitionPrunerV2(keyItemMap,
@@ -517,7 +517,8 @@ public class OlapScanNode extends ScanNode {
 
         // For cloud mode, set scan range visible version in Coordinator.exec so that we could
         // assign a snapshot version of all partitions.
-        if (!(Config.isCloudMode() && Config.enable_cloud_snapshot_version)) {
+        // Point queries fetch their optional cloud snapshot version in PointQueryExecutor, outside the table lock.
+        if (!(Config.isCloudMode() && (Config.enable_cloud_snapshot_version || isPointQuery()))) {
             visibleVersion = partition.getVisibleVersion();
         }
         // for non-cloud mode. for cloud mode see `updateScanRangeVersions`
@@ -864,7 +865,11 @@ public class OlapScanNode extends ScanNode {
             setHasPartitionPredicate(false);
             selectedPartitionIds = olapTable.getPartitionIds();
         }
-        selectedPartitionIds = olapTable.selectNonEmptyPartitionIds(selectedPartitionIds, Optional.empty());
+        // Cloud empty-partition pruning can fetch versions from MS. Point-query routing holds the table lock;
+        // let the backend point lookup determine whether the selected partition contains a matching row.
+        if (!(Config.isCloudMode() && isPointQuery())) {
+            selectedPartitionIds = olapTable.selectNonEmptyPartitionIds(selectedPartitionIds, Optional.empty());
+        }
         selectedPartitionNum = selectedPartitionIds.size();
 
         for (long id : selectedPartitionIds) {

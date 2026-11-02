@@ -98,17 +98,7 @@ public class PointQueryExecutor implements CoordInterface {
         this.maxMsgSizeOfResultReceiver = maxMessageSize;
     }
 
-    private void updateCloudPartitionVersions() throws RpcException {
-        OlapScanNode scanNode = shortCircuitQueryContext.scanNode;
-        List<CloudPartition> partitions = new ArrayList<>();
-        Set<Long> partitionSet = new HashSet<>();
-        OlapTable table = scanNode.getOlapTable();
-        for (Long id : scanNode.getSelectedPartitionIds()) {
-            if (!partitionSet.contains(id)) {
-                partitionSet.add(id);
-                partitions.add((CloudPartition) table.getPartition(id));
-            }
-        }
+    private void updateCloudPartitionVersions(List<CloudPartition> partitions) throws RpcException {
         snapshotVisibleVersions = CloudPartition.getSnapshotVisibleVersion(partitions);
         // Only support single partition at present
         Preconditions.checkState(snapshotVisibleVersions.size() == 1);
@@ -117,28 +107,44 @@ public class PointQueryExecutor implements CoordInterface {
 
     void setScanRangeLocations() throws Exception {
         OlapScanNode scanNode = shortCircuitQueryContext.scanNode;
-        // compute scan range
-        List<TScanRangeLocations> locations = scanNode.lazyEvaluateRangeLocations();
-        Preconditions.checkNotNull(locations);
-        if (scanNode.getScanTabletIds().isEmpty()) {
-            return;
-        }
-        Preconditions.checkState(scanNode.getScanTabletIds().size() == 1);
-        this.tabletID = scanNode.getScanTabletIds().get(0);
-
-        // update partition version if cloud mode
-        if (Config.isCloudMode()
-                && ConnectContext.get().getSessionVariable().enableSnapshotPointQuery) {
-            // TODO: Optimize to reduce the frequency of version checks in the meta service.
-            updateCloudPartitionVersions();
-        }
-
-        candidateBackends = new ArrayList<>();
-        for (Long backendID : scanNode.getScanBackendIds()) {
-            Backend backend = Env.getCurrentSystemInfo().getBackend(backendID);
-            if (SimpleScheduler.isAvailable(backend)) {
-                candidateBackends.add(backend);
+        OlapTable table = scanNode.getOlapTable();
+        List<CloudPartition> snapshotPartitions = null;
+        // Partition pruning, tablet lookup and partition-version selection need one metadata view.
+        // Reuse validation in ExecuteCommand can precede a concurrent partition DDL commit.
+        table.readLock();
+        try {
+            List<TScanRangeLocations> locations = scanNode.lazyEvaluateRangeLocations();
+            Preconditions.checkNotNull(locations);
+            if (scanNode.getScanTabletIds().isEmpty()) {
+                return;
             }
+            Preconditions.checkState(scanNode.getScanTabletIds().size() == 1);
+            this.tabletID = scanNode.getScanTabletIds().get(0);
+
+            if (Config.isCloudMode()
+                    && ConnectContext.get().getSessionVariable().enableSnapshotPointQuery) {
+                snapshotPartitions = new ArrayList<>();
+                Set<Long> partitionSet = new HashSet<>();
+                for (Long id : scanNode.getSelectedPartitionIds()) {
+                    if (partitionSet.add(id)) {
+                        snapshotPartitions.add((CloudPartition) table.getPartition(id));
+                    }
+                }
+            }
+
+            candidateBackends = new ArrayList<>();
+            for (Long backendID : scanNode.getScanBackendIds()) {
+                Backend backend = Env.getCurrentSystemInfo().getBackend(backendID);
+                if (SimpleScheduler.isAvailable(backend)) {
+                    candidateBackends.add(backend);
+                }
+            }
+        } finally {
+            table.readUnlock();
+        }
+        // Snapshot the partition references under the lock, but do not hold it across the MS RPC.
+        if (snapshotPartitions != null) {
+            updateCloudPartitionVersions(snapshotPartitions);
         }
         if (shouldShuffleCandidateBackends(scanNode)) {
             Collections.shuffle(candidateBackends);

@@ -35,34 +35,33 @@ public class PartitionPruneV2ForShortCircuitPlan extends PartitionPrunerV2Base {
     private static final Logger LOG = LogManager.getLogger(PartitionPruneV2ForShortCircuitPlan.class);
     // map to record literal range to find specific partition
     private RangeMap<LiteralExpr, Long> partitionRangeMapByLiteral = new RangeMap<>();
-    // last timestamp partitionRangeMapByLiteral updated
-    private long lastPartitionRangeMapUpdateTimestampMs = 0;
+    private Map<Long, PartitionItem> cachedPartitionItems;
+    private long cachedPartitionTopologyVersion = -1;
 
     PartitionPruneV2ForShortCircuitPlan() {
         super();
     }
 
-    public boolean update(Map<Long, PartitionItem> keyItemMap) {
-        // interval to update partitionRangeMapByLiteral
-        long partitionRangeMapUpdateIntervalS = 10;
-        if (System.currentTimeMillis() - lastPartitionRangeMapUpdateTimestampMs
-                    > partitionRangeMapUpdateIntervalS * 1000) {
-            partitionRangeMapByLiteral = new RangeMap<>();
-            // recalculate map
-            for (Entry<Long, PartitionItem> entry : keyItemMap.entrySet()) {
-                Range<PartitionKey> range = entry.getValue().getItems();
-                LiteralExpr partitionLowerBound = (LiteralExpr) range.lowerEndpoint().getKeys().get(0);
-                LiteralExpr partitionUpperBound = (LiteralExpr) range.upperEndpoint().getKeys().get(0);
-                Range<LiteralExpr> partitionRange = Range.closedOpen(partitionLowerBound, partitionUpperBound);
-                partitionRangeMapByLiteral.put(partitionRange, entry.getKey());
-            }
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("update partitionRangeMapByLiteral");
-            }
-            this.lastPartitionRangeMapUpdateTimestampMs = System.currentTimeMillis();
-            return true;
+    // The caller holds the owning table's read lock while updating and pruning.
+    public boolean update(Map<Long, PartitionItem> keyItemMap, long partitionTopologyVersion) {
+        if (cachedPartitionItems == keyItemMap && cachedPartitionTopologyVersion == partitionTopologyVersion) {
+            return false;
         }
-        return false;
+        RangeMap<LiteralExpr, Long> newRangeMap = new RangeMap<>();
+        for (Entry<Long, PartitionItem> entry : keyItemMap.entrySet()) {
+            Range<PartitionKey> range = entry.getValue().getItems();
+            LiteralExpr partitionLowerBound = (LiteralExpr) range.lowerEndpoint().getKeys().get(0);
+            LiteralExpr partitionUpperBound = (LiteralExpr) range.upperEndpoint().getKeys().get(0);
+            Range<LiteralExpr> partitionRange = Range.closedOpen(partitionLowerBound, partitionUpperBound);
+            newRangeMap.put(partitionRange, entry.getKey());
+        }
+        partitionRangeMapByLiteral = newRangeMap;
+        cachedPartitionItems = keyItemMap;
+        cachedPartitionTopologyVersion = partitionTopologyVersion;
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("update partitionRangeMapByLiteral");
+        }
+        return true;
     }
 
     public Collection<Long> prune(LiteralExpr lowerBound, LiteralExpr upperBound) throws AnalysisException {
