@@ -17,10 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
-import org.apache.doris.alter.ChangelogColumnIdPreparer;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
@@ -127,10 +125,6 @@ public class BatchInsertIntoTableCommand extends Command implements NoForward, E
                     targetTableIf.getDatabase().getFullName() + ": " + targetTableIf.getName());
         }
 
-        if (Env.getCurrentEnv().isMaster() && targetTableIf instanceof OlapTable) {
-            ChangelogColumnIdPreparer.ensureReady((Database) targetTableIf.getDatabase(),
-                    (OlapTable) targetTableIf);
-        }
         targetTableIf.readLock();
         try {
             StatementContext statementContext = ctx.getStatementContext();

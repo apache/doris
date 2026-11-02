@@ -17,7 +17,6 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.alter.ChangelogColumnIdPreparer;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.auth.certificate.CertificateAuthDecision;
 import org.apache.doris.auth.certificate.CertificateRuntimeAuthFactory;
@@ -268,7 +267,6 @@ public class StreamLoadHandler {
     }
 
     public void generatePlan(OlapTable table) throws UserException {
-        ChangelogColumnIdPreparer.ensureReady(db, table);
         if (!table.tryReadLock(timeoutMs, TimeUnit.MILLISECONDS)) {
             throw new UserException(
                     "get table read lock timeout, database=" + request.getDb() + ",table=" + table.getName());

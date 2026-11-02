@@ -1534,7 +1534,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             if (!request.isSetTableId() || request.getTableId() != table.getId()) {
                 throw new AnalysisException("Target table changed before transaction begin");
             }
-            org.apache.doris.alter.ChangelogColumnIdPreparer.ensureReady(db, table);
             txnId = Env.getCurrentGlobalTransactionMgr().beginTransactionForValues(
                     db.getId(), table.getId(), request.getLabel(), request.getRequestId(), txnCoord,
                     TransactionState.LoadJobSourceType.BACKEND_STREAMING, timeoutSecond,
@@ -2389,7 +2388,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         TableIf tableIf = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
         OlapTable table = (OlapTable) tableIf;
-        org.apache.doris.alter.ChangelogColumnIdPreparer.ensureReady(db, table);
 
         long timeoutMs = request.getTimeoutMs();
         long timeoutSecond = timeoutMs > 0 ? TimeUnit.MILLISECONDS.toSeconds(timeoutMs)
