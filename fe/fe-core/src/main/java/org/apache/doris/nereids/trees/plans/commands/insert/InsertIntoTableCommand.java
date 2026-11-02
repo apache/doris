@@ -317,6 +317,9 @@ public class InsertIntoTableCommand extends Command
             // A retry rebuilds the logical query from scratch, so the previous attempt's revoked partition-policy
             // proofs must not block this attempt's collect/preload/lock planning.
             ctx.getStatementContext().beginPartitionPolicyReplan();
+            ctx.getStatementContext().getInsertTargetTables().remove(qualifiedTargetTableName);
+            ctx.getStatementContext().getTables().remove(qualifiedTargetTableName);
+            ctx.getStatementContext().getOneLevelTables().remove(qualifiedTargetTableName);
             TableIf targetTableIf = getTargetTableIf(ctx, qualifiedTargetTableName);
             DatabaseIf<?> targetDatabase = getTargetDatabase(targetTableIf);
             // check auth
@@ -689,6 +692,7 @@ public class InsertIntoTableCommand extends Command
             LogicalPlanAdapter logicalPlanAdapter, TableIf targetTableIf,
             List<Column> normalizedTargetSchema) throws Throwable {
         LogicalPlan logicalPlan = logicalPlanAdapter.getLogicalPlan();
+        List<String> targetQualifier = InsertUtils.getTargetTableQualified(originLogicalQuery, ctx);
 
         boolean supportFastInsertIntoValues = InsertUtils.supportFastInsertIntoValues(logicalPlan, targetTableIf, ctx);
         // the key logical when use new coordinator:
@@ -706,9 +710,13 @@ public class InsertIntoTableCommand extends Command
                 ctx.getStatementContext(), supportFastInsertIntoValues) {
             @Override
             protected void analyze(boolean showPlanProcess) {
-                if (targetTableIf.needReadLockWhenPlan()
-                        && !normalizedTargetSchema.equals(targetTableIf.getFullSchema())) {
-                    throw new InsertTargetSchemaChangedException(targetTableIf.getName());
+                if (targetTableIf.needReadLockWhenPlan()) {
+                    TableIf lockedTarget = ctx.getStatementContext().getInsertTargetTables().get(targetQualifier);
+                    TableIf currentTarget = getTargetTableIf(ctx, targetQualifier);
+                    if (lockedTarget != targetTableIf || currentTarget.getId() != targetTableIf.getId()
+                            || !normalizedTargetSchema.equals(targetTableIf.getFullSchema())) {
+                        throw new InsertTargetSchemaChangedException(targetQualifier.get(targetQualifier.size() - 1));
+                    }
                 }
                 super.analyze(showPlanProcess);
             }
