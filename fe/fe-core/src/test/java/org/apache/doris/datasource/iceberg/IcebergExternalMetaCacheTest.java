@@ -900,6 +900,101 @@ public class IcebergExternalMetaCacheTest {
     }
 
     @Test
+    public void testDictionaryChecksReuseVersionWhenPartitionCacheDisabled() throws Exception {
+        assertDictionaryChecksReuseScalar(Collections.singletonMap("meta.cache.iceberg.partition.enable", "false"),
+                false);
+    }
+
+    @Test
+    public void testDictionaryChecksReuseVersionWhenPartitionViewRejected() throws Exception {
+        assertDictionaryChecksReuseScalar(Collections.singletonMap("meta.cache.iceberg.partition.max-weight", "1B"),
+                false);
+    }
+
+    @Test
+    public void testDictionaryChecksReuseVersionAfterPartitionEntryRetirement() throws Exception {
+        assertDictionaryChecksReuseScalar(Collections.emptyMap(), true);
+    }
+
+    private void assertDictionaryChecksReuseScalar(Map<String, String> properties, boolean retired) throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor);
+        cache.initCatalog(1L, properties);
+        NameMapping identity = NameMapping.createForTest(1L, "db", "tbl");
+        IcebergExternalTable table = partitionConsumerForTest(identity);
+        Mockito.when(table.getNewestUpdateVersionOrTime()).thenCallRealMethod();
+        Table first = tableWithMetadataLocation("/metadata/dictionary-v1.json");
+        cache.entry(1L, IcebergExternalMetaCache.ENTRY_TABLE, NameMapping.class, IcebergTableCacheValue.class)
+                .put(identity, new IcebergTableCacheValue(first));
+        MetaCacheEntry<IcebergSnapshotEntryKey, IcebergPartitionInfo> partitions = cache.entry(
+                1L, IcebergExternalMetaCache.ENTRY_PARTITION,
+                IcebergSnapshotEntryKey.class, IcebergPartitionInfo.class);
+        AtomicInteger loads = new AtomicInteger();
+        AtomicReference<IcebergSnapshotCacheValue> projection = new AtomicReference<>();
+        AtomicReference<IcebergPartitionInfo> info = new AtomicReference<>(partitionUpdateTimes(3L, 7L, 5L));
+        ExecutionAuthenticator authenticator = new ExecutionAuthenticator() {};
+        try (MockedStatic<IcebergUtils> utils = Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            utils.when(() -> IcebergUtils.isValidRelatedTable(Mockito.any(Table.class))).thenReturn(true);
+            utils.when(() -> IcebergUtils.loadPartitionInfo(Mockito.eq("ice.db.tbl"), Mockito.any(Table.class),
+                    Mockito.anyLong(), Mockito.anyLong(), Mockito.same(authenticator), Mockito.eq(false),
+                    Mockito.eq(false))).thenAnswer(call -> {
+                        loads.incrementAndGet();
+                        return info.get();
+                    });
+            utils.when(() -> IcebergUtils.getLatestSnapshotCacheValue(table))
+                    .thenAnswer(call -> projection.get().withoutRetainedTable());
+            utils.when(() -> IcebergUtils.withLatestSnapshotCacheValue(Mockito.same(table),
+                    Mockito.<java.util.function.Function<IcebergSnapshotCacheValue, Long>>any()))
+                    .thenAnswer(call -> {
+                        java.util.function.Function<IcebergSnapshotCacheValue, Long> action = call.getArgument(1);
+                        return action.apply(projection.get());
+                    });
+            projection.set(partitionProjectionForTest(cache, table, first, authenticator));
+            if (retired) {
+                cache.invalidateCatalog(1L);
+            }
+            for (int check = 0; check < 3; check++) {
+                Assert.assertEquals(7L, table.getNewestUpdateVersionOrTime());
+            }
+            Assert.assertEquals("repeated dictionary checks must not reload the full view", 1, loads.get());
+            Assert.assertSame(IcebergPartitionInfo.empty(), projection.get().getRetainedPartitionInfo());
+            Assert.assertNull(partitions.peekIfPresent(IcebergSnapshotEntryKey.tryCreate(identity, first).get()));
+
+            cache.initCatalog(1L, properties);
+            Table second = tableWithMetadataLocation("/metadata/dictionary-v2.json");
+            cache.entry(1L, IcebergExternalMetaCache.ENTRY_TABLE, NameMapping.class, IcebergTableCacheValue.class)
+                    .put(identity, new IcebergTableCacheValue(second));
+            info.set(partitionUpdateTimes(11L, 9L));
+            projection.set(partitionProjectionForTest(cache, table, second, authenticator));
+            Assert.assertEquals(11L, table.getNewestUpdateVersionOrTime());
+            Assert.assertEquals(11L, table.getNewestUpdateVersionOrTime());
+            Assert.assertEquals("a new metadata generation must compute its own version", 2, loads.get());
+            Assert.assertSame(IcebergPartitionInfo.empty(), projection.get().getRetainedPartitionInfo());
+            Table empty = tableWithMetadataLocation("/metadata/dictionary-empty.json");
+            cache.entry(1L, IcebergExternalMetaCache.ENTRY_TABLE, NameMapping.class, IcebergTableCacheValue.class)
+                    .put(identity, new IcebergTableCacheValue(empty));
+            info.set(IcebergPartitionInfo.empty());
+            projection.set(partitionProjectionForTest(cache, table, empty, authenticator));
+            Assert.assertEquals(0L, table.getNewestUpdateVersionOrTime());
+            Assert.assertEquals(0L, table.getNewestUpdateVersionOrTime());
+            Assert.assertEquals("an empty view's zero version is memoized too", 3, loads.get());
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
+    private IcebergPartitionInfo partitionUpdateTimes(long... updateTimes) {
+        Map<String, IcebergPartition> partitions = new HashMap<>();
+        for (int i = 0; i < updateTimes.length; i++) {
+            String name = "part=" + i;
+            partitions.put(name, new IcebergPartition(name, 0, 1L, 1L, 1L, updateTimes[i], 1L,
+                    Collections.singletonList(Integer.toString(i)), Collections.singletonList("day")));
+        }
+        return new IcebergPartitionInfo(Collections.emptyMap(), partitions, Collections.emptyMap());
+    }
+
+    @Test
     public void testTableReplacementRetiresOnlyObsoletePartitionViews() throws Exception {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor);

@@ -245,9 +245,8 @@ public class IcebergExternalTable extends ExternalTable
 
     @Override
     public long getNewestUpdateVersionOrTime() {
-        return IcebergUtils.getLatestSnapshotCacheValue(this)
-                .getPartitionInfo().getNameToIcebergPartition().values().stream()
-                .mapToLong(IcebergPartition::getLastUpdateTime).max().orElse(0);
+        return IcebergUtils.withLatestSnapshotCacheValue(this,
+                IcebergSnapshotCacheValue::getNewestPartitionUpdateTime);
     }
 
     @Override
