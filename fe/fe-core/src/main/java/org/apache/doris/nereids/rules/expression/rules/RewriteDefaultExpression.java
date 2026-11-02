@@ -18,7 +18,10 @@
 package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -46,6 +49,9 @@ import java.util.Optional;
  * 1. DEFAULT(column) with default value -> the actual default value expression
  * 2. DEFAULT(column) with no default value but nullable -> NULL
  * 3. DEFAULT(column) with no default value and not nullable -> error
+ * A table whose defaults apply to writes only takes them from the writer schema that the statement
+ * pinned for its write target; DEFAULT(column) on any other such table, or on the target of a DELETE,
+ * which writes no row values, is an error.
  */
 public class RewriteDefaultExpression implements ExpressionPatternRuleFactory {
 
@@ -82,6 +88,29 @@ public class RewriteDefaultExpression implements ExpressionPatternRuleFactory {
                     + column.getName() + "'");
         }
 
+        Optional<TableIf> originalTable = slotRef.getOriginalTable();
+        if (originalTable.filter(PluginDrivenExternalTable.class::isInstance)
+                .filter(table -> ((PluginDrivenExternalTable) table).hasWriteOnlyDefaults())
+                .isPresent()) {
+            StatementContext statementContext = context.cascadesContext.getStatementContext();
+            if (statementContext.isConnectorDeleteTarget(originalTable.get().getId())) {
+                throw new AnalysisException("DEFAULT(" + slotRef.toSql() + ") cannot be used in a DELETE: the"
+                        + " defaults of this table apply only to the rows that a statement writes");
+            }
+            column = pinnedWriteColumn(statementContext, originalTable.get(), column)
+                    .orElseThrow(() -> new AnalysisException("DEFAULT(" + slotRef.toSql()
+                            + ") must reference a column of the table that this statement writes"));
+            // The expressions around DEFAULT(column) were bound against the read column, so a default of another type
+            // cannot stand in for it. The types differ when the table changed outside Doris after its read schema was
+            // cached, e.g. by a type promotion.
+            DataType writeType = DataType.fromCatalogType(column.getType());
+            if (!writeType.equals(targetType)) {
+                throw new AnalysisException("DEFAULT(" + slotRef.toSql() + ") reads the column as "
+                        + targetType.toSql() + " but the table now writes it as " + writeType.toSql()
+                        + "; the table changed outside Doris, refresh it and retry");
+            }
+        }
+
         String defaultValueSql = column.getDefaultValueSql();
         if (defaultValueSql == null) {
             if (column.isAllowNull()) {
@@ -100,5 +129,13 @@ public class RewriteDefaultExpression implements ExpressionPatternRuleFactory {
         }
 
         return TypeCoercionUtils.castIfNotSameType(defaultValueExpr, targetType);
+    }
+
+    private static Optional<Column> pinnedWriteColumn(StatementContext statementContext, TableIf table,
+            Column readColumn) {
+        return statementContext.getConnectorWriteSchema(table.getId())
+                .flatMap(columns -> columns.stream()
+                        .filter(column -> column.getUniqueId() == readColumn.getUniqueId())
+                        .findFirst());
     }
 }
