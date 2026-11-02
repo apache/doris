@@ -103,6 +103,39 @@ suite("test_timestamptz_partition_mtmv_utc_schema","mtmv") {
             mvRes[0][0].toString().contains("2024-01-01 00:00:00.000000+00:00"))
     Assert.assertNull("the UTC-folded constant must be NULL", mvRes[0][1])
 
+    // Typed timestamp literals with an explicit offset are converted while the SQL is parsed, so the schema
+    // derivation has to parse under UTC too: folding them in the creation zone leaves c NOT NULL while the
+    // refresh, which reparses in UTC, stores NULL.
+    def typedLiteralMvName = "timestamptz_partition_mtmv_utc_schema_typed_literal_mv"
+    sql "SET time_zone = '${creationTz}'"
+    sql "DROP MATERIALIZED VIEW IF EXISTS ${typedLiteralMvName}"
+    sql """
+        CREATE MATERIALIZED VIEW ${typedLiteralMvName}
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        PARTITION BY(day_ts)
+        DISTRIBUTED BY RANDOM BUCKETS 1
+        PROPERTIES('replication_num' = '1')
+        AS
+        SELECT date_trunc(ts, 'day') AS day_ts,
+               IF(TIMESTAMP '2024-01-01 00:00:00+00:00' = TIMESTAMP '2024-01-01 08:00:00', 1, NULL) AS c
+        FROM ${tableName}
+        GROUP BY date_trunc(ts, 'day')
+    """
+    waitingMTMVTaskFinishedByMvName(typedLiteralMvName, dbName)
+    def typedTasks = sql """
+        SELECT Status, ErrorMsg
+        FROM tasks('type' = 'mv')
+        WHERE MvDatabaseName = '${dbName}' AND MvName = '${typedLiteralMvName}'
+        ORDER BY CreateTime DESC
+        LIMIT 1
+    """
+    Assert.assertEquals("the refresh must store the UTC-folded NULL instead of rejecting the row: "
+            + typedTasks[0][1], "SUCCESS", typedTasks[0][0].toString())
+    sql "SET time_zone = '+00:00'"
+    def typedRes = sql "SELECT CAST(day_ts AS STRING), c FROM ${typedLiteralMvName} ORDER BY 1"
+    Assert.assertEquals(1, typedRes.size())
+    Assert.assertNull("the UTC-folded typed literal constant must be NULL", typedRes[0][1])
+
     // A time_zone pinned by the definition itself is re-applied whenever the SQL is parsed, so it cannot be
     // combined with the UTC the partition boundaries are derived in.
     sql "SET time_zone = '${creationTz}'"
@@ -117,6 +150,23 @@ suite("test_timestamptz_partition_mtmv_utc_schema","mtmv") {
             PROPERTIES('replication_num' = '1')
             AS
             SELECT /*+ SET_VAR(time_zone='+08:00') */ date_trunc(ts, 'day') AS day_ts, SUM(id) AS total
+            FROM ${tableName}
+            GROUP BY date_trunc(ts, 'day')
+        """
+        exception "SET_VAR"
+    }
+
+    // The hint key is matched case-insensitively, exactly like the variable application does, so an
+    // upper-case spelling pins the zone just as well and must be rejected the same way.
+    test {
+        sql """
+            CREATE MATERIALIZED VIEW ${hintedMvName}
+            BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+            PARTITION BY(day_ts)
+            DISTRIBUTED BY RANDOM BUCKETS 1
+            PROPERTIES('replication_num' = '1')
+            AS
+            SELECT /*+ SET_VAR(TIME_ZONE='+08:00') */ date_trunc(ts, 'day') AS day_ts, SUM(id) AS total
             FROM ${tableName}
             GROUP BY date_trunc(ts, 'day')
         """

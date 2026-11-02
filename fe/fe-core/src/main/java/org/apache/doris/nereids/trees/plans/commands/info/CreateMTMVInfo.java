@@ -62,6 +62,7 @@ import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintSetVar;
 import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo.AnalyzerForCreateView;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo.PlanSlotFinder;
@@ -76,6 +77,7 @@ import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -462,9 +464,13 @@ public class CreateMTMVInfo extends CreateTableInfo {
             try {
                 creationState.restore(this);
                 this.enableIvm = effectiveIvm;
+                // The zone has to be in effect before parsing as well: typed timestamp literals with an
+                // explicit offset are converted while parsing, so a literal parsed in the creation zone would
+                // keep that zone's value and the derived schema would disagree with the refresh, which
+                // reparses the definition in UTC.
+                ctx.getSessionVariable().setTimeZone(utcTimeZone);
                 this.logicalQuery = parseFreshLogicalQuery();
                 resetStatementContext(ctx);
-                ctx.getSessionVariable().setTimeZone(utcTimeZone);
                 analyzeQuery(ctx);
             } finally {
                 ctx.getSessionVariable().setTimeZone(previousTimeZone);
@@ -500,30 +506,65 @@ public class CreateMTMVInfo extends CreateTableInfo {
      * persisted for the whole definition, so hints that disagree cannot be represented: analysis order would
      * decide which branch is materialized in which zone and the stored map would claim one zone for content
      * produced in another. Such a definition is rejected instead.
+     *
+     * <p>The scan covers the hints of scalar subqueries as well: a subquery's plan is owned by its expression
+     * rather than by a child node, and its hint is applied while the subquery is analyzed even when the
+     * subquery itself folds away to a constant. Hint parameter keys are compared case-insensitively, because
+     * parsing preserves the spelling the user wrote and the variable lookup itself ignores case.
      */
-    private String hintedTimeZone() {
-        String pinned = null;
-        for (Plan node : logicalQuery.<Plan>collectToList(p -> p instanceof LogicalSelectHint)) {
-            for (SelectHint hint : ((LogicalSelectHint<?>) node).getHints()) {
-                if (!(hint instanceof SelectHintSetVar)) {
-                    continue;
+    String hintedTimeZone() {
+        return hintedTimeZoneOf(logicalQuery);
+    }
+
+    static String hintedTimeZoneOf(Plan definition) {
+        Set<String> pinnedTimeZones = Sets.newLinkedHashSet();
+        collectHintTimeZones(definition, pinnedTimeZones);
+        if (pinnedTimeZones.isEmpty()) {
+            return null;
+        }
+        if (pinnedTimeZones.size() > 1) {
+            throw new AnalysisException("The materialized view definition pins conflicting time zones"
+                    + " with SET_VAR hints " + pinnedTimeZones + ", but its content is materialized in a"
+                    + " single time zone. Use the same time zone everywhere in the definition.");
+        }
+        return pinnedTimeZones.iterator().next();
+    }
+
+    private static void collectHintTimeZones(Plan root, Set<String> pinnedTimeZones) {
+        for (Plan node : root.<Plan>collectToList(p -> true)) {
+            if (node instanceof LogicalSelectHint) {
+                for (SelectHint hint : ((LogicalSelectHint<?>) node).getHints()) {
+                    if (!(hint instanceof SelectHintSetVar)) {
+                        continue;
+                    }
+                    for (Map.Entry<String, Optional<String>> parameter
+                            : ((SelectHintSetVar) hint).getParameters().entrySet()) {
+                        if (!SessionVariable.TIME_ZONE.equalsIgnoreCase(parameter.getKey())) {
+                            continue;
+                        }
+                        Optional<String> value = parameter.getValue();
+                        if (value == null || !value.isPresent()) {
+                            continue;
+                        }
+                        String hinted = value.get();
+                        if (!pinnedTimeZones.contains(hinted)
+                                && pinnedTimeZones.stream()
+                                        .noneMatch(pinned -> SessionVarGuardRewriter.timeZonesEquivalent(
+                                                pinned, hinted))) {
+                            pinnedTimeZones.add(hinted);
+                        }
+                    }
                 }
-                Optional<String> value = ((SelectHintSetVar) hint).getParameters().get(SessionVariable.TIME_ZONE);
-                if (value == null || !value.isPresent()) {
-                    continue;
-                }
-                String hinted = value.get();
-                if (pinned == null) {
-                    pinned = hinted;
-                } else if (!SessionVarGuardRewriter.timeZonesEquivalent(pinned, hinted)) {
-                    throw new AnalysisException("The materialized view definition pins conflicting time zones"
-                            + " with SET_VAR hints ('" + pinned + "' and '" + hinted + "'), but its content is"
-                            + " materialized in a single time zone. Use the same time zone everywhere in the"
-                            + " definition.");
+            }
+            // A scalar subquery owns its plan on the expression, not as a child node, so its hints are only
+            // reachable through the expressions of the node.
+            for (Expression expression : node.getExpressions()) {
+                for (SubqueryExpr subquery : expression.<SubqueryExpr>collectToSet(
+                        SubqueryExpr.class::isInstance)) {
+                    collectHintTimeZones(subquery.getQueryPlan(), pinnedTimeZones);
                 }
             }
         }
-        return pinned;
     }
 
     private DataType calculateSequenceDataType(Plan normalizedPlan) {

@@ -1098,9 +1098,11 @@ public class VariablePersistTest extends ExpressionRewriteTestHelper {
     }
 
     /**
-     * The cluster fence for new-metadata objects: creating one is only safe while every alive frontend can
-     * interpret the persisted plan variables, because an older frontend neither registers time_zone nor
-     * classifies TIMESTAMPTZ expressions and would refresh/rewrite the object without the time-zone guard.
+     * The cluster fence for new-metadata objects: creating one is only safe while every registered frontend
+     * can interpret the persisted plan variables, because an older frontend neither registers time_zone nor
+     * classifies TIMESTAMPTZ expressions and would refresh/rewrite the object with the time-zone guard
+     * missing. A registered frontend counts even while it is down: it can be restarted, replays the metadata
+     * and serves reads without any capability check.
      */
     @Test
     public void testClusterPlanTimeZoneFence() {
@@ -1109,7 +1111,7 @@ public class VariablePersistTest extends ExpressionRewriteTestHelper {
         Mockito.when(env.getSelfNode()).thenReturn(selfNode);
         Frontend self = mockFrontend("fe-self", "doris-4.1.4-rc01-abc", true);
         Frontend olderAlive = mockFrontend("fe-old", "doris-4.1.3-release-abc", true);
-        Frontend olderDead = mockFrontend("fe-dead", "doris-4.1.3-release-abc", false);
+        Frontend olderRegisteredButDown = mockFrontend("fe-old-down", "doris-4.1.3-release-abc", false);
         Frontend newerAlive = mockFrontend("fe-new", "doris-4.1.5-rc01-abc", true);
         Frontend selfDev = mockFrontend("fe-self", "doris-0.0.0-abcdef", true);
 
@@ -1118,10 +1120,11 @@ public class VariablePersistTest extends ExpressionRewriteTestHelper {
             // same or newer frontends are fine
             Mockito.when(env.getFrontends(null)).thenReturn(ImmutableList.of(self, newerAlive));
             Assertions.assertDoesNotThrow(SessionVarGuardRewriter::checkClusterSupportsPlanTimeZoneFence);
-            // an older frontend that is dead cannot serve reads, so it does not block
-            Mockito.when(env.getFrontends(null)).thenReturn(ImmutableList.of(self, olderDead));
-            Assertions.assertDoesNotThrow(SessionVarGuardRewriter::checkClusterSupportsPlanTimeZoneFence);
-            // an older live frontend must block creating new-metadata objects
+            // an older registered frontend blocks even while it is not alive: it may come back and replay
+            Mockito.when(env.getFrontends(null)).thenReturn(ImmutableList.of(self, olderRegisteredButDown));
+            Assertions.assertThrows(AnalysisException.class,
+                    SessionVarGuardRewriter::checkClusterSupportsPlanTimeZoneFence);
+            // an older live frontend blocks creating new-metadata objects
             Mockito.when(env.getFrontends(null)).thenReturn(ImmutableList.of(self, olderAlive));
             AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                     SessionVarGuardRewriter::checkClusterSupportsPlanTimeZoneFence);

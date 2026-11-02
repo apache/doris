@@ -586,14 +586,20 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
     }
 
     /**
-     * Fails unless every alive frontend can interpret the persisted plan-variable set of this FE.
+     * Fails unless every registered frontend can interpret the persisted plan-variable set of this FE.
      *
      * <p>The {@link SessionVariable#PLAN_SESSION_VAR_FENCE_VERSION} stamp lets a new FE refuse metadata
      * written by a newer one, but the opposite direction - an <em>old</em> FE serving new metadata - can only
      * be prevented where the metadata is created: an old FE neither registers {@code time_zone} as a plan
      * variable nor classifies TIMESTAMPTZ expressions, so it would refresh and rewrite such an object without
      * the time-zone guard. Any DDL that writes semantics only a fenced FE can honour therefore has to check
-     * that no older FE is still alive in the cluster (a rolling upgrade must finish first).
+     * that no older FE is still part of the cluster (a rolling upgrade must finish first, or the old frontend
+     * must be dropped).
+     *
+     * <p>A registered frontend counts even while it is not alive: it can be restarted at any time, then
+     * replays the metadata and replays it straight into its own expression classifier, which never rejects
+     * what it cannot classify. Heartbeat and replay do not check the capability either, so liveness is not a
+     * usable proxy for "will never read this metadata".
      *
      * <p>Development builds report {@code 0.0.0}, which carries no release ordering, so the check is a no-op
      * there; an unparsable version string is also treated as "cannot prove it is older" instead of blocking
@@ -616,16 +622,14 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
             return;
         }
         for (Frontend frontend : frontends) {
-            if (!frontend.isAlive()) {
-                continue;
-            }
             DigitalVersion version = parseReleaseVersion(frontend.getVersion());
             if (version != null && version.before(selfVersion)) {
                 throw new AnalysisException("frontend " + frontend.getHost() + " runs " + frontend.getVersion()
                         + ", which predates this frontend's " + selfVersion.major + "." + selfVersion.minor
-                        + "." + selfVersion.revision + ". It cannot interpret the persisted plan variables of an "
-                        + "object whose semantics depend on the session time zone, so the object cannot be "
-                        + "created safely now. Upgrade all frontends first and retry.");
+                        + "." + selfVersion.revision + ". It is a registered frontend and may come back at any"
+                        + " time, and it cannot interpret the persisted plan variables of an object whose"
+                        + " semantics depend on the session time zone, so the object cannot be created safely"
+                        + " now. Upgrade all frontends first (or drop this one) and retry.");
             }
         }
     }
