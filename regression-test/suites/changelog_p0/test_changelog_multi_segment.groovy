@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_changelog_multi_segment", "nonConcurrent") {
+    sql "set default_variant_enable_doc_mode = false"
     sql "DROP TABLE IF EXISTS test_mow_multi_segment_with_changelog FORCE"
 
     sql """

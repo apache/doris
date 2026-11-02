@@ -512,7 +512,18 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         alterTable("ALTER TABLE test." + tableName2 + " ADD COLUMN v2 VARIANT", connectContext);
         jobSize++;
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
-        // a VARIANT on a table with changelog can not enable nested group
+        // a VARIANT on a table with changelog can not use doc mode, whose whole values its images could not keep
+        expectException("ALTER TABLE test." + tableName2 + " ADD COLUMN v3 VARIANT<PROPERTIES("
+                + "\"variant_enable_doc_mode\" = \"true\")>", "can't add variant column with doc mode");
+        Exception docModeError = Assertions.assertThrows(Exception.class, () -> createTableWithChangelog(
+                "CREATE TABLE test.changelog_doc_variant (k1 INT NOT NULL, "
+                + "v1 VARIANT<PROPERTIES(\"variant_enable_doc_mode\" = \"true\")>) "
+                + "UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES('replication_num'='1','light_schema_change'='true',"
+                + "'enable_unique_key_merge_on_write'='true','changelog.enable'='true');"));
+        Assertions.assertTrue(docModeError.getMessage().contains(
+                "doc mode can't be created on table with changelog"), docModeError.getMessage());
+        // and can not enable nested group
         Exception nestedGroupError = Assertions.assertThrows(Exception.class, () -> createTableWithChangelog(
                 "CREATE TABLE test.changelog_bad_variant (k1 INT NOT NULL, "
                 + "v1 VARIANT<PROPERTIES(\"variant_enable_nested_group\" = \"true\")>) "

@@ -176,14 +176,14 @@ public class OlapTableChangelogSchemaTest {
         fields.add(new VariantField("a", Type.INT, ""));
         VariantType shredded = new VariantType(fields, 2048, false, 10000, 4, false, 0L, 0, false,
                 TVariantSerializeType.V2);
-        VariantType docMode = new VariantType(new ArrayList<>(), 0, false, 0, 0, true, 10L, 64, false,
+        VariantType noStatistics = new VariantType(new ArrayList<>(), 0, false, 0, 0, false, 0L, 0, false,
                 TVariantSerializeType.V2);
         OlapTable table = newTestTable(BinlogTestUtils.newTestChangelogConfig(true, true),
-                Lists.newArrayList(key, new Column("v", shredded, true), new Column("d", docMode, true)));
+                Lists.newArrayList(key, new Column("v", shredded, true), new Column("d", noStatistics, true)));
 
         // the source columns keep their layout
         Assertions.assertSame(shredded, table.getBaseSchema(true).get(1).getType());
-        Assertions.assertSame(docMode, table.getBaseSchema(true).get(2).getType());
+        Assertions.assertSame(noStatistics, table.getBaseSchema(true).get(2).getType());
 
         List<Column> changelogSchema = table.getChangelogIndexMeta().getSchema(true);
         for (String name : new String[] {"v", Column.generateBeforeColName("v"), "d",
@@ -196,7 +196,7 @@ public class OlapTableChangelogSchemaTest {
             Assertions.assertFalse(type.getEnableVariantDocMode(), name);
             Assertions.assertFalse(type.getEnableNestedGroup(), name);
             Assertions.assertTrue(type.getEnableTypedPathsToSparse(), name);
-            // doc mode leaves no sparse statistics size, which the sparse column needs
+            // the sparse column needs a statistics size
             Assertions.assertTrue(type.getVariantMaxSparseColumnStatisticsSize() > 0, name);
         }
         // typed paths keep their declared types

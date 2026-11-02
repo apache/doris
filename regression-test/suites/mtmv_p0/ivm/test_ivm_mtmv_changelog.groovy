@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_ivm_mtmv_changelog") {
+    sql "set default_variant_enable_doc_mode = false"
     sql """DROP MATERIALIZED VIEW IF EXISTS test_ivm_mtmv_changelog_mv;"""
     sql """DROP TABLE IF EXISTS test_ivm_mtmv_changelog_base;"""
 

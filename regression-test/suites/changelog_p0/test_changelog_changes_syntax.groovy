@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_changelog_changes_syntax", "nonConcurrent") {
+    sql "set default_variant_enable_doc_mode = false"
     sql "DROP DATABASE IF EXISTS test_changelog_changes_syntax_db"
     sql "CREATE DATABASE test_changelog_changes_syntax_db"
     sql "USE test_changelog_changes_syntax_db"

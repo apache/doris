@@ -181,7 +181,7 @@ public class VariantType extends ScalarType {
     public VariantType forChangelog() {
         Preconditions.checkState(getClass() == VariantType.class,
                 "forChangelog copies a plain VariantType, not %s", getClass().getName());
-        // doc mode and nested group clear the sparse statistics size, so use its default
+        // the sparse column needs a statistics size, which a column can state as 0
         int sparseColumnStatisticsSize = variantMaxSparseColumnStatisticsSize > 0
                 ? variantMaxSparseColumnStatisticsSize : 10000;
         return new VariantType(predefinedFields,

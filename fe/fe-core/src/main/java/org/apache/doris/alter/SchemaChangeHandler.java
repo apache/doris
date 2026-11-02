@@ -332,6 +332,10 @@ public class SchemaChangeHandler extends AlterHandler {
             throw new DdlException("can't add variant column with nested group on table with changelog, column: "
                     + newColumn.getName());
         }
+        if (newColumn.getType().isVariantType() && newColumn.getVariantEnableDocMode()) {
+            throw new DdlException("can't add variant column with doc mode on table with changelog, column: "
+                    + newColumn.getName());
+        }
 
         if (newColumn.isKey()) {
             // key (don't support now)

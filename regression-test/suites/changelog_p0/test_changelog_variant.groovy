@@ -19,6 +19,7 @@
 // column, whatever the source column's layout, and changelog reads never push a Variant sub-path into the
 // changelog scan: sub-paths are taken from whole values, so an UPDATE_BEFORE row shows the old value.
 suite("test_changelog_variant", "nonConcurrent") {
+    sql "set default_variant_enable_doc_mode = false"
     setBeConfigTemporary([
         changelog_compaction_goal_size_mbytes: 0,
         changelog_compaction_file_count_threshold: 2,
@@ -28,13 +29,13 @@ suite("test_changelog_variant", "nonConcurrent") {
         sql "DROP STREAM IF EXISTS test_changelog_variant_md_stream FORCE"
         sql "DROP STREAM IF EXISTS test_changelog_variant_detail_stream FORCE"
         sql "DROP TABLE IF EXISTS test_changelog_variant FORCE"
-        // v: default layout, t: typed paths and one materialized path, d: doc mode
+        // v: default layout, t: typed paths and one materialized path, d: no dynamic subcolumn
         sql """
             CREATE TABLE test_changelog_variant (
                 k INT,
                 v VARIANT,
                 t VARIANT<'a':INT, 'b':STRING, PROPERTIES("variant_max_subcolumns_count" = "1")>,
-                d VARIANT<PROPERTIES("variant_enable_doc_mode" = "true")>
+                d VARIANT<PROPERTIES("variant_max_subcolumns_count" = "0")>
             )
             UNIQUE KEY(k)
             DISTRIBUTED BY HASH(k) BUCKETS 1
@@ -132,6 +133,73 @@ suite("test_changelog_variant", "nonConcurrent") {
             SELECT l.k, l.v['a'], r.v['b'] FROM c l JOIN c r ON l.k = r.k
         """
 
+        // Only what is read from a changelog stays whole: another scan of the statement keeps its sub-path slots,
+        // which SEARCH and MATCH need.
+        sql "DROP TABLE IF EXISTS test_changelog_variant_indexed FORCE"
+        sql """
+            CREATE TABLE test_changelog_variant_indexed (
+                k INT,
+                v VARIANT<PROPERTIES("variant_max_subcolumns_count" = "2048")>,
+                INDEX idx_v (v) USING INVERTED PROPERTIES("parser" = "unicode")
+            )
+            DUPLICATE KEY(k)
+            DISTRIBUTED BY HASH(k) BUCKETS 1
+            PROPERTIES ("replication_num" = "1")
+        """
+        sql """INSERT INTO test_changelog_variant_indexed VALUES
+            (101, parse_to_variant('{"a":"hello","b":{"c":1}}')),
+            (102, parse_to_variant('{"a":"other","b":{"c":2}}'))"""
+        order_qt_search_beside_changelog """
+            SELECT k FROM test_changelog_variant_indexed WHERE search('v.a:hello')
+            UNION ALL
+            SELECT k FROM changelog("table" = "test_changelog_variant_same_layout")
+        """
+        order_qt_match_beside_changelog """
+            SELECT k FROM test_changelog_variant_indexed WHERE v['a'] MATCH 'hello'
+            UNION ALL
+            SELECT k FROM changelog("table" = "test_changelog_variant_same_layout")
+        """
+        order_qt_sub_paths_in_each_branch """
+            SELECT k, v['a'] FROM test_changelog_variant_indexed
+            UNION ALL
+            SELECT k, v['a'] FROM changelog("table" = "test_changelog_variant_same_layout")
+        """
+        order_qt_sub_path_of_sub_path_over_union """
+            SELECT k, s['c']
+            FROM (SELECT k, v['b'] AS s FROM test_changelog_variant_indexed
+                  UNION ALL
+                  SELECT k, v['b'] FROM changelog("table" = "test_changelog_variant_same_layout")) u
+        """
+        order_qt_cte_of_changelog_beside_search """
+            WITH c AS (SELECT k, v FROM changelog("table" = "test_changelog_variant_same_layout"))
+            SELECT k, v['a'] FROM c
+            UNION ALL
+            SELECT k, 'x' FROM test_changelog_variant_indexed WHERE search('v.a:hello')
+        """
+
+        // doc mode keeps whole values apart from typed paths, which the images could not reproduce
+        test {
+            sql """
+                CREATE TABLE test_changelog_variant_doc (
+                    k INT,
+                    v VARIANT<PROPERTIES("variant_enable_doc_mode" = "true")>
+                )
+                UNIQUE KEY(k)
+                DISTRIBUTED BY HASH(k) BUCKETS 1
+                PROPERTIES (
+                    "replication_num" = "1",
+                    "enable_unique_key_merge_on_write" = "true",
+                    "changelog.enable" = "true"
+                )
+            """
+            exception "variant column with doc mode can't be created on table with changelog"
+        }
+        test {
+            sql """ALTER TABLE test_changelog_variant_same_layout
+                ADD COLUMN doc VARIANT<PROPERTIES("variant_enable_doc_mode" = "true")>"""
+            exception "can't add variant column with doc mode on table with changelog"
+        }
+
         // an UPDATE_BEFORE row carries the old value of every sub-path
         order_qt_min_delta_stream """
             SELECT k, v, v['a'], v['b']['c'], CAST(t['a'] AS INT), t['b'], d['k'],
@@ -205,6 +273,13 @@ suite("test_changelog_variant", "nonConcurrent") {
         order_qt_mixed_history_incremental """
             SELECT k, v['a'], v['b'], __DORIS_STREAM_CHANGE_TYPE_COL__
             FROM test_changelog_variant_mixed_stream
+        """
+
+        // a filter on a sub-path sees the same values in the base table part and the changelog part
+        order_qt_mixed_history_incremental_filter """
+            SELECT k, v['a'], v['b'], __DORIS_STREAM_CHANGE_TYPE_COL__
+            FROM test_changelog_variant_mixed_stream
+            WHERE CAST(v['a'] AS INT) < 12
         """
 
         // ADD COLUMN mirrors a new Variant column into the changelog

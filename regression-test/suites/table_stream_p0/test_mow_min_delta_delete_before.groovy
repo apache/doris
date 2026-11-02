@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_mow_min_delta_delete_before", "nonConcurrent") {
+    sql "set default_variant_enable_doc_mode = false"
     if (isCloudMode()) {
         return
     }

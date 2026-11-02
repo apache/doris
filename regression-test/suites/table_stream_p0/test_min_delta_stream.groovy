@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_min_delta_stream", "nonConcurrent") {
+    sql "set default_variant_enable_doc_mode = false"
     if (isCloudMode()) {
         return
     }

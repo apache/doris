@@ -25,6 +25,7 @@
 // (0 key columns read), or a non-leading key subset, over overlapping multi-rowset data,
 // which is exactly the shape that used to crash.
 suite("test_changelog_append_only_projection", "nonConcurrent") {
+    sql "set default_variant_enable_doc_mode = false"
     if (isCloudMode()) {
         return
     }

@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_changelog_partial_update_only_keys", "nonConcurrent") {
+    sql "set default_variant_enable_doc_mode = false"
     sql "DROP TABLE IF EXISTS test_changelog_partial_update_only_keys FORCE"
 
     sql """

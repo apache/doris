@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_changelog_basic", "nonConcurrent") {
+    sql "set default_variant_enable_doc_mode = false"
     sql "DROP TABLE IF EXISTS test_dup_with_changelog FORCE"
     sql "DROP TABLE IF EXISTS test_mow_with_changelog FORCE"
     sql "DROP TABLE IF EXISTS test_mow_with_before_changelog FORCE"

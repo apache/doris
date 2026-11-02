@@ -3089,6 +3089,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                     } else if (column.getType().isVariantType() && column.getVariantEnableNestedGroup()) {
                         throw new AnalysisException(
                                 "variant column with nested group can't be created on table with changelog");
+                    } else if (column.getType().isVariantType() && column.getVariantEnableDocMode()) {
+                        throw new AnalysisException(
+                                "variant column with doc mode can't be created on table with changelog");
                     }
                 }
                 olapTable.setChangelogConfig(changelogConfig);

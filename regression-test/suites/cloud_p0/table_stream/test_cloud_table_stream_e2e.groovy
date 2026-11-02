@@ -20,6 +20,7 @@ suite("test_cloud_table_stream_e2e") {
         return
     }
 
+    sql "set default_variant_enable_doc_mode = false"
     sql "DROP DATABASE IF EXISTS test_cloud_table_stream_e2e_db FORCE"
     sql "CREATE DATABASE test_cloud_table_stream_e2e_db"
     sql "USE test_cloud_table_stream_e2e_db"

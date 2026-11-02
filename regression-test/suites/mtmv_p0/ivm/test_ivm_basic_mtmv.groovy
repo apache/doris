@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_ivm_basic_mtmv") {
+    sql "set default_variant_enable_doc_mode = false"
     sql """drop materialized view if exists mv_ivm_basic;"""
     sql """drop table if exists t_ivm_basic_base;"""
 

@@ -19,6 +19,7 @@ import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility
 
 suite("test_changelog_ttl", "nonConcurrent") {
+    sql "set default_variant_enable_doc_mode = false"
     // Storage properties differ between Cloud and shared-nothing deployments.
     def showCreateTtl = { String table ->
         def ddl = sql("SHOW CREATE TABLE ${table}")[0][1]

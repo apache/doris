@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_cloud_changelog_compaction", "nonConcurrent") {
+    sql "set default_variant_enable_doc_mode = false"
     if (!isCloudMode()) {
         return
     }

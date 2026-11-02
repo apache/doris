@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_olap_table_stream_snapshot", "nonConcurrent") {
+    sql "set default_variant_enable_doc_mode = false"
     if (isCloudMode()) {
         return
     }

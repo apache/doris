@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_changelog_mow_light_delete", "nonConcurrent") {
+    sql "set default_variant_enable_doc_mode = false"
     sql "DROP TABLE IF EXISTS test_changelog_mow_light_delete_without_history FORCE"
     sql "DROP TABLE IF EXISTS test_changelog_mow_light_delete_with_history FORCE"
     sql "DROP TABLE IF EXISTS test_changelog_dup_delete FORCE"
