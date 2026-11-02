@@ -212,26 +212,28 @@ public class RefreshManager {
         boolean invalidateDatabase = invalidateTableLookup && catalog.getLowerCaseTableNames() != 0;
         ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
         Optional<ExternalDatabase<? extends ExternalTable>> db = catalog.getDbForReplay(localDbName);
-        if (!db.isPresent()) {
-            try {
-                invalidateAllConnectorCachesIfPresent(catalog);
-            } finally {
-                if (invalidateDatabase) {
-                    cacheMgr.invalidateDb(catalogId, dbId, localDbName);
-                } else {
-                    cacheMgr.invalidateTable(catalogId, dbId, localDbName, tableId, localTableName);
-                }
-            }
-            LOG.info("database object cache is cold when refreshing table; "
-                            + "invalidated caches by local names {}.{} in catalog {}",
-                    localDbName, localTableName, catalogId);
-            return;
-        }
-        if (invalidateTableLookup) {
-            db.get().beginTableLookupRefresh();
+        Optional<? extends ExternalTable> table = db.flatMap(database -> database.getTableForReplay(localTableName));
+        // Cold paths invalidate connector database/catalog caches without a retained table object.
+        boolean fenceLookup = invalidateTableLookup || !table.isPresent();
+        if (fenceLookup) {
+            catalog.beginTableLookupRefresh();
         }
         try {
-            Optional<? extends ExternalTable> table = db.get().getTableForReplay(localTableName);
+            if (!db.isPresent()) {
+                try {
+                    invalidateAllConnectorCachesIfPresent(catalog);
+                } finally {
+                    if (invalidateDatabase) {
+                        cacheMgr.invalidateDb(catalogId, dbId, localDbName);
+                    } else {
+                        cacheMgr.invalidateTable(catalogId, dbId, localDbName, tableId, localTableName);
+                    }
+                }
+                LOG.info("database object cache is cold when refreshing table; "
+                                + "invalidated caches by local names {}.{} in catalog {}",
+                        localDbName, localTableName, catalogId);
+                return;
+            }
             if (!table.isPresent()) {
                 try {
                     if (catalog instanceof PluginDrivenExternalCatalog) {
@@ -258,8 +260,8 @@ public class RefreshManager {
             }
             refreshTableInternal(db.get(), table.get(), updateTime, invalidateTableLookup);
         } finally {
-            if (invalidateTableLookup) {
-                db.get().endTableLookupRefresh();
+            if (fenceLookup) {
+                catalog.endTableLookupRefresh();
             }
         }
     }
@@ -272,33 +274,38 @@ public class RefreshManager {
         long dbId = Util.genIdByName(catalog.getName(), localDbName);
         long sourceTableId = Util.genIdByName(catalog.getName(), localDbName, localTableName);
         long destinationTableId = Util.genIdByName(catalog.getName(), localDbName, log.getNewTableName());
+        catalog.beginTableLookupRefresh();
         try {
-            if (!db.isPresent()) {
-                invalidateAllConnectorCachesIfPresent(catalog);
-                LOG.info("database object cache is cold when replaying rename table; invalidated connector caches for "
-                                + "{}: {}",
-                        localDbName, log.debugForRefreshTable());
-            } else {
-                ExternalDatabase<? extends ExternalTable> database = db.get();
-                try {
-                    if (catalog instanceof PluginDrivenExternalCatalog) {
-                        // Persisted names are local identities, so database scope is the replay-safe connector key.
-                        ((PluginDrivenExternalCatalog) catalog).getConnector()
-                                .invalidateDb(database.getRemoteName());
+            try {
+                if (!db.isPresent()) {
+                    invalidateAllConnectorCachesIfPresent(catalog);
+                    LOG.info("database object cache is cold when replaying rename table; "
+                                    + "invalidated connector caches for {}: {}",
+                            localDbName, log.debugForRefreshTable());
+                } else {
+                    ExternalDatabase<? extends ExternalTable> database = db.get();
+                    try {
+                        if (catalog instanceof PluginDrivenExternalCatalog) {
+                            // Persisted names are local identities, so database scope is the replay-safe connector key.
+                            ((PluginDrivenExternalCatalog) catalog).getConnector()
+                                    .invalidateDb(database.getRemoteName());
+                        }
+                    } finally {
+                        database.invalidateTableRename(localTableName, log.getNewTableName());
                     }
+                }
+            } finally {
+                try {
+                    Env.getCurrentEnv().getConstraintManager().renameTable(
+                            new TableNameInfo(catalog.getName(), localDbName, localTableName),
+                            new TableNameInfo(catalog.getName(), localDbName, log.getNewTableName()));
                 } finally {
-                    database.invalidateTableRename(localTableName, log.getNewTableName());
+                    cacheMgr.invalidateTableRename(log.getCatalogId(), dbId, localDbName,
+                            sourceTableId, localTableName, destinationTableId, log.getNewTableName());
                 }
             }
         } finally {
-            try {
-                Env.getCurrentEnv().getConstraintManager().renameTable(
-                        new TableNameInfo(catalog.getName(), localDbName, localTableName),
-                        new TableNameInfo(catalog.getName(), localDbName, log.getNewTableName()));
-            } finally {
-                cacheMgr.invalidateTableRename(log.getCatalogId(), dbId, localDbName,
-                        sourceTableId, localTableName, destinationTableId, log.getNewTableName());
-            }
+            catalog.endTableLookupRefresh();
         }
     }
 

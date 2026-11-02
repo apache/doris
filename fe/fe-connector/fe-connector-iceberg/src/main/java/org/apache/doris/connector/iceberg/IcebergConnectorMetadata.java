@@ -914,6 +914,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         long rowCount;
         try {
             rowCount = computeRowCount(loadTable(session, iceHandle));
+        } catch (ConnectorTableNotFoundException missing) {
+            throw missing;
         } catch (Exception e) {
             LOG.warn("Failed to compute Iceberg row count for {}.{}",
                     iceHandle.getDbName(), iceHandle.getTableName(), e);
@@ -941,6 +943,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         long rowCount;
         try {
             rowCount = computeRowCount(loadTable(session, iceHandle).snapshot(snapshot.getSnapshotId()));
+        } catch (ConnectorTableNotFoundException missing) {
+            throw missing;
         } catch (Exception e) {
             LOG.warn("Failed to compute Iceberg row count at snapshot {} for {}.{}",
                     snapshot.getSnapshotId(), iceHandle.getDbName(), iceHandle.getTableName(), e);
@@ -2681,14 +2685,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                 if (listPartitionsViewCache == null || filter.isPresent()) {
                     return listPartitionsUncached(session, iceHandle);
                 }
-                Table table;
-                try {
-                    table = resolveTableForRead(session, iceHandle);
-                } catch (NoSuchTableException e) {
-                    LOG.warn("Iceberg table not found while listing partitions: {}.{}",
-                            iceHandle.getDbName(), iceHandle.getTableName(), e);
-                    return Collections.<ConnectorPartitionInfo>emptyList();
-                }
+                Table table = resolveTableForRead(session, iceHandle);
                 ConnectorTableKey key = new ConnectorTableKey(iceHandle.getDbName(),
                         iceHandle.getTableName(), iceHandle.getSnapshotId(), iceHandle.getSchemaId(),
                         table.spec().specId());
@@ -2704,20 +2701,13 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
 
     /**
      * Builds the derived partition-info list live (no cache-A layer): the same resolveTableForRead + remote
-     * PARTITIONS build the pre-cache code ran, including the concurrent-drop degrade (a {@code NoSuchTableException}
-     * yields an empty list). Extracted so it can serve as cache A's per-miss loader. MUST run inside
+     * PARTITIONS build the pre-cache code ran. Confirmed table absence must reach the caller's guarded cleanup.
+     * Extracted so it can serve as cache A's per-miss loader. MUST run inside
      * {@code context.executeAuthenticated} (the caller wraps it).
      */
     private List<ConnectorPartitionInfo> listPartitionsUncached(
             ConnectorSession session, IcebergTableHandle iceHandle) {
-        Table table;
-        try {
-            table = resolveTableForRead(session, iceHandle);
-        } catch (NoSuchTableException e) {
-            LOG.warn("Iceberg table not found while listing partitions: {}.{}",
-                    iceHandle.getDbName(), iceHandle.getTableName(), e);
-            return Collections.<ConnectorPartitionInfo>emptyList();
-        }
+        Table table = resolveTableForRead(session, iceHandle);
         return listPartitions(table, iceHandle);
     }
 

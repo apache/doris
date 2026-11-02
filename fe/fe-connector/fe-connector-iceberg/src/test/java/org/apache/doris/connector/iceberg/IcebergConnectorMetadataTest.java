@@ -245,6 +245,40 @@ public class IcebergConnectorMetadataTest {
     }
 
     @Test
+    public void statisticsPreserveTypedAbsenceButDegradeOrdinaryFailures() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        IcebergConnectorMetadata metadata = metadataWith(ops);
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t1");
+        org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot pin =
+                org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.builder().snapshotId(1L).build();
+        ops.loadTableFailure = new NoSuchTableException("dropped during row-count read");
+        Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                () -> metadata.getTableStatistics(null, handle));
+        Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                () -> metadata.getTableStatistics(null, handle, pin));
+        ops.loadTableFailure = new IllegalStateException("permission denied");
+        Assertions.assertFalse(metadata.getTableStatistics(null, handle).isPresent());
+        Assertions.assertFalse(metadata.getTableStatistics(null, handle, pin).isPresent());
+    }
+
+    @Test
+    public void partitionListingPreservesAbsenceWithAndWithoutDerivedCache() {
+        for (boolean cached : new boolean[] {false, true}) {
+            RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+            org.apache.doris.connector.cache.ConnectorMetadataCache<
+                    List<org.apache.doris.connector.spi.ConnectorPartitionInfo>> cache = cached
+                            ? new org.apache.doris.connector.cache.ConnectorMetadataCache<>(
+                                    "iceberg", "partition_view", Collections.emptyMap()) : null;
+            IcebergConnectorMetadata metadata = new IcebergConnectorMetadata(ops,
+                    IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext(),
+                    new IcebergLatestSnapshotCache(0L, 1), null, null, null, null, cache);
+            ops.loadTableFailure = new NoSuchTableException("dropped during partition read");
+            Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                    () -> metadata.listPartitions(null, new IcebergTableHandle("db1", "t1"), Optional.empty()));
+        }
+    }
+
+    @Test
     public void noTableCacheSnapshotReadCanDiscoverDropAfterHandleResolution() {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.tableExists = true;

@@ -2197,8 +2197,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // scans below the partition-batch threshold.
         if (hasSlots) {
             boolean countPushdown = isTableLevelCountStarPushdown();
-            long estimate = onPluginClassLoader(scanProvider, () -> scanProvider.streamingSplitEstimate(
-                    connectorSession, currentHandle, buildRemainingFilter(), countPushdown));
+            long estimate = readMetadata(() -> onPluginClassLoader(scanProvider,
+                    () -> scanProvider.streamingSplitEstimate(
+                            connectorSession, currentHandle, buildRemainingFilter(), countPushdown)));
             if (estimate >= 0) {
                 // Streaming does not know the final scanned-partition count before dispatch. Partition
                 // rules need that count now; use synchronous planning, which publishes the connector count.
@@ -2421,7 +2422,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
                 @Override
                 public List<Split> getNextBatch() {
-                    return onPluginClassLoader(scanProvider, () -> {
+                    return readMetadata(() -> onPluginClassLoader(scanProvider, () -> {
                         List<Split> splits = new ArrayList<>(splitAssignment.getSplitBatchSize());
                         while (splits.size() < splitAssignment.getSplitBatchSize()
                                 && splitAssignment.needMoreSplit()) {
@@ -2440,7 +2441,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                                     request.withRequiredPartitions(partitions.subList(begin, end)));
                         }
                         return splits;
-                    });
+                    }));
                 }
 
                 private void closeSource() {
@@ -2484,7 +2485,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
             @Override
             public List<Split> getNextBatch() {
-                return onPluginClassLoader(scanProvider, () -> {
+                return readMetadata(() -> onPluginClassLoader(scanProvider, () -> {
                     request.getScanContext().checkCancelled();
                     if (source == null) {
                         source = scanProvider.streamSplits(connectorSession, request);
@@ -2498,7 +2499,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                     }
                     generatedSplits.setValue(generatedSplits.getValue() + splits.size());
                     return splits;
-                });
+                }));
             }
 
             @Override

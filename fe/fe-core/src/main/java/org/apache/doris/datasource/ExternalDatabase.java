@@ -93,10 +93,6 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     private FeMetaCacheEntry<String, NameCacheValue> tableNames;
     private FeMetaCacheEntry<String, T> tables;
     private transient IdNameIndex tableIdNameIndex = new IdNameIndex("external table");
-    // Guarded by extCatalog. Lookup refresh can replace table objects before invalidation completes.
-    private transient long tableLookupRefreshGeneration;
-    private transient int activeTableLookupRefreshes;
-
     private volatile boolean isInitializing = false;
 
     /**
@@ -354,21 +350,6 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         return Optional.ofNullable(tables.getIfPresent(tableName));
     }
 
-    /** Fence all observations, including those on objects published during lookup invalidation. */
-    public void beginTableLookupRefresh() {
-        synchronized (extCatalog) {
-            activeTableLookupRefreshes++;
-            tableLookupRefreshGeneration++;
-        }
-    }
-
-    public void endTableLookupRefresh() {
-        synchronized (extCatalog) {
-            activeTableLookupRefreshes--;
-            tableLookupRefreshGeneration++;
-        }
-    }
-
     /**
      * Captures only a shared base table with a matching retained names snapshot. Guard order is catalog DB,
      * table names, then table object, matching incremental name/object publication. No remote load is performed.
@@ -397,10 +378,11 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         long lookupGeneration;
         OptionalLong metadataGeneration;
         synchronized (extCatalog) {
-            if (activeTableLookupRefreshes != 0) {
+            OptionalLong catalogGeneration = extCatalog.observeTableLookupRefreshGeneration();
+            if (!catalogGeneration.isPresent()) {
                 return Optional.empty();
             }
-            lookupGeneration = tableLookupRefreshGeneration;
+            lookupGeneration = catalogGeneration.getAsLong();
             metadataGeneration = table.observeMetadataRefreshGeneration();
         }
         if (!metadataGeneration.isPresent()) {
@@ -414,7 +396,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                             // runs here; remote reads happened before entering this guarded commit.
                             synchronized (extCatalog) {
                                 if (!initialized || !extCatalog.isInitialized()
-                                        || tableLookupRefreshGeneration != lookupGeneration
+                                        || extCatalog.getTableLookupRefreshGeneration() != lookupGeneration
                                         || table.getMetadataRefreshGeneration() != metadataRefreshGeneration
                                         || Env.getCurrentEnv().getCatalogMgr().getCatalog(extCatalog.getId())
                                                 != extCatalog) {

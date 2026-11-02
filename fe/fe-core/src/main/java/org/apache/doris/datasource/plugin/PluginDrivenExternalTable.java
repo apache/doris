@@ -392,16 +392,19 @@ public class PluginDrivenExternalTable extends ExternalTable {
         withPluginContextClassLoader(connector, () -> {
             ConnectorSession session = pluginCatalog.buildConnectorSession();
             ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+            MetadataRead read = observeConnectorMetadata(session, metadata);
             ConnectorTableHandle handle = resolveConnectorTableHandle(session, metadata)
                     .orElseThrow(() -> new DorisConnectorException(
                             "Cannot resolve row-level DML target " + getName()));
-            metadata.validateRowLevelDmlMode(session, handle, request.getOperation());
-            ConnectorWritePlanProvider provider = writePlanProvider(connector, handle);
-            withPluginContextClassLoader(provider, () -> {
-                provider.validateRowLevelDml(session, handle, request);
+            return read.execute(() -> {
+                metadata.validateRowLevelDmlMode(session, handle, request.getOperation());
+                ConnectorWritePlanProvider provider = writePlanProvider(connector, handle);
+                withPluginContextClassLoader(provider, () -> {
+                    provider.validateRowLevelDml(session, handle, request);
+                    return null;
+                });
                 return null;
             });
-            return null;
         });
     }
 
@@ -1595,12 +1598,13 @@ public class PluginDrivenExternalTable extends ExternalTable {
         Connector connector = pluginCatalog.getConnector();
         ConnectorSession session = pluginCatalog.buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        MetadataRead read = observeConnectorMetadata(session, metadata);
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
             return Collections.emptyMap();
         }
         List<ConnectorPartitionInfo> partitions =
-                metadata.listPartitions(session, handleOpt.get(), Optional.empty());
+                read.execute(() -> metadata.listPartitions(session, handleOpt.get(), Optional.empty()));
         Map<String, List<String>> nameToValues = Maps.newLinkedHashMap();
         for (ConnectorPartitionInfo partition : partitions) {
             List<String> values = new ArrayList<>(remoteNames.size());
@@ -1856,12 +1860,14 @@ public class PluginDrivenExternalTable extends ExternalTable {
     }
 
     private long fetchRowCount(ConnectorSession session, ConnectorMetadata metadata) {
+        MetadataRead read = observeConnectorMetadata(session, metadata);
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
             return UNKNOWN_ROW_COUNT;
         }
 
-        Optional<ConnectorTableStatistics> statsOpt = metadata.getTableStatistics(session, handleOpt.get());
+        Optional<ConnectorTableStatistics> statsOpt =
+                read.execute(() -> metadata.getTableStatistics(session, handleOpt.get()));
         if (statsOpt.isPresent()) {
             ConnectorTableStatistics stats = statsOpt.get();
             if (stats.getRowCount() >= 0) {
@@ -1893,7 +1899,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
         // feature flag because the listing can be a costly remote round-trip; the connector self-samples,
         // pins its classloader, and degrades to -1 rather than throwing.
         if (GlobalVariable.enable_get_row_count_from_file_list) {
-            long dataSize = metadata.estimateDataSizeByListingFiles(session, handleOpt.get());
+            long dataSize = read.execute(() -> metadata.estimateDataSizeByListingFiles(session, handleOpt.get()));
             if (dataSize > 0) {
                 long rowWidth = estimatedRowWidth(true);
                 if (rowWidth > 0) {
@@ -1948,12 +1954,13 @@ public class PluginDrivenExternalTable extends ExternalTable {
         ConnectorSession session = pluginCatalog.buildCrossStatementSession();
         try {
             ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+            MetadataRead read = observeConnectorMetadata(session, metadata);
             Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
             if (!handleOpt.isPresent()) {
                 return UNKNOWN_ROW_COUNT;
             }
             Optional<ConnectorTableStatistics> statsOpt =
-                    metadata.getTableStatistics(session, handleOpt.get(), snapshot);
+                    read.execute(() -> metadata.getTableStatistics(session, handleOpt.get(), snapshot));
             if (statsOpt.isPresent() && statsOpt.get().getRowCount() >= 0) {
                 return statsOpt.get().getRowCount();
             }

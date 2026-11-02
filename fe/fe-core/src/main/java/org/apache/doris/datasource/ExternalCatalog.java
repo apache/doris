@@ -176,6 +176,10 @@ public abstract class ExternalCatalog
     protected FeMetaCacheEntry<String, NameCacheValue> databaseNames;
     protected FeMetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> databases;
     protected transient IdNameIndex dbIdNameIndex = new IdNameIndex("external database");
+    // Guarded by this catalog. The interval must outlive replacement database/table objects.
+    private transient volatile long tableLookupRefreshGeneration;
+    private transient int activeTableLookupRefreshes;
+
     protected ExecutionAuthenticator executionAuthenticator;
     protected ThreadPoolExecutor threadPoolWithPreAuth;
 
@@ -1239,6 +1243,32 @@ public abstract class ExternalCatalog
             tableAutoAnalyzePolicy = Maps.newHashMap();
         }
         this.dbIdNameIndex = new IdNameIndex("external database");
+    }
+
+    /** Fence all observations, including those on objects published during lookup invalidation. */
+    public void beginTableLookupRefresh() {
+        synchronized (this) {
+            activeTableLookupRefreshes++;
+            tableLookupRefreshGeneration++;
+        }
+    }
+
+    public void endTableLookupRefresh() {
+        synchronized (this) {
+            activeTableLookupRefreshes--;
+            tableLookupRefreshGeneration++;
+        }
+    }
+
+    OptionalLong observeTableLookupRefreshGeneration() {
+        synchronized (this) {
+            return activeTableLookupRefreshes == 0
+                    ? OptionalLong.of(tableLookupRefreshGeneration) : OptionalLong.empty();
+        }
+    }
+
+    long getTableLookupRefreshGeneration() {
+        return tableLookupRefreshGeneration;
     }
 
     /** Cache-only identity fence for a read through a retained database instance. */
