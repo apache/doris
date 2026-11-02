@@ -217,7 +217,7 @@ TEST_F(DataTypeJsonbSerDeTest, serdes) {
             TimezoneUtils::load_timezones_to_cache();
             DataTypeSerDe::FormatOptions format_options;
             cctz::time_zone tz;
-            TimezoneUtils::find_cctz_time_zone("UTC", tz);
+            ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("UTC", tz));
             format_options.timezone = &tz;
             auto orc_batch =
                     std::make_unique<orc::StringVectorBatch>(row_count, *orc::getDefaultPool());

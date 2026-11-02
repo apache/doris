@@ -41,6 +41,7 @@
 #include "util/disk_info.h"
 #include "util/mem_info.h"
 #include "util/threadpool.h"
+#include "util/timezone_utils.h"
 
 int main(int argc, char** argv) {
     SCOPED_INIT_THREAD_CONTEXT();
@@ -92,6 +93,7 @@ int main(int argc, char** argv) {
     doris::DiskInfo::init();
     doris::MemInfo::init();
     doris::BackendOptions::init();
+    doris::TimezoneUtils::load_timezones_to_cache();
 
     auto service = std::make_unique<doris::HttpService>(doris::ExecEnv::GetInstance(), 0, 1);
     auto status = service->start();

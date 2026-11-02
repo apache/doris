@@ -60,7 +60,7 @@ Status AggregatePythonUDAFData::add(int64_t place_id, const IColumn** columns,
     }
 
     cctz::time_zone timezone_obj;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, timezone_obj);
+    DORIS_CHECK(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, timezone_obj));
 
     PythonArrowBlockConvertor converter(input_block, TimezoneUtils::default_time_zone,
                                         timezone_obj);
@@ -105,7 +105,7 @@ Status AggregatePythonUDAFData::add_batch(AggregateDataPtr* places, size_t place
     input_block.insert(ColumnWithTypeAndName(std::move(places_col), places_type, "places"));
 
     cctz::time_zone timezone_obj;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, timezone_obj);
+    DORIS_CHECK(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, timezone_obj));
 
     PythonArrowBlockConvertor converter(input_block, TimezoneUtils::default_time_zone,
                                         timezone_obj);
@@ -174,7 +174,7 @@ Status AggregatePythonUDAFData::get(IColumn& to, const DataTypePtr& result_type,
     Block result_block;
     DataTypes types = {result_type};
     cctz::time_zone timezone_obj;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, timezone_obj);
+    DORIS_CHECK(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, timezone_obj));
     RETURN_IF_ERROR(PythonArrowBlockConvertor(result->schema(), timezone_obj)
                             .convert_from_arrow(result, types, &result_block));
 
