@@ -797,17 +797,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         Map<String, String> jobProperties = command.getAnalyzedJobProperties();
         KafkaDataSourceProperties dataSourceProperties = (KafkaDataSourceProperties) command.getDataSourceProperties();
         String declaredComputeGroup = jobProperties.get(CreateRoutineLoadInfo.COMPUTE_GROUP);
-        if (!Strings.isNullOrEmpty(declaredComputeGroup)) {
-            // Every task looks the job's workload group up in the compute group the job runs in
-            // (KafkaTaskInfo#rePlan), so moving the job checks it in the new group, as CREATE does in the group
-            // it declares. One the new group does not have would otherwise fail every task with the retryable
-            // CREATE_TASKS_ERR, which auto resume repeats for good. Checked as the owner, whom the tasks run as.
-            String workloadGroup = jobProperties.containsKey(CreateRoutineLoadInfo.WORKLOAD_GROUP)
-                    ? jobProperties.get(CreateRoutineLoadInfo.WORKLOAD_GROUP) : getWorkloadGroup();
-            if (!Strings.isNullOrEmpty(workloadGroup)) {
-                CreateRoutineLoadInfo.checkWorkloadGroup(getUserIdentity(), workloadGroup, declaredComputeGroup);
-            }
-        }
+        checkAlteredWorkloadGroup(jobProperties);
         if (null != dataSourceProperties) {
             // The offsets are converted before modifyPropertiesInternal installs the new properties,
             // so a compute group this ALTER declares has to be used already: for

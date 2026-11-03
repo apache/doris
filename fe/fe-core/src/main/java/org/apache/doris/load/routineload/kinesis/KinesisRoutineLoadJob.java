@@ -675,6 +675,7 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
         Map<String, String> jobProperties = command.getAnalyzedJobProperties();
         KinesisDataSourceProperties dataSourceProperties =
                 (KinesisDataSourceProperties) command.getDataSourceProperties();
+        checkAlteredWorkloadGroup(jobProperties);
 
         writeLock();
         try {
