@@ -2922,15 +2922,6 @@ public class Config extends ConfigBase {
             + "upload task during the backup process. The default " + "value is 10.")
     public static int backup_upload_snapshot_batch_size = 10;
 
-    @ConfField(mutable = true, masterOnly = false, description = "When inferring In-predicates from OR (OrToIn "
-            + "extract mode, used by filters and partition pruning), "
-            + "whether a `slot = literal` / `slot IN (literals)` conjunct can be a candidate even if its slot "
-            + "is also referenced by sibling conjuncts of the same disjunct, e.g. infer `a IN (1,2,3)` from "
-            + "`(a=1 AND b=1) OR (a IN (2,3) AND ((a=2 AND c=1) OR (a=3 AND c=2)))`. The inferred In-predicate "
-            + "is only appended and the original OR is kept, so results do not change. Set to false to restore "
-            + "the previous inference logic; it takes effect immediately for queries planned afterwards.")
-    public static boolean enable_or_to_in_shared_slot_inference = true;
-
     @ConfField(mutable = true, masterOnly = true, description = "The maximum number of snapshots assigned to a "
             + "download task during the restore process. The " + "default value is 10.")
     public static int restore_download_snapshot_batch_size = 10;

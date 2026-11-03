@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.common.Config;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
 import org.apache.doris.nereids.rules.expression.rules.OrToIn;
 import org.apache.doris.nereids.trees.expressions.And;
@@ -277,42 +276,45 @@ class OrToInTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    void testSharedSlotInferenceRollbackSwitch() {
-        String sharedSlotExpr = "(spm=1 and ep=1 and ev=1) or (spm=2 and ep=2 and ev=2)"
-                + " or (f(j)=1 and g(j) in (1, 2) and ((spm=3 and ep=1 and ev=1) or (spm=4 and ep=2 and ev=2)))";
-        String functionExpr = "(a=1 and f(a)=2) or a=3";
-        String independentExpr = "(a=1 and b=1) or (a=2 and c=2)";
-        boolean origin = Config.enable_or_to_in_shared_slot_inference;
-        try {
-            // switch off: exactly the legacy behavior
-            Config.enable_or_to_in_shared_slot_inference = false;
-            Expression legacy = OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(PARSER.parseExpression(sharedSlotExpr));
-            Assertions.assertTrue(legacy instanceof Or, legacy.toSql());
-            Assertions.assertEquals("OR[AND[(a = 1),(f(a) = 2)],(a = 3)]",
-                    OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(PARSER.parseExpression(functionExpr), context).toSql());
-            // inference that never depended on the relaxation is not affected by the switch
-            Assertions.assertEquals("AND[a IN (1, 2),OR[AND[(a = 1),(b = 1)],AND[(a = 2),(c = 2)]]]",
-                    OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(PARSER.parseExpression(independentExpr)).toSql());
+    void testDuplicateSlotCandidateOnlyDropsConflictingSlot() {
+        // The inner OR is rewritten first and appends "a in (1, 2)" next to it, so the first outer disjunct
+        // holds "a = 1" and "a in (1, 2)" on the same slot. That slot is a pattern for SimplifyRange and is
+        // dropped, but "b = 10" must still be inferred.
+        String expr = "(b=10 and a=1 and ((a=1 and c=100) or (a=2 and c=200))) or (b=20 and a=3)";
+        // InferInPredicateFromOr calls rewriteTree(Expression) on filter predicates
+        Expression rewritten = OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(PARSER.parseExpression(expr));
+        List<Expression> conjuncts = ExpressionUtils.extractConjunction(rewritten);
+        assertHasInPredicate(conjuncts, "b", "10", "20");
+        Assertions.assertEquals(1, conjuncts.stream().filter(Or.class::isInstance).count(), conjuncts.toString());
+        // the conflicting slot is dropped, not inferred from a half-collected candidate
+        Assertions.assertFalse(conjuncts.stream().anyMatch(c -> c instanceof InPredicate
+                && ((InPredicate) c).getCompareExpr().toSql().equals("a")), conjuncts.toString());
+        assertFixedPoint(rewritten);
+    }
 
-            // switch on again: the change takes effect on the next rewrite without any restart
-            Config.enable_or_to_in_shared_slot_inference = true;
-            List<Expression> conjuncts = ExpressionUtils.extractConjunction(
-                    OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(PARSER.parseExpression(sharedSlotExpr)));
-            assertHasInPredicate(conjuncts, "spm", "1", "2", "3", "4");
-            Assertions.assertEquals("AND[a IN (1, 3),OR[AND[(a = 1),(f(a) = 2)],(a = 3)]]",
-                    OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(PARSER.parseExpression(functionExpr), context).toSql());
-            Assertions.assertEquals("AND[a IN (1, 2),OR[AND[(a = 1),(b = 1)],AND[(a = 2),(c = 2)]]]",
-                    OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(PARSER.parseExpression(independentExpr)).toSql());
+    @Test
+    void testConflictingSlotIsNotRevivedByLaterConjunct() {
+        // Three conjuncts on slot a: after "a = 1" and "a in (1, 2)" conflict, the later "a in (1, 3)"
+        // must not register a again. Each single conjunct is implied by the disjunct, so re-registering
+        // would still be sound, but the outcome would then depend on the order the conjuncts are written
+        // in. Slot b is unrelated and is still inferred.
+        String expr = "(b=10 and a=1 and a in (1, 2) and a in (1, 3)) or (b=20 and a=3)";
+        Expression rewritten = OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(PARSER.parseExpression(expr));
+        List<Expression> conjuncts = ExpressionUtils.extractConjunction(rewritten);
+        assertHasInPredicate(conjuncts, "b", "10", "20");
+        Assertions.assertFalse(conjuncts.stream().anyMatch(c -> c instanceof InPredicate
+                && ((InPredicate) c).getCompareExpr().toSql().equals("a")), conjuncts.toString());
+        Assertions.assertEquals(1, conjuncts.stream().filter(Or.class::isInstance).count());
+        assertFixedPoint(rewritten);
+    }
 
-            // replace mode never uses the relaxation, whatever the switch is
-            for (boolean enabled : new boolean[] {true, false}) {
-                Config.enable_or_to_in_shared_slot_inference = enabled;
-                Assertions.assertEquals("OR[AND[(a = 1),(f(a) = 2)],(a = 3)]",
-                        OrToIn.REPLACE_MODE_INSTANCE.rewriteTree(PARSER.parseExpression(functionExpr)).toSql());
-            }
-        } finally {
-            Config.enable_or_to_in_shared_slot_inference = origin;
-        }
+    @Test
+    void testDuplicateSlotCandidateWithoutUnrelatedSlotLeavesOrAlone() {
+        // Two conjuncts on slot a and no other candidate slot in the first disjunct: no candidate survives,
+        // so the OR is left alone (same end result as the old "clear everything and stop" branch).
+        String expr = "(a=1 and a in (1, 2)) or (a=3 and b=1)";
+        Expression rewritten = OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(PARSER.parseExpression(expr));
+        Assertions.assertTrue(rewritten instanceof Or, rewritten.toSql());
     }
 
     @Test

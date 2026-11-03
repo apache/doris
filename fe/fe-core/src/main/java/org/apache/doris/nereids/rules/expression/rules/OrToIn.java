@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
-import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
@@ -39,6 +38,7 @@ import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -62,8 +62,7 @@ public class OrToIn {
      * case 2: from (a=1) or (a=2), "a in (1,2)" is inferred, the inferred expr is equivalent to the original expr
      * - replaceMode/extractMode: output a in (1, 2)
      *
-     * case 3 (extractMode only, controlled by Config.enable_or_to_in_shared_slot_inference): the candidate slot
-     * is also referenced by sibling conjuncts of the same disjunct,
+     * case 3 (extractMode only): the candidate slot is also referenced by sibling conjuncts of the same disjunct,
      * e.g. "(a=1 and b=1) or (a in (2, 3) and ((a=2 and c=1) or (a=3 and c=2)))".
      * - replaceMode: output origin expr
      * - extractMode: output a in (1, 2, 3) and (origin expr)
@@ -264,13 +263,9 @@ public class OrToIn {
      * A typical shape where the independence check blocks a useful pushdown:
      *   (spm='a' AND ...) OR (... AND spm IN ('c','d') AND ((spm='c' AND ...) OR (spm='d' AND ...)))
      * Here "spm IN ('c','d')" was inferred from the inner OR, which is kept and still references spm.
-     *
-     * Config.enable_or_to_in_shared_slot_inference is the rollback switch of exactly this relaxation:
-     * when it is false, every conjunct goes through independentConjunct() as before.
      */
     private boolean isCandidateConjunct(int idx, List<Expression> conjuncts) {
-        if (mode == Mode.extractMode && Config.enable_or_to_in_shared_slot_inference
-                && isSlotCompareWithLiterals(conjuncts.get(idx))) {
+        if (mode == Mode.extractMode && isSlotCompareWithLiterals(conjuncts.get(idx))) {
             return true;
         }
         return independentConjunct(idx, conjuncts);
@@ -343,9 +338,36 @@ public class OrToIn {
                 || type.isBooleanType();
     }
 
+    /**
+     * Register "compareExpr -> literals" as a candidate of the current disjunct.
+     *
+     * A second candidate for the same compareExpr (e.g. "A=1 and A in (1, 2)") is a pattern for the
+     * SimplifyRange rule, so OrToIn gives up on that expression. Historically that was done by clearing
+     * every candidate of the disjunct and stopping, which was harmless because the independence check
+     * never let two conjuncts on the same slot get here. The shared-slot relaxation makes it reachable,
+     * and clearing everything would also throw away unrelated slots (e.g. "b = 10" in
+     * "b = 10 and a = 1 and a in (1, 2)"), losing an inference that existed before the relaxation.
+     * So only the conflicting compareExpr is dropped, and it is remembered in {@code conflicted} so that
+     * a third conjunct on it cannot bring it back. Dropping a candidate only weakens the appended
+     * In-predicate, never its correctness.
+     */
+    private static void addCandidate(Map<Expression, Set<Literal>> candidates, Set<Expression> conflicted,
+            Expression compareExpr, Set<Literal> literals) {
+        if (conflicted.contains(compareExpr)) {
+            return;
+        }
+        if (!candidates.containsKey(compareExpr)) {
+            candidates.put(compareExpr, literals);
+            return;
+        }
+        candidates.remove(compareExpr);
+        conflicted.add(compareExpr);
+    }
+
     private Map<Expression, Set<Literal>> getCandidates(Expression disjunct) {
         List<Expression> conjuncts = ExpressionUtils.extractConjunction(disjunct);
         Map<Expression, Set<Literal>> candidates = new LinkedHashMap<>();
+        Set<Expression> conflicted = new HashSet<>();
         // collect candidates from the first disjunction
         for (int idx = 0; idx < conjuncts.size(); idx++) {
             if (!isCandidateConjunct(idx, conjuncts)) {
@@ -366,18 +388,9 @@ public class OrToIn {
                     literal = (Literal) eq.left();
                 }
                 if (compareExpr != null) {
-                    Set<Literal> literals = candidates.get(compareExpr);
-                    if (literals == null) {
-                        literals = Sets.newHashSet();
-                        literals.add(literal);
-                        candidates.put(compareExpr, literals);
-                    } else {
-                        // pattern like (A=1 and A=2) should be processed by SimplifyRange rule
-                        // OrToIn rule does apply to this expression
-                        candidates.clear();
-                        break;
-
-                    }
+                    Set<Literal> literals = Sets.newHashSet();
+                    literals.add(literal);
+                    addCandidate(candidates, conflicted, compareExpr, literals);
                 }
             } else if (conjunct instanceof InPredicate) {
                 InPredicate inPredicate = (InPredicate) conjunct;
@@ -393,15 +406,7 @@ public class OrToIn {
                 }
 
                 if (allLiteralOpts) {
-                    Set<Literal> alreadyMappedLiterals = candidates.get(inPredicate.getCompareExpr());
-                    if (alreadyMappedLiterals == null) {
-                        candidates.put(inPredicate.getCompareExpr(), literalOptions);
-                    } else {
-                        // pattern like (A=1 and A in (1, 2)) should be processed by SimplifyRange rule
-                        // OrToIn rule does apply to this expression
-                        candidates.clear();
-                        break;
-                    }
+                    addCandidate(candidates, conflicted, inPredicate.getCompareExpr(), literalOptions);
                 }
             }
         }
