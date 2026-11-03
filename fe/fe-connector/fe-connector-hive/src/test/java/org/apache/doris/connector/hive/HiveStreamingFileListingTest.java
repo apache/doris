@@ -20,6 +20,7 @@ package org.apache.doris.connector.hive;
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.MetaCache;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.scan.ConnectorScanContext;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
@@ -43,6 +44,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 /** Exercises real lazy filesystem cursors, including failures after ranges have escaped to the framework. */
 class HiveStreamingFileListingTest {
     private static final String LOCATION = "s3://bucket/table";
+    private static final ConnectorSession SESSION = new ScopeSession(0, "q", ConnectorStatementScope.NONE, Map.of());
 
     @Test
     void firstSplitDoesNotReadTheRestOfTheDirectory() throws Exception {
@@ -50,7 +52,7 @@ class HiveStreamingFileListingTest {
         HiveFileListingCache cache = new HiveFileListingCache(HiveTestProperties.minimal());
         FakeFileSystem fs = new FakeFileSystem().withIteratorFactory(location -> files);
         HiveScanPlanProvider provider = provider(cache, fs);
-        try (ConnectorSplitSource source = provider.streamSplits(new Session(), request())) {
+        try (ConnectorSplitSource source = provider.streamSplits(SESSION, request())) {
             Assertions.assertEquals(0, files.read.get());
             Assertions.assertTrue(source.hasNext());
             Assertions.assertTrue(source.hasNext(), "lookahead must be idempotent");
@@ -104,7 +106,7 @@ class HiveStreamingFileListingTest {
             List<MetaCache<?, ?>> entries = new ArrayList<>(owner.entries().values());
             RecordingFiles raw = new RecordingFiles(1);
             FakeFileSystem fs = new FakeFileSystem().withIteratorFactory(location -> raw);
-            try (ConnectorSplitSource source = provider(cache, fs).streamSplits(new Session(), request())) {
+            try (ConnectorSplitSource source = provider(cache, fs).streamSplits(SESSION, request())) {
                 Assertions.assertEquals(10, source.next().getLength());
                 Assertions.assertEquals(1, raw.read.get());
                 Assertions.assertTrue(cache.pendingBytes() > 0, "EOF has not been observed yet");
@@ -184,71 +186,40 @@ class HiveStreamingFileListingTest {
     }
 
     @Test
-    void refreshAtEveryScopePreventsOldListingPublication() {
-        for (int scope = 0; scope < 4; scope++) {
-            HiveFileListingCache cache = new HiveFileListingCache(HiveTestProperties.minimal());
-            FakeFileSystem fs = new FakeFileSystem().withIteratorFactory(location -> new RecordingFiles(3));
-            try (HiveFileIterator files = cache.openDataFiles("db", "t", LOCATION, List.of("1"), fs,
-                    new ConnectorScanContext())) {
-                files.next();
-                switch (scope) {
-                    case 0:
-                        cache.invalidateAll();
-                        break;
-                    case 1:
-                        cache.invalidateDb("db");
-                        break;
-                    case 2:
-                        cache.invalidateTable("db", "t");
-                        break;
-                    default:
-                        cache.invalidatePartitions("db", "t", Collections.singleton(List.of("1")));
-                        break;
+    void refreshAtEveryScopeFencesListsAndIndependentSummaries() {
+        for (long entryBudget : new long[] {8388608, 0}) {
+            for (int scope = 0; scope < 4; scope++) {
+                HiveFileListingCache cache = new HiveFileListingCache(properties(entryBudget, 67108864));
+                FakeFileSystem fs = new FakeFileSystem().withIteratorFactory(location -> new RecordingFiles(3));
+                try (HiveFileIterator files = cache.openDataFiles("db", "t", LOCATION, List.of("1"), fs,
+                        new ConnectorScanContext())) {
+                    files.next();
+                    switch (scope) {
+                        case 0:
+                            cache.invalidateAll();
+                            break;
+                        case 1:
+                            cache.invalidateDb("db");
+                            break;
+                        case 2:
+                            cache.invalidateTable("db", "t");
+                            break;
+                        default:
+                            cache.invalidatePartitions("db", "t", Collections.singleton(List.of("1")));
+                            break;
+                    }
+                    Assertions.assertEquals(2, count(files));
                 }
-                Assertions.assertEquals(2, count(files));
-            }
-            Assertions.assertEquals(0, cache.size(), "scope " + scope + " must fence publication");
-            Assertions.assertEquals(-1, cache.cachedDataSize("db", "t", LOCATION, List.of("1")));
-            Assertions.assertEquals(0, cache.pendingBytes());
-            try (HiveFileIterator files = cache.openDataFiles("db", "t", LOCATION, List.of("1"), fs,
-                    new ConnectorScanContext())) {
-                Assertions.assertEquals(3, count(files));
-            }
-            Assertions.assertEquals(1, cache.size());
-        }
-    }
-
-    @Test
-    void summariesAreFencedBeforeListingEvenWhenListCollectionIsDisabled() {
-        for (int scope = 0; scope < 4; scope++) {
-            HiveFileListingCache cache = new HiveFileListingCache(properties(0, 0));
-            FakeFileSystem fs = new FakeFileSystem().withIteratorFactory(location -> new RecordingFiles(3));
-            try (HiveFileIterator files = cache.openDataFiles("db", "t", LOCATION, List.of("1"), fs,
-                    new ConnectorScanContext())) {
-                files.next();
-                switch (scope) {
-                    case 0:
-                        cache.invalidateAll();
-                        break;
-                    case 1:
-                        cache.invalidateDb("db");
-                        break;
-                    case 2:
-                        cache.invalidateTable("db", "t");
-                        break;
-                    default:
-                        cache.invalidatePartitions("db", "t", Collections.singleton(List.of("1")));
-                        break;
+                Assertions.assertEquals(0, cache.size(), "scope " + scope + " must fence publication");
+                Assertions.assertEquals(-1, cache.cachedDataSize("db", "t", LOCATION, List.of("1")));
+                Assertions.assertEquals(0, cache.pendingBytes());
+                try (HiveFileIterator files = cache.openDataFiles("db", "t", LOCATION, List.of("1"), fs,
+                        new ConnectorScanContext())) {
+                    Assertions.assertEquals(3, count(files));
                 }
-                Assertions.assertEquals(2, count(files));
+                Assertions.assertEquals(entryBudget > 0, cache.size() > 0);
+                Assertions.assertEquals(30, cache.cachedDataSize("db", "t", LOCATION, List.of("1")));
             }
-            Assertions.assertEquals(-1, cache.cachedDataSize("db", "t", LOCATION, List.of("1")));
-            try (HiveFileIterator files = cache.openDataFiles("db", "t", LOCATION, List.of("1"), fs,
-                    new ConnectorScanContext())) {
-                Assertions.assertEquals(3, count(files));
-            }
-            Assertions.assertEquals(30, cache.cachedDataSize("db", "t", LOCATION, List.of("1")));
-            Assertions.assertEquals(0, cache.size());
         }
     }
 
@@ -333,7 +304,7 @@ class HiveStreamingFileListingTest {
         raw.failAfter = 1;
         HiveFileListingCache cache = new HiveFileListingCache(HiveTestProperties.minimal());
         FakeFileSystem fs = new FakeFileSystem().withIteratorFactory(location -> raw);
-        try (ConnectorSplitSource source = provider(cache, fs).streamSplits(new Session(), request())) {
+        try (ConnectorSplitSource source = provider(cache, fs).streamSplits(SESSION, request())) {
             Assertions.assertEquals(10, source.next().getLength());
             DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class, source::hasNext);
             Assertions.assertTrue(failure.getMessage().contains("after producing splits"));
@@ -349,7 +320,7 @@ class HiveStreamingFileListingTest {
         raw.failAfter = 1;
         HiveFileListingCache cache = new HiveFileListingCache(HiveTestProperties.minimal());
         FakeFileSystem fs = new FakeFileSystem().withIteratorFactory(location -> raw);
-        Assertions.assertTrue(provider(cache, fs).planScan(new Session(), request()).isEmpty());
+        Assertions.assertTrue(provider(cache, fs).planScan(SESSION, request()).isEmpty());
         Assertions.assertEquals(0, cache.size());
         Assertions.assertEquals(0, cache.pendingBytes());
     }
@@ -525,48 +496,6 @@ class HiveStreamingFileListingTest {
             if (failClose) {
                 throw new IOException("cursor close failed");
             }
-        }
-    }
-
-    private static final class Session implements ConnectorSession {
-        @Override
-        public String getQueryId() {
-            return "q";
-        }
-
-        @Override
-        public String getUser() {
-            return "u";
-        }
-
-        @Override
-        public String getTimeZone() {
-            return "UTC";
-        }
-
-        @Override
-        public String getLocale() {
-            return "en_US";
-        }
-
-        @Override
-        public long getCatalogId() {
-            return 0;
-        }
-
-        @Override
-        public String getCatalogName() {
-            return "hive";
-        }
-
-        @Override
-        public <T> T getProperty(String name, Class<T> type) {
-            return null;
-        }
-
-        @Override
-        public Map<String, String> getCatalogProperties() {
-            return Map.of();
         }
     }
 }

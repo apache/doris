@@ -30,12 +30,6 @@ suite("test_hive_streaming_splits", "p0,external") {
         sql """create catalog ${catalog} properties (
             'type' = 'hms', 'hive.metastore.uris' = 'thrift://${host}:${port}')"""
     }
-    String database = context.config.otherConfigs.get("hiveSplitDatabase")
-    if (!database) {
-        database = "hive_streaming_splits"
-    }
-    // Preloaded fixtures supply the three populated tables without relying on INSERT/CTAS.
-    boolean preloaded = "true".equalsIgnoreCase(context.config.otherConfigs.get("hiveSplitPreloaded"))
     def settings = ["enable_external_table_batch_mode", "num_files_in_batch_mode",
                     "num_partitions_in_batch_mode", "split_partition_batch_size",
                     "split_batch_size", "split_queue_capacity",
@@ -47,41 +41,33 @@ suite("test_hive_streaming_splits", "p0,external") {
         "hive.file_listing_cache_pending_max_bytes": catalogProperties.get("hive.file_listing_cache_pending_max_bytes", "67108864")
     ]
     try {
-        sql "create database if not exists ${catalog}.${database}"
-        sql "use ${catalog}.${database}"
-        if (!preloaded) {
-            // Truncate while the previous partition metadata still exists, so repeated runs clear its files.
-            if (!sql("show tables like 'streaming_unpartitioned'").isEmpty()) {
-                sql "truncate table streaming_unpartitioned"
-            }
-            if (!sql("show tables like 'streaming_partitioned'").isEmpty()) {
-                sql "truncate table streaming_partitioned"
-            }
-            if (!sql("show tables like 'streaming_ctas'").isEmpty()) {
-                sql "truncate table streaming_ctas"
-            }
-            sql "drop table if exists streaming_unpartitioned"
-            sql "drop table if exists streaming_partitioned"
-            sql "drop table if exists streaming_ctas"
-            sql """create table streaming_unpartitioned (id bigint, file_id int)
-                engine=hive properties ('file_format'='parquet')"""
-            sql """create table streaming_partitioned (id bigint, file_id int, p int)
-                engine=hive partition by list (p) () properties ('file_format'='parquet')"""
+        sql "create database if not exists ${catalog}.hive_streaming_splits"
+        sql "use ${catalog}.hive_streaming_splits"
+        // Truncate while the previous partition metadata still exists, so repeated runs clear its files.
+        if (!sql("show tables like 'streaming_unpartitioned'").isEmpty()) {
+            sql "truncate table streaming_unpartitioned"
         }
+        if (!sql("show tables like 'streaming_partitioned'").isEmpty()) {
+            sql "truncate table streaming_partitioned"
+        }
+        if (!sql("show tables like 'streaming_ctas'").isEmpty()) {
+            sql "truncate table streaming_ctas"
+        }
+        sql "drop table if exists streaming_unpartitioned"
+        sql "drop table if exists streaming_partitioned"
+        sql "drop table if exists streaming_ctas"
+        sql """create table streaming_unpartitioned (id bigint, file_id int)
+            engine=hive properties ('file_format'='parquet')"""
+        sql """create table streaming_partitioned (id bigint, file_id int, p int)
+            engine=hive partition by list (p) () properties ('file_format'='parquet')"""
         sql "set enable_external_table_batch_mode=true"
         sql "set num_files_in_batch_mode=1"
         sql "set num_partitions_in_batch_mode=1"
         sql "set split_partition_batch_size=2"
-        sql "drop table if exists streaming_empty_unpartitioned"
-        sql "drop table if exists streaming_empty_partitioned"
-        sql """create table streaming_empty_unpartitioned (id bigint, file_id int)
-            engine=hive properties ('file_format'='parquet')"""
-        sql """create table streaming_empty_partitioned (id bigint, file_id int, p int)
-            engine=hive partition by list (p) () properties ('file_format'='parquet')"""
-        qt_empty_unpartitioned "select count(*), sum(id) from streaming_empty_unpartitioned"
-        qt_empty_partitioned "select count(*), sum(id) from streaming_empty_partitioned"
+        qt_empty_unpartitioned "select count(*), sum(id) from streaming_unpartitioned"
+        qt_empty_partitioned "select count(*), sum(id) from streaming_partitioned"
         // Separate inserts create enough files to cross several small producer batches.
-        for (int file = 0; !preloaded && file < 12; file++) {
+        for (int file = 0; file < 12; file++) {
             sql """insert into streaming_unpartitioned
                 select number + ${file * 10}, ${file} from numbers('number'='10')"""
             sql """insert into streaming_partitioned
@@ -136,22 +122,25 @@ suite("test_hive_streaming_splits", "p0,external") {
             }
             checkResults("streaming_${limits[0]}_${limits[1]}")
         }
-        // Each ALTER replaces the file cache, so the next scan exercises cold filesystem enumeration.
-        // A small candidate must be discarded while COUNT/SUM and LIMIT remain correct.
+        // ALTER replaces the cache; test cold LIMIT and complete scans with abandoned or disabled candidates.
         for (def candidateBytes : [1024, 0]) {
             sql """alter catalog ${catalog} set properties (
                 'hive.file_listing_cache_entry_max_bytes'='${candidateBytes}',
                 'hive.file_listing_cache_pending_max_bytes'='4096')"""
-            sql "use ${catalog}.${database}"
-            sql "refresh table streaming_unpartitioned"
+            sql "use ${catalog}.hive_streaming_splits"
             quickTest("cold_listing_${candidateBytes}_limit", """select count(*) from
                 (select id from streaming_unpartitioned limit 10) limited""", true)
-            checkResults("bounded_listing_${candidateBytes}")
+            quickTest("bounded_listing_${candidateBytes}_unpartitioned_aggregate", """select
+                count(*), sum(id), count(distinct id), sum(file_id) from streaming_unpartitioned""", true)
+            quickTest("bounded_listing_${candidateBytes}_partitioned_aggregate", """select
+                count(*), sum(id), count(distinct id), sum(file_id), sum(p) from streaming_partitioned""", true)
+            quickTest("bounded_listing_${candidateBytes}_single_partition_limit", """select count(*) from
+                (select id from streaming_partitioned where p=1 limit 10) limited""", true)
         }
         savedListingBudgets.each { name, value ->
             sql "alter catalog ${catalog} set properties ('${name}'='${value}')"
         }
-        sql "use ${catalog}.${database}"
+        sql "use ${catalog}.hive_streaming_splits"
         test {
             sql """alter catalog ${catalog} set properties ('hive.file_listing_cache_entry_max_bytes'='-1')"""
             exception "hive.file_listing_cache_entry_max_bytes is wrong"
@@ -161,10 +150,8 @@ suite("test_hive_streaming_splits", "p0,external") {
             exception "hive.file_listing_cache_pending_max_bytes is wrong"
         }
         // CTAS probes an absent target before creating and resolving it in the same statement.
-        if (!preloaded) {
-            sql """create table streaming_ctas properties ('file_format'='parquet')
-                as select id, file_id from streaming_unpartitioned"""
-        }
+        sql """create table streaming_ctas properties ('file_format'='parquet')
+            as select id, file_id from streaming_unpartitioned"""
         qt_ctas "select count(*), sum(id), count(distinct id), sum(file_id) from streaming_ctas"
         qt_statement_hint """select /*+ SET_VAR(split_batch_size=1, split_queue_capacity=1) */
             count(*), sum(id), max(@@split_batch_size), max(@@split_queue_capacity)
