@@ -23,6 +23,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <functional>
 #include <future>
 #include <memory>
 #include <mutex>
@@ -432,11 +433,28 @@ TEST(FileScannerV2Test, IcebergPositionDeletesSupportNativeFormats) {
     EXPECT_FALSE(FileScannerV2::is_supported(params, avro_position_delete));
 }
 
+TEST(FileScannerV2Test, ArrowStreamLoadsSelectV2) {
+    TQueryOptions options;
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_ARROW);
+    params.__set_file_type(TFileType::FILE_STREAM);
+    params.__set_src_tuple_id(0);
+    TFileRangeDesc range;
+    range.__set_format_type(TFileFormatType::FORMAT_ARROW);
+    range.__set_file_type(TFileType::FILE_STREAM);
+    range.__set_load_id(TUniqueId());
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, true, params));
+    EXPECT_TRUE(FileScannerV2::is_supported(params, range));
+}
+
 TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesAndLoads) {
     TQueryOptions query_options;
     TFileScanRangeParams params;
     params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
 
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+
+    query_options.__set_enable_file_scanner_v2(false);
     EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
 
     query_options.__set_enable_file_scanner_v2(true);
@@ -553,7 +571,8 @@ public:
     explicit RemoteStyleSplitSourceConnector(std::vector<TFileRangeDesc> ranges)
             : _ranges(std::move(ranges)) {}
 
-    Status get_next(bool* has_next, TFileRangeDesc* range) override {
+    Status get_next(bool* has_next, TFileRangeDesc* range,
+                    const std::atomic_bool* /*scanner_stop*/) override {
         std::lock_guard lock(_lock);
         ++_get_next_calls;
         *has_next = _next < _ranges.size();
@@ -582,7 +601,8 @@ public:
     explicit BlockingRemoteStyleSplitSourceConnector(TFileRangeDesc range)
             : _range(std::move(range)) {}
 
-    Status get_next(bool* has_next, TFileRangeDesc* range) override {
+    Status get_next(bool* has_next, TFileRangeDesc* range,
+                    const std::atomic_bool* /*scanner_stop*/) override {
         std::unique_lock lock(_lock);
         if (!_source_returned) {
             _source_returned = true;
@@ -1568,6 +1588,219 @@ TEST(FileScannerTest, PartitionPruningStopsAtUnsafePredicate) {
     const auto& partition_conjuncts = scanner.TEST_runtime_filter_partition_prune_ctxs();
     ASSERT_EQ(partition_conjuncts.size(), 1);
     EXPECT_EQ(partition_conjuncts[0], conjuncts[0]);
+}
+
+TEST(FileScannerV2Test, RemoteSplitSourceStopsLocallyWithoutQueryCancellation) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RemoteSplitSourceConnector source(&state, nullptr, 1, 1, 1);
+    std::atomic_bool scanner_stop {true};
+    bool has_next = true;
+    TFileRangeDesc range;
+
+    ASSERT_FALSE(state.is_cancelled());
+    ASSERT_TRUE(source.get_next(&has_next, &range, &scanner_stop).ok());
+    EXPECT_FALSE(has_next);
+}
+
+class ScriptedRemoteSplitSource final : public RemoteSplitSourceConnector {
+public:
+    explicit ScriptedRemoteSplitSource(RuntimeState* state, bool supports_close = true)
+            : RemoteSplitSourceConnector(state, nullptr, 7, 1, 1, supports_close) {}
+
+    std::function<Status(TFetchSplitBatchResult*, const TFetchSplitBatchRequest&)> fetch;
+
+protected:
+    Status _fetch_batch(TFetchSplitBatchResult* result,
+                        const TFetchSplitBatchRequest& request) override {
+        return fetch(result, request);
+    }
+};
+
+TEST(FileScannerV2Test, RemoteIncompleteRetriesAndOwnerClosesTheSharedSourceOnce) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ScriptedRemoteSplitSource source(&state);
+    int fetched = 0;
+    int closed = 0;
+    source.fetch = [&](TFetchSplitBatchResult* result, const TFetchSplitBatchRequest& request) {
+        if (request.__isset.close_source && request.close_source) {
+            ++closed;
+            EXPECT_EQ(request.split_source_id, 7);
+            EXPECT_GT(request.max_num_splits, 0);
+            TStatus thrift_status;
+            thrift_status.__set_status_code(TStatusCode::OK);
+            result->__set_status(thrift_status);
+            return Status::OK();
+        }
+        if (++fetched == 1) {
+            TStatus thrift_status;
+            thrift_status.__set_status_code(TStatusCode::INCOMPLETE);
+            result->__set_status(thrift_status);
+        } else {
+            TScanRangeLocations locations;
+            locations.scan_range = scan_range_with_path("file.parquet").scan_range;
+            locations.scan_range.ext_scan_range.file_scan_range.ranges.push_back(
+                    locations.scan_range.ext_scan_range.file_scan_range.ranges.front());
+            result->__set_splits({locations});
+            TStatus thrift_status;
+            thrift_status.__set_status_code(TStatusCode::OK);
+            result->__set_status(thrift_status);
+        }
+        return Status::OK();
+    };
+    bool has_next = false;
+    TFileRangeDesc range;
+    ASSERT_TRUE(source.get_next(&has_next, &range).ok());
+    EXPECT_TRUE(has_next);
+    EXPECT_EQ(fetched, 2);
+    EXPECT_EQ(range.path, "file.parquet");
+    ASSERT_TRUE(source.close().ok());
+    ASSERT_TRUE(source.close().ok());
+    EXPECT_EQ(closed, 1);
+    ASSERT_TRUE(source.get_next(&has_next, &range).ok());
+    EXPECT_FALSE(has_next);
+    EXPECT_EQ(fetched, 2);
+}
+
+TEST(FileScannerV2Test, OldFrontendDescriptorDoesNotSendAnUnsupportedCloseRequest) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ScriptedRemoteSplitSource source(&state, false);
+    source.fetch = [](TFetchSplitBatchResult*, const TFetchSplitBatchRequest&) {
+        ADD_FAILURE() << "an old FE did not advertise source closure";
+        return Status::InternalError("unexpected close");
+    };
+    EXPECT_TRUE(source.close().ok());
+}
+
+TEST(FileScannerV2Test, OldFrontendTimeoutRemainsAnErrorWithoutRetry) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ScriptedRemoteSplitSource source(&state, false);
+    int fetched = 0;
+    source.fetch = [&](TFetchSplitBatchResult* result, const TFetchSplitBatchRequest& request) {
+        EXPECT_FALSE(request.__isset.close_source);
+        if (++fetched > 1) {
+            return Status::InternalError("the old FE timeout must not be retried");
+        }
+        TStatus thrift_status;
+        thrift_status.__set_status_code(TStatusCode::INTERNAL_ERROR);
+        thrift_status.__set_error_msgs({"Timeout. Max wait time(ms): 1000"});
+        result->__set_status(thrift_status);
+        return Status::OK();
+    };
+    bool has_next = true;
+    TFileRangeDesc range;
+    Status status = source.get_next(&has_next, &range);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Timeout. Max wait time(ms): 1000"), std::string::npos);
+    EXPECT_FALSE(has_next);
+    EXPECT_EQ(fetched, 1);
+    EXPECT_TRUE(source.close().ok());
+    EXPECT_EQ(fetched, 1);
+}
+
+TEST(FileScannerV2Test, OwnerCloseDoesNotWaitForTheFetchLockOrSurfaceALateFetchError) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ScriptedRemoteSplitSource source(&state);
+    std::promise<void> entered;
+    auto started = entered.get_future();
+    std::promise<void> release;
+    auto released = release.get_future().share();
+    std::atomic_int closed {0};
+    source.fetch = [&](TFetchSplitBatchResult* result, const TFetchSplitBatchRequest& request) {
+        if (request.__isset.close_source && request.close_source) {
+            ++closed;
+            TStatus thrift_status;
+            thrift_status.__set_status_code(TStatusCode::OK);
+            result->__set_status(thrift_status);
+            return Status::OK();
+        }
+        entered.set_value();
+        released.wait();
+        return Status::IOError("the source closed while this fetch was in flight");
+    };
+    bool has_next = true;
+    TFileRangeDesc range;
+    auto fetching =
+            std::async(std::launch::async, [&] { return source.get_next(&has_next, &range); });
+    EXPECT_EQ(started.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    auto closing = std::async(std::launch::async, [&] { return source.close(); });
+    EXPECT_EQ(closing.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    release.set_value();
+    EXPECT_TRUE(closing.get().ok());
+    EXPECT_EQ(fetching.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    EXPECT_TRUE(fetching.get().ok());
+    EXPECT_FALSE(has_next);
+    EXPECT_EQ(closed.load(), 1);
+}
+
+TEST(FileScannerV2Test, OwnerCloseRetriesAnUnacknowledgedRequest) {
+    for (bool lost_reply : {false, true}) {
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        ScriptedRemoteSplitSource source(&state);
+        int calls = 0;
+        int effects = 0;
+        bool released = false;
+        source.fetch = [&](TFetchSplitBatchResult* result, const TFetchSplitBatchRequest& request) {
+            EXPECT_TRUE(request.close_source);
+            ++calls;
+            if (!lost_reply && calls == 1) {
+                return Status::IOError("connection failed before FE received the close");
+            }
+            if (!released) {
+                released = true;
+                ++effects;
+            }
+            if (lost_reply && calls == 1) {
+                return Status::IOError("FE closed the source but the reply was lost");
+            }
+            TStatus thrift_status;
+            thrift_status.__set_status_code(TStatusCode::OK);
+            result->__set_status(thrift_status);
+            return Status::OK();
+        };
+        EXPECT_TRUE(source.close().ok());
+        EXPECT_EQ(calls, 2);
+        EXPECT_EQ(effects, 1);
+        EXPECT_TRUE(source.close().ok());
+        EXPECT_EQ(calls, 2);
+    }
+}
+
+namespace {
+
+void verify_failed_close_can_recover(bool transport_failure) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ScriptedRemoteSplitSource source(&state);
+    bool recovered = false;
+    int calls = 0;
+    source.fetch = [&](TFetchSplitBatchResult* result, const TFetchSplitBatchRequest& request) {
+        EXPECT_TRUE(request.close_source);
+        ++calls;
+        if (!recovered && transport_failure) {
+            return Status::IOError("FE unavailable");
+        }
+        TStatus thrift_status;
+        thrift_status.__set_status_code(recovered ? TStatusCode::OK : TStatusCode::INTERNAL_ERROR);
+        result->__set_status(thrift_status);
+        return Status::OK();
+    };
+    EXPECT_FALSE(source.close().ok());
+    EXPECT_EQ(calls, 2);
+    bool has_next = true;
+    TFileRangeDesc range;
+    EXPECT_TRUE(source.get_next(&has_next, &range).ok());
+    EXPECT_FALSE(has_next);
+    recovered = true;
+    EXPECT_TRUE(source.close().ok());
+    EXPECT_EQ(calls, 3);
+    EXPECT_TRUE(source.close().ok());
+    EXPECT_EQ(calls, 3);
+}
+
+} // namespace
+
+TEST(FileScannerV2Test, FailedOwnerCloseIsBoundedAndCanBeRetriedAfterRecovery) {
+    verify_failed_close_can_recover(false);
+    verify_failed_close_can_recover(true);
 }
 
 } // namespace doris

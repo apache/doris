@@ -22,6 +22,7 @@ import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TScanRangeLocations;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Multimap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -46,20 +47,23 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class SplitAssignment {
     private static final Logger LOG = LogManager.getLogger(SplitAssignment.class);
     private final Set<Long> sources = new HashSet<>();
+    private final Set<Long> stoppedBackends = ConcurrentHashMap.newKeySet();
     private final FederationBackendPolicy backendPolicy;
     private final SplitGenerator splitGenerator;
-    private final ConcurrentHashMap<Backend, BlockingQueue<Collection<TScanRangeLocations>>> assignment
+    private final ConcurrentHashMap<Long, BlockingQueue<TScanRangeLocations>> assignment
             = new ConcurrentHashMap<>();
     private final SplitToScanRange splitToScanRange;
     private final Map<String, String> locationProperties;
     private final List<String> pathPartitionKeys;
     private final boolean fileCacheAdmission;
+    private final int splitBatchSize;
+    private final int queueCapacity;
     private final Object assignLock = new Object();
     private Split sampleSplit = null;
     private final AtomicBoolean isStopped = new AtomicBoolean(false);
     private final AtomicBoolean scheduleFinished = new AtomicBoolean(false);
 
-    private UserException exception = null;
+    private volatile UserException exception = null;
     private final List<Closeable> closeableResources = new ArrayList<>();
 
     public SplitAssignment(
@@ -69,6 +73,16 @@ public class SplitAssignment {
             Map<String, String> locationProperties,
             List<String> pathPartitionKeys,
             boolean fileCacheAdmission) {
+        this(backendPolicy, splitGenerator, splitToScanRange, locationProperties,
+                pathPartitionKeys, fileCacheAdmission, 8, 1024);
+    }
+
+    public SplitAssignment(FederationBackendPolicy backendPolicy, SplitGenerator splitGenerator,
+            SplitToScanRange splitToScanRange, Map<String, String> locationProperties,
+            List<String> pathPartitionKeys, boolean fileCacheAdmission, int splitBatchSize, int queueCapacity) {
+        Preconditions.checkArgument(splitBatchSize > 0 && queueCapacity > 0);
+        this.splitBatchSize = splitBatchSize;
+        this.queueCapacity = queueCapacity;
         this.backendPolicy = backendPolicy;
         this.splitGenerator = splitGenerator;
         this.splitToScanRange = splitToScanRange;
@@ -107,22 +121,50 @@ public class SplitAssignment {
 
     private void appendBatch(Multimap<Backend, Split> batch) throws UserException {
         for (Backend backend : batch.keySet()) {
+            if (stoppedBackends.contains(backend.getId())) {
+                continue;
+            }
             Collection<Split> splits = batch.get(backend);
             List<TScanRangeLocations> locations = new ArrayList<>(splits.size());
             for (Split split : splits) {
                 locations.add(splitToScanRange.getScanRange(backend, locationProperties, split, pathPartitionKeys,
                         fileCacheAdmission));
             }
-            while (needMoreSplit()) {
-                BlockingQueue<Collection<TScanRangeLocations>> queue =
-                        assignment.computeIfAbsent(backend, be -> new LinkedBlockingQueue<>(10000));
-                try {
-                    if (queue.offer(locations, 100, TimeUnit.MILLISECONDS)) {
-                        break;
+            BlockingQueue<TScanRangeLocations> queue = assignment.computeIfAbsent(
+                    backend.getId(), be -> new LinkedBlockingQueue<>(queueCapacity));
+            for (TScanRangeLocations location : locations) {
+                while (needMoreSplit() && !stoppedBackends.contains(backend.getId())) {
+                    try {
+                        if (queue.offer(location, 100, TimeUnit.MILLISECONDS)) {
+                            if (stoppedBackends.contains(backend.getId())) {
+                                queue.clear();
+                                break;
+                            }
+                            synchronized (assignLock) {
+                                if (sampleSplit == null) {
+                                    sampleSplit = splits.iterator().next();
+                                    assignLock.notifyAll();
+                                }
+                            }
+                            break;
+                        }
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        setException(new UserException("Interrupted while publishing scan splits", e));
                     }
-                } catch (InterruptedException e) {
-                    addUserException(new UserException("Failed to offer batch split by interrupted", e));
                 }
+            }
+        }
+    }
+
+    public void stopBackend(long backendId) {
+        if (stoppedBackends.add(backendId)) {
+            BlockingQueue<TScanRangeLocations> queue = assignment.get(backendId);
+            if (queue != null) {
+                queue.clear();
+            }
+            if (stoppedBackends.size() == backendPolicy.numBackends()) {
+                stop();
             }
         }
     }
@@ -143,15 +185,15 @@ public class SplitAssignment {
         if (splits.isEmpty()) {
             return;
         }
-        Multimap<Backend, Split> batch = null;
-        synchronized (assignLock) {
-            if (sampleSplit == null) {
-                sampleSplit = splits.get(0);
-                assignLock.notify();
+        for (int begin = 0; begin < splits.size() && needMoreSplit();) {
+            int end = begin + Math.min(splitBatchSize, splits.size() - begin);
+            Multimap<Backend, Split> batch;
+            synchronized (assignLock) {
+                batch = backendPolicy.computeScanRangeAssignment(new ArrayList<>(splits.subList(begin, end)));
             }
-            batch = backendPolicy.computeScanRangeAssignment(splits);
+            appendBatch(batch);
+            begin = end;
         }
-        appendBatch(batch);
     }
 
     private void notifyAssignment() {
@@ -160,13 +202,14 @@ public class SplitAssignment {
         }
     }
 
-    public BlockingQueue<Collection<TScanRangeLocations>> getAssignedSplits(Backend backend) throws UserException {
+    public BlockingQueue<TScanRangeLocations> getAssignedSplits(Backend backend) throws UserException {
         if (exception != null) {
             throw exception;
         }
-        BlockingQueue<Collection<TScanRangeLocations>> splits = assignment.computeIfAbsent(backend,
-                be -> new LinkedBlockingQueue<>());
-        if (scheduleFinished.get() && splits.isEmpty() || isStopped.get()) {
+        BlockingQueue<TScanRangeLocations> splits = assignment.computeIfAbsent(backend.getId(),
+                be -> new LinkedBlockingQueue<>(queueCapacity));
+        if (scheduleFinished.get() && splits.isEmpty() || isStopped.get()
+                || stoppedBackends.contains(backend.getId())) {
             return null;
         }
         return splits;

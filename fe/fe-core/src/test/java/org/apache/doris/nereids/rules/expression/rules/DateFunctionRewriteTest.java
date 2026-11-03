@@ -28,12 +28,18 @@ import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
+import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -80,5 +86,25 @@ class DateFunctionRewriteTest extends ExpressionRewriteTestHelper {
         assertRewrite(new GreaterThan(dateFunction, afterMax), ExpressionUtils.falseOrNull(timestampNs));
         assertRewrite(new GreaterThanEqual(dateFunction, beforeMin), ExpressionUtils.trueOrNull(timestampNs));
         assertRewrite(new LessThanEqual(dateFunction, afterMax), ExpressionUtils.trueOrNull(timestampNs));
+    }
+
+    @Test
+    void testRewriteGreaterThanAtMaximumDate() {
+        Expression dateTime = new SlotReference("dateTime", DateTimeType.INSTANCE, true);
+        DateLiteral maxDate = new DateLiteral("9999-12-31");
+        Assertions.assertEquals(ExpressionUtils.falseOrNull(dateTime), executor.rewrite(
+                new GreaterThan(new Date(dateTime), maxDate), context));
+
+        Expression dateTimeV2 = new SlotReference("dateTimeV2", DateTimeV2Type.of(6), true);
+        DateV2Literal maxDateV2 = new DateV2Literal("9999-12-31");
+        assertRewrite(new GreaterThan(new Date(dateTimeV2), maxDateV2), ExpressionUtils.falseOrNull(dateTimeV2));
+
+        DateLiteral previousDate = new DateLiteral("9999-12-30");
+        Assertions.assertEquals(new GreaterThanEqual(dateTime, new DateTimeLiteral("9999-12-31 00:00:00")),
+                executor.rewrite(new GreaterThan(new Date(dateTime), previousDate), context));
+
+        DateV2Literal previousDateV2 = new DateV2Literal("9999-12-30");
+        assertRewrite(new GreaterThan(new Date(dateTimeV2), previousDateV2),
+                new GreaterThanEqual(dateTimeV2, new DateTimeV2Literal("9999-12-31 00:00:00")));
     }
 }

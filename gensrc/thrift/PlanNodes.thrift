@@ -471,6 +471,12 @@ enum TVectorMetric {
     HAMMING
 }
 
+enum TVectorApproxMode {
+    FAST = 0,
+    NORMAL = 1,
+    ACCURATE = 2
+}
+
 struct TSearchVector {
     1: optional TVectorElementType element_type
     2: optional i32 dimension
@@ -558,6 +564,8 @@ struct TVectorSearchOptions {
     4: optional bool use_index
     // Lance: -1 uses available CPU parallelism, 0 selects automatically, positive values cap it.
     5: optional i32 query_parallelism
+    // Unset preserves the vector engine's default speed/recall tradeoff.
+    6: optional TVectorApproxMode approx_mode
 }
 
 // The active union field identifies the logical search kind. A future hybrid field can contain both
@@ -771,6 +779,8 @@ struct TFileRangeDesc {
 struct TSplitSource {
     1: optional i64 split_source_id
     2: optional i32 num_splits
+    // This FE accepts TFetchSplitBatchRequest.close_source. Absent on older FEs.
+    3: optional bool supports_close
 }
 
 // TFileScanRange represents a set of descriptions of a file and the rules for reading and converting it.

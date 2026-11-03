@@ -122,13 +122,14 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
                     ? statementTable
                     : getBasePaimonTable();
             Map<String, String> resolvedOptions = scanParams.getOrResolveMapParams(
-                    relationOptions -> PaimonScanParams.resolveOptions(resolutionTable, relationOptions));
+                    relationOptions -> PaimonScanParams.resolveOptions(
+                            resolutionTable, relationOptions, catalogReaderOptions()));
             // Startup options are normalized to an immutable snapshot before schema binding. The
             // scan phase reuses that exact resolution instead of consulting a mutable tag or clock.
             Table table = PaimonScanParams.selectsSchema(resolvedOptions)
                     ? getBasePaimonTable()
                     : statementTable;
-            return PaimonScanParams.applyOptions(table, resolvedOptions);
+            return PaimonScanParams.applyOptions(table, withCatalogOptions(resolvedOptions));
         }
         return getPaimonTable(MvccUtil.getSnapshotFromContext(this));
     }
@@ -192,7 +193,8 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
                     scanOptions.put(CoreOptions.SCAN_TAG_NAME.key(), tagName);
                 }
 
-                Table scanTable = baseTable.copy(scanOptions);
+                Table scanTable = PaimonScanParams.copyWithHistoricalSchema(baseTable,
+                        withCatalogOptions(scanOptions));
                 return new PaimonSnapshotCacheValue(PaimonPartitionInfo.EMPTY,
                         new PaimonSnapshot(snapshot.id(), snapshot.schemaId(), scanTable));
             } catch (Exception e) {
@@ -208,8 +210,8 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
             PaimonTableCacheValue baseGeneration = PaimonUtils.getPaimonTableCacheValue(this);
             Table baseTable = baseGeneration.getPaimonTable();
             Map<String, String> resolvedOptions = scanParams.get().getOrResolveMapParams(
-                    options -> PaimonScanParams.resolveOptions(baseTable, options));
-            Table effectiveTable = PaimonScanParams.applyOptions(baseTable, resolvedOptions);
+                    options -> PaimonScanParams.resolveOptions(baseTable, options, catalogReaderOptions()));
+            Table effectiveTable = PaimonScanParams.applyOptions(baseTable, withCatalogOptions(resolvedOptions));
             if (PaimonScanParams.hasOnlyReaderOptions(resolvedOptions)) {
                 // Reader tuning cannot change snapshot metadata. Reuse the memoized projection so
                 // a per-query batch-size change does not enumerate every partition again.
@@ -633,6 +635,14 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
             }
         }
         return false;
+    }
+
+    private Map<String, String> catalogReaderOptions() {
+        return PaimonReaderOptions.compatibleCatalogOptions(catalog.getProperties());
+    }
+
+    private Map<String, String> withCatalogOptions(Map<String, String> options) {
+        return PaimonScanParams.withCatalogOptions(options, catalogReaderOptions());
     }
 
     Table getBasePaimonTable() {

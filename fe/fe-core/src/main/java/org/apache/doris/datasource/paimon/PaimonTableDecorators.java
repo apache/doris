@@ -17,9 +17,13 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.paimon.table.ChainGroupReadTable;
 import org.apache.paimon.table.DelegatedFileStoreTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.Table;
+
+import java.util.Map;
 
 /** Utilities for preserving Paimon's planning decorator invariants. */
 public final class PaimonTableDecorators {
@@ -37,5 +41,37 @@ public final class PaimonTableDecorators {
             current = ((DelegatedFileStoreTable) current).wrapped();
         }
         return current;
+    }
+
+    static FileStoreTable rebuildFallbackPair(FallbackReadFileStoreTable pair, FileStoreTable wrapped,
+            FileStoreTable other) {
+        if (pair instanceof ChainGroupReadTable) {
+            return new ChainGroupReadTable(wrapped, other);
+        }
+        return new FallbackReadFileStoreTable(wrapped, other, PaimonReaderOptions.isWrappedFirst(pair));
+    }
+
+    static Map<String, String> otherOptions(FallbackReadFileStoreTable pair, Map<String, String> options) {
+        return new FallbackOptions(pair).rewriteOtherOptions(options);
+    }
+
+    private static final class FallbackOptions extends FallbackReadFileStoreTable {
+        private FallbackOptions(FallbackReadFileStoreTable pair) {
+            super(pair.wrapped(), pair.other(), PaimonReaderOptions.isWrappedFirst(pair));
+        }
+
+        @Override
+        public Map<String, String> rewriteOtherOptions(Map<String, String> options) {
+            return super.rewriteOtherOptions(options);
+        }
+    }
+
+    static boolean isChainTable(Table table) {
+        if (!(table instanceof FileStoreTable)) {
+            return false;
+        }
+        FileStoreTable unwrapped = unwrapToFallbackOrBase((FileStoreTable) table);
+        return unwrapped instanceof FallbackReadFileStoreTable
+                && ((FallbackReadFileStoreTable) unwrapped).other() instanceof ChainGroupReadTable;
     }
 }

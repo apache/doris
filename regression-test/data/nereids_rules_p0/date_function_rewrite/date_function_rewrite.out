@@ -2,3 +2,12 @@
 -- !test --
 1
 
+-- !date_v1_greater_than_max --
+
+-- !date_v2_greater_than_max --
+
+-- !date_greater_than_max_null_semantics --
+1	false	false
+2	\N	\N
+3	false	false
+

@@ -433,14 +433,19 @@ public class EsScanNode extends ExternalScanNode {
                 table.genColumnsFromEs();
             }
             for (Expr expr : conjuncts) {
+                int residualCount = notPushDownList.size();
                 QueryBuilder queryBuilder = QueryBuilders.toEsDsl(expr, notPushDownList, fieldsContext,
                         BuilderOptions.builder().likePushDown(table.isLikePushDown())
                                 .needCompatDateFields(table.needCompatDateFields()).build(),
                         table.getColumn2typeMap());
-                if (queryBuilder != null) {
-                    hasFilter = true;
-                    boolQueryBuilder.must(queryBuilder);
+                // A compound predicate is indivisible here: retaining only its unsupported child
+                // would let OR/NOT lose local filtering or push an unsafe partial negation.
+                if (queryBuilder == null || notPushDownList.size() != residualCount) {
+                    notPushDownList.add(expr);
+                    continue;
                 }
+                hasFilter = true;
+                boolQueryBuilder.must(queryBuilder);
             }
             if (!hasFilter) {
                 queryBuilder = QueryBuilders.matchAllQuery();

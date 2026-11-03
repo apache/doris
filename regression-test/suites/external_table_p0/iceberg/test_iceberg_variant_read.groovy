@@ -1412,6 +1412,8 @@ public class AppendVariantEqualityDelete {
     // seeking its unshredded value. More than four rows qualify, forcing local TopN overshoot to be
     // truncated after the merge exchange while the mapper-eligible projected path crosses the wire.
     explain {
+        // The exact two-file fixture check needs complete planning rather than a batch estimate.
+        verbose true
         sql """
             SELECT id, CAST(projected['n'] AS INT)
             FROM (

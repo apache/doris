@@ -69,6 +69,22 @@ FileScanLocalState::FileScanLocalState(RuntimeState* state, OperatorXBase* paren
 
 FileScanLocalState::~FileScanLocalState() = default;
 
+Status FileScanLocalState::close(RuntimeState* state) {
+    if (_closed) {
+        return Status::OK();
+    }
+    Status status = Base::close(state);
+    // Base::close stops every scanner and releases ScannerContext's transfer lock before RPC.
+    // A pruned/failed initialization can close before constructing a split source.
+    if (_split_source != nullptr) {
+        Status source_status = _split_source->close();
+        if (status.ok()) {
+            status = source_status;
+        }
+    }
+    return status;
+}
+
 PushDownType FileScanLocalState::_should_push_down_binary_predicate(
         VectorizedFnCall* fn_call, VExprContext* expr_ctx, Field& constant_val,
         const std::set<std::string> fn_name) const {
@@ -176,6 +192,7 @@ bool FileScanLocalState::should_use_file_scanner_v2(const TQueryOptions& query_o
         case TFileFormatType::FORMAT_PROTO:
         case TFileFormatType::FORMAT_TEXT:
         case TFileFormatType::FORMAT_WAL:
+        case TFileFormatType::FORMAT_ARROW:
             return true;
         default:
             return false;
@@ -335,7 +352,8 @@ void FileScanLocalState::set_scan_ranges(RuntimeState* state,
             _max_scanners = calc_max_scanners(p.parallelism(state));
             _split_source = std::make_shared<RemoteSplitSourceConnector>(
                     state, get_split_timer, split_source.split_source_id, split_source.num_splits,
-                    _max_scanners);
+                    _max_scanners,
+                    split_source.__isset.supports_close && split_source.supports_close);
         }
     }
 

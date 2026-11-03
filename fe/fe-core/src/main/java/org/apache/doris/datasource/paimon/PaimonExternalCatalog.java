@@ -406,7 +406,8 @@ public class PaimonExternalCatalog extends ExternalCatalog {
         Map<String, String> tableOptions = paimonProperties.getTableOptionsForCopy();
         // This handle is relation-neutral. Runtime validation and CPU-local capping belong
         // to the final relation copy, where relation options can override physical values.
-        return tableOptions.isEmpty() ? table : table.copy(tableOptions);
+        return tableOptions.isEmpty() ? table : PaimonScanParams.copyWithHistoricalSchema(
+                table, PaimonScanParams.withCatalogOptions(tableOptions, tableOptions));
     }
 
     private RuntimeException tableLoadException(NameMapping nameMapping, String queryType, Exception e) {

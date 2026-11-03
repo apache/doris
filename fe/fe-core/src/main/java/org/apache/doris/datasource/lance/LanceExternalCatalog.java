@@ -31,6 +31,7 @@ import org.apache.doris.datasource.lance.metadata.LanceMetadataLoader;
 import org.apache.doris.datasource.lance.metadata.LanceRefSelector;
 import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
 import org.apache.doris.datasource.lance.storage.LanceStorageOptions;
+import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractLanceProperties;
 import org.apache.doris.datasource.property.metastore.LanceFileSystemMetastoreProperties;
 import org.apache.doris.datasource.property.metastore.LanceRestMetastoreProperties;
@@ -41,6 +42,7 @@ import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.lance.namespace.LanceNamespace;
+import org.lance.namespace.model.DescribeTableResponse;
 import org.lance.namespace.model.ListNamespacesRequest;
 import org.lance.namespace.model.ListTablesRequest;
 
@@ -50,7 +52,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
 
-/** Read-only Lance Directory or REST Namespace catalog. */
+/** Lance Directory or REST Namespace catalog. */
 public class LanceExternalCatalog extends ExternalCatalog {
     public static final String LANCE_CATALOG_TYPE = AbstractLanceProperties.LANCE_CATALOG_TYPE;
     public static final String LANCE_FILESYSTEM = AbstractLanceProperties.LANCE_FILESYSTEM;
@@ -88,6 +90,7 @@ public class LanceExternalCatalog extends ExternalCatalog {
     @Override
     protected void initLocalObjectsImpl() {
         client = createClient();
+        metadataOps = ExternalMetadataOperations.newLanceMetadataOps(this);
     }
 
     @VisibleForTesting
@@ -185,6 +188,10 @@ public class LanceExternalCatalog extends ExternalCatalog {
         return withClient(current -> current.tableExists(dbName, tableName));
     }
 
+    public DescribeTableResponse describeTable(String dbName, String tableName) {
+        return withClient(current -> current.describeTable(dbName, tableName));
+    }
+
     public LanceTableMetadata loadTableMetadata(String dbName, String tableName) {
         return loadTableMetadata(dbName, tableName, Optional.empty());
     }
@@ -277,6 +284,21 @@ public class LanceExternalCatalog extends ExternalCatalog {
         // Invalidation must not initialize JNI resources or wait for an in-flight namespace call.
         if (client != null) {
             client.invalidateTableAccessCache();
+        }
+    }
+
+    public void invalidateDatabaseCachesAfterDrop() {
+        invalidateTableAccessCache();
+        try {
+            // Cascade drops delete descendants, but the replay hook only carries the parent name.
+            retireAllDatabaseObjectsWithoutEngineInvalidation();
+        } finally {
+            try {
+                // Object retirement alone leaves name-keyed schema entries for recreated tables.
+                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(getId());
+            } finally {
+                resetMetaCacheNames();
+            }
         }
     }
 

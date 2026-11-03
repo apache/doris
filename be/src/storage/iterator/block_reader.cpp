@@ -278,7 +278,8 @@ Status BlockReader::_direct_next_block(Block* block, bool* eof) {
         if (UNLIKELY(!res.ok() && res != Status::Error<END_OF_FILE>(""))) {
             return res;
         }
-        DCHECK_EQ(_block_row_locations.size(), block->rows());
+        // At EOF the block is empty and the iterator still reports the previous block's locations.
+        DCHECK(*eof || _block_row_locations.size() == block->rows());
     }
     return Status::OK();
 }

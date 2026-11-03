@@ -19,6 +19,7 @@ package org.apache.doris.nereids.sqltest;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MetaIdGenerator.IdGeneratorBuffer;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.exploration.mv.LogicalCompatibilityContext;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
@@ -32,6 +33,7 @@ import org.apache.doris.utframe.TestWithFeService;
 public abstract class SqlTestBase extends TestWithFeService implements MemoPatternMatchSupported {
     @Override
     protected void runBeforeAll() throws Exception {
+        FeConstants.runningUnitTest = true;
         createDatabase("test");
         connectContext.setDatabase("test");
 

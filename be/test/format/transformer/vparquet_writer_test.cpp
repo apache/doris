@@ -27,6 +27,7 @@
 #include <optional>
 #include <string_view>
 
+#include "common/config.h"
 #include "core/block/block.h"
 #include "core/column/column_array.h"
 #include "core/column/column_nullable.h"
@@ -43,8 +44,10 @@
 #include "format/table/iceberg/schema_parser.h"
 #include "format/transformer/viceberg_parquet_writer.h"
 #include "io/fs/local_file_system.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
+#include "util/defer_op.h"
 #include "util/timezone_utils.h"
 #include "util/uid_util.h"
 
@@ -60,6 +63,54 @@ protected:
     }
 
     void TearDown() override { static_cast<void>(_fs->delete_file(_file_path)); }
+
+    void check_split_offsets(int row_groups, bool dictionary) {
+        const auto previous_row_group_size = config::min_row_group_size;
+        config::min_row_group_size = 0;
+        Defer restore_row_group_size([&] { config::min_row_group_size = previous_row_group_size; });
+        auto type = std::make_shared<DataTypeInt32>();
+        auto output_exprs = MockSlotRef::create_mock_contexts(DataTypes {type});
+        const std::string json =
+                R"({"type":"struct","fields":[{"id":1,"name":"value","required":true,"type":"int"}]})";
+        auto schema = iceberg::SchemaParser::from_json(json);
+        io::FileWriterPtr file_writer;
+        ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
+        RuntimeState state;
+        state.set_timezone("UTC");
+        ParquetFileOptions options {.compression_type = TParquetCompressionType::SNAPPY,
+                                    .parquet_version = TParquetVersion::PARQUET_1_0,
+                                    .parquet_disable_dictionary = !dictionary,
+                                    .enable_int96_timestamps = false};
+        VIcebergParquetWriter writer(&state, file_writer.get(), output_exprs, {"value"}, false,
+                                     options, &json, *schema);
+        ASSERT_TRUE(writer.open().ok());
+        for (int group = 0; group < row_groups; ++group) {
+            auto column = type->create_column();
+            for (int row = 0; row < 100; ++row) {
+                column->insert(Field::create_field<TYPE_INT>(row % 3));
+            }
+            Block block;
+            block.insert({std::move(column), type, "value"});
+            ASSERT_TRUE(writer.write(block).ok());
+        }
+        ASSERT_TRUE(writer.close().ok());
+        std::vector<int64_t> offsets {999999};
+        ASSERT_TRUE(writer.collect_split_offsets_after_close(&offsets).ok());
+        ASSERT_EQ(row_groups, offsets.size());
+        auto reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
+        auto metadata = reader->metadata();
+        for (int i = 0; i < row_groups; ++i) {
+            auto row_group = metadata->RowGroup(i);
+            auto column = row_group->ColumnChunk(0);
+            ASSERT_EQ(dictionary, column->has_dictionary_page());
+            EXPECT_EQ(dictionary ? column->dictionary_page_offset() : column->data_page_offset(),
+                      offsets[i]);
+            EXPECT_GT(offsets[i], i == 0 ? 0 : offsets[i - 1]);
+        }
+        std::vector<int64_t> repeated;
+        ASSERT_TRUE(writer.collect_split_offsets_after_close(&repeated).ok());
+        EXPECT_EQ(offsets, repeated);
+    }
 
     std::string _file_path;
     std::shared_ptr<io::FileSystem> _fs;

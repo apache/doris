@@ -96,6 +96,8 @@ final class IcebergCacheSizeEstimator {
     private static final long METADATA_ENTRY_WEIGHT = 128L;
     private static final long SNAPSHOT_WEIGHT = 512L;
     private static final long CURRENT_SNAPSHOT_WEIGHT = 1024L;
+    // Reserve the projection's lazy maximum partition-update timestamp and its loaded flag.
+    private static final long SNAPSHOT_UPDATE_TIME_STATE_WEIGHT = 32L;
     private static final long SNAPSHOT_LOG_WEIGHT = 64L;
     private static final long METADATA_LOG_WEIGHT = 160L;
     private static final long SNAPSHOT_REF_WEIGHT = 256L;
@@ -161,7 +163,7 @@ final class IcebergCacheSizeEstimator {
 
     static MetaCacheSizeEstimate estimateSnapshotEntry(
             IcebergSnapshotEntryKey key, IcebergSnapshotCacheValue value) {
-        long bytes = KEY_BASE_WEIGHT;
+        long bytes = KEY_BASE_WEIGHT + SNAPSHOT_UPDATE_TIME_STATE_WEIGHT;
         bytes = MetaCacheWeightUtils.saturatedAdd(bytes,
                 MetaCacheWeightUtils.estimatedNameMappingBytes(key.getNameMapping()));
         bytes = MetaCacheWeightUtils.saturatedAdd(bytes,
@@ -169,7 +171,7 @@ final class IcebergCacheSizeEstimator {
         bytes = MetaCacheWeightUtils.saturatedAdd(bytes,
                 MetaCacheWeightUtils.estimatedStringBytes(key.getMetadataFileLocation()));
 
-        IcebergPartitionInfo partitionInfo = value.getPartitionInfo();
+        IcebergPartitionInfo partitionInfo = value.getRetainedPartitionInfo();
         bytes = addCount(bytes, partitionInfo.getNameToPartitionItem().size(), PARTITION_WEIGHT);
         bytes = addCount(bytes, partitionInfo.getNameToIcebergPartition().size(), PARTITION_WEIGHT);
         bytes = addCount(bytes, partitionInfo.getNameToIcebergPartitionNames().size(),

@@ -17,8 +17,14 @@
 
 package org.apache.doris.datasource.es.source;
 
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
@@ -42,8 +48,13 @@ import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 class EsScanNodeFileScannerV2Test {
@@ -101,14 +112,91 @@ class EsScanNodeFileScannerV2Test {
         Assertions.assertTrue(node.getScanRangeLocations(0).get(0).getScanRange().isSetExtScanRange());
     }
 
+    @Test
+    void compoundResidualsRemainOnScanNode() throws Exception {
+        for (CompoundPredicate.Operator operator : Arrays.asList(
+                CompoundPredicate.Operator.OR, CompoundPredicate.Operator.NOT)) {
+            TestScanNode node = createNode(false);
+            Expr equality = new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                    new SlotRef(null, "id"), new IntLiteral(1));
+            Expr local = new FunctionCallExpr("unsupported_predicate",
+                    new ArrayList<>(Collections.singletonList(new SlotRef(null, "id"))));
+            Expr partial = new CompoundPredicate(CompoundPredicate.Operator.AND, equality, local);
+            Expr compound = new CompoundPredicate(operator, partial,
+                    operator == CompoundPredicate.Operator.NOT ? null : equality);
+            node.getConjuncts().add(compound);
+            Method build = EsScanNode.class.getDeclaredMethod("buildQuery");
+            build.setAccessible(true);
+            build.invoke(node);
+            Assertions.assertEquals(Collections.singletonList(compound), node.getConjuncts());
+            Assertions.assertEquals("{\"match_all\":{}}",
+                    node.serialize().getEsScanNode().getProperties().get(EsResource.QUERY_DSL));
+        }
+    }
+
+    @Test
+    void docvalueEligibilityHonorsFieldLimitAndSourceOnlyColumns() throws Exception {
+        Assertions.assertEquals("1", projectionParams(Arrays.asList("a"), 1, true)
+                .getEsProperties().get(EsResource.DOC_VALUES_MODE));
+        Assertions.assertEquals("0", projectionParams(Arrays.asList("a", "b"), 1, true)
+                .getEsProperties().get(EsResource.DOC_VALUES_MODE));
+        Assertions.assertEquals("1", projectionParams(Arrays.asList("a", "b"), 2, true)
+                .getEsProperties().get(EsResource.DOC_VALUES_MODE));
+        Assertions.assertEquals("0", projectionParams(Arrays.asList("a", "_id"), 2, true)
+                .getEsProperties().get(EsResource.DOC_VALUES_MODE));
+        Assertions.assertFalse(projectionParams(Arrays.asList("a"), 1, false).isSetEsDocvalueContext());
+    }
+
+    @Test
+    void keywordAliasesSurviveFileScanThriftPopulation() throws Exception {
+        org.apache.doris.thrift.TFileScanRangeParams params = projectionParams(Arrays.asList("a"), 2, true);
+        Assertions.assertEquals("a.keyword", params.getEsDocvalueContext().get("a"));
+        Assertions.assertEquals(ImmutableMap.of("a", "a.keyword"), params.getEsFieldsContext());
+        Assertions.assertEquals("{\"match_all\":{}}", params.getEsProperties().get(EsResource.QUERY_DSL));
+    }
+
+    private org.apache.doris.thrift.TFileScanRangeParams projectionParams(
+            List<String> names, int maxFields, boolean docvalues) throws Exception {
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().enableFileScannerV2 = true;
+        context.setThreadLocalInfo();
+        List<Column> columns = new ArrayList<>();
+        for (String name : names) {
+            columns.add(new Column(name, Type.STRING));
+        }
+        EsTable table = Mockito.spy(new EsTable(1, "es_table", columns, ImmutableMap.of(
+                EsResource.HOSTS, "127.0.0.1:9200", EsResource.INDEX, "es_index",
+                EsResource.DOC_VALUE_SCAN, Boolean.toString(docvalues),
+                EsResource.MAX_DOCVALUE_FIELDS, Integer.toString(maxFields), EsResource.KEYWORD_SNIFF, "true"), null));
+        Mockito.doReturn(ImmutableMap.of("a", "a.keyword", "b", "b")).when(table).docValueContext();
+        Mockito.doReturn(ImmutableMap.of("a", "a.keyword")).when(table).fieldsContext();
+        TupleDescriptor tuple = new TupleDescriptor(new TupleId(7));
+        tuple.setTable(table);
+        for (int i = 0; i < columns.size(); i++) {
+            SlotDescriptor slot = new SlotDescriptor(new SlotId(i), tuple);
+            slot.setColumn(columns.get(i));
+            tuple.addSlot(slot);
+        }
+        TestScanNode node = new TestScanNode(tuple);
+        Field builder = EsScanNode.class.getDeclaredField("queryBuilder");
+        builder.setAccessible(true);
+        builder.set(node, QueryBuilders.matchAllQuery());
+        TEsScanRange range = new TEsScanRange().setIndex("es_index").setShardId(0)
+                .setEsHosts(ImmutableList.of(new TNetworkAddress("127.0.0.1", 9200)));
+        node.installRanges(ImmutableList.of(new TScanRangeLocations().setScanRange(
+                new TScanRange().setEsScanRange(range))));
+        return node.getScanRangeLocations(0).get(0).getScanRange().getExtScanRange().getFileScanRange().getParams();
+    }
+
     private TestScanNode createNode(boolean enabled) throws Exception {
         ConnectContext context = new ConnectContext();
         context.getSessionVariable().enableFileScannerV2 = enabled;
         context.setThreadLocalInfo();
         Column column = new Column("id", Type.INT);
-        EsTable table = new EsTable(1, "es_table", ImmutableList.of(column), ImmutableMap.of(
+        EsTable table = Mockito.spy(new EsTable(1, "es_table", ImmutableList.of(column), ImmutableMap.of(
                 EsResource.HOSTS, "127.0.0.1:9200", EsResource.INDEX, "es_index",
-                EsResource.DOC_VALUE_SCAN, "false", EsResource.KEYWORD_SNIFF, "false"), null);
+                EsResource.DOC_VALUE_SCAN, "false", EsResource.KEYWORD_SNIFF, "false"), null));
+        Mockito.doReturn(ImmutableMap.of("id", "integer")).when(table).getColumn2typeMap();
         TupleDescriptor tuple = new TupleDescriptor(new TupleId(7));
         tuple.setTable(table);
         SlotDescriptor slot = new SlotDescriptor(new SlotId(4), tuple);
