@@ -1481,12 +1481,14 @@ TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(const TabletCol
     DataTypePtr index_data_type = data_type;
     const std::string logical_path = column.path_info_ptr()->get_path();
     const std::string relative_path_str = relative_path.get_path();
+    bool nested_group_leaf = false;
 
     if (!relative_path.empty()) {
         auto [found, group_chain, child_path] =
                 collect_nested_group_chain(relative_path.get_path());
         (void)child_path;
         if (found && !group_chain.empty()) {
+            nested_group_leaf = true;
             // NestedGroup leaf readers store the flattened element type.
             if (data_type->is_nullable()) {
                 auto base = variant_util::get_base_type_of_array(remove_nullable(data_type));
@@ -1501,6 +1503,19 @@ TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(const TabletCol
     if (variant_util::generate_sub_column_info(*_tablet_schema, column.parent_unique_id(),
                                                relative_path.get_path(), &sub_column_info) &&
         !sub_column_info.indexes.empty()) {
+        // An added-template carrier keeps history as JSONB and writes no index file. Template-derived
+        // indexes do not describe that leaf, so let the predicate scan it.
+        if (!nested_group_leaf && index_data_type != nullptr &&
+            remove_nullable(index_data_type)->get_storage_field_type() ==
+                    FieldType::OLAP_FIELD_TYPE_JSONB &&
+            sub_column_info.column.type() != FieldType::OLAP_FIELD_TYPE_JSONB) {
+            add_variant_search_binding_diagnostic(
+                    stats, fmt::format("[VariantSearchBinding] phase=subcolumn_index_candidates "
+                                       "result=no_candidate logical_path={} relative_path={} "
+                                       "materialized_column={} reason=stored_type_differs",
+                                       logical_path, relative_path_str, column.name()));
+            return {};
+        }
         for (const auto& index : sub_column_info.indexes) {
             add_variant_search_binding_diagnostic(
                     stats,
