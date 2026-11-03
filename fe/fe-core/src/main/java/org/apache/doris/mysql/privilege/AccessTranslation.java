@@ -108,6 +108,7 @@ public final class AccessTranslation {
         ACTION_OF_PRIVILEGE.put(Privilege.CLUSTER_USAGE_PRIV, AccessAction.CLUSTER_USAGE);
         ACTION_OF_PRIVILEGE.put(Privilege.STAGE_USAGE_PRIV, AccessAction.STAGE_USAGE);
         ACTION_OF_PRIVILEGE.put(Privilege.SHOW_VIEW_PRIV, AccessAction.SHOW_VIEW);
+        ACTION_OF_PRIVILEGE.put(Privilege.PROXY_PRIV, AccessAction.PROXY);
         // The retired bit indices carry the same meaning as the ones that replaced them, so they translate
         // to the same action - the same normalization Role.compatibilityAuthIndexChange() applies to stored
         // grants.
@@ -128,6 +129,7 @@ public final class AccessTranslation {
         PRIVILEGE_OF_ACTION.put(AccessAction.CLUSTER_USAGE, Privilege.CLUSTER_USAGE_PRIV);
         PRIVILEGE_OF_ACTION.put(AccessAction.STAGE_USAGE, Privilege.STAGE_USAGE_PRIV);
         PRIVILEGE_OF_ACTION.put(AccessAction.SHOW_VIEW, Privilege.SHOW_VIEW_PRIV);
+        PRIVILEGE_OF_ACTION.put(AccessAction.PROXY, Privilege.PROXY_PRIV);
 
         // Sorted by name so that two constants naming the same privileges with the same match - today
         // SHOW_RESOURCES and SHOW_WORKLOAD_GROUP - always resolve to the same one of the pair. They ask the

@@ -133,6 +133,15 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
         TableNameInfo tableNameInfo = new TableNameInfo(qualifiedTableName.get(0), qualifiedTableName.get(1),
                 qualifiedTableName.get(2));
 
+        // The export task re-plans SELECT ... INTO OUTFILE later, on a job thread, under the stored
+        // identity alone: the session's role narrowing cannot follow it there (the excluded roles'
+        // row policies would apply, session_is_narrowed() would fold FALSE), and the job outlives
+        // the session. A session-narrowed (SU) session therefore must not mint one.
+        if (ctx.isSessionRoleNarrowed()) {
+            ErrorReport.reportAnalysisException("EXPORT is not allowed in a session-narrowed (SU) session; "
+                    + "the job would run outside the session's role narrowing",
+                    ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR);
+        }
         // check auth
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ctx, tableNameInfo.getCtl(), tableNameInfo.getDb(), tableNameInfo.getTbl(),

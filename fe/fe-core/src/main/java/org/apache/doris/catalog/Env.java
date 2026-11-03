@@ -5623,6 +5623,53 @@ public class Env {
         return this.masterInfo.getHost();
     }
 
+    /**
+     * Whether the master FE reports (through its heartbeat) the same build as this FE. Gates the
+     * forwarding of request fields an older master would silently ignore, such as a session's SU
+     * role narrowing: the master is upgraded last in a rolling upgrade, so a newer follower must not
+     * hand such a statement to a master that cannot apply the field. An unknown or dead master is
+     * treated as a different build.
+     */
+    public boolean masterRunsSameBuild() {
+        if (isMaster()) {
+            return true;
+        }
+        return frontendRunsSameBuild(getMasterHost(), getMasterRpcPort());
+    }
+
+    /**
+     * Whether every alive FE reports the same build as this FE (see {@link #frontendRunsSameBuild}):
+     * the gate of a session-narrowed (SU) session's requests that fan out to every FE, which an FE
+     * of an older build would answer against the target's full role union.
+     */
+    public boolean aliveFrontendsRunSameBuild() {
+        String local = Frontend.localBuildVersion();
+        for (Frontend fe : frontends.values()) {
+            if (fe.isAlive() && !local.equals(fe.getVersion())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Whether the FE at this RPC address is this FE itself or reports the same build as this FE.
+     * Every FE sees every other FE's build: the master heartbeats all of them and journals the
+     * responses (HbPackage, FrontendHbResponse.version), which the other FEs replay. An FE this FE
+     * does not know, or a dead one, counts as a different build.
+     */
+    public boolean frontendRunsSameBuild(String host, int rpcPort) {
+        if (host.equals(selfNode.getHost()) && rpcPort == Config.rpc_port) {
+            return true;
+        }
+        for (Frontend fe : frontends.values()) {
+            if (fe.getHost().equals(host) && fe.getRpcPort() == rpcPort) {
+                return fe.isAlive() && Frontend.localBuildVersion().equals(fe.getVersion());
+            }
+        }
+        return false;
+    }
+
 
 
     public PolicyMgr getPolicyMgr() {

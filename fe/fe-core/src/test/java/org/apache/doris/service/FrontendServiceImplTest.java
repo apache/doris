@@ -907,6 +907,23 @@ public class FrontendServiceImplTest extends TestWithFeService {
         // Fail closed: a request without a caller identity (e.g. a pre-upgrade BE that does not
         // set the field) exposes no rows rather than leaking every account.
         Assertions.assertTrue(impl.showUser(new TShowUserRequest()).getUserinfoList().isEmpty());
+
+        // An SU-narrowed caller is authorized against the role subset the request carries: a
+        // role administrator narrowed to a plain role sees only its own row.
+        addUser("show_user_adm", true);
+        executeCommand("create role show_user_adm_role");
+        executeCommand("create role show_user_plain_role");
+        executeCommand("grant grant_priv on *.*.* to role 'show_user_adm_role'");
+        executeCommand("grant 'show_user_adm_role', 'show_user_plain_role' to 'show_user_adm'@'%'");
+        TShowUserRequest admRequest = new TShowUserRequest();
+        admRequest.setCurrentUserIdent(
+                UserIdentity.createAnalyzedUserIdentWithIp("show_user_adm", "%").toThrift());
+        Assertions.assertTrue(impl.showUser(admRequest).getUserinfoList().size() >= 2,
+                "a role administrator sees every account");
+        admRequest.setCurrentRoles(Collections.singleton("show_user_plain_role"));
+        List<List<String>> narrowedRows = impl.showUser(admRequest).getUserinfoList();
+        Assertions.assertEquals(1, narrowedRows.size(), "narrowed to a plain role: own row only");
+        Assertions.assertEquals("show_user_adm", narrowedRows.get(0).get(userNameIdx));
     }
 
     @Test

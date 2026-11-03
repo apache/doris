@@ -70,11 +70,13 @@ public class EngineAuthorizationContext implements AuthorizationContext {
      *
      * <p>Without the per-user default role: it is an artefact of how the built-in model stores a user's own
      * grants, not a role anybody names in a policy, and a source that saw it would be matching on a name the
-     * administrator never wrote.
+     * administrator never wrote. Resolved the way the built-in checks resolve roles, so a session-narrowed
+     * (SU) session's override and the narrowing a BE->FE RPC carries reach a source's role-bound policies
+     * exactly as they reach the engine's own; a source is never told roles the session cannot exercise.
      */
     @Override
     public Set<String> rolesOf(AuthorizedSubject subject) {
-        return auth.getRolesByUser(AccessTranslation.userIdentityOf(subject), false);
+        return auth.getEffectiveRoleNames(AccessTranslation.userIdentityOf(subject));
     }
 
     @Override

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.expression;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.CastException;
@@ -94,6 +95,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Round;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sec;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondMicrosecondAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionIsNarrowed;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sign;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sin;
@@ -107,6 +110,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Tanh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -144,6 +148,7 @@ import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
@@ -152,9 +157,11 @@ import org.apache.commons.lang3.StringUtils;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.List;
 
 class FoldConstantTest extends ExpressionRewriteTestHelper {
@@ -1905,5 +1912,58 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> new ExpressionNormalization().rewrite(analyzed, context));
         Assertions.assertEquals(expectedMessage, exception.getMessage());
+    }
+
+    @Test
+    public void testSessionIsNarrowedFoldsOnlyWithSessionContext() throws Exception {
+        SessionIsNarrowed fn = new SessionIsNarrowed();
+        // the context-free fold (expressions that must not depend on the session) leaves it alone,
+        // like current_user()
+        Field contextFreeField = FoldConstantRuleOnFE.class.getDeclaredField("CONTEXT_FREE_VISITOR_INSTANCE");
+        contextFreeField.setAccessible(true);
+        FoldConstantRuleOnFE contextFree = (FoldConstantRuleOnFE) contextFreeField.get(null);
+        Assertions.assertSame(fn, contextFree.rewrite(fn, context));
+        // the session-aware fold answers from the connection's SU state
+        Assertions.assertEquals(BooleanLiteral.FALSE,
+                FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(fn, context));
+        cascadesContext.getConnectContext().setSessionRoleOverride(Collections.singleton("tenant"));
+        try {
+            Assertions.assertEquals(BooleanLiteral.TRUE,
+                    FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(fn, context));
+        } finally {
+            cascadesContext.getConnectContext().setSessionRoleOverride(null);
+        }
+    }
+
+    /**
+     * MySQL proxy parity under SU: user() names the account that authenticated the connection (the
+     * switcher), while session_user() and current_user() name the effective identity (the target).
+     */
+    @Test
+    public void testUserNamesTheAuthenticatingAccountUnderSu() {
+        ConnectContext ctx = cascadesContext.getConnectContext();
+        UserIdentity before = ctx.getCurrentUserIdentity();
+        UserIdentity person = UserIdentity.createAnalyzedUserIdentWithIp("person", "%");
+        String personAtIp = UserIdentity.createAnalyzedUserIdentWithIp("person", ctx.getRemoteIP()).toString();
+        String svcAtIp = UserIdentity.createAnalyzedUserIdentWithIp("svc", ctx.getRemoteIP()).toString();
+        ctx.setCurrentUserIdentity(person);
+        try {
+            Assertions.assertEquals(new VarcharLiteral(personAtIp),
+                    FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(new User(), context));
+
+            ctx.setAuthenticatedIdentity(UserIdentity.createAnalyzedUserIdentWithIp("svc", "%"));
+            ctx.setSessionRoleOverride(Collections.singleton("tenant"));
+            Assertions.assertEquals(new VarcharLiteral(svcAtIp),
+                    FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(new User(), context));
+            Assertions.assertEquals(new VarcharLiteral(personAtIp),
+                    FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(new SessionUser(), context));
+            Assertions.assertEquals(new VarcharLiteral(person.toString()),
+                    FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(
+                            new org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser(), context));
+        } finally {
+            ctx.setSessionRoleOverride(null);
+            ctx.setAuthenticatedIdentity(null);
+            ctx.setCurrentUserIdentity(before);
+        }
     }
 }

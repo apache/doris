@@ -256,7 +256,8 @@ public class ConnectorRewriteGroupTask implements TransientTaskExecutor {
         taskContext.setSessionVariable(VariableMgr.cloneSessionVariable(connectContext.getSessionVariable()));
         taskContext.setEnv(Env.getCurrentEnv());
         taskContext.setDatabase(connectContext.getDatabase());
-        taskContext.setCurrentUserIdentity(connectContext.getCurrentUserIdentity());
+        // the identity AND its SU narrowing: the rewrite's INSERT-SELECT is authorized as the session
+        taskContext.inheritIdentityFrom(connectContext);
         taskContext.setRemoteIP(connectContext.getRemoteIP());
 
         UUID uuid = UUID.randomUUID();

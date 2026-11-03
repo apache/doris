@@ -17,9 +17,13 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.SchemaTable;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TShowProcessListRequest;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -35,6 +39,29 @@ public class ShowProcessListCommandTest {
         SchemaTable.TABLE_MAP.get("processlist").getBaseSchema().forEach(c -> expected.add(c.getName()));
         Assertions.assertEquals(expected, names);
         Assertions.assertEquals("Protocol", names.get(names.size() - 1));
+    }
+
+    // The request the other frontends answer names who is asking and, for a session-narrowed (SU)
+    // session, the role subset it runs under, so their ADMIN check is narrowed like the local one.
+    @Test
+    public void testRequestNamesTheNarrowedRoleSubset() {
+        UserIdentity alice = UserIdentity.createAnalyzedUserIdentWithIp("alice", "%");
+        ConnectContext ctx = new ConnectContext();
+        ctx.setCurrentUserIdentity(alice);
+
+        TShowProcessListRequest plain = ShowProcessListCommand.buildRequest(ctx, true);
+        Assertions.assertTrue(plain.isShowFullSql());
+        Assertions.assertEquals(alice.toThrift(), plain.getCurrentUserIdent());
+        Assertions.assertFalse(plain.isSetCurrentRoles());
+
+        ctx.setAuthenticatedIdentity(UserIdentity.createAnalyzedUserIdentWithIp("svc", "%"));
+        ctx.setSessionRoleOverride(Sets.newHashSet("tenant_a"));
+        TShowProcessListRequest narrowed = ShowProcessListCommand.buildRequest(ctx, false);
+        Assertions.assertFalse(narrowed.isShowFullSql());
+        // the identity the other FE checks is still the session's (switched-to) identity ...
+        Assertions.assertEquals(alice.toThrift(), narrowed.getCurrentUserIdent());
+        // ... narrowed to the subset the session runs under
+        Assertions.assertEquals(Sets.newHashSet("tenant_a"), narrowed.getCurrentRoles());
     }
 
     // SHOW PROCESSLIST merges the rows the other frontends answer with; while the cluster runs two

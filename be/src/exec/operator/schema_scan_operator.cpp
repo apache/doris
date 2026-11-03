@@ -113,6 +113,12 @@ Status SchemaScanOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
         }
     }
 
+    // SU narrowing: carry the SU-narrowed role subset from the FE plan to the scanners so the
+    // BE->FE metadata RPCs narrow name visibility (empty/unset = no narrowing, prior behavior).
+    if (tnode.schema_scan_node.__isset.current_roles) {
+        _common_scanner_param->current_roles = tnode.schema_scan_node.current_roles;
+    }
+
     if (tnode.schema_scan_node.__isset.ip) {
         _common_scanner_param->ip =
                 state->obj_pool()->add(new std::string(tnode.schema_scan_node.ip));

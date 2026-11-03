@@ -98,6 +98,7 @@ import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -187,6 +188,14 @@ public class ConnectContext {
     protected volatile Principal authenticatedPrincipal;
     // Roles granted during authentication and bound to the current session.
     protected volatile Set<String> authenticatedRoles = Collections.emptySet();
+
+    // SU (session-narrowed identity switch, session-only state — never persisted):
+    // authenticatedIdentity = the identity that AUTHENTICATED this connection; non-null iff the
+    // session has been switched (also the re-SU refusal marker). sessionRoleOverride = the role
+    // set that REPLACES every role source for privilege checks and row-policy matching, consulted
+    // in Auth.getRolesByUserWithLdap under the same current-identity guard as authenticatedRoles.
+    protected volatile UserIdentity authenticatedIdentity;
+    protected volatile Set<String> sessionRoleOverride;
     // Variables belong to this session.
     protected volatile SessionVariable sessionVariable;
     // Store user variable in this connection
@@ -369,6 +378,11 @@ public class ConnectContext {
             cleanupTemporaryTables(true);
             dbToTempTableNamesMap.clear();
         }
+        // A narrowed session reverts to the AUTHENTICATED identity on connection reset —
+        // dropping only the override would widen the session to the target's full roles.
+        // It reverts BEFORE the session variables are rebuilt, so the per-user defaults applied
+        // there are the authenticated account's, not the switched-to target's.
+        revertSessionNarrowing();
         resetSessionVariable();
         userVars = new HashMap<>();
         preparedStatementContextMap.clear();
@@ -378,6 +392,86 @@ public class ConnectContext {
         insertResult = null;
         command = MysqlCommand.COM_SLEEP;
         returnRows = 0;
+    }
+
+    /**
+     * The SU switch: this session becomes the target identity under the role override, and the
+     * identity that authenticated the connection is kept for the audit row and the revert. What the
+     * session cached for the switcher goes with it: the compute group chosen for it (the next
+     * statement resolves placement for the target) and the prepared statements, whose plans were
+     * authorized under the switcher and would otherwise execute as the target.
+     */
+    public void applySessionNarrowing(UserIdentity target, Collection<String> roles) {
+        this.authenticatedIdentity = this.currentUserIdentity;
+        this.currentUserIdentity = target;
+        this.sessionRoleOverride = Collections.unmodifiableSet(new HashSet<>(roles));
+        this.cloudCluster = null;
+        this.preparedStatementContextMap.clear();
+    }
+
+    /** Revert an SU switch: back to the authenticated identity, override cleared. No-op if not switched. */
+    public void revertSessionNarrowing() {
+        UserIdentity authed = this.authenticatedIdentity;
+        if (authed != null) {
+            this.currentUserIdentity = authed;
+            this.authenticatedIdentity = null;
+            this.sessionRoleOverride = null;
+            leaveSwitchedPlacement();
+        }
+    }
+
+    // Leaving the switch leaves its placement: the compute group cached for the target and the
+    // workload-group lane the switch chose (its clause, or the cleared switcher's lane) go, so the
+    // identity that owns the session next resolves both for itself -- on COM_CHANGE_USER as on reset.
+    private void leaveSwitchedPlacement() {
+        this.cloudCluster = null;
+        this.sessionVariable.setWorkloadGroup("");
+    }
+
+    /**
+     * Makes this (child) context run as the parent's session does: the current identity together
+     * with the SU narrowing state, so a privilege check on the child resolves the same role set the
+     * parent session sees. Copying getCurrentUserIdentity() alone would carry the TARGET identity
+     * without the override, i.e. the target's full role union.
+     */
+    public void inheritIdentityFrom(ConnectContext parent) {
+        this.currentUserIdentity = parent.currentUserIdentity;
+        this.authenticatedIdentity = parent.authenticatedIdentity;
+        this.sessionRoleOverride = parent.sessionRoleOverride;
+    }
+
+    /** Drop SU state without restoring identity — only for paths that fully re-authenticate. */
+    public void clearSessionNarrowing() {
+        if (this.authenticatedIdentity != null) {
+            leaveSwitchedPlacement();
+        }
+        this.authenticatedIdentity = null;
+        this.sessionRoleOverride = null;
+    }
+
+    public UserIdentity getAuthenticatedIdentity() {
+        return authenticatedIdentity;
+    }
+
+    public void setAuthenticatedIdentity(UserIdentity authenticatedIdentity) {
+        this.authenticatedIdentity = authenticatedIdentity;
+    }
+
+    /**
+     * True when SU narrowed this session: the override set (possibly empty) then replaces every role
+     * source. This predicate, not a null check on getSessionRoleOverride(), is the sentinel; a mocked
+     * context answers false here while a mocked collection getter answers an empty set.
+     */
+    public boolean isSessionRoleNarrowed() {
+        return sessionRoleOverride != null;
+    }
+
+    public Set<String> getSessionRoleOverride() {
+        return sessionRoleOverride;
+    }
+
+    public void setSessionRoleOverride(Set<String> roles) {
+        this.sessionRoleOverride = roles == null ? null : Collections.unmodifiableSet(new HashSet<>(roles));
     }
 
     private void resetSessionVariable() {
@@ -749,6 +843,14 @@ public class ConnectContext {
     // return string similar with user@127.0.0.1
     public String getUserWithLoginRemoteIpString() {
         return UserIdentity.createAnalyzedUserIdentWithIp(getQualifiedUser(), remoteIP).toString();
+    }
+
+    // used for select user(): the account that authenticated the connection, which in a
+    // session-narrowed (SU) session is the switcher -- MySQL's USER() names the proxying account
+    // and CURRENT_USER() the proxied one
+    public String getAuthenticatedUserWithLoginRemoteIpString() {
+        String user = authenticatedIdentity != null ? authenticatedIdentity.getQualifiedUser() : getQualifiedUser();
+        return UserIdentity.createAnalyzedUserIdentWithIp(user, remoteIP).toString();
     }
 
     public void setCurrentUserIdentity(UserIdentity currentUserIdentity) {

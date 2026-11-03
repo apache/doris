@@ -29,9 +29,11 @@ import org.apache.doris.authentication.AuthenticationIntegrationMgr;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.AuthorizationException;
@@ -83,14 +85,15 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 
@@ -220,15 +223,6 @@ public class Auth implements Writable {
         }
     }
 
-    public Set<String> getRolesByUser(UserIdentity user, boolean showUserDefaultRole) {
-        readLock();
-        try {
-            return userRoleManager.getRolesByUser(user, showUserDefaultRole);
-        } finally {
-            readUnlock();
-        }
-    }
-
     public boolean requiresCertificateAuth(UserIdentity userIdentity) {
         return userIdentity != null && userIdentity.hasSanRequirement();
     }
@@ -296,7 +290,80 @@ public class Auth implements Writable {
         }
     }
 
+    // SU narrowing: FE-side SU narrowing for BE->FE metadata RPC handler threads, which have NO
+    // ConnectContext. The handler installs the calling session's narrowed role NAMES here (keyed by
+    // the target identity) around its privilege filter; getRolesByUserWithLdap then narrows exactly
+    // as a live SU session would. The handler MUST clear it in a finally (thrift threads are pooled).
+    private static final ThreadLocal<Map<UserIdentity, Set<String>>> RPC_SESSION_NARROWING =
+            new ThreadLocal<>();
+
+    public static void setRpcSessionNarrowing(UserIdentity user, Set<String> roleNames) {
+        Map<UserIdentity, Set<String>> m = Maps.newHashMap();
+        m.put(user, roleNames);
+        RPC_SESSION_NARROWING.set(m);
+    }
+
+    public static void clearRpcSessionNarrowing() {
+        RPC_SESSION_NARROWING.remove();
+    }
+
+    /**
+     * The RPC narrowing installed on this thread, or null when there is none. A handler that hands
+     * part of its work to another thread captures it here and installs it there with
+     * {@link #installRpcSessionNarrowing}: a ThreadLocal does not follow the work, and a privilege
+     * check on the other thread would otherwise resolve the target's full role union.
+     */
+    public static Map<UserIdentity, Set<String>> captureRpcSessionNarrowing() {
+        return RPC_SESSION_NARROWING.get();
+    }
+
+    /** Installs a captured narrowing on this thread (none when it is null); clear it in a finally. */
+    public static void installRpcSessionNarrowing(Map<UserIdentity, Set<String>> narrowing) {
+        if (narrowing == null) {
+            RPC_SESSION_NARROWING.remove();
+        } else {
+            RPC_SESSION_NARROWING.set(narrowing);
+        }
+    }
+
+    // The SU-narrowed role set of a target identity: the override roles the target STILL holds + the
+    // implicit information_schema/mysql read baseline (SU_NARROWING_BASELINE). The ceiling is
+    // re-evaluated on every resolution, exactly as a normal session re-reads its grants on every
+    // check: a role revoked from the target after the switch (or dropped and re-created under the
+    // same name, or every role after DROP USER) drops out of the open narrowed session at once.
+    // Shared by the live-session, forwarded and RPC-handler paths.
+    private Set<Role> narrowedRoleSet(UserIdentity target, Set<String> overrideRoleNames) {
+        Set<String> stillGranted = getGrantedRoleNames(target);
+        Set<Role> narrowed = Sets.newHashSet();
+        for (String roleName : overrideRoleNames) {
+            if (!stillGranted.contains(roleName)) {
+                continue;
+            }
+            Role role = roleManager.getRole(roleName);
+            if (role != null) {
+                narrowed.add(role);
+            }
+        }
+        narrowed.add(SU_NARROWING_BASELINE);
+        return narrowed;
+    }
+
     public Set<Role> getRolesByUserWithLdap(UserIdentity userIdentity) {
+        Map<UserIdentity, Set<String>> rpcNarrow = RPC_SESSION_NARROWING.get();
+        if (rpcNarrow != null) {
+            Set<String> rpcOverride = rpcNarrow.get(userIdentity);
+            if (rpcOverride != null) {
+                // SU narrowing: a BE->FE metadata RPC carried this session's narrowed role subset.
+                return narrowedRoleSet(userIdentity, rpcOverride);
+            }
+        }
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && userIdentity.equals(ctx.getCurrentUserIdentity()) && ctx.isSessionRoleNarrowed()) {
+            // SU-narrowed session: the override REPLACES every role source (user grants, LDAP,
+            // authenticated roles), so none of them is resolved first. Return the override roles the
+            // target still holds + the information_schema/mysql read baseline (see narrowedRoleSet).
+            return narrowedRoleSet(userIdentity, ctx.getSessionRoleOverride());
+        }
         Set<Role> roles = Sets.newHashSet();
         Set<String> roleNames = userRoleManager.getRolesByUser(userIdentity);
         for (String roleName : roleNames) {
@@ -311,7 +378,6 @@ public class Auth implements Writable {
                 roles.addAll(ldapRoles);
             }
         }
-        ConnectContext ctx = ConnectContext.get();
         if (ctx != null && userIdentity.equals(ctx.getCurrentUserIdentity())) {
             for (String roleName : ctx.getAuthenticatedRoles()) {
                 Role role = roleManager.getRole(roleName);
@@ -323,11 +389,184 @@ public class Auth implements Writable {
         return roles;
     }
 
+    /**
+     * The global privilege bits the named roles confer, union-ed; a name that is not a role
+     * contributes nothing. Used by the SU escalation check: a switch may not confer an
+     * administrative bit the switching account does not already hold.
+     */
+    public PrivBitSet getGlobalPrivsOfRoles(Collection<String> roleNames) {
+        readLock();
+        try {
+            PrivBitSet conferred = PrivBitSet.of();
+            for (String roleName : roleNames) {
+                Role role = roleManager.getRole(roleName);
+                if (role != null) {
+                    role.getGlobalPrivTable().getPrivs(conferred);
+                }
+            }
+            return conferred;
+        } finally {
+            readUnlock();
+        }
+    }
+
+    /**
+     * The role names granted to an identity (user grants + LDAP), ignoring any SU narrowing of the
+     * current session. Used for the SU ceiling check and for existence probing.
+     */
+    public Set<String> getGrantedRoleNames(UserIdentity userIdentity) {
+        readLock();
+        try {
+            Set<String> names = Sets.newHashSet(userRoleManager.getRolesByUser(userIdentity));
+            if (isLdapAuthEnabled()) {
+                Set<Role> ldapRoles = ldapManager.getUserRoles(userIdentity.getQualifiedUser());
+                if (!CollectionUtils.isEmpty(ldapRoles)) {
+                    for (Role r : ldapRoles) {
+                        names.add(r.getRoleName());
+                    }
+                }
+            }
+            return names;
+        } finally {
+            readUnlock();
+        }
+    }
+
+    // The implicit information_schema/mysql read grants that RoleManager.createDefaultRole gives
+    // every user's default role, isolated into a synthetic role so an SU-narrowed session keeps
+    // them (self-filtered by the session's real privileges) without re-including the default role's
+    // privilege-bearing direct grants. Its name carries the default-role prefix, so it can be neither
+    // CREATEd nor bound by a row policy (both validate the role), and it is hidden from every role
+    // listing (getRoleNamesByUserWithLdap). Built once, at class load, from constant inputs: a
+    // failure here is a build defect, and the FE must not start without the role.
+    public static final String SU_NARROWING_BASELINE_ROLE = RoleManager.DEFAULT_ROLE_PREFIX + "su_narrowing_baseline";
+    private static final Role SU_NARROWING_BASELINE = buildNarrowingBaselineRole();
+
+    private static Role buildNarrowingBaselineRole() {
+        try {
+            List<TablePattern> tablePatterns = Lists.newArrayList();
+            TablePattern info = new TablePattern(DEFAULT_CATALOG, InfoSchemaDb.DATABASE_NAME, "*");
+            info.analyze();
+            tablePatterns.add(info);
+            TablePattern mysql = new TablePattern(DEFAULT_CATALOG, MysqlDb.DATABASE_NAME, "*");
+            mysql.analyze();
+            tablePatterns.add(mysql);
+            WorkloadGroupPattern wg = new WorkloadGroupPattern(WorkloadGroupMgr.DEFAULT_GROUP_NAME);
+            wg.analyze();
+            return new Role(SU_NARROWING_BASELINE_ROLE, tablePatterns,
+                    PrivBitSet.of(Privilege.SELECT_PRIV), wg, PrivBitSet.of(Privilege.USAGE_PRIV));
+        } catch (AnalysisException e) {
+            throw new IllegalStateException("failed to build the SU narrowing baseline role", e);
+        }
+    }
+
+    /**
+     * The SU narrowing in force for this identity on this thread -- the live session's override,
+     * or the subset a BE->FE metadata RPC carried -- or null when it is not narrowed. The two
+     * legs of every placement answer (this FE's SHOW output, the information_schema scan through
+     * the BE) read the same narrowing, so they agree.
+     */
+    private static Set<String> narrowingOf(UserIdentity userIdentity) {
+        Map<UserIdentity, Set<String>> rpcNarrow = RPC_SESSION_NARROWING.get();
+        if (rpcNarrow != null && rpcNarrow.containsKey(userIdentity)) {
+            return rpcNarrow.get(userIdentity);
+        }
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && userIdentity.equals(ctx.getCurrentUserIdentity()) && ctx.isSessionRoleNarrowed()) {
+            return ctx.getSessionRoleOverride();
+        }
+        return null;
+    }
+
+    /**
+     * PLACEMENT widening: in an SU-narrowed session, the effective identity's own granted roles
+     * that the override left out (its default role, where direct grants live, plus explicit and
+     * LDAP roles). Placement is not data authority: the narrowed session runs in the person's
+     * workload group and compute group, and the person's USAGE on them is typically a direct grant
+     * that narrowing would otherwise drop, so the person's lane follows the person. Only the USAGE
+     * bit of these roles' workload-group and compute-group grants reaches through
+     * ({@link #placementUsageThroughOwnRoles}): never their global privileges, never GRANT_PRIV.
+     * GRANT/REVOKE ... ON WORKLOAD GROUP / CLUSTER, the listings of grants (SHOW GRANTS,
+     * workload_group_privileges) and every data check stay on the narrowed set. Empty for a
+     * session that is not narrowed.
+     */
+    private Set<Role> placementOnlyRoles(UserIdentity userIdentity) {
+        Set<String> override = narrowingOf(userIdentity);
+        if (override == null) {
+            return Collections.emptySet();
+        }
+        Set<Role> ownRoles = Sets.newHashSet();
+        for (String roleName : getGrantedRoleNames(userIdentity)) {
+            if (override.contains(roleName)) {
+                continue;
+            }
+            Role role = roleManager.getRole(roleName);
+            if (role != null) {
+                ownRoles.add(role);
+            }
+        }
+        return ownRoles;
+    }
+
+    /**
+     * The one question the placement widening answers: "may this session run here?". Consulted
+     * after the narrowed set said no, and only when the predicate is satisfiable by USAGE alone,
+     * so an administrative predicate (the GRANT gate's USAGE+GRANT) never reaches it; each own
+     * role contributes its workload-group / compute-group grant on the named group and nothing
+     * else.
+     */
+    private boolean placementUsageThroughOwnRoles(UserIdentity currentUser, PrivPredicate wanted,
+            Predicate<Role> grantsUsage) {
+        if (!Privilege.satisfy(PrivBitSet.of(Privilege.USAGE_PRIV), wanted)) {
+            return false;
+        }
+        for (Role role : placementOnlyRoles(currentUser)) {
+            if (grantsUsage.test(role)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean grantsWorkloadGroupUsage(Role role, String workloadGroupName) {
+        PrivBitSet privs = PrivBitSet.of();
+        role.getWorkloadGroupPrivTable().getPrivs(workloadGroupName, privs);
+        return privs.containsPrivs(Privilege.USAGE_PRIV);
+    }
+
+    private static boolean grantsComputeGroupUsage(Role role, String computeGroupName) {
+        PrivBitSet privs = PrivBitSet.of();
+        role.getCloudClusterPrivTable().getPrivs(computeGroupName, privs);
+        // a grant on the owning virtual compute group covers its members (Role.checkCloudPriv)
+        String virtualComputeGroup = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .ownedByVirtualComputeGroup(computeGroupName);
+        if (virtualComputeGroup != null) {
+            role.getCloudClusterPrivTable().getPrivs(virtualComputeGroup, privs);
+        }
+        // GRANT USAGE_PRIV ON CLUSTER is stored as CLUSTER_USAGE_PRIV (PrivBitSet.convertResourcePrivToCloudPriv)
+        return privs.containsPrivs(Privilege.USAGE_PRIV, Privilege.CLUSTER_USAGE_PRIV);
+    }
+
+    /**
+     * The role names an identity effectively holds right now, as every built-in privilege check
+     * resolves them: an SU narrowing of the current session (or of the RPC thread) replaces the
+     * union, LDAP roles are included, the per-user default role and the synthetic SU baseline are
+     * not. This is what an authorization source is told when it asks the engine who holds which
+     * roles, so a policy written against Doris roles sees the same set the engine enforces.
+     */
+    public Set<String> getEffectiveRoleNames(UserIdentity user) {
+        return getRoleNamesByUserWithLdap(user, false);
+    }
+
     public Set<String> getRoleNamesByUserWithLdap(UserIdentity user, boolean showUserDefaultRole) {
         Set<Role> rolesByUserWithLdap = getRolesByUserWithLdap(user);
         Set<String> res = Sets.newHashSetWithExpectedSize(rolesByUserWithLdap.size());
         for (Role role : rolesByUserWithLdap) {
             String roleName = role.getRoleName();
+            if (roleName.equals(SU_NARROWING_BASELINE_ROLE)) {
+                // the synthetic SU baseline is an implementation detail, never a role anybody granted
+                continue;
+            }
             if (showUserDefaultRole || !roleName.startsWith(RoleManager.DEFAULT_ROLE_PREFIX)) {
                 res.add(roleName);
             }
@@ -614,7 +853,9 @@ public class Auth implements Writable {
                     return true;
                 }
             }
-            return false;
+            // placement: USAGE through the person's own roles in an SU-narrowed session
+            return placementUsageThroughOwnRoles(currentUser, wanted,
+                    role -> grantsWorkloadGroupUsage(role, workloadGroupName));
         } finally {
             readUnlock();
         }
@@ -638,10 +879,19 @@ public class Auth implements Writable {
                     return true;
                 }
             }
-            return false;
+            // compute-group USAGE is placement (see placementOnlyRoles); stage and storage-vault
+            // usage are data access and stay on the narrowed set
+            return type == ResourceTypeEnum.CLUSTER
+                    && placementUsageThroughOwnRoles(currentUser, wanted,
+                            role -> grantsComputeGroupUsage(role, cloudName));
         } finally {
             readUnlock();
         }
+    }
+
+    /** Whether LDAP authentication is on and names this user: the existence probe of an LDAP-only account. */
+    public boolean ldapUserExists(String qualifiedUser) {
+        return isLdapAuthEnabled() && ldapManager.doesUserExist(qualifiedUser);
     }
 
     // Check if LDAP authentication is enabled.
@@ -1605,8 +1855,10 @@ public class Auth implements Writable {
                 userAuthInfo.add(requireSan);
                 userAuthInfo.add(Strings.nullToEmpty(user.getAuthIntegration()));
                 // ============== Roles ==============
-                userAuthInfo.add(Joiner.on(",").join(userRoleManager
-                        .getRolesByUser(userIdent, ConnectContext.get().getSessionVariable().showUserDefaultRole)));
+                // the same resolution as every privilege column below: an SU-narrowed session lists
+                // its narrowed set, not the identity's full role union
+                userAuthInfo.add(Joiner.on(",").join(getRoleNamesByUserWithLdap(userIdent,
+                        ConnectContext.get().getSessionVariable().showUserDefaultRole)));
             }
         }
         // ==============GlobalPrivs==============
@@ -1780,8 +2032,9 @@ public class Auth implements Writable {
 
             Set<String> currentUserRole = null;
             if (!isCurrentUserAdmin) {
-                currentUserRole = userRoleManager.getRolesByUser(currentUserIdentity, false);
-                currentUserRole = currentUserRole == null ? new HashSet<>() : currentUserRole;
+                // a listing of GRANTS: the narrowed set in an SU-narrowed session (the lanes the
+                // session may run in are answered by the USAGE check, not listed here)
+                currentUserRole = getRoleNamesByUserWithLdap(currentUserIdentity, false);
             }
             roleManager.getRoleWorkloadGroupPrivs(result, currentUserRole);
         } finally {
@@ -1791,27 +2044,27 @@ public class Auth implements Writable {
 
     private ResourcePrivTable getUserCloudClusterPrivTable(UserIdentity userIdentity) {
         ResourcePrivTable table = new ResourcePrivTable();
-        Set<String> roles = userRoleManager.getRolesByUser(userIdentity);
-        for (String roleName : roles) {
-            table.merge(roleManager.getRole(roleName).getCloudClusterPrivTable());
+        // a listing of GRANTS: the narrowed set, like every other SHOW GRANTS column
+        for (Role role : getRolesByUserWithLdap(userIdentity)) {
+            table.merge(role.getCloudClusterPrivTable());
         }
         return table;
     }
 
     private ResourcePrivTable getUserCloudStagePrivTable(UserIdentity userIdentity) {
         ResourcePrivTable table = new ResourcePrivTable();
-        Set<String> roles = userRoleManager.getRolesByUser(userIdentity);
-        for (String roleName : roles) {
-            table.merge(roleManager.getRole(roleName).getCloudStagePrivTable());
+        // stage usage is data access: the narrowed set, like checkCloudPriv
+        for (Role role : getRolesByUserWithLdap(userIdentity)) {
+            table.merge(role.getCloudStagePrivTable());
         }
         return table;
     }
 
     private ResourcePrivTable getUserStorageVaultPrivTable(UserIdentity userIdentity) {
         ResourcePrivTable table = new ResourcePrivTable();
-        Set<String> roles = userRoleManager.getRolesByUser(userIdentity);
-        for (String roleName : roles) {
-            table.merge(roleManager.getRole(roleName).getStorageVaultPrivTable());
+        // storage-vault usage is data access: the narrowed set, like checkCloudPriv
+        for (Role role : getRolesByUserWithLdap(userIdentity)) {
+            table.merge(role.getStorageVaultPrivTable());
         }
         return table;
     }

@@ -77,7 +77,9 @@ public class SetUserPropertyVarOp {
                 return;
             }
         }
-        boolean isSelf = user.equals(ctx.getQualifiedUser());
+        // "self" never through a session-narrowed (SU) session: the switcher is not the person, so the
+        // person's account defaults may only be written with the ADMIN privilege of the narrowed set
+        boolean isSelf = ctx.getAuthenticatedIdentity() == null && user.equals(ctx.getQualifiedUser());
         for (Pattern commPattern : UserProperty.COMMON_PROPERTIES) {
             Matcher matcher = commPattern.matcher(key);
             if (matcher.find()) {

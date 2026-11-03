@@ -22,6 +22,7 @@ import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -39,6 +40,7 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 
@@ -82,10 +84,18 @@ public class ShowProcessListCommand extends ShowCommand {
         }
 
         if (isShowAllFe) {
+            // Every other FE runs the ADMIN check of listConnectionForRpc against the role subset the
+            // request names. An FE of an older build ignores the field and lists every user's session
+            // with its SQL, so a session-narrowed (SU) session's fan-out fails closed while the FE set
+            // runs mixed builds, as the information_schema scans that leave this FE do.
+            if (ctx.isSessionRoleNarrowed() && !Env.getCurrentEnv().aliveFrontendsRunSameBuild()) {
+                throw new UserException("SHOW PROCESSLIST of a session-narrowed (SU) session is answered by every "
+                        + "alive FE, and one runs a different FE build than this FE and could not apply the "
+                        + "narrowing. Retry once the rolling upgrade completes, or with "
+                        + "fetch_all_fe_for_system_table = false.");
+            }
             try {
-                TShowProcessListRequest request = new TShowProcessListRequest();
-                request.setShowFullSql(isShowFullSql);
-                request.setCurrentUserIdent(ConnectContext.get().getCurrentUserIdentity().toThrift());
+                TShowProcessListRequest request = buildRequest(ctx, isShowFullSql);
                 List<Pair<String, Integer>> frontends = FrontendsProcNode.getFrontendWithRpcPort(Env.getCurrentEnv(),
                         false);
                 FrontendService.Client client = null;
@@ -123,6 +133,21 @@ public class ShowProcessListCommand extends ShowCommand {
         }
 
         return new ShowResultSet(getMetaData(), rowSet);
+    }
+
+    /**
+     * The request every other FE answers: who is asking and, for a session-narrowed (SU) session, the
+     * role subset it runs under -- the same shape as FEOpExecutor and SchemaScanNode carry it.
+     */
+    @VisibleForTesting
+    static TShowProcessListRequest buildRequest(ConnectContext ctx, boolean isShowFullSql) {
+        TShowProcessListRequest request = new TShowProcessListRequest();
+        request.setShowFullSql(isShowFullSql);
+        request.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
+        if (ctx.isSessionRoleNarrowed()) {
+            request.setCurrentRoles(new HashSet<>(ctx.getSessionRoleOverride()));
+        }
+        return request;
     }
 
     /**

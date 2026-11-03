@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantResourcePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.RevokeResourcePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
@@ -53,6 +54,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -476,5 +478,61 @@ public class CloudAuthTest {
         LogicalPlan dropplan5 = nereidsParser.parseSingle(dropUserSql5);
         Assertions.assertTrue(dropplan5 instanceof DropUserCommand);
         Assertions.assertDoesNotThrow(() -> ((DropUserCommand) dropplan5).run(connectContext, null));
+    }
+
+    /**
+     * Compute-group (CLUSTER) USAGE is placement, like workload-group USAGE: an SU-narrowed session
+     * keeps exactly the compute groups the person's own session could use (direct grant and
+     * role-carried), never more, and the widening is scoped to the session's own identity.
+     * Lives here because the cluster privilege check resolves virtual compute groups through the
+     * cloud system-info service, which only this mocked cloud harness provides.
+     */
+    @Test
+    public void testNarrowedSessionKeepsPersonsComputeGroupUsage() throws Exception {
+        NereidsParser parser = new NereidsParser();
+        ((CreateRoleCommand) parser.parseSingle("CREATE ROLE su_cg_tenant")).run(connectContext, null);
+        ((CreateRoleCommand) parser.parseSingle("CREATE ROLE su_cg_lane")).run(connectContext, null);
+        UserIdentity person = new UserIdentity("su_cg_person", "%");
+        person.analyze();
+        CreateUserCommand createPerson = new CreateUserCommand(
+                new CreateUserInfo(false, new UserDesc(person), "su_cg_tenant", null, null));
+        createPerson.getInfo().validate();
+        auth.createUser(createPerson.getInfo());
+        GrantRoleCommand grantLane = new GrantRoleCommand(person, Lists.newArrayList("su_cg_lane"));
+        grantLane.validate();
+        auth.grantRoleCommand(grantLane);
+        // the login shape: USAGE granted DIRECTLY to the account (its default role) ...
+        ((GrantResourcePrivilegeCommand) parser.parseSingle(
+                "GRANT usage_priv ON cluster 'su_cg_person_lane' TO 'su_cg_person'@'%'")).run(connectContext, null);
+        // ... and one reachable only through a role the person holds but does not request
+        ((GrantResourcePrivilegeCommand) parser.parseSingle(
+                "GRANT usage_priv ON cluster 'su_cg_via_role' TO ROLE 'su_cg_lane'")).run(connectContext, null);
+        UserIdentity bystander = new UserIdentity("su_cg_bystander", "%");
+        bystander.analyze();
+
+        // a real session for the person in place of the mocked one
+        ConnectContext session = new ConnectContext();
+        session.setCurrentUserIdentity(person);
+        mockedCtxStatic.when(ConnectContext::get).thenReturn(session);
+        try {
+            // the person's own session
+            Assertions.assertTrue(canUseComputeGroup(person, "su_cg_person_lane"));
+            Assertions.assertTrue(canUseComputeGroup(person, "su_cg_via_role"));
+            Assertions.assertFalse(canUseComputeGroup(person, "su_cg_nobody"));
+
+            // SU narrowed the session to the tenant role: placement still follows the person
+            session.setSessionRoleOverride(Collections.singleton("su_cg_tenant"));
+            Assertions.assertTrue(canUseComputeGroup(person, "su_cg_person_lane"));
+            Assertions.assertTrue(canUseComputeGroup(person, "su_cg_via_role"));
+            // never wider than the person's own session, and scoped to the session's own identity
+            Assertions.assertFalse(canUseComputeGroup(person, "su_cg_nobody"));
+            Assertions.assertFalse(canUseComputeGroup(bystander, "su_cg_person_lane"));
+        } finally {
+            mockedCtxStatic.when(ConnectContext::get).thenReturn(ctx);
+        }
+    }
+
+    private boolean canUseComputeGroup(UserIdentity user, String computeGroup) {
+        return accessManager.checkCloudPriv(user, computeGroup, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER);
     }
 }

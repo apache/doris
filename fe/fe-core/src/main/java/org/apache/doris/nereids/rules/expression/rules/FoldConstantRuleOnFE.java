@@ -75,6 +75,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.LastQueryId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Password;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionIsNarrowed;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
@@ -182,6 +183,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 matches(Not.class, this::visitNot),
                 matches(Database.class, this::visitDatabase),
                 matches(CurrentUser.class, this::visitCurrentUser),
+                matches(SessionIsNarrowed.class, this::visitSessionIsNarrowed),
                 matches(CurrentCatalog.class, this::visitCurrentCatalog),
                 matches(User.class, this::visitUser),
                 matches(ConnectionId.class, this::visitConnectionId),
@@ -400,6 +402,15 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
     }
 
     @Override
+    public Expression visitSessionIsNarrowed(SessionIsNarrowed fn, ExpressionRewriteContext context) {
+        if (!foldContextDependentExpressions) {
+            return fn;
+        }
+        ConnectContext cctx = context.cascadesContext.getConnectContext();
+        return BooleanLiteral.of(cctx != null && cctx.isSessionRoleNarrowed());
+    }
+
+    @Override
     public Expression visitCurrentCatalog(CurrentCatalog currentCatalog, ExpressionRewriteContext context) {
         if (!foldContextDependentExpressions) {
             return currentCatalog;
@@ -413,7 +424,9 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         if (!foldContextDependentExpressions) {
             return user;
         }
-        String res = context.cascadesContext.getConnectContext().getUserWithLoginRemoteIpString();
+        // MySQL proxy parity: USER() is the account that authenticated the connection (the switcher
+        // of a session-narrowed session); CURRENT_USER() and SESSION_USER() name the effective one
+        String res = context.cascadesContext.getConnectContext().getAuthenticatedUserWithLoginRemoteIpString();
         return new VarcharLiteral(res);
     }
 

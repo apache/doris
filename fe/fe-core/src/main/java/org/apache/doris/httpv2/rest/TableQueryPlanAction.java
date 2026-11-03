@@ -362,6 +362,7 @@ public class TableQueryPlanAction extends RestBaseController {
                 .setTimestamp(ctx.getStartTime())
                 .setClientIp(ctx.getClientIP())
                 .setUser(ctx.getQualifiedUser())
+                .setAuthenticatedUser(AuditLogHelper.authenticatedUser(ctx))
                 .setFeIp(FrontendOptions.getLocalHostAddress())
                 .setCtl(catalog == null ? InternalCatalog.INTERNAL_CATALOG_NAME : catalog.getName())
                 .setDb(ctx.getDatabase())

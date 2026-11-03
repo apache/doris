@@ -45,6 +45,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 
 /**
@@ -96,12 +97,33 @@ public class SchemaScanNode extends ScanNode {
     public void finalizeForNereids() throws UserException {
         if (ConnectContext.get().getSessionVariable().enableSchemaScanFromMasterFe
                 && tableName.equalsIgnoreCase("tables")) {
+            if (ConnectContext.get().isSessionRoleNarrowed() && !Env.getCurrentEnv().masterRunsSameBuild()) {
+                throw new UserException(mixedBuildMessage("the master FE"));
+            }
             frontendIP = Env.getCurrentEnv().getMasterHost();
             frontendPort = Env.getCurrentEnv().getMasterRpcPort();
         } else {
             frontendIP = FrontendOptions.getLocalHostAddress();
             frontendPort = Config.rpc_port;
         }
+        TableIf tableIf = desc.getTable();
+        if (ConnectContext.get().isSessionRoleNarrowed() && tableIf instanceof SchemaTable
+                && ((SchemaTable) tableIf).shouldFetchAllFe() && !Env.getCurrentEnv().aliveFrontendsRunSameBuild()) {
+            throw new UserException(mixedBuildMessage("every alive FE"));
+        }
+    }
+
+    /**
+     * A session-narrowed (SU) session's role subset rides in the BE's metadata RPCs to the FE
+     * (TGetTablesParams.current_roles and friends). An FE of an older build silently ignores the
+     * field and authorizes against the target's FULL role union, so a scan whose RPCs leave this
+     * FE (the master, or every alive FE) fails closed while the FE set runs mixed builds, exactly
+     * as a forwarded statement does (Env.masterRunsSameBuild).
+     */
+    private static String mixedBuildMessage(String target) {
+        return "This information_schema scan of a session-narrowed (SU) session is answered by " + target
+                + ", which runs a different FE build than this FE and could not apply the narrowing. "
+                + "Retry once the rolling upgrade completes.";
     }
 
     private void setFeAddrList(TPlanNode msg) {
@@ -162,6 +184,14 @@ public class SchemaScanNode extends ScanNode {
 
         TUserIdentity tCurrentUser = ConnectContext.get().getCurrentUserIdentity().toThrift();
         msg.schema_scan_node.setCurrentUserIdent(tCurrentUser);
+        // SU narrowing: carry the session's active role subset (current_roles) in the plan so the
+        // BE->FE metadata RPCs (getDbNames/getTableNames/listTableStatus/describeTables) narrow
+        // name visibility to the same set the session sees; null = normal session (no narrowing).
+        // A BE of an older build drops the field and its RPCs reach the FE without roles, where the
+        // handler runs un-narrowed: BEs are upgraded before FEs, the documented rolling-upgrade order.
+        if (ConnectContext.get().isSessionRoleNarrowed()) {
+            msg.schema_scan_node.setCurrentRoles(new HashSet<>(ConnectContext.get().getSessionRoleOverride()));
+        }
         msg.schema_scan_node.setFrontendConjuncts(GsonUtils.GSON.toJson(frontendConjuncts));
         setFeAddrList(msg);
     }

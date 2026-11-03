@@ -1542,6 +1542,7 @@ public class StmtExecutor {
     }
 
     private void forwardToMaster() throws Exception {
+        // a session-narrowed (SU) session's same-build gate sits in FEOpExecutor.buildStmtForwardParams
         masterOpExecutor = new MasterOpExecutor(originStmt, context, redirectStatus, isQuery());
         if (LOG.isDebugEnabled()) {
             LOG.debug("need to transfer to Master. stmt: {}", context.getStmtId());

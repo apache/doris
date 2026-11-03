@@ -93,6 +93,9 @@ Status SchemaFilesScanner::start(RuntimeState* state) {
     }
     if (nullptr != _param->common_param->current_user_ident) {
         db_params.__set_current_user_ident(*(_param->common_param->current_user_ident));
+        if (!_param->common_param->current_roles.empty()) {
+            db_params.__set_current_roles(_param->common_param->current_roles);
+        }
     } else {
         if (nullptr != _param->common_param->user) {
             db_params.__set_user(*(_param->common_param->user));

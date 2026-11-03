@@ -52,6 +52,9 @@ Status SchemaPerDbScanner::start(RuntimeState* state) {
     }
     if (_param->common_param->current_user_ident) {
         db_params.__set_current_user_ident(*(_param->common_param->current_user_ident));
+        if (!_param->common_param->current_roles.empty()) {
+            db_params.__set_current_roles(_param->common_param->current_roles);
+        }
     }
     // The planner lifts an exact `TABLE_SCHEMA = '...'` out of the query for us. Without
     // it every visible database is listed and asked for its rows, and everything but one
@@ -82,6 +85,9 @@ Status SchemaPerDbScanner::get_onedb_info_from_fe(int64_t db_id) {
         schema_table_request_params.columns_name.emplace_back(column.name);
     }
     schema_table_request_params.__set_current_user_ident(*_param->common_param->current_user_ident);
+    if (!_param->common_param->current_roles.empty()) {
+        schema_table_request_params.__set_current_roles(_param->common_param->current_roles);
+    }
     schema_table_request_params.__set_catalog(*_param->common_param->catalog);
     schema_table_request_params.__set_dbId(db_id);
     // Same reason as the database pattern above: an exact `TABLE_NAME = '...'` lets the FE

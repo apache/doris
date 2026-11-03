@@ -62,8 +62,9 @@ public class SetPassVarOp extends SetVarOp {
         }
 
         // check privs.
-        // 1. this is user itself
-        if (isSelf) {
+        // 1. this is user itself -- but never through a session-narrowed (SU) session: the switcher is
+        // not the person, so a credential change needs the GRANT privilege of the narrowed set
+        if (isSelf && ctx.getAuthenticatedIdentity() == null) {
             return;
         }
 
