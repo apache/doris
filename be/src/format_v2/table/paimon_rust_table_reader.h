@@ -106,6 +106,7 @@ private:
     Status _validate_rust_split(const TFileRangeDesc& range) const;
     // Open (or reuse the cached) paimon_table and build the per-split read
     // pipeline: read_builder -> projection -> filter -> plan -> arrow reader.
+    Status _open_table();
     Status _open_split_reader();
     // Drop the per-split pipeline (read_builder .. record batch reader), keeping
     // the cached table handle for the next split of the same table.

@@ -79,6 +79,8 @@ private:
     static Status _register_spill_natives(JNIEnv* env, jclass writer_class);
 
     Status _check_jni_exception(JNIEnv* env, const std::string& method_name);
+    Status _open_java_writer(JNIEnv* env, const TPaimonTableSink& sink, RuntimeState* state,
+                             jmethodID open_id);
     void _refresh_memory_profile();
 
     // JNI global reference — lives for the duration of this backend. The method ids on the
