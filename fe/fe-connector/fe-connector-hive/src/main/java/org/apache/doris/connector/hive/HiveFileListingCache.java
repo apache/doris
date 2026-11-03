@@ -49,6 +49,7 @@ public class HiveFileListingCache {
     static final String LEGACY_FILE_META_CACHE_TTL_SECOND = "file.meta.cache.ttl-second";
     static final long DEFAULT_TTL_SECOND = 86400L;
     static final long DEFAULT_FILE_CAPACITY = 10000L;
+    private static final long RESERVATION_CHUNK_BYTES = 16L * 1024;
 
     /** List-based seam retained for existing recording fakes; the production implementation overrides open. */
     @FunctionalInterface
@@ -260,6 +261,8 @@ public class HiveFileListingCache {
         private MetaCache.BulkLoad<FileListingKey, Long> summaryLoad;
         private ArrayList<HiveFileStatus> candidate;
         private long candidateBytes;
+        // Includes unused chunk credit, which is not part of the published entry's weight.
+        private long reservedBytes;
         private long totalFileBytes;
         private int capacity;
         private boolean closed;
@@ -282,7 +285,7 @@ public class HiveFileListingCache {
                 }
                 load = cache.beginBulkLoad(table);
                 long baseBytes = keyBytes + HiveFileListingSizeEstimator.emptyValueBytes();
-                if (baseBytes > entryMaxBytes || !reserve(baseBytes)) {
+                if (baseBytes > entryMaxBytes || !reserveCandidate(baseBytes)) {
                     stats.abandoned.incrementAndGet();
                     discardCandidate();
                     return;
@@ -362,27 +365,46 @@ public class HiveFileListingCache {
             }
             long nextBytes = candidateBytes + arrayGrowth + HiveFileListingSizeEstimator.fileBytes(file);
             // Account for both arrays during expansion. No allocation is made after admission fails.
-            long peakGrowth = nextBytes - candidateBytes + oldArrayBytes;
-            if (nextBytes + oldArrayBytes > entryMaxBytes || !reserve(peakGrowth)) {
+            long peakBytes = nextBytes + oldArrayBytes;
+            if (peakBytes > entryMaxBytes || !reserveCandidate(peakBytes)) {
                 stats.abandoned.incrementAndGet();
                 discardCandidate();
                 return;
             }
-            candidateBytes += peakGrowth;
-            try {
-                candidate.ensureCapacity(nextCapacity);
-                candidate.add(file);
-                capacity = nextCapacity;
-            } finally {
+            candidate.ensureCapacity(nextCapacity);
+            candidate.add(file);
+            capacity = nextCapacity;
+            candidateBytes = nextBytes;
+            if (oldArrayBytes > 0) {
+                reservedBytes -= oldArrayBytes;
                 pendingBytes.addAndGet(-oldArrayBytes);
-                candidateBytes -= oldArrayBytes;
             }
-            stats.peakBytes.accumulateAndGet(nextBytes + oldArrayBytes, Math::max);
+            stats.peakBytes.accumulateAndGet(peakBytes, Math::max);
+        }
+
+        private boolean reserveCandidate(long requiredBytes) {
+            if (requiredBytes <= reservedBytes) {
+                return true;
+            }
+            // Keep unused credit until this cursor closes, avoiding a shared atomic update for each file.
+            long missing = requiredBytes - reservedBytes;
+            long chunk = Math.min(entryMaxBytes - reservedBytes, Math.max(missing, RESERVATION_CHUNK_BYTES));
+            if (reserve(chunk)) {
+                reservedBytes += chunk;
+                return true;
+            }
+            // A file can still fit when the catalog has less than a whole chunk left.
+            if (chunk == missing || !reserve(missing)) {
+                return false;
+            }
+            reservedBytes += missing;
+            return true;
         }
 
         private void discardCandidate() {
             candidate = null;
-            pendingBytes.addAndGet(-candidateBytes);
+            pendingBytes.addAndGet(-reservedBytes);
+            reservedBytes = 0;
             candidateBytes = 0;
             if (load != null) {
                 load.close();

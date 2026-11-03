@@ -186,6 +186,35 @@ class HiveStreamingFileListingTest {
     }
 
     @Test
+    void sharedBudgetIsReleasedAfterAnOverlappingListingIsAbandoned() {
+        HiveFileListingCache cache = new HiveFileListingCache(properties(64 * 1024, 64 * 1024));
+        FakeFileSystem fs = new FakeFileSystem().withIteratorFactory(location -> {
+            RecordingFiles raw = new RecordingFiles(200);
+            raw.pathPadding = "x".repeat(100);
+            return raw;
+        });
+        try (HiveFileIterator first = open(cache, fs)) {
+            for (int i = 0; i < 80; i++) {
+                first.next();
+            }
+            long held = cache.pendingBytes();
+            try (HiveFileIterator second = cache.openDataFiles("db", "t2", LOCATION, List.of(), fs,
+                    new ConnectorScanContext())) {
+                while (second.hasNext()) {
+                    second.next();
+                    Assertions.assertTrue(cache.pendingBytes() <= 64 * 1024);
+                }
+            }
+            Assertions.assertEquals(0, cache.size());
+            Assertions.assertEquals(held, cache.pendingBytes());
+        }
+        Assertions.assertEquals(0, cache.pendingBytes());
+        Assertions.assertEquals(200, consume(cache, fs).size());
+        Assertions.assertEquals(1, cache.size(), "the listing fits once the overlapping cursor releases its budget");
+        Assertions.assertEquals(0, cache.pendingBytes());
+    }
+
+    @Test
     void refreshAtEveryScopeFencesListsAndIndependentSummaries() {
         for (long entryBudget : new long[] {8388608, 0}) {
             for (int scope = 0; scope < 4; scope++) {
