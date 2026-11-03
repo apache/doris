@@ -151,7 +151,8 @@ static std::string format_http_request(brpc::Controller* cntl) {
     ss << "\nmethod=" << brpc::HttpMethod2Str(request.method());
     ss << "\nquery strings:";
     for (auto it = uri.QueryBegin(); it != uri.QueryEnd(); ++it) {
-        ss << "\n" << it->first << "=" << it->second;
+        // The token is the admin credential of every instance, never log it
+        ss << "\n" << it->first << "=" << (it->first == "token" ? "***" : it->second);
     }
     ss << "\nheaders:";
     for (auto it = request.HeaderBegin(); it != request.HeaderEnd(); ++it) {
@@ -172,7 +173,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
               << " request: " << cntl->http_request().uri().path();
     std::string http_request = format_http_request(cntl);
     std::string http_request_for_log = encryt_sk(http_request);
-    http_request_for_log = hide_ak(http_request_for_log);
+    http_request_for_log = hide_cloud_unique_ids(hide_ak(http_request_for_log));
     const auto& unresolved_path = cntl->http_request().unresolved_path();
     auto api_path = split_http_api_path(unresolved_path);
     const auto& handlers = get_http_handlers();
@@ -181,8 +182,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
     // Auth
     auto token = http_query(cntl->http_request().uri(), "token");
     if (token != config::http_token) {
-        std::string body = fmt::format("incorrect token, token={}",
-                                       (token.empty() ? std::string_view("(not given)") : token));
+        std::string body = token.empty() ? "incorrect token, token=(not given)" : "incorrect token";
         cntl->http_response().set_status_code(403);
         cntl->response_attachment().append(body);
         cntl->response_attachment().append("\n");
