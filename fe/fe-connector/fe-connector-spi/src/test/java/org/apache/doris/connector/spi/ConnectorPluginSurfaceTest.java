@@ -88,9 +88,7 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 26 adds scan cancellation notifications and task removal to the scheduler surface;
-        // major 27 adds the ConnectorCapability#SUPPORTS_WRITE_ONLY_DEFAULTS constant.
-        Assertions.assertEquals("27.0", version.getProperty("api.version"));
+        Assertions.assertEquals("28.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
