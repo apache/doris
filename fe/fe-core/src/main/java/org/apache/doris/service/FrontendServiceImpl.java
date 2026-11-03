@@ -345,7 +345,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -363,6 +362,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.ObjLongConsumer;
 import java.util.stream.Collectors;
 
 // Frontend service used to serve all request for this frontend through
@@ -496,7 +496,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<Long> dbIds = Lists.newArrayList();
         List<Long> catalogIds = Lists.newArrayList();
 
-        PatternMatcher matcher = null;
+        PatternMatcher matcher;
         if (params.isSetPattern()) {
             try {
                 matcher = PatternMatcher.createMysqlPattern(params.getPattern(),
@@ -504,6 +504,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             } catch (PatternMatcherException e) {
                 throw new TException("Pattern is in bad format: " + params.getPattern());
             }
+        } else {
+            matcher = null;
         }
 
         Env env = Env.getCurrentEnv();
@@ -517,55 +519,77 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             catalog -> new TException("Unknown catalog " + catalog)));
         }
 
+        boolean includeDbIds = params.isIncludeDbIds();
         for (CatalogIf catalog : catalogIfs) {
-            Collection<DatabaseIf> dbs = new HashSet<DatabaseIf>();
+            Collection<DatabaseIf> dbs = Collections.emptyList();
+            List<String> names = Collections.emptyList();
             try {
-                dbs = catalog.getAllDbs();
+                if (includeDbIds) {
+                    dbs = catalog.getAllDbs();
+                } else {
+                    // SCHEMATA only needs names; loading every database churns the object cache on large catalogs.
+                    names = catalog.getDbNames();
+                }
             } catch (Exception e) {
                 LOG.warn("failed to get database names for catalog {}", catalog.getName(), e);
                 // Some external catalog may fail to get databases due to wrong connection info.
             }
+            int dbCount = includeDbIds ? dbs.size() : names.size();
             if (LOG.isDebugEnabled()) {
-                LOG.debug("get db size: {}, in catalog: {}", dbs.size(), catalog.getName());
+                LOG.debug("get db size: {}, in catalog: {}", dbCount, catalog.getName());
             }
-            if (dbs.isEmpty() && params.isSetGetNullCatalog() && params.get_null_catalog) {
+            if (dbCount == 0 && params.isSetGetNullCatalog() && params.get_null_catalog) {
                 catalogNames.add(catalog.getName());
                 dbNames.add("NULL");
                 catalogIds.add(catalog.getId());
-                dbIds.add(-1L);
+                if (includeDbIds) {
+                    dbIds.add(-1L);
+                }
                 continue;
             }
-            if (dbs.isEmpty()) {
+            if (dbCount == 0) {
                 continue;
             }
-            UserIdentity currentUser = null;
+            UserIdentity currentUser;
             if (params.isSetCurrentUserIdent()) {
                 currentUser = UserIdentity.fromThrift(params.current_user_ident);
             } else {
                 currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
             }
-            for (DatabaseIf db : dbs) {
-                String dbName = db.getFullName();
+            ObjLongConsumer<String> addDatabase = (dbName, dbId) -> {
                 if (!env.getAccessManager()
                         .checkDbPriv(currentUser, catalog.getName(), dbName, PrivPredicate.SHOW)) {
-                    continue;
+                    return;
                 }
 
                 if (matcher != null && !matcher.match(getMysqlTableSchema(catalog.getName(), dbName))) {
-                    continue;
+                    return;
                 }
 
                 catalogNames.add(catalog.getName());
                 dbNames.add(getMysqlTableSchema(catalog.getName(), dbName));
                 catalogIds.add(catalog.getId());
-                dbIds.add(db.getId());
+                if (includeDbIds) {
+                    dbIds.add(dbId);
+                }
+            };
+            if (includeDbIds) {
+                for (DatabaseIf db : dbs) {
+                    addDatabase.accept(db.getFullName(), db.getId());
+                }
+            } else {
+                for (String dbName : names) {
+                    addDatabase.accept(dbName, -1L);
+                }
             }
         }
 
         result.setDbs(dbNames);
         result.setCatalogs(catalogNames);
         result.setCatalogIds(catalogIds);
-        result.setDbIds(dbIds);
+        if (includeDbIds) {
+            result.setDbIds(dbIds);
+        }
         return result;
     }
 
