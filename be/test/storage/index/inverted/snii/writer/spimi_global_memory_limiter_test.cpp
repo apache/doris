@@ -781,6 +781,38 @@ TEST(SniiSpimiGlobalSpill, NewTermsThatKeepTheArenaStayOffTheLimiter) {
     EXPECT_EQ(decisions.load(), decisions_for_first_block);
 }
 
+// The decision also reads the build bytes, which move one publish step at a time, so a
+// resident move of a step reaches the limiter at once even inside one arena block.
+// Capacity doublings of the term tables are such moves: one new term adds MiBs while its
+// first posting still fits in the current block.
+TEST(SniiSpimiGlobalSpill, ResidentStepInsideOneArenaBlockReachesTheLimiter) {
+    std::atomic<int> decisions {0};
+    GlobalMemoryLimiter lim;
+    lim.set_signals_provider([&decisions] {
+        decisions.fetch_add(1, std::memory_order_relaxed);
+        return BuildMemorySignals {};
+    });
+    SpimiTermBuffer buf(/*has_positions=*/true, /*spill_threshold_bytes=*/0);
+    buf.attach_global_limiter(&lim);
+
+    bool checked = false;
+    for (uint32_t i = 0; i < (1U << 21) && !checked; ++i) {
+        const uint64_t arena = buf.arena_bytes_for_test();
+        const uint64_t resident = buf.resident_bytes_for_test();
+        const int before = decisions.load();
+        buf.add_token("t" + std::to_string(i), /*docid=*/i, /*pos=*/0);
+        if (buf.arena_bytes_for_test() == arena &&
+            buf.resident_bytes_for_test() >=
+                    resident + doris::snii::writer::kBuildBytesPublishStep) {
+            EXPECT_EQ(decisions.load(), before + 1)
+                    << "the resident step at term " << i << " was not decided";
+            checked = true;
+        }
+    }
+    ASSERT_TRUE(buf.status().ok());
+    ASSERT_TRUE(checked) << "no term grew the resident total by a step inside one arena block";
+}
+
 // Skipping unchanged arenas must not lose the reaction to pressure: pressure that
 // arrives while a block is filling is decided as soon as the arena grows, and the
 // flag is then honored like any other request.
