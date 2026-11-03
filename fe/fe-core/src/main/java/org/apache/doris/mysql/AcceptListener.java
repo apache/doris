@@ -58,28 +58,40 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
             if (connection == null) {
                 return;
             }
-            connection.setOption(Options.KEEP_ALIVE, true);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Connection established. remote={}", connection.getPeerAddress());
-            }
-            // connection has been established, so need to call context.cleanup()
-            // if exception happens.
-            ConnectContext context = ConnectContext.forMysql(connection);
-            if (context.getSessionVariable().getQueryTimeoutS() <= 0) {
-                LOG.warn("Connection query timeout is invalid: {}", context.getSessionVariable().getQueryTimeoutS());
-            }
-            context.setEnv(Env.getCurrentEnv());
-            connectScheduler.submit(context);
-
+            ConnectContext context;
             try {
-                channel.getWorker().execute(() -> {
-                    handleConnection(context, connection);
-                });
+                connection.setOption(Options.KEEP_ALIVE, true);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Connection established. remote={}", connection.getPeerAddress());
+                }
+                context = ConnectContext.forMysql(connection);
+            } catch (Throwable failure) {
+                // Until construction succeeds the acceptor still owns the transport.
+                try {
+                    connection.close();
+                } catch (IOException closeFailure) {
+                    failure.addSuppressed(closeFailure);
+                }
+                throw failure;
+            }
+            boolean dispatched = false;
+            try {
+                if (context.getSessionVariable().getQueryTimeoutS() <= 0) {
+                    LOG.warn("Connection query timeout is invalid: {}",
+                            context.getSessionVariable().getQueryTimeoutS());
+                }
+                context.setEnv(Env.getCurrentEnv());
+                connectScheduler.submit(context);
+                channel.getWorker().execute(() -> handleConnection(context, connection));
+                dispatched = true;
             } catch (RejectedExecutionException e) {
-                context.getState().setError(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS,
-                        "Too many connections");
+                context.getState().setError(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS, "Too many connections");
                 MysqlProto.sendResponsePacket(context);
-                context.cleanup();
+            } finally {
+                // Sending the refusal can itself fail; it does not own cleanup responsibility.
+                if (!dispatched) {
+                    context.cleanup();
+                }
             }
         } catch (IOException e) {
             LOG.warn("Connection accept failed.", e);
@@ -88,7 +100,16 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
 
     @VisibleForTesting
     public void handleConnection(ConnectContext context, StreamConnection connection) {
+        if (!context.beginInitialization()) {
+            return;
+        }
         try {
+            connection.setCloseListener(streamConnection -> context.cleanup());
+            // XNIO need not replay a close that preceded listener installation.
+            if (!connection.isOpen()) {
+                context.cleanup();
+                return;
+            }
             // Set thread local info
             context.setThreadLocalInfo();
             context.setConnectScheduler(connectScheduler);
@@ -109,11 +130,18 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
             if (!MysqlProto.negotiate(context)) {
                 throw new AfterConnectedException("mysql negotiate failed");
             }
-            int res = connectScheduler.getConnectPoolMgr().registerConnection(context);
+            context.setStartTime();
+            int userQueryTimeout = context.getEnv().getAuth().getQueryTimeout(context.getQualifiedUser());
+            if (userQueryTimeout <= 0 && LOG.isDebugEnabled()) {
+                LOG.debug("Connection set query timeout to {}",
+                        context.getSessionVariable().getQueryTimeoutS());
+            }
+            context.setUserQueryTimeout(userQueryTimeout);
+            context.setUserInsertTimeout(
+                    context.getEnv().getAuth().getInsertTimeout(context.getQualifiedUser()));
+            int res = context.activateClientSession(connectScheduler.getConnectPoolMgr());
             if (res == -1) {
                 MysqlProto.sendResponsePacket(context);
-                connection.setCloseListener(
-                        streamConnection -> connectScheduler.getConnectPoolMgr().unregisterConnection(context));
             } else {
                 String errMsg = connectScheduler.getConnectPoolMgr().limitReachedMessage(context, res);
                 // The refused client sees the message; the operator finds it here, since the login
@@ -124,15 +152,6 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                 MysqlProto.sendResponsePacket(context);
                 throw new AfterConnectedException(errMsg);
             }
-            context.setStartTime();
-            int userQueryTimeout = context.getEnv().getAuth().getQueryTimeout(context.getQualifiedUser());
-            if (userQueryTimeout <= 0 && LOG.isDebugEnabled()) {
-                LOG.debug("Connection set query timeout to {}",
-                        context.getSessionVariable().getQueryTimeoutS());
-            }
-            context.setUserQueryTimeout(userQueryTimeout);
-            context.setUserInsertTimeout(
-                    context.getEnv().getAuth().getInsertTimeout(context.getQualifiedUser()));
             ConnectProcessor processor = new MysqlConnectProcessor(context);
             MysqlProtocolAdapter.of(context).startAcceptQuery(context, processor);
         } catch (AfterConnectedException e) {
@@ -155,7 +174,11 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
             LOG.warn("connect processor exception because ", e);
             context.cleanup();
         } finally {
-            ConnectContext.remove();
+            try {
+                context.endOperation();
+            } finally {
+                ConnectContext.remove();
+            }
         }
     }
 

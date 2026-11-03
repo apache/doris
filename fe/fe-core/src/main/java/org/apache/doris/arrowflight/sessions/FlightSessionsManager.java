@@ -68,16 +68,20 @@ public interface FlightSessionsManager {
     static ConnectContext buildConnectContext(String peerIdentity, UserIdentity userIdentity, String remoteIP,
             ConnectScheduler connectScheduler) {
         ConnectContext connectContext = ConnectContext.forFlight(peerIdentity);
-        connectContext.setEnv(Env.getCurrentEnv());
-        connectContext.setStartTime();
-        connectContext.setCurrentUserIdentity(userIdentity);
-        connectContext.setRemoteIP(remoteIP);
-        connectContext.setUserQueryTimeout(
-                connectContext.getEnv().getAuth().getQueryTimeout(connectContext.getQualifiedUser()));
-        connectContext.setUserInsertTimeout(
-                connectContext.getEnv().getAuth().getInsertTimeout(connectContext.getQualifiedUser()));
-
-        connectContext.setConnectScheduler(connectScheduler);
-        return connectContext;
+        try {
+            connectContext.setEnv(Env.getCurrentEnv());
+            connectContext.setStartTime();
+            connectContext.setCurrentUserIdentity(userIdentity);
+            connectContext.setRemoteIP(remoteIP);
+            connectContext.setUserQueryTimeout(
+                    connectContext.getEnv().getAuth().getQueryTimeout(connectContext.getQualifiedUser()));
+            connectContext.setUserInsertTimeout(
+                    connectContext.getEnv().getAuth().getInsertTimeout(connectContext.getQualifiedUser()));
+            connectContext.setConnectScheduler(connectScheduler);
+            return connectContext;
+        } catch (Throwable failure) {
+            connectContext.cleanup();
+            throw failure;
+        }
     }
 }

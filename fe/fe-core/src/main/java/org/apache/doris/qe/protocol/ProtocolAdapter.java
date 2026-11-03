@@ -146,9 +146,9 @@ public interface ProtocolAdapter {
             throws IOException;
 
     /**
-     * Releases what the protocol still holds for the session when the connection leaves the pool
-     * ({@code ConnectPoolMgr.unregisterConnection}, where every teardown path of a connection
-     * meets): for Arrow Flight SQL the channel-cached results and the deferred query coordinators,
+     * Releases what the protocol still holds for the session after ConnectContext.cleanup has
+     * stopped admission and all in-flight operations have exited: for Arrow Flight SQL the
+     * channel-cached results and the deferred query coordinators,
      * nothing for MySQL, whose channel {@link #closeConnection} closes. Must be idempotent, and
      * must not depend on the connection being in the pool.
      */

@@ -25,7 +25,6 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
-import org.mockito.InOrder;
 import org.mockito.Mockito;
 
 import java.util.concurrent.CountDownLatch;
@@ -179,23 +178,27 @@ public class ConnectPoolMgrTest {
                 none.limitReachedMessage(ConnectPoolTestSupport.mysqlConnection(env, ALICE), 0));
     }
 
-    // Arrow Flight SQL keeps a query's coordinator alive across GetFlightInfo -> DoGet (see #62259).
-    // unregisterConnection() is the catch-all teardown path: the idle timeout (wait_timeout), bearer
-    // token expiry or eviction, CloseSession and a KILL CONNECTION from another connection all reach
-    // here (a query timeout only cancels the query). The protocol must release what it holds for the
-    // session -- for Flight the channel-cached results and the deferred coordinators -- even for a
-    // connection that was never registered (an abandoned connection is cleaned up, not leaked), and
-    // before the bookkeeping, so that a failure there cannot strand the coordinators.
     @Test
-    public void testUnregisterReleasesTheProtocolSessionFirstEvenWhenNotRegistered() {
+    public void testUnregisterOnlyChangesBookkeeping() {
         ConnectPoolMgr pool = new ConnectPoolMgr(100);
         ConnectContext ctx = Mockito.mock(ConnectContext.class);
-
         pool.unregisterConnection(ctx);
+        Mockito.verify(ctx, Mockito.never()).releaseProtocolSession();
+        Mockito.verify(ctx, Mockito.never()).closeTxn();
+    }
 
-        InOrder inOrder = Mockito.inOrder(ctx);
-        inOrder.verify(ctx).releaseProtocolSession();
-        inOrder.verify(ctx).closeTxn();
+    @Test
+    public void testUnregisterDoesNotRemoveADifferentContextWithTheSameId() {
+        Env env = ConnectPoolTestSupport.envAllowing(100);
+        ConnectPoolMgr pool = new ConnectPoolMgr(10);
+        ConnectContext registered = registered(pool, ConnectPoolTestSupport.mysqlConnection(env, ALICE), 7);
+        ConnectContext other = ConnectPoolTestSupport.mysqlConnection(env, BOB);
+        other.setConnectionId(7);
+        pool.unregisterConnection(other);
+        Assertions.assertSame(registered, pool.getContext(7));
+        Assertions.assertEquals(1, pool.getConnectionNum());
+        Assertions.assertEquals(1, pool.getUserConnectionMap().get(ALICE.getQualifiedUser()).get());
+        pool.unregisterConnection(registered);
     }
 
     @Test

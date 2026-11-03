@@ -6,7 +6,7 @@
 
 本文覆盖客户端连接、协议请求、跨 FE 转发、内部作用域、后台任务和 HTTP 入口的代表性调用链；不是所有 `new ConnectContext()` 调用点的穷尽审计。问题分为“已确认调用链缺陷”和“待验证的生命周期契约”，后者不等同于已证明的资源泄漏。
 
-第 1–5 节记录当前调用链与问题，第 6–8 节给出目标状态机、实现归并、注册注销和 Flight 超时处理方案，第 9 节给出验证与迁移顺序。建议把入口视角的 11 类场景归并为“客户端长会话”和“请求或任务拥有的 Context”两种模板，共用 INITIALIZING、ACTIVE、CLOSING、CLOSED 四态；借用与线程绑定是使用方式，不再建立第三类生命周期。
+第 1–5 节记录重构前源码基线的调用链与问题，第 6–8 节给出目标状态机、实现归并、注册注销和 Flight 超时处理方案，第 9 节给出验证与迁移顺序，第 11 节记录首阶段实现。建议把入口视角的 11 类场景归并为“客户端长会话”和“请求或任务拥有的 Context”两种模板，共用 INITIALIZING、ACTIVE、CLOSING、CLOSED 四态；借用与线程绑定是使用方式，不再建立第三类生命周期。
 
 旧临时表的 `Env.registerSessionInfo / unregisterSessionInfo / aliveSessionSet` 登记机制及代理构造中的历史 sessionId 处理不列为问题，也不以恢复该机制为修复目标。当前 `registerSessionInfo()` 是停用的空实现。
 
@@ -270,7 +270,7 @@ COM_RESET_CONNECTION 是 ACTIVE 内的排他操作，不必增加 RESETTING 主�
 - 池查找得到的 Context 仍需在命令准入处检查可用性；查找不是一次不可撤销的执行许可。
 - 计数和索引由登记机制负责，只有本次成功持有的登记能被注销；不依靠默认 connectionId 推断是否曾经注册。
 
-实现上，激活与进入 CLOSING 必须通过同一 Context 状态协调点，单独增加一个未与登记协调的 CAS 标志不够。池配额锁与 Context 状态锁应固定顺序；一种可行顺序是激活时池锁到 Context 锁，关闭时先在 Context 锁内标记并取走登记责任、释放该锁后再注销池，禁止持有 Context 锁反向等待池锁。所有临界区只处理状态、索引和责任交接，不执行握手、响应发送、回滚或网络 IO。
+实现上，激活与进入 CLOSING 必须通过同一 Context 状态协调点，单独增加一个未与登记协调的 CAS 标志不够。池配额锁与 Context 状态锁应固定顺序；本轮采用 Context 状态锁到池配额锁的固定顺序，池不回调 Context 生命周期方法；关闭时在 Context 锁内标记 CLOSING，释放该锁后撤销池登记。禁止持有池锁反向调用 Context 激活或关闭。所有临界区只处理状态、索引和责任交接，不执行握手、响应发送、回滚或网络 IO。
 
 ### 6.4 关闭开始与关闭完成必须区分
 
@@ -515,7 +515,7 @@ Flight 命令入口在通过准入后刷新会话活动时间；语句之外的�
 
 现有 [ConnectPoolMgrTest][pool-test] 覆盖部分注销与计数行为，[FlightSessionsInConnectPoolTest][flight-test] 覆盖 CloseSession、KILL、空闲超时，[ConnectContextTest][ctx-test] 覆盖 reset、线程绑定和 deferred executor 部分清理。它们不是 P01–P05 已通过验证的证明；本次文档整理未运行这些测试。
 
-## 10. 核查结论与边界
+## 10. 设计阶段核查结论与边界
 
 | 检查项 | 结论 |
 | --- | --- |
@@ -533,9 +533,80 @@ Flight 命令入口在通过准入后刷新会话活动时间；语句之外的�
 | 测试与结果 | 给出验证矩阵和已有测试位置；无新增或改写测试结果，无运行时复现结论 |
 | 可观测性 | 后续修复应可关联 connectionId、生命周期阶段及失败原因；Flight 原始 token 不应出现在日志中 |
 
+## 11. 首阶段实现：公共生命周期与客户端入口
+
+本轮实现公共状态机、登记与关闭协调，并迁移 MySQL 和 Flight 客户端入口。未迁移内部任务、HTTP、代理及 AutoCloseConnectContext 的 owned/bind 作用域；这些调用点继续按第 9 节分批处理，不把首阶段等同于全仓生命周期迁移完成。
+
+### 11.1 公共接口与责任
+
+- `LifecycleState` 包含 INITIALIZING、ACTIVE、CLOSING、CLOSED；构造仅初始化，`init()` 不再对外开放。
+- `activateClientSession(pool)` 在同一状态协调边界完成池登记与 ACTIVE 发布，只有成功登记才持有注销责任。`activate()` 提供内部拥有者的无连接池激活入口，后续迁移时显式使用。
+- `beginInitialization()` 保护 MySQL 握手及响应阶段；`tryBeginCommand()` 保护 MySQL 读任务和 Flight 串行命令。成功进入后必须在 finally 调用 `endOperation()`。它们只跟踪现有协议执行边界，不引入新的 SessionHandle 或会话注册表。
+- `cleanup()`、KILL CONNECTION、Channel 关闭、Flight CloseSession 及空闲超时统一进入 CLOSING，先注销，再取消执行、关闭协议入口。池的 register/unregister 降为包内登记原语，不再释放协议资源或回滚事务；移除时匹配 Context 实例，避免误删同 ID 的其他连接。
+- 运行中命令退出后，统一调用协议 releaseSession、closeTxn、原有临时表清理、会话信息注销及本地引用清理，然后发布 CLOSED。`getCleanupCompletion()` 可用于观察收尾完成及未被底层钩子吞掉的异常；单个钩子抛异常不会跳过后续步骤，异常结果不发布 CLOSED。
+- 关闭阶段会临时绑定目标 Context，满足 follower 回滚转发对 `ConnectContext.get()` 的依赖；恢复其他调用方的绑定，也保留尚未退出命令的绑定。
+
+```mermaid
+sequenceDiagram
+    participant E as 协议入口或超时线程
+    participant C as ConnectContext
+    participant P as ConnectPoolMgr
+    participant A as ProtocolAdapter
+    E->>C: cleanup / 空闲超时
+    C->>C: CLOSING，拒绝新命令
+    C->>P: 撤销自身登记及计数
+    C->>C: 取消已发布的 executor
+    C->>A: closeConnection
+    Note over C,A: Flight 封闭 deferred 容器；MySQL 关闭传输
+    E->>C: 最后一个已有操作 endOperation
+    C->>A: releaseSession
+    C->>C: 回滚事务及会话资源收尾
+    C->>C: CLOSED，完成通知
+```
+
+没有在途操作时，cleanup 在当前线程直接完成第二阶段。存在在途操作时，不等待其命令锁，最后退出的执行线程继续持有 Context 并完成第二阶段。Flight 的 deferred 封口与迟到 executor 立即收尾规则保留，Arrow channel 的 allocator 则延后到命令退出后关闭。
+
+### 11.2 超时与错误路径
+
+公共 TimeoutChecker 仍是 Flight 会话超时的触发方。空闲判定和命令准入共享状态锁；Flight 元数据命令即使仍显示 COM_SLEEP，也不作为空闲会话关闭；MySQL 若阻塞在尚未读完整的数据包上，仍由 wait_timeout 关闭传输以唤醒读线程。查询超时取消本次检查捕获的 executor，保留会话；deferred 结果仍按各自期限回收。取消采用不等待执行结束的形式，执行退出由已有操作边界报告。若关闭先于 executor 发布，后发布的 executor 仍收到取消请求。
+
+MySQL 在握手前安装关闭回调，并检查此前已关闭的 Channel；注册后响应写失败直接进入统一 cleanup，不再依赖回调补做注销。任务提交失败的拒绝响应放在 finally 清理保护内。Flight 初始化、提交及配额拒绝路径均由创建方兜底 cleanup，无需先设置 scheduler 才能释放协议资源。
+
+### 11.3 验证与边界
+
+新增 `ConnectContextLifecycleTest` 覆盖状态转移、失败初始化、配额拒绝、重复及重入关闭、并发登记与关闭、命令退出前保持 CLOSING、迟到 executor、线程绑定和两类超时。新增 `AcceptListenerTest` 覆盖登录响应 IO 失败、工作线程拒绝且错误响应 IO 失败、已关闭 Channel、读任务失败。扩展 Flight 测试覆盖初始化中途失败及运行中关闭的 allocator 生命周期。并发交错由 CountDownLatch 控制。
+
+通过 `./run-fe-ut.sh --run` 指定下列 9 个测试类：共 115 个测试，失败 0、错误 0、跳过 0。该过程已编译 FE Core 生产代码和测试代码。`mvn -f fe/pom.xml checkstyle:check -pl fe-core` 及 `git diff --check` 均通过；未运行集群 SQL 回归测试。
+
+| 测试类 | 通过数量 |
+| --- | ---: |
+| ConnectContextLifecycleTest | 11 |
+| AcceptListenerTest | 4 |
+| ConnectPoolMgrTest | 11 |
+| ConnectContextTest | 33 |
+| FlightProtocolAdapterTest | 15 |
+| FlightSessionsInConnectPoolTest | 8 |
+| DorisFlightSqlProducerTest | 12 |
+| ConnectionExceedTest | 3 |
+| MetricsTest | 18 |
+
+本轮保留原有事务和临时表清理钩子的错误处理语义，不实现跨 FE 孤儿资源回收、可靠异步重试或新的 Journal 记录。底层钩子已经捕获并记录的远端错误不被 completion 重新识别；公共编排捕获的未处理异常通过异常 completion 暴露，保持 CLOSING，本轮不新增后台重试队列。集群失效检测与可靠资源回收仍须独立实现，不能以本地 CLOSED 代替其证明。
+
+| 自审检查项 | 本轮结论 |
+| --- | --- |
+| 目标、最小范围 | 公共生命周期及两个客户端协议入口收口；未机械修改所有内部 Context 创建点，无新增会话管理对象 |
+| 并发、锁及性能 | Context 锁到池锁，无反向回调；取消、协议释放、回滚均在锁外；每条命令仅在入口和退出调整操作计数 |
+| 生命周期 | 区分注销与完成，初始化和命令在 finally 归还使用责任；重入及并发 cleanup 不重复释放 |
+| 平行路径 | MySQL、Flight、KILL、空闲超时及失败初始化共用入口；内部 owned/bind 迁移明确留待下一阶段 |
+| 异常及条件 | 关闭中的准入拒绝、失败初始化、响应写失败和迟到 executor 均有具体触发路径及测试；收尾异常继续执行其他步骤并暴露失败 |
+| 配置、兼容性及 FE/BE 传递 | 无新增配置、Thrift/Proto 字段或持久化格式变更，无需滚动升级兼容分支 |
+| 事务、持久化及数据修改 | 仅调整既有 closeTxn 的调用责任和线程绑定；不修改提交、可见版本、回放或 Journal 规则；FE 崩溃回收不依赖本地回调 |
+| 可观测性 | 状态及 completion 暴露关闭进度；清理失败日志含动作和 connectionId，Flight 日志继续屏蔽 token |
+| 测试与结果 | 新增公共并发及负路径单测，复用协议和配额测试；无手写回归结果文件，执行结果见上文 |
+
 ## 源码索引
 
-以下链接指向本地核查工作区；行号对应文首源码基线。
+以下链接指向本地工作区；本轮修改文件的行号已更新。第 1–10 节的现状分析保留重构前基线语义，首阶段实现以第 11 节为准。
 
 - 基础机制：[初始化][ctx-init]、[连接登记][pool]、[线程绑定][thread]、[作用域包装器][auto-close]。
 - 客户端与转发：[MySQL 接入][accept]、[读事件][read]、[Flight 会话][flight-session]、[跨 FE 转发][forward]。
@@ -543,20 +614,20 @@ Flight 命令入口在通过准入后刷新会话活动时间；语句之外的�
 - 内部执行：[统计查询][stats]、[导出][export]、[Job 任务框架][task-processor]、[Load 执行][load-once]、[回放解析][bulk-analyze]。
 - HTTP：[请求 Context][rest-context]、[Show 接口][http-show]、[Web SQL 会话][websql]。
 
-[ctx-init]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/qe/ConnectContext.java:417
+[ctx-init]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/qe/ConnectContext.java:435
 [submit]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/qe/ConnectScheduler.java:75
-[pool]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/qe/ConnectPoolMgr.java:116
-[clear]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/qe/ConnectContext.java:1034
-[reset]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/qe/ConnectContext.java:366
+[pool]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/qe/ConnectPoolMgr.java:115
+[clear]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/qe/ConnectContext.java:1067
+[reset]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/qe/ConnectContext.java:384
 [thread]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/nereids/util/MoreFieldsThread.java:80
 [accept]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/mysql/AcceptListener.java:56
 [read]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/mysql/ReadListener.java:48
 [mysql-process]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/qe/MysqlConnectProcessor.java:567
 [reset-entry]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/qe/ConnectProcessor.java:152
-[flight-session]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/arrowflight/sessions/FlightSessionsInConnectPool.java:67
-[flight-command]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/arrowflight/protocol/FlightProtocolAdapter.java:592
+[flight-session]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/arrowflight/sessions/FlightSessionsInConnectPool.java:65
+[flight-command]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/arrowflight/protocol/FlightProtocolAdapter.java:591
 [flight-close]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/arrowflight/FlightSqlConnectProcessor.java:202
-[flight-release]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/arrowflight/protocol/FlightProtocolAdapter.java:276
+[flight-release]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/arrowflight/protocol/FlightProtocolAdapter.java:274
 [forward]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/service/FrontendServiceImpl.java:1168
 [proxy-stmt]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/qe/ConnectProcessor.java:665
 [auto-close]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/qe/AutoCloseConnectContext.java:38
@@ -573,11 +644,11 @@ Flight 命令入口在通过准入后刷新会话活动时间；语句之外的�
 [dummy]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/qe/ConnectContextUtil.java:40
 [vars]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/qe/AutoCloseSessionVariable.java:26
 [mysql-close]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/mysql/protocol/MysqlProtocolAdapter.java:350
-[timeout]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/qe/ConnectContext.java:1344
+[timeout]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/qe/ConnectContext.java:1511
 [bulk-analyze]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/load/loadv2/BulkLoadJob.java:309
-[pool-test]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/test/java/org/apache/doris/qe/ConnectPoolMgrTest.java:190
-[flight-test]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/test/java/org/apache/doris/arrowflight/sessions/FlightSessionsInConnectPoolTest.java:119
+[pool-test]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/test/java/org/apache/doris/qe/ConnectPoolMgrTest.java:182
+[flight-test]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/test/java/org/apache/doris/arrowflight/sessions/FlightSessionsInConnectPoolTest.java:134
 [ctx-test]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/test/java/org/apache/doris/qe/ConnectContextTest.java:86
 [protocol]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/qe/protocol/ProtocolAdapter.java:29
 [scheduler-timeout]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/qe/ConnectScheduler.java:131
-[pool-timeout]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/qe/ConnectPoolMgr.java:102
+[pool-timeout]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/qe/ConnectPoolMgr.java:101

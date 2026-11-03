@@ -26,6 +26,7 @@ import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectContext.ThreadInfo;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -47,10 +48,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * that index is the only place a bearer token exists, so a token is valid exactly as long as its
  * session is in the pool.
  *
- * <p>{@link #unregisterConnection} is where every teardown path of a connection meets - a MySQL
- * channel closing, a Flight CloseSession, a KILL CONNECTION from another connection, the timeout
- * checker past wait_timeout - so it is where the protocol releases what it still holds for the
- * session.
+ * <p>ConnectContext owns admission and teardown. This pool only maintains registration, indexes
+ * and quotas; it never calls protocol or transaction cleanup while changing its bookkeeping.
  */
 public class ConnectPoolMgr {
     private static final Logger LOG = LogManager.getLogger(ConnectPoolMgr.class);
@@ -113,7 +112,7 @@ public class ConnectPoolMgr {
     // Register one connection with its connection id.
     // Return -1 means register OK
     // Return >=0 means register failed, and return value is current connection num.
-    public int registerConnection(ConnectContext ctx) {
+    int registerConnection(ConnectContext ctx) {
         boolean flight = isFlight(ctx);
         String qualifiedUser = ctx.getQualifiedUser();
         long userLimit = ctx.getEnv().getAuth().getMaxConn(qualifiedUser);
@@ -124,6 +123,8 @@ public class ConnectPoolMgr {
         // concurrent MySQL connection - which fits in every serial ordering - be refused. Registration
         // is once per connection, not per query, so this is not a hot path.
         synchronized (admissionLock) {
+            Preconditions.checkState(!connectionMap.containsKey(ctx.getConnectionId()),
+                    "Connection id %s is already registered", ctx.getConnectionId());
             if (numberConnection.get() >= maxConnections) {
                 return numberConnection.get();
             }
@@ -166,27 +167,19 @@ public class ConnectPoolMgr {
         return message;
     }
 
-    public void unregisterConnection(ConnectContext ctx) {
-        // First, before any bookkeeping that could fail: what the protocol holds for the session -
-        // for Arrow Flight SQL the channel-cached results and the deferred query coordinators
-        // (see FlightProtocolAdapter.tearDown) - is released whether or not the connection is
-        // still in the pool, so an abandoned session is cleaned up rather than leaked.
-        ctx.releaseProtocolSession();
-        ctx.closeTxn();
-        if (connectionMap.remove(ctx.getConnectionId()) != null) {
-            AtomicInteger conns = connByUser.get(ctx.getQualifiedUser());
-            if (conns != null) {
-                conns.decrementAndGet();
+    void unregisterConnection(ConnectContext ctx) {
+        synchronized (admissionLock) {
+            if (connectionMap.remove(ctx.getConnectionId(), ctx)) {
+                connByUser.get(ctx.getQualifiedUser()).decrementAndGet();
+                if (ctx.traceId() != null) {
+                    traceId2QueryId.remove(ctx.traceId());
+                }
+                if (isFlight(ctx)) {
+                    peerIdentity2ConnectionId.remove(ctx.getPeerIdentity(), ctx.getConnectionId());
+                    numberFlightConnection.decrementAndGet();
+                }
+                numberConnection.decrementAndGet();
             }
-            if (ctx.traceId() != null) {
-                traceId2QueryId.remove(ctx.traceId());
-            }
-            if (isFlight(ctx)) {
-                // Only this connection's own entry.
-                peerIdentity2ConnectionId.remove(ctx.getPeerIdentity(), ctx.getConnectionId());
-                numberFlightConnection.decrementAndGet();
-            }
-            numberConnection.decrementAndGet();
         }
     }
 
