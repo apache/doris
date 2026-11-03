@@ -194,8 +194,8 @@ void LanceIndexWorkerService::stop() {
     // 2. Close the supervisor's launch gate (a late launch would escape the
     //    kill snapshot) and accelerate the in-flight kill ladders.
     _supervisor.stop();
-    // 3. Join the executors: they converge on their own threads, bounded by
-    //    their kill ladders (the in-flight execute() calls own their threads).
+    // 3. Join the executors. A kernel which cannot yet prove domain termination
+    //    retains its executor slot; shutdown must not turn it into free capacity.
     for (std::thread& executor : _executors) {
         if (executor.joinable()) {
             executor.join();
@@ -455,8 +455,8 @@ void LanceIndexWorkerService::lance_index_mutate(TLanceIndexMutationResult& resu
     }
 
     // D3 local conversion, computed once and never reset: the kill deadline in
-    // both clocks. The wall form is what execute() enforces; the monotonic
-    // form is what the dequeue rail re-checks after the queue wait.
+    // both clocks. The wall form is advisory to the worker; the monotonic
+    // form is enforced by both the dequeue rail and the supervisor watchdog.
     auto pending = std::make_shared<PendingInvocation>();
     pending->request = request;
     pending->kill_deadline_ms = request.deadline_ms - kKillReservationMs;
@@ -486,8 +486,9 @@ void LanceIndexWorkerService::lance_index_mutate(TLanceIndexMutationResult& resu
     // entry is answered by construction (stop drains with rejections, the
     // budget rails reject, execute() always returns), and on the executed
     // path the answer is set only after the execution domain's termination
-    // was confirmed (respond-after-reap, D10) - so this wait is bounded by the
-    // request's own budget, never by an unwatched worker.
+    // was confirmed (respond-after-reap, D10). A kernel task which cannot be
+    // reaped retains the executor and this handler; the FE independently stops
+    // waiting at the statement deadline, without releasing BE worker capacity.
     try {
         result = pending->answer.get_future().get();
     } catch (const std::exception& e) {
@@ -634,7 +635,8 @@ void LanceIndexWorkerService::_execute_pending(const PendingPtr& pending) {
     Status status;
     _inflight_executions.fetch_add(1);
     Defer inflight_guard([this]() { _inflight_executions.fetch_sub(1); });
-    status = _supervisor.execute(dispatch, pending->kill_deadline_ms, &execution);
+    status = _supervisor.execute(dispatch, pending->kill_deadline_ms, &execution,
+                                 pending->kill_deadline_mono);
     if (status.ok()) {
         _launched_total.fetch_add(1);
     }
@@ -683,17 +685,6 @@ void LanceIndexWorkerService::_fill_from_execution(TLanceIndexMutationResult& re
         } else {
             _count_outcome_native_error();
         }
-        break;
-    }
-    case WorkerExecution::Kind::PROVEN_PRE_INVOCATION_REJECTION: {
-        // The supervisor proved a pre-FFI violation WITH a reap proof: phase 1
-        // with the resource-rejected code from the synthesized frame.
-        result.__set_worker_phase(TLanceIndexWorkerPhase::PRE_INVOCATION_REJECTED);
-        result.__set_lance_error_code(execution.result->lance_error_code);
-        if (!execution.message.empty()) {
-            result.__set_message(execution.message);
-        }
-        _count_outcome_pre_invocation_rejected();
         break;
     }
     case WorkerExecution::Kind::INDETERMINATE:

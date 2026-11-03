@@ -545,7 +545,7 @@ int main(int argc, char** argv) {
         write_handshake(0, 0);
         abort();
     }
-    if (strcmp(persona, "orphan") == 0) {
+    if (strcmp(persona, "orphan") == 0 || strcmp(persona, "result_orphan") == 0) {
         drain_stdin();
         /* The worker exits (no frames: silent death) while a grandchild keeps
          * the invocation cgroup populated. The grandchild escapes the worker's
@@ -576,6 +576,10 @@ int main(int argc, char** argv) {
         while (read(sync_pipe[0], &byte, 1) < 0 && errno == EINTR) {
         }
         (void)close(sync_pipe[0]);
+        if (strcmp(persona, "result_orphan") == 0) {
+            write_handshake(0, 0);
+            write_result(phase, code, message, observed_latest);
+        }
         return 0;
     }
     if (strcmp(persona, "mark_hang") == 0) {

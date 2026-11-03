@@ -382,12 +382,12 @@ TEST_F(LanceIndexSupervisorTest, AuthoritativeNoOpKeepsItsNote) {
 }
 
 // ---------------------------------------------------------------------------
-// Pre-FFI protocol violations: malformed/undecodable handshakes and
-// self-report mismatches all end as a PROVEN pre-invocation rejection (the
-// child DID exec — never a never-launched status), riding the reap proof.
+// Handshake writes are not an invocation barrier: without a parent ACK,
+// malformed frames and self-report mismatches remain indeterminate even
+// after the whole execution domain has been reaped.
 // ---------------------------------------------------------------------------
 
-TEST_F(LanceIndexSupervisorTest, PreFfiViolationsRejectedWithProof) {
+TEST_F(LanceIndexSupervisorTest, HandshakeViolationsRemainIndeterminateAfterReap) {
     REQUIRE_DELEGATED_PARENT(parent);
     struct PersonaCase {
         const char* persona;
@@ -410,12 +410,8 @@ TEST_F(LanceIndexSupervisorTest, PreFfiViolationsRejectedWithProof) {
         const Status status =
                 supervisor.execute(dispatch, kill_deadline_for(dispatch.deadline_ms), &execution);
         ASSERT_TRUE(status.ok()) << "persona " << c.persona << ": " << status.to_string();
-        EXPECT_EQ(execution.kind, WorkerExecution::Kind::PROVEN_PRE_INVOCATION_REJECTION)
-                << "persona " << c.persona;
-        ASSERT_TRUE(execution.result.has_value()) << "persona " << c.persona;
-        EXPECT_EQ(execution.result->phase, TLanceIndexWorkerResultPhase::PRE_INVOCATION_REJECTED)
-                << "persona " << c.persona;
-        EXPECT_EQ(execution.result->lance_error_code, -4) << "persona " << c.persona;
+        EXPECT_EQ(execution.kind, WorkerExecution::Kind::INDETERMINATE) << "persona " << c.persona;
+        EXPECT_FALSE(execution.result.has_value()) << "persona " << c.persona;
         ASSERT_TRUE(execution.child_reaped_proof) << "persona " << c.persona;
         EXPECT_EQ(execution.message, LanceIndexSupervisor::sanitize_message(c.category, dispatch))
                 << "persona " << c.persona;
@@ -525,7 +521,7 @@ TEST_F(LanceIndexSupervisorTest, FloodPipesDrainedNoDeadlock) {
     ASSERT_TRUE(supervisor.execute(dispatch, kill_deadline_for(dispatch.deadline_ms), &execution)
                         .ok())
             << "the supervisor deadlocked on flooded pipes";
-    EXPECT_EQ(execution.kind, WorkerExecution::Kind::PROVEN_PRE_INVOCATION_REJECTION);
+    EXPECT_EQ(execution.kind, WorkerExecution::Kind::INDETERMINATE);
     EXPECT_LT(steady_millis() - started, 20000);
 }
 
@@ -661,6 +657,103 @@ TEST_F(LanceIndexSupervisorTest, DeadlineBudgetExhaustedNeverLaunched) {
     EXPECT_FALSE(execution.result.has_value());
     EXPECT_EQ(::access(mark.c_str(), F_OK), -1) << "a budget-rejected invocation forked";
     EXPECT_EQ(supervisor.inflight_count_for_test(), 0);
+}
+
+TEST_F(LanceIndexSupervisorTest, ReceiptMonotonicDeadlineCannotBeExtendedByWallTime) {
+    LanceIndexSupervisor supervisor;
+    supervisor._isolation_verified.store(true);
+    const auto dispatch = make_dispatch("expired-mono", epoch_millis() + 3600 * 1000);
+    WorkerExecution execution;
+    const Status status = supervisor.execute(dispatch, kill_deadline_for(dispatch.deadline_ms),
+                                             &execution, steady_millis() - 1);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("deadline budget exhausted"), std::string::npos);
+    EXPECT_EQ(supervisor.inflight_count_for_test(), 0);
+}
+
+TEST_F(LanceIndexSupervisorTest, LaunchPreludeConsumesTheConfiguredMonotonicBudget) {
+    // No delegation needed: a held prelude consumes the whole configured cap
+    // and must be refused before even attempting a cgroup directory or fork.
+    LanceIndexSupervisor supervisor;
+    supervisor._isolation_verified.store(true);
+    config::lance_index_worker_wallclock_limit_seconds = 3;
+    const auto dispatch = make_dispatch("prelude-budget", epoch_millis() + 3600 * 1000);
+    constexpr const char* point = "LanceIndexSupervisor.hang_before_launch";
+    const bool saved_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add(point);
+    Defer cleanup([&] {
+        DebugPoints::instance()->remove(point);
+        config::enable_debug_points = saved_debug_points;
+    });
+    Status status = Status::InternalError("unset");
+    WorkerExecution execution;
+    std::thread flight([&] {
+        status = supervisor.execute(dispatch, kill_deadline_for(dispatch.deadline_ms), &execution);
+    });
+    const bool reached = wait_until([&] { return supervisor.inflight_count_for_test() == 1; }, 5000);
+    if (reached) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(3200));
+    }
+    DebugPoints::instance()->remove(point);
+    flight.join();
+    ASSERT_TRUE(reached);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("deadline budget exhausted"), std::string::npos);
+    EXPECT_EQ(supervisor.inflight_count_for_test(), 0);
+}
+
+TEST_F(LanceIndexSupervisorTest, SigpipeGuardRestoresMaskAndPreservesOnlyExistingPendingSignal) {
+    // Run with the default disposition in a subprocess: regressing the guard
+    // must fail this test with SIGPIPE, never terminate the BE test runner.
+    for (int mode = 0; mode < 3; ++mode) {
+        const pid_t child = ::fork();
+        ASSERT_GE(child, 0);
+        if (child == 0) {
+            ::signal(SIGPIPE, SIG_DFL);
+            sigset_t pipe;
+            ::sigemptyset(&pipe);
+            ::sigaddset(&pipe, SIGPIPE);
+            ::pthread_sigmask(mode == 0 ? SIG_UNBLOCK : SIG_BLOCK, &pipe, nullptr);
+            if (mode == 2) {
+                ::raise(SIGPIPE);
+            }
+            sigset_t before;
+            ::pthread_sigmask(SIG_SETMASK, nullptr, &before);
+            if (!LanceIndexSupervisor::pipe_write_with_sigpipe_guard_for_test()) {
+                ::_exit(101);
+            }
+            sigset_t after;
+            ::pthread_sigmask(SIG_SETMASK, nullptr, &after);
+            for (int signal = 1; signal < NSIG; ++signal) {
+                if (::sigismember(&before, signal) != ::sigismember(&after, signal)) {
+                    ::_exit(102);
+                }
+            }
+            sigset_t pending;
+            ::sigpending(&pending);
+            if ((::sigismember(&pending, SIGPIPE) == 1) != (mode == 2)) {
+                ::_exit(103);
+            }
+            ::_exit(0);
+        }
+        int status = 0;
+        pid_t reaped;
+        do {
+            reaped = ::waitpid(child, &status, 0);
+        } while (reaped < 0 && errno == EINTR);
+        ASSERT_EQ(reaped, child);
+        ASSERT_TRUE(WIFEXITED(status)) << "mode=" << mode << " wait status=" << status;
+        EXPECT_EQ(WEXITSTATUS(status), 0) << "mode=" << mode;
+    }
+}
+
+TEST_F(LanceIndexSupervisorTest, TermGraceCannotExceedItsCleanupReservation) {
+    EXPECT_TRUE(config::set_config("lance_index_worker_term_grace_seconds", "1").ok());
+    EXPECT_TRUE(config::set_config("lance_index_worker_term_grace_seconds", "10").ok());
+    EXPECT_FALSE(config::set_config("lance_index_worker_term_grace_seconds", "11").ok());
+    EXPECT_FALSE(config::set_config("lance_index_worker_term_grace_seconds", "600").ok());
+    EXPECT_EQ(config::lance_index_worker_term_grace_seconds, 10);
 }
 
 // ---------------------------------------------------------------------------
@@ -1354,40 +1447,37 @@ TEST_F(LanceIndexSupervisorTest, RealCdcReaperRaceStillProvesReap) {
     LOG(INFO) << "cdc-race: thief thread reaped " << thief.stolen.load() << " child(ren)";
 }
 
-// Surviving descendant: the worker exits (silent death, no frames) while a
-// grandchild holds the invocation cgroup populated. No fabricated proof: the
-// ending is indeterminate WITHOUT child_reaped_proof, the populated cgroup is
-// left in place (its limits still bind the leak), and execute() still returned
-// — the respond-after-reap boundary holds with the bounded (not proven) wait.
-// The leftover directory carries the invocation-id name (the series-3
-// precise-kill primitive).
-TEST_F(LanceIndexSupervisorTest, RealSurvivingDescendantNoFabricatedProof) {
+// A grandchild can escape the process group while remaining in the cgroup.
+// Both a silent leader and a leader with a trusted native result must wait for
+// whole-domain termination before execute() returns and releases its owner.
+TEST_F(LanceIndexSupervisorTest, RealSurvivingDescendantsKilledWithTheirDomain) {
     REQUIRE_DELEGATED_PARENT(parent);
-    LanceIndexSupervisor supervisor;
-    const auto dispatch = make_dispatch("real-orphan", epoch_millis() + 3600 * 1000);
-    preflight_supervisor(&supervisor, parent, {dispatch});
-    supervisor.force_worker_exec_for_test(fake_worker_path(),
-                                          persona_args("orphan", {"sleep=8"}));
-    const std::string cgroup_dir = invocation_cgroup_dir(parent, dispatch);
+    for (const char* persona : {"orphan", "result_orphan"}) {
+        LanceIndexSupervisor supervisor;
+        const auto dispatch = make_dispatch(persona, epoch_millis() + 3600 * 1000);
+        preflight_supervisor(&supervisor, parent, {dispatch});
+        supervisor.force_worker_exec_for_test(fake_worker_path(),
+                                              persona_args(persona, {"sleep=60"}));
+        const std::string cgroup_dir = invocation_cgroup_dir(parent, dispatch);
+        const int64_t started = steady_millis();
 
-    WorkerExecution execution;
-    ASSERT_TRUE(supervisor.execute(dispatch, kill_deadline_for(dispatch.deadline_ms), &execution)
-                        .ok());
-    EXPECT_EQ(execution.kind, WorkerExecution::Kind::INDETERMINATE);
-    EXPECT_FALSE(execution.result.has_value());
-    EXPECT_FALSE(execution.child_reaped_proof)
-            << "the reap proof was fabricated without populated=0 evidence";
-    EXPECT_EQ(::access(cgroup_dir.c_str(), F_OK), 0)
-            << "the populated invocation cgroup must be left in place";
-    EXPECT_EQ(cgroup_dir.substr(parent.size() + 1),
-              LanceIndexSupervisor::invocation_cgroup_name(dispatch.invocation_id))
-            << "the leftover cgroup lost the invocation-id name";
-
-    // Cleanup discipline: once the grandchild exits (8s), the group drains and
-    // the test removes what the supervisor intentionally left.
-    sweep_cgroup_dir(cgroup_dir, 20000);
-    EXPECT_EQ(::access(cgroup_dir.c_str(), F_OK), -1)
-            << "leftover invocation cgroup never drained: " << cgroup_dir;
+        WorkerExecution execution;
+        ASSERT_TRUE(supervisor.execute(dispatch, kill_deadline_for(dispatch.deadline_ms), &execution)
+                            .ok());
+        EXPECT_TRUE(execution.child_reaped_proof);
+        EXPECT_EQ(::access(cgroup_dir.c_str(), F_OK), -1)
+                << "execute returned over a live descendant";
+        EXPECT_LT(steady_millis() - started, 10000)
+                << "the escaped descendant was allowed to finish its 60-second sleep";
+        if (std::strcmp(persona, "result_orphan") == 0) {
+            EXPECT_EQ(execution.kind, WorkerExecution::Kind::TRUSTED_RESULT);
+            ASSERT_TRUE(execution.result.has_value());
+            EXPECT_EQ(execution.result->lance_error_code, 0);
+        } else {
+            EXPECT_EQ(execution.kind, WorkerExecution::Kind::INDETERMINATE);
+            EXPECT_FALSE(execution.result.has_value());
+        }
+    }
 }
 
 // BE loss: a SIGKILLed supervisor process must take its in-flight worker down

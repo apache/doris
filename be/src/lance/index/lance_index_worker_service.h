@@ -124,8 +124,8 @@ public:
 
     // Drain-and-refuse shutdown (N4): every queued entry is answered with a
     // never-launched rejection, no new worker may launch after this point,
-    // in-flight execute() calls converge on their own (executor) threads
-    // bounded by their kill ladders, the executors are joined, and the
+    // in-flight execute() calls retain their executor threads until the whole
+    // domain is proven terminated, the executors are joined, and the
     // supervisor is stopped. The pull hooks and their gauges deregister here;
     // the outcome counters deliberately stay registered for the entity's
     // (process) lifetime because the un-joined handler threads may still bump

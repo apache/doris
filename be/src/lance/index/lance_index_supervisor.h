@@ -32,53 +32,18 @@
 namespace doris::lance {
 
 // ---------------------------------------------------------------------------
-// D3 unified budget formula, millisecond precision. The closed dispatcher
-// series computed whole seconds as `remaining/1000 - margin_s - grace_s` with
-// margin_s = 400 (a 3x async-callback RPC budget that no longer exists) and no
-// explicit reap bound; the synchronous form has no callback channel, so the
-// margin shrinks to the clock-skew allowance and the grace deduction is
-// restored explicitly, plus the reap bound the ladder provably needs (review
-// B1: without these deductions the kill ladder could run ~20s past the FE
-// socket timeout and the respond-after-reap invariant would not hold).
+// The receipt rail reserves 22 seconds for skew (1s), TERM grace (at most
+// 10s), and normal reap/populated waits (11s). It converts the remaining
+// wall-clock budget to a local monotonic deadline once. Queueing, launch
+// setup and supervision consume that same deadline; the configured runtime
+// cap can only shorten it. Cross-machine clock skew at receipt remains a
+// documented assumption, but later wall-clock changes cannot extend the watch.
 //
-//   RESERVATION_MS = SKEW_MARGIN + TERM_GRACE + REAP_BOUND = 22_000
-//   receive rail (service): deadline_ms - now <= RESERVATION + MIN_RUN
-//                            -> never-launched reject (second rail below is
-//                               the supervisor-side twin)
-//   kill deadline (service): kill_deadline_ms = deadline_ms - RESERVATION
-//                            (absolute wall-clock ms, handed to execute())
-//   dequeue rail (supervisor): kill_deadline_ms - now < MIN_RUN
-//                            -> never-launched reject
-//   ladder worst case       : TERM at kill_deadline -> grace wait -> KILL ->
-//                            reap (<= 10s of the 11s reap bound) ->
-//                            populated=0 (<= 1s) = 21s < RESERVATION - skew,
-//                            so the execution domain is provably terminated
-//                            before the FE socket timeout (D10) and the reply
-//                            can always leave after the reap.
-//
-// kMinWorkerRunMs carries the concept of the closed series'
-// MIN_EXECUTABLE_BUDGET_SECONDS = 5 (S3 reconciliation): an invocation whose
-// remaining kill budget cannot fund a minimal worker run is rejected instead
-// of being launched into certain expiry; the value follows the unified
-// formula (receive-rail threshold = RESERVATION + MIN_RUN = 25s) rather than
-// the old standalone 5s constant.
-//
-// The TERM grace and reap bound the ladder actually uses are
-// lance_index_worker_term_grace_seconds (default 10s = kTermGraceMs) and the
-// compile-time reap/populated bounds; raising the config above the default
-// breaks the reservation assumption above and is operator error (the config
-// comment repeats this).
-//
-// Clock assumption: the kill deadline and the service rails run on the wall
-// clock while the supervision ladder runs on the monotonic clock, and
-// kSkewMarginMs absorbs only ordinary cross-machine skew and NTP slewing -
-// NOT a large backward wall-clock step. A single backward step of more than
-// the margin (between the deadline computation and the reply) stretches the
-// real ladder past RESERVATION_MS: respond-after-reap itself still holds,
-// but the reply can then cross the FE socket timeout. Stepping the wall
-// clock backwards under load is therefore outside this contract's
-// assumptions (the IDL documents the cross-machine skew assumption the same
-// way).
+// A timeout of the cleanup waits is not termination evidence. cgroup.kill
+// terminates the whole invocation domain, including descendants outside the
+// original process group. If the kernel cannot yet prove child termination
+// and populated=0, execute() retains its caller/executor slot until it can.
+// The FE statement can independently time out; BE capacity is not reused.
 // ---------------------------------------------------------------------------
 inline constexpr int64_t kSkewMarginMs = 1000;
 inline constexpr int64_t kTermGraceMs = 10 * 1000;
@@ -86,32 +51,22 @@ inline constexpr int64_t kReapBoundMs = 11 * 1000; // reap 10s + populated 1s
 inline constexpr int64_t kKillReservationMs = kSkewMarginMs + kTermGraceMs + kReapBoundMs;
 inline constexpr int64_t kMinWorkerRunMs = 3 * 1000;
 
-// The supervisor's synchronous answer for one invocation, produced ONLY after
-// the execution domain's termination ladder has fully run (kill, bounded reap,
-// populated=0 wait): execute() returning IS the respond-after-reap boundary
-// (D10) — the caller may build and send the wire reply knowing the domain is
-// (to the bounded evidence) gone.
+// Produced only after the exact child is reaped (or a pidfd proves the CDC
+// reaper already consumed it) and its entire cgroup is empty. A bounded wait
+// alone never authorizes the caller to release capacity.
 struct WorkerExecution {
     enum class Kind {
         // A complete result frame that passed the pipe-protocol contract
         // (phase/code band, decodable, exactly one struct). `result` holds it.
         TRUSTED_RESULT,
-        // A handshake-stage (pre-FFI) protocol violation the supervisor
-        // detected and killed, WITH a reap proof: the worker writes its
-        // handshake before its first FFI call in program order, so no mutation
-        // can have committed — a trusted pre-invocation rejection (S5#1).
-        // `result` holds the supervisor-built rejection frame.
-        PROVEN_PRE_INVOCATION_REJECTION,
         // No trusted result exists (worker lost, torn/garbled frame, deadline
-        // expiry, OOM, signal, band-crossing protocol ambiguity, or a pre-FFI
-        // violation without a reap proof). The handler synthesizes the
-        // indeterminate wire phase; `result` is unset.
+        // expiry, OOM, signal, band-crossing or handshake protocol ambiguity).
+        // The handler synthesizes the indeterminate wire phase; `result` is unset.
         INDETERMINATE
     };
 
     Kind kind = Kind::INDETERMINATE;
-    // TRUSTED_RESULT: the validated frame. PROVEN_PRE_INVOCATION_REJECTION:
-    // phase PRE_INVOCATION_REJECTED + LANCE_WORKER_REJECTED_RESOURCE_REJECTED.
+    // TRUSTED_RESULT: the validated frame.
     // INDETERMINATE: unset.
     std::optional<TLanceIndexWorkerResult> result;
     // Bounded sanitized message for every kind ("" = omit): static category
@@ -131,7 +86,8 @@ struct WorkerExecution {
 // Boundary model (D5 — no soft fallback anywhere):
 //   * preflight() runs once at BE startup and proves the whole cgroup v2
 //     delegation chain (mount, writable delegated parent, controller
-//     enablement, limit write/read-back, dummy-child migration). Any failure
+//     enablement, limit write/read-back, dummy-child migration and cgroup.kill).
+//     Any failure
 //     leaves isolation_verified() == false and every execute() is rejected.
 //   * Each accepted invocation gets its own cgroup (memory.max, swap=0,
 //     pids.max, oom.group=1) named after the invocation id (series 3 maps
@@ -170,13 +126,11 @@ public:
     Status preflight();
     bool isolation_verified() const { return _isolation_verified.load(); }
 
-    // Synchronous one-invocation entry. `kill_deadline_ms` is the absolute
-    // wall-clock (epoch ms) deadline the CALLER computed once from the
-    // unified budget formula (deadline_ms - kKillReservationMs, D3); the
-    // supervisor's watchdog triggers the TERM->KILL ladder at
-    // min(kill_deadline_ms, now + lance_index_worker_wallclock_limit_seconds)
-    // and stamps field 19 of the wire dispatch frame with the same value
-    // (advisory to the worker; the monotonic watch here is the authority).
+    // kill_deadline_ms is the advisory epoch-ms value stamped into the
+    // internal frame. Production also passes the fixed receipt-time monotonic
+    // deadline. The configured cap is sampled at entry and every launch step
+    // consumes this absolute watch. The zero default converts wall time once
+    // at entry for standalone callers and tests.
     //
     // Return contract (D7/D8, consumed by the worker service):
     //   non-OK Status — the invocation provably never exec'd (isolation
@@ -184,23 +138,22 @@ public:
     //     the reject_after_enqueue debug point, or any pre-fork/pre-barrier
     //     failure). Map to the wire's non-OK status (confirmed failure).
     //   OK + TRUSTED_RESULT — map phase/code verbatim.
-    //   OK + PROVEN_PRE_INVOCATION_REJECTION — map phase 1 + the negative code.
     //   OK + INDETERMINATE — synthesize phase 3, no code.
-    // execute() itself never throws; it is safe to call concurrently from
-    // multiple caller threads (shared state is the stop gate and the in-flight
-    // registry, both locked).
+    // Exceptions unwind only after a forked domain is terminated; the service
+    // translates them into an indeterminate answer. Concurrent callers share
+    // only the stop gate and the locked in-flight registry.
     Status execute(const TLanceIndexWorkerDispatch& dispatch, int64_t kill_deadline_ms,
-                   WorkerExecution* execution);
+                   WorkerExecution* execution, int64_t kill_deadline_mono = 0);
 
     // Best-effort shutdown (N4): closes the launch gate (execute() arriving
     // after stop() never starts a worker) and signals in-flight workers TERM
     // then KILL after a bounded grace. An execute() that was already inside
     // its launch prelude when stop() ran may still complete the launch — its
     // registry entry then missed both kill snapshots — so execute() itself
-    // rechecks _stopping right after the registration and kills its own
-    // child group (the launched invocation converges indeterminate, reaped
-    // and bounded; stop() never waits on it). In-flight execute() calls
-    // converge on their own caller threads (their ladders are bounded);
+    // rechecks _stopping right after registration and kills its own domain.
+    // The launched invocation converges indeterminate after termination is
+    // proven; stop() never waits on it. In-flight execute() calls
+    // retain their caller threads until the whole domain is proven terminated;
     // stop() does not join them — their threads are not ours. Correctness
     // never depends on stop(): the worker-side PR_SET_PDEATHSIG arm +
     // getppid recheck is the real BE-loss backstop, and the default
@@ -255,26 +208,37 @@ public:
     // synchronized against in-flight executions.
     void force_worker_exec_for_test(std::string path, std::vector<std::string> args);
     int inflight_count_for_test() const { return _inflight_count.load(); }
+    int retained_cleanups_for_test() const { return _retained_cleanup_count.load(); }
+    static bool pipe_write_with_sigpipe_guard_for_test();
+    void force_termination_proof_delay_for_test(bool delayed) {
+        _force_termination_proof_delay.store(delayed);
+    }
 #endif
 
 private:
-    void _register_inflight_child(pid_t pid);
-    void _unregister_inflight_child(pid_t pid);
+    int _register_inflight_child(int pidfd, const std::string& kill_path);
+    void _unregister_inflight_child(int registration);
 
     std::atomic<bool> _isolation_verified {false};
     // Absolute path of the verified delegated parent cgroup; set by preflight().
     std::string _cgroup_parent_abs;
     std::atomic<bool> _stopping {false};
 
-    // In-flight children (pid == pgid) so stop() can signal them best-effort.
+    struct InflightChild {
+        int pidfd; // a separately owned duplicate, stable across concurrent reap
+        std::string kill_path;
+    };
+    // stop() uses stable kernel/cgroup identities, never a recycled integer pid.
     std::mutex _inflight_mutex;
-    std::vector<pid_t> _inflight_children;
+    std::vector<InflightChild> _inflight_children;
     std::atomic<int> _inflight_count {0};
+    std::atomic<int> _retained_cleanup_count {0};
 
     // Test-only overrides; not BE_TEST-gated so the production code paths
     // read plain atomics (identical codegen).
     std::atomic<bool> _force_preflight_failure {false};
     std::atomic<bool> _force_cgroup_migration_failure {false};
+    std::atomic<bool> _force_termination_proof_delay {false};
 #ifdef BE_TEST
     // Exec target override backing force_worker_exec_for_test; empty = the
     // production self-exec. BE_TEST-gated (unlike the atomic hooks above) so

@@ -1260,16 +1260,16 @@ DEFINE_Validator(lance_index_worker_cpu_limit_multiplier,
 // SIGTERM grace before SIGKILL. The default equals kTermGraceMs of the D3
 // unified budget formula (be/src/lance/index/lance_index_supervisor.h): the
 // service reserves exactly kSkewMarginMs + kTermGraceMs + kReapBoundMs of the
-// request deadline so the kill ladder always converges (and the reply leaves)
-// before the FE socket timeout. Raising this above 10s breaks that
-// reservation assumption and can push replies past the socket timeout.
+// request deadline. The grace may not exceed its reserved 10 seconds. If the
+// kernel cannot prove termination within the normal cleanup reservation, the
+// executor remains occupied until that proof arrives.
 DEFINE_mInt64(lance_index_worker_term_grace_seconds, "10");
 DEFINE_Validator(lance_index_worker_term_grace_seconds,
-                 [](int64_t value) { return value >= 1 && value <= 600; });
+                 [](int64_t value) { return value >= 1 && value <= 10; });
 // Startup probe switch. false only skips the probe: isolation stays unverified
-// and every invocation is still rejected. Minimum kernel: 5.9 (pidfd_open since
-// 5.3 plus waitid(P_PIDFD) since 5.9; the preflight probes both and fails
-// closed on older kernels).
+// and every invocation is still rejected. Requires pidfd_open, waitid(P_PIDFD),
+// and cgroup.kill (normally Linux >= 5.14); preflight probes these capabilities
+// and fails closed if any is unavailable.
 DEFINE_Bool(lance_index_isolation_preflight, "true");
 // Absolute path of the delegated parent cgroup for worker invocation groups.
 // Empty = auto-detect by walking /proc/self/cgroup upward for the first

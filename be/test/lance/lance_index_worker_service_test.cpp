@@ -652,6 +652,109 @@ TEST_F(LanceIndexWorkerServiceTest, LaunchedSlotReleasedAfterDomainTermination) 
     EXPECT_EQ(service.queue_depth(), 0);
 }
 
+TEST_F(LanceIndexWorkerServiceTest, CapacityIsRetainedUntilDomainTerminationIsProven) {
+    REQUIRE_DELEGATED_PARENT(parent);
+    config::lance_index_mutation_worker_max_concurrency = 1;
+    config::lance_index_mutation_worker_max_queued = 1;
+    LanceIndexWorkerService service;
+    service.force_be_process_epoch_for_test(kTestBeEpoch);
+    ASSERT_TRUE(service.start().ok());
+    arm_real_isolation(&service, parent, "happy");
+    service.supervisor_for_test().force_termination_proof_delay_for_test(true);
+
+    TLanceIndexMutationResult first_result;
+    TLanceIndexMutationResult second_result;
+    std::atomic<bool> first_finished {false};
+    std::thread second;
+    std::thread first([&] {
+        service.lance_index_mutate(first_result,
+                                  make_request("retained-first", epoch_millis() + 60000));
+        first_finished.store(true);
+    });
+    Defer cleanup([&] {
+        service.supervisor_for_test().force_termination_proof_delay_for_test(false);
+        if (first.joinable()) {
+            first.join();
+        }
+        if (second.joinable()) {
+            second.join();
+        }
+    });
+    const bool retained = wait_until(
+            [&] { return service.supervisor_for_test().retained_cleanups_for_test() == 1; }, 10000);
+    EXPECT_TRUE(retained);
+    if (!retained) {
+        return;
+    }
+    EXPECT_FALSE(first_finished.load());
+    EXPECT_EQ(service.inflight_workers(), 1);
+    EXPECT_EQ(service.reserved_slots_for_test(), 1);
+
+    second = std::thread([&] {
+        service.lance_index_mutate(second_result,
+                                  make_request("retained-second", epoch_millis() + 60000));
+    });
+    const bool queued = wait_until([&] { return service.queue_depth() == 1; }, 5000);
+    EXPECT_TRUE(queued);
+    if (!queued) {
+        return;
+    }
+    TLanceIndexMutationResult refused;
+    service.lance_index_mutate(refused, make_request("retained-full", epoch_millis() + 60000));
+    EXPECT_NE(refused.status.status_code, TStatusCode::OK);
+    EXPECT_FALSE(first_finished.load());
+    EXPECT_EQ(service.inflight_workers(), 1);
+
+    service.supervisor_for_test().force_termination_proof_delay_for_test(false);
+    first.join();
+    second.join();
+    EXPECT_EQ(first_result.status.status_code, TStatusCode::OK);
+    EXPECT_EQ(second_result.status.status_code, TStatusCode::OK);
+    EXPECT_EQ(service.native_ok_total_for_test(), 2);
+    EXPECT_EQ(service.inflight_workers(), 0);
+    EXPECT_EQ(service.reserved_slots_for_test(), 0);
+}
+
+TEST_F(LanceIndexWorkerServiceTest, ForkedDomainRemainsOwnedWhenExecutionThrows) {
+    REQUIRE_DELEGATED_PARENT(parent);
+    config::enable_debug_points = true;
+    for (const char* point : {"LanceIndexSupervisor.throw_before_barrier_release",
+                              "LanceIndexSupervisor.throw_after_launch"}) {
+        LanceIndexWorkerService service;
+        service.force_be_process_epoch_for_test(kTestBeEpoch);
+        ASSERT_TRUE(service.start().ok());
+        arm_real_isolation(&service, parent, "hang");
+        const auto request = make_request(point, epoch_millis() + 60000);
+        const std::string cgroup = invocation_cgroup_dir(parent, request);
+        DebugPoints::instance()->add(point);
+        Defer cleanup([&] { DebugPoints::instance()->remove(point); });
+        TLanceIndexMutationResult result;
+        service.lance_index_mutate(result, request);
+        EXPECT_EQ(result.worker_phase, TLanceIndexWorkerPhase::INDETERMINATE_AFTER_LAUNCH);
+        EXPECT_EQ(::access(cgroup.c_str(), F_OK), -1)
+                << "the executor released a forked execution domain during exception unwind";
+        EXPECT_EQ(service.inflight_workers(), 0);
+        EXPECT_EQ(service.reserved_slots_for_test(), 0);
+        EXPECT_EQ(service.supervisor_for_test().inflight_count_for_test(), 0);
+    }
+}
+
+TEST_F(LanceIndexWorkerServiceTest, HandshakeViolationNeverClaimsConfirmedNonInvocation) {
+    REQUIRE_DELEGATED_PARENT(parent);
+    LanceIndexWorkerService service;
+    service.force_be_process_epoch_for_test(kTestBeEpoch);
+    ASSERT_TRUE(service.start().ok());
+    arm_real_isolation(&service, parent, "bad_cgroup");
+    TLanceIndexMutationResult result;
+    service.lance_index_mutate(result, make_request("bad-handshake", epoch_millis() + 60000));
+    EXPECT_EQ(result.status.status_code, TStatusCode::OK);
+    ASSERT_TRUE(result.__isset.worker_phase);
+    EXPECT_EQ(result.worker_phase, TLanceIndexWorkerPhase::INDETERMINATE_AFTER_LAUNCH);
+    EXPECT_FALSE(result.__isset.lance_error_code);
+    EXPECT_EQ(service.indeterminate_total_for_test(), 1);
+    EXPECT_EQ(service.inflight_workers(), 0);
+}
+
 // ---------------------------------------------------------------------------
 // Bounded queue: full = never-launched refusal at receipt.
 // ---------------------------------------------------------------------------
@@ -860,17 +963,6 @@ TEST_F(LanceIndexWorkerServiceTest, ResultMappingTableCoversPhasesAndBands) {
         EXPECT_EQ(native_error.worker_phase, TLanceIndexWorkerPhase::NATIVE_RETURN);
     }
 
-    // OK + PROVEN pre-invocation rejection: phase 1 + the resource-rejected
-    // code from the supervisor-synthesized frame.
-    WorkerExecution proven;
-    proven.kind = WorkerExecution::Kind::PROVEN_PRE_INVOCATION_REJECTION;
-    proven.result = TLanceIndexWorkerResult {};
-    proven.result->phase = TLanceIndexWorkerResultPhase::PRE_INVOCATION_REJECTED;
-    proven.result->lance_error_code = -4;
-    TLanceIndexMutationResult mapped_proven = map(Status::OK(), proven);
-    EXPECT_EQ(mapped_proven.worker_phase, TLanceIndexWorkerPhase::PRE_INVOCATION_REJECTED);
-    EXPECT_EQ(mapped_proven.lance_error_code, -4);
-
     // OK + INDETERMINATE: phase 3, never a code.
     WorkerExecution indeterminate;
     indeterminate.kind = WorkerExecution::Kind::INDETERMINATE;
@@ -885,17 +977,17 @@ TEST_F(LanceIndexWorkerServiceTest, ResultMappingTableCoversPhasesAndBands) {
     // identity fields only), and nothing else it adds (status, echo, counters)
     // can contain a storage-option value.
     for (const TLanceIndexMutationResult* mapped :
-         {&never, &mapped_reject, &ok_native, &mapped_proven, &mapped_indeterminate}) {
+         {&never, &mapped_reject, &ok_native, &mapped_indeterminate}) {
         if (mapped->__isset.message) {
             EXPECT_EQ(mapped->message.find("super-secret-value-9f1a"), std::string::npos);
         }
     }
 
-    // Outcome buckets: 1 never-launched + 3 pre-invocation (-5, the no-observed
-    // -1, and the proven -4) + 1 native ok + 2 native error (8, 5) + 1
+    // Outcome buckets: 1 never-launched + 2 pre-invocation (-5, the no-observed
+    // -1) + 1 native ok + 2 native error (8, 5) + 1
     // indeterminate.
     EXPECT_EQ(service.never_launched_total_for_test(), 1);
-    EXPECT_EQ(service.pre_invocation_rejected_total_for_test(), 3);
+    EXPECT_EQ(service.pre_invocation_rejected_total_for_test(), 2);
     EXPECT_EQ(service.native_ok_total_for_test(), 1);
     EXPECT_EQ(service.native_error_total_for_test(), 2);
     EXPECT_EQ(service.indeterminate_total_for_test(), 1);
