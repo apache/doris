@@ -23,6 +23,7 @@ import org.apache.doris.connector.spi.ConnectorTableStatistics;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
 
 import org.junit.jupiter.api.Assertions;
@@ -90,8 +91,8 @@ class DeltaLakePlanningScaleTest {
                     long bytes = 0;
                     long firstSplit = 0;
                     long peakHeap = 0;
-                    try (ConnectorSplitSource source = provider.streamSplits(session, handle, List.of(),
-                            Optional.empty(), -1)) {
+                    try (ConnectorSplitSource source = provider.streamSplits(session,
+                            ConnectorScanRequest.builder(handle, List.of()).build())) {
                         while (source.hasNext()) {
                             ConnectorScanRange range = source.next();
                             if (files == 0) {

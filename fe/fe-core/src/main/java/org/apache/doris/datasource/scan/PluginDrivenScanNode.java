@@ -122,8 +122,6 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.BooleanSupplier;
-import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -2365,7 +2363,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                             () -> scanProvider.collectScanProfiles(connectorSession));
                     writeScanProfilesInto(executionSummary, profiles);
                 }
-            } catch (Exception e) {
+            } catch (Exception | Error e) {
                 UserException profileFailure = new UserException(e.getMessage(), e);
                 UserException primaryFailure = batchException.get();
                 if (primaryFailure == null) {

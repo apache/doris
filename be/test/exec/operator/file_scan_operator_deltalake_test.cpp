@@ -17,32 +17,65 @@
 
 #include <gtest/gtest.h>
 
-#include "exec/operator/file_scan_operator.h"
+#include "exec/scan/file_scan_range_utils.h"
 #include "exec/scan/file_scanner_v2.h"
+#include "format_v2/table/deltalake_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "runtime/runtime_state.h"
 
-namespace doris::pipeline {
+namespace doris {
 
-TEST(FileScanOperatorDeltaLakeTest, ForcesScannerV2ForQueriesOnly) {
-    TQueryOptions options;
-    options.__set_enable_file_scanner_v2(false);
-    TTableFormatFileDesc format;
-    format.__set_table_format_type("deltalake");
-    TFileScanRangeParams params;
-    params.__set_table_format_params(format);
-    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
-    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, false, params));
-    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, true, params));
-
-    TFileRangeDesc range;
-    range.__set_table_format_params(format);
-    range.__set_format_type(TFileFormatType::FORMAT_PARQUET);
-    EXPECT_TRUE(FileScannerV2::is_supported(params, range));
-    for (const auto physical_format : {TFileFormatType::FORMAT_ORC, TFileFormatType::FORMAT_JNI,
-                                       TFileFormatType::FORMAT_CSV_PLAIN}) {
-        range.__set_format_type(physical_format);
-        EXPECT_FALSE(FileScannerV2::is_supported(params, range));
+TEST(FileScanOperatorDeltaLakeTest, DispatchesNativeReaderRegardlessOfDeprecatedScannerOption) {
+    for (int option = 0; option < 3; ++option) {
+        TQueryOptions options;
+        if (option != 0) {
+            options.__set_enable_file_scanner_v2(option == 2);
+        }
+        RuntimeState state(options, TQueryGlobals());
+        RuntimeProfile profile("delta_scan");
+        TFileScanRangeParams params;
+        params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+        FileScannerV2 scanner(&state, &profile, nullptr);
+        scanner._params = &params;
+        TTableFormatFileDesc table;
+        table.__set_table_format_type("deltalake");
+        TFileRangeDesc range;
+        range.__set_table_format_params(table);
+        std::unique_ptr<format::TableReader> reader;
+        ASSERT_TRUE(validate_file_scan_support(params, &range).ok());
+        ASSERT_TRUE(scanner._create_table_reader_for_format(range, &reader).ok());
+        EXPECT_NE(dynamic_cast<format::deltalake::DeltaReader*>(reader.get()), nullptr);
     }
 }
 
-} // namespace doris::pipeline
+TEST(FileScanOperatorDeltaLakeTest, ValidatesScanAndSubsequentRangeFormats) {
+    TTableFormatFileDesc table;
+    table.__set_table_format_type("deltalake");
+    for (const auto format : {TFileFormatType::FORMAT_ORC, TFileFormatType::FORMAT_JNI,
+                              TFileFormatType::FORMAT_CSV_PLAIN, TFileFormatType::FORMAT_WAL}) {
+        TFileScanRangeParams params;
+        params.__set_table_format_params(table);
+        params.__set_format_type(format);
+        EXPECT_TRUE(validate_file_scan_support(params).is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+        params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+        TFileRangeDesc next;
+        next.__set_format_type(format);
+        EXPECT_TRUE(
+                validate_file_scan_support(params, &next).is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+        params.__isset.table_format_params = false;
+        next.__set_table_format_params(table);
+        EXPECT_TRUE(
+                validate_file_scan_support(params, &next).is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+    }
+}
+
+TEST(FileScanOperatorDeltaLakeTest, MissingSnapshotFilesFailEvenWhenDirectoryReadsIgnoreNotFound) {
+    TTableFormatFileDesc table;
+    table.__set_table_format_type("deltalake");
+    TFileRangeDesc range;
+    range.__set_table_format_params(table);
+    EXPECT_FALSE(can_ignore_not_found_file(range, true));
+    EXPECT_FALSE(can_ignore_not_found_file(range, false));
+}
+
+} // namespace doris

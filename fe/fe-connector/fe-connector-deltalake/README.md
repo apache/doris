@@ -58,8 +58,9 @@ performance parity with Hive.
 
 ## Verification
 
-Run the repository's `run-fe-ut.sh` with `DeltaLake*Test,DeltaKernel*Test` and the
-FE/Hive statistics tests. The connector tests cover cold lookups, concurrent
+The standard FE UT reactor includes Delta and its metastore module. Run
+`./run-fe-ut.sh --run 'DeltaLake*Test,DeltaKernel*Test'` for the connector suites,
+and the FE/Hive statistics tests for engine integration. The connector tests cover cold lookups, concurrent
 single-flight, user/version/UUID/path isolation, missing/invalid statistics,
 checksum version matching, deletion vectors, V2 checkpoints, retry, invalidation
 and close. Eight concurrent scans share one cached real checkpoint/DV snapshot;

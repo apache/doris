@@ -40,9 +40,11 @@ inline const char* file_encryption_validation_error(const TFileEncryptionInfo& i
 
 inline Status validate_file_scan_support(const TFileScanRangeParams& params,
                                          const TFileRangeDesc* range = nullptr) {
+    const auto format = range != nullptr && range->__isset.format_type ? range->format_type
+                                                                       : params.format_type;
     // Deprecated table markers must never fall through to plain file reads: that would lose
     // Hive transaction visibility and LakeSoul merge semantics, including in metadata counts.
-    auto validate_table = [](const TTableFormatFileDesc& table) -> Status {
+    auto validate_table = [format](const TTableFormatFileDesc& table) -> Status {
         if (table.table_format_type == "transactional_hive") {
             return Status::NotSupported("Hive transactional table reads are no longer supported");
         }
@@ -74,6 +76,12 @@ inline Status validate_file_scan_support(const TFileScanRangeParams& params,
                 return Status::NotSupported("File encryption [READ_UNAVAILABLE]");
             }
         }
+        // One Delta reader serves successive ranges. Reject a non-Parquet override even if the
+        // first range selected the right reader, before applying mappings or deletion vectors.
+        if (table.table_format_type == "deltalake" && format != TFileFormatType::FORMAT_PARQUET) {
+            return Status::NotSupported("DeltaLake requires Parquet data files, got {}",
+                                        to_string(format));
+        }
         return Status::OK();
     };
     if (params.__isset.table_format_params) {
@@ -82,8 +90,6 @@ inline Status validate_file_scan_support(const TFileScanRangeParams& params,
     if (range != nullptr && range->__isset.table_format_params) {
         RETURN_IF_ERROR(validate_table(range->table_format_params));
     }
-    const auto format = range != nullptr && range->__isset.format_type ? range->format_type
-                                                                       : params.format_type;
     if (format == TFileFormatType::FORMAT_AVRO) {
         return Status::NotSupported("Avro file reads are no longer supported");
     }
@@ -91,10 +97,11 @@ inline Status validate_file_scan_support(const TFileScanRangeParams& params,
 }
 
 inline bool can_ignore_not_found_file(const TFileRangeDesc& range, bool ignore_not_found) {
-    // Iceberg ranges belong to a committed snapshot, not a stale directory listing. Skipping a
-    // missing data or delete file would silently return an incomplete or incorrect snapshot.
-    return ignore_not_found && !(range.__isset.table_format_params &&
-                                 range.table_format_params.table_format_type == "iceberg");
+    // Iceberg and Delta ranges belong to a committed snapshot. Skipping a missing data or
+    // delete file would silently return a partial snapshot.
+    const auto& table = range.table_format_params.table_format_type;
+    return ignore_not_found &&
+           !(range.__isset.table_format_params && (table == "iceberg" || table == "deltalake"));
 }
 
 } // namespace doris

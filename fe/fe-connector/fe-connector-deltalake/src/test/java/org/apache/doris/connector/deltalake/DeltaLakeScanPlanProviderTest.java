@@ -55,6 +55,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
 import java.util.stream.Collectors;
 
 class DeltaLakeScanPlanProviderTest {
@@ -194,8 +195,7 @@ class DeltaLakeScanPlanProviderTest {
             ConnectorTableHandle handle = metadata.getTableHandle(session, "db", "table").orElseThrow();
             ConnectorScanPlanProvider provider = connector.getScanPlanProvider();
             Assertions.assertTrue(provider.streamingSplitEstimate(session, handle, Optional.empty(), false) >= 0);
-            try (ConnectorSplitSource source = provider.streamSplits(session, handle,
-                    Collections.emptyList(), Optional.empty(), -1)) {
+            try (ConnectorSplitSource source = provider.streamSplits(session, request(handle).build())) {
                 appendFile(1, "later.parquet", "later", 25);
                 List<ConnectorScanRange> streamed = new ArrayList<>();
                 while (source.hasNext()) {
@@ -224,8 +224,7 @@ class DeltaLakeScanPlanProviderTest {
             ConnectorTableHandle handle = metadata.getTableHandle(session, "db", "table").orElseThrow();
             ConnectorScanPlanProvider provider = connector.getScanPlanProvider();
             Assertions.assertTrue(provider.streamingSplitEstimate(session, handle, Optional.empty(), true) >= 0);
-            try (ConnectorSplitSource source = provider.streamSplits(session, handle,
-                    Collections.emptyList(), Optional.empty(), -1)) {
+            try (ConnectorSplitSource source = provider.streamSplits(session, request(handle).build())) {
                 Assertions.assertTrue(source.hasNext());
                 Assertions.assertEquals(10, source.next().getPushDownRowCount());
                 Assertions.assertFalse(source.hasNext());
@@ -235,8 +234,7 @@ class DeltaLakeScanPlanProviderTest {
             TestingConnectorSession next = new TestingConnectorSession("stream-no-stats");
             ConnectorTableHandle newer = metadata.getTableHandle(next, "db", "table").orElseThrow();
             Assertions.assertTrue(provider.streamingSplitEstimate(next, newer, Optional.empty(), true) >= 0);
-            try (ConnectorSplitSource source = provider.streamSplits(next, newer,
-                    Collections.emptyList(), Optional.empty(), -1)) {
+            try (ConnectorSplitSource source = provider.streamSplits(next, request(newer).build())) {
                 int files = 0;
                 while (source.hasNext()) {
                     Assertions.assertEquals(-1, source.next().getPushDownRowCount());
@@ -244,6 +242,39 @@ class DeltaLakeScanPlanProviderTest {
                 }
                 Assertions.assertEquals(2, files);
             }
+        }
+    }
+
+    @Test
+    void streamingHonorsRequestPartitionsAndCancellation() throws Exception {
+        createTable();
+        appendStatsFile("a.parquet", "a", 1, 10);
+        appendStatsFile("b.parquet", "b", 11, 20);
+        TestingConnectorSession session = new TestingConnectorSession("stream-request");
+        try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(session)) {
+            ConnectorTableHandle handle = metadata.getTableHandle(session, "db", "table").orElseThrow();
+            ConnectorScanPlanProvider provider = connector.getScanPlanProvider();
+            Assertions.assertTrue(provider.streamingSplitEstimate(session, handle, Optional.empty(), true) >= 0);
+            ConnectorScanRequest subset = request(handle).requiredPartitions(List.of("p=a")).build();
+            try (ConnectorSplitSource source = provider.streamSplits(session, subset)) {
+                Assertions.assertTrue(source.hasNext());
+                ConnectorScanRange range = source.next();
+                Assertions.assertEquals("a", range.getPartitionValues().get("p"));
+                Assertions.assertEquals(-1, range.getPushDownRowCount());
+                Assertions.assertFalse(source.hasNext());
+            }
+            try (ConnectorSplitSource source = provider.streamSplits(session,
+                    request(handle).partitionsPrunedToEmpty(true).build())) {
+                Assertions.assertFalse(source.hasNext());
+            }
+            ConnectorScanRequest cancelled = request(handle).build();
+            try (ConnectorSplitSource source = provider.streamSplits(session, cancelled)) {
+                cancelled.getScanContext().cancel();
+                Assertions.assertThrows(CancellationException.class, source::hasNext);
+                Assertions.assertFalse(source.hasNext(), "cancelled consumption closes its source");
+            }
+            Assertions.assertThrows(CancellationException.class,
+                    () -> provider.streamSplits(session, cancelled));
         }
     }
 
@@ -256,8 +287,7 @@ class DeltaLakeScanPlanProviderTest {
             ConnectorTableHandle handle = metadata.getTableHandle(session, "db", "table").orElseThrow();
             ConnectorScanPlanProvider provider = connector.getScanPlanProvider();
             Assertions.assertEquals(-1, provider.streamingSplitEstimate(session, handle, Optional.empty(), false));
-            ConnectorSplitSource source = provider.streamSplits(session, handle,
-                    Collections.emptyList(), Optional.empty(), -1);
+            ConnectorSplitSource source = provider.streamSplits(session, request(handle).build());
             Files.delete(warehouse.resolve("db/table/_delta_log/00000000000000000000.json"));
             source.close();
             Assertions.assertFalse(source.hasNext());
@@ -304,14 +334,14 @@ class DeltaLakeScanPlanProviderTest {
             ConnectorScanPlanProvider provider = connector.getScanPlanProvider();
             ConnectorComparison filter = new ConnectorComparison(ConnectorComparison.Operator.EQ,
                     new ConnectorColumnRef("p", ConnectorType.of("STRING")), ConnectorLiteral.ofString("a"));
-            try (ConnectorSplitSource source = provider.streamSplits(session, handle,
-                    Collections.emptyList(), Optional.of(filter), -1)) {
+            try (ConnectorSplitSource source = provider.streamSplits(session,
+                    request(handle).filter(Optional.of(filter)).build())) {
                 Assertions.assertTrue(provider.collectScanProfiles(session).isEmpty());
                 source.next();
             }
             assertMetrics(provider, session, "2", "1", "1", "1", false);
-            try (ConnectorSplitSource source = provider.streamSplits(session, handle,
-                    Collections.emptyList(), Optional.of(filter), -1)) {
+            try (ConnectorSplitSource source = provider.streamSplits(session,
+                    request(handle).filter(Optional.of(filter)).build())) {
                 while (source.hasNext()) {
                     source.next();
                 }

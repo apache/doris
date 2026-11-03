@@ -23,6 +23,7 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.scan.ConnectorScanContext;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
@@ -86,10 +87,9 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     @Override
-    public ConnectorSplitSource streamSplits(ConnectorSession session, ConnectorTableHandle handle,
-            List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter, long limit) {
-        return runtime.execute(() -> new StreamingSource(session, (DeltaLakeTableHandle) handle, filter,
-                streamingCount && filter.isEmpty()));
+    public ConnectorSplitSource streamSplits(ConnectorSession session, ConnectorScanRequest request) {
+        request.getScanContext().checkCancelled();
+        return runtime.execute(() -> new StreamingSource(session, request));
     }
 
     private final class StreamingSource implements ConnectorSplitSource {
@@ -100,6 +100,9 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
         private final long targetSize;
         private final boolean mapped;
         private final boolean countPushdown;
+        private final ConnectorScanContext scanContext;
+        private final Set<String> requiredPartitions;
+        private final boolean partitionsPrunedToEmpty;
         private final DeltaLakeScanMetrics metrics;
         private CloseableIterator<Row> files;
         private DeltaLakeScanRange file;
@@ -109,16 +112,18 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
         private boolean countOnly;
         private boolean closed;
 
-        private StreamingSource(ConnectorSession session, DeltaLakeTableHandle handle,
-                Optional<ConnectorExpression> filter, boolean countPushdown) {
+        private StreamingSource(ConnectorSession session, ConnectorScanRequest request) {
             this.session = session;
-            this.handle = handle;
+            handle = (DeltaLakeTableHandle) request.getTableHandle();
             snapshot = handle.snapshot(runtime.engine);
             DeltaLakeFeatureCheck.check(snapshot);
-            this.filter = predicate(session, snapshot, filter);
+            filter = predicate(session, snapshot, request.getFilter());
             targetSize = targetSplitSize(session);
             mapped = DeltaLakeSchemaBuilder.hasColumnMapping(snapshot);
-            this.countPushdown = countPushdown;
+            scanContext = request.getScanContext();
+            requiredPartitions = new HashSet<>(request.getRequiredPartitions());
+            partitionsPrunedToEmpty = request.isPartitionsPrunedToEmpty();
+            countPushdown = streamingCount && request.getFilter().isEmpty() && requiredPartitions.isEmpty();
             metrics = new DeltaLakeScanMetrics(session, handle, snapshot);
             scanMetrics = null;
         }
@@ -129,6 +134,7 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
                 return false;
             }
             try {
+                scanContext.checkCancelled();
                 if (Thread.currentThread().isInterrupted()) {
                     throw new DorisConnectorException("Delta split planning interrupted for " + handle.getPath());
                 }
@@ -136,6 +142,11 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
                     return true;
                 }
                 return runtime.execute(() -> {
+                    if (partitionsPrunedToEmpty) {
+                        metrics.complete();
+                        close();
+                        return false;
+                    }
                     if (countPushdown && !countChecked) {
                         countChecked = true;
                         CountSummary summary = countSummary(session, handle);
@@ -156,15 +167,21 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
                     if (files == null) {
                         files = DeltaLakeScanFiles.open(snapshot, metrics.engine(runtime.engine), false, filter);
                     }
-                    if (file == null || offset == file.getFileSize()) {
+                    while (file == null || offset == file.getFileSize()) {
+                        scanContext.checkCancelled();
                         if (!files.hasNext()) {
                             metrics.complete();
                             close();
                             return false;
                         }
                         Row row = files.next();
-                        file = fileRange(row, handle, DeltaLakePartitionValues.normalize(
-                                snapshot, DeltaKernelCompat.partitionValues(row)), targetSize, mapped);
+                        Map<String, String> partitions = DeltaLakePartitionValues.normalize(
+                                snapshot, DeltaKernelCompat.partitionValues(row));
+                        if (!requiredPartitions.isEmpty() && !requiredPartitions.contains(
+                                DeltaLakePartitionValues.partitionName(partitions))) {
+                            continue;
+                        }
+                        file = fileRange(row, handle, partitions, targetSize, mapped);
                         metrics.file(file.getPartitionValues());
                         offset = 0;
                     }

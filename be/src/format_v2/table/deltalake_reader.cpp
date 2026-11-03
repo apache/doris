@@ -70,7 +70,7 @@ Status DeltaReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
     *reader = std::make_unique<parquet::ParquetReader>(
             _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
             _global_rowid_context, mapping_timestamp_tz, mapping_varbinary,
-            _runtime_state->timezone());
+            _runtime_state->timezone(), false, _parquet_profile_cache);
     return Status::OK();
 }
 
