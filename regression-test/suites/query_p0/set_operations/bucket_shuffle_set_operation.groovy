@@ -38,6 +38,10 @@ suite("bucket_shuffle_set_operation") {
     // backend count / parallelism of the environment running this suite
     sql "set bucket_shuffle_downgrade_ratio=0"
 
+    // Spill rewrites INTERSECT/EXCEPT into joins. Keep the physical set operations
+    // whose bucket distribution is checked by this suite, including in spill-enabled CI.
+    sql "set disable_nereids_rules='REWRITE_INTERSECT_TO_JOIN_WHEN_SPILL,REWRITE_EXCEPT_TO_JOIN_WHEN_SPILL'"
+
     def checkShapeAndResult = { String tag, String sqlStr ->
         quickTest(tag + "_shape", "explain shape plan " + sqlStr)
         quickTest(tag + "_result", sqlStr, true)

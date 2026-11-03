@@ -219,6 +219,12 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     protected List<Plan> doRewrite(StructInfo queryStructInfo, CascadesContext cascadesContext,
             MaterializationContext materializationContext) throws AnalysisException {
         List<Plan> rewriteResults = new ArrayList<>();
+        if (PartitionCompensator.hasUnknownPartitionCoverage(materializationContext,
+                cascadesContext.getStatementContext(), queryStructInfo.getRelationBitSet())) {
+            materializationContext.recordFailReason(queryStructInfo,
+                    "Query partition coverage is unavailable", () -> "");
+            return rewriteResults;
+        }
         StructInfo viewStructInfo = materializationContext.getStructInfo();
         MatchMode matchMode = decideMatchMode(queryStructInfo.getRelations(), viewStructInfo.getRelations(),
                 cascadesContext);
