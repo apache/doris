@@ -111,6 +111,9 @@ Status SniiIndexReader::_get_logical_reader(
         return Status::OK();
     }
 
+    // A reader the searcher cache keeps serves later queries, so it keeps their hot terms' lookups
+    // too; memory_usage() then covers that cache at its fullest.
+    opened_reader->enable_term_lookup_cache();
     const size_t reader_size = std::max<size_t>(opened_reader->memory_usage(), 1);
     auto* cache_value = new SniiLogicalReaderCacheValue(std::move(opened_reader), reader_size,
                                                         UnixMillis(), _index_file_reader);
