@@ -75,7 +75,8 @@ using AzureAuthConfig = std::variant<AzureSharedKeyConfig, AzureSasConfig, Azure
 // The fields each method requires for the storage account `account`; returns the error, or
 // nullopt when `auth` is complete. SharedKey needs the account name and the key together
 // (both empty is anonymous access), SAS a token, and client secret the tenant, the client id
-// and the secret.
+// and the secret. BE checks its inputs with it. Recycler reads storage metadata that the meta
+// service validated when it stored it, and does not check it again.
 std::optional<std::string> validate_azure_auth(std::string_view account,
                                                const AzureAuthConfig& auth);
 

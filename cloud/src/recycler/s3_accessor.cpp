@@ -396,13 +396,10 @@ int S3Accessor::init() {
         // All policies in the PerRetryPolicies are downstream of the RetryPolicy.
         // Therefore, the policy can record retries after the RetryPolicy has handled the response.
         options.PerRetryPolicies.emplace_back(std::make_unique<AzureRetryRecordPolicy>());
-        // Storage metadata carries the SharedKey pair as ak/sk; its rules and the SDK credential
-        // come from the authentication shared with BE.
+        // Storage metadata carries the SharedKey pair as ak/sk, which the meta service requires
+        // together for Azure when it stores them; the SDK credential comes from the
+        // authentication shared with BE.
         const AzureAuthConfig auth = AzureSharedKeyConfig {.account_key = conf_.sk};
-        if (auto error = validate_azure_auth(conf_.ak, auth); error.has_value()) {
-            LOG_WARNING("invalid Azure authentication").tag("error", *error);
-            return -1;
-        }
         auto built = AzureAuthFactory::create(uri_, conf_.ak, auth, std::move(options));
         if (!built) {
             LOG_WARNING("failed to create Azure client").tag("error", built.error);
