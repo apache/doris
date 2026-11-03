@@ -24,28 +24,19 @@
 
 namespace doris {
 
-VariantDecimalPathSet::VariantDecimalPathSet(std::vector<VariantDecimalPath> paths)
-        : _paths(std::move(paths)) {
-    for (const VariantDecimalPath& path : _paths) {
-        if (path.is_glob) {
-            _globs.push_back(path.pattern);
-        } else {
-            _exact.insert(path.pattern);
-        }
-    }
-}
+VariantDecimalPathSet::VariantDecimalPathSet(std::vector<VariantTemplatePath> paths)
+        : _paths(std::move(paths)) {}
 
-bool VariantDecimalPathSet::matches(std::string_view path) const {
+bool VariantDecimalPathSet::matches(const std::string& path) const {
     if (path.empty()) {
         return false;
     }
-    const std::string candidate(path);
-    if (_exact.find(candidate) != _exact.end()) {
-        return true;
-    }
-    for (const std::string& glob : _globs) {
-        if (fnmatch(glob.c_str(), candidate.c_str(), FNM_PATHNAME) == 0) {
-            return true;
+    for (const VariantTemplatePath& field : _paths) {
+        const bool matched = field.is_glob
+                                     ? fnmatch(field.pattern.c_str(), path.c_str(), FNM_PATHNAME) == 0
+                                     : field.pattern == path;
+        if (matched) {
+            return field.is_decimal;
         }
     }
     return false;

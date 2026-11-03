@@ -26,7 +26,7 @@
 namespace doris {
 namespace {
 
-VariantDecimalPathSet paths_of(std::vector<VariantDecimalPath> paths) {
+VariantDecimalPathSet paths_of(std::vector<VariantTemplatePath> paths) {
     return VariantDecimalPathSet(std::move(paths));
 }
 
@@ -56,19 +56,41 @@ void expect_decimal(std::string_view token, const char* unscaled, int scale) {
 } // namespace
 
 TEST(VariantDecimalPathsTest, SetMatchesExactAndGlobPaths) {
-    const VariantDecimalPathSet paths = paths_of(
-            {{.pattern = "money.amount", .is_glob = false, .precision = 20, .scale = 6},
-             {.pattern = "ratio*", .is_glob = true, .precision = 30, .scale = 18}});
+    const VariantDecimalPathSet paths =
+            paths_of({{.pattern = "money.amount", .is_glob = false, .is_decimal = true},
+                      {.pattern = "ratio*", .is_glob = true, .is_decimal = true},
+                      {.pattern = "name", .is_glob = false, .is_decimal = false}});
     EXPECT_FALSE(paths.empty());
     EXPECT_TRUE(paths.matches("money.amount"));
     EXPECT_TRUE(paths.matches("ratio_a"));
     EXPECT_TRUE(paths.matches("ratio"));
+    EXPECT_FALSE(paths.matches("name"));
     EXPECT_FALSE(paths.matches("money"));
     EXPECT_FALSE(paths.matches("money.amount.cents"));
     EXPECT_FALSE(paths.matches("amount"));
     EXPECT_FALSE(paths.matches(""));
     EXPECT_TRUE(paths_of({}).empty());
     EXPECT_FALSE(paths_of({}).matches("money.amount"));
+}
+
+TEST(VariantDecimalPathsTest, TheFirstMatchingTemplateFieldDecidesLikeTheShredder) {
+    // 'amount*':string is declared before 'amount':decimal: the shredder types "amount" as a STRING,
+    // so the parser must not read it as a decimal either.
+    const VariantDecimalPathSet string_first =
+            paths_of({{.pattern = "amount*", .is_glob = true, .is_decimal = false},
+                      {.pattern = "amount", .is_glob = false, .is_decimal = true}});
+    EXPECT_FALSE(string_first.matches("amount"));
+    EXPECT_FALSE(string_first.matches("amount_due"));
+    const VariantDecimalPathSet decimal_first =
+            paths_of({{.pattern = "amount", .is_glob = false, .is_decimal = true},
+                      {.pattern = "amount*", .is_glob = true, .is_decimal = false}});
+    EXPECT_TRUE(decimal_first.matches("amount"));
+    EXPECT_FALSE(decimal_first.matches("amount_due"));
+    // a MATCH_NAME pattern is compared literally, never as a glob
+    const VariantDecimalPathSet literal =
+            paths_of({{.pattern = "ratio*", .is_glob = false, .is_decimal = true}});
+    EXPECT_TRUE(literal.matches("ratio*"));
+    EXPECT_FALSE(literal.matches("ratio_a"));
 }
 
 TEST(VariantDecimalPathsTest, ReadsFractionsExactly) {

@@ -21,12 +21,14 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/column/variant_v2/column_variant_v2.h"
+#include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type_serde/data_type_nullable_serde.h"
@@ -34,6 +36,7 @@
 #include "core/data_type_serde/data_type_variant_v2_serde.h"
 #include "core/string_buffer.hpp"
 #include "core/value/variant/variant_decimal_paths.h"
+#include "gen_cpp/Types_types.h"
 #include "gen_cpp/types.pb.h"
 
 namespace doris {
@@ -64,6 +67,10 @@ std::string json_at(const DataTypeVariantV2SerDe& serde, const IColumn& column, 
     }
     writer.commit();
     return output->get_data_at(0).to_string();
+}
+
+VariantDecimalPathSetPtr template_of(std::vector<VariantTemplatePath> fields) {
+    return std::make_shared<const VariantDecimalPathSet>(std::move(fields));
 }
 
 ColumnVariantV2::MutablePtr typed_int(int32_t value) {
@@ -294,9 +301,9 @@ TEST(DataTypeVariantV2SerdeInputTest, PbAndArrowReadKeepExplicitGuards) {
 }
 
 TEST(DataTypeVariantV2SerdeInputTest, DecimalTemplatePathsParseNumbersFromText) {
-    auto paths = std::make_shared<const VariantDecimalPathSet>(std::vector<VariantDecimalPath> {
-            {.pattern = "money.amount", .is_glob = false, .precision = 20, .scale = 6},
-            {.pattern = "ratio*", .is_glob = true, .precision = 30, .scale = 18}});
+    auto paths = std::make_shared<const VariantDecimalPathSet>(std::vector<VariantTemplatePath> {
+            {.pattern = "money.amount", .is_glob = false, .is_decimal = true},
+            {.pattern = "ratio*", .is_glob = true, .is_decimal = true}});
     DataTypeVariantV2SerDe serde(1, paths);
     EXPECT_EQ(paths, serde.decimal_paths());
     auto column = ColumnVariantV2::create();
@@ -357,8 +364,8 @@ TEST(DataTypeVariantV2SerdeInputTest, DecimalTemplatePathsParseNumbersFromText) 
 }
 
 TEST(DataTypeVariantV2SerdeInputTest, DataTypeHandsItsDecimalPathsToTheSerde) {
-    auto paths = std::make_shared<const VariantDecimalPathSet>(std::vector<VariantDecimalPath> {
-            {.pattern = "amount", .is_glob = false, .precision = 20, .scale = 6}});
+    auto paths = std::make_shared<const VariantDecimalPathSet>(std::vector<VariantTemplatePath> {
+            {.pattern = "amount", .is_glob = false, .is_decimal = true}});
     DataTypeVariantV2 typed(0, false, paths);
     DataTypeVariantV2 plain(0, false);
     EXPECT_EQ(paths, typed.decimal_paths());
@@ -368,6 +375,79 @@ TEST(DataTypeVariantV2SerdeInputTest, DataTypeHandsItsDecimalPathsToTheSerde) {
     auto serde = std::dynamic_pointer_cast<DataTypeVariantV2SerDe>(typed.get_serde());
     ASSERT_NE(nullptr, serde);
     EXPECT_EQ(paths, serde->decimal_paths());
+}
+
+TEST(DataTypeVariantV2SerdeInputTest, ThriftTemplatePathsReachTheDataType) {
+    TScalarType scalar_type;
+    scalar_type.__set_type(TPrimitiveType::VARIANT);
+    scalar_type.__set_variant_max_subcolumns_count(0);
+    scalar_type.__set_variant_is_v2(true);
+    std::vector<TVariantTemplatePath> template_paths(3);
+    template_paths[0].__set_pattern("name");
+    template_paths[0].__set_is_glob(false);
+    template_paths[0].__set_is_decimal(false);
+    template_paths[1].__set_pattern("money.amount");
+    template_paths[1].__set_is_glob(false);
+    template_paths[1].__set_is_decimal(true);
+    template_paths[2].__set_pattern("ratio*");
+    template_paths[2].__set_is_glob(true);
+    template_paths[2].__set_is_decimal(true);
+    scalar_type.__set_variant_template_paths(template_paths);
+    TTypeNode type_node;
+    type_node.__set_type(TTypeNodeType::SCALAR);
+    type_node.__set_scalar_type(scalar_type);
+    TTypeDesc type_desc;
+    type_desc.types.push_back(type_node);
+
+    DataTypePtr from_thrift = DataTypeFactory::instance().create_data_type(type_desc);
+    const auto* variant = dynamic_cast<const DataTypeVariantV2*>(from_thrift.get());
+    ASSERT_NE(nullptr, variant);
+    ASSERT_NE(nullptr, variant->decimal_paths());
+    EXPECT_TRUE(variant->decimal_paths()->matches("money.amount"));
+    EXPECT_TRUE(variant->decimal_paths()->matches("ratio_x"));
+    EXPECT_FALSE(variant->decimal_paths()->matches("name"));
+    EXPECT_FALSE(variant->decimal_paths()->matches("money"));
+    auto serde = std::dynamic_pointer_cast<DataTypeVariantV2SerDe>(from_thrift->get_serde());
+    ASSERT_NE(nullptr, serde);
+    EXPECT_EQ(variant->decimal_paths(), serde->decimal_paths());
+
+    // Without the field, from an older FE or a template without DECIMAL, the type has no paths.
+    TScalarType plain_scalar_type;
+    plain_scalar_type.__set_type(TPrimitiveType::VARIANT);
+    plain_scalar_type.__set_variant_max_subcolumns_count(0);
+    plain_scalar_type.__set_variant_is_v2(true);
+    TTypeNode plain_node;
+    plain_node.__set_type(TTypeNodeType::SCALAR);
+    plain_node.__set_scalar_type(plain_scalar_type);
+    TTypeDesc plain_desc;
+    plain_desc.types.push_back(plain_node);
+    DataTypePtr plain = DataTypeFactory::instance().create_data_type(plain_desc);
+    const auto* plain_variant = dynamic_cast<const DataTypeVariantV2*>(plain.get());
+    ASSERT_NE(nullptr, plain_variant);
+    EXPECT_EQ(nullptr, plain_variant->decimal_paths());
+}
+
+TEST(DataTypeVariantV2SerdeInputTest, TheFirstMatchingTemplateFieldDecidesADecimalPath) {
+    // 'amount*':string before 'amount':decimal(10,2): the shredder types "amount" as STRING, so the
+    // number is parsed as before (a double, rendered 1.5) rather than as the decimal 1.50.
+    auto string_first = template_of({{.pattern = "amount*", .is_glob = true, .is_decimal = false},
+                                     {.pattern = "amount", .is_glob = false, .is_decimal = true}});
+    DataTypeVariantV2SerDe serde(1, string_first);
+    auto column = ColumnVariantV2::create();
+    ASSERT_TRUE(deserialize_json(serde, *column, R"({"amount":1.50,"total":2.50})").ok());
+    const std::string json = json_at(serde, *column, 0);
+    EXPECT_NE(std::string::npos, json.find(R"("amount":1.5)")) << json;
+    EXPECT_EQ(std::string::npos, json.find(R"("amount":1.50)")) << json;
+    EXPECT_NE(std::string::npos, json.find(R"("total":2.5)")) << json;
+
+    auto decimal_first =
+            template_of({{.pattern = "amount", .is_glob = false, .is_decimal = true},
+                         {.pattern = "amount*", .is_glob = true, .is_decimal = false}});
+    DataTypeVariantV2SerDe decimal_serde(1, decimal_first);
+    ASSERT_TRUE(deserialize_json(decimal_serde, *column, R"({"amount":1.50,"total":2.50})").ok());
+    const std::string decimal_json = json_at(decimal_serde, *column, 1);
+    EXPECT_NE(std::string::npos, decimal_json.find(R"("amount":1.50)")) << decimal_json;
+    EXPECT_NE(std::string::npos, decimal_json.find(R"("total":2.5)")) << decimal_json;
 }
 
 } // namespace doris

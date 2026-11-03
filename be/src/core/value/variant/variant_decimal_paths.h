@@ -21,37 +21,37 @@
 #include <memory>
 #include <string>
 #include <string_view>
-#include <unordered_set>
 #include <vector>
 
 namespace doris {
 
-// One DECIMAL / ARRAY<DECIMAL> entry of a VARIANT Schema Template as the FE sends it
-// (TScalarType.variant_decimal_paths): a dotted path for MATCH_NAME, a glob for MATCH_NAME_GLOB.
-struct VariantDecimalPath {
+// One field of a VARIANT Schema Template as the FE sends it (TScalarType.variant_template_paths, in
+// declaration order): a dotted path for MATCH_NAME, a glob for MATCH_NAME_GLOB, and whether the field
+// is DECIMAL / ARRAY<DECIMAL>.
+struct VariantTemplatePath {
     std::string pattern;
     bool is_glob = false;
-    int32_t precision = 0;
-    int32_t scale = 0;
+    bool is_decimal = false;
 };
 
-// The DECIMAL template paths of one VARIANT type. Built once per type, shared by its serde and by the
-// parse functions.
+// The Schema Template of one VARIANT type, answering whether a path is a DECIMAL path. Built once per
+// type, shared by its serde and by the parse functions.
 class VariantDecimalPathSet {
 public:
-    explicit VariantDecimalPathSet(std::vector<VariantDecimalPath> paths);
+    explicit VariantDecimalPathSet(std::vector<VariantTemplatePath> paths);
 
     bool empty() const noexcept { return _paths.empty(); }
-    const std::vector<VariantDecimalPath>& paths() const noexcept { return _paths; }
+    const std::vector<VariantTemplatePath>& paths() const noexcept { return _paths; }
 
-    // True when `path` (the object keys from the root joined by '.') is a declared DECIMAL path, by
-    // the name / glob rules the shredder applies to typed paths (fnmatch with FNM_PATHNAME).
-    bool matches(std::string_view path) const;
+    // True when the FIRST template field matching `path` (the object keys from the root joined by
+    // '.') is DECIMAL: the rule the shredder applies to typed paths (variant_util.cpp walks the
+    // template in declaration order, strcmp for MATCH_NAME, fnmatch with FNM_PATHNAME for a glob),
+    // so that with 'amount*':string declared before 'amount':decimal(10,2) the number under "amount"
+    // is a STRING on both sides instead of a decimal 1.50 stored into a STRING column.
+    bool matches(const std::string& path) const;
 
 private:
-    std::vector<VariantDecimalPath> _paths;
-    std::unordered_set<std::string> _exact;
-    std::vector<std::string> _globs;
+    std::vector<VariantTemplatePath> _paths;
 };
 
 using VariantDecimalPathSetPtr = std::shared_ptr<const VariantDecimalPathSet>;

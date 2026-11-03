@@ -555,15 +555,14 @@ DataTypePtr DataTypeFactory::create_data_type(const std::vector<TTypeNode>& type
                                     ? scalar_type.variant_enable_doc_mode
                                     : false;
             VariantDecimalPathSetPtr decimal_paths;
-            if (scalar_type.__isset.variant_decimal_paths &&
-                !scalar_type.variant_decimal_paths.empty()) {
-                std::vector<VariantDecimalPath> paths;
-                paths.reserve(scalar_type.variant_decimal_paths.size());
-                for (const TVariantDecimalPath& path : scalar_type.variant_decimal_paths) {
+            if (scalar_type.__isset.variant_template_paths &&
+                !scalar_type.variant_template_paths.empty()) {
+                std::vector<VariantTemplatePath> paths;
+                paths.reserve(scalar_type.variant_template_paths.size());
+                for (const TVariantTemplatePath& path : scalar_type.variant_template_paths) {
                     paths.push_back({.pattern = path.pattern,
                                      .is_glob = path.is_glob,
-                                     .precision = path.precision,
-                                     .scale = path.scale});
+                                     .is_decimal = path.is_decimal});
                 }
                 decimal_paths = std::make_shared<const VariantDecimalPathSet>(std::move(paths));
             }

@@ -373,8 +373,8 @@ TEST(FunctionVariantParseTest, ConfiguredInputValidationUsesFailOrOuterNull) {
 
 TEST(FunctionVariantParseTest, DecimalTemplatePathsOnTheResultTypeParseNumbersFromText) {
     const DataTypePtr string_type = std::make_shared<DataTypeString>();
-    auto paths = std::make_shared<const VariantDecimalPathSet>(std::vector<VariantDecimalPath> {
-            {.pattern = "money.amount", .is_glob = false, .precision = 20, .scale = 6}});
+    auto paths = std::make_shared<const VariantDecimalPathSet>(std::vector<VariantTemplatePath> {
+            {.pattern = "money.amount", .is_glob = false, .is_decimal = true}});
     const std::string document = R"({"money":{"amount":123456789012.345678},"score":0.5})";
     for (const char* name : {"parse_to_variant", "try_parse_to_variant"}) {
         DataTypePtr typed = std::make_shared<DataTypeVariantV2>(0, false, paths);
