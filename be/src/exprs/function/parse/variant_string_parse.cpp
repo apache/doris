@@ -184,10 +184,11 @@ private:
     const JsonToVariantOptions& _options;
 };
 
-// The ondemand twin of JsonTreeCollector for a destination with DECIMAL template paths: it sees each
-// number's text, so a number on such a path becomes an exact decimal. Any simdjson error makes the
-// collect return false and the caller hands the text to the DOM parser, whose verdict is the
-// documented one. Builder exceptions (depth, key length, duplicate keys) propagate as they do there.
+// The ondemand twin of JsonTreeCollector for a destination with DECIMAL template paths: it sees
+// each number's text, so a number on such a path becomes an exact decimal. Any simdjson error
+// makes the collect return false and the caller hands the text to the DOM parser, whose verdict is
+// the documented one. Builder exceptions (depth, key length, duplicate keys) propagate as they do
+// there.
 class OndemandTreeCollector {
 public:
     OndemandTreeCollector(VariantBatchBuilder::Row& builder, const JsonToVariantOptions& options)
@@ -315,7 +316,8 @@ private:
         _in_array = true;
         for (auto entry : array) {
             simdjson::ondemand::value element;
-            if (std::move(entry).get(element) != simdjson::SUCCESS || !collect(element, depth + 1)) {
+            if (std::move(entry).get(element) != simdjson::SUCCESS ||
+                !collect(element, depth + 1)) {
                 return false;
             }
         }

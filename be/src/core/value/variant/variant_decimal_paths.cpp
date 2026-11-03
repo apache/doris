@@ -34,9 +34,9 @@ bool VariantDecimalPathSet::matches(const std::string& path) const {
         return false;
     }
     for (const VariantTemplatePath& field : _paths) {
-        const bool matched = field.is_glob
-                                     ? fnmatch(field.pattern.c_str(), path.c_str(), FNM_PATHNAME) == 0
-                                     : field.pattern == path;
+        const bool matched =
+                field.is_glob ? fnmatch(field.pattern.c_str(), path.c_str(), FNM_PATHNAME) == 0
+                              : field.pattern == path;
         if (matched) {
             return field.is_decimal;
         }

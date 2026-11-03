@@ -75,8 +75,8 @@ TEST(VariantDecimalPathsTest, SetMatchesExactAndGlobPaths) {
 }
 
 TEST(VariantDecimalPathsTest, TheFirstMatchingTemplateFieldDecidesLikeTheShredder) {
-    // 'amount*':string is declared before 'amount':decimal: the shredder types "amount" as a STRING,
-    // so the parser must not read it as a decimal either.
+    // 'amount*':string is declared before 'amount':decimal: the shredder types "amount" as a
+    // STRING, so the parser must not read it as a decimal either.
     const VariantDecimalPathSet string_first =
             paths_of({{.pattern = "amount*", .is_glob = true, .is_decimal = false},
                       {.pattern = "amount", .is_glob = false, .is_decimal = true}});

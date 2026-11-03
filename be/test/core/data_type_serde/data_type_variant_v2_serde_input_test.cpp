@@ -320,11 +320,10 @@ TEST(DataTypeVariantV2SerdeInputTest, DecimalTemplatePathsParseNumbersFromText) 
     EXPECT_NE(std::string::npos, json.find(R"("n":7)")) << json;
 
     // The vector entry point takes the same route.
-    std::vector<std::string> texts {R"({"money":{"amount":1.000001}})",
-                                    R"({"money":{"amount":2}})",
-                                    R"({"money":{"amount":1.5e3}})",
-                                    R"({"money":{"amount":123456789012345678901}})",
-                                    R"({"money":{"amount":0.1234567890123456789012345678901234567890123}})"};
+    std::vector<std::string> texts {
+            R"({"money":{"amount":1.000001}})", R"({"money":{"amount":2}})",
+            R"({"money":{"amount":1.5e3}})", R"({"money":{"amount":123456789012345678901}})",
+            R"({"money":{"amount":0.1234567890123456789012345678901234567890123}})"};
     std::vector<Slice> slices;
     for (const std::string& text : texts) {
         slices.emplace_back(text.data(), text.size());
@@ -338,16 +337,19 @@ TEST(DataTypeVariantV2SerdeInputTest, DecimalTemplatePathsParseNumbersFromText) 
     EXPECT_NE(std::string::npos, json_at(serde, *column, 2).find(R"("amount":2)"));
     // An exponent form and an integer beyond 64 bits are exact on the path as well.
     EXPECT_NE(std::string::npos, json_at(serde, *column, 3).find(R"("amount":1500)"));
-    EXPECT_NE(std::string::npos, json_at(serde, *column, 4).find(R"("amount":123456789012345678901)"));
+    EXPECT_NE(std::string::npos,
+              json_at(serde, *column, 4).find(R"("amount":123456789012345678901)"));
     // Beyond 38 significant digits the text is kept for the template's cast to decide.
     EXPECT_NE(std::string::npos,
-              json_at(serde, *column, 5).find(R"("amount":"0.1234567890123456789012345678901234567890123")"));
+              json_at(serde, *column, 5)
+                      .find(R"("amount":"0.1234567890123456789012345678901234567890123")"));
 
     // A serde without paths parses the same number through a binary64, as before.
     DataTypeVariantV2SerDe plain;
     EXPECT_EQ(nullptr, plain.decimal_paths());
     auto plain_column = ColumnVariantV2::create();
-    ASSERT_TRUE(deserialize_json(plain, *plain_column, R"({"ratio_a":0.123456789012345678901})").ok());
+    ASSERT_TRUE(deserialize_json(plain, *plain_column, R"({"ratio_a":0.123456789012345678901})")
+                        .ok());
     EXPECT_EQ(std::string::npos, json_at(plain, *plain_column, 0).find("0.123456789012345678901"));
 
     // Off the declared paths a path-bearing serde keeps the parser's verdict: an integer beyond

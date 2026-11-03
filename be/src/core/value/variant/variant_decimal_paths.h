@@ -25,17 +25,17 @@
 
 namespace doris {
 
-// One field of a VARIANT Schema Template as the FE sends it (TScalarType.variant_template_paths, in
-// declaration order): a dotted path for MATCH_NAME, a glob for MATCH_NAME_GLOB, and whether the field
-// is DECIMAL / ARRAY<DECIMAL>.
+// One field of a VARIANT Schema Template as the FE sends it (TScalarType.variant_template_paths,
+// in declaration order): a dotted path for MATCH_NAME, a glob for MATCH_NAME_GLOB, and whether
+// the field is DECIMAL / ARRAY<DECIMAL>.
 struct VariantTemplatePath {
     std::string pattern;
     bool is_glob = false;
     bool is_decimal = false;
 };
 
-// The Schema Template of one VARIANT type, answering whether a path is a DECIMAL path. Built once per
-// type, shared by its serde and by the parse functions.
+// The Schema Template of one VARIANT type, answering whether a path is a DECIMAL path. Built once
+// per type, shared by its serde and by the parse functions.
 class VariantDecimalPathSet {
 public:
     explicit VariantDecimalPathSet(std::vector<VariantTemplatePath> paths);
@@ -46,8 +46,8 @@ public:
     // True when the FIRST template field matching `path` (the object keys from the root joined by
     // '.') is DECIMAL: the rule the shredder applies to typed paths (variant_util.cpp walks the
     // template in declaration order, strcmp for MATCH_NAME, fnmatch with FNM_PATHNAME for a glob),
-    // so that with 'amount*':string declared before 'amount':decimal(10,2) the number under "amount"
-    // is a STRING on both sides instead of a decimal 1.50 stored into a STRING column.
+    // so that with 'amount*':string declared before 'amount':decimal(10,2) the number under
+    // "amount" is a STRING on both sides instead of a decimal 1.50 stored into a STRING column.
     bool matches(const std::string& path) const;
 
 private:

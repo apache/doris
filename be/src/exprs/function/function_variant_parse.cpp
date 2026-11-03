@@ -75,7 +75,7 @@ public:
         const auto* variant_type = dynamic_cast<const DataTypeVariantV2*>(result_type);
         DORIS_CHECK(variant_type != nullptr);
 
-        // Typed by the FE with the destination column's VARIANT type when that column has a template.
+        // Typed by the FE with the destination column's VARIANT type when the column has a template.
         JsonToVariantOptions options = JsonToVariantOptions::current_config();
         options.decimal_paths = variant_type->decimal_paths();
         JsonStringToVariantEncoder encoder(options);
