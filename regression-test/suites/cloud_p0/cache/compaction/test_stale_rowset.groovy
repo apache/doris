@@ -171,13 +171,20 @@ suite("test_stale_rowset") {
     select count(*) from ${tableName};
     """
 
-    sleep(60000);
-    def backendIdToAfterCompactionCacheSize = getCurCacheSize()
-    for (String[] backend in backends) {
-        if (backend[9].equals("true") && backend[19].contains("regression_cluster_name1")) {
-            assertTrue(backendIdToAfterLoadCacheSize.get(backend[0]) >
-                backendIdToAfterCompactionCacheSize.get(backend[0]))
+    // The cache of the input rowsets is removed only when the BE sweeps the stale rowsets, and the
+    // file_cache_cache_size metric is refreshed every few seconds after that. So poll until it
+    // shrinks instead of reading it once after a fixed wait.
+    def backendIdToAfterCompactionCacheSize = [:]
+    def shrunk = false
+    long deadline = System.currentTimeMillis() + 180000
+    while (!shrunk && System.currentTimeMillis() < deadline) {
+        sleep(5000)
+        backendIdToAfterCompactionCacheSize = getCurCacheSize()
+        shrunk = backendIdToAfterLoadCacheSize.every { id, size ->
+            size > backendIdToAfterCompactionCacheSize.get(id)
         }
     }
+    assertTrue(shrunk, "file cache did not shrink after compaction, after load: " +
+            "${backendIdToAfterLoadCacheSize}, after compaction: ${backendIdToAfterCompactionCacheSize}")
     sql new File("""${context.file.parent}/../ddl/${table}_delete.sql""").text
 }

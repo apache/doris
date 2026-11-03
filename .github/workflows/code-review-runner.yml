@@ -314,6 +314,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Mark Code Review status as pending
+        id: pending_status
         if: ${{ steps.review_inputs.outputs.manage_status == 'true' }}
         timeout-minutes: 2
         env:
@@ -339,6 +340,7 @@ jobs:
             -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
       - name: Checkout repository
+        id: checkout
         timeout-minutes: 10
         uses: actions/checkout@v4
         with:
@@ -917,6 +919,7 @@ jobs:
             --base-sha "$BASE_SHA" \
             --model "gpt-6.1-sol" \
             --fallback-model "gpt-6-sol" \
+            --capacity-fallback-model "gpt-6-sol" \
             --effort xhigh \
             --budget-seconds "$budget_seconds"
           status=$?
@@ -1022,6 +1025,7 @@ jobs:
             ${{ env.REVIEW_CONTEXT_DIR }}/review-submission.json
             ${{ env.REVIEW_CONTEXT_DIR }}/review-submission-rejected.json
             ${{ env.REVIEW_CONTEXT_DIR }}/review-api-errors.jsonl
+            ${{ env.REVIEW_CONTEXT_DIR }}/review-draft.json
           # The context directory is hidden; include only these explicit files.
           include-hidden-files: true
           if-no-files-found: ignore
@@ -1086,19 +1090,34 @@ jobs:
         timeout-minutes: 2
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REVIEW_INPUTS_OUTCOME: ${{ steps.review_inputs.outcome }}
           AUTH_FAILURE_REASON: ${{ steps.auth.outputs.failure_reason }}
           AUTH_INVALID_REASON: ${{ steps.review.outputs.auth_invalid_reason }}
           AUTH_INVALID_RECORD_OUTCOME: ${{ steps.auth_invalid_record.outcome }}
           USAGE_LIMIT_RECORD_OUTCOME: ${{ steps.usage_limit_record.outcome }}
           USAGE_LIMIT_RETRY_AFTER_EPOCH: ${{ steps.review.outputs.usage_limit_retry_after_epoch }}
+          PENDING_STATUS_OUTCOME: ${{ steps.pending_status.outcome }}
+          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
           REVIEW_CONTEXT_OUTCOME: ${{ steps.review_context.outcome }}
           REVIEW_FAILURE_REASON: ${{ steps.review.outputs.failure_reason }}
           REVIEW_OUTCOME: ${{ steps.review.outcome }}
+          REPO: ${{ github.repository }}
           PR_NUMBER: ${{ steps.review_inputs.outputs.pr_number }}
+          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          # Input resolution can fail before publishing the PR number. Use only
+          # the authorized trigger's numeric PR identity for the failure notice.
+          PR_NUMBER="${PR_NUMBER:-${INPUT_PR_NUMBER:-$ISSUE_NUMBER}}"
+          if ! [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::No valid PR number is available for the failure notice."
+            exit 1
+          fi
           recovery_msg="Please inspect the workflow logs and rerun the review after the underlying issue is resolved."
-          if [ -n "$AUTH_FAILURE_REASON" ]; then
+          if [ "$REVIEW_INPUTS_OUTCOME" = "failure" ] || [ "$REVIEW_INPUTS_OUTCOME" = "cancelled" ]; then
+            error_msg="Step 'Resolve review inputs' ended with $REVIEW_INPUTS_OUTCOME; inspect its logs for the original error."
+          elif [ -n "$AUTH_FAILURE_REASON" ]; then
             error_msg="$AUTH_FAILURE_REASON"
           elif [ "$AUTH_INVALID_REASON" = "refresh_token_reused" ] || [ "$AUTH_INVALID_REASON" = "refresh_token_invalidated" ]; then
             error_msg="${REVIEW_FAILURE_REASON:-The selected Codex refresh token is invalid.}"
@@ -1115,12 +1134,21 @@ jobs:
           elif [ -n "$USAGE_LIMIT_RETRY_AFTER_EPOCH" ]; then
             error_msg="Codex reached its usage limit, but the workflow failed to record the account context."
             recovery_msg="Please inspect the workflow logs and trigger /review again after the recording problem is resolved."
-          elif [ "$REVIEW_CONTEXT_OUTCOME" != "success" ]; then
+          elif [ "$PENDING_STATUS_OUTCOME" = "failure" ] || [ "$PENDING_STATUS_OUTCOME" = "cancelled" ]; then
+            error_msg="Step 'Mark Code Review status as pending' ended with $PENDING_STATUS_OUTCOME; inspect its logs for the original error."
+          elif [ "$CHECKOUT_OUTCOME" = "failure" ] || [ "$CHECKOUT_OUTCOME" = "cancelled" ]; then
+            error_msg="Step 'Checkout repository' ended with $CHECKOUT_OUTCOME; inspect its logs for the original error."
+          elif [ "$REVIEW_CONTEXT_OUTCOME" = "failure" ]; then
             error_msg="Review context preparation failed before Codex ran; inspect the 'Prepare authoritative PR context and required AGENTS guides' step."
+          elif [ "$REVIEW_CONTEXT_OUTCOME" = "cancelled" ]; then
+            error_msg="Review context preparation was cancelled; inspect the 'Prepare authoritative PR context and required AGENTS guides' step."
+          elif [ "$REVIEW_CONTEXT_OUTCOME" != "success" ]; then
+            # Skipped/unstarted context is a consequence of an earlier setup failure.
+            error_msg="Review setup stopped before context preparation ran; inspect the first failed or cancelled setup step."
           else
             error_msg="${REVIEW_FAILURE_REASON:-Review step was $REVIEW_OUTCOME (possibly timeout or cancelled)}"
           fi
-          python3 "$REVIEW_GH_HELPER" pr comment "$PR_NUMBER" --body "$(cat <<EOF
+          python3 "$REVIEW_GH_HELPER" pr comment "$PR_NUMBER" --repo "$REPO" --body "$(cat <<EOF
           Codex automated review failed and did not complete.
 
           Error: ${error_msg}
@@ -1134,15 +1162,29 @@ jobs:
         if: ${{ always() && (steps.review_context.outcome != 'success' || steps.review.outcome != 'success') }}
         timeout-minutes: 1
         env:
+          REVIEW_INPUTS_OUTCOME: ${{ steps.review_inputs.outcome }}
           AUTH_FAILURE_REASON: ${{ steps.auth.outputs.failure_reason }}
+          PENDING_STATUS_OUTCOME: ${{ steps.pending_status.outcome }}
+          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
           REVIEW_CONTEXT_OUTCOME: ${{ steps.review_context.outcome }}
           REVIEW_FAILURE_REASON: ${{ steps.review.outputs.failure_reason }}
           REVIEW_OUTCOME: ${{ steps.review.outcome }}
         run: |
-          if [ -n "$AUTH_FAILURE_REASON" ]; then
+          if [ "$REVIEW_INPUTS_OUTCOME" = "failure" ] || [ "$REVIEW_INPUTS_OUTCOME" = "cancelled" ]; then
+            error_msg="Step 'Resolve review inputs' ended with $REVIEW_INPUTS_OUTCOME; inspect its logs for the original error."
+          elif [ -n "$AUTH_FAILURE_REASON" ]; then
             error_msg="$AUTH_FAILURE_REASON"
-          elif [ "$REVIEW_CONTEXT_OUTCOME" != "success" ]; then
+          elif [ "$PENDING_STATUS_OUTCOME" = "failure" ] || [ "$PENDING_STATUS_OUTCOME" = "cancelled" ]; then
+            error_msg="Step 'Mark Code Review status as pending' ended with $PENDING_STATUS_OUTCOME; inspect its logs for the original error."
+          elif [ "$CHECKOUT_OUTCOME" = "failure" ] || [ "$CHECKOUT_OUTCOME" = "cancelled" ]; then
+            error_msg="Step 'Checkout repository' ended with $CHECKOUT_OUTCOME; inspect its logs for the original error."
+          elif [ "$REVIEW_CONTEXT_OUTCOME" = "failure" ]; then
             error_msg="Review context preparation failed before Codex ran; inspect the 'Prepare authoritative PR context and required AGENTS guides' step."
+          elif [ "$REVIEW_CONTEXT_OUTCOME" = "cancelled" ]; then
+            error_msg="Review context preparation was cancelled; inspect the 'Prepare authoritative PR context and required AGENTS guides' step."
+          elif [ "$REVIEW_CONTEXT_OUTCOME" != "success" ]; then
+            # Skipped/unstarted context is a consequence of an earlier setup failure.
+            error_msg="Review setup stopped before context preparation ran; inspect the first failed or cancelled setup step."
           else
             error_msg="${REVIEW_FAILURE_REASON:-Review step was $REVIEW_OUTCOME (possibly timeout or cancelled)}"
           fi

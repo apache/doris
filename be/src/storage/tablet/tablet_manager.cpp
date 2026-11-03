@@ -44,6 +44,7 @@
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
+#include "storage/active_tablet_stats.h"
 #include "storage/compaction/cumulative_compaction_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/data_dir.h"
@@ -85,7 +86,8 @@ bvar::Adder<int64_t> g_tablet_meta_schema_columns_count("tablet_meta_schema_colu
 TabletManager::TabletManager(StorageEngine& engine, int32_t tablet_map_lock_shard_size)
         : _engine(engine),
           _tablets_shards_size(tablet_map_lock_shard_size),
-          _tablets_shards_mask(tablet_map_lock_shard_size - 1) {
+          _tablets_shards_mask(tablet_map_lock_shard_size - 1),
+          _tablet_stat_list_cache(std::make_shared<std::vector<TTabletStat>>()) {
     CHECK_GT(_tablets_shards_size, 0);
     CHECK_EQ(_tablets_shards_size & _tablets_shards_mask, 0);
     _tablets_shards.resize(_tablets_shards_size);
@@ -1106,8 +1108,12 @@ Status TabletManager::report_tablet_info(TTabletInfo* tablet_info) {
     return res;
 }
 
-void TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info) {
+void TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info,
+                                                  ActiveTabletCollector* active) {
     DCHECK(tablets_info != nullptr);
+    if (active) {
+        active->start();
+    }
     VLOG_NOTICE << "begin to build all report tablets info";
 
     // build the expired txn map first, outside the tablet map lock
@@ -1118,6 +1124,9 @@ void TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>* 
     HistogramStat tablet_version_num_hist;
     auto local_cache = std::make_shared<std::vector<TTabletStat>>();
     auto handler = [&](const TabletSharedPtr& tablet) {
+        if (active) {
+            active->collect(tablet);
+        }
         auto& t_tablet = (*tablets_info)[tablet->tablet_id()];
         TTabletInfo& tablet_info = t_tablet.tablet_infos.emplace_back();
         tablet->build_tablet_report_info(&tablet_info, true, true);

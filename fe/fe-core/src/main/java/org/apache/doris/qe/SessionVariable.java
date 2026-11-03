@@ -596,6 +596,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String NUM_PARTITIONS_IN_BATCH_MODE = "num_partitions_in_batch_mode";
 
+    public static final String SPLIT_PARTITION_BATCH_SIZE = "split_partition_batch_size";
+
     public static final String NUM_FILES_IN_BATCH_MODE = "num_files_in_batch_mode";
 
     public static final String SPLIT_BATCH_SIZE = "split_batch_size";
@@ -603,6 +605,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SPLIT_QUEUE_CAPACITY = "split_queue_capacity";
 
+    public static final String SPLIT_PRODUCER_PARALLELISM = "split_producer_parallelism";
+
+    public static final String FIRST_SPLIT_WAIT_TIMEOUT_MS = "first_split_wait_timeout_ms";
     public static final String FETCH_SPLITS_MAX_WAIT_TIME = "fetch_splits_max_wait_time_ms";
 
     /**
@@ -1196,8 +1201,9 @@ public class SessionVariable implements Serializable, Writable {
             + "read data of FileScanNode, default 16")
     public int maxFileScannersConcurrency = 16;
 
-    @VarAttrDef.VarAttr(name = ENABLE_FILE_SCANNER_V2, needForward = true, description = "When enabled, "
-            + "FileScanNode uses FileScannerV2 for supported query scans. Enabled by default.")
+    @VarAttrDef.VarAttr(name = ENABLE_FILE_SCANNER_V2, needForward = true,
+            varType = VariableAnnotation.DEPRECATED,
+            description = "Deprecated compatibility variable. File scans always use FileScannerV2.")
     public boolean enableFileScannerV2 = true;
 
     @VarAttrDef.VarAttr(name = LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT, needForward = true)
@@ -2622,22 +2628,27 @@ public class SessionVariable implements Serializable, Writable {
             description = "If the number of partitions exceeds the threshold, scan ranges will be got through batch "
                     + "mode.",
             needForward = true)
-    public int numPartitionsInBatchMode = 1024;
+    public int numPartitionsInBatchMode = 1;
+
+    @VarAttrDef.VarAttr(name = SPLIT_PARTITION_BATCH_SIZE, checker = "checkSplitPartitionBatchSize",
+            needForward = true, description = "Maximum number of Hive partitions resolved per split producer "
+                    + "batch. This does not control when batch mode is enabled.")
+    public int splitPartitionBatchSize = 16;
 
     @VarAttrDef.VarAttr(
             name = NUM_FILES_IN_BATCH_MODE,
             fuzzy = true,
             description = "If the number of files exceeds the threshold, scan ranges will be got through batch mode.",
             needForward = true)
-    public int numFilesInBatchMode = 1024;
+    public int numFilesInBatchMode = 1;
 
     @VarAttrDef.VarAttr(name = SPLIT_BATCH_SIZE, checker = "checkSplitBatchSize", needForward = true,
             description = "Maximum number of splits in a producer batch.")
-    public int splitBatchSize = 128;
+    public int splitBatchSize = 8;
 
     @VarAttrDef.VarAttr(name = SPLIT_QUEUE_CAPACITY, checker = "checkSplitQueueCapacity", needForward = true,
-            description = "Maximum number of queued split batches per backend.")
-    public int splitQueueCapacity = 32;
+            description = "Maximum number of queued splits per backend.")
+    public int splitQueueCapacity = 1024;
 
     @VarAttrDef.VarAttr(name = SPLIT_INITIAL_BATCH_SIZE, checker = "checkSplitInitialBatchSize", needForward = true,
             description = "Maximum number of splits returned by the first fetch per backend; "
@@ -2648,19 +2659,50 @@ public class SessionVariable implements Serializable, Writable {
         checkFieldValue(SPLIT_INITIAL_BATCH_SIZE, 1, value);
     }
 
+    @VarAttrDef.VarAttr(name = SPLIT_PRODUCER_PARALLELISM, checker = "checkSplitProducerParallelism",
+            needForward = true, description = "Maximum partition-batch split producers per scan node. "
+                    + "Zero uses the FE external metadata loader pool size. Whole-scan streams use one producer.")
+    public int splitProducerParallelism = 0;
+
+    @VarAttrDef.VarAttr(name = FIRST_SPLIT_WAIT_TIMEOUT_MS, checker = "checkFirstSplitWaitTimeout",
+            needForward = true, description = "First split wait timeout in milliseconds.")
+    public long firstSplitWaitTimeoutMs = 30000;
+
+    public void checkFirstSplitWaitTimeout(String value) throws Exception {
+        checkFieldLongValue(FIRST_SPLIT_WAIT_TIMEOUT_MS, 1, value);
+    }
+
+    public long getFirstSplitWaitTimeoutMs() {
+        return firstSplitWaitTimeoutMs;
+    }
+
     public void checkSplitBatchSize(String value) throws Exception {
         checkFieldValue(SPLIT_BATCH_SIZE, 1, value);
+    }
+
+    public void checkSplitPartitionBatchSize(String value) throws Exception {
+        checkFieldValue(SPLIT_PARTITION_BATCH_SIZE, 1, value);
     }
 
     public void checkSplitQueueCapacity(String value) throws Exception {
         checkFieldValue(SPLIT_QUEUE_CAPACITY, 1, value);
     }
 
+    public void checkSplitProducerParallelism(String value) throws Exception {
+        checkFieldValue(SPLIT_PRODUCER_PARALLELISM, 0, value);
+    }
+
     @VarAttrDef.VarAttr(
             name = FETCH_SPLITS_MAX_WAIT_TIME,
-            description = "The max wait time of getting splits in batch mode.",
+            checker = "checkFetchSplitsMaxWaitTime",
+            description = "Maximum wait time per split-fetch RPC in batch mode. A running producer can be retried "
+                    + "after this interval; completion, cancellation and production errors are reported separately.",
             needForward = true)
     public long fetchSplitsMaxWaitTime = 1000;
+
+    public void checkFetchSplitsMaxWaitTime(String value) throws Exception {
+        checkFieldLongValue(FETCH_SPLITS_MAX_WAIT_TIME, 1, value);
+    }
 
     @VarAttrDef.VarAttr(
             name = ENABLE_PARQUET_LAZY_MAT,
@@ -3792,9 +3834,6 @@ public class SessionVariable implements Serializable, Writable {
         this.enableLocalExchange = random.nextBoolean();
         this.enableSharedExchangeSinkBuffer = random.nextBoolean();
         this.useSerialExchange = random.nextBoolean();
-        // Fuzzy sessions must exercise the production-default V2 path consistently. Dedicated
-        // compatibility cases can still select the legacy scanner explicitly after initialization.
-        this.enableFileScannerV2 = true;
         this.disableStreamPreaggregations = random.nextBoolean();
         this.enableStreamingAggHashJoinForcePassthrough = random.nextBoolean();
         this.enableLocalExchangeBeforeAgg = random.nextBoolean();
@@ -5018,6 +5057,10 @@ public class SessionVariable implements Serializable, Writable {
         return numPartitionsInBatchMode;
     }
 
+    public int getSplitPartitionBatchSize() {
+        return splitPartitionBatchSize;
+    }
+
     public int getNumFilesInBatchMode() {
         return numFilesInBatchMode;
     }
@@ -5032,6 +5075,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getSplitQueueCapacity() {
         return splitQueueCapacity;
+    }
+
+    public int getSplitProducerParallelism() {
+        return splitProducerParallelism;
     }
 
     public long getFetchSplitsMaxWaitTime() {
@@ -5708,7 +5755,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setScanQueueMemLimit(maxScanQueueMemByte);
         tResult.setMaxScannersConcurrency(maxScannersConcurrency);
         tResult.setMaxFileScannersConcurrency(maxFileScannersConcurrency);
-        tResult.setEnableFileScannerV2(enableFileScannerV2);
+        // Older backends still inspect this field; the deprecated session value must not select V1.
+        tResult.setEnableFileScannerV2(true);
         tResult.setMaxColumnReaderNum(maxColumnReaderNum);
         tResult.setParallelPrepareThreshold(parallelPrepareThreshold);
         tResult.setMinScannersConcurrency(minScannersConcurrency);

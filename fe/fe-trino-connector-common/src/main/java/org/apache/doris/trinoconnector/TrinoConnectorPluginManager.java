@@ -119,6 +119,8 @@ public class TrinoConnectorPluginManager implements PluginInstaller {
     }
 
     private void installPluginInternal(Plugin plugin) {
+        // Connector schemas and serialized handles can refer to plugin-defined types such as ObjectId.
+        plugin.getTypes().forEach(typeRegistry::addType);
         for (ConnectorFactory connectorFactory : plugin.getConnectorFactories()) {
             LOG.info("Registering connector {}", connectorFactory.getName());
             ConnectorFactory existingConnectorFactory = connectorFactories.putIfAbsent(

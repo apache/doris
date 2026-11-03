@@ -232,6 +232,11 @@ public class TimeBasedChangeVisibleWaiter {
                 return;
             }
             OlapTable olapTable = (OlapTable) table;
+            // BindRelation rejects INCR on TTL tables. Do not require a calibrated TSO or
+            // wait for transactions before reporting that analysis error.
+            if (olapTable.hasRowTtl()) {
+                return;
+            }
             dbToTableIdSets.computeIfAbsent(olapTable.getDatabase().getId(), ignored -> new TreeSet<>())
                     .add(olapTable.getId());
             if (scanParams.getMapParams().containsKey(OlapScanNode.OLAP_END_TIMESTAMP)) {

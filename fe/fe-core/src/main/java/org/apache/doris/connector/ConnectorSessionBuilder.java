@@ -214,9 +214,10 @@ public final class ConnectorSessionBuilder {
      * otherwise read it off the originating {@link ConnectContext}'s statement context (preferring the
      * retained context from {@link #from} over the thread-local, so a session built off the request thread
      * still captures correctly). Two-level null (no context / no statement context) yields
-     * {@link ConnectorStatementScope#NONE} -- mirrors {@code MvccUtil.getSnapshotFromContext}. Capturing the
-     * reference here (not reading it live) lets off-thread scan pumps that reuse this one session reach the
-     * same scope even though they have no ConnectContext thread-local.
+     * {@link ConnectorStatementScope#NONE} -- mirrors {@code MvccUtil.getSnapshotFromContext}, and so does a
+     * statement whose scope is already closed (see {@link StatementContext#getConnectorStatementScopeForNewSession}).
+     * Capturing the reference here (not reading it live) lets off-thread scan pumps that reuse this one session
+     * reach the same scope even though they have no ConnectContext thread-local.
      */
     private ConnectorStatementScope captureStatementScope() {
         if (statementScope != null) {
@@ -230,7 +231,7 @@ public final class ConnectorSessionBuilder {
         if (sc == null) {
             return ConnectorStatementScope.NONE;
         }
-        return sc.getOrCreateConnectorStatementScope();
+        return sc.getConnectorStatementScopeForNewSession();
     }
 
     /**

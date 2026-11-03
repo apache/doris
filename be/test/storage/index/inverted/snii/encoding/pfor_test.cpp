@@ -102,6 +102,54 @@ TEST(SniiPfor, ExceptionsAtBoundaries) {
     roundtrip(v);
 }
 
+namespace {
+
+// A hand-built block: bit width 0 (no packed bytes) followed by (index delta, value) exceptions.
+ByteSink exceptions_only(const std::vector<std::pair<uint32_t, uint32_t>>& exceptions) {
+    ByteSink sink;
+    sink.put_u8(0);
+    sink.put_varint32(static_cast<uint32_t>(exceptions.size()));
+    for (const auto& [delta, value] : exceptions) {
+        sink.put_varint32(delta);
+        sink.put_varint32(value);
+    }
+    return sink;
+}
+
+void expect_corrupted(const ByteSink& sink, size_t n) {
+    std::vector<uint32_t> out(n);
+    ByteSource decode_src(sink.view());
+    EXPECT_TRUE(pfor_decode(&decode_src, n, out.data())
+                        .is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
+    ByteSource skip_src(sink.view());
+    EXPECT_TRUE(pfor_skip(&skip_src, n).is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
+}
+
+} // namespace
+
+// The second delta wraps the 32-bit exception index from 5 back to 3, which is inside the block.
+TEST(SniiPfor, ExceptionIndexDeltaWrapIsCorruption) {
+    expect_corrupted(exceptions_only({{5, 7}, {0xFFFFFFFEU, 9}}), 8);
+}
+
+TEST(SniiPfor, ExceptionIndexPastBlockIsCorruption) {
+    expect_corrupted(exceptions_only({{8, 7}}), 8);
+    expect_corrupted(exceptions_only({{3, 7}, {5, 9}}), 8);
+    expect_corrupted(exceptions_only({{0, 7}}), 0);
+}
+
+// The first exception may sit at index 0, and the last at n - 1.
+TEST(SniiPfor, ExceptionIndexEdgesAreAccepted) {
+    const ByteSink sink = exceptions_only({{0, 7}, {7, 9}});
+    std::vector<uint32_t> out(8);
+    ByteSource decode_src(sink.view());
+    ASSERT_TRUE(pfor_decode(&decode_src, 8, out.data()).ok());
+    EXPECT_EQ(out[0], 7U);
+    EXPECT_EQ(out[7], 9U);
+    ByteSource skip_src(sink.view());
+    EXPECT_TRUE(pfor_skip(&skip_src, 8).ok());
+}
+
 // Compare the optimized encoder with the original byte layout across varied
 // inputs. The operation counter checks that each value's width is evaluated once.
 namespace {

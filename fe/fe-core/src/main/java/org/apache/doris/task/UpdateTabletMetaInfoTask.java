@@ -17,6 +17,7 @@
 
 package org.apache.doris.task;
 
+import org.apache.doris.catalog.RowTtlConfig;
 import org.apache.doris.catalog.TabletBinlogConfig;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
@@ -123,6 +124,16 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
         return tableIdWithSchemaHash;
     }
 
+    private RowTtlConfig rowTtlConfig;
+
+    public void setRowTtlConfig(RowTtlConfig config) {
+        rowTtlConfig = config;
+    }
+
+    public RowTtlConfig getRowTtlConfig() {
+        return rowTtlConfig;
+    }
+
     public TUpdateTabletMetaInfoReq toThrift() {
         TUpdateTabletMetaInfoReq updateTabletMetaInfoReq = new TUpdateTabletMetaInfoReq();
         if (latch != null) {
@@ -178,6 +189,9 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                 }
                 if (verticalCompactionNumColumnsPerGroup >= 0) {
                     metaInfo.setVerticalCompactionNumColumnsPerGroup(verticalCompactionNumColumnsPerGroup);
+                }
+                if (rowTtlConfig != null) {
+                    metaInfo.setRowTtlConfig(rowTtlConfig.toThrift());
                 }
                 updateTabletMetaInfoReq.addToTabletMetaInfos(metaInfo);
             }

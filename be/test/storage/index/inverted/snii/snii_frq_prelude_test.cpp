@@ -36,6 +36,7 @@
 #include "common/status.h"
 #include "storage/index/inverted/snii/common/slice.h"
 #include "storage/index/inverted/snii/encoding/byte_sink.h"
+#include "storage/index/inverted/snii/encoding/crc32c.h"
 #include "storage/index/inverted/snii/encoding/varint.h"
 #include "storage/index/inverted/snii/format/dict_entry.h"
 #include "storage/index/inverted/snii/format/frq_prelude.h"
@@ -377,6 +378,70 @@ TEST(SniiFrqPreludeTest, FP08DdDiskLenSumOverflowIsCorruption) {
     FrqPreludeReader reader;
     const Status s = FrqPreludeReader::open(sink.view(), &reader);
     EXPECT_TRUE(s.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << s.to_string();
+}
+
+namespace {
+
+// Assembles a prelude by hand: header, super_block_dir rows (last_docid delta, block_off, block_len) and
+// the crc32c over both, with no window region after it. The crc is correct, so only the lengths are bad.
+ByteSink hand_built_prelude(uint64_t n, uint64_t group_size, uint64_t n_super,
+                            const std::vector<std::vector<uint64_t>>& dir_rows) {
+    ByteSink dir;
+    for (const auto& row : dir_rows) {
+        for (uint64_t field : row) {
+            dir.put_varint64(field);
+        }
+    }
+    ByteSink prelude;
+    prelude.put_u8(0); // flags: no prx
+    prelude.put_varint64(n);
+    prelude.put_varint64(group_size);
+    prelude.put_varint64(n_super);
+    prelude.put_varint64(dir.size());
+    prelude.put_bytes(dir.view());
+    prelude.put_fixed32(doris::snii::crc32c(prelude.view()));
+    return prelude;
+}
+
+void expect_open_corruption(const ByteSink& prelude, const std::string& message) {
+    FrqPreludeReader reader;
+    const Status s = FrqPreludeReader::open(prelude.view(), &reader);
+    EXPECT_TRUE(s.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << s.to_string();
+    EXPECT_NE(s.to_string().find(message), std::string::npos) << s.to_string();
+}
+
+} // namespace
+
+// FP-10: sbdir_len is read from the file. A value near 2^64 must be rejected as an overflow instead of
+// wrapping header_end + sbdir_len back to a small offset inside the header.
+TEST(SniiFrqPreludeTest, FP10SbdirLenWrapIsCorruption) {
+    ByteSink prelude;
+    prelude.put_u8(0);
+    prelude.put_varint64(1);
+    prelude.put_varint64(kPreludeGroupSize);
+    prelude.put_varint64(1);
+    prelude.put_varint64(std::numeric_limits<uint64_t>::max() - 2);
+    for (int i = 0; i < 16; ++i) {
+        prelude.put_u8(0); // room, so that a wrapped offset would still look like it is in range
+    }
+    expect_open_corruption(prelude, "sbdir_len overflow");
+}
+
+// FP-11: one super-block whose block_len is 2^64 - 1. With a correct crc and a consistent directory,
+// region_start + block_len used to wrap to a small number, and a window region of that huge length was
+// cut from a buffer that holds no bytes for it.
+TEST(SniiFrqPreludeTest, FP11HugeWindowRegionIsCorruption) {
+    expect_open_corruption(hand_built_prelude(1, kPreludeGroupSize, 1,
+                                              {{1, 0, std::numeric_limits<uint64_t>::max()}}),
+                           "window region past buffer");
+}
+
+// FP-12: two super-blocks whose lengths add up to 2^64 must not wrap the running region offset to 0.
+TEST(SniiFrqPreludeTest, FP12SuperBlockRegionOffsetWrapIsCorruption) {
+    expect_open_corruption(hand_built_prelude(2, 1, 2,
+                                              {{1, 0, std::numeric_limits<uint64_t>::max()},
+                                               {1, std::numeric_limits<uint64_t>::max(), 1}}),
+                           "super-block region offset overflow");
 }
 
 // FP-09 (E2E): a high-df windowed term ("failed", 9000 docs) queried through the

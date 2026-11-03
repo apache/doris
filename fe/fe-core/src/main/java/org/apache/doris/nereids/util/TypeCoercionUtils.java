@@ -2080,6 +2080,11 @@ public class TypeCoercionUtils {
             return Optional.of(DecimalV2Type.widerDecimalV2Type((DecimalV2Type) leftType, (DecimalV2Type) rightType));
         }
 
+        // Keep TIMESTAMPTZ precision promotion consistent with the new coercion rules.
+        if (leftType instanceof TimeStampTzType && rightType instanceof TimeStampTzType) {
+            return findWiderTypeForTwo(leftType, rightType, false, false);
+        }
+
         // date
         if (canCompareDate(leftType, rightType)) {
             if (leftType.isDateTimeV2Type() && rightType.isDateTimeV2Type()) {

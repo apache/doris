@@ -31,7 +31,8 @@ suite("test_hive_streaming_splits", "p0,external") {
             'type' = 'hms', 'hive.metastore.uris' = 'thrift://${host}:${port}')"""
     }
     def settings = ["enable_external_table_batch_mode", "num_files_in_batch_mode",
-                    "num_partitions_in_batch_mode", "split_batch_size", "split_queue_capacity",
+                    "num_partitions_in_batch_mode", "split_partition_batch_size",
+                    "split_batch_size", "split_queue_capacity",
                     "split_initial_batch_size"]
     def saved = settings.collectEntries { name -> [(name): sql("show variables like '${name}'")[0][1]] }
     try {
@@ -57,6 +58,7 @@ suite("test_hive_streaming_splits", "p0,external") {
         sql "set enable_external_table_batch_mode=true"
         sql "set num_files_in_batch_mode=1"
         sql "set num_partitions_in_batch_mode=1"
+        sql "set split_partition_batch_size=2"
         qt_empty_unpartitioned "select count(*), sum(id) from streaming_unpartitioned"
         qt_empty_partitioned "select count(*), sum(id) from streaming_partitioned"
         // Separate inserts create enough files to cross several small producer batches.

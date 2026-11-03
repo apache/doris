@@ -124,7 +124,7 @@ Status SniiIndexSource::_cursor(Term& term, bool positions, bool scoring, SniiRe
     }
     *out = std::make_unique<SniiPostingsCursor>(_idx, term.hit.entry, term.hit.frq_base,
                                                 term.hit.prx_base, positions, scoring, norms, wave,
-                                                _prx_stats);
+                                                _prx_stats, &_zstd);
     if (auto prelude = term.prelude.lock()) {
         (*out)->set_prelude(std::move(prelude));
     }

@@ -24,10 +24,100 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <random>
 
 #include "gtest/gtest_pred_impl.h"
 
 namespace doris::simd {
+namespace {
+void fill_filter_inputs(std::vector<uint8_t>& source, std::vector<uint8_t>& filter,
+                        std::vector<uint8_t>& null_map, size_t size, size_t offset, int pattern,
+                        std::mt19937_64& random) {
+    for (size_t i = offset; i < offset + size; ++i) {
+        switch (pattern) {
+        case 0:
+            source[i] = 0;
+            filter[i] = 1;
+            break;
+        case 1:
+            source[i] = 1;
+            filter[i] = 0;
+            break;
+        case 2:
+            source[i] = filter[i] = 1;
+            break;
+        case 3:
+            source[i] = filter[i] = 0xff;
+            break;
+        case 4:
+            source[i] = 0x80;
+            filter[i] = 1;
+            break;
+        case 5:
+            source[i] = i % 2;
+            filter[i] = (i + 1) % 2;
+            break;
+        case 6:
+            source[i] = random() % 2;
+            filter[i] = random() % 2;
+            break;
+        default:
+            source[i] = static_cast<uint8_t>(random());
+            filter[i] = static_cast<uint8_t>(random());
+            break;
+        }
+        null_map[i] = pattern < 3 ? 0 : static_cast<uint8_t>(random() % 3);
+    }
+}
+
+template <bool nullable>
+void check_filter_counts(const std::vector<uint8_t>& source, const std::vector<uint8_t>& filter,
+                         const std::vector<uint8_t>& null_map, size_t size, size_t offset) {
+    auto expected = source;
+    FilterCounts expected_counts;
+    for (size_t i = offset; i < offset + size; ++i) {
+        expected_counts.input_rows += expected[i] != 0;
+        expected[i] &= filter[i];
+        if constexpr (nullable) {
+            expected[i] &= !null_map[i];
+        }
+        expected_counts.output_rows += expected[i] != 0;
+    }
+    auto actual = source;
+    const auto counts = filter_and_count<nullable>(actual.data() + offset, filter.data() + offset,
+                                                   size, null_map.data() + offset);
+    EXPECT_EQ(counts.input_rows, expected_counts.input_rows);
+    EXPECT_EQ(counts.output_rows, expected_counts.output_rows);
+    EXPECT_EQ(actual, expected);
+}
+} // namespace
+
+TEST(BitsTest, FilterAndCount) {
+    std::mt19937_64 random(20261027);
+    for (const size_t size : {0,  1,   7,   15,  16,  17,  31,  32,   33,   63,   64,
+                              65, 127, 128, 129, 255, 256, 257, 1023, 1024, 4093, 4096}) {
+        for (size_t offset = 0; offset < 16; ++offset) {
+            for (int pattern = 0; pattern < 8; ++pattern) {
+                std::vector<uint8_t> source(size + 32, 0xa5);
+                std::vector<uint8_t> filter(size + 32);
+                std::vector<uint8_t> null_map(size + 32);
+                fill_filter_inputs(source, filter, null_map, size, offset, pattern, random);
+                check_filter_counts<false>(source, filter, null_map, size, offset);
+                check_filter_counts<true>(source, filter, null_map, size, offset);
+            }
+        }
+    }
+}
+
+TEST(BitsTest, FilterAndCountEmpty) {
+    const auto counts = filter_and_count(nullptr, nullptr, 0);
+    EXPECT_EQ(counts.input_rows, 0U);
+    EXPECT_EQ(counts.output_rows, 0U);
+    const auto nullable_counts = filter_and_count<true>(nullptr, nullptr, 0, nullptr);
+    EXPECT_EQ(nullable_counts.input_rows, 0U);
+    EXPECT_EQ(nullable_counts.output_rows, 0U);
+}
+
 TEST(BitsTest, ContainsBytesGuardPages) {
     const size_t page_size = sysconf(_SC_PAGESIZE);
     void* mapping = mmap(nullptr, page_size * 3, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);

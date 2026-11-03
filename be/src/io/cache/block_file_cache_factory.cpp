@@ -20,6 +20,7 @@
 
 #include "io/cache/block_file_cache_factory.h"
 
+#include <gen_cpp/internal_service.pb.h>
 #include <glog/logging.h>
 
 #include <string>
@@ -48,6 +49,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
+#include "storage/options.h"
 #include "util/mem_info.h"
 #include "util/slice.h"
 

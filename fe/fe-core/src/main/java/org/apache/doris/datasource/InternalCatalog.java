@@ -76,6 +76,7 @@ import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletBinlogConfig;
 import org.apache.doris.catalog.TabletInvertedIndex;
@@ -2357,7 +2358,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.storagePageSize(), tbl.getTDEAlgorithm(),
                             tbl.storageDictPageSize(),
                             tbl.getColumnSeqMapping(),
-                            tbl.getVerticalCompactionNumColumnsPerGroup());
+                            tbl.getVerticalCompactionNumColumnsPerGroup(),
+                            tbl.getRowTtlConfig(),
+                            tbl.getRowTtlTimeZoneOffsetSeconds());
                     if (isChangelogIndex) {
                         // BE locates the companion changelog tablet via base_tablet_id and writes it to the same disk.
                         task.setTabletRole(TTabletRole.TABLET_ROLE_CHANGELOG);
@@ -2626,6 +2629,22 @@ public class InternalCatalog implements CatalogIf<Database> {
         // set base index info to table
         // this should be done before create partition.
         Map<String, String> properties = createTableInfo.getProperties();
+        String ttlColProperty = PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                + PropertyAnalyzer.PROPERTIES_TTL_COL;
+        String ttlProperty = PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                + PropertyAnalyzer.PROPERTIES_TTL;
+        String ttlTimeZoneProperty = PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                + PropertyAnalyzer.PROPERTIES_TTL_TIME_ZONE;
+        Map<String, String> rowTtlProperties = new HashMap<>();
+        for (String property : List.of(PropertyAnalyzer.PROPERTIES_ENABLE_ROW_TTL,
+                ttlColProperty, ttlProperty, ttlTimeZoneProperty)) {
+            if (properties.containsKey(property)) {
+                rowTtlProperties.put(property, properties.remove(property));
+            }
+        }
+        if (!rowTtlProperties.isEmpty()) {
+            olapTable.setTableProperty(new TableProperty(rowTtlProperties));
+        }
 
         if (createTableInfo.isTemp()) {
             properties.put("binlog.enable", "false");
@@ -3786,7 +3805,6 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         Database db = getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
-
         if (olapTable instanceof MTMV && !MTMVUtil.allowModifyMTMVData(ConnectContext.get())) {
             throw new DdlException("Not allowed to perform current operation on async materialized view");
         }

@@ -80,6 +80,10 @@ using collection_statistics_detail::sum_non_null_norm_lengths;
 using collection_statistics_detail::resolve_snii_scoring_segment;
 using collection_statistics_detail::SniiScoringSegmentStats;
 
+// Where a MATCH on the field of column 1 keeps the statistics of index 1 and of index 2.
+const std::wstring kMatchField = segment_v2::match_statistics_field(L"1", 1);
+const std::wstring kMatchField2 = segment_v2::match_statistics_field(L"1", 2);
+
 namespace collection_statistics {
 
 class MockVExpr : public VExpr {
@@ -857,7 +861,7 @@ TEST_F(CollectionStatisticsTest, CollectWithMockRowsetSplits) {
             stats_->collect(runtime_state_.get(), splits, tablet_schema, expr_contexts, nullptr);
 
     EXPECT_TRUE(status.ok()) << status;
-    expect_no_collected_tokens(L"1");
+    expect_no_collected_tokens(kMatchField);
 }
 
 TEST_F(CollectionStatisticsTest, CollectWithEmptySegments) {
@@ -913,8 +917,8 @@ TEST_F(CollectionStatisticsTest, LegacyV3SegmentsUsePhysicalScoringStatistics) {
                                   create_match_expr_contexts("alpha"), nullptr);
 
     ASSERT_TRUE(status.ok()) << status;
-    expect_collected_stats(L"1", 2, 4);
-    expect_collected_term(L"1", L"alpha", 2);
+    expect_collected_stats(kMatchField, 2, 4);
+    expect_collected_term(kMatchField, L"alpha", 2);
 }
 
 TEST_F(CollectionStatisticsTest, MissingFieldIndexPreservesOtherFieldStatistics) {
@@ -1013,11 +1017,11 @@ TEST_F(CollectionStatisticsTest, HiddenRowsAreCollectedLikeCompactedAway) {
                               create_match_expr_contexts("alpha gamma"), nullptr, &hidden);
         EXPECT_TRUE(status.ok()) << status;
         return {.doc_count = stats.get_doc_num(),
-                .token_count = stats.get_total_term_cnt_by_col(L"1"),
-                .alpha_doc_frequency = stats.get_term_doc_freq_by_col(L"1", L"alpha"),
-                .gamma_doc_frequency = stats.get_term_doc_freq_by_col(L"1", L"gamma"),
-                .avg_dl = stats.get_or_calculate_avg_dl(L"1"),
-                .alpha_idf = stats.get_or_calculate_idf(L"1", L"alpha")};
+                .token_count = stats.get_total_term_cnt_by_col(kMatchField),
+                .alpha_doc_frequency = stats.get_term_doc_freq_by_col(kMatchField, L"alpha"),
+                .gamma_doc_frequency = stats.get_term_doc_freq_by_col(kMatchField, L"gamma"),
+                .avg_dl = stats.get_or_calculate_avg_dl(kMatchField),
+                .alpha_idf = stats.get_or_calculate_idf(kMatchField, L"alpha")};
     };
 
     const Collected uncompacted = collect(uncompacted_path, {1});
@@ -1043,8 +1047,8 @@ TEST_F(CollectionStatisticsTest, HiddenRowsAreCollectedLikeCompactedAway) {
     ASSERT_TRUE(stats_->collect(runtime_state_.get(), splits, tablet_schema,
                                 create_match_expr_contexts("alpha gamma"), nullptr)
                         .ok());
-    expect_collected_stats(L"1", 3, 50);
-    expect_collected_term(L"1", L"alpha", 2);
+    expect_collected_stats(kMatchField, 3, 50);
+    expect_collected_term(kMatchField, L"alpha", 2);
 }
 
 // A tablet whose rows were all deleted or overwritten still has segments to collect from, but no
@@ -1073,9 +1077,9 @@ TEST_F(CollectionStatisticsTest, AllRowsHiddenCollectsEmptyStatistics) {
                                           create_match_expr_contexts("alpha"), nullptr, &hidden);
     ASSERT_TRUE(status.ok()) << status;
     EXPECT_EQ(stats_->get_doc_num(), 0);
-    expect_collected_term(L"1", L"alpha", 0);
-    EXPECT_TRUE(std::isfinite(stats_->get_or_calculate_avg_dl(L"1")));
-    EXPECT_TRUE(std::isfinite(stats_->get_or_calculate_idf(L"1", L"alpha")));
+    expect_collected_term(kMatchField, L"alpha", 0);
+    EXPECT_TRUE(std::isfinite(stats_->get_or_calculate_avg_dl(kMatchField)));
+    EXPECT_TRUE(std::isfinite(stats_->get_or_calculate_idf(kMatchField, L"alpha")));
 
     // Without any collected segment the statistics are still reported missing.
     CollectionStatistics nothing_collected;
@@ -1102,7 +1106,7 @@ TEST_F(CollectionStatisticsTest, NullRowsCountAsDocumentsWithoutTokens) {
         const Status status = stats.collect(runtime_state_.get(), splits, tablet_schema,
                                             create_match_expr_contexts("alpha"), nullptr, hidden);
         EXPECT_TRUE(status.ok()) << status;
-        return std::make_pair(stats.get_doc_num(), stats.get_total_term_cnt_by_col(L"1"));
+        return std::make_pair(stats.get_doc_num(), stats.get_total_term_cnt_by_col(kMatchField));
     };
 
     const auto without_bitmap = collect(nullptr);
@@ -1354,8 +1358,8 @@ TEST_F(CollectionStatisticsTest, LegacyV3SkipsMissingSegmentAfterCollectingAvail
                                   create_match_expr_contexts("alpha"), nullptr);
 
     ASSERT_TRUE(status.ok()) << status;
-    expect_collected_stats(L"1", 1, 2);
-    expect_collected_term(L"1", L"alpha", 1);
+    expect_collected_stats(kMatchField, 1, 2);
+    expect_collected_term(kMatchField, L"alpha", 1);
 }
 
 TEST_F(CollectionStatisticsTest, LegacyV3SkipsEmptySegmentAfterCollectingAvailableStatistics) {
@@ -1387,8 +1391,8 @@ TEST_F(CollectionStatisticsTest, LegacyV3SkipsEmptySegmentAfterCollectingAvailab
                                           create_match_expr_contexts("alpha"), nullptr);
 
     ASSERT_TRUE(status.ok()) << status;
-    expect_collected_stats(L"1", 1, 2);
-    expect_collected_term(L"1", L"alpha", 1);
+    expect_collected_stats(kMatchField, 1, 2);
+    expect_collected_term(kMatchField, L"alpha", 1);
 }
 
 // BM25 needs norms from every segment of an analyzed index: a segment written without them makes
@@ -1419,11 +1423,11 @@ TEST_F(CollectionStatisticsTest, LegacyV3RejectsSegmentWrittenWithoutNorms) {
     Status status = collect({without_norms_path});
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED) << status;
     EXPECT_NE(status.to_string().find("written without norms"), std::string::npos) << status;
-    expect_no_collected_tokens(L"1");
+    expect_no_collected_tokens(kMatchField);
 
     status = collect({with_norms_path, without_norms_path});
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED) << status;
-    expect_no_collected_tokens(L"1");
+    expect_no_collected_tokens(kMatchField);
 }
 
 TEST_F(CollectionStatisticsTest, LegacyV3KeywordIndexWithoutNormsCollectsScoring) {
@@ -1486,8 +1490,8 @@ TEST_F(CollectionStatisticsTest, SniiScoringUsesPhysicalStatistics) {
             stats_->collect(runtime_state_.get(), splits, tablet_schema, expr_contexts, nullptr);
 
     ASSERT_TRUE(status.ok()) << status;
-    expect_collected_stats(L"1", 2, 3);
-    expect_collected_term(L"1", L"alpha", 2);
+    expect_collected_stats(kMatchField, 2, 3);
+    expect_collected_term(kMatchField, L"alpha", 2);
 }
 
 TEST_F(CollectionStatisticsTest, SniiDocsOnlyNormalizerStillCollectsScoringStatistics) {
@@ -1507,8 +1511,8 @@ TEST_F(CollectionStatisticsTest, SniiDocsOnlyNormalizerStillCollectsScoringStati
                                   create_match_expr_contexts("alpha"), nullptr);
 
     ASSERT_TRUE(status.ok()) << status;
-    expect_collected_stats(L"1", 2, 2);
-    expect_collected_term(L"1", L"alpha", 2);
+    expect_collected_stats(kMatchField, 2, 2);
+    expect_collected_term(kMatchField, L"alpha", 2);
 }
 
 TEST_F(CollectionStatisticsTest, SniiScoringLookupUsesCallerIoContext) {
@@ -1619,7 +1623,70 @@ TEST_F(CollectionStatisticsTest, SniiScoringRejectsMissingLogicalIndexForWholeCo
             stats_->collect(runtime_state_.get(), splits, tablet_schema, expr_contexts, nullptr);
 
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
-    expect_no_collected_tokens(L"1");
+    expect_no_collected_tokens(kMatchField2);
+}
+
+// A VARIANT path can be absent from a segment, as in {"a": 1} next to {"host": "x"}. Unlike the
+// plain index above, whose absence means it was not built, the segment just adds no statistics.
+TEST_F(CollectionStatisticsTest, SniiScoringSkipsVariantPathMissingFromSegment) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(DUP_KEYS);
+    schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::SNII);
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->init_from_pb(schema_pb);
+
+    constexpr int32_t kVariantUid = 9002;
+    TabletColumn variant_col;
+    variant_col.set_unique_id(kVariantUid);
+    variant_col.set_name("v");
+    variant_col.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    tablet_schema->append_column(variant_col);
+
+    TabletColumn sub_col;
+    sub_col.set_unique_id(-1);
+    sub_col.set_name("v.host");
+    sub_col.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    sub_col.set_parent_unique_id(kVariantUid);
+    sub_col.set_path_info(PathInData("v.host"));
+    tablet_schema->append_column(sub_col);
+
+    TabletIndexPB index_pb;
+    index_pb.set_index_id(2002);
+    index_pb.set_index_name("variant_subcolumn_idx");
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.add_col_unique_id(kVariantUid);
+    (*index_pb.mutable_properties())["parser"] = "standard";
+    (*index_pb.mutable_properties())["support_phrase"] = "true";
+    TabletIndex sub_index;
+    sub_index.init_from_pb(index_pb);
+    sub_index.set_escaped_escaped_index_suffix_path(sub_col.suffix_path());
+    tablet_schema->append_index(std::move(sub_index));
+
+    constexpr int kSlotId = 43;
+    runtime_state_->_mock_desc_tbl->add_slot_descriptor(SlotId(kSlotId), kVariantUid);
+    auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+    match_expr->_children.push_back(
+            std::make_shared<collection_statistics::MockVSlotRef>("v.host", SlotId(kSlotId)));
+    match_expr->_children.push_back(std::make_shared<collection_statistics::MockVLiteral>("alpha"));
+    VExprContextSPtrs expr_contexts {std::make_shared<VExprContext>(match_expr)};
+
+    // The segment holds another logical index only.
+    const std::string segment_path = test_dir_ + "/snii_missing_variant_path_0.dat";
+    auto write_status = write_snii_scoring_segment(segment_path);
+    ASSERT_TRUE(write_status.ok()) << write_status;
+    auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+    auto rowset = std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
+    rowset->set_num_segments(1);
+    rowset->set_segment_path(0, segment_path);
+    auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
+    std::vector<RowSetSplits> splits {RowSetSplits(reader)};
+
+    auto status =
+            stats_->collect(runtime_state_.get(), splits, tablet_schema, expr_contexts, nullptr);
+
+    ASSERT_TRUE(status.ok()) << status.msg();
+    expect_no_collected_tokens(segment_v2::inverted_index::StringHelper::to_wstring(
+            std::to_string(kVariantUid) + ".v.host"));
 }
 
 TEST_F(CollectionStatisticsTest, CollectWithMultipleRowsetSplits) {
@@ -2022,8 +2089,10 @@ TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantSubcolumnIndex) {
                                                &collect_infos);
     ASSERT_TRUE(status.ok()) << status.msg();
     ASSERT_EQ(collect_infos.size(), 1u);
-    auto it = collect_infos.find(segment_v2::inverted_index::StringHelper::to_wstring(
-            std::to_string(kVariantUid) + ".v.host"));
+    auto it = collect_infos.find(segment_v2::match_statistics_field(
+            segment_v2::inverted_index::StringHelper::to_wstring(std::to_string(kVariantUid) +
+                                                                 ".v.host"),
+            2001));
     ASSERT_NE(it, collect_infos.end());
     ASSERT_NE(it->second.index_meta, nullptr);
     EXPECT_EQ(it->second.index_meta->index_name(), "variant_subcolumn_idx");
@@ -2092,8 +2161,10 @@ TEST_F(CollectionStatisticsTest, MatchScoringUsesTextSemanticsForVariantParentIn
                                                &collect_infos);
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_EQ(collect_infos.size(), 1U);
-    auto it = collect_infos.find(segment_v2::inverted_index::StringHelper::to_wstring(
-            std::to_string(kVariantUid) + ".v.key"));
+    auto it = collect_infos.find(segment_v2::match_statistics_field(
+            segment_v2::inverted_index::StringHelper::to_wstring(std::to_string(kVariantUid) +
+                                                                 ".v.key"),
+            2004));
     ASSERT_NE(it, collect_infos.end());
     ASSERT_NE(it->second.index_meta, nullptr);
     ASSERT_NE(it->second.owned_index_meta, nullptr);
@@ -2178,8 +2249,10 @@ TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantFieldPatternIndex) 
                                                &collect_infos);
     ASSERT_TRUE(status.ok()) << status.msg();
     ASSERT_EQ(collect_infos.size(), 1u);
-    auto it = collect_infos.find(segment_v2::inverted_index::StringHelper::to_wstring(
-            std::to_string(kVariantUid) + ".meta.host"));
+    auto it = collect_infos.find(segment_v2::match_statistics_field(
+            segment_v2::inverted_index::StringHelper::to_wstring(std::to_string(kVariantUid) +
+                                                                 ".meta.host"),
+            2002));
     ASSERT_NE(it, collect_infos.end());
     ASSERT_NE(it->second.index_meta, nullptr);
     ASSERT_NE(it->second.owned_index_meta, nullptr);
@@ -2255,8 +2328,10 @@ TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantFieldPatternGlobInd
                                                &collect_infos);
     ASSERT_TRUE(status.ok()) << status.msg();
     ASSERT_EQ(collect_infos.size(), 1u);
-    auto it = collect_infos.find(segment_v2::inverted_index::StringHelper::to_wstring(
-            std::to_string(kVariantUid) + ".meta.user.name"));
+    auto it = collect_infos.find(segment_v2::match_statistics_field(
+            segment_v2::inverted_index::StringHelper::to_wstring(std::to_string(kVariantUid) +
+                                                                 ".meta.user.name"),
+            2003));
     ASSERT_NE(it, collect_infos.end());
     ASSERT_NE(it->second.index_meta, nullptr);
     ASSERT_NE(it->second.owned_index_meta, nullptr);
@@ -2386,8 +2461,8 @@ TEST_F(CollectionStatisticsTest, CollectDirectIndexHitFromSchema) {
             collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
     ASSERT_TRUE(status.ok()) << status.msg();
     ASSERT_EQ(collect_infos.size(), 1u);
-    auto it = collect_infos.find(
-            segment_v2::inverted_index::StringHelper::to_wstring(std::to_string(kColUid)));
+    auto it = collect_infos.find(segment_v2::match_statistics_field(
+            segment_v2::inverted_index::StringHelper::to_wstring(std::to_string(kColUid)), 2100));
     ASSERT_NE(it, collect_infos.end());
     EXPECT_NE(it->second.index_meta, nullptr);
     EXPECT_EQ(it->second.owned_index_meta, nullptr); // O1: schema-direct meta is not owned
@@ -2426,10 +2501,9 @@ TEST_F(CollectionStatisticsTest, CollectNotExtractedColumnSkipsFallback) {
     EXPECT_TRUE(collect_infos.empty());
 }
 
-// L1: Index whose properties do not request an analyzer
-// (should_analyzer returns false). The matching index_meta is iterated
-// but skipped before insertion.
-TEST_F(CollectionStatisticsTest, CollectSkipsIndexWithoutAnalyzer) {
+// L1: Index whose properties do not request an analyzer (should_analyzer returns false). A keyword
+// MATCH scores like SEARCH on the same field, so its whole value is collected as one term.
+TEST_F(CollectionStatisticsTest, CollectsKeywordIndexValueAsOneTerm) {
     auto tablet_schema = std::make_shared<TabletSchema>();
 
     constexpr int32_t kColUid = 1300;
@@ -2456,7 +2530,7 @@ TEST_F(CollectionStatisticsTest, CollectSkipsIndexWithoutAnalyzer) {
 
     auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
     auto slot_ref = std::make_shared<collection_statistics::MockVSlotRef>("kw", SlotId(kSlotId));
-    auto literal = std::make_shared<collection_statistics::MockVLiteral>("v");
+    auto literal = std::make_shared<collection_statistics::MockVLiteral>("Hello World");
     match_expr->_children.push_back(slot_ref);
     match_expr->_children.push_back(literal);
     auto analyzer_ctx = std::make_shared<InvertedIndexAnalyzerCtx>();
@@ -2464,12 +2538,118 @@ TEST_F(CollectionStatisticsTest, CollectSkipsIndexWithoutAnalyzer) {
     analyzer_ctx->parser_type = InvertedIndexParserType::PARSER_NONE;
     match_expr->set_analyzer_ctx(std::move(analyzer_ctx));
 
-    MatchPredicateCollector collector;
-    std::unordered_map<std::wstring, CollectInfo> collect_infos;
-    auto status =
-            collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
-    ASSERT_TRUE(status.ok()) << status.msg();
-    EXPECT_TRUE(collect_infos.empty());
+    for (auto op : {TExprOpcode::MATCH_ANY, TExprOpcode::MATCH_ALL, TExprOpcode::MATCH_PHRASE}) {
+        SCOPED_TRACE(op);
+        match_expr->set_opcode(op);
+        MatchPredicateCollector collector;
+        std::unordered_map<std::wstring, CollectInfo> collect_infos;
+        auto status =
+                collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
+        ASSERT_TRUE(status.ok()) << status.msg();
+        ASSERT_EQ(collect_infos.size(), 1U);
+        const auto& collect_info = collect_infos.begin()->second;
+        ASSERT_NE(collect_info.index_meta, nullptr);
+        EXPECT_EQ(collect_info.index_meta->index_id(), 2300);
+        EXPECT_EQ(collect_info.unique_terms, std::vector<std::string>({"Hello World"}));
+        ASSERT_EQ(collect_info.logical_scoring_leaves.size(), 1U);
+        EXPECT_EQ(collect_info.logical_scoring_leaves[0].clauses.size(), 1U);
+    }
+}
+
+// A keyword MATCH_PHRASE reads a trailing " ~N" or " ~N+" as its slop and looks up the rest, so the
+// statistics must be collected for that term too; any other MATCH looks up the whole value.
+TEST_F(CollectionStatisticsTest, KeywordPhraseCollectsTermWithoutSlop) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+
+    constexpr int32_t kColUid = 1301;
+    TabletColumn col;
+    col.set_unique_id(kColUid);
+    col.set_name("kw");
+    col.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    tablet_schema->append_column(col);
+
+    TabletIndexPB index_pb;
+    index_pb.set_index_id(2301);
+    index_pb.set_index_name("kw_idx");
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.add_col_unique_id(kColUid);
+    TabletIndex index;
+    index.init_from_pb(index_pb);
+    tablet_schema->append_index(std::move(index));
+
+    constexpr int kSlotId = 81;
+    runtime_state_->_mock_desc_tbl->add_slot_descriptor(SlotId(kSlotId), kColUid, "kw", {});
+
+    struct Case {
+        TExprOpcode::type op;
+        std::string value;
+        std::string term;
+    };
+    for (const auto& c : {Case {TExprOpcode::MATCH_PHRASE, "Hello World ~1", "Hello World"},
+                          Case {TExprOpcode::MATCH_PHRASE, "Hello World ~2+", "Hello World"},
+                          Case {TExprOpcode::MATCH_ANY, "Hello World ~1", "Hello World ~1"}}) {
+        SCOPED_TRACE(c.value);
+        auto match_expr =
+                std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+        match_expr->_children.push_back(
+                std::make_shared<collection_statistics::MockVSlotRef>("kw", SlotId(kSlotId)));
+        match_expr->_children.push_back(
+                std::make_shared<collection_statistics::MockVLiteral>(c.value));
+        auto analyzer_ctx = std::make_shared<InvertedIndexAnalyzerCtx>();
+        analyzer_ctx->parser_type = InvertedIndexParserType::PARSER_NONE;
+        match_expr->set_analyzer_ctx(std::move(analyzer_ctx));
+        match_expr->set_opcode(c.op);
+
+        MatchPredicateCollector collector;
+        std::unordered_map<std::wstring, CollectInfo> collect_infos;
+        auto status =
+                collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
+        ASSERT_TRUE(status.ok()) << status.msg();
+        ASSERT_EQ(collect_infos.size(), 1U);
+        EXPECT_EQ(collect_infos.begin()->second.unique_terms, std::vector<std::string>({c.term}));
+    }
+}
+
+// CAST(n AS STRING) MATCH '1' on an INT column runs as a scalar filter. The index selected for n is
+// a BKD index without terms, so the predicate collects nothing instead of opening it as text.
+TEST_F(CollectionStatisticsTest, MatchOnNumericColumnCollectsNothing) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+
+    constexpr int32_t kColUid = 1302;
+    TabletColumn col;
+    col.set_unique_id(kColUid);
+    col.set_name("n");
+    col.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    tablet_schema->append_column(col);
+
+    TabletIndexPB index_pb;
+    index_pb.set_index_id(2302);
+    index_pb.set_index_name("n_idx");
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.add_col_unique_id(kColUid);
+    TabletIndex index;
+    index.init_from_pb(index_pb);
+    tablet_schema->append_index(std::move(index));
+
+    constexpr int kSlotId = 82;
+    runtime_state_->_mock_desc_tbl->add_slot_descriptor(SlotId(kSlotId), kColUid, "n", {});
+
+    auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+    match_expr->_children.push_back(
+            std::make_shared<collection_statistics::MockVSlotRef>("n", SlotId(kSlotId)));
+    match_expr->_children.push_back(std::make_shared<collection_statistics::MockVLiteral>("1"));
+    match_expr->set_analyzer_ctx(std::make_shared<InvertedIndexAnalyzerCtx>());
+
+    for (auto op : {TExprOpcode::MATCH_ANY, TExprOpcode::MATCH_ALL, TExprOpcode::MATCH_PHRASE}) {
+        SCOPED_TRACE(op);
+        match_expr->set_opcode(op);
+        MatchPredicateCollector collector;
+        std::unordered_map<std::wstring, CollectInfo> collect_infos;
+        auto status =
+                collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
+        ASSERT_TRUE(status.ok()) << status.msg();
+        EXPECT_TRUE(collect_infos.empty());
+    }
 }
 
 TEST_F(CollectionStatisticsTest, ExplicitNoneDoesNotSelectNormalizerIndexForScoring) {
@@ -2559,6 +2739,52 @@ TEST_F(CollectionStatisticsTest, CollectSkipsIndexWithoutSimilarityScore) {
     EXPECT_TRUE(collect_infos.empty());
 }
 
+// A regexp scores a constant, so it collects no statistics even on an index whose MATCH_ANY does:
+// analyzing its pattern 'ap.*' would register the made-up term "ap".
+TEST_F(CollectionStatisticsTest, RegexpCollectsNoStatistics) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+
+    constexpr int32_t kColUid = 1360;
+    TabletColumn col;
+    col.set_unique_id(kColUid);
+    col.set_name("body");
+    col.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    tablet_schema->append_column(col);
+
+    TabletIndexPB index_pb;
+    index_pb.set_index_id(2360);
+    index_pb.set_index_name("body_idx");
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.add_col_unique_id(kColUid);
+    (*index_pb.mutable_properties())["parser"] = "english";
+    (*index_pb.mutable_properties())["support_phrase"] = "true";
+    TabletIndex index;
+    index.init_from_pb(index_pb);
+    tablet_schema->append_index(std::move(index));
+
+    constexpr int kSlotId = 86;
+    runtime_state_->_mock_desc_tbl->add_slot_descriptor(SlotId(kSlotId), kColUid, "body", {});
+
+    auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+    match_expr->_children.push_back(
+            std::make_shared<collection_statistics::MockVSlotRef>("body", SlotId(kSlotId)));
+    match_expr->_children.push_back(std::make_shared<collection_statistics::MockVLiteral>("ap.*"));
+
+    MatchPredicateCollector collector;
+    std::unordered_map<std::wstring, CollectInfo> collect_infos;
+    match_expr->set_opcode(TExprOpcode::MATCH_ANY);
+    auto status =
+            collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
+    ASSERT_TRUE(status.ok()) << status.msg();
+    EXPECT_EQ(collect_infos.size(), 1U);
+
+    collect_infos.clear();
+    match_expr->set_opcode(TExprOpcode::MATCH_REGEXP);
+    status = collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
+    ASSERT_TRUE(status.ok()) << status.msg();
+    EXPECT_TRUE(collect_infos.empty());
+}
+
 TEST_F(CollectionStatisticsTest, CollectPreservesLogicalClauseShapesForSameFieldName) {
     auto tablet_schema = std::make_shared<TabletSchema>();
 
@@ -2602,8 +2828,8 @@ TEST_F(CollectionStatisticsTest, CollectPreservesLogicalClauseShapesForSameField
                                     build_match("alpha alpha beta"), &collect_infos);
     ASSERT_TRUE(second.ok()) << second.msg();
     ASSERT_EQ(collect_infos.size(), 1u);
-    auto it = collect_infos.find(
-            segment_v2::inverted_index::StringHelper::to_wstring(std::to_string(kColUid)));
+    auto it = collect_infos.find(segment_v2::match_statistics_field(
+            segment_v2::inverted_index::StringHelper::to_wstring(std::to_string(kColUid)), 2400));
     ASSERT_NE(it, collect_infos.end());
     ASSERT_EQ(it->second.unique_terms, std::vector<std::string>({"alpha", "beta"}));
     ASSERT_EQ(it->second.unique_term_slots.size(), 2u);
@@ -3229,7 +3455,8 @@ TEST_F(CollectionStatisticsTest, NestedSearchScoringIsRejected) {
     EXPECT_TRUE(collect_infos.empty());
 }
 
-TEST_F(CollectionStatisticsTest, OneScoringFieldCannotSelectDifferentPhysicalIndexes) {
+// Two indexes of one column hold different terms and lengths, so each keeps its own statistics.
+TEST_F(CollectionStatisticsTest, OneColumnKeepsTheStatisticsOfEachSelectedIndex) {
     auto tablet_schema = create_tablet_schema_with_two_fulltext_indexes();
     auto build_match = [](const std::string& analyzer_name, InvertedIndexParserType parser_type) {
         auto match_expr =
@@ -3264,7 +3491,15 @@ TEST_F(CollectionStatisticsTest, OneScoringFieldCannotSelectDifferentPhysicalInd
                                     build_match("english", InvertedIndexParserType::PARSER_ENGLISH),
                                     &collect_infos);
 
-    EXPECT_EQ(second.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
+    ASSERT_TRUE(second.ok()) << second.msg();
+
+    ASSERT_EQ(collect_infos.size(), 2U);
+    for (const auto& [field, collect_info] : collect_infos) {
+        EXPECT_EQ(collect_info.lucene_field, L"1");
+        ASSERT_NE(collect_info.index_meta, nullptr);
+        EXPECT_EQ(field,
+                  segment_v2::match_statistics_field(L"1", collect_info.index_meta->index_id()));
+    }
 }
 
 // Test-only subclass that exposes the protected helpers of PredicateCollector.

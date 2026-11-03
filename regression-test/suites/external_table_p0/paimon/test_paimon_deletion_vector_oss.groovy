@@ -55,7 +55,7 @@ suite("test_paimon_deletion_vector_oss", "p0,external") {
 
         def test_explain_verbose = {
             explain {
-                sql ("select * from deletion_vector_orc;")
+                sql ("select /*+ SET_VAR(enable_external_table_batch_mode=false) */ * from deletion_vector_orc;")
                 verbose (true)
                 contains "deleteFileNum"
             }

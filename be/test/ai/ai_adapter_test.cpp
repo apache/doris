@@ -1573,4 +1573,432 @@ TEST(AI_ADAPTER_TEST, gemini_parse_batch_embedding_response) {
     ASSERT_FLOAT_EQ(results[1][1], 0.5F);
 }
 
+TEST(AI_ADAPTER_TEST, batch_protocol_is_fixed_by_adapter_type) {
+    OpenAIAdapter openai;
+    DeepSeekAdapter deepseek;
+    MoonShotAdapter moonshot;
+    MinimaxAdapter minimax;
+    ZhipuAdapter zhipu;
+    QwenAdapter qwen;
+    BaichuanAdapter baichuan;
+    GeminiAdapter gemini;
+    AnthropicAdapter anthropic;
+    const AIAdapter* structured_adapters[] = {&openai, &deepseek, &moonshot, &minimax,  &zhipu,
+                                              &qwen,   &baichuan, &gemini,   &anthropic};
+    for (const auto* adapter : structured_adapters) {
+        EXPECT_TRUE(adapter->supports_structured_batch());
+    }
+    LocalAdapter local;
+    VoyageAIAdapter voyage;
+    EXPECT_FALSE(local.supports_structured_batch());
+    EXPECT_FALSE(voyage.supports_structured_batch());
+}
+
+TEST(AI_ADAPTER_TEST, structured_batch_results) {
+    OpenAIAdapter adapter;
+    TAIResource config;
+    config.provider_type = "OPENAI";
+    config.endpoint = "https://example.com/v1/chat/completions";
+    adapter.init(config);
+    std::vector<std::string> results;
+    ASSERT_TRUE(
+            adapter.parse_batch_response(
+                           R"({"choices":[{"message":{"content":"{\"results\":[\"hello\",\"bye\"]}"}}]})",
+                           results)
+                    .ok());
+    EXPECT_EQ(results, (std::vector<std::string> {"hello", "bye"}));
+}
+
+TEST(AI_ADAPTER_TEST, structured_batch_requests) {
+    const std::vector<std::string> inputs = {
+            R"([{"idx":0,"input":"Hello."},{"idx":1,"input":"Goodbye."}])"};
+    rapidjson::Document expected_schema;
+    expected_schema.Parse(
+            R"({"type":"object","properties":{"results":{"type":"array","items":{"type":"string"}}},"required":["results"],"additionalProperties":false})");
+    for (int api = 0; api < 4; ++api) {
+        std::unique_ptr<AIAdapter> adapter;
+        if (api < 2) {
+            adapter = std::make_unique<OpenAIAdapter>();
+        } else if (api == 2) {
+            adapter = std::make_unique<GeminiAdapter>();
+        } else {
+            adapter = std::make_unique<AnthropicAdapter>();
+        }
+        TAIResource config;
+        config.provider_type = api < 2 ? "OPENAI" : (api == 2 ? "GEMINI" : "ANTHROPIC");
+        config.endpoint = api == 1 ? "https://example.com/v1/responses"
+                                   : "https://example.com/v1/chat/completions";
+        config.model_name = "test-model";
+        config.effort = "high";
+        adapter->init(config);
+        // Repeated requests must not consume or mutate the shared format template.
+        for (int request = 0; request < 2; ++request) {
+            std::string body;
+            ASSERT_TRUE(adapter->build_request_payload(
+                                       inputs, FunctionAISummarize::batch_system_prompt(true), body,
+                                       true)
+                                .ok());
+            rapidjson::Document doc;
+            doc.Parse(body.c_str());
+            ASSERT_FALSE(doc.HasParseError());
+            const rapidjson::Value* format = nullptr;
+            const char* sent_prompt = nullptr;
+            if (api == 0) {
+                ASSERT_TRUE(doc.HasMember("response_format"));
+                EXPECT_STREQ(doc["response_format"]["type"].GetString(), "json_schema");
+                format = &doc["response_format"]["json_schema"];
+                sent_prompt = doc["messages"][0]["content"].GetString();
+                EXPECT_STREQ(doc["messages"][1]["content"].GetString(), inputs[0].c_str());
+                EXPECT_STREQ(doc["reasoning_effort"].GetString(), "high");
+            } else if (api == 1) {
+                ASSERT_TRUE(doc.HasMember("text"));
+                format = &doc["text"]["format"];
+                sent_prompt = doc["input"][0]["content"].GetString();
+                EXPECT_STREQ(doc["input"][1]["content"].GetString(), inputs[0].c_str());
+                EXPECT_STREQ(doc["reasoning"]["effort"].GetString(), "high");
+            } else if (api == 2) {
+                ASSERT_TRUE(doc["generationConfig"].HasMember("responseFormat"));
+                format = &doc["generationConfig"]["responseFormat"]["text"];
+                sent_prompt = doc["systemInstruction"]["parts"][0]["text"].GetString();
+                EXPECT_STREQ((*format)["mimeType"].GetString(), "APPLICATION_JSON");
+                EXPECT_STREQ(doc["contents"][0]["parts"][0]["text"].GetString(), inputs[0].c_str());
+                EXPECT_STREQ(doc["generationConfig"]["thinkingConfig"]["thinkingLevel"].GetString(),
+                             "high");
+            } else {
+                ASSERT_TRUE(doc.HasMember("output_config"));
+                format = &doc["output_config"]["format"];
+                sent_prompt = doc["system"].GetString();
+                EXPECT_STREQ(doc["messages"][0]["content"].GetString(), inputs[0].c_str());
+                EXPECT_STREQ(doc["output_config"]["effort"].GetString(), "high");
+            }
+            EXPECT_STREQ(sent_prompt, FunctionAISummarize::batch_system_prompt(true));
+            ASSERT_TRUE(format->HasMember("schema"));
+            EXPECT_EQ((*format)["schema"], expected_schema);
+            if (api < 2) {
+                EXPECT_TRUE((*format)["strict"].GetBool());
+            }
+        }
+        if (api == 3) {
+            // Without effort, the serializer must create output_config for the format itself.
+            config.effort.clear();
+            adapter->init(config);
+            std::string body;
+            ASSERT_TRUE(adapter->build_request_payload(
+                                       inputs, FunctionAISummarize::batch_system_prompt(true), body,
+                                       true)
+                                .ok());
+            rapidjson::Document doc;
+            doc.Parse(body.c_str());
+            ASSERT_FALSE(doc.HasParseError());
+            ASSERT_TRUE(doc.HasMember("output_config"));
+            EXPECT_FALSE(doc["output_config"].HasMember("effort"));
+            EXPECT_EQ(doc["output_config"]["format"]["schema"], expected_schema);
+        }
+        // AI_AGG uses the non-batch entry point and must not acquire an output schema.
+        std::string body;
+        ASSERT_TRUE(adapter->build_request_payload(inputs, "Summarize the input.", body).ok());
+        EXPECT_EQ(body.find("json_schema"), std::string::npos);
+        EXPECT_EQ(body.find("responseFormat"), std::string::npos);
+    }
+}
+
+TEST(AI_ADAPTER_TEST, structured_batch_response_validation) {
+    for (int api = 0; api < 4; ++api) {
+        std::unique_ptr<AIAdapter> adapter;
+        if (api < 2) {
+            adapter = std::make_unique<OpenAIAdapter>();
+        } else if (api == 2) {
+            adapter = std::make_unique<GeminiAdapter>();
+        } else {
+            adapter = std::make_unique<AnthropicAdapter>();
+        }
+        TAIResource config;
+        config.provider_type = api < 2 ? "OPENAI" : (api == 2 ? "GEMINI" : "ANTHROPIC");
+        config.endpoint = api == 1 ? "https://example.com/v1/responses"
+                                   : "https://example.com/v1/chat/completions";
+        adapter->init(config);
+        auto envelope = [api](const std::string& text) {
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            writer.String(text.data(), text.size());
+            std::string encoded(buffer.GetString(), buffer.GetSize());
+            switch (api) {
+            case 0:
+                return std::string(R"({"choices":[{"message":{"content":)") + encoded + "}}]}";
+            case 1:
+                return std::string(
+                               R"({"status":"completed","output":[{"type":"reasoning","summary":[]},{"type":"message","content":[{"type":"output_text","text":)") +
+                       encoded + "}]}]}";
+            case 2:
+                return std::string(R"({"candidates":[{"content":{"parts":[{"text":)") + encoded +
+                       "}]}}]}";
+            default:
+                return std::string(R"({"content":[{"type":"text","text":)") + encoded +
+                       "}],\"stop_reason\":\"end_turn\"}";
+            }
+        };
+        std::vector<std::string> results;
+        const std::string text = R"({"results":["hello\nworld","bye\u0000!"]})";
+        ASSERT_TRUE(adapter->parse_batch_response(envelope(text), results).ok());
+        EXPECT_EQ(results, (std::vector<std::string> {"hello\nworld", std::string("bye\0!", 5)}));
+        results.clear();
+        ASSERT_TRUE(adapter->parse_response(envelope(text), results, false).ok());
+        EXPECT_EQ(results, (std::vector<std::string> {text}));
+        // Plain-text responses decode NUL at the outer envelope, before batch parsing.
+        for (const auto& plain :
+             {std::string("A\0B", 3), std::string("\0AB", 3), std::string("AB\0", 3)}) {
+            results.clear();
+            ASSERT_TRUE(adapter->parse_response(envelope(plain), results, false).ok());
+            ASSERT_EQ(results.size(), 1);
+            EXPECT_EQ(results[0], plain);
+            EXPECT_EQ(results[0].size(), 3);
+        }
+        for (const auto* invalid :
+             {R"(["hello","bye"])", R"({"result":["hello","bye"]})", R"({"results":"hello"})",
+              R"({"results":["hello",1]})", R"({"results":["hello",null]})",
+              R"({"results":["hello",{}]})", R"({"results":["hello",[]]})",
+              R"({"results":["hello"],"extra":1})", "```json\n{\"results\":[\"hello\"]}\n```",
+              "plain text", "{"}) {
+            results.clear();
+            EXPECT_FALSE(adapter->parse_batch_response(envelope(invalid), results).ok()) << invalid;
+            EXPECT_TRUE(results.empty());
+        }
+    }
+}
+
+TEST(AI_ADAPTER_TEST, deepseek_batch_format_matches_endpoint_capability) {
+    DeepSeekAdapter adapter;
+    TAIResource config;
+    config.provider_type = "DEEPSEEK";
+    config.model_name = "deepseek-v4-flash";
+    const std::vector<std::string> inputs = {
+            R"([{"idx":0,"input":"hello"},{"idx":1,"input":"bye"}])"};
+    // Reuse the adapter across endpoints to verify that Chat's JSON mode does not leak into
+    // Responses, and that switching back never sends Chat an unsupported json_schema.
+    for (const auto* endpoint :
+         {"https://api.deepseek.com/chat/completions", "https://api.deepseek.com/responses",
+          "https://api.deepseek.com/v1/chat/completions"}) {
+        config.endpoint = endpoint;
+        adapter.init(config);
+        ASSERT_TRUE(adapter.supports_structured_batch());
+        std::string body;
+        ASSERT_TRUE(adapter.build_request_payload(inputs,
+                                                  FunctionAISummarize::batch_system_prompt(true),
+                                                  body, true)
+                            .ok());
+        rapidjson::Document doc;
+        doc.Parse(body.c_str());
+        ASSERT_FALSE(doc.HasParseError());
+        if (config.endpoint.ends_with("responses")) {
+            ASSERT_TRUE(doc.HasMember("text"));
+            EXPECT_FALSE(doc.HasMember("response_format"));
+            const auto& format = doc["text"]["format"];
+            EXPECT_STREQ(format["type"].GetString(), "json_schema");
+            EXPECT_TRUE(format["strict"].GetBool());
+            EXPECT_STREQ(format["schema"]["properties"]["results"]["type"].GetString(), "array");
+        } else {
+            ASSERT_TRUE(doc.HasMember("response_format"));
+            EXPECT_EQ(doc["response_format"].MemberCount(), 1);
+            EXPECT_STREQ(doc["response_format"]["type"].GetString(), "json_object");
+            EXPECT_EQ(body.find("json_schema"), std::string::npos);
+            EXPECT_STREQ(doc["messages"][0]["content"].GetString(),
+                         FunctionAISummarize::batch_system_prompt(true));
+            EXPECT_STREQ(doc["messages"][1]["content"].GetString(), inputs[0].c_str());
+        }
+        ASSERT_TRUE(adapter.build_request_payload(inputs, "Summarize the input.", body).ok());
+        rapidjson::Document aggregate_doc;
+        aggregate_doc.Parse(body.c_str());
+        ASSERT_FALSE(aggregate_doc.HasParseError());
+        EXPECT_FALSE(aggregate_doc.HasMember("response_format"));
+        EXPECT_FALSE(aggregate_doc.HasMember("text"));
+    }
+    std::vector<std::string> results;
+    ASSERT_TRUE(
+            adapter.parse_batch_response(
+                           R"({"choices":[{"message":{"content":"{\"results\":[\"hello\",\"bye\"]}"}}]})",
+                           results)
+                    .ok());
+    EXPECT_EQ(results, (std::vector<std::string> {"hello", "bye"}));
+    results.clear();
+    EXPECT_FALSE(adapter.parse_batch_response(
+                                R"({"choices":[{"message":{"content":"{\"results\":[1,2]}"}}]})",
+                                results)
+                         .ok());
+    EXPECT_TRUE(results.empty());
+}
+
+TEST(AI_ADAPTER_TEST, zhipu_batch_uses_json_mode) {
+    ZhipuAdapter adapter;
+    TAIResource config;
+    config.provider_type = "ZHIPU";
+    config.endpoint = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
+    config.model_name = "glm-4.5";
+    adapter.init(config);
+    const std::vector<std::string> inputs = {
+            R"([{"idx":0,"input":"hello"},{"idx":1,"input":"bye"}])"};
+    std::string body;
+    ASSERT_TRUE(adapter.build_request_payload(
+                               inputs, FunctionAISummarize::batch_system_prompt(true), body, true)
+                        .ok());
+    rapidjson::Document doc;
+    doc.Parse(body.c_str());
+    ASSERT_FALSE(doc.HasParseError());
+    ASSERT_TRUE(doc.HasMember("response_format"));
+    EXPECT_EQ(doc["response_format"].MemberCount(), 1);
+    EXPECT_STREQ(doc["response_format"]["type"].GetString(), "json_object");
+    EXPECT_EQ(body.find("json_schema"), std::string::npos);
+    EXPECT_STREQ(doc["messages"][0]["content"].GetString(),
+                 FunctionAISummarize::batch_system_prompt(true));
+    EXPECT_STREQ(doc["messages"][1]["content"].GetString(), inputs[0].c_str());
+
+    // Disabling structured output (and AI_AGG) must omit the output format entirely.
+    ASSERT_TRUE(adapter.build_request_payload(inputs, "Summarize the input.", body).ok());
+    doc.Parse(body.c_str());
+    ASSERT_FALSE(doc.HasParseError());
+    EXPECT_FALSE(doc.HasMember("response_format"));
+}
+
+TEST(AI_ADAPTER_TEST, baichuan_batch_uses_json_mode) {
+    BaichuanAdapter adapter;
+    TAIResource config;
+    config.provider_type = "BAICHUAN";
+    config.endpoint = "https://api.baichuan-ai.com/v1/chat/completions";
+    config.model_name = "Baichuan4-Turbo";
+    adapter.init(config);
+    const std::vector<std::string> inputs = {
+            R"([{"idx":0,"input":"hello"},{"idx":1,"input":"bye"}])"};
+    std::string body;
+    ASSERT_TRUE(adapter.build_request_payload(
+                               inputs, FunctionAISummarize::batch_system_prompt(true), body, true)
+                        .ok());
+    rapidjson::Document doc;
+    doc.Parse(body.c_str());
+    ASSERT_FALSE(doc.HasParseError());
+    ASSERT_TRUE(doc.HasMember("response_format"));
+    EXPECT_EQ(doc["response_format"].MemberCount(), 1);
+    EXPECT_STREQ(doc["response_format"]["type"].GetString(), "json_object");
+    EXPECT_EQ(body.find("json_schema"), std::string::npos);
+    EXPECT_STREQ(doc["messages"][0]["content"].GetString(),
+                 FunctionAISummarize::batch_system_prompt(true));
+    EXPECT_STREQ(doc["messages"][1]["content"].GetString(), inputs[0].c_str());
+
+    // Disabling structured output (and AI_AGG) must omit the output format entirely.
+    ASSERT_TRUE(adapter.build_request_payload(inputs, "Summarize the input.", body).ok());
+    doc.Parse(body.c_str());
+    ASSERT_FALSE(doc.HasParseError());
+    EXPECT_FALSE(doc.HasMember("response_format"));
+}
+
+TEST(AI_ADAPTER_TEST, minimax_batch_omits_format_constraints) {
+    MinimaxAdapter adapter;
+    TAIResource config;
+    config.provider_type = "MINIMAX";
+    config.model_name = "MiniMax-M3.1-Flash";
+    const std::vector<std::string> inputs = {
+            R"([{"idx":0,"input":"hello"},{"idx":1,"input":"bye"}])"};
+    const auto* prompt = FunctionAISummarize::batch_system_prompt(true);
+    for (bool responses : {false, true}) {
+        config.endpoint = responses ? "https://api.minimax.io/v1/responses"
+                                    : "https://api.minimax.io/v1/chat/completions";
+        adapter.init(config);
+        ASSERT_TRUE(adapter.supports_structured_batch());
+        for (bool structured_batch : {false, true}) {
+            std::string body;
+            ASSERT_TRUE(adapter.build_request_payload(inputs, prompt, body, structured_batch).ok());
+            rapidjson::Document doc;
+            doc.Parse(body.c_str());
+            ASSERT_FALSE(doc.HasParseError());
+            EXPECT_FALSE(doc.HasMember("response_format"));
+            EXPECT_FALSE(doc.HasMember("text"));
+            const auto* messages_key = responses ? "input" : "messages";
+            ASSERT_TRUE(doc.HasMember(messages_key));
+            const auto& messages = doc[messages_key];
+            ASSERT_EQ(messages.Size(), 2);
+            EXPECT_STREQ(messages[0]["content"].GetString(), prompt);
+            EXPECT_STREQ(messages[1]["content"].GetString(), inputs[0].c_str());
+        }
+    }
+}
+
+TEST(AI_ADAPTER_TEST, deepseek_responses_with_reasoning_and_two_rows) {
+    DeepSeekAdapter adapter;
+    TAIResource config;
+    config.provider_type = "DEEPSEEK";
+    config.endpoint = "https://api.deepseek.com/responses";
+    config.model_name = "deepseek-v4-flash";
+    adapter.init(config);
+
+    // Captured DeepSeek Responses output: reasoning text is not an additional result row.
+    const std::string response = R"({
+        "object": "response",
+        "status": "completed",
+        "error": null,
+        "incomplete_details": null,
+        "model": "deepseek-flash",
+        "output": [
+            {
+                "type": "reasoning",
+                "status": "completed",
+                "content": [{
+                    "type": "reasoning_text",
+                    "text": "We need answer JSON only. Need translate Hello/Goodbye to Simplified Chinese. Items. Results [\"你好。\",\"再见。\"] Need no extra. Ensure exact schema."
+                }],
+                "summary": []
+            },
+            {
+                "type": "message",
+                "status": "completed",
+                "content": [{
+                    "type": "output_text",
+                    "annotations": [],
+                    "logprobs": [],
+                    "text": "{\"results\":[\"你好。\",\"再见。\"]}"
+                }],
+                "phase": "final_answer",
+                "role": "assistant"
+            }
+        ]
+    })";
+    std::vector<std::string> results;
+    ASSERT_TRUE(adapter.parse_batch_response(response, results).ok());
+    EXPECT_EQ(results, (std::vector<std::string> {"你好。", "再见。"}));
+}
+
+TEST(AI_ADAPTER_TEST, local_provider_keeps_legacy_batch_format) {
+    LocalAdapter adapter;
+    TAIResource config;
+    config.provider_type = "LOCAL";
+    config.endpoint = "https://example.com/chat/completions";
+    adapter.init(config);
+    ASSERT_FALSE(adapter.supports_structured_batch());
+    std::string body;
+    ASSERT_TRUE(adapter.build_request_payload(
+                               {R"([{"idx":0,"input":"hello"},{"idx":1,"input":"bye"}])"},
+                               FunctionAISummarize::batch_system_prompt(false), body, false)
+                        .ok());
+    rapidjson::Document doc;
+    doc.Parse(body.c_str());
+    ASSERT_FALSE(doc.HasParseError());
+    EXPECT_FALSE(doc.HasMember("response_format"));
+    std::vector<std::string> results;
+    ASSERT_TRUE(adapter.parse_batch_response(
+                               R"({"choices":[{"message":{"content":"[\"hello\",\"bye\"]"}}]})",
+                               results)
+                        .ok());
+    EXPECT_EQ(results, (std::vector<std::string> {"hello", "bye"}));
+}
+
+TEST(AI_ADAPTER_TEST, local_plain_text_preserves_nul) {
+    LocalAdapter adapter;
+    for (const auto* response : {R"({"choices":[{"message":{"content":"A\u0000B"}}]})",
+                                 R"({"choices":[{"text":"A\u0000B"}]})", R"({"text":"A\u0000B"})",
+                                 R"({"content":"A\u0000B"})", R"({"response":"A\u0000B"})",
+                                 R"({"message":{"content":"A\u0000B"}})"}) {
+        std::vector<std::string> results;
+        ASSERT_TRUE(adapter.parse_response(response, results, false).ok());
+        ASSERT_EQ(results.size(), 1);
+        EXPECT_EQ(results[0], std::string("A\0B", 3));
+    }
+}
+
 } // namespace doris

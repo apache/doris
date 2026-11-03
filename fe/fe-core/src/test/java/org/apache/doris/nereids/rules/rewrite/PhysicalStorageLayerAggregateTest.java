@@ -154,14 +154,17 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
     }
 
     @Test
-    public void testNullableFileCountDoesNotUseV1StorageLayerAggregate() {
+    public void testNullableFileCountIgnoresDeprecatedScannerOption() {
         LogicalAggregate<LogicalFileScan> aggregate = newNullableFileCountAggregate();
         CascadesContext context = MemoTestUtils.createCascadesContext(aggregate);
         context.getConnectContext().getSessionVariable().enableFileScannerV2 = false;
 
         PlanChecker.from(context)
                 .applyImplementation(storageLayerAggregateWithoutProjectForFileScan())
-                .nonMatch(physicalStorageLayerAggregate());
+                .matches(logicalAggregate(
+                        physicalStorageLayerAggregate().when(agg -> agg.getAggOp() == PushDownAggOp.COUNT
+                                && agg.getCountArgumentExprIds().equals(
+                                        ImmutableList.of(aggregate.child().getOutput().get(0).getExprId())))));
     }
 
     @Test

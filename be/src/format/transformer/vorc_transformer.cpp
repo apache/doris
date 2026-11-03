@@ -55,7 +55,7 @@
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "format/arrow/arrow_block_convertor.h"
-#include "format/orc/vorc_reader.h"
+#include "format_v2/orc/orc_file_input_stream.h"
 #include "io/fs/file_writer.h"
 #include "orc/Int128.hh"
 #include "orc/MemoryPool.hh"
@@ -502,9 +502,9 @@ Status VOrcTransformer::collect_file_statistics_after_close(TIcebergColumnStats*
         io::FileReaderSPtr file_reader;
         io::FileReaderOptions reader_options;
         RETURN_IF_ERROR(_fs->open_file(_file_writer->path(), &file_reader, &reader_options));
-        auto input_stream = std::make_unique<ORCFileInputStream>(
-                _file_writer->path().native(), file_reader, nullptr, nullptr, 8L * 1024L * 1024L,
-                1L * 1024L * 1024L);
+        auto input_stream = std::make_unique<format::orc::OrcFileInputStream>(
+                _file_writer->path().native(), file_reader, nullptr, nullptr,
+                format::orc::OrcFileInputStreamOptions {});
         std::unique_ptr<orc::Reader> reader =
                 orc::createReader(std::move(input_stream), orc::ReaderOptions());
         std::unique_ptr<orc::Statistics> file_stats = reader->getStatistics();
@@ -677,32 +677,27 @@ bool VOrcTransformer::_collect_column_bounds(const orc::ColumnStatistics* col_st
                        dynamic_cast<const orc::DecimalColumnStatistics*>(col_stats)) {
         if (decimal_stats->hasMinimum() && decimal_stats->hasMaximum()) {
             has_bounds = true;
-            (*lower_bounds)[field_id] = _decimal_to_bytes(decimal_stats->getMinimum());
-            (*upper_bounds)[field_id] = _decimal_to_bytes(decimal_stats->getMaximum());
+            const auto scale = static_cast<int32_t>(remove_nullable(data_type)->get_scale());
+            (*lower_bounds)[field_id] = _decimal_to_bytes(decimal_stats->getMinimum(), scale);
+            (*upper_bounds)[field_id] = _decimal_to_bytes(decimal_stats->getMaximum(), scale);
         }
     }
 
     return has_bounds;
 }
 
-std::string VOrcTransformer::_decimal_to_bytes(const orc::Decimal& decimal) {
-    orc::Int128 val = decimal.value;
-    if (val == 0) {
-        char zero = 0;
-        return std::string(&zero, 1);
-    }
+std::string VOrcTransformer::_decimal_to_bytes(const orc::Decimal& decimal, int32_t scale) {
+    // ORC footer statistics trim trailing zeros: -1.00 becomes value=-1, scale=0.
+    // Iceberg requires the unscaled value at the column's declared scale, which is -100 here.
+    DORIS_CHECK_GE(scale, decimal.scale);
+    bool overflow = false;
+    auto val = orc::scaleUpInt128ByPowerOfTen(decimal.value, scale - decimal.scale, overflow);
+    DORIS_CHECK(!overflow);
 
-    // Convert Int128 -> signed big-endian minimal bytes
-    bool negative = val < 0;
-    auto high = static_cast<uint64_t>(val.getHighBits());
-    auto low = val.getLowBits();
-
-    // If negative, convert to two's complement explicitly
-    if (negative) {
-        // two's complement for 128-bit
-        low = ~low + 1;
-        high = ~high + (low == 0 ? 1 : 0);
-    }
+    // Int128 already exposes two's-complement bits; negating -1 again would encode +1.
+    const bool negative = val < 0;
+    const auto high = static_cast<uint64_t>(val.getHighBits());
+    const auto low = val.getLowBits();
 
     // Serialize to big-endian bytes
     uint8_t buf[16];
@@ -711,9 +706,10 @@ std::string VOrcTransformer::_decimal_to_bytes(const orc::Decimal& decimal) {
         buf[i + 8] = static_cast<uint8_t>(low >> (56 - i * 8));
     }
 
-    // Strip leading sign-extension bytes (Iceberg minimal encoding)
+    // Strip redundant sign extension, retaining one byte for zero and the sign prefix
+    // when the next byte has the opposite sign: 128 -> 00 80, -129 -> FF 7F.
     int start = 0;
-    uint8_t sign_byte = negative ? 0xFF : 0x00;
+    const uint8_t sign_byte = negative ? 0xFF : 0x00;
     while (start < 15 && buf[start] == sign_byte &&
            ((buf[start + 1] & 0x80) == (sign_byte & 0x80))) {
         ++start;

@@ -56,7 +56,7 @@ protected:
     // for an argument that is not evaluated in open. The result is appended to each block.
     static Status execute(const std::string& name, std::vector<Block>& blocks,
                           const DataTypePtr& return_type,
-                          const std::vector<std::shared_ptr<ColumnPtrWrapper>>& constant_cols) {
+                          const std::vector<std::shared_ptr<ConstantExprResult>>& constant_cols) {
         auto arguments = blocks[0].get_columns_with_type_and_name();
         FunctionBasePtr function =
                 SimpleFunctionFactory::instance().get_function(name, arguments, return_type);
@@ -92,7 +92,7 @@ protected:
     }
 
     static Status execute(const std::string& name, Block& block, const DataTypePtr& return_type,
-                          const std::vector<std::shared_ptr<ColumnPtrWrapper>>& constant_cols) {
+                          const std::vector<std::shared_ptr<ConstantExprResult>>& constant_cols) {
         std::vector<Block> blocks;
         blocks.push_back(std::move(block));
         Status status = execute(name, blocks, return_type, constant_cols);
@@ -100,8 +100,8 @@ protected:
         return status;
     }
 
-    static std::shared_ptr<ColumnPtrWrapper> constant(const ColumnPtr& column) {
-        return std::make_shared<ColumnPtrWrapper>(column);
+    static std::shared_ptr<ConstantExprResult> constant(const ColumnPtr& column) {
+        return std::make_shared<ConstantExprResult>(column);
     }
 
     static ColumnPtr strings(const std::vector<std::string>& values) {
@@ -347,7 +347,7 @@ TEST_F(FunctionConstantArgumentTest, date_trunc_null_unit) {
             block.insert({dates, date_type, "date"});
             block.insert({unit, string_type, "unit"});
         }
-        std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols(2);
+        std::vector<std::shared_ptr<ConstantExprResult>> constant_cols(2);
         constant_cols[unit_first ? 0 : 1] = constant(unit);
         Status status = execute("date_trunc", block, return_type, constant_cols);
         ASSERT_TRUE(status.ok()) << status.to_string();

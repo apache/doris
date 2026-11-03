@@ -111,6 +111,9 @@ public class PreloadExternalMetadata implements AnalysisRuleFactory {
         }
         if (preloadPartition) {
             table.initSelectedPartitions(statementContext.getSnapshot(table));
+            // Materialize the deferred scan partition view (see the method's javadoc). NereidsPlanner performs
+            // the same step unconditionally before the lock, so a run with this switch off is not left behind.
+            statementContext.preloadDeferredScanPartitionView(preloadInfo);
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("{} preloaded external metadata for table {} "

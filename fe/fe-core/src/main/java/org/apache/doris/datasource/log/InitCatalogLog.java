@@ -42,6 +42,10 @@ public class InitCatalogLog implements Writable {
      *
      * <p>HUDI is absent because it was never produced: hudi tables have always lived in an hms catalog and
      * no {@code HudiExternalCatalog} ever existed, so no image can carry it.</p>
+     *
+     * <p>LANCE is written by the 4.1.4+ FEs that shipped a Lance catalog. A Lance catalog always persists its
+     * {@code type} property (no resource type creates one), so nothing is backfilled from it; it stays so
+     * that every name a released image carries still deserializes to itself.</p>
      */
     public enum Type {
         HMS,
@@ -54,6 +58,7 @@ public class InitCatalogLog implements Writable {
         TEST,
         TRINO_CONNECTOR,
         REMOTE_DORIS,
+        LANCE,
         PLUGIN,
         UNKNOWN;
     }

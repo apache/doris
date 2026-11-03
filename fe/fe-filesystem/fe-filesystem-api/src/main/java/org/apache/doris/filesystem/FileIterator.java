@@ -28,4 +28,31 @@ public interface FileIterator extends Closeable {
     boolean hasNext() throws IOException;
 
     FileEntry next() throws IOException;
+
+    /**
+     * Install a request-local check before consuming this iterator. Implementations that issue multiple
+     * requests inside hasNext must also check before each request. The callback may throw an unchecked
+     * cancellation exception. Call once, before reading; the borrowed filesystem remains open.
+     */
+    default FileIterator withCancellationCheck(Runnable check) {
+        FileIterator delegate = this;
+        return new FileIterator() {
+            @Override
+            public boolean hasNext() throws IOException {
+                check.run();
+                return delegate.hasNext();
+            }
+
+            @Override
+            public FileEntry next() throws IOException {
+                check.run();
+                return delegate.next();
+            }
+
+            @Override
+            public void close() throws IOException {
+                delegate.close();
+            }
+        };
+    }
 }
