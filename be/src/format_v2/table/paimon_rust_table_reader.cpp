@@ -367,12 +367,7 @@ Status PaimonRustTableReader::_validate_rust_split(const TFileRangeDesc& range) 
     return doris::paimon::validate_table_descriptor(_scan_params->paimon_table_desc);
 }
 
-Status PaimonRustTableReader::_open_split_reader() {
-    // Decode the FE-planned split first so we fail fast (and without any
-    // filesystem IO) when it is missing or malformed.
-    std::string split_bytes;
-    RETURN_IF_ERROR(_decode_split_bytes(&split_bytes));
-
+Status PaimonRustTableReader::_open_table() {
     const auto& descriptor = _scan_params->paimon_table_desc;
     auto opened_table_key =
             std::make_tuple(descriptor.table_path, descriptor.schema_json, descriptor.database_name,
@@ -394,9 +389,18 @@ Status PaimonRustTableReader::_open_split_reader() {
         _opened_table_key = std::move(opened_table_key);
     }
 
-    // Build the read pipeline: read_builder -> case-insensitive -> projection.
-    // Bound the Rust Arrow allocation itself: wide rows must respect the scanner's
-    // adaptive probe size before they are materialized into a Doris block.
+    return Status::OK();
+}
+
+Status PaimonRustTableReader::_open_split_reader() {
+    // Decode the FE-planned split first so we fail fast (and without any
+    // filesystem IO) when it is missing or malformed.
+    std::string split_bytes;
+    RETURN_IF_ERROR(_decode_split_bytes(&split_bytes));
+
+    RETURN_IF_ERROR(_open_table());
+
+    // Bound Rust Arrow batches to the scanner's adaptive probe before materializing a block.
     const auto batch_size = std::to_string(
             _batch_size > 0 ? _batch_size : std::max(1, _runtime_state->batch_size()));
     const paimon_option batch_option {"read.batch-size", batch_size.c_str()};
@@ -434,10 +438,7 @@ Status PaimonRustTableReader::_open_split_reader() {
     // Convert the scanner conjuncts into a paimon-rust filter and apply it.
     RETURN_IF_ERROR(_apply_predicate());
 
-    // Deserialize the FE-planned split into a one-split plan, so this
-    // scanner reads exactly the split it was assigned rather than replanning
-    // the whole table. The wire form is identical to what paimon-cpp consumes
-    // (`paimon::table::DataSplit::serialize`).
+    // Read only the FE-planned split, using Paimon's shared DataSplit serialization.
     paimon_result_plan plan_res = paimon_plan_from_split_bytes(
             reinterpret_cast<const uint8_t*>(split_bytes.data()), split_bytes.size());
     if (plan_res.error != nullptr) {
@@ -452,7 +453,7 @@ Status PaimonRustTableReader::_open_split_reader() {
         return Status::OK();
     }
 
-    // 6. Open the arrow stream over the plan.
+    // Open the arrow stream over the plan.
     paimon_result_new_read read_res = paimon_read_builder_new_read(_handles->read_builder.get());
     if (read_res.error != nullptr) {
         return Status::InternalError("paimon-rust new read failed: {}",
