@@ -157,8 +157,7 @@ include_directories(
 add_subdirectory(storage/index/ann)
 
 # lance_fake_worker: the protocol-speaking fake Lance index worker, exec'd by
-# the lance supervisor unit tests (a later commit) through the supervisor's
-# worker-exec seam. Pure C (no Doris linkage) so it starts instantly and fits
+# the lance supervisor unit tests through the supervisor's worker-exec seam. Pure C (no Doris linkage) so it starts instantly and fits
 # inside the tiny cgroup memory budget of the real-OOM test. Kept as a .c file
 # so the lance/*.cpp UT glob above never sweeps it into doris_be_test (it
 # carries its own main()).
