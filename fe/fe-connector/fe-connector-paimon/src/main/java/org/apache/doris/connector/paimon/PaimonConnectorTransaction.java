@@ -129,6 +129,10 @@ public class PaimonConnectorTransaction implements ConnectorTransaction {
             List<CommitMessage> messages = deserializePayloads(payloads);
             doCommitWithReconciliation(writeBinding, messages);
         } catch (Exception e) {
+            // The engine deregisters this transaction before invoking commit(), so its
+            // later rollback cannot reach us. Clean up failures before publication here;
+            // rollback preserves COMMITTING/OUTCOME_UNKNOWN files that may be visible.
+            rollback();
             throw new DorisConnectorException("Failed to commit Paimon transaction on FE", e);
         }
     }
