@@ -22,6 +22,8 @@
 #include <cstddef>
 #include <utility>
 
+#include "core/value/variant/variant_parquet_encoding.h"
+
 namespace doris {
 
 VariantDecimalPathSet::VariantDecimalPathSet(std::vector<VariantTemplatePath> paths)
@@ -48,6 +50,20 @@ constexpr int kMaxDigits = 38;
 
 bool is_digit(char c) {
     return c >= '0' && c <= '9';
+}
+
+// A Variant decimal4 / decimal8 holds at most 9 / 18 digits, and a reader may reject a scale above
+// that bound as firmly as a longer unscaled value (Spark's VariantUtil.checkDecimal does), so the
+// width follows the scale as well as the magnitude: 0.0000000001 (unscaled 1, scale 10) is a
+// decimal8, not the decimal4 its magnitude alone would pick, and 1e-19 a decimal16.
+uint8_t variant_decimal_width(unsigned __int128 magnitude, long scale) {
+    if (scale <= 9 && magnitude <= VARIANT_DECIMAL4_MAX) {
+        return 4;
+    }
+    if (scale <= 18 && magnitude <= VARIANT_DECIMAL8_MAX) {
+        return 8;
+    }
+    return 16;
 }
 
 } // namespace
@@ -130,6 +146,7 @@ JsonNumberToDecimal parse_json_number_as_decimal(std::string_view token,
     if (unscaled == 0) {
         out.unscaled = 0;
         out.scale = static_cast<uint8_t>(scale < 0 ? 0 : (scale > kMaxDigits ? kMaxDigits : scale));
+        out.width = variant_decimal_width(0, out.scale);
         return JsonNumberToDecimal::OK;
     }
     while (scale < 0) {
@@ -144,6 +161,7 @@ JsonNumberToDecimal parse_json_number_as_decimal(std::string_view token,
     }
     out.unscaled = negative ? -static_cast<__int128>(unscaled) : static_cast<__int128>(unscaled);
     out.scale = static_cast<uint8_t>(scale);
+    out.width = variant_decimal_width(unscaled, scale);
     return JsonNumberToDecimal::OK;
 }
 

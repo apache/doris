@@ -287,7 +287,8 @@ private:
         VariantDecimalText decimal;
         switch (parse_json_number_as_decimal(token, decimal)) {
         case JsonNumberToDecimal::OK:
-            _builder.add_decimal(decimal.unscaled, decimal.scale);
+            // the reader's width holds the scale too; the builder's own choice goes by magnitude
+            _builder.add_decimal(decimal.unscaled, decimal.scale, decimal.width);
             return true;
         case JsonNumberToDecimal::OUT_OF_RANGE:
             _builder.add_string(to_string_ref(token));

@@ -56,10 +56,12 @@ private:
 
 using VariantDecimalPathSetPtr = std::shared_ptr<const VariantDecimalPathSet>;
 
-// A JSON number read exactly: the value is unscaled * 10^-scale.
+// A JSON number read exactly: the value is unscaled * 10^-scale, and `width` is the narrowest
+// Variant decimal (4, 8 or 16 bytes) whose precision holds both the digits and the scale.
 struct VariantDecimalText {
     __int128 unscaled = 0;
     uint8_t scale = 0;
+    uint8_t width = 4;
 };
 
 enum class JsonNumberToDecimal : uint8_t {

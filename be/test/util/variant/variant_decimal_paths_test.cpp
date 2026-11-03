@@ -46,11 +46,12 @@ std::string digits_of(__int128 value) {
     return negative ? "-" + out : out;
 }
 
-void expect_decimal(std::string_view token, const char* unscaled, int scale) {
+void expect_decimal(std::string_view token, const char* unscaled, int scale, int width) {
     VariantDecimalText out;
     ASSERT_EQ(JsonNumberToDecimal::OK, parse_json_number_as_decimal(token, out)) << token;
     EXPECT_EQ(unscaled, digits_of(out.unscaled)) << token;
     EXPECT_EQ(scale, out.scale) << token;
+    EXPECT_EQ(width, out.width) << token;
 }
 
 } // namespace
@@ -94,34 +95,49 @@ TEST(VariantDecimalPathsTest, TheFirstMatchingTemplateFieldDecidesLikeTheShredde
 }
 
 TEST(VariantDecimalPathsTest, ReadsFractionsExactly) {
-    expect_decimal("123456789012.345678", "123456789012345678", 6);
-    expect_decimal("-1.5", "-15", 1);
-    expect_decimal("0.123456789012345678901", "123456789012345678901", 21);
-    expect_decimal("1.50", "150", 2);
-    expect_decimal("0.0", "0", 1);
-    expect_decimal("-0", "0", 0);
+    expect_decimal("123456789012.345678", "123456789012345678", 6, 8);
+    expect_decimal("-1.5", "-15", 1, 4);
+    expect_decimal("0.123456789012345678901", "123456789012345678901", 21, 16);
+    expect_decimal("1.50", "150", 2, 4);
+    expect_decimal("0.0", "0", 1, 4);
+    expect_decimal("-0", "0", 0, 4);
     // a decimal has no negative zero; the scale the text carries stays, clamped to 38
-    expect_decimal("-0.0", "0", 1);
-    expect_decimal("0e-50", "0", 38);
-    expect_decimal("188118222.011121933", "188118222011121933", 9);
+    expect_decimal("-0.0", "0", 1, 4);
+    expect_decimal("0e-50", "0", 38, 16);
+    expect_decimal("188118222.011121933", "188118222011121933", 9, 8);
 }
 
 TEST(VariantDecimalPathsTest, FoldsAnExponentIntoTheScale) {
-    expect_decimal("1.5e3", "1500", 0);
-    expect_decimal("1.5E-3", "15", 4);
-    expect_decimal("1e2", "100", 0);
-    expect_decimal("-2.5e+1", "-25", 0);
-    expect_decimal("12e-2", "12", 2);
-    expect_decimal("0e100", "0", 0);
+    expect_decimal("1.5e3", "1500", 0, 4);
+    expect_decimal("1.5E-3", "15", 4, 4);
+    expect_decimal("1e2", "100", 0, 4);
+    expect_decimal("-2.5e+1", "-25", 0, 4);
+    expect_decimal("12e-2", "12", 2, 4);
+    expect_decimal("0e100", "0", 0, 4);
 }
 
 TEST(VariantDecimalPathsTest, ReadsIntegersUpToThirtyEightDigits) {
-    expect_decimal("123456789012345678901", "123456789012345678901", 0);
-    expect_decimal("18446744073709551616", "18446744073709551616", 0);
-    expect_decimal("99999999999999999999999999999999999999", "99999999999999999999999999999999999999",
-                   0);
+    expect_decimal("123456789012345678901", "123456789012345678901", 0, 16);
+    expect_decimal("18446744073709551616", "18446744073709551616", 0, 16);
+    expect_decimal("99999999999999999999999999999999999999",
+                   "99999999999999999999999999999999999999", 0, 16);
     expect_decimal("-99999999999999999999999999999999999999",
-                   "-99999999999999999999999999999999999999", 0);
+                   "-99999999999999999999999999999999999999", 0, 16);
+}
+
+TEST(VariantDecimalPathsTest, WidthHoldsTheScaleAsWellAsTheDigits) {
+    // decimal4 / decimal8 carry 9 / 18 digits: a scale beyond that needs the wider encoding even
+    // when the unscaled value is tiny, or a reader bound by the width's precision rejects it
+    expect_decimal("0.000000001", "1", 9, 4);
+    expect_decimal("0.0000000001", "1", 10, 8);
+    expect_decimal("1e-18", "1", 18, 8);
+    expect_decimal("1e-19", "1", 19, 16);
+    expect_decimal("999999999", "999999999", 0, 4);
+    expect_decimal("1000000000", "1000000000", 0, 8);
+    expect_decimal("123456789.123456789", "123456789123456789", 9, 8);
+    expect_decimal("999999999999999999", "999999999999999999", 0, 8);
+    expect_decimal("1000000000000000000", "1000000000000000000", 0, 16);
+    expect_decimal("0.0000000000", "0", 10, 8);
 }
 
 TEST(VariantDecimalPathsTest, DeclinesWhatDoesNotFit) {
@@ -148,9 +164,9 @@ TEST(VariantDecimalPathsTest, DeclinesMalformedTokens) {
                 << token;
     }
     // a lone zero before the fraction or the exponent is the grammar's one allowed leading zero
-    expect_decimal("0.5", "5", 1);
-    expect_decimal("-0.5", "-5", 1);
-    expect_decimal("0e2", "0", 0);
+    expect_decimal("0.5", "5", 1, 4);
+    expect_decimal("-0.5", "-5", 1, 4);
+    expect_decimal("0e2", "0", 0, 4);
 }
 
 } // namespace doris
